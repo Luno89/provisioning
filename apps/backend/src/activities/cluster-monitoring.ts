@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import type { Reach } from '../infrastructure/index.js';
-import { metricsTokenManifests, monitoringOwner, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
 import { newMetricsToken } from '../machines/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -47,10 +47,9 @@ async function install(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: M
 }
 
 export function ensureClusterMonitoring(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, logFile?: string): Promise<void> {
-  const owned = { ...cluster, physicalName: monitoringOwner(cluster) };
-  const running = inFlight.get(owned.physicalName);
+  const running = inFlight.get(cluster.physicalName);
   if (running) return running;
-  const started = install(steps, owned, logFile).finally(() => inFlight.delete(owned.physicalName));
-  inFlight.set(owned.physicalName, started);
+  const started = install(steps, cluster, logFile).finally(() => inFlight.delete(cluster.physicalName));
+  inFlight.set(cluster.physicalName, started);
   return started;
 }

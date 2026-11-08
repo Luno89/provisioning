@@ -6,7 +6,7 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import type { UserMetadata } from '../platform/lib/types.js';
 import { dnsCheck } from './dns-check.js';
 
-const env = { JWT_SECRET: 'dns-check-test-secret-0123456789abcdef' };
+const env = { ROLE: 'root', JWT_SECRET: 'dns-check-test-secret-0123456789abcdef' };
 
 describe('npm run dns:check', () => {
   it('lists each zone\'s records with the operator\'s stored credentials, and fails for a zone it cannot read', async () => {

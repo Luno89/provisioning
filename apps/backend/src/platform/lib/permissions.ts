@@ -28,7 +28,7 @@ export function claimsOf(user: ClaimedUser, settings: ClaimSettings): Claim[] {
   const claims: Claim[] = [{ role: 'person' }];
   if (settings.role === 'instance') {
     if (settings.instanceOwnerId !== undefined && user.id === settings.instanceOwnerId) claims.push({ role: 'operator' }, { role: 'instance-owner' });
-  } else if (settings.role !== 'hub' && (user.roles ?? []).includes('operator')) {
+  } else if (settings.role === 'root' && (user.roles ?? []).includes('operator')) {
     claims.push({ role: 'operator' });
   }
   return claims;
@@ -74,7 +74,6 @@ export interface Actions {
   install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces';
   'instance-settings': 'change';
   account: 'remove';
-  'system-cluster': 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   deployment: 'see' | 'change';
   project: 'see' | 'propose' | 'change' | 'see-secrets';
@@ -89,7 +88,6 @@ export type Resource =
   | { kind: 'install' }
   | { kind: 'instance-settings' }
   | { kind: 'account'; id: string }
-  | { kind: 'system-cluster'; id: string }
   | { kind: 'cluster'; id: string; ownerId?: string | undefined }
   | { kind: 'deployment'; ownerId?: string | undefined }
   | { kind: 'project'; id?: string | undefined; ownerId?: string | undefined }
@@ -125,13 +123,6 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
   },
   account: {
     remove: { who: ['self', 'operator'], hidden: false, said: 'Only an admin can remove someone else\'s account' },
-  },
-  'system-cluster': {
-    see: { who: ['person'], hidden: true, said: 'Cluster not found' },
-    'deploy-to': { who: ['person'], hidden: false, said: 'You cannot deploy to this cluster.' },
-    'see-everything': { who: ['operator'], hidden: true, said: 'Cluster not found' },
-    change: { who: ['operator'], hidden: false, said: 'Only the operator of this server can change the system cluster.' },
-    delete: { who: ['nobody'], hidden: false, said: 'The system cluster cannot be deleted' },
   },
   cluster: {
     see: OWN('Cluster not found'),
@@ -220,8 +211,8 @@ export function authorize<R extends Resource>(principal: Principal, action: Acti
 export const allowed = <R extends Resource>(principal: Principal, action: Actions[R['kind']], resource: R): boolean =>
   authorize(principal, action, resource).allowed;
 
-export const clusterResource = (cluster: { id: string; ownerId?: string | undefined; isSystem?: boolean | undefined }): Resource =>
-  cluster.isSystem === true ? { kind: 'system-cluster', id: cluster.id } : { kind: 'cluster', id: cluster.id, ownerId: cluster.ownerId };
+export const clusterResource = (cluster: { id: string; ownerId?: string | undefined }): Resource =>
+  ({ kind: 'cluster', id: cluster.id, ownerId: cluster.ownerId });
 
 export const sharedActionsOf = (principal: Principal, project: string): SharedAction[] =>
   (Object.keys(PERMISSIONS['shared-project']) as SharedAction[]).filter((action) => allowed(principal, action, { kind: 'shared-project', id: project }));

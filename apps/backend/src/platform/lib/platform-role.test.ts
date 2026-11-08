@@ -6,10 +6,10 @@ const rootKey = generateIdentityKey();
 const rootPublic = publicKeyPem(identityKeysFrom(rootKey).publicKey);
 
 describe('what this server is', () => {
-  it('is everything at once unless told otherwise, so a dev box keeps working', () => {
-    const config = roleFromEnv({});
-    expect(config.role).toBe('combined');
-    expect(servesTenants(config) && holdsAccounts(config)).toBe(true);
+  it('refuses to start without being told which of root, instance or hub it is', () => {
+    expect(() => roleFromEnv({})).toThrow(RoleConfigError);
+    expect(() => roleFromEnv({ ROLE: '  ' })).toThrow('ROLE is not set; it has to be one of root, instance, hub');
+    expect(() => roleFromEnv({ ROLE: 'combined' })).toThrow('ROLE is "combined"; it has to be one of root, instance, hub');
   });
 
   it('as root holds the accounts and the signing key, and serves no tenant', () => {
@@ -17,6 +17,8 @@ describe('what this server is', () => {
     expect(config.signing?.kid).toBe(identityKeysFrom(rootKey).kid);
     expect(servesTenants(config)).toBe(false);
     expect(holdsAccounts(config)).toBe(true);
+    expect(servesHub(config)).toBe(false);
+    expect(config.trusted).toBeUndefined();
   });
 
   it('as root in production refuses to start without its signing key', () => {
@@ -47,7 +49,6 @@ describe('what this server is', () => {
     const config = roleFromEnv({ ROLE: 'hub', ROOT_URL: 'https://app.example.com/', ROOT_PUBLIC_KEYS: rootPublic, HUB_CREDENTIAL: 'secret' });
     expect(config.hub).toEqual({ rootUrl: 'https://app.example.com', credential: 'secret' });
     expect([servesHub(config), servesTenants(config), holdsAccounts(config), signsInThroughRoot(config.role), config.signing === undefined]).toEqual([true, false, false, true, true]);
-    expect(servesHub(roleFromEnv({}))).toBe(true);
   });
 
   it('as root knows its hub only when told where it is and the hash of its credential', () => {

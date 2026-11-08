@@ -12,7 +12,7 @@ const KEY = 'test-secret';
 
 function devices(authService = mock<AuthService>()) {
   const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: new SessionEnds(db.platform) });
   return { devices: devicesFor({ auth, sessionKey: KEY, authService }), authService };
 }
 

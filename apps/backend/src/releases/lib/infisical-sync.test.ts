@@ -7,12 +7,12 @@ describe('where a cluster reaches the vault', () => {
 
   it('is the address the vault setting names, on Koala\'s own cluster', () => {
     expect(infisicalHostFor({ clusterId: 'machine-dev1', kind: 'koala' }, VAULT)).toEqual({ hostAPI: VAULT.url });
-    expect(infisicalHostFor({ clusterId: 'provisioning-lunorica', kind: 'koala' }, { url: 'http://vault.test:8080' })).toEqual({ hostAPI: 'http://vault.test:8080' });
+    expect(infisicalHostFor({ clusterId: 'machine-koala', kind: 'koala' }, { url: 'http://vault.test:8080' })).toEqual({ hostAPI: 'http://vault.test:8080' });
   });
 
   it('says so for a cluster that cannot reach it, whatever its name', () => {
     expect(infisicalHostFor({ clusterId: 'machine-gpu-box', kind: 'machine' }, VAULT)).toEqual({ problem: 'machine-gpu-box is a machine outside Koala\'s own cluster, and the vault in Koala\'s own cluster is not reachable from it, so its secrets cannot be delivered' });
-    expect(infisicalHostFor({ clusterId: 'provisioning-lunorica', kind: 'machine' }, VAULT)).toEqual({ problem: containing('provisioning-lunorica is a machine outside Koala\'s own cluster') });
+    expect(infisicalHostFor({ clusterId: 'machine-koala', kind: 'machine' }, VAULT)).toEqual({ problem: containing('machine-koala is a machine outside Koala\'s own cluster') });
     expect(infisicalHostFor({ clusterId: 'root', kind: 'root' }, VAULT)).toEqual({ problem: containing('root is root\'s own cluster, which keeps no project\'s secrets') });
   });
 });

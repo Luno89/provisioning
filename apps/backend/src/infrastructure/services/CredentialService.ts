@@ -1,5 +1,5 @@
 import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, listAt, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
-import { COMBINED_CLAIMS, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import { clusterAvailability } from '../lib/cluster-topology.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
@@ -71,7 +71,7 @@ export class CredentialService {
   constructor(
     private readonly db: Database,
     private readonly masterKey: SecretKey,
-    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly claims?: ClaimSettings | undefined,
     private readonly fetchImpl: FetchLike = fetch,
     private readonly dns: DnsProviders = new DnsProviders(fetchImpl),
   ) {}

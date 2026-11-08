@@ -10,7 +10,7 @@ import { EMPTY_WIZARD_DATA, type WizardData } from '../../lib/wizard-defaults';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
-import { deployableTo, targetLabel } from '../../lib/deploy-targets'
+import { deployableTo, reportsGpu, targetLabel } from '../../lib/deploy-targets'
 
 const BLANK_IMAGE: AppImageDefaults = { webRepo: '', webTag: '', dbRepo: '', dbTag: '' };
 const EMPTY_UI_DEFAULTS: AppUiDefaults = { helm: BLANK_IMAGE, native: BLANK_IMAGE, hasDatabase: false, strategies: [] };
@@ -106,10 +106,10 @@ export default function AppDeployWizard({
       const prevCapitalized = prev.appType.charAt(0).toUpperCase() + prev.appType.slice(1);
       const isDefaultName = prev.name === `${prevCapitalized}-Production`;
       const selectedCluster = clusters.find((c) => c.id === prev.clusterId);
-      const stillValidCluster = !selectedCluster || !gpuOnly || selectedCluster.gpuEnabled;
+      const stillValidCluster = !selectedCluster || !gpuOnly || reportsGpu(selectedCluster);
       let nextClusterId = stillValidCluster ? prev.clusterId : '';
       if (gpuOnly && !nextClusterId) {
-        const gpuClusters = clusters.filter((c) => c.status === 'healthy' && c.gpuEnabled);
+        const gpuClusters = clusters.filter((c) => c.status === 'healthy' && reportsGpu(c));
         if (gpuClusters.length === 1) nextClusterId = gpuClusters[0]!.id;
       }
       return {
@@ -196,15 +196,15 @@ export default function AppDeployWizard({
                 <label htmlFor="wizard-target-cluster" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Target Cluster</label>
                 <select id="wizard-target-cluster" value={wizardData.clusterId} onChange={e => setWizardData({...wizardData, clusterId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all">
                   <option value="">Select a cluster...</option>
-                  {clusters.filter((c) => deployableTo(c) && (currentUiDefaults.gpuOnly !== true || c.gpuEnabled)).map((c) => (
+                  {clusters.filter((c) => deployableTo(c) && (currentUiDefaults.gpuOnly !== true || reportsGpu(c))).map((c) => (
                     <option key={c.id} value={c.id}>{targetLabel(c)}</option>
                   ))}
                 </select>
                 {currentUiDefaults.gpuOnly === true && (
-                  clusters.some((c) => c.status === 'healthy' && c.gpuEnabled) ? (
-                    <p className="text-[11px] text-amber-400/80 mt-2">Only GPU-enabled clusters are shown — {wizardData.appType} needs GPU passthrough.</p>
+                  clusters.some((c) => c.status === 'healthy' && reportsGpu(c)) ? (
+                    <p className="text-[11px] text-amber-400/80 mt-2">Only clusters whose nodes report a GPU are shown — {wizardData.appType} needs one.</p>
                   ) : (
-                    <p className="text-[11px] text-red-400/80 mt-2">No GPU-enabled clusters found — check the System cluster's status in the Clusters view.</p>
+                    <p className="text-[11px] text-red-400/80 mt-2">None of your clusters reports a GPU yet — a machine's GPU shows here once its cluster passes it through.</p>
                   )
                 )}
               </div>

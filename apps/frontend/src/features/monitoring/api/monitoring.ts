@@ -71,7 +71,7 @@ export interface ClusterRow {
   numbers: ClusterNumbers
   history: HistoryState
   apps: number
-  isSystem: boolean
+  own: boolean
 }
 
 export type AlertAbout = { kind: 'app'; deploymentId: string } | { kind: 'cluster' } | { kind: 'koala' }

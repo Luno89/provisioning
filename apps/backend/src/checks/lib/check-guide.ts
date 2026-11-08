@@ -45,7 +45,7 @@ export const WORLD_FIELDS: Record<keyof ScenarioWorld, Entry> = {
   project: { means: 'a project made before the first run; the conversation is bound to it', example: '{ "name": "check project" }' },
   apart: { means: 'a second project of the space\'s, made before the first run and never shared: {{world.apartId}} and {{world.apartName}}', example: '{ "name": "kept apart" }' },
   shared: { means: 'the world\'s project shared on the hub under a group of its own, with a hidden account for each role listed invited and joined; they go before the space does', example: '{ "members": ["client"] }' },
-  apps: { means: 'apps deployed on the system cluster before the first run, as the space, and destroyed with it; {{world.apps.<name>}} is each one\'s id. Deploying takes a minute or two, so a check with apps stays off the bench', example: '[{ "name": "books", "appType": "audiobookshelf" }]' },
+  apps: { means: 'apps deployed on the cluster Koala runs in before the first run, as the space, and destroyed with it; {{world.apps.<name>}} is each one\'s id. Deploying takes a minute or two, so a check with apps stays off the bench', example: '[{ "name": "books", "appType": "audiobookshelf" }]' },
   treeTypes: { means: 'settings laid over tree types for this check only, by id', example: '{ "odoo-addons": { "env": [{ "name": "SHOP", "value": "demo" }] } }' },
 };
 

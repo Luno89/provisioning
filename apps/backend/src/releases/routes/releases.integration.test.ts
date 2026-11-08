@@ -11,6 +11,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import { ClusterService } from '../../infrastructure/services/ClusterService.js';
+import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { projectSecretsFor } from '../../projects/services/ProjectSecretsService.js';
@@ -100,7 +101,7 @@ function harness(state: keyof typeof worlds) {
       router: (db) => {
         const infra = mock<InfrastructureService>();
         infra.runKubectl.mockResolvedValue('');
-        const clusters = new ClusterService(db, infra, KEY, { koalaMachineId: undefined });
+        const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }));
         const projectRepos = new ProjectRepoService(db, giteaService, KEY);
         const secrets = projectSecretsFor({
           db: db.projects,

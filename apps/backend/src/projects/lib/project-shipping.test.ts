@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { webhookUrlAt, shippingGaps, isShippable, deploysItself, DEFAULT_TARGET_CLUSTER, koalasClusterFor, sameHookPath } from './project-shipping.js';
+import { webhookUrlAt, shippingGaps, isShippable, deploysItself, koalasClusterFor, sameHookPath } from './project-shipping.js';
 
 describe('where Gitea posts a push', () => {
   it('is where Gitea reaches the backend', () => {
@@ -16,7 +16,7 @@ describe('whether a project can actually ship', () => {
   });
 
   it('is satisfied once both are set', () => {
-    const wired = { webhookSecretEnc: 'enc', targetClusterId: DEFAULT_TARGET_CLUSTER };
+    const wired = { webhookSecretEnc: 'enc', targetClusterId: 'machine-desk' };
     expect(shippingGaps(wired)).toEqual([]);
     expect(isShippable(wired)).toBe(true);
   });
@@ -57,8 +57,12 @@ describe('the cluster a project deploys to when none is picked', () => {
     expect(koalasClusterFor({ INSTANCE_MACHINE_ID: 'bbdd-1' })).toBe('machine-bbdd-1');
   });
 
-  it('is the system cluster where Koala runs on no machine', () => {
-    expect(koalasClusterFor({})).toBe(DEFAULT_TARGET_CLUSTER);
-    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: '  ' })).toBe(DEFAULT_TARGET_CLUSTER);
+  it('is its place on Koala\'s servers for a pool instance', () => {
+    expect(koalasClusterFor({ POOL: 'true', INSTANCE_NAME: 'bob' })).toBe('pool-bob');
+  });
+
+  it('is none where Koala was named neither, so the project shows it has no cluster to go to', () => {
+    expect(koalasClusterFor({})).toBeUndefined();
+    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: '  ' })).toBeUndefined();
   });
 });

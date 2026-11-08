@@ -48,7 +48,7 @@ describe('how a backend sends email', () => {
   });
 
   it('says why it cannot when nothing is set up', () => {
-    expect(emailWayFrom({}, { role: 'combined' })).toEqual({ kind: 'none', why: 'email is not set up on this platform (MAIL_SMTP_URL is unset)' });
+    expect(emailWayFrom({}, { role: 'root' })).toEqual({ kind: 'none', why: 'email is not set up on this platform (MAIL_SMTP_URL is unset)' });
   });
 
   it('asks root on an instance, never sending itself', () => {

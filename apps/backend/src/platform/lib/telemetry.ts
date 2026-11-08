@@ -1,6 +1,7 @@
 import { context, propagation } from '@opentelemetry/api';
 import type { AxiosInstance } from 'axios';
 import { envSink, type TelemetrySettings } from '@koala/engine-core/telemetry-sdk';
+import { roleNamed } from './platform-role.js';
 
 export const VERSION_VAR = 'KOALA_VERSION';
 
@@ -10,7 +11,7 @@ export function telemetrySettings(env: Readonly<Record<string, string | undefine
   const cluster = env.KOALA_TELEMETRY_CLUSTER?.trim();
   return {
     service,
-    role: env.ROLE?.trim() || 'combined',
+    role: roleNamed(env),
     ...(version ? { version } : {}),
     ...(instanceId ? { instanceId } : {}),
     ...(cluster ? { cluster } : {}),

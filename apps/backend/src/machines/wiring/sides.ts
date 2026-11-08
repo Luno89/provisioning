@@ -1,7 +1,6 @@
 import type { Server as SocketServer } from 'socket.io';
 import { holdsAccounts, runOnce, servesTenants, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
 import { RootMachines, type InstanceRecord } from '../../instances/index.js';
-import { COMBINED_AUDIENCE } from '../lib/work-tokens.js';
 import { MachineAccounts, type KoalaPlace, type KoalaPlacer } from '../services/MachineAccounts.js';
 import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
@@ -60,10 +59,8 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     dataKey: deps.dataKey,
     signing: role.signing,
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
-    koala: { of: async (ownerId) => (tenants ? { url: deps.publicUrl, audience: COMBINED_AUDIENCE } : deps.instances()?.service?.koalaOf(ownerId)) },
-    followers: tenants
-      ? { joined: (machine) => machines!.adopt(machine), removed: (machine) => machines!.forget(machine), changed: async () => undefined }
-      : { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
+    koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
+    followers: { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
     toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), online: (deviceId) => toMachines.online(deviceId) },
     placer: { placeOn: async (ownerId, machine, name) => (deps.instances()?.service?.placeOn ? deps.instances()!.service!.placeOn!(ownerId, machine, name) : { ok: false, status: 503, error: 'this Koala holds no instances to put on machines' }) },
     mesh: deps.mesh,
@@ -101,7 +98,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     clusters,
     mirror,
     syncMachines,
-    workTokens: tenants && role.trusted ? { keys: role.trusted, audience: role.instance?.id ?? COMBINED_AUDIENCE } : undefined,
+    workTokens: tenants && role.trusted && role.instance ? { keys: role.trusted, audience: role.instance.id } : undefined,
     instanceCaller: async (instanceId, credential) => deps.instances()?.service?.caller(instanceId, credential),
     instanceArrived: (instance) => {
       void accounts?.tellKoala(instance.ownerId).catch((err: Error) => console.warn(`[machines] ${instance.id}'s owner's machines could not be told where it is: ${err.message}`));

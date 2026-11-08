@@ -31,6 +31,7 @@ beforeEach(async () => {
 });
 
 const activities = () => createCheckRunActivities({
+  ownClusterId: () => 'machine-koala',
   store: db,
   api: () => { throw new Error('not used here'); },
   seedFiles: async () => undefined,
@@ -208,6 +209,7 @@ describe('a check that releases its project', () => {
   const run = async (scenario: Scenario, made: ReturnType<typeof releasingApi>) => {
     await db.accounts.saveUser({ id: 'space-1', email: 'space-1@checks.internal' } as never);
     return createCheckRunActivities({
+      ownClusterId: () => 'machine-koala',
       store: db,
       api: () => made.http as never,
       seedFiles: async () => undefined,

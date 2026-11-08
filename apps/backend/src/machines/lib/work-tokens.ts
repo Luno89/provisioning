@@ -3,7 +3,6 @@ import type { IdentityKeyPair } from '../../instances/index.js';
 
 export const WORK_TOKEN_TTL_SECONDS = 30 * 24 * 3600;
 export const WORK_TOKEN_RENEW_SECONDS = 7 * 24 * 3600;
-export const COMBINED_AUDIENCE = 'combined';
 const ALG = 'EdDSA';
 const TYP = 'nowrinkles-machine';
 

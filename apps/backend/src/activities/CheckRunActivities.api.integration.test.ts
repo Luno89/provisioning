@@ -34,6 +34,7 @@ afterEach(async () => {
 });
 
 const activities = (over: { reported?: boolean; says?: boolean } = {}): CheckRunActivities => createCheckRunActivities({
+  ownClusterId: () => 'machine-koala',
   store: api.db,
   api: (space) => {
     const client = api.clientFor(space);
@@ -222,7 +223,7 @@ describe('a check\'s world made through the real routes', () => {
   });
 
   it('deploys its apps through the deployments route and waits until each is running, or says it did not', async () => {
-    api.ports.clusters.getById.mockResolvedValue({ id: 'provisioning-lunorica' } as never);
+    api.ports.clusters.getById.mockResolvedValue({ id: 'machine-koala' } as never);
     api.ports.bridge.deployApp.mockResolvedValue({ resourceId: 'd1', id: 'wf-1' } as never);
     api.ports.appService.getAll
       .mockResolvedValueOnce([{ id: 'd1', status: 'deploying' }] as never)
@@ -230,7 +231,7 @@ describe('a check\'s world made through the real routes', () => {
     const apps = { apps: [{ name: 'shop', appType: 'wordpress' as const }] };
     const ok = await perform({ ...CHAT, world: apps });
 
-    expect(api.ports.bridge.deployApp).toHaveBeenCalledWith({ name: 'shop', clusterId: 'provisioning-lunorica', appType: 'wordpress', strategy: 'native' }, 'space-1');
+    expect(api.ports.bridge.deployApp).toHaveBeenCalledWith({ name: 'shop', clusterId: 'machine-koala', appType: 'wordpress', strategy: 'native' }, 'space-1');
     expect((await api.db.accounts.getUserById('space-1'))?.space?.world).toMatchObject({ apps: { shop: 'd1' }, namespaces: { shop: 'shop-abc' } });
     expect(ok.result.outcome).toBe('ok');
 
@@ -799,7 +800,7 @@ describe('what a check observes of its run, through the real routes', () => {
     await api.db.projects.saveTreeType({ id: 'odoo', ownerId: 'space-1', name: 'Odoo', release: { agent: 'slots' } } as never);
     await api.db.projects.saveProject({ id: 'p1', name: 'shop-space-1', ownerId: 'space-1', giteaOwner: 'space', giteaRepo: 'r', appType: 'gitapp', createdAt: at } as never);
     api.ports.repos.createProject.mockResolvedValue({ id: 'p1', name: 'shop-space-1', ownerId: 'space-1', giteaOwner: 'space', giteaRepo: 'r', appType: 'gitapp', createdAt: at } as never);
-    api.ports.clusters.getById.mockResolvedValue({ id: 'provisioning-lunorica' } as never);
+    api.ports.clusters.getById.mockResolvedValue({ id: 'machine-koala' } as never);
     api.ports.bridge.deployApp.mockResolvedValue({ resourceId: 'd1', id: 'wf-1' } as never);
     api.ports.appService.getAll.mockResolvedValue([{ id: 'd1', status: 'running' }] as never);
     api.ports.monitoring.alerts.mockResolvedValue({ rules: [{ deploymentId: 'd1', spec: { kind: 'down' } }] } as never);

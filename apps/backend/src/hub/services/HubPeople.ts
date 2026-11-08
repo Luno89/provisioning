@@ -1,6 +1,5 @@
 import { HUB_AUDIENCE, signedPart } from '../lib/hub.js';
 import { issueMoveToken, type IdentityKeyPair } from '../../instances/index.js';
-import type { HubService } from './HubService.js';
 import { refusalOf } from './hub-answers.js';
 
 export interface HubPeople {
@@ -9,13 +8,6 @@ export interface HubPeople {
 }
 
 export const hubPersonPart = (personId: string, what: 'leaving' | 'let-go'): string => signedPart('people', personId, what);
-
-export function localHubPeople(hub: HubService): HubPeople {
-  return {
-    blockers: async (personId) => (await hub.leaving(personId)).blockers,
-    letGo: async (personId) => { await hub.letGo(personId); },
-  };
-}
 
 export class RemoteHubPeople implements HubPeople {
   constructor(private readonly hub: { url: string; signing: IdentityKeyPair }, private readonly fetchImpl: typeof fetch = fetch) {}

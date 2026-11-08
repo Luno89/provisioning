@@ -5,13 +5,10 @@ import type { TemporalBridge } from './TemporalBridge.js';
 import { ignore } from '@koala/engine-core/failures';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
-import { machineClusterId } from '../lib/cluster-name.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { execShell, type Shell } from '../lib/shell.js';
 import { Server as SocketServer } from 'socket.io';
 import fs from 'fs/promises';
-
-const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
@@ -20,31 +17,46 @@ export class ClusterService extends BaseService {
 
   private readonly kubeconfigDir: string;
   private readonly shell: Shell;
-  private readonly koalaMachineId: string | undefined;
+  private readonly instanceOwnerId: string | undefined;
 
-  constructor(db: Database, infra: InfrastructureService, access: ClusterAccess, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; koalaMachineId?: string | undefined } = {}) {
+  constructor(db: Database, infra: InfrastructureService, access: ClusterAccess, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; instanceOwnerId?: string | undefined } = {}) {
     super(db);
     this.infra = infra;
     this.access = access;
     this.kubeconfigDir = places.kubeconfigDir ?? '/tmp';
     this.shell = places.shell ?? execShell;
-    this.koalaMachineId = 'koalaMachineId' in places ? places.koalaMachineId : process.env.INSTANCE_MACHINE_ID || undefined;
+    this.instanceOwnerId = places.instanceOwnerId;
   }
 
-  private koalaClusterId(): string | undefined {
-    return this.koalaMachineId ? machineClusterId(this.koalaMachineId) : undefined;
+  ownClusterId(): string | undefined {
+    return this.access.ownId();
   }
 
   isKoalasCluster(clusterId: string): boolean {
-    return clusterId === SYSTEM_CLUSTER_ID || clusterId === this.koalaClusterId();
+    return clusterId === this.ownClusterId();
   }
 
-  private async koalasMachineCluster(machineId: string): Promise<ClusterMetadata> {
-    const id = machineClusterId(machineId);
+  async ownCluster(): Promise<ClusterMetadata | undefined> {
+    const id = this.ownClusterId();
+    if (!id) return undefined;
     const record = (await this.db.infrastructure.getClusters()).find((cluster) => cluster.id === id);
-    const cluster: ClusterMetadata = { ...(record ?? { id, name: id, provider: 'machine', machineId }), status: 'healthy', isSystem: true, lastSyncedAt: new Date().toISOString() };
+    const cluster: ClusterMetadata = { ...(record ?? this.standIn(id)), status: 'healthy', lastSyncedAt: new Date().toISOString() };
     const capacity = await this.readLiveCapacity(() => this.access.kubectl(cluster.id, ['get', 'nodes', '-o', 'json'])).catch(ignore('a cluster whose capacity cannot be read now shows without it'));
     return capacity ? { ...cluster, capacity } : cluster;
+  }
+
+  private standIn(id: string): ClusterMetadata {
+    const { here } = this.access;
+    const owner = this.instanceOwnerId ? { ownerId: this.instanceOwnerId } : {};
+    if (here.root) return { id, name: 'root', provider: 'root', status: 'healthy' };
+    if (here.koalaMachineId) return { id, name: id, provider: 'machine', machineId: here.koalaMachineId, status: 'healthy', ...owner };
+    return { id, name: id, provider: 'pool', status: 'healthy', ...owner };
+  }
+
+  async clustersOwnedBy(ownerId: string): Promise<ClusterMetadata[]> {
+    const own = await this.ownCluster();
+    const records = (await this.db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && cluster.id !== own?.id);
+    return [...(own && own.ownerId === ownerId ? [own] : []), ...records];
   }
 
   setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
@@ -97,16 +109,11 @@ export class ClusterService extends BaseService {
 
   async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
     if (cluster.provider === 'machine') return this.access.kubeconfigOf(cluster.id);
-    if (cluster.gpuEnabled || cluster.provider === 'k3d' || this.isMockCloud(cluster)) {
+    if (cluster.provider === 'k3d' || this.isMockCloud(cluster)) {
       const physicalName = this.getPhysicalClusterName(cluster);
       const dynamicPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
       const exists = await fs.access(dynamicPath).then(() => true, ignore('a kubeconfig not written yet is fetched and written below'));
-      if (!exists) {
-        const content = cluster.gpuEnabled
-          ? await this.infra.getManagementClusterKubeconfig(physicalName)
-          : await this.infra.getKubeconfig(physicalName);
-        await writePrivate(dynamicPath, content);
-      }
+      if (!exists) await writePrivate(dynamicPath, await this.infra.getKubeconfig(physicalName));
       return dynamicPath;
     }
     if (!cluster.kubeconfigPath) throw new Error(`${cluster.name} has no kubeconfig of its own, so there is no way to reach it`);
@@ -115,33 +122,6 @@ export class ClusterService extends BaseService {
 
   private writtenKubeconfig(cluster: ClusterMetadata): string {
     return `${this.kubeconfigDir}/kubeconfig-${this.getPhysicalClusterName(cluster)}`;
-  }
-
-  async getSystemClusterEntry(): Promise<ClusterMetadata> {
-    if (this.koalaMachineId) return this.koalasMachineCluster(this.koalaMachineId);
-    let status: ClusterMetadata['status'] = 'failed';
-    let capacity: ClusterCapacity | undefined;
-    try {
-      const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
-      status = 'healthy';
-      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
-      await writePrivate(kubeconfigPath, content).catch((err: unknown) => {
-        this.logger.warn(`Could not write the system cluster's kubeconfig to ${kubeconfigPath}, so its capacity is read from what is there: ${(err as Error).message}`);
-      });
-      capacity = await this.readLiveCapacity(() => this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath));
-    } catch {
-      status = 'failed';
-    }
-    return {
-      id: SYSTEM_CLUSTER_ID,
-      name: SYSTEM_CLUSTER_ID,
-      provider: 'k3d',
-      status,
-      gpuEnabled: true,
-      isSystem: true,
-      ...(capacity ? { capacity } : {}),
-      lastSyncedAt: new Date().toISOString(),
-    };
   }
 
   private async readLiveCapacity(readNodes: () => Promise<string>): Promise<ClusterCapacity | undefined> {
@@ -164,19 +144,6 @@ export class ClusterService extends BaseService {
     return capacity;
   }
 
-  async ensureSystemClusterGpuReady(): Promise<void> {
-    try {
-      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
-      const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
-      await writePrivate(kubeconfigPath, content);
-      await this.infra.checkGpuToolkit('nvidia');
-      await this.infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
-      this.logger.info('GPU device plugin ready on the management cluster.');
-    } catch (err) {
-      this.logger.info(`Skipping management-cluster GPU device plugin install: ${(err as Error).message}`);
-    }
-  }
-
   async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
     const dbClusters = await this.db.infrastructure.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
@@ -185,7 +152,7 @@ export class ClusterService extends BaseService {
 
     for (const cluster of dbClusters) {
       const isMock = this.isMockCloud(cluster);
-      if (cluster.gpuEnabled || !(cluster.provider === 'k3d' || isMock)) {
+      if (!(cluster.provider === 'k3d' || isMock)) {
         cleanClusters.push(cluster);
         continue;
       }
@@ -217,8 +184,8 @@ export class ClusterService extends BaseService {
       });
     }
 
-    const systemCluster = await this.getSystemClusterEntry();
-    return [systemCluster, ...cleanClusters.filter((cluster) => cluster.id !== systemCluster.id)];
+    const own = await this.ownCluster();
+    return [...(own ? [own] : []), ...cleanClusters.filter((cluster) => cluster.id !== own?.id)];
   }
 
   async getAll(principal: Principal, io?: SocketServer) {
@@ -263,9 +230,7 @@ export class ClusterService extends BaseService {
   }
 
   async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
-    if (this.isKoalasCluster(id)) {
-      return this.getSystemClusterEntry();
-    }
+    if (this.isKoalasCluster(id)) return this.ownCluster();
     const clusters = await this.db.infrastructure.getClusters();
     return clusters.find((c) => c.id === id);
   }
@@ -298,11 +263,7 @@ export class ClusterService extends BaseService {
         const isMock = this.isMockCloud(cluster);
         const physicalName = this.getPhysicalClusterName(cluster);
 
-        if (cluster.gpuEnabled) {
-          await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
-            this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)} during abort: ${(err as Error).message}`);
-          });
-        } else if (cluster.provider === 'k3d' || isMock) {
+        if (cluster.provider === 'k3d' || isMock) {
           try {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await fs.rm(this.writtenKubeconfig(cluster), { force: true });
@@ -417,11 +378,9 @@ export class ClusterService extends BaseService {
     }
 
     const availableGpus = Math.max(0, totalAllocatable - totalAllocated);
-    const passthroughEnabled = cluster.gpuEnabled ?? false;
 
     return {
-      passthroughEnabled,
-      hasGpu: totalCapacity > 0 || passthroughEnabled,
+      hasGpu: totalCapacity > 0,
       vendor,
       totalCapacity,
       totalAllocatable,

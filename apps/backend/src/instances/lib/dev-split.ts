@@ -161,7 +161,7 @@ export function devSplitOwner(users: readonly UserMetadata[], wanted?: string): 
     if (!found) throw new Error(`DEV_INSTANCE_OWNER "${wanted}" is no one on this database`);
     return found;
   }
-  const admins = people.filter((user) => holds(principalOf(user, { role: 'combined' }), 'operator')).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+  const admins = people.filter((user) => holds(principalOf(user, { role: 'root' }), 'operator')).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
   const owner = admins[0];
   if (!owner) throw new Error('no admin on this database to own the dev instance; sign in once with npm run dev first, or set DEV_INSTANCE_OWNER');
   return owner;

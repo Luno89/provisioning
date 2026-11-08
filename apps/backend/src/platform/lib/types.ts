@@ -2,7 +2,7 @@ import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/l
 import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
-export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner';
+export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner' | 'pool' | 'root';
 
 export interface ClusterProgress {
   step: string;
@@ -21,14 +21,12 @@ export interface ClusterMetadata {
   createdAt?: string;
   lastSyncedAt?: string;
   progress?: ClusterProgress;
-  gpuEnabled?: boolean;
   capacity?: {
     cpuCores: number;
     ramGb: number;
     gpuCount?: number;
     gpuVendor?: 'nvidia' | 'amd';
   };
-  isSystem?: boolean;
   ownerId?: string;
   machineId?: string;
   kubeconfigEnc?: string;

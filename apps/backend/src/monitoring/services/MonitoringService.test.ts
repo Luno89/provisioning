@@ -15,11 +15,11 @@ const NOW = new Date('2026-10-17T12:00:00Z');
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
 const SOMEONE = asPerson('someone');
 
-const system: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
+const koalas: ClusterMetadata = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
-  ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
+  ({ clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
 
 interface ScriptedPrometheus {
   client: MockProxy<PrometheusClient>;
@@ -84,9 +84,10 @@ beforeEach(() => {
   telemetryInstalled = true;
   deps = (): MonitoringDeps => ({
     store: db,
-    systemCluster: async () => system,
+    ownCluster: async () => koalas,
+    ownClusterId: () => koalas.id,
     prometheus: async (cluster) => {
-      if (cluster.id === system.id) return prom.client;
+      if (cluster.id === koalas.id) return prom.client;
       if (remoteProm) return remoteProm.client;
       throw new Error('connection refused');
     },
@@ -173,9 +174,9 @@ describe('the overview', () => {
     expect(overview.apps[0]).toMatchObject({ name: 'ERP', state: 'installing' });
   });
 
-  it('hides the shared system cluster from someone with no apps on it who does not own it', async () => {
+  it('shows the cluster this Koala runs in only to its owner', async () => {
     expect((await monitoring.overview(SOMEONE)).clusters).toEqual([]);
-    expect((await monitoring.overview(ME)).clusters.map((row) => row.id)).toEqual([system.id]);
+    expect((await monitoring.overview(ME)).clusters.map((row) => row.id)).toEqual([koalas.id]);
   });
 
   it('puts a firing alert among the app\'s reasons', async () => {
@@ -218,27 +219,27 @@ describe('an app\'s health', () => {
 
 describe('history', () => {
   it('is set by whoever owns the cluster and applied with Helm at the chart\'s version', async () => {
-    const history = await monitoring.setHistory(ME, system.id, 30);
+    const history = await monitoring.setHistory(ME, koalas.id, 30);
     expect(helm[1]).toContain('prometheus.prometheusSpec.retention=30d');
     expect(helm[1]).toContain('79.1.0');
     expect(history.days).toBe(30);
-    expect((await db.monitoring.getMonitoringSettings())[0]).toMatchObject({ clusterId: system.id, historyDays: 30, appliedAt: NOW.toISOString() });
+    expect((await db.monitoring.getMonitoringSettings())[0]).toMatchObject({ clusterId: koalas.id, historyDays: 30, appliedAt: NOW.toISOString() });
   });
 
   it('refuses days out of range and people who do not own the cluster', async () => {
-    await expect(monitoring.setHistory(ME, system.id, 0)).rejects.toMatchObject({ status: 400 });
-    await expect(monitoring.setHistory(SOMEONE, system.id, 20)).rejects.toMatchObject({ status: 403 });
+    await expect(monitoring.setHistory(ME, koalas.id, 0)).rejects.toMatchObject({ status: 400 });
+    await expect(monitoring.setHistory(SOMEONE, koalas.id, 20)).rejects.toMatchObject({ status: 404 });
   });
 
   it('does nothing when Prometheus already keeps it on a volume', async () => {
     prometheusResource = { spec: { retention: '10d', retentionSize: '5GB', storage: { volumeClaimTemplate: {} } } };
-    expect(await monitoring.applyHistory(system)).toBe(false);
+    expect(await monitoring.applyHistory(koalas)).toBe(false);
     expect(helm).toEqual([]);
   });
 
   it('records why it could not be applied', async () => {
     monitoring = new MonitoringService({ ...deps(), helm: async () => { throw new Error('no route to the chart repository'); } });
-    expect(await monitoring.applyHistory(system)).toBe(false);
+    expect(await monitoring.applyHistory(koalas)).toBe(false);
     expect((await db.monitoring.getMonitoringSettings())[0]?.problem).toBe('no route to the chart repository');
   });
 });
@@ -259,7 +260,7 @@ describe('alert rules', () => {
   it('is removed from the cluster and the records', async () => {
     await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec);
     await monitoring.removeRule(ME, 'rule-1');
-    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'books', '--ignore-not-found']);
+    expect(kubectl.at(-1)).toEqual([koalas.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'books', '--ignore-not-found']);
     expect(await db.monitoring.getAlertRules('me')).toEqual([]);
     await expect(monitoring.removeRule(SOMEONE, 'rule-1')).rejects.toMatchObject({ status: 404 });
   });
@@ -273,18 +274,18 @@ describe('alert rules', () => {
 describe('counting each app\'s requests', () => {
   it('switches our Traefik\'s service labels on once', async () => {
     releases.push({ name: 'traefik', namespace: 'traefik', chart: 'traefik-41.4.0' });
-    expect(await monitoring.applyRequestMetrics(system)).toBe('applied');
+    expect(await monitoring.applyRequestMetrics(koalas)).toBe('applied');
     expect(helm.at(-1)).toContain('metrics.prometheus.addServicesLabels=true');
     traefikValues = { metrics: { prometheus: { addServicesLabels: true } } };
-    expect(await monitoring.applyRequestMetrics(system)).toBe('already');
+    expect(await monitoring.applyRequestMetrics(koalas)).toBe('already');
   });
 
   it('configures k3s\'s Traefik, and leaves one the person configured alone', async () => {
     releases.push({ name: 'traefik', namespace: 'kube-system', chart: 'traefik-34.2.1' });
-    expect(await monitoring.applyRequestMetrics(system)).toBe('applied');
+    expect(await monitoring.applyRequestMetrics(koalas)).toBe('applied');
     expect(JSON.parse(applied[0]!)).toMatchObject({ kind: 'HelmChartConfig', metadata: { name: 'traefik', namespace: 'kube-system' } });
     helmChartConfig = JSON.stringify({ metadata: { labels: {} }, spec: { valuesContent: 'ports: {}' } });
-    expect(await monitoring.applyRequestMetrics(system)).toEqual({ problem: 'k3s\'s Traefik has settings of its own here, so request counting was not switched on' });
+    expect(await monitoring.applyRequestMetrics(koalas)).toEqual({ problem: 'k3s\'s Traefik has settings of its own here, so request counting was not switched on' });
     expect(applied).toHaveLength(1);
   });
 });
@@ -310,7 +311,7 @@ describe('a cluster on Koala\'s servers', () => {
     const base = deps();
     monitoring = new MonitoringService({
       ...base,
-      pool: (cluster) => (cluster.isSystem ? pool : undefined),
+      pool: (cluster) => (cluster.id === koalas.id ? pool : undefined),
       prometheus: async () => { throw new Error('a pool instance has no Prometheus of its own'); },
       kubectl: async (cluster, args) => {
         kubectl.push([cluster.id, ...args]);
@@ -329,10 +330,10 @@ describe('a cluster on Koala\'s servers', () => {
   });
 
   it('keeps the history Koala\'s servers keep, which the person cannot change', async () => {
-    const view = await monitoring.clusterHealth(ME, system.id, '1h');
+    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
     expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, can: [], byKoala: true });
-    await expect(monitoring.setHistory(ME, system.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
-    expect(await monitoring.applyHistory(system)).toBe(false);
+    await expect(monitoring.setHistory(ME, koalas.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
+    expect(await monitoring.applyHistory(koalas)).toBe(false);
   });
 
   it('hands an alert to root to set, and refuses one on requests, which are not counted there', async () => {
@@ -346,11 +347,11 @@ describe('a cluster on Koala\'s servers', () => {
   });
 
   it('hands its apps\' probes to root, and only again when they change', async () => {
-    await monitoring.syncPoolProbes(system);
-    await monitoring.syncPoolProbes(system);
+    await monitoring.syncPoolProbes(koalas);
+    await monitoring.syncPoolProbes(koalas);
     expect(pool.setProbes.mock.calls).toEqual([[[{ namespace: 'shop', service: 'web', port: 80, path: '/health', module: 'http_2xx' }]]]);
     probesJson = JSON.stringify({ items: [] });
-    await monitoring.syncPoolProbes(system);
+    await monitoring.syncPoolProbes(koalas);
     expect(pool.setProbes).toHaveBeenCalledTimes(2);
     await monitoring.syncPoolProbes(remote);
     expect(pool.setProbes).toHaveBeenCalledTimes(2);
@@ -358,10 +359,10 @@ describe('a cluster on Koala\'s servers', () => {
 
   it('says how much of its place it uses', async () => {
     answerWith({ nodes: 1, memoryShare: 0.5 });
-    const view = await monitoring.clusterHealth(ME, system.id, '1h');
+    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
     expect(view.lines).toContain('In use of its place on Koala\'s servers: memory 50%.');
     answerWith({ nodes: 1, diskShare: 0.95 });
-    const full = await monitoring.clusterHealth(ME, system.id, '1h');
+    const full = await monitoring.clusterHealth(ME, koalas.id, '1h');
     expect(full.cluster.reasons).toContain('95% of its place\'s storage is claimed');
     expect(full.lines).toContain('In use of its place on Koala\'s servers: storage claimed 95%.');
   });
@@ -375,7 +376,7 @@ describe('Koala itself', () => {
       .set(koalaQuery('workflowsStartedHour'), 4).set(koalaQuery('activityFailuresHour'), 0).set(koalaQuery('workFailuresDay'), 0).set(koalaQuery('reporting'), 2);
   };
 
-  it('is read from the system cluster\'s Prometheus through the same named questions as an app, for anyone', async () => {
+  it('is read from the Prometheus of the cluster Koala runs in through the same named questions as an app, for anyone', async () => {
     reporting();
     const view = await monitoring.koala(SOMEONE);
     expect(view).toMatchObject({ state: 'ok', reasons: [], services: ['koala-backend', 'koala-worker-engine'], telemetry: { collector: true, tempo: true } });
@@ -401,7 +402,7 @@ describe('Koala itself', () => {
     expect(await monitoring.proposeAlertProblem(ME, 'books', spec)).toEqual({ error: 'model_errors is an alert about Koala itself; name "koala", not an app' });
 
     const rule = await monitoring.addRule(ME, 'koala', spec, 'conv-1');
-    expect(rule).toMatchObject({ deploymentId: 'koala', namespace: 'monitoring', appName: 'Koala', clusterId: system.id, conversationId: 'conv-1' });
+    expect(rule).toMatchObject({ deploymentId: 'koala', namespace: 'monitoring', appName: 'Koala', clusterId: koalas.id, conversationId: 'conv-1' });
     const manifest = JSON.parse(applied[0]!) as { metadata: { namespace: string }; spec: { groups: { rules: { expr: string }[] }[] } };
     expect(manifest.metadata.namespace).toBe('monitoring');
     expect(manifest.spec.groups[0]!.rules[0]!.expr).toBe(koalaAlertExpression(spec));
@@ -412,32 +413,44 @@ describe('Koala itself', () => {
     expect((await monitoring.alerts(ME)).firing).toEqual([expect.objectContaining({ ruleId: rule.id, about: { kind: 'koala' } })]);
 
     await monitoring.removeRule(ME, rule.id);
-    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', `koala-alert-${rule.id}`, '-n', 'monitoring', '--ignore-not-found']);
+    expect(kubectl.at(-1)).toEqual([koalas.id, 'delete', 'prometheusrule', `koala-alert-${rule.id}`, '-n', 'monitoring', '--ignore-not-found']);
   });
 });
 
 describe('which clusters are read', () => {
-  it('reads the system cluster and every healthy one, and not one being made or destroyed', async () => {
+  it('reads the cluster Koala runs in and every healthy one, and not one being made or destroyed', async () => {
     await db.infrastructure.saveCluster(remote);
     await db.infrastructure.saveCluster({ ...remote, id: 'c-making', name: 'making', status: 'provisioning' });
     await db.infrastructure.saveCluster({ ...remote, id: 'c-gone', name: 'gone', status: 'destroying' });
-    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).toEqual([system.id, remote.id]);
+    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).toEqual([koalas.id, remote.id]);
   });
 
-  it('leaves out the system cluster where there is none', async () => {
-    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => undefined });
+  it('leaves out the cluster Koala runs in where it runs in none', async () => {
+    monitoring = new MonitoringService({ ...deps(), ownCluster: async () => undefined, ownClusterId: () => undefined });
     await db.infrastructure.saveCluster(remote);
     expect((await monitoring.allClusters()).map((cluster) => cluster.id)).toEqual([remote.id]);
     expect((await monitoring.clustersOf(ME)).map((cluster) => cluster.id)).toEqual([remote.id]);
   });
 
-  it('shows a person the system cluster and their own, and not one being destroyed', async () => {
+  it('shows a person the cluster Koala runs in when it is theirs, and their own, and not one being destroyed', async () => {
     await db.infrastructure.saveCluster(remote);
     await db.infrastructure.saveCluster({ ...remote, id: 'c-gone', name: 'gone', status: 'destroying' });
     await db.infrastructure.saveCluster({ ...remote, id: 'c-theirs', name: 'theirs', ownerId: 'someone' });
-    expect((await monitoring.clustersOf(ME)).map((cluster) => cluster.id)).toEqual([system.id, remote.id]);
-    expect(monitoring.ownsCluster(ME, system)).toBe(true);
-    expect(monitoring.ownsCluster(SOMEONE, system)).toBe(false);
+    expect((await monitoring.clustersOf(ME)).map((cluster) => cluster.id)).toEqual([koalas.id, remote.id]);
+    expect(monitoring.ownsCluster(ME, koalas)).toBe(true);
+    expect(monitoring.ownsCluster(SOMEONE, koalas)).toBe(false);
+  });
+
+  it('shows root\'s own cluster, which nobody owns, to root\'s operators and to nobody else, on root alone', async () => {
+    const root = { id: 'root', name: 'root', provider: 'root', status: 'healthy' } as ClusterMetadata;
+    monitoring = new MonitoringService({ ...deps(), ownCluster: async () => root, ownClusterId: () => root.id, rootAlerts: true });
+    const operator = principalOf({ id: 'op', roles: ['operator'] }, { role: 'root' });
+    expect((await monitoring.clustersOf(operator)).map((cluster) => cluster.id)).toEqual(['root']);
+    expect(monitoring.ownsCluster(operator, root)).toBe(true);
+    expect(await monitoring.clustersOf(principalOf({ id: 'someone' }, { role: 'root' }))).toEqual([]);
+    expect(monitoring.ownsCluster(principalOf({ id: 'someone' }, { role: 'root' }), root)).toBe(false);
+    const elsewhere = new MonitoringService({ ...deps(), ownCluster: async () => root, ownClusterId: () => root.id });
+    expect(await elsewhere.clustersOf(operator)).toEqual([]);
   });
 
   it('tells the time from the clock when none is given', async () => {
@@ -449,7 +462,7 @@ describe('which clusters are read', () => {
   });
 });
 
-describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus', () => {
+describe('a machine\'s cluster, which sends to the Prometheus of the cluster Koala runs in', () => {
   const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
   const onDesk = (query: string | undefined, value: number) => { if (query) prom.answers.set(inCluster(query, desk.id), [{ metric: {}, value }]); };
 
@@ -458,7 +471,7 @@ describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus'
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books', clusterId: desk.id }));
   });
 
-  it('is read there, every question kept to its own series, and the system cluster\'s to the series no machine sent', async () => {
+  it('is read there, every question kept to its own series, and Koala\'s own cluster\'s to the series no machine sent', async () => {
     const subject = { namespace: 'books', services: [] };
     onDesk(appQuery('probed', subject), 1);
     onDesk(appQuery('up', subject), 1);
@@ -468,7 +481,7 @@ describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus'
     const overview = await monitoring.overview(ME);
     expect(overview.apps.find((row) => row.id === 'books')).toMatchObject({ state: 'ok', numbers: { up: 1, podsRunning: 1 } });
     expect(overview.clusters.find((row) => row.id === desk.id)?.numbers.nodes).toBe(1);
-    expect(overview.clusters.find((row) => row.id === system.id)?.numbers.nodes).toBe(3);
+    expect(overview.clusters.find((row) => row.id === koalas.id)?.numbers.nodes).toBe(3);
     expect(prom.client.query.mock.calls.every(([query]) => query.includes('koala_cluster=') || !/[a-z_]+\{|[a-z_]+\)/.test(query))).toBe(true);
     expect(kubectl.some((call) => call[0] === desk.id)).toBe(false);
   });
@@ -479,35 +492,35 @@ describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus'
       { labels: { alertname: 'AppProbeDown', namespace: 'shop' }, state: 'firing' },
     ];
     const deskAlerts = await (await monitoring.reach(desk)).metrics!.alerts();
-    const systemAlerts = await (await monitoring.reach(system)).metrics!.alerts();
+    const ownAlerts = await (await monitoring.reach(koalas)).metrics!.alerts();
     expect(deskAlerts.map((alert) => alert.labels.namespace)).toEqual(['books']);
-    expect(systemAlerts.map((alert) => alert.labels.namespace)).toEqual(['shop']);
+    expect(ownAlerts.map((alert) => alert.labels.namespace)).toEqual(['shop']);
   });
 
-  it('keeps an app\'s alert as a rule on the system cluster, in monitoring, held to the machine\'s series and named for it', async () => {
+  it('keeps an app\'s alert as a rule on the cluster Koala runs in, in monitoring, held to the machine\'s series and named for it', async () => {
     await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec);
     const manifest = JSON.parse(applied[0]!) as Record<string, unknown>;
     expect(at(manifest, 'metadata', 'namespace')).toBe('monitoring');
     expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'expr')).toBe('max(probe_success{koala_cluster="machine-desk",namespace="books"}) < 1');
     expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'labels')).toMatchObject({ namespace: 'books', koala_cluster: desk.id });
     await monitoring.removeRule(ME, 'rule-1');
-    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'monitoring', '--ignore-not-found']);
+    expect(kubectl.at(-1)).toEqual([koalas.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'monitoring', '--ignore-not-found']);
   });
 
-  it('keeps the system cluster\'s history, which nobody changes from the machine', async () => {
+  it('keeps the history of the cluster Koala runs in, which nobody changes from the machine', async () => {
     expect(await monitoring.historyOf(ME, desk)).toMatchObject({ days: 10, kept: 10, can: [] });
     await expect(monitoring.setHistory(ME, desk.id, 20)).rejects.toMatchObject({ status: 409 });
     expect(await monitoring.applyHistory(desk)).toBe(false);
   });
 });
 
-describe('the system cluster\'s Prometheus taking what machines send', () => {
-  it('is switched on once, at the chart\'s version, and only on the system cluster', async () => {
-    expect(await monitoring.applyReceiver(system)).toBe(true);
+describe('the Prometheus of the cluster Koala runs in taking what machines send', () => {
+  it('is switched on once, at the chart\'s version, and only on the cluster Koala runs in', async () => {
+    expect(await monitoring.applyReceiver(koalas)).toBe(true);
     expect(helm.at(-1)).toEqual(['upgrade', 'kube-prometheus-stack', 'kube-prometheus-stack', '--repo', 'https://prometheus-community.github.io/helm-charts', '--version', '79.1.0', '-n', 'monitoring', '--reuse-values', '--set', 'prometheus.prometheusSpec.enableRemoteWriteReceiver=true']);
     prometheusResource = { spec: { retention: '10d', enableRemoteWriteReceiver: true } };
     const asked = helm.length;
-    expect(await monitoring.applyReceiver(system)).toBe(false);
+    expect(await monitoring.applyReceiver(koalas)).toBe(false);
     expect(await monitoring.applyReceiver(remote)).toBe(false);
     expect(helm.length).toBe(asked);
   });
@@ -515,10 +528,10 @@ describe('the system cluster\'s Prometheus taking what machines send', () => {
 
 describe('Koala\'s own cluster when Koala runs on a machine', () => {
   const onOwn = (query: string | undefined, value: number) => prom.set(query, value);
-  const own = { id: 'machine-home', name: 'home', provider: 'machine', status: 'healthy', machineId: 'home', isSystem: true } as ClusterMetadata;
+  const own = { id: 'machine-home', name: 'home', provider: 'machine', status: 'healthy', machineId: 'home', ownerId: 'me' } as ClusterMetadata;
 
   it('keeps its own history and reads its own series, never sending itself to itself', async () => {
-    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => own, prometheus: async () => prom.client });
+    monitoring = new MonitoringService({ ...deps(), ownCluster: async () => own, ownClusterId: () => own.id, prometheus: async () => prom.client });
     expect(await monitoring.historyOf(ME, own)).toMatchObject({ days: 10, kept: 10 });
     onOwn(clusterQuery('nodes'), 2);
     expect((await monitoring.clusterHealth(ME, own.id, '1h')).cluster.numbers.nodes).toBe(2);
@@ -526,13 +539,13 @@ describe('Koala\'s own cluster when Koala runs on a machine', () => {
 });
 
 describe('root\'s own alerts', () => {
-  it('are written as one PrometheusRule into the system cluster of a root, and nowhere else', async () => {
-    await monitoring.applyRootRules(system);
+  it('are written as one PrometheusRule into root\'s own cluster, and nowhere else', async () => {
+    await monitoring.applyRootRules(koalas);
     expect(applied).toEqual([]);
     monitoring = new MonitoringService({ ...deps(), rootAlerts: true });
-    await monitoring.applyRootRules({ ...system, isSystem: false } as ClusterMetadata);
+    await monitoring.applyRootRules({ ...koalas, id: 'machine-other' } as ClusterMetadata);
     expect(applied).toEqual([]);
-    await monitoring.applyRootRules(system);
+    await monitoring.applyRootRules(koalas);
     const written = applied.map((manifest) => JSON.parse(manifest) as { kind: string; metadata: { name: string } });
     expect(written.map((manifest) => [manifest.kind, manifest.metadata.name])).toEqual([['PrometheusRule', 'koala-root-alerts']]);
   });

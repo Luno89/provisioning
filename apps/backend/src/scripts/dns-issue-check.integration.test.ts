@@ -6,7 +6,7 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import type { UserMetadata } from '../platform/lib/types.js';
 import { dnsIssueCheck } from './dns-issue-check.js';
 
-const env = { JWT_SECRET: 'dns-issue-check-test-secret-0123456789' };
+const env = { ROLE: 'root', JWT_SECRET: 'dns-issue-check-test-secret-0123456789' };
 const ZONE = 'koala.test';
 
 describe('npm run dns:issue-check', () => {

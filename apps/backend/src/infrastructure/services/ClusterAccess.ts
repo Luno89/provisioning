@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
-import { machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
+import { hereFrom, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
 
 export class ClusterUnreachable extends Error {
@@ -39,10 +39,18 @@ const clusterIdOf = (target: Target): string => (typeof target === 'string' ? ta
 export class ClusterAccess {
   constructor(private readonly deps: ClusterAccessDeps) {}
 
+  get here(): Here {
+    return this.deps.here;
+  }
+
+  ownId(): string | undefined {
+    return ownReach(this.deps.here)?.clusterId;
+  }
+
   own(): Reach {
-    const { here } = this.deps;
-    if (!here.root && !here.koalaMachineId && !this.deps.serviceAccount) throw new ClusterUnreachable('own', 'no-account', 'this process runs in no cluster of its own: it is not root, was named no machine (INSTANCE_MACHINE_ID) and runs in no pod');
-    return ownReach(here);
+    const reach = ownReach(this.deps.here);
+    if (!reach) throw new ClusterUnreachable('own', 'no-account', 'this process runs in no cluster of its own: it is not root and was named neither the machine it runs on (INSTANCE_MACHINE_ID) nor its place on Koala\'s servers (POOL with INSTANCE_NAME)');
+    return reach;
   }
 
   async handOver(clusterId: string): Promise<HandOver> {
@@ -164,7 +172,7 @@ export function clusterAccessFrom(env: Readonly<Record<string, string | undefine
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   const root = from.role === 'root';
   return new ClusterAccess({
-    here: { koalaMachineId: env.INSTANCE_MACHINE_ID?.trim() || undefined, root },
+    here: hereFrom(env, root),
     folder,
     processes: nodeProcesses,
     streams: nodeStreams,

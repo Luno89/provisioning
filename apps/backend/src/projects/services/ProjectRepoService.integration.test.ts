@@ -107,7 +107,8 @@ describe('making a project with a repository', () => {
     const project = await repos.createProject('u1', { id: 'p1', name: 'My Shop', repo: 'my-shop', language: 'odoo', autoDeployOnBuild: true, starter: [{ path: 'Dockerfile', content: 'FROM odoo' }] });
 
     expect(calls).toEqual([matching(/^repo .+\/my-shop$/), matching(/^hook .+\/my-shop http:\/\/10\.0\.0\.5:3001\/webhooks\/gitea\/p1$/), matching(/^seed .+\/my-shop Dockerfile$/)]);
-    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'provisioning-lunorica', autoDeployOnBuild: true, webhookSecretEnc: anyOf(String) });
+    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', autoDeployOnBuild: true, webhookSecretEnc: anyOf(String) });
+    expect(project).not.toHaveProperty('targetClusterId');
     expect((await db.projects.getProjects()).map((entry) => entry.id)).toEqual(['p1']);
   });
 

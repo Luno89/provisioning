@@ -1,14 +1,12 @@
 
 export const CLUSTER_NAME_MAX_LENGTH = 40;
 
-export const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
-
 export const machineClusterId = (deviceId: string): string => `machine-${deviceId}`;
 
-const RESERVED_NAMES = new Set([SYSTEM_CLUSTER_ID]);
+export const poolClusterId = (instanceName: string): string => `pool-${instanceName}`;
 
-export const signsInAsPlatform = (serviceKey: string, clusterId: string): boolean =>
-  serviceKey === 'grafana' || ((serviceKey === 'gitea' || serviceKey === 'infisical') && clusterId === SYSTEM_CLUSTER_ID);
+export const signsInAsPlatform = (serviceKey: string, onKoalasCluster: boolean): boolean =>
+  serviceKey === 'grafana' || ((serviceKey === 'gitea' || serviceKey === 'infisical') && onKoalasCluster);
 
 const VALID = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
@@ -39,9 +37,6 @@ export function validateClusterName(raw: unknown): ClusterNameCheck {
 
   if (name.length > CLUSTER_NAME_MAX_LENGTH) {
     return withSuggestion(`Cluster names must be ${CLUSTER_NAME_MAX_LENGTH} characters or fewer (this one is ${name.length}).`);
-  }
-  if (RESERVED_NAMES.has(name)) {
-    return { ok: false, error: `"${name}" is reserved for the management cluster. Pick a different name.` };
   }
   if (/\s/.test(name)) {
     return withSuggestion('Cluster names cannot contain spaces.');

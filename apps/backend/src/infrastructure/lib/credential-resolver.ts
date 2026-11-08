@@ -3,10 +3,8 @@ import type { CloudCredentials } from '../../platform/index.js';
 import { credentialEnvOf, credentialsFromEnv, dnsProviderNamed, isDnsProviderName } from './dns-providers.js';
 import { allowed, principalOf, type ClaimedUser, type ClaimSettings } from '../../platform/lib/permissions.js';
 
-export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };
-
-export const usesOperatorCredentials = (user: ClaimedUser | undefined, claims: ClaimSettings): boolean =>
-  user !== undefined && allowed(principalOf(user, claims), 'use-operator-credentials', { kind: 'install' });
+export const usesOperatorCredentials = (user: ClaimedUser | undefined, claims: ClaimSettings | undefined): boolean =>
+  user !== undefined && claims !== undefined && allowed(principalOf(user, claims), 'use-operator-credentials', { kind: 'install' });
 
 export interface ResolvedCredentials {
   mode: 'user' | 'env' | 'mock';

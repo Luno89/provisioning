@@ -1,11 +1,9 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
 import { checkMoveToken, generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { HUB_AUDIENCE } from '../lib/hub.js';
-import type { HubService } from './HubService.js';
-import { hubPersonPart, localHubPeople, RemoteHubPeople } from './HubPeople.js';
+import { hubPersonPart, RemoteHubPeople } from './HubPeople.js';
 
 const signing = identityKeysFrom(generateIdentityKey());
 const trusted = trustedKeys([publicKeyPem(signing.publicKey)]);
@@ -16,18 +14,6 @@ const server = interceptHttp();
 const record = (request: Request) => {
   asked.push({ method: request.method, path: new URL(request.url).pathname, token: (request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '') });
 };
-
-describe('a person\'s part of the hub, read in the same process', () => {
-  it('says what stops the person from going, and lets them go', async () => {
-    const hub = mock<HubService>();
-    hub.leaving.calledWith('ann').mockResolvedValue({ blockers: ['only owner of Shop'], deletes: [], leaves: [] });
-    const people = localHubPeople(hub);
-    expect(await people.blockers('ann')).toEqual(['only owner of Shop']);
-    hub.letGo.mockResolvedValue({ deleted: [], left: [] });
-    await people.letGo('ann');
-    expect(hub.letGo).toHaveBeenCalledWith('ann');
-  });
-});
 
 describe('a person\'s part of the hub, read through root\'s signed requests', () => {
   it('names the step in the signed part, per person', () => {

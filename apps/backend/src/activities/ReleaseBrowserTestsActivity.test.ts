@@ -205,7 +205,7 @@ describe('a check browsing its project\'s release', () => {
       },
       cluster: () => ({ ...io.io, kubectl: async (args) => (args[0] === 'get' && args[1] === 'namespace' ? '' : io.io.kubectl(args)) }),
       project: async (id) => (id === 'p1' ? project : undefined),
-      clusterById: async () => ({ id: 'c1', name: 'provisioning-lunorica', provider: 'k3d' }) as never,
+      clusterById: async () => ({ id: 'c1', name: 'koala', provider: 'k3d' }) as never,
     });
     return { releases, runs };
   };
@@ -215,7 +215,7 @@ describe('a check browsing its project\'s release', () => {
     const { releases, runs } = made({});
     await releases.browse({ ownerId: 'space-1', projectId: 'p1', release, specs: { 'e2e/live.spec.ts': 'test()' }, keepUnder: 'run-1' });
     expect(runs).toEqual([expect.objectContaining({
-      target: { clusterId: 'c1', clusterName: 'provisioning-lunorica', provider: 'k3d', namespace: 'shop', release: 'shop', owner: { ownerId: 'space-1', projectId: 'p1' } },
+      target: { clusterId: 'c1', clusterName: 'koala', provider: 'k3d', namespace: 'shop', release: 'shop', owner: { ownerId: 'space-1', projectId: 'p1' } },
       ownerId: 'space-1', keepUnder: 'run-1', slot: 'a', image: 'reg/shop:2',
       files: [expect.objectContaining({ path: 'playwright.config.ts' }), { path: 'e2e/live.spec.ts', content: 'test()' }],
     })]);
@@ -240,7 +240,7 @@ describe('a check browsing its project\'s release', () => {
       browser: { readSpecs: async () => ({ files: [] }), runBrowserTests: async () => ({ state: 'passed', startedAt: 't' }) },
       cluster: (target) => ({ kubectl: async (args) => { asked.push({ namespace: target.namespace, args }); return 'namespace/shop-1a2b3c'; }, apply: async () => undefined }),
       project: async () => undefined,
-      clusterById: async () => ({ id: 'c1', name: 'provisioning-lunorica', provider: 'k3d' }) as never,
+      clusterById: async () => ({ id: 'c1', name: 'koala', provider: 'k3d' }) as never,
     });
     expect(await releases.namespaceExists({ ownerId: 'space-1', projectId: 'gone', at: { clusterId: 'c1', namespace: 'shop-1a2b3c' } })).toBe(true);
     expect(asked).toEqual([{ namespace: 'shop-1a2b3c', args: ['get', 'namespace', 'shop-1a2b3c', '-o', 'name', '--ignore-not-found'] }]);

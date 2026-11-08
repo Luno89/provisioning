@@ -1,5 +1,5 @@
 import type { ProjectMetadata } from '../../platform/index.js';
-import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
+import { hereFrom, koalasClusterId } from '../../infrastructure/lib/cluster-places.js';
 
 export const webhookUrlAt = (backend: string, projectId: string): string => `${backend.replace(/\/+$/, '')}/webhooks/gitea/${projectId}`;
 
@@ -22,12 +22,7 @@ export function isShippable(project: Pick<ProjectMetadata, 'webhookSecretEnc' | 
   return shippingGaps(project).length === 0;
 }
 
-export const DEFAULT_TARGET_CLUSTER = 'provisioning-lunorica';
-
-export const koalasClusterFor = (env: Readonly<Record<string, string | undefined>>): string => {
-  const machine = env.INSTANCE_MACHINE_ID?.trim();
-  return machine ? machineClusterId(machine) : DEFAULT_TARGET_CLUSTER;
-};
+export const koalasClusterFor = (env: Readonly<Record<string, string | undefined>>): string | undefined => koalasClusterId(hereFrom(env, false));
 
 const pathOf = (url: string): string | undefined => {
   try { return new URL(url).pathname; } catch { return undefined; }
@@ -40,5 +35,5 @@ export const namesTargetCluster = (asked: unknown): asked is string => typeof as
 
 export function targetClusterProblem(asked: unknown, deployable: boolean): string | undefined {
   if (asked === undefined || asked === null || asked === '') return undefined;
-  return namesTargetCluster(asked) && deployable ? undefined : 'Deploy to the system cluster or one of your own clusters.';
+  return namesTargetCluster(asked) && deployable ? undefined : 'Deploy to one of your own clusters.';
 }

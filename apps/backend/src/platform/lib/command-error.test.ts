@@ -3,7 +3,7 @@ import { CommandFailedError, salientFailure, stripAnsi } from './command-error.j
 
 const E = '\x1b';
 const REAL_CDKTF_TAIL = [
-  `${E}[1m${E}[33mapp-provisioning-lunorica${E}[39m${E}[22m  kubernetes_ingress_v1.gitapp: Creating...`,
+  `${E}[1m${E}[33mapp-koala${E}[39m${E}[22m  kubernetes_ingress_v1.gitapp: Creating...`,
   '',
   '1 Stack deploying     0 Stacks done     0 Stacks waiting',
   `${E}[31m|${E}[0m ${E}[1m${E}[31mError: ${E}[0mFailed to create Ingress 'fix-gitea-mcp/app' because: `

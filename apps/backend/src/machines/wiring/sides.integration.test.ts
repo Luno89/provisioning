@@ -146,25 +146,3 @@ describe('a root and an instance wired as they run, against each other', () => {
     expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: joined.value.deviceId, owner: 'bo', aud: instanceId } });
   });
 });
-
-describe('a combined Koala wired as it runs', () => {
-  it('makes a joined machine its project at once, and its work tokens are for itself', async () => {
-    const db = await testDatabase();
-    const app = express();
-    const { io, url } = await listening(app);
-    const sides = machineSides({
-      role: roleFromEnv({ ROLE: 'combined', JWT_SECRET: 'combined-test' }),
-      db, io, dataKey: KEY, publicUrl: url, mesh, devices: recordingDevices(), projects: new ProjectRepoService(db, {} as GiteaService, KEY),
-      instances: () => undefined,
-    });
-    expect(sides.mirror).toBeUndefined();
-    const joined = await sides.accounts!.join((await sides.machines.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
-    if (!joined.ok) throw new Error(joined.error);
-    expect((await db.projects.getProjects()).map((project) => [project.name, project.executionTarget])).toEqual([['desk - koala', { kind: 'local-device', deviceId: joined.value.deviceId }]]);
-    const koala = (await sides.accounts!.koalaFor(joined.value.deviceId))!;
-    expect(koala.url).toBe(url);
-    expect(checkWorkToken(koala.workToken, sides.workTokens!.keys, sides.workTokens!.audience)).toMatchObject({ ok: true, claims: { aud: 'combined' } });
-    expect(await sides.machines.remove('bo', joined.value.deviceId)).toBe(true);
-    expect(await db.projects.getProjects()).toEqual([]);
-  });
-});

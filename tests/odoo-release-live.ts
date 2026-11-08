@@ -145,9 +145,9 @@ async function main(): Promise<void> {
   const releaseIds: string[] = [];
   try {
     console.log(`[1] a project with no cluster picked, so on Koala's own cluster: ${NAME}`);
-    const clusters = (await http.get('/clusters')).data as { id: string; isSystem?: boolean }[];
-    const koalas = clusters.find((cluster) => cluster.isSystem);
-    assert.ok(koalas, `Koala lists no cluster of its own: ${JSON.stringify(clusters.map((cluster) => cluster.id))}`);
+    const clusters = (await http.get('/infrastructure')).data.monitoring.clusters as { id: string; own: boolean }[];
+    const koalas = clusters.find((cluster) => cluster.own);
+    assert.ok(koalas, `Koala lists no cluster it runs in: ${JSON.stringify(clusters.map((cluster) => cluster.id))}`);
     const made = await http.post('/projects', { name: NAME, giteaRepo: NAME, createRepo: true });
     assert.ok(made.status < 300, JSON.stringify(made.data));
     const project = made.data as { id: string; name: string; giteaOwner: string; giteaRepo: string };

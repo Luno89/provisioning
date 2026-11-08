@@ -11,19 +11,19 @@ describe('metrics about Koala itself', () => {
   });
 
   it('serves its text only to the bearer of the metrics token, and counts failed work by kind', async () => {
-    const metrics = new MetricsService({ token: 'secret', role: 'combined' });
+    const metrics = new MetricsService({ token: 'secret', role: 'instance' });
     expect(metrics.allowed('Bearer secret')).toBe(true);
     expect(metrics.allowed('Bearer other')).toBe(false);
-    expect(new MetricsService({ role: 'combined' }).allowed('Bearer anything')).toBe(false);
+    expect(new MetricsService({ role: 'instance' }).allowed('Bearer anything')).toBe(false);
     metrics.failed('chat');
     metrics.failed('chat');
     const text = await metrics.text();
-    expect(text).toContain('koala_work_failures_total{kind="chat",role="combined"} 2');
+    expect(text).toContain('koala_work_failures_total{kind="chat",role="instance"} 2');
     expect(text).toContain('process_cpu_user_seconds_total');
   });
 
   it('names a request by its whole path, even when a nested router answered it', async () => {
-    const metrics = new MetricsService({ token: 'secret', role: 'combined' });
+    const metrics = new MetricsService({ token: 'secret', role: 'instance' });
     const app = express();
     app.use(metrics.middleware());
     const inner = Router();

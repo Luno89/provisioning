@@ -11,7 +11,8 @@ import { nodeProcesses } from '../../platform/services/processes.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { CHANGES_PAGE, HubService } from './HubService.js';
-import { HubSyncService, localHubSync, type HubRepoSides } from './HubSyncService.js';
+import { HubSyncService, type HubRepoSides } from './HubSyncService.js';
+import { localHubSync } from '../testing/in-process-hub.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
@@ -23,10 +24,10 @@ async function setUp() {
   const db = await testDatabase();
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
-  const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
+  const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i1', projectId: 'p1' } });
   if (!made.ok) throw new Error(made.why);
   const hubId = made.value.project.id;
-  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
+  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1' });
   const onHub = store.project(hubId);
   return { db, hub, sync, onHub, hubId };
 }
@@ -101,11 +102,11 @@ describe('keeping a shared project\'s board in step with the hub', () => {
 
   it('asked for a pass while one runs, answers only after a pass that began after it was asked', async () => {
     const { db, onHub, hub, hubId } = await setUp();
-    const transport = localHubSync(hub, 'combined');
+    const transport = localHubSync(hub, 'i1');
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     let pulls = 0;
-    const sync = new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, pull: async (...args) => { pulls += 1; if (pulls === 1) await held; return transport.pull(...args); } } });
+    const sync = new HubSyncService({ store: db.hub, origin: 'instance:i1', transport: { ...transport, pull: async (...args) => { pulls += 1; if (pulls === 1) await held; return transport.pull(...args); } } });
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     const first = sync.once();
     await vi.waitFor(() => expect(pulls).toBe(1));
@@ -121,8 +122,8 @@ describe('keeping a shared project\'s board in step with the hub', () => {
   it('keeps a change waiting while the hub cannot be reached, and sends it once it can', async () => {
     const { db, onHub, hub, hubId } = await setUp();
     let down = true;
-    const transport = localHubSync(hub, 'combined');
-    const sync = new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, push: (link, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(link, changes)) } });
+    const transport = localHubSync(hub, 'i1');
+    const sync = new HubSyncService({ store: db.hub, origin: 'instance:i1', transport: { ...transport, push: (link, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(link, changes)) } });
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
     await sync.once();
@@ -151,7 +152,7 @@ describe('members working a shared project from the hub', () => {
     const store = memoryHubStore();
     const relay = new HubRelay();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
-    const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
+    const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i1', projectId: 'p1' } });
     if (!made.ok) throw new Error(made.why);
     const hubId = made.value.project.id;
     for (const [personId, role] of [['cy', 'client'], ['bo', 'collaborator']] as const) {
@@ -195,7 +196,7 @@ describe('members working a shared project from the hub', () => {
         remove: async () => ({ ok: true, value: { path: 'x' } }),
       },
     });
-    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work });
+    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1', work: () => work });
     await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
@@ -205,7 +206,7 @@ describe('members working a shared project from the hub', () => {
     await db.engine.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
     await sync.start();
     await sync.once();
-    expect(relay.online('combined')).toBe(true);
+    expect(relay.online('i1')).toBe(true);
     return { db, hub, hubId, sync, did, relay, store };
   }
 
@@ -344,7 +345,7 @@ describe('keeping main in step with the hub\'s, with real git', () => {
     const repos: HubRepoSides = { ends: async () => ({ owner: { url: owner }, hub: { url: hub } }), conflicted: async (_link, conflict) => { conflicts.push(conflict); } };
     const lines: string[] = [];
     const sync = new HubSyncService({
-      store: db.hub, transport: localHubSync(new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } }), 'combined'), origin: 'instance:combined', repos,
+      store: db.hub, transport: localHubSync(new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } }), 'i1'), origin: 'instance:i1', repos,
       git: { run: (given) => { ran.push(given); return nodeProcesses.run(given); } }, log: (line) => lines.push(line),
     });
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'hub-1', pulledThrough: 0, sharedAt: now, repo: { url: 'http://gitea/p1.git', username: 'bot', tokenEnc: 'sealed' } });
@@ -417,19 +418,19 @@ describe('the line to the hub in the same process', () => {
     const db = await testDatabase();
     const relay = new HubRelay();
     const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
-    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => ({}) as never });
-    expect(relay.online('combined')).toBe(false);
+    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1', work: () => ({}) as never });
+    expect(relay.online('i1')).toBe(false);
     await sync.start();
-    expect(relay.online('combined')).toBe(true);
+    expect(relay.online('i1')).toBe(true);
     await sync.stop();
-    expect(relay.online('combined')).toBe(false);
+    expect(relay.online('i1')).toBe(false);
   });
 });
 
 describe('the hub in the same process refusing', () => {
   it('fails each call with the hub\'s own reason and status, so the sync says why and tries again on the next pass', async () => {
     const { hub } = await setUp();
-    const transport = localHubSync(hub, 'combined');
+    const transport = localHubSync(hub, 'i1');
     const nowhere = { projectId: 'p9', ownerId: 'ann', hubProjectId: 'not-on-the-hub', pulledThrough: 0, sharedAt: now };
     const refusals: string[] = [];
     for (const asked of [
@@ -442,6 +443,6 @@ describe('the hub in the same process refusing', () => {
       ...Array<string>(3).fill('404 There is no such project, or you are not on it.'),
       '404 That call is no longer waiting.',
     ]);
-    expect(() => localHubSync(hub, 'combined').connect({ connected: () => undefined, changed: () => undefined, call: () => undefined })).toThrow('This hub relays nothing.');
+    expect(() => localHubSync(hub, 'i1').connect({ connected: () => undefined, changed: () => undefined, call: () => undefined })).toThrow('This hub relays nothing.');
   });
 });

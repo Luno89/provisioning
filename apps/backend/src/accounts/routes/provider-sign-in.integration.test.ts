@@ -74,7 +74,7 @@ async function standInGithub(): Promise<StandInGithub> {
 }
 
 async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[]) {
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, role: 'root', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
   const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
@@ -305,7 +305,7 @@ describe('a dev box whose providers return to localhost while its sign-in lives 
     returnUrl = place.url.replace('127.0.0.1', 'localhost');
     issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(returnUrl, 'oidc')] });
     const providers = signInProvidersFrom({ OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in' }).providers;
-    const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: place.url, setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+    const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: place.url, role: 'root', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
     const authService = new AuthService(db);
     const app = express();
     app.use(express.json());

@@ -187,7 +187,6 @@ export default function ClusterWizard({
       suggestion && suggestion !== trimmed ? { error, suggestion } : { error };
 
     if (trimmed.length > 40) return withSuggestion(`Cluster names must be 40 characters or fewer (this one is ${trimmed.length}).`);
-    if (trimmed === 'provisioning-lunorica') return { error: 'That name is reserved for the management cluster.' };
     if (/\s/.test(trimmed)) return withSuggestion('Cluster names cannot contain spaces.');
     if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(trimmed)) {
       return withSuggestion('Use only lowercase letters, numbers and hyphens, starting and ending with a letter or number.');
@@ -307,10 +306,6 @@ export default function ClusterWizard({
             >
               Compare plans across providers
             </button>
-            <p className="text-[11px] text-slate-500 px-1">
-              GPU/LLM workloads (vLLM) run on the built-in System cluster — no separate GPU-enabled
-              cluster to provision here.
-            </p>
           </div>
         )}
 

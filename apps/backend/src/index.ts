@@ -127,7 +127,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const builderService = new BuilderService(db, infraService);
   const clusterAccess = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
   const koalasCluster = (): string => clusterAccess.own().clusterId;
-  const clusterService = new ClusterService(db, infraService, clusterAccess);
+  const clusterService = new ClusterService(db, infraService, clusterAccess, { instanceOwnerId: role.instance?.ownerId });
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
@@ -162,12 +162,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     instances: () => (late.instances ? { service: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
-
-  if (tenants) {
-    clusterService.ensureSystemClusterGpuReady().catch((err: Error) =>
-      console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
-    );
-  }
 
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService, claimSettings);
   clusterService.setTemporalBridge(temporalBridge);
@@ -315,7 +309,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
-    revocations,
     serviceCaller: rootProvider ? (token) => rootProvider.serviceCaller(token) : undefined,
     personAtHub: rootProvider ? (token) => rootProvider.personAtHub(token) : undefined,
     vouch: rootSignIn && role.role === 'hub' ? (req) => rootSignIn.personToken((req as { clientSession?: Parameters<typeof rootSignIn.personToken>[0] }).clientSession) : undefined,
@@ -365,9 +358,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,
     ...(tenants ? {
       metricsWrite: async (body: Buffer) => {
-        const system = await clusterService.getSystemClusterEntry();
-        if (!system) return { status: 503, text: 'this Koala has no system cluster to keep metrics on' };
-        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus');
+        const own = clusterService.ownClusterId();
+        if (!own) return { status: 503, text: 'this Koala runs in no cluster of its own to keep metrics on' };
+        const base = await clusterProxyService.serviceUrl(own, 'prometheus');
         const answer = await fetch(new URL('api/v1/write', base.endsWith('/') ? base : `${base}/`), {
           method: 'POST', body, headers: { 'content-type': 'application/x-protobuf', 'content-encoding': 'snappy', 'x-prometheus-remote-write-version': '0.1.0' },
         });
@@ -383,7 +376,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
+  wireAccounts({ app, role, env: process.env, db, temporal: getTemporalClient, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({

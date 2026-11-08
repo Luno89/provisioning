@@ -3,12 +3,12 @@ import type { ActionProposal } from '../../engine/lib/action-proposals.js';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import { createProjectTools } from './project-tools.js';
 
-const PROJECT: ProjectMetadata = { id: 'p1', name: 'billing', ownerId: 'u1', appType: 'gitapp', giteaOwner: 'koala-u1', giteaRepo: 'billing', targetClusterId: 'provisioning-lunorica', deployEnv: 'LOG_LEVEL=info', createdAt: 'x' };
+const PROJECT: ProjectMetadata = { id: 'p1', name: 'billing', ownerId: 'u1', appType: 'gitapp', giteaOwner: 'koala-u1', giteaRepo: 'billing', targetClusterId: 'machine-koala', deployEnv: 'LOG_LEVEL=info', createdAt: 'x' };
 const RUNS = [
   { id: 'b2', projectId: 'p1', status: 'failed', startedAt: '2026-09-27T02:00:00Z', errorMessage: 'npm ci failed' },
   { id: 'b1', projectId: 'p1', status: 'succeeded', imageTag: 'reg/billing:abc', commitSha: 'abcdef123', startedAt: '2026-09-27T01:00:00Z' },
 ] as unknown as PipelineRunMetadata[];
-const CLUSTERS = [{ id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true }] as ClusterMetadata[];
+const CLUSTERS = [{ id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'u1' }] as ClusterMetadata[];
 
 function tools() {
   const proposals: ActionProposal[] = [];
@@ -20,8 +20,9 @@ function tools() {
       projects: { list: async () => [PROJECT, { ...PROJECT, id: 'p2', name: 'theirs', ownerId: 'u2' }] },
       trees: { list: async () => [] },
       runs: async () => RUNS,
-      deployments: async () => [{ name: 'taken', clusterId: 'provisioning-lunorica' }] as DeploymentMetadata[],
+      deployments: async () => [{ name: 'taken', clusterId: 'machine-koala' }] as DeploymentMetadata[],
       clusters: async () => CLUSTERS,
+      ownClusterId: () => 'machine-koala',
       appTypes: async () => [{ id: 'qdrant', label: 'Qdrant Vector Database', strategies: ['native'], builtIn: true }, { id: 'nextcloud', strategies: ['helm', 'native'], builtIn: true }],
       readPath: async (_project, path) => ({ path, type: 'file', content: 'hello' }),
       bindingCheck: async (_owner, service) => (service === 'qdrant-1' ? { name: 'qdrant', type: 'vector-db' } : { problem: `no service ${service}` }),
@@ -57,10 +58,10 @@ describe('proposing, never acting', () => {
     expect(proposals[0]!.detail).toContain('Image: reg/billing:abc');
   });
 
-  it('proposes a catalogue app with the strategy it can deploy by, and refuses what cannot be', async () => {
+  it('proposes a catalogue app on the cluster Koala runs in, with the strategy it can deploy by, and refuses what cannot be', async () => {
     const { call, proposals } = tools();
     await call('propose_deploy_app', { appType: 'qdrant', name: 'vectors' });
-    expect(proposals[0]).toMatchObject({ kind: 'deploy_app', params: { appType: 'qdrant', name: 'vectors', clusterId: 'provisioning-lunorica', strategy: 'native' } });
+    expect(proposals[0]).toMatchObject({ kind: 'deploy_app', params: { appType: 'qdrant', name: 'vectors', clusterId: 'machine-koala', strategy: 'native' } });
     expect((await call('propose_deploy_app', { appType: 'mystery', name: 'x' })).digest).toContain('the catalogue has: qdrant, nextcloud');
     expect((await call('propose_deploy_app', { appType: 'qdrant', name: 'taken' })).digest).toContain('already exists');
     expect((await call('propose_deploy_app', { appType: 'qdrant', name: 'v', cluster: 'nope' })).digest).toContain('no cluster called');
@@ -115,6 +116,7 @@ describe('what happened to a project\'s work after it landed', () => {
         runs: async () => RUNS,
         deployments: async () => deployments,
         clusters: async () => CLUSTERS,
+        ownClusterId: () => 'machine-koala',
         appTypes: async () => [],
         readPath: async () => null,
         bindingCheck: async () => ({ problem: 'none' }),

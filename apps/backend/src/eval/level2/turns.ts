@@ -45,7 +45,7 @@ export const TURN_CHECKS: Scenario[] = [
   turn('turn-koala-asks-to-switch-a-server-on', 'koala: asks to switch a server on', 'koala', 'Switch my Gitea MCP server on for this chat — I want you to look through my repositories.', { tool: 'enable_mcp_server', args: [{ arg: 'server', contains: 'Gitea' }, { arg: 'why', nonEmpty: true }] }),
   turn('turn-koala-lists-what-runs-where', 'koala: lists what runs where', 'koala', 'What clusters do I have, and what is running on each of them?', { tool: 'list_infrastructure' }),
   turn('turn-koala-reads-a-deployments-logs', 'koala: reads a deployments logs', 'koala', 'Show me the latest logs from my odoo-custom-image deployment.', { tool: 'get_logs', args: [{ arg: 'deployment', contains: 'odoo-custom-image' }] }),
-  turn('turn-koala-measures-a-cluster', 'koala: measures a cluster', 'koala', 'How much CPU and memory is the provisioning-lunorica cluster using right now?', { tool: 'cluster_capacity' }),
+  turn('turn-koala-measures-a-cluster', 'koala: measures a cluster', 'koala', 'How much CPU and memory is the cluster you run on using right now?', { tool: 'cluster_capacity' }),
   turn('turn-koala-checks-a-build', 'koala: checks a build', 'koala', 'Did the last build of my billing project succeed?', { tool: 'get_project_pipeline' }),
   turn('turn-koala-proposes-a-catalogue-app', 'koala: proposes a catalogue app', 'koala', 'Deploy a Qdrant vector database for me, call it vectors.', { tool: 'propose_deploy_app', args: [{ arg: 'appType', contains: 'qdrant' }, { arg: 'name', is: 'vectors' }] }),
   turn('turn-koala-proposes-plain-configuration', 'koala: proposes plain configuration', 'koala', 'Set LOG_LEVEL to debug on my billing project.', { tool: 'propose_project_env' }),

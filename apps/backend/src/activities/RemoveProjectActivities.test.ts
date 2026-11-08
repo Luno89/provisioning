@@ -27,7 +27,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   secrets,
   files,
   apps: {
-    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
+    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'k3d', status: 'running' } as never : undefined),
     handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), 
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
@@ -151,7 +151,7 @@ describe('the steps that delete a project', () => {
     expect(planned[0]).toMatchObject({
       deploymentId: 'odoo-p1',
       taskQueue: 'cluster-ops-queue',
-      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
     });
     expect(planned[0]!.workflowId).toMatch(/^app-destroy-shop-p1-/);
     const marked = (await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1');

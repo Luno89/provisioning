@@ -28,12 +28,6 @@ describe('validateClusterName', () => {
     expect(validateClusterName(42).ok).toBe(false);
   });
 
-  it('reserves the management cluster name', () => {
-    const r = validateClusterName('provisioning-lunorica');
-    expect(r.ok).toBe(false);
-    expect(r.suggestion).toBeUndefined();
-  });
-
   it('enforces the length budget', () => {
     expect(validateClusterName('a'.repeat(CLUSTER_NAME_MAX_LENGTH)).ok).toBe(true);
     const tooLong = validateClusterName('a'.repeat(CLUSTER_NAME_MAX_LENGTH + 1));
@@ -60,12 +54,20 @@ describe('suggestClusterName', () => {
 });
 
 describe('signing in to a cluster\'s dashboards for the person', () => {
-  it('uses the platform\'s own Gitea and Infisical sign-in only on the system cluster, where they run', async () => {
-    const { signsInAsPlatform, SYSTEM_CLUSTER_ID } = await import('./cluster-name.js');
-    expect(signsInAsPlatform('gitea', SYSTEM_CLUSTER_ID)).toBe(true);
-    expect(signsInAsPlatform('infisical', SYSTEM_CLUSTER_ID)).toBe(true);
-    expect(signsInAsPlatform('gitea', 'my-own-cluster')).toBe(false);
-    expect(signsInAsPlatform('infisical', 'my-own-cluster')).toBe(false);
-    expect(signsInAsPlatform('grafana', 'my-own-cluster')).toBe(true);
+  it('uses the platform\'s own Gitea and Infisical sign-in only on the cluster Koala runs in, where they run', async () => {
+    const { signsInAsPlatform } = await import('./cluster-name.js');
+    expect(signsInAsPlatform('gitea', true)).toBe(true);
+    expect(signsInAsPlatform('infisical', true)).toBe(true);
+    expect(signsInAsPlatform('gitea', false)).toBe(false);
+    expect(signsInAsPlatform('infisical', false)).toBe(false);
+    expect(signsInAsPlatform('grafana', false)).toBe(true);
+  });
+});
+
+describe('the ids of the clusters Koala runs in', () => {
+  it('names a machine\'s by its device and a pool place\'s by the instance\'s name', async () => {
+    const { machineClusterId, poolClusterId } = await import('./cluster-name.js');
+    expect(machineClusterId('desk')).toBe('machine-desk');
+    expect(poolClusterId('bob')).toBe('pool-bob');
   });
 });

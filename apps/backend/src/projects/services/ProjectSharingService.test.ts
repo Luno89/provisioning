@@ -3,9 +3,8 @@ import { mock } from 'vitest-mock-extended';
 import { containing, matching } from '../../platform/lib/test-matchers.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import type { HubService } from '../../hub/index.js';
 import { sharedProjectRecordsBehaviour } from '../testing/project-sharing-behaviour.js';
-import { localHubSharing, localProjectGroups, ProjectSharingService, type HubSharing, type ProjectGroups } from './ProjectSharingService.js';
+import { ProjectSharingService, type HubSharing, type ProjectGroups } from './ProjectSharingService.js';
 
 const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
@@ -259,65 +258,3 @@ describe('taking a project back', () => {
 });
 
 sharedProjectRecordsBehaviour(async () => memoryDatabase());
-
-describe('sharing through a hub in the same process', () => {
-  const view = { project: { id: 'hub-1' } };
-
-  it('is always reachable, and shares as the instance on behalf of the owner', async () => {
-    const hub = mock<Pick<HubService, 'share' | 'unshare'>>();
-    hub.share.mockResolvedValue({ ok: true, value: { view: view as never, repo: { url: 'u', username: 'bot', token: 't' } } });
-    const sharing = localHubSharing(hub, 'combined');
-    expect(await sharing.reachable()).toBe(true);
-    expect(await sharing.share(ann, { id: 'p1', name: 'Shop', group: 'acme' })).toEqual({ hubProjectId: 'hub-1', repo: { url: 'u', username: 'bot', token: 't' } });
-    expect(hub.share).toHaveBeenCalledWith({ kind: 'instance', personId: 'ann', instanceId: 'combined', email: 'ann@example.com' }, { name: 'Shop', projectId: 'p1', group: 'acme' });
-  });
-
-  it('shares without a repository when the hub made none, and throws the hub\'s reason when it refuses', async () => {
-    const hub = mock<Pick<HubService, 'share' | 'unshare'>>();
-    hub.share.mockResolvedValueOnce({ ok: true, value: { view: view as never } });
-    const sharing = localHubSharing(hub, 'combined');
-    expect(await sharing.share(ann, { id: 'p1', name: 'Shop', group: 'acme' })).toEqual({ hubProjectId: 'hub-1' });
-    hub.share.mockResolvedValueOnce({ ok: false, status: 403, why: 'Only an instance shares' } as never);
-    await expect(sharing.share(ann, { id: 'p1', name: 'Shop', group: 'acme' })).rejects.toThrow('Only an instance shares');
-  });
-
-  it('unshares as the instance, forgives a project the hub no longer has, and throws any other refusal', async () => {
-    const hub = mock<Pick<HubService, 'share' | 'unshare'>>();
-    const sharing = localHubSharing(hub, 'combined');
-    hub.unshare.mockResolvedValueOnce({ ok: true, value: { deleted: 'hub-1' } });
-    await sharing.unshare('ann', 'hub-1');
-    expect(hub.unshare).toHaveBeenCalledWith({ kind: 'instance', personId: 'ann', instanceId: 'combined' }, 'hub-1');
-    hub.unshare.mockResolvedValueOnce({ ok: false, status: 404, why: 'gone' } as never);
-    await expect(sharing.unshare('ann', 'hub-1')).resolves.toBeUndefined();
-    hub.unshare.mockResolvedValueOnce({ ok: false, status: 403, why: 'not yours' } as never);
-    await expect(sharing.unshare('ann', 'hub-1')).rejects.toThrow('not yours');
-  });
-});
-
-describe('the groups of projects on one instance', () => {
-  const link = (projectId: string, group: string) => ({ projectId, ownerId: 'ann', hubProjectId: `hub-${projectId}`, pulledThrough: 0, sharedAt: now, group });
-
-  it('say a group another project holds is taken and a free one is not', async () => {
-    const db = memoryDatabase();
-    await db.hub.saveHubLink(link('p1', 'acme'));
-    const groups = localProjectGroups(db);
-    expect(await groups.check('acme')).toBe('"acme" is taken');
-    expect(await groups.check('globex')).toBeNull();
-  });
-
-  it('let a project claim a free group or its own, and refuse another project\'s', async () => {
-    const db = memoryDatabase();
-    await db.hub.saveHubLink(link('p1', 'acme'));
-    const groups = localProjectGroups(db);
-    await expect(groups.claim('p9', 'globex')).resolves.toBeUndefined();
-    await expect(groups.claim('p1', 'acme')).resolves.toBeUndefined();
-    await expect(groups.claim('p9', 'acme')).rejects.toThrow('"acme" is taken');
-  });
-
-  it('let go of nothing, since a group is held by the link itself', async () => {
-    const db = memoryDatabase();
-    await db.hub.saveHubLink(link('p1', 'acme'));
-    await localProjectGroups(db).release('p1');
-    expect(await db.hub.getHubLinks()).toHaveLength(1);
-  });
-});

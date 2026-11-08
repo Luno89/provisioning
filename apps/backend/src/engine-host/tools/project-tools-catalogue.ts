@@ -72,11 +72,11 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
   proposer(
     'propose_deploy_app',
     'Propose deploying an app from the catalogue — a database, a model server, a media server — to one of the person\'s clusters',
-    'Use this when someone wants a catalogue app running. With no cluster named it goes to the management cluster.',
+    'Use this when someone wants a catalogue app running. With no cluster named it goes to the cluster Koala runs in.',
     {
       appType: { type: 'string', description: 'The catalogue id of the app, like wordpress, qdrant or open-webui.' },
       name: { type: 'string', description: 'What to call the deployment: letters, digits and dashes.' },
-      cluster: { type: 'string', description: 'The cluster to deploy to. Leave out for the always-on management cluster.' },
+      cluster: { type: 'string', description: 'The cluster to deploy to. Leave out for the cluster Koala runs in.' },
     },
     ['appType', 'name'],
     [

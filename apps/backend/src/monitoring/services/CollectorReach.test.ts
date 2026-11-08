@@ -62,9 +62,9 @@ describe('reaching the collector on Koala\'s own cluster', () => {
     await collectorSink({ env: {}, proxy, koalasCluster: () => KOALA, fetchImpl }).send('metrics', new TextEncoder().encode('{}'));
     expect(posted).toEqual(['http://10.43.0.7:4318/v1/metrics']);
     const refusing = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
-    refusing.serviceUrl.mockRejectedValue(new Error('there is no cluster provisioning-lunorica'));
+    refusing.serviceUrl.mockRejectedValue(new Error('there is no cluster machine-gone'));
     const unreachable = collectorSink({ env: {}, proxy: refusing, koalasCluster: () => KOALA, fetchImpl });
-    await expect(unreachable.send('metrics', new TextEncoder().encode('{}'))).rejects.toThrow('there is no cluster provisioning-lunorica');
+    await expect(unreachable.send('metrics', new TextEncoder().encode('{}'))).rejects.toThrow('there is no cluster machine-gone');
   });
 });
 

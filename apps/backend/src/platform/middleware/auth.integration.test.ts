@@ -48,7 +48,7 @@ describe('requireAuth', () => {
   async function build() {
     const db = await testDatabase();
     await db.init();
-    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', sessionEnds: new SessionEnds(db.platform) }) };
+    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: new SessionEnds(db.platform) }) };
   }
 
   it('refuses a request with no session cookie', async () => {
@@ -122,7 +122,7 @@ describe('requireAuth', () => {
     expect((await auth.userFromSessionCookie(`session=${kept}`, false))?.id).toBe('u1');
     const restarted = new SessionEnds(db.platform);
     await restarted.load();
-    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', sessionEnds: restarted });
+    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: restarted });
     expect(await again.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
   });
 
@@ -143,7 +143,7 @@ describe('requireAuth', () => {
 
 describe('requireAdmin', () => {
   const auth = createAuth({
-    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', sessionEnds: noEnds,
+    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds,
   });
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
@@ -170,15 +170,15 @@ describe('requireAdmin', () => {
 describe('session cookie flags', () => {
   it('marks the cookie secure only when the public origin is https', () => {
     const db = null as never;
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', sessionEnds: noEnds })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', role: 'root', sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(true);
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', sessionEnds: noEnds })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(false);
   });
 
   it('is httpOnly and lax in both cases', () => {
     for (const url of ['https://app.example.com', 'http://localhost:3001']) {
-      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, sessionEnds: noEnds }).sessionCookieOptions;
+      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, role: 'root', sessionEnds: noEnds }).sessionCookieOptions;
       expect(opts.httpOnly).toBe(true);
       expect(opts.sameSite).toBe('lax');
     }
@@ -196,7 +196,7 @@ describe('what is open without a session, by role', () => {
     opened ??= testDatabase().then(async (db) => { await db.init(); return db; });
     return opened;
   };
-  const opens = async (role: 'root' | 'instance' | 'combined' | 'hub', path: string): Promise<boolean> => {
+  const opens = async (role: 'root' | 'instance' | 'hub', path: string): Promise<boolean> => {
     const db = await database();
     const call = at(path);
     await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
@@ -213,11 +213,11 @@ describe('what is open without a session, by role', () => {
     expect(await opens('root', '/hub-link/invitation')).toBe(true);
     expect(await opens('instance', '/hub-link/invite')).toBe(false);
     expect(await opens('hub', '/hub-root/people/u1')).toBe(true);
-    expect(await opens('combined', '/hub-root/people/u1')).toBe(false);
+    expect(await opens('root', '/hub-root/people/u1')).toBe(false);
   });
 
     it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
-    for (const role of ['instance', 'combined'] as const) {
+    for (const role of ['instance', 'root'] as const) {
       expect(await opens(role, '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(true);
       expect(await opens(role, '/files/shares')).toBe(false);
       expect(await opens(role, '/files/mine/content')).toBe(false);
@@ -247,12 +247,10 @@ describe('what is open without a session, by role', () => {
     expect(await opens('root', '/identity/go')).toBe(true);
     expect(await opens('instance', '/identity/go')).toBe(false);
     expect(await opens('root', '/auth/handoff')).toBe(false);
-    expect(await opens('combined', '/auth/login')).toBe(true);
-    expect(await opens('combined', '/auth/handoff')).toBe(false);
   });
 
   it('lets anyone start and finish a provider sign-in where accounts are held, and ask which providers there are', async () => {
-    for (const role of ['root', 'combined'] as const) {
+    for (const role of ['root'] as const) {
       for (const path of ['/auth/sign-in', '/auth/provider/google', '/auth/provider/google/callback', '/auth/provider/oidc/callback']) expect(await opens(role, path), `${role} ${path}`).toBe(true);
       expect(await opens(role, '/auth/github')).toBe(false);
       expect(await opens(role, '/auth/google/callback')).toBe(false);
@@ -278,7 +276,7 @@ describe('an invite to sign up', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveInvite({ id: 'i1', codeHash: inviteCodeHash('CODE'), createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
-    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', sessionEnds: noEnds }) };
+    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds }) };
   };
 
   it('made for one address signs up only that address, however it is written', async () => {
@@ -297,7 +295,7 @@ describe('an invite to sign up', () => {
 });
 
 describe('a session over https cannot be planted by a site next door', () => {
-  const signedIn = async (publicUrl: string, role: 'combined' | 'instance' = 'combined') => {
+  const signedIn = async (publicUrl: string, role: 'root' | 'instance' = 'root') => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);

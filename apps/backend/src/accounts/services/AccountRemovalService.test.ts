@@ -11,7 +11,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { REMOVE_ACCOUNT_WORKFLOW, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
 import { AccountRemovalService, temporalRemovalWorkflows, type AccountRemovalWorkflows } from './AccountRemovalService.js';
 
-const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role: 'combined' });
+const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role: 'root' });
 
 const user = (id: string, extra: Partial<UserMetadata> = {}): UserMetadata => ({ id, email: `${id}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', ...extra });
 
@@ -37,8 +37,8 @@ async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; rel
   return { db, workflows, revoked, service };
 }
 
-const asBob = principalOf({ id: 'bob' }, { role: 'combined' });
-const asAna = principalOf({ id: 'ana', roles: ['operator'] }, { role: 'combined' });
+const asBob = principalOf({ id: 'bob' }, { role: 'root' });
+const asAna = principalOf({ id: 'ana', roles: ['operator'] }, { role: 'root' });
 
 describe('what removing an account would take', () => {
   it('names the account and what stands in the way', async () => {

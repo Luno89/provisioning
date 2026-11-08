@@ -10,7 +10,6 @@ import { mountRouter, type Harness } from '../../platform/routes/test-harness.js
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { until } from '../../platform/testing/three-roles.js';
-import { SYSTEM_CLUSTER_ID } from '../lib/cluster-name.js';
 import { AppService } from '../services/AppService.js';
 import { ClusterService } from '../services/ClusterService.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
@@ -21,7 +20,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 const KEY = 'app-names-test-key-that-is-at-least-32-characters' as never;
 const ANN = { id: 'ann', email: 'ann@app-names.test' };
 const BOB = { id: 'bob', email: 'bob@app-names.test' };
-const ASKED = { name: 'shop', clusterId: SYSTEM_CLUSTER_ID, appType: 'audiobookshelf', strategy: 'native' };
+const asked = (person: { id: string }) => ({ name: 'shop', clusterId: `machine-${person.id}`, appType: 'audiobookshelf', strategy: 'native' });
 const QUIET = { validateStatus: () => true };
 
 interface Deployment { id: string; name: string; namespace?: string; ownerId?: string; status: string }
@@ -37,9 +36,9 @@ beforeAll(async () => {
   db = await testDatabase();
   const infra = mock<InfrastructureService>();
   infra.listLocalClusters.mockResolvedValue([]);
-  infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('the integration tier reaches no cluster'));
   infra.runKubectl.mockResolvedValue(JSON.stringify({ items: [] }));
-  const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }), { kubeconfigDir: await mkdtemp(join(tmpdir(), 'app-names-')), koalaMachineId: undefined });
+  for (const person of [ANN, BOB]) await db.infrastructure.saveCluster({ id: `machine-${person.id}`, name: person.id, provider: 'machine', machineId: person.id, status: 'stopped', ownerId: person.id });
+  const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }), { kubeconfigDir: await mkdtemp(join(tmpdir(), 'app-names-')) });
   const bridge = new TemporalBridge(db, undefined, KEY, clusters);
   Object.assign(bridge, { client: env.client });
   h = await mountRouter({
@@ -58,7 +57,7 @@ afterAll(async () => {
 
 async function deployAs(person: typeof ANN): Promise<Started> {
   h.setUser(person);
-  const made = await axios.post<Started>(h.url('/api/deployments'), ASKED, QUIET);
+  const made = await axios.post<Started>(h.url('/api/deployments'), asked(person), QUIET);
   expect(made.status, JSON.stringify(made.data)).toBe(202);
   workflows.push(made.data.workflowId);
   return made.data;
@@ -96,7 +95,7 @@ describe('two owners each deploy an app called shop on one backend', () => {
   it('deploying it again as the same owner goes to the same app, not a second one, and a namespace or id in the request is not taken', async () => {
     const before = (await db.infrastructure.getDeployments()).find((dep) => dep.id === bob.id)!;
     h.setUser(BOB);
-    const again = await axios.post<Started>(h.url('/api/deployments'), { ...ASKED, namespace: 'kube-system', id: ann.id }, QUIET);
+    const again = await axios.post<Started>(h.url('/api/deployments'), { ...asked(BOB), namespace: 'kube-system', id: ann.id }, QUIET);
     expect(again.status, JSON.stringify(again.data)).toBe(202);
     workflows.push(again.data.workflowId);
     expect(again.data.id).toBe(bob.id);

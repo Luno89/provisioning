@@ -54,7 +54,7 @@ describe('the Koala section', () => {
   it('says while the collector or Tempo is missing that they come with the cluster worker or the next deploy', async () => {
     vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue(overview({ state: 'installing', reasons: ['its collector and Tempo are installed when the cluster worker starts or an app is deployed'], numbers: {}, services: [], lines: ['Koala is getting its monitoring: its collector and Tempo are installed when the cluster worker starts or an app is deployed.'], telemetry: { collector: false, tempo: true } }))
     show()
-    expect(await screen.findByText(/Its collector is not on the system cluster yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/Its collector is not on the cluster this Koala runs in yet/)).toBeInTheDocument()
     expect(screen.queryByLabelText("Koala's own numbers")).toBeNull()
     expect(screen.getByTestId('koala-state')).toHaveTextContent('Koala is getting its monitoring')
   })

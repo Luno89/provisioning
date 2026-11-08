@@ -10,7 +10,7 @@ import { Section } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { GpuPanel } from './GpuPanel'
 import { QuietButton, WorkloadBadge } from './Parts'
-import { GROUPS, aboutLink, bytes, useClusterContents } from '../shared'
+import { GROUPS, aboutLink, bytes, useClusterContents, useInfrastructure } from '../shared'
 
 function WorkloadRow({ workload }: { workload: Workload }) {
   const about = aboutLink(workload.about)
@@ -158,7 +158,8 @@ export function ClusterPage({ clusterId }: { clusterId: string }) {
   const contents = useClusterContents(clusterId)
   const can = useCan()
   const cluster = ctx?.clusters.find((entry) => entry.id === clusterId)
-  const actions = cluster && !cluster.isSystem && ctx ? (
+  const health = useInfrastructure().data?.monitoring.clusters.find((row) => row.id === clusterId)
+  const actions = cluster && health && !health.own && ctx ? (
     <>
       <QuietButton onClick={() => ctx.openDashboard('cluster', cluster.id)}><FileText size={11} /> Logs</QuietButton>
       <QuietButton danger onClick={() => setConfirmDestroy({ type: 'cluster', id: cluster.id, name: cluster.name, isAbort: cluster.status === 'provisioning' })}><Trash2 size={11} /> {cluster.status === 'provisioning' ? 'Abort' : 'Destroy'}</QuietButton>
@@ -175,7 +176,7 @@ export function ClusterPage({ clusterId }: { clusterId: string }) {
           <Workloads contents={contents.data} />
           <PlatformServices contents={contents.data} />
           <Nodes contents={contents.data} />
-          {can('see-everything', contents.data) && <GpuPanel clusterId={clusterId} passthrough={Boolean(cluster?.gpuEnabled)} />}
+          {can('see-everything', contents.data) && <GpuPanel clusterId={clusterId} />}
           <Releases contents={contents.data} />
         </>
       )}

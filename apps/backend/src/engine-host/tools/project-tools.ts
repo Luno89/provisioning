@@ -15,6 +15,7 @@ export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;
   deployments(): Promise<DeploymentMetadata[]>;
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
+  ownClusterId(): string | undefined;
   appTypes(ownerId: string): Promise<{ id: string; label?: string | undefined; strategies?: readonly string[] | undefined; builtIn?: boolean | undefined }[]>;
   readPath(project: ProjectMetadata, path: string): Promise<unknown>;
   releases?: ((ownerId: string, projectId: string) => Promise<OdooRelease[]>) | undefined;
@@ -191,7 +192,7 @@ export function createProjectTools(options: {
       const wanted = asString(parsed, 'cluster');
       const cluster = wanted
         ? clusters.find((entry) => entry.name.toLowerCase() === wanted.toLowerCase() || entry.id === wanted)
-        : clusters.find((entry) => entry.isSystem);
+        : clusters.find((entry) => entry.id === stores.ownClusterId());
       if (!cluster) return refuse(wanted ? `you have no cluster called "${wanted}" — yours are: ${clusters.map((entry) => entry.name).join(', ')}` : 'there is no cluster to deploy to');
       if ((await stores.deployments()).some((entry) => entry.name === name)) return refuse(`a deployment called ${name} already exists — pick another name`);
 

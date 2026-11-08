@@ -10,8 +10,8 @@ import { metricsOf } from './MonitoringService.js';
 import { prometheusStandIn } from '../testing/prometheus-stand-in.js';
 
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
-const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
-const books = { id: 'books', name: 'Books', namespace: 'books', clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then' } as DeploymentMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+const books = { id: 'books', name: 'Books', namespace: 'books', clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then' } as DeploymentMetadata;
 const down: PromAlert = { labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing', activeAt: '2026-10-17T11:58:00Z' };
 
 const fresh = await emptiedEachTime();
@@ -22,8 +22,8 @@ let db: MongoDB;
 const watcher = (tell: AlertWatchDeps['tell'], logged: string[]) => {
   const metrics = metricsOf(prom.client);
   const monitoring = mock<AlertWatchDeps['monitoring']>();
-  monitoring.allClusters.mockResolvedValue([system]);
-  monitoring.reach.mockResolvedValue({ cluster: system, state: 'ok', metrics });
+  monitoring.allClusters.mockResolvedValue([koalas]);
+  monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'ok', metrics });
   monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
@@ -50,7 +50,7 @@ describe('watching alerts, kept in the database', () => {
     await watch.tick();
     expect(told).toEqual(['me fired', 'me resolved']);
     const [episode] = await db.monitoring.getAlertEpisodes('me');
-    expect(episode).toMatchObject({ clusterId: system.id, name: 'AppProbeDown', resolvedAt: '2026-10-17T12:00:00.000Z' });
+    expect(episode).toMatchObject({ clusterId: koalas.id, name: 'AppProbeDown', resolvedAt: '2026-10-17T12:00:00.000Z' });
   });
 
   it('keeps the episode and says so when telling the person fails, and does not tell it twice', async () => {

@@ -28,7 +28,7 @@ describe('getGpuStatus', () => {
 
   it('resolves null, not an error, for a cluster that is not the caller\'s', async () => {
     mocked.get.mockRejectedValue(failed(404))
-    await expect(getGpuStatus('provisioning-lunorica')).resolves.toBeNull()
+    await expect(getGpuStatus('koala')).resolves.toBeNull()
   })
 
   it('still fails when the cluster cannot be read', async () => {

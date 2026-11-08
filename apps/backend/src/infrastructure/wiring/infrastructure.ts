@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { getTemporalClient, roleFromEnv, startedFor, type Database, type SecretKey } from '../../platform/index.js';
+import { getTemporalClient, startedFor, type Database, type SecretKey } from '../../platform/index.js';
 import type { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
@@ -102,7 +102,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
       await (await getTemporalClient()).workflow.getHandle(workflowId).cancel();
     },
   });
-  if (roleFromEnv(process.env).role === 'combined') tenant.use('/api/server-orders', serverOrdersRouter({ serverOrders, operatorOnly: deps.operatorOnly }));
+  tenant.use('/api/server-orders', serverOrdersRouter({ serverOrders, operatorOnly: deps.operatorOnly }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge }));
   tenant.use('/api/worker', workerRouter({ workerService: deps.worker, operatorOnly: deps.operatorOnly }));
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));

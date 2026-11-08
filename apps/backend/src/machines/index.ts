@@ -7,7 +7,6 @@ export { machineTelemetry } from './lib/machine-telemetry.js';
 export type { MachineTelemetry, TelemetryAnswer } from './lib/machine-telemetry.js';
 export { machineChoiceProblem, meshAddress } from './lib/machines.js';
 export type { ChosenMachine, MachineAgent, ManualMachineAgent } from './lib/machines.js';
-export { COMBINED_AUDIENCE } from './lib/work-tokens.js';
 export { MachineAccounts } from './services/MachineAccounts.js';
 export type { AccountMachine } from './services/MachineAccounts.js';
 export { MachineMirror } from './services/MachineMirror.js';

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { ignore } from '@koala/engine-core/failures';
-import { allowed, asPerson, sharedActionsOf, withSharedRole, type AccessRevocations, type Principal } from '../../platform/index.js';
+import { allowed, asPerson, sharedActionsOf, withSharedRole, type Principal } from '../../platform/index.js';
 import {
   inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, sharerOf, SHARED_PROJECT_ID, sharedProjectProblem,
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
@@ -40,7 +40,6 @@ export interface HubServiceDeps {
   invites: InviteSender;
   repos?: HubRepos | undefined;
   relay?: HubRelay | undefined;
-  revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -263,10 +262,6 @@ export class HubService {
   }
 
   private async memberRemoved(access: Access, memberId: string): Promise<void> {
-    if (this.deps.revocations) {
-      await this.deps.revocations.revoked({ personId: memberId, because: 'removed-from-shared-project', at: this.now(), sharedProjectId: access.project.id });
-      return;
-    }
     await this.saveRequest(access, { id: access.member.personId, email: access.member.email }, 'member-removed', { personId: memberId }, 0);
   }
 

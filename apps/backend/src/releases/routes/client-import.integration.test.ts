@@ -56,7 +56,7 @@ async function harness() {
   const h = await mountRouter({
     prefix: '/api/projects',
     router: (db) => {
-      const clusters = new ClusterService(db, mock<InfrastructureService>(), seam.access, { koalaMachineId: undefined });
+      const clusters = new ClusterService(db, mock<InfrastructureService>(), seam.access);
       releases = new OdooReleaseService({
         store: db,
         runs: temporal.runs,

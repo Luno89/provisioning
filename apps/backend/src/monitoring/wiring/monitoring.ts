@@ -32,7 +32,7 @@ export interface MonitoringWiringDeps {
   rootToken?: (() => Promise<string>) | undefined;
 }
 
-export type MonitoredClusters = Pick<ClusterService, 'getSystemClusterEntry' | 'access'>;
+export type MonitoredClusters = Pick<ClusterService, 'ownCluster' | 'ownClusterId' | 'access'>;
 export type PrometheusProxy = Pick<ReturnType<typeof sharedClusterProxy>, 'serviceUrl'>;
 
 export interface MonitoringServiceParts {
@@ -49,8 +49,9 @@ export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps
   const { access } = clusters;
   return {
     store: parts.db,
-    systemCluster: () => clusters.getSystemClusterEntry(),
-    pool: (cluster) => (cluster.isSystem ? parts.pool : undefined),
+    ownCluster: () => clusters.ownCluster(),
+    ownClusterId: () => clusters.ownClusterId(),
+    pool: (cluster) => (cluster.id === clusters.ownClusterId() ? parts.pool : undefined),
     ...(parts.machineStatus ? { machineStatus: parts.machineStatus } : {}),
     prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus')),
     ...runnersByRecord(access),

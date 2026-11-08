@@ -87,7 +87,7 @@ class ClusterStack extends TerraformStack {
       ? new OperatorCrdsStack(this, "monitoring")
       : process.env.CLUSTER_MONITORING === "agent"
         ? new AgentMonitoringStack(this, "monitoring", remoteWriteUrl())
-        : new MonitoringStack(this, "monitoring", config.name);
+        : new MonitoringStack(this, "monitoring");
     if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }
 }
@@ -113,7 +113,7 @@ class ClusterStack extends TerraformStack {
  * after ClusterStack).
  */
 class ObservabilityStack extends TerraformStack {
-  constructor(scope: Construct, id: string, config: ClusterStackConfig) {
+  constructor(scope: Construct, id: string) {
     super(scope, id);
     initK8sProvider(this);
 
@@ -124,7 +124,7 @@ class ObservabilityStack extends TerraformStack {
     new DashboardsStack(this, "dashboards", "monitoring");
     new BlackboxExporterStack(this, "blackbox-exporter");
     new AlertingStack(this, "alerting");
-    new LoggingStack(this, "logging", config.name);
+    new LoggingStack(this, "logging");
     new TelemetryStack(this, "telemetry", "monitoring");
     new KoalaDashboardsStack(this, "koala-dashboards", "monitoring");
   }
@@ -543,7 +543,7 @@ if (stackType === "cluster") {
   // order, as two real sequential applies) is what actually matters. See ObservabilityStack's own
   // comment for why this can't be one apply.
   new ClusterStack(app, clusterName, { environment: env, name: clusterName });
-  new ObservabilityStack(app, `${clusterName}-observability`, { environment: env, name: clusterName });
+  new ObservabilityStack(app, `${clusterName}-observability`);
 } else if (stackType === "app") {
   // Use deploymentId in the stack name to allow multiple deployments on the same cluster
   new AppStack(app, `app-${clusterName}-${deploymentId}`);

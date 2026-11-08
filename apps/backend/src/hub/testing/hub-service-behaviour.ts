@@ -218,18 +218,7 @@ export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
       return id;
     }
 
-    it('revokes their access at once where the hub shares the owner\'s process', async () => {
-      const store = await make();
-      const send = vi.fn(async (request: { join: string }) => ({ link: `http://root/#/join?project=${request.join}`, emailed: true }));
-      const revoked = vi.fn(async () => undefined);
-      const hub = new HubService({ store, invites: { send }, now: () => '2026-10-29T00:00:00.000Z', revocations: { revoked } });
-      const id = await withMember(hub, (call) => (send.mock.calls[call]![0] as { join: string }).join);
-
-      expect(valueOf(await hub.remove('ann', id, 'bo'))).toEqual({ removed: 'bo' });
-      expect(revoked).toHaveBeenCalledWith({ personId: 'bo', because: 'removed-from-shared-project', at: '2026-10-29T00:00:00.000Z', sharedProjectId: id });
-    });
-
-    it('leaves the owner\'s instance a removal to carry out when the hub runs on its own, kept off the members\' board', async () => {
+    it('leaves the owner\'s instance a removal to carry out, kept off the members\' board', async () => {
       const { hub, store, tokenOf } = await setUp();
       const id = await withMember(hub, tokenOf);
 

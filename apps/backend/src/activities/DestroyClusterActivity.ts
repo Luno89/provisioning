@@ -9,7 +9,6 @@ export interface DestroyClusterArgs {
   name: string;
   provider: string;
   logFile: string;
-  gpuEnabled?: boolean;
   hcloudToken?: string;
   hetznerServerId?: string;
   doToken?: string;
@@ -36,11 +35,6 @@ export async function DestroyClusterActivity(
   const forgetKubeconfig = () => fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
     console.warn(`[DestroyClusterActivity] the kubeconfig of the destroyed cluster "${physicalName}" could not be removed from ${kubeconfigPath}: ${messageOf(err)}`);
   });
-
-  if (args.gpuEnabled) {
-    await forgetKubeconfig();
-    return { status: 'destroyed', msg: `Cluster ${args.name} detached from the management cluster` };
-  }
 
   const clusterEnv = {
     STACK_TYPE: 'cluster',

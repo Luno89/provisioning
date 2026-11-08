@@ -36,5 +36,5 @@ export function reportingLine(services: readonly string[]): string {
 export function missingTelemetryLine(telemetry: { collector: boolean; tempo: boolean }): string | undefined {
   if (telemetry.collector && telemetry.tempo) return undefined
   const what = !telemetry.collector && !telemetry.tempo ? 'Its collector and Tempo are' : !telemetry.collector ? 'Its collector is' : 'Tempo is'
-  return `${what} not on the system cluster yet; they are installed when the cluster worker starts or an app is deployed.`
+  return `${what} not on the cluster this Koala runs in yet; they are installed when the cluster worker starts or an app is deployed.`
 }

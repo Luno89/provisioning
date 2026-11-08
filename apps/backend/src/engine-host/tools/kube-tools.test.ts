@@ -5,22 +5,24 @@ import type { AccessRequest } from '@koala/harness-types';
 import { principalOf } from '../../platform/lib/permissions.js';
 
 const CLUSTERS: ClusterMetadata[] = [
-  { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true, capacity: { cpuCores: 16, ramGb: 64 } },
+  { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'u1', capacity: { cpuCores: 16, ramGb: 64 } },
   { id: 'c2', name: 'dev-1', provider: 'k3d', status: 'healthy', ownerId: 'u1' },
+  { id: 'machine-box', name: 'box', provider: 'machine', machineId: 'box', status: 'healthy', ownerId: 'u2' },
 ];
 const DEPLOYMENTS = [
-  { id: 'Billing', name: 'Billing', clusterId: 'provisioning-lunorica', ownerId: 'u1', appType: 'gitapp', status: 'unhealthy', healthReason: 'CrashLoopBackOff' },
-  { id: 'Theirs', name: 'Theirs', clusterId: 'provisioning-lunorica', ownerId: 'u2', appType: 'wordpress', status: 'running' },
+  { id: 'Billing', name: 'Billing', clusterId: 'machine-koala', ownerId: 'u1', appType: 'gitapp', status: 'unhealthy', healthReason: 'CrashLoopBackOff' },
+  { id: 'Theirs', name: 'Theirs', clusterId: 'machine-box', ownerId: 'u2', appType: 'wordpress', status: 'running' },
 ] as unknown as DeploymentMetadata[];
 
 function tools(open: string[] = []) {
   const ran: { cluster: string; argv: string[] }[] = [];
   const requests: AccessRequest[] = [];
   const access: KubeAccess = {
-    clusters: async () => CLUSTERS,
+    clusters: async (ownerId: string) => CLUSTERS.filter((cluster) => cluster.ownerId === ownerId),
+    ownClusterId: () => 'machine-koala',
     deployments: async () => DEPLOYMENTS,
     kubectl: vi.fn(async (cluster: ClusterMetadata, argv: string[]) => { ran.push({ cluster: cluster.name, argv }); return `${argv[0]} output`; }),
-    principal: async (ownerId: string) => principalOf({ id: ownerId, roles: ownerId === 'u1' ? ['operator' as const] : [] }, { role: 'combined' }),
+    principal: async (ownerId: string) => principalOf({ id: ownerId }, { role: 'instance', instanceOwnerId: 'u1' }),
     openNamespaces: async () => open,
     accessRequests: { list: async () => requests, save: async (request: AccessRequest) => { requests.push(request); } },
   };
@@ -34,7 +36,7 @@ describe('cluster diagnostics', () => {
   it('lists the person\'s clusters and deployments, not anyone else\'s', async () => {
     const { call } = tools();
     const out = await call('list_infrastructure');
-    expect(out.content).toContain('- provisioning-lunorica (the always-on management cluster, healthy, 16 cores, 64 GB)');
+    expect(out.content).toContain('- koala (the cluster this Koala runs in, healthy, 16 cores, 64 GB)');
     expect(out.content).toContain('  - Billing: gitapp, unhealthy — CrashLoopBackOff');
     expect(out.content).toContain('- dev-1 (k3d, healthy)\n  - nothing deployed');
     expect(out.content).not.toContain('Theirs');
@@ -45,8 +47,8 @@ describe('cluster diagnostics', () => {
     await call('get_logs', { deployment: 'billing' });
     await call('get_events', { deployment: 'Billing' });
     expect(ran).toEqual([
-      { cluster: 'provisioning-lunorica', argv: ['logs', '-n', 'billing', '--all-containers', '--prefix', '--tail', '60', '-l', 'app'] },
-      { cluster: 'provisioning-lunorica', argv: ['get', 'events', '-n', 'billing', '--sort-by=.lastTimestamp'] },
+      { cluster: 'koala', argv: ['logs', '-n', 'billing', '--all-containers', '--prefix', '--tail', '60', '-l', 'app'] },
+      { cluster: 'koala', argv: ['get', 'events', '-n', 'billing', '--sort-by=.lastTimestamp'] },
     ]);
   });
 
@@ -62,24 +64,23 @@ describe('cluster diagnostics', () => {
     expect((await call('inspect_resources', { verb: 'get', resource: 'pods', deployment: 'Billing' })).ok).toBe(true);
     expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'dev-1' })).ok).toBe(true);
     expect((await call('inspect_resources', { verb: 'get', resource: 'secrets', deployment: 'Billing' })).digest).toContain('cannot be read');
-    expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual(['provisioning-lunorica: get pods -n billing', 'dev-1: get nodes']);
+    expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual(['koala: get pods -n billing', 'dev-1: get nodes']);
   });
 
-  it('measures a cluster, defaulting to the management cluster, or one deployment', async () => {
+  it('measures a cluster, defaulting to the one Koala runs in, or one deployment', async () => {
     const { call, ran } = tools();
     await call('cluster_capacity');
     await call('cluster_capacity', { deployment: 'Billing' });
-    expect(ran.map((entry) => entry.argv.join(' '))).toEqual(['top nodes', 'get nodes -o wide', 'top pods -n billing']);
+    expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual(['koala: top nodes', 'koala: get nodes -o wide', 'koala: top pods -n billing']);
   });
 
-  it('reads all of the system cluster only for its operator, and anyone\'s own app on it for them', async () => {
+  it('reads all of a cluster only for whoever owns it, the one Koala runs in included, and their own app for them', async () => {
     const { call, ran } = tools();
-    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'provisioning-lunorica' }, 'u2')).digest).toBe('only whoever runs provisioning-lunorica reads all of it; name one of your deployments there instead');
-    expect((await call('inspect_resources', { verb: 'get', resource: 'namespaces', cluster: 'provisioning-lunorica' }, 'u2')).ok).toBe(false);
-    expect((await call('cluster_capacity', {}, 'u2')).ok).toBe(false);
+    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'koala' }, 'u2')).digest).toBe('you have no cluster called "koala" — yours are: box');
     expect((await call('inspect_resources', { verb: 'get', resource: 'pods', deployment: 'Theirs' }, 'u2')).ok).toBe(true);
-    expect(ran.map((entry) => entry.argv.join(' '))).toEqual(['get pods -n theirs']);
-    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'provisioning-lunorica' }, 'u1')).ok).toBe(true);
+    await call('cluster_capacity', {}, 'u2');
+    expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual(['box: get pods -n theirs', 'box: top nodes', 'box: get nodes -o wide']);
+    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'koala' }, 'u1')).ok).toBe(true);
   });
 });
 
@@ -90,15 +91,21 @@ describe('platform namespaces', () => {
     expect(ran).toEqual([]);
   });
 
-  it('are read on the management cluster once open, and a pod must be named for logs', async () => {
+  it('are read on the cluster Koala runs in once open, and a pod must be named for logs', async () => {
     const { call, ran } = tools(['monitoring']);
     await call('inspect_resources', { verb: 'get', resource: 'pods', namespace: 'monitoring' });
     expect((await call('get_logs', { namespace: 'monitoring' })).digest).toContain('name the pod or workload');
     await call('get_logs', { namespace: 'monitoring', name: 'deployment/grafana' });
     expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual([
-      'provisioning-lunorica: get pods -n monitoring',
-      'provisioning-lunorica: logs -n monitoring deployment/grafana --all-containers --prefix --tail 60',
+      'koala: get pods -n monitoring',
+      'koala: logs -n monitoring deployment/grafana --all-containers --prefix --tail 60',
     ]);
+  });
+
+  it('are not read for someone the cluster Koala runs in does not belong to, even once open', async () => {
+    const { call, ran } = tools(['monitoring']);
+    expect((await call('inspect_resources', { verb: 'get', resource: 'pods', namespace: 'monitoring' }, 'u2')).digest).toBe('the cluster this Koala runs in is not one of yours, so its platform namespaces cannot be opened for you');
+    expect(ran).toEqual([]);
   });
 
   it('are asked for only by an admin, never include infisical, and are asked once', async () => {

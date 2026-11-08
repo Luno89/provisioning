@@ -3,7 +3,7 @@ import { kubeconfigFrom } from "./k8s-provider-service.js";
 
 describe("which cluster a stack reaches", () => {
   it("is the cluster the kubeconfig it was handed names, whatever cluster the worker runs in", () => {
-    expect(kubeconfigFrom({ CLUSTER_NAME: "provisioning-lunorica", KUBECONFIG: "/tmp/koala-clusters-1/kubeconfig-koala", K8S_HOST: "https://kubernetes.default.svc", K8S_TOKEN: "sa-token" }, "KUBECONFIG")).toBe("/tmp/koala-clusters-1/kubeconfig-koala");
+    expect(kubeconfigFrom({ CLUSTER_NAME: "machine-desk", KUBECONFIG: "/tmp/koala-clusters-1/kubeconfig-koala", K8S_HOST: "https://kubernetes.default.svc", K8S_TOKEN: "sa-token" }, "KUBECONFIG")).toBe("/tmp/koala-clusters-1/kubeconfig-koala");
     expect(kubeconfigFrom({ KUBECONFIG_PATH: "/tmp/koala-clusters-1/kubeconfig-machine-desk" }, "KUBECONFIG_PATH")).toBe("/tmp/koala-clusters-1/kubeconfig-machine-desk");
   });
 

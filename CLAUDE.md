@@ -18,10 +18,10 @@ right?"
   the import boundaries; (4) v1 in vertical slices, each real and checked against its flow map.
 - **The model**: root keeps one k3s cluster of its own; a machine is exactly one cluster (made with native k3s for GPU
   passthrough, or k3d in Docker without it); an instance is the chart's pods on one of the person's machines or on the pool. There
-  is no other kind of cluster. Hetzner, DigitalOcean, mock cloud mode, the `k3d` provider and the `combined` role are being
-  removed.
-- **Much of this file still describes the old topology** (the combined dev on :3001, the `provisioning-lunorica` system
-  cluster, k3d as Koala's cluster, `dev:split`, GPUs on the system cluster, ship's old step list). Where it disagrees with the
+  is no other kind of cluster. Hetzner, DigitalOcean, mock cloud mode and the `k3d` provider are being removed; the `combined`
+  role and the `provisioning-lunorica` system cluster are gone (step 3 B, 2026-11-08).
+- **Much of this file still describes the old topology** (k3d as Koala's cluster, `dev:split`, the old GPU path, ship's old
+  step list, the live suites that still name `provisioning-lunorica`). Where it disagrees with the
   plan, the plan wins; this file is rewritten section by section as each phase lands.
 - **Staying aligned** (owner, 2026-11-06: "I feel like its important we don't drift from each others understand, and that you
   ask me about inconsitances before we keep developing any more"; plan `~/.claude/plans/alignment.md`). Before asking the
@@ -106,18 +106,18 @@ npm run test:infra:integration    # full cluster provision → verify → destro
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
 npm run test:root-metrics-live    # throwaway Mongo, Postgres and registry as root's compose files define them → root-telemetry.sh makes their monitoring accounts, which may watch and not write → the pinned exporters on loopback → root's host collector with its real config relays to a stand-in with the cluster collector's own pipeline: up{service=…} for every service, mail up and down with its port, the backup's last success outliving the one-minute expiry, a stopped Mongo down; ~3 min
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → root's mail check asks Spamhaus ZEN, Barracuda and UCEPROTECT through this computer's resolver: each list's own test address 127.0.0.2 is listed, loopback is on none → a host it does not trust is refused, ~2 min
-npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
-npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
-npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
+npm run test:monitoring-live      # a throwaway app on the cluster Koala runs in → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
+npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the cluster Koala runs in (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
+npm run test:infrastructure-live   # Infrastructure reads the cluster Koala runs in → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), Provision a cluster offers k3d, a machine of the person's, Hetzner and DigitalOcean only, and the instance refuses an AWS, Google Cloud or Azure cluster as not available yet, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
 npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → root, given a stand-in OpenID provider through OIDC_*, offers it and not GitHub, refuses a sign-up through it without an invite, makes the account with the owner's invite and signs it in again by its subject → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
-npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
-npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
+npm run test:hub-live              # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
+npm run test:project-sharing-live  # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
 npm run test:account-hardening-live # its own root, instance and hub (split-stack, production containers, a mailbox): a short or leaked password is refused and no sign-up hands a code back → asking a reset answers alike for an address with no account and mails only one that has → signing out on the instance ends that session there and closes the connection made with it → the emailed code resets the owner's password, root's and the instance's sessions ending and the instance's open connection closed → changing a password asks the current one and ends every other session → two-factor goes on only with the password, then turning it off, deleting the account and changing the password are refused without a current code and the emailed one lets the change through → a sixth confirmation code in fifteen minutes is refused → signing out on root makes the cookie useless and closes its connection → wrong codes over two sign-ins lock the account's codes, which a password sign-in does not reset → ten wrong passwords lock it and email its person once, ending none of their sessions or connections, and the lock and the signed-out cookie survive root restarting; in ship, ~3 min
 npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
-npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop on the system cluster → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
+npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop, each on a cluster of their own → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
-npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the system cluster with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
+npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the cluster Koala runs in with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
 npm run test:openrouter-connect-live # on its own root and instance (split-stack): signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours; in ship, ~2 min
 npm run test:hub-split-live         # on its own root, instance (with its engine worker) and hub (split-stack, the hub making repositories in the dev Gitea): a project on the owner's instance is shared to the hub under a group, the instance calling the hub with a service token → a client and a collaborator are invited, sign up on root with the emailed code and join through root's sign-in → the client's Ask Koala starts a run on the owner's instance holding the client's role, and its engine worker takes it → the client removed on the hub: the run's grant is revoked on the instance (removed-from-shared-project), the run ends and the hub's channel says so, the client reads nothing → taken back by its name, the hub's copy gone; ~2 min
 npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
@@ -139,7 +139,7 @@ npm run test:proposals-live       # Koala corrected in chat → the memory keepe
 npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
 npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
 npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
-npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~26 min
+npm run test:odoo-release-live     # a throwaway project on the cluster Koala runs in: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~26 min
 npm run test:odoo-customizations-live # the same run, plus what was made in the live app brought into git by a story on your model and kept by the next release; in the release gate, not ship, ~30 min
 npm run test:restore-live          # two lab roots on VMs: the first backs up to a MinIO standing in for object storage, the second is bootstrapped fresh and restore.sh makes it the first again (owner, session, instance, Headscale node, mesh address, Temporal history); on the first root, every node port that answers on its loopback answers on its mesh address and says nothing to this computer through the VM's own address (a forward added through QEMU's monitor, `vm.forward`), answers again once `koala-node-ports.yaml` is removed and closes again when `harden-host.sh` puts it back, and `mail-check.ts` on root finds the blocklists' test address listed through root's resolver, ~15 min
 npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
@@ -286,7 +286,7 @@ correct password does not start the count again (`TWO_FACTOR_LOCKOUT`). Codes go
 outside production. `IS_E2E` signs nobody in under `NODE_ENV=production`, which refuses to start with it.
 
 **Signing in with Google, GitHub or an organisation's own OpenID provider** (owner, 2026-10-30; only where accounts are held,
-root and combined). Every provider is one description and one client, as DNS providers are:
+on root). Every provider is one description and one client, as DNS providers are:
 - `accounts/lib/sign-in-providers.ts` describes each (`SIGN_IN_PROVIDERS`: id, label, kind `oidc` with its issuer or `github`
   with GitHub's addresses, scopes, and the env names its credentials come from) and holds the pure rules: `signInProvidersFrom`
   (a provider is offered only when its credentials are all set; a half-set one is left out and logged), `offeredProviders`,
@@ -352,18 +352,19 @@ handshake whose `Origin` (or, without one, `Sec-Fetch-Site`) is neither this hos
 (`platform/lib/same-site.ts`; any loopback page outside production), while a program, which sends neither, is not. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
 times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
 served. The same request times and failures, and everything else Koala measures, also leave every process as
-OpenTelemetry to the collector on the system cluster (**Koala's own telemetry**, below), and each response carries its
+OpenTelemetry to the collector on the cluster Koala runs in (**Koala's own telemetry**, below), and each response carries its
 trace id in `x-trace-id`. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
 it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
 
-**Nobody reaches another person's things in combined mode either** (security audit W5): a project builds only from the
-person's own existing repository and deploys only to the system cluster or their own (`targetClusterProblem`); only a run's
+**Nobody reaches another person's things on an instance either** (security audit W5): a project builds only from the
+person's own existing repository and deploys only to a cluster of their own (`targetClusterProblem`), and with none picked to the
+cluster Koala runs in (`koalasClusterFor`; none where it runs in none, which the project shows as a gap); only a run's
 owner answers, approves or cancels it; a conversation is saved only over its own owner's; a deploy request names no namespace
 or id and is never a `gitapp` or `odoo-project` (`deployRequestFrom`), and destroying an app never deletes a platform namespace
 (`platformNamespaceProblem`); a model cache is a folder name (`cacheFolderProblem`); a pod's logs come only from the app's own
 namespace (`podLogTarget`); a build's log only to its project's owner; a remote host's kubeconfig is rebuilt from its server,
 authority and sign-in (`cleanKubeconfig`); the dashboard proxy signs in as the platform's Gitea and Infisical only on the
-system cluster (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
+cluster Koala runs in (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
 backups, binding type changes and adopting the host's k3d clusters are an admin's.
 **What Koala fetches for a person stays on the open internet** (W6): `publicFetch` and `publicAddressProblem`
 (`platform/services/public-fetch.ts`) refuse private, loopback, mesh, link-local and tunnelled addresses, at connect time and on
@@ -438,17 +439,17 @@ cluster the stored records leave out) or reached.
 holds a **permissions table** (resource kind × action → who may, and whether a refusal hides the record as a 404 or says why as a
 403) and `authorize(principal, action, resource)`, which every route, socket handler, service and tool call asks; `allowed` is its
 boolean. A **principal** is a person with **claims**, each a role on a scope: `person`; `operator` of this install (from the account's stored
-`roles: ['operator']` on root and combined, read only by `claimsOf`; on an instance from `INSTANCE_OWNER_ID`, never from a stored role;
+`roles: ['operator']` on root, read only by `claimsOf`; on an instance from `INSTANCE_OWNER_ID`, never from a stored role;
 the first account and the setup code write it, and the startup migration `operators-from-admins` moved every old `isAdmin` onto it); `instance-owner`;
 and `shared` with a role (`owner`, `collaborator`, `client`) on one shared project, which the hub puts on from its membership
 (`withSharedRole`). `requireAuth` puts the principal on each request (`principalFrom(req)`); `requireOperator(action)` and
 `requireAllowed(action, resource)` are the middlewares; a service that has only an owner id uses `asPerson(id)`. A resource carries what
-the row needs from the record the route already loaded (`ownerId`, `isSystem`, the shared project's id), so a check costs no read; a
+the row needs from the record the route already loaded (`ownerId`, the shared project's id), so a check costs no read; a
 cluster becomes one with `clusterResource`. The rows: the install's `administer`, `manage-accounts`, `see-all-work`,
 `use-operator-credentials` and `open-platform-namespaces` are the operator's; an instance's settings its owner's; an account is removed by
-itself or the operator; **the system cluster** is seen and deployed to by any person and seen whole (every namespace and node, its
-provisioning log, discover, the dashboard proxies, GPUs, its history and alerts) only by the operator, and deleted by nobody; every other
-cluster, deployment, project and record is its owner's alone, operator included, and one with no owner is nobody's (the startup
+itself or the operator; every cluster, the machine's an instance runs in included (its record is the machine's owner's, and before
+the machine reports it, the instance owner's), deployment, project and record is its owner's alone, operator included, and one with no
+owner is nobody's (the startup
 migration `projects-owned` and `migrateLegacyOwnership` give such records to the first operator once); a workflow is seen and cancelled by
 its owner or the operator; a shared project's thirteen actions are each role's exactly, `ask-koala` an owner's or a client's. **Adding a
 permission** is a row in `PERMISSIONS` and a call to `authorize` where the action happens; `permissions.test.ts` checks every row allowed
@@ -480,11 +481,10 @@ its starter's claims as they were, narrowed to the run's project only where acce
 settled grant is cached, a live one read once a call). It ends when the run ends (the `run-ended` event, which also records how every run
 ended in `runEndings`: finished, failed with its reason, stopped by whom, revoked and why). **Revocation is one event**
 (`AccessRevoked { personId, because, at, sharedProjectId? }`, `platform/lib/revocations.ts`) told through one `AccessRevocations` per
-process. On root and combined "sign out everywhere", a 2FA change (`password-or-2fa`) and an account's removal starting fire it, and root's
+process. On root "sign out everywhere", a 2FA change (`password-or-2fa`) and an account's removal starting fire it, and root's
 provider (below) revokes the person's tokens and sends each client a back-channel logout, which the client fires on its own
 `AccessRevocations`; root acts only on an event that ends sessions (`endsSessions`, never a shared project's). A hub member's removal or
-leaving (`removed-from-shared-project`, with the shared project's id) fires it in process where the hub shares the owner's process, and on a
-hub of its own becomes a `member-removed` request the owner's instance carries out (`HubInstanceWork`), kept off the members' board and
+leaving (`removed-from-shared-project`, with the shared project's id) becomes a `member-removed` request the owner's instance carries out (`HubInstanceWork`), kept off the members' board and
 taken from nobody but the hub. The engine core listens and revokes that person's
 live grants (what they started; every one on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
 and gets one last model turn (`EngineHandoverActivity`, behind the `run-grants` patch) offering only `leave_handover_note`, which keeps the
@@ -542,7 +542,7 @@ collection has to say how it is removed**.
 `curl -fsSL <root>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served with root's `PUBLIC_URL`; the code is single-use
 and lasts an hour, `MachineAccounts.createJoinCode` on root, reached from an instance through `RootMachines` with a service token). The
 agent holds its account token at root (root's `/machine-account` socket, `wireMachineAccounts`), and root names the person's Koala to it
-with a **work token** (`machines/lib/work-tokens.ts`: EdDSA, `sub` the machine, `owner`, `aud` the instance or `combined`, 30 days) that the
+with a **work token** (`machines/lib/work-tokens.ts`: EdDSA, `sub` the machine, `owner`, `aud` the instance, 30 days) that the
 instance's `/agent` socket, gateway and git proxy check against root's keys; the agent's link to root is `apps/local-agent/src/root-link.ts`.
 An instance mirrors root's list (`MachineMirror`, read again on `machines:changed` over the presence socket), and its machines from before
 were copied to root once (`machines-to-root`). Run as the
@@ -604,18 +604,18 @@ worker holds no data key. A destroy starts it too and, once no app is left on it
 and starts it again when it next connects after a reboot (`startIfWanted`). At rest it shows as `stopped` ("stopped until something runs on
 it"), never unreachable, and is neither read for alerts nor in Needs attention. Removing the machine uninstalls k3s and every app with it,
 and the instance forgets the cluster and its apps' records. Its ingress is Traefik on a NodePort (the join turns servicelb off), which the instance's edge reaches over the mesh. An app's stack reaches
-the cluster its kubeconfig names; the in-cluster worker's own service account (`K8S_HOST`) is used only for the system cluster
+the cluster its kubeconfig names; the in-cluster worker's own service account (`K8S_HOST`) is used only for the cluster Koala runs in
 (`providerConfigFrom` in `packages/cdktf-infra/lib/k8s-provider-service.ts`). **A machine is monitored from its instance** (plan stage 2b):
 its cluster gets only collectors, kube-prometheus-stack in agent mode and a blackbox exporter (`CLUSTER_MONITORING=agent`,
 `constructs/monitoring-agent.ts`), remote-writing to the instance's backend at `MACHINE_METRICS_URL` (the chart's mesh address and backend
-node port; combined, `PUBLIC_URL`) with a token made for that cluster (a Secret `koala-metrics` on the machine, only its hash,
+node port) with a token made for that cluster (a Secret `koala-metrics` on the machine, only its hash,
 `metricsTokenHash`, on the cluster record). `POST /api/machines/metrics` (`MachineMetricsRelay`, `machines/lib/machine-metrics.ts`) sets
-`koala_cluster=<cluster id>` on every series from the token alone, at the protobuf wire level, and passes it to the system cluster's
-Prometheus, whose remote-write receiver the chart switches on (`applyReceiver` on the alert watcher's pass for an install from before).
-Every query asked of the system cluster's Prometheus is scoped by `koala_cluster` on each selector (`inCluster` in
-`monitoring/lib/cluster-scope.ts`, through Prometheus's own PromQL parser; the system cluster's own series have none), alerts go to the
-cluster whose series raised them, a machine app's alert rule lives in `monitoring` on the system cluster held to its series, and a
-machine keeps the system cluster's history. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the registry relay
+`koala_cluster=<cluster id>` on every series from the token alone, at the protobuf wire level, and passes it to the Prometheus of the
+cluster Koala runs in, whose remote-write receiver the chart switches on (`applyReceiver` on the alert watcher's pass for an install from
+before). Every query asked of that Prometheus is scoped by `koala_cluster` on each selector (`inCluster` in
+`monitoring/lib/cluster-scope.ts`, through Prometheus's own PromQL parser; the series of the cluster Koala runs in have none), alerts go to
+the cluster whose series raised them, a machine app's alert rule lives in `monitoring` on the cluster Koala runs in held to its series,
+and a machine keeps that cluster's history. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the registry relay
 and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
 
 **A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
@@ -745,14 +745,17 @@ do not help, and nothing in ACP sets it). So a served call not answered within 2
 and keeps running in the run; the machine's own `wait_for` tool waits for the job and hands over its result
 (`external-agents.ts`, told to the agent in `TOOLS_LINE`).
 
-## Roles: root, instance, combined
+## Roles: root, instance, hub
 
-`ROLE` (read by `platform/lib/platform-role.ts`) decides what a backend is:
-- **`combined`** (the default, and every dev box) is everything at once, as before;
+`ROLE` (read by `platform/lib/platform-role.ts`) decides what a backend is, and every process needs it: a process started
+without it, or with anything but these three, stops saying so (`roleNamed`, `RoleConfigError`; the `combined` role, everything
+in one process, was removed on 2026-11-08, owner: "Ok I think those are all good, sweet"). Each role is exactly one thing
+(`servesTenants` is the instance, `holdsAccounts` root, `servesHub` the hub):
 - **`root`** holds accounts and the Ed25519 signing key (`ROOT_IDENTITY_KEY`), and mounts no tenant
-  route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app except on root;
+  route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app only on an instance;
 - **`instance`** serves one owner (`INSTANCE_ID`, `INSTANCE_OWNER_ID`, `ROOT_URL`, `ROOT_PUBLIC_KEYS`),
-  has no account routes, and signs people in only through root.
+  has no account routes, and signs people in only through root;
+- **`hub`** holds shared projects (below).
 
 **Both on one machine: `npm run dev:split`** (`scripts/dev.sh --split`, setup in `src/scripts/dev-split.ts`, rules in
 `instances/lib/dev-split.ts`). Your usual stack becomes the instance: same database, Temporal, workers, port 3001, at
@@ -810,7 +813,7 @@ served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit
 Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the switch.
 
 **The hub: projects shared between people** (plan `~/.claude/plans/project-hub.md`; step 1, its people, is built). A
-`hub` role (`ROLE=hub`, needing `ROOT_URL`, `ROOT_PUBLIC_KEYS` and `HUB_CREDENTIAL`; part of `combined`, `servesHub`) holds
+`hub` role (`ROLE=hub`, needing `ROOT_URL`, `ROOT_PUBLIC_KEYS` and `HUB_CREDENTIAL`; `servesHub`) holds
 shared projects: a registry database (`HUB_DATABASE`, default `koala_hub`: `shared_projects`, `shared_memberships`,
 `shared_invites` token → project, `shared_people`, `shared_handoffs`) and **one database per project** (`hub_<id>`, its
 `members` and `invites`; `hub/lib/hub-store.ts`, `hub/lib/hub-mongo.ts`). `HubService` reads the person's membership from the
@@ -822,8 +825,7 @@ member sees everything in the project, the code and every file included (owner, 
 `/api/hub/*`: projects (made from a project's
 Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
 the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
-with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`; combined calls `ProjectInviteService` in
-process) and the inviting member's own access token from root (`RootSignIn.personToken`, kept sealed with their client session),
+with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`) and the inviting member's own access token from root (`RootSignIn.personToken`, kept sealed with their client session),
 from which root reads who invites (`RootProvider.personAtHub`: a live token root issued to the hub), never from what the hub says, so the
 hub cannot name an operator to skip the limits below; root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
 `<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. **Project invites are limited**
@@ -838,7 +840,7 @@ across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?
 (`/api/auth/oidc/start?next=…`), and the hub takes anyone root signs in (never an admin there), going on to `next`. The hub's own
 frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An instance links to it through root
 (`hub` on `/api/auth/sign-in`). `dev:split` runs the hub as a third process at `http://hub.localhost:5176` (API :3003).
-**Removing an account lets the person go from the hub first** (`HubPeople`: in process when combined, otherwise root's
+**Removing an account lets the person go from the hub first** (`HubPeople`: root's
 signed requests to the hub's `/api/hub-root/people/:id`, a token for audience `hub` and that person and step,
 `issueMoveToken`, each taken once). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
 `hub/lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
@@ -848,17 +850,17 @@ hub (step 2's member screens), members working stories (3), the View tab (4).
 **Sharing a project (step 2).** A project stays entirely on its owner's instance until they share it from its Settings →
 People, which first lists what goes (the board, the channel and story and feature chats with their history, the
 repository) and what stays (other chats, secrets, builds and releases, the app; `ProjectSharingService`,
-`/api/project-sharing/:id`). Sharing makes the hub's copy (`HubService.share`, only from an instance: in process when
-combined, else `/api/hub-instance/*` with a token root signs for the instance and its owner, `POST /api/instances/hub-token`,
+`/api/project-sharing/:id`). Sharing makes the hub's copy (`HubService.share`, only from an instance, through
+`/api/hub-instance/*` with a token root signs for the instance and its owner, `POST /api/instances/hub-token`,
 `RemoteHub`, a new one for every request and each taken once, `moveTokenOnce`) and a repository in the project's own Gitea organisation (`shared-<id>/project`, a bot with write access whose
 token only the owner's instance holds; `HubRepos`). **The sharer names a group** when sharing (one per shared project, the
 instance-name rules through `nameProblem`, suggested from the project's name by `suggestedGroup`, checked as typed at
 `GET /api/project-sharing/:id/group-check`), and the project's apps are addressed `<app>-<group>.<domain>` instead of under
-the owner's name (`<app>-<instance name>` on an instance, `<app>-<id>` combined). The group is kept on the link (`HubLink.group`)
+the owner's name (`<app>-<instance name>`, so an app is published only on an instance with a name). The group is kept on the link (`HubLink.group`)
 and the hub's project (`SharedProject.group`, shown to its members), fixed while the project is shared, and freed when it is
 taken back, its apps returning to the owner's addresses. Root holds the groups for routing (`PUT`/`DELETE
 /api/instances/groups`, `GET /api/instances/groups/check`, the instance's credential, `InstanceGroups`; a group is refused when
-it is any instance's name or another project's group), combined checks only its own links (`localProjectGroups`). Sharing or
+it is any instance's name or another project's group). Sharing or
 taking back republishes the apps (`syncExposedApps`): `AppExposureService` asks `groupOf` (the hub link of the app's
 project), and `addressScope` in `instances/lib/edge-addresses.ts` decides the scope, so a stored address outside it is
 recomputed. A group's addresses are flat only; nested addresses cover the owner's own name. A project shared before groups
@@ -910,7 +912,7 @@ relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and ad
 project used (`procedureRanIn` over that run's turn log), and only owners and
 collaborators move, remove or replace one (`change-files`, `relayProblem`; a client's upload onto a name already taken is refused). The hub's repository is read-only to every member
 (`GET .../repository`, `.../repository/file`). Where root has no hub,
-Share says so. `npm run test:project-sharing-live` proves it combined.
+Share says so. `npm run test:project-sharing-live` proves it against the dev stack.
 
 **Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
 Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
@@ -1204,13 +1206,14 @@ scroll to the matching section:
   failed in the last 7 days** with Clear.
 - **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
   **An app's name is unique per owner, not across everyone** (the `deployments` index is `{ ownerId, name }`): a deployment's id is its own, and its namespace is `<name>-<six characters of its id>` (`newAppNamespace`), so two people's `shop` never share a namespace on one cluster. Every read of a deployment's namespace goes through `namespaceOf` in `infrastructure/lib/app-namespace.ts`, which falls back to the sanitized name for apps deployed before namespaces were stored. `npm run test:app-names-live` proves it.
-- **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
-  read-only); Provision a cluster.
+- **Clusters**: every cluster the person owns as a card (health, use, apps, history kept), Logs and Destroy; the cluster Koala
+  runs in first, marked "this Koala runs here" (`own` on its health row, derived from `INSTANCE_MACHINE_ID`), with no Destroy (the
+  route answers 409: it goes only with its machine, under My Machines); Provision a cluster.
 - **Running**: what runs, cancel, the bench and memory keeper switches (below), and All workflows (the Temporal page).
 - **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
 - **Koala**: what Koala reports about itself (`KoalaSection`, `koala` on `GET /api/infrastructure`): its state, which of its
   processes report, requests and the share failing, model calls, their failures and queue, workflows started, activities
-  and work that failed, read from the system cluster's Prometheus through the named questions in `koalaQuery`
+  and work that failed, read from the Prometheus of the cluster Koala runs in through the named questions in `koalaQuery`
   (`monitoring-questions.ts`) and judged by `koalaVerdict` (`monitoring-summary.ts`); what is not measured is said so.
 - **Alerts set** and **Alert history**.
 
@@ -1221,8 +1224,8 @@ failed jobs; finished jobs left out; memory and CPU from Prometheus when it answ
 Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
 anything put there another way; then the platform services (`infrastructure/lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
 GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
-`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (the system cluster's `see-everything` row in
-`platform/lib/permissions.ts`, which monitoring uses too) guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
+`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (the cluster's `see-everything` row in
+`platform/lib/permissions.ts`, which monitoring uses too; root's own cluster, which nobody owns, is its operators') guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
 in as admin) and `/api/clusters/:id/gpu-status`: anyone but the owner gets the 404 an unknown cluster gets, and Open in Grafana shows only to the owner.
 
 **Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
@@ -1244,7 +1247,7 @@ count them) is said to be unmeasured, never shown as fine.
 - An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `monitoring/lib/monitoring-alerts.ts`) proposed
   on a card (`set_alert`). Three more are about Koala itself (`koala_down`, `model_errors`, `workflow_failures`,
   `KOALA_ALERT_KINDS`, expressions over Koala's own metrics in `koalaAlertExpression`): proposed with `app: "koala"`, only
-  by whoever owns the system cluster, and written as a PrometheusRule into `monitoring` there; their rule records carry
+  by whoever owns the cluster Koala runs in, and written as a PrometheusRule into `monitoring` there; their rule records carry
   `deploymentId: 'koala'` and their alerts are `about: { kind: 'koala' }`.
 - Applying it writes a PrometheusRule into the app's namespace, labelled `koala_rule`, and records it
   (`monitoringAlertRules`).
@@ -1287,7 +1290,7 @@ page (`/#/mail`, `GET /api/instances/mail-reputation`, `POST …/check`, the ope
 `KOALA-MAIL-CHECK`. DMARC stays `p=none`; nothing yet sees whether mail root sent passed DKIM and SPF at a receiver.
 
 **Who sends** (`emailWayFrom` in `platform/lib/email-way.ts`, `MailService`):
-- **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<DOMAIN>`: root's own domain, the one the mail container signs (DKIM) and whose zone holds the mail records; the people's domain is only for their addresses.
+- **Root and the hub:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<DOMAIN>`: root's own domain, the one the mail container signs (DKIM) and whose zone holds the mail records; the people's domain is only for their addresses.
 - **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
   only to the instance owner's address. Subjects are one line. Root sends 60 an hour per instance (`InstanceMailLimit`,
   `instances/lib/instance-mail-limit.ts`), then holds the rest back (429) and emails the owner once that it is; the alerts
@@ -1353,7 +1356,7 @@ them all over when resumed (`MemoryKeeperService.setPaused`). API: `GET /api/run
 ## Koala's own telemetry
 
 Plan: `~/.claude/plans/koala-telemetry.md`. Every Koala process measures itself with OpenTelemetry and sends it to one
-place: the **OpenTelemetry collector on the system cluster** (`otel-collector` in `monitoring`, ClusterIP only), which
+place: the **OpenTelemetry collector on the cluster Koala runs in** (`otel-collector` in `monitoring`, ClusterIP only), which
 exports traces to **Tempo** (`tempo`, a week on a volume) and serves metrics for the cluster's **Prometheus** to scrape
 (a ServiceMonitor; no change to the kube-prometheus-stack release). Both are part of the observability stack
 (`constructs/telemetry.ts`, `constructs/koala-dashboards.ts`): `monitoringPlan` applies that stack again when either
@@ -1368,7 +1371,7 @@ service, Koala: model calls, Koala: Temporal).
   reach the collector the way they reach Prometheus (`collectorSink` in `monitoring/services/CollectorReach.ts`:
   `ClusterProxyService.serviceUrl`, direct ClusterIP or a port-forward, asked again at most once a minute while it
   fails), so `npm run dev` needs nothing set. On root, `bootstrap.sh`, `update.sh` (before the restart) and `restore.sh`
-  run `scripts/root-node/root-telemetry.sh`: it applies the system cluster's monitoring the way the cluster worker does at
+  run `scripts/root-node/root-telemetry.sh`: it applies the monitoring of root's own cluster the way the cluster worker does at
   start (`scripts/ensure-cluster-stack.ts` → `ensureClusterMonitoring`), waits with no deadline until the cluster's
   `otel-collector` is made and rolled out (refusing if its rollout fails), gives Mongo a `koala-metrics` user
   (clusterMonitor, read on local) and Temporal's Postgres a `koala_metrics` role (pg_monitor) with passwords it keeps in
@@ -1445,9 +1448,9 @@ What an operator does, step by step (buying root, keys kept offline, releases, r
 `scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
 version onto it. Both are idempotent and both refuse loudly rather than half-succeeding.
 
-**Buying root's server from the UI** (plan `~/.claude/plans/project-to-vps.md` step 1, OVHcloud VPS): on a combined box the
-operator opens Infrastructure → Clusters → **Host Koala on a server** (`/#/host-koala`, `HostKoala.tsx`, `/api/server-orders`,
-operator only, mounted only on `combined`). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
+**Buying root's server from the UI** (plan `~/.claude/plans/project-to-vps.md` step 1, OVHcloud VPS): on an instance its
+operator (the owner) opens Infrastructure → Clusters → **Host Koala on a server** (`/#/host-koala`, `HostKoala.tsx`, `/api/server-orders`,
+operator only, mounted on the instance). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
 and consumer key sealed, the subsidiary plain, checked with `GET /me`; the keys need `GET /*`, `POST /order/*`, `DELETE /order/*`,
 `POST /vps/*`, `POST /me/order/*`, `POST /ip/*`) and stored credentials for each domain's DNS provider, found from its nameservers (or chosen
 on the page) and kept on the order (`dns`), which must reach both zones. **Sign-in for root is optional and offered there
@@ -1603,14 +1606,14 @@ where it applies. A provider Koala does not make clusters on at all is refused a
 
 Two Temporal task queues partition operations:
 - `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`). Has Docker/k3d/kubectl/CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
-- `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, runs as a pod in the k3d management cluster, or locally via `npm run dev:worker:cluster`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
+- `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, runs as a pod on the cluster Koala runs in, which it reaches with its service account as `ClusterAccess.own()`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
 
 In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management cluster (`provisioning-lunorica`) → the root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`, `worker-cluster` or `worker-host`) with every workspace, kubectl, helm, k3d and terraform → `kubectl apply -f k8s/` creates ServiceAccount/ClusterRoleBinding/Deployment → the pod reads its service account and sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for CDKTF → mounts `/var/run/docker.sock` for docker-exec-based kubectl/helm into k3d server containers.
 
 `AppStack.fromEnv()` (CDKTF) reads `KUBECONFIG` or `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for cluster auth.
 
 **Terraform's state, output and providers** (`InfrastructureService.deploy|destroy`, rules in `infrastructure/lib/terraform-state.ts`,
-the backend in `packages/cdktf-infra/lib/state.ts`). Root, combined and a dev box keep each stack's state in
+the backend in `packages/cdktf-infra/lib/state.ts`). Root and a process outside a cluster keep each stack's state in
 `apps/backend/data/terraform` (the local backend, in root's backup). An instance (`TERRAFORM_STATE=kubernetes` in the chart, with
 `POD_NAMESPACE` on every process) keeps it in Terraform's `kubernetes` backend: a Secret `tfstate-default-<stack>-state` per stack in its
 own namespace on the cluster it runs in, locked by a Lease, reached with the pod's account, whatever cluster the stack targets. A stack
@@ -1619,7 +1622,9 @@ holds nothing, the file removed once the cluster has it, refused when the two di
 (the `terraform-state` part). Every run synthesizes into a folder of its own under the temp folder, removed however it ends.
 Providers come from a filesystem mirror (`bin/terraform-providers`, made by `scripts/terraform-providers.sh` from the pinned zips in the
 image, `setup.sh` and `dev.sh`), which Terraform links into each run rather than copying; without the mirror each run downloads them.
-Koala's own cluster is monitored under one name, `provisioning-lunorica`, however it is reached (`monitoringOwner`).
+Every cluster's monitoring stacks are named for the cluster's id (`<id>` and `<id>-observability`), whether the cluster worker starting
+or a deploy asks, so the cluster Koala runs in is `machine-<INSTANCE_MACHINE_ID>`, a pool instance's `pool-<name>`, root's `root`.
+State kept under the old names (`provisioning-lunorica`, a machine's device name) is not moved by Koala.
 
 ## Temporal sync architecture
 
@@ -1790,7 +1795,7 @@ short hash of its id (`newReleaseName`), stored as `releaseName` — so two proj
 namespace or a host, and renaming a project does not orphan its app; a project released before names were stored keeps
 the name it has. Its namespace is labelled `koala.dev/owner` and `koala.dev/project` before Helm installs into it. Releases reach clusters the way `ClusterService` does
 (`activities/cluster-access.ts`'s `reachCluster`). Exposing the app also exposes its preview on its own address, and
-the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the system cluster with
+the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the cluster Koala runs in with
 a throwaway project, ~4 min, and removes everything.
 
 **A release's build can be released again** (Release this build again on its card, `POST /api/projects/:id/releases/:rid/again`,
@@ -1978,13 +1983,15 @@ Temporal itself is optional — the backend starts and falls back to plain DB po
 
 Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the matching device plugin DaemonSet (NVIDIA or AMD, `k8s/gpu-device-plugin/`) into the cluster → wait up to 60s for it to be ready → CDKTF applies the vLLM stack (`packages/cdktf-infra/constructs/vllm.ts`), exposing `nvidia.com/gpu` / `amd.com/gpu` to the K8s scheduler. Host-side driver/toolkit setup is `scripts/setup-gpu.sh` (auto-detects distro, idempotent).
 
-**GPU passthrough only works on the always-on system cluster** (native k3s on Linux). k3d's nested
-containerd cannot do real device passthrough at all, so user-created k3d clusters are never
-GPU-enabled — `ProvisionClusterActivity` and `TemporalBridge` both rely on this.
+**GPU passthrough needs native k3s on the machine** (Linux). k3d's nested containerd cannot do real device passthrough at
+all, so a cluster made with k3d never gets a GPU. There is no GPU flag on a cluster: what a cluster can run is what its nodes
+report (`capacity.gpuCount`, which Deploy an app filters GPU apps by), and `/api/clusters/:id/gpu-status` reads the nodes, their
+device plugins and the pods holding GPUs. The device plugin the backend used to install at start on the old system cluster is
+gone; readying a machine's GPUs comes back with step 4 (plan `~/.claude/plans/gpu-agent.md`).
 
-Don't infer the runtime from the kubeconfig context: the management cluster's context is named
-`k3d-provisioning-lunorica` for legacy reasons **even when it is native k3s**, and
-`systemctl is-active k3s` reports `inactive` because the unit is `k3s-<cluster-name>.service`.
+Don't infer the runtime from the kubeconfig context: root's own k3s is still installed as `k3s-provisioning-lunorica`, its context
+named `k3d-provisioning-lunorica`, **even though it is native k3s**, and `systemctl is-active k3s` reports `inactive` because the
+unit is `k3s-<cluster-name>.service`.
 Check `ps aux | grep '[k]3s server'` or the node's `containerRuntimeVersion` instead. The
 distinction also decides whether a `hostPort` (game servers) is reachable from the host: on native
 k3s it binds the host's network stack directly; on k3d it is not published without an explicit

@@ -35,7 +35,7 @@ export type GroveRunStatus =
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
-import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js'
+import { usesOperatorCredentials } from '../lib/credential-resolver.js'
 import { resolveCloudCredentials } from './cloud-credentials.js'
 import { mockableProvider, ProvisionRefused, provisionRefusal } from '../lib/cluster-topology.js'
 import { CredentialService } from './CredentialService.js'
@@ -276,7 +276,7 @@ export class TemporalBridge {
     masterKey?: SecretKey,
     clusterService?: ClusterService,
     headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> },
-    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly claims?: ClaimSettings | undefined,
     private readonly seams: { connect?: TemporalConnect | undefined; generateKeypair?: typeof generateSshKeypair | undefined } = {},
   ) {
     this.db = db
@@ -322,9 +322,7 @@ export class TemporalBridge {
   }
 
   private async getClusterById(id: string): Promise<ClusterMetadata | undefined> {
-    if (this.clusterService?.isKoalasCluster(id)) {
-      return this.clusterService.getSystemClusterEntry();
-    }
+    if (this.clusterService?.isKoalasCluster(id)) return this.clusterService.ownCluster();
     const clusters = await this.db.infrastructure.getClusters();
     return clusters.find((c: ClusterMetadata) => c.id === id);
   }
@@ -890,7 +888,6 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       name: cluster.name,
       provider: cluster.provider,
       logFile: absoluteLogPath,
-      ...(cluster.gpuEnabled !== undefined ? { gpuEnabled: cluster.gpuEnabled } : {}),
       ...(hcloudToken ? { hcloudToken } : {}),
       ...(doToken ? { doToken } : {}),
       ...(cluster.doServerId ? { doServerId: cluster.doServerId } : {}),
@@ -933,7 +930,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: LOG_DIR, claims: this.claims }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR, claims: this.claims }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

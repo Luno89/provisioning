@@ -25,7 +25,7 @@ const DOMAIN = 'people.koala.test'
 const poolWork: string[] = []
 
 const backend = await startBackend(({ api, db, auth, origin }) => {
-  const role = roleFromEnv({})
+  const role = roleFromEnv({ ROLE: 'root' })
   const identity = new IdentityService(role, db)
   const instances = new InstanceService(db, {
     rootUrl: origin,

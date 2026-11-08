@@ -289,11 +289,11 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
         minioRootUser: args.minioRootUser,
         minioRootPassword: args.minioRootPassword,
       }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));
-      const storage = specStorageFor(args.appType, placedOnPool(process.env, physicalName), args);
+      const storage = specStorageFor(args.appType, placedOnPool(process.env, reach), args);
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: namespace,
-        serviceType: appServiceType(placedOnPool(process.env, physicalName), isSelfManagedCluster(args.provider, isMock)),
+        serviceType: appServiceType(placedOnPool(process.env, reach), isSelfManagedCluster(args.provider, isMock)),
         secrets,
         ...(storage ? { storage } : {}),
       });
@@ -355,7 +355,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   const env = buildAppEnv({
     hostHfToken: process.env.HF_TOKEN,
-    ...(placedOnPool(process.env, physicalName) ? { serviceType: 'ClusterIP' } : {}),
+    ...(placedOnPool(process.env, reach) ? { serviceType: 'ClusterIP' } : {}),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
@@ -416,7 +416,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     nextcloudDbPassword: args.nextcloudDbPassword,
     nextcloudDbRootPassword: args.nextcloudDbRootPassword,
     hermesDashboardPassword: args.hermesDashboardPassword,
-    minioStorage: minioStorageFor(placedOnPool(process.env, physicalName), args.minioStorage),
+    minioStorage: minioStorageFor(placedOnPool(process.env, reach), args.minioStorage),
     qdrantApiKey: args.qdrantApiKey,
     qdrantStorage: args.qdrantStorage,
     qdrantMemoryLimit: args.qdrantMemoryLimit,
@@ -439,7 +439,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   });
 
   await ensureClusterMonitoring(steps, {
-    physicalName, reach, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName),
+    physicalName: reach.clusterId, reach, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, reach),
     ...(args.provider === 'machine' && args.machine?.deviceId === process.env.INSTANCE_MACHINE_ID ? { nodePortIngress: true, koala: true } : {}),
     ...(args.provider === 'machine' && args.machine?.deviceId !== process.env.INSTANCE_MACHINE_ID ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
   }, logFile);

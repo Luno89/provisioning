@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { koalaClusterMonitoring, machineMetricsUrl, metricsTokenManifests, monitoringOwner, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, machineMetricsUrl, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };
@@ -43,11 +43,11 @@ describe('monitoringPlan', () => {
 
 describe('monitoringStackEnv', () => {
   it('targets an existing cluster by its kubeconfig and keeps its ingress when asked', () => {
-    expect(monitoringStackEnv({ physicalName: 'provisioning-lunorica', kubeconfigPath: '/tmp/kubeconfig-provisioning-lunorica', local: false }, true)).toEqual({
+    expect(monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/tmp/kubeconfig-machine-desk', local: false }, true)).toEqual({
       STACK_TYPE: 'cluster',
       ENV: 'remote',
-      CLUSTER_NAME: 'provisioning-lunorica',
-      KUBECONFIG_PATH: '/tmp/kubeconfig-provisioning-lunorica',
+      CLUSTER_NAME: 'machine-desk',
+      KUBECONFIG_PATH: '/tmp/kubeconfig-machine-desk',
       CLUSTER_INGRESS: 'existing',
     });
   });
@@ -63,38 +63,33 @@ describe('the cluster of a pool instance', () => {
   it('is watched by root, so it gets only the operator\'s resources and an ingress, never a monitoring stack of its own', () => {
     expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false });
     expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true });
-    expect(monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
+    expect(monitoringStackEnv({ physicalName: 'pool-bob', kubeconfigPath: '/k', local: false, pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
     expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', local: false, machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } }, false))
       .toMatchObject({ ENV: 'remote', INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics' });
     expect(monitoringStackEnv({ physicalName: 'hetzner-a', kubeconfigPath: '/k', local: false }, false)).not.toHaveProperty('INGRESS_SERVICE');
-    const kept = monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, nodePortIngress: true }, false);
+    const kept = monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/k', local: false, nodePortIngress: true }, false);
     expect(kept).toMatchObject({ INGRESS_SERVICE: 'NodePort' });
     expect(kept).not.toHaveProperty('CLUSTER_MONITORING');
     expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', local: false, nodePortIngress: true, koala: true }, false)).toMatchObject({ KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' });
   });
 
   it('is only the instance\'s own cluster, and only in pool mode', () => {
-    expect(placedOnPool({ POOL: 'true' }, SYSTEM_CLUSTER)).toBe(true);
-    expect(placedOnPool({ POOL: 'true' }, 'shop-box')).toBe(false);
-    expect(placedOnPool({}, SYSTEM_CLUSTER)).toBe(false);
+    expect(placedOnPool({ POOL: 'true' }, { kind: 'koala' })).toBe(true);
+    expect(placedOnPool({ POOL: 'true' }, { kind: 'machine' })).toBe(false);
+    expect(placedOnPool({}, { kind: 'koala' })).toBe(false);
   });
 });
 
-describe('the stacks that monitor Koala\'s own cluster', () => {
-  it('are named for the system cluster however Koala reaches it, and any other cluster\'s for itself', () => {
-    expect(monitoringOwner({ physicalName: 'machine-desk', koala: true })).toBe(SYSTEM_CLUSTER);
-    expect(monitoringOwner({ physicalName: SYSTEM_CLUSTER, koala: true })).toBe(SYSTEM_CLUSTER);
-    expect(monitoringOwner({ physicalName: 'machine-desk' })).toBe('machine-desk');
-  });
-
+describe('the stacks that monitor Koala\'s own cluster, named for that cluster\'s id', () => {
   it('are applied with the same settings from the worker as from a deploy to the machine Koala runs on', () => {
     const koala = { clusterId: 'machine-desk', kind: 'koala' } as const;
     const worker = koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, koala, true);
-    const deploy = { physicalName: monitoringOwner({ physicalName: 'machine-desk', koala: true }), kubeconfigPath: '/k', local: false, pool: false, nodePortIngress: true, koala: true };
+    const deploy = { physicalName: 'machine-desk', kubeconfigPath: '/k', local: false, pool: false, nodePortIngress: true, koala: true };
     expect(worker.reach).toBe(koala);
     expect(monitoringStackEnv({ ...worker, kubeconfigPath: '/k' }, true)).toEqual(monitoringStackEnv(deploy, true));
     expect(koalaClusterMonitoring({ POOL: 'true' }, koala, true)).toMatchObject({ pool: true, nodePortIngress: false, local: false });
-    expect(koalaClusterMonitoring({}, { clusterId: 'root', kind: 'root' }, false)).toMatchObject({ physicalName: SYSTEM_CLUSTER, local: true, koala: true, reach: { kind: 'root' } });
+    expect(koalaClusterMonitoring({ POOL: 'true' }, { clusterId: 'pool-bob', kind: 'koala' }, true)).toMatchObject({ physicalName: 'pool-bob', pool: true });
+    expect(koalaClusterMonitoring({}, { clusterId: 'root', kind: 'root' }, false)).toMatchObject({ physicalName: 'root', local: true, koala: true, pool: false, reach: { kind: 'root' } });
   });
 });
 

@@ -15,7 +15,7 @@ import { projectsRouter } from './projects.js';
 
 const project: ProjectMetadata = { id: 'proj-1', name: 'demo', giteaOwner: 'acme', giteaRepo: 'demo', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: '2026-01-01T00:00:00Z' };
 const device = { id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' };
-const systemCluster: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true };
+const koalasCluster: ClusterMetadata = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id };
 
 const plain = ({ status, data }: RouteAnswer) => ({ status, body: data });
 
@@ -33,7 +33,7 @@ async function setUp(withRemoval = true) {
     ...(input.extra ?? {}),
   }));
   clusters.getById.mockImplementation(async (id, principal: Principal) => {
-    const found = id === systemCluster.id ? systemCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
+    const found = id === koalasCluster.id ? koalasCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
     return found && allowed(principal, 'deploy-to', clusterResource(found)) ? found : undefined;
   });
   const router = projectsRouter({
@@ -148,13 +148,14 @@ describe('making a project', () => {
     await db.infrastructure.saveCluster({ id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id });
     await db.infrastructure.saveCluster({ id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' });
     expect((await routes.post('/', { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' })).data).toMatchObject({ targetClusterId: 'my-k3d' });
-    expect(plain(await routes.post('/', { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }))).toEqual({ status: 400, body: { error: 'Deploy to the system cluster or one of your own clusters.' } });
+    expect(plain(await routes.post('/', { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }))).toEqual({ status: 400, body: { error: 'Deploy to one of your own clusters.' } });
     expect(repos.createProject).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts the system cluster for anyone', async () => {
+  it('accepts the cluster Koala runs in from its owner, and from nobody else', async () => {
     const { routes } = await setUp();
-    expect((await routes.post('/', { name: 'demo', giteaRepo: 'demo', targetClusterId: systemCluster.id })).data).toMatchObject({ targetClusterId: systemCluster.id });
+    expect((await routes.post('/', { name: 'demo', giteaRepo: 'demo', targetClusterId: koalasCluster.id })).data).toMatchObject({ targetClusterId: koalasCluster.id });
+    expect(plain(await routes.post('/', { name: 'other', giteaRepo: 'other', targetClusterId: koalasCluster.id }, { user: { id: 'someone-else', email: 'else@example.com' } }))).toEqual({ status: 400, body: { error: 'Deploy to one of your own clusters.' } });
   });
 });
 

@@ -16,7 +16,8 @@ import { HubRelay } from '../../../../backend/src/hub/services/HubRelay'
 import { ProjectInviteService } from '../../../../backend/src/hub/services/ProjectInviteService'
 import { mongoHubStore } from '../../../../backend/src/hub/lib/hub-mongo'
 import type { SharedProject as BackendSharedProject } from '../../../../backend/src/hub/lib/hub'
-import { localHubSharing, localProjectGroups, ProjectSharingService, type GroupCheck as BackendGroupCheck, type SharingPreview as BackendSharingPreview } from '../../../../backend/src/projects/services/ProjectSharingService'
+import { localHubSharing, localProjectGroups } from '../../../../backend/src/projects/testing/in-process-sharing'
+import { ProjectSharingService, type GroupCheck as BackendGroupCheck, type SharingPreview as BackendSharingPreview } from '../../../../backend/src/projects/services/ProjectSharingService'
 import { hashCredential } from '../../../../backend/src/instances/services/InstanceService'
 import { principalOf } from '../../../../backend/src/platform/lib/permissions'
 import { mongoTarget } from '../../../../backend/src/platform/lib/mongo-db'
@@ -25,7 +26,7 @@ import { DATA_KEY } from '../../test/backend/machines'
 const created: { hub?: HubService } = {}
 
 const backend = await startBackend(async ({ api, db, origin }) => {
-  const invites = new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, { role: 'combined' }), limits: () => db.accounts.getInviteLimits(), rootUrl: origin })
+  const invites = new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, { role: 'root' }), limits: () => db.accounts.getInviteLimits(), rootUrl: origin })
   const store = mongoHubStore(mongoTarget(process.env).uri, `${mongoTarget(process.env).dbName}_hub`)
   await store.init()
   const hub = new HubService({ store, invites, relay: new HubRelay() })
@@ -35,7 +36,7 @@ const backend = await startBackend(async ({ api, db, origin }) => {
   api.use('/project-sharing', projectSharingRouter({
     sharing: new ProjectSharingService({
       store: db,
-      sharing: localHubSharing(hub, 'combined'),
+      sharing: localHubSharing(hub, 'i1'),
       sync: outsideThisTier('hub sync, which pushes to Gitea'),
       dataKey: DATA_KEY,
       ownerRepo: async () => { throw new Error('the owner\'s repository is in Gitea, outside this tier') },
@@ -49,7 +50,7 @@ const backend = await startBackend(async ({ api, db, origin }) => {
 
 const owner = await backend.signIn('ann@koala.test')
 await backend.db.projects.saveProjectInfo({ id: 'p-shop', name: 'Shop', ownerId: owner.id, createdAt: new Date().toISOString() } as never)
-const made = await created.hub!.share({ kind: 'instance', personId: owner.id, instanceId: 'combined', email: 'ann@koala.test' }, { name: 'Shop', projectId: 'p-shop' })
+const made = await created.hub!.share({ kind: 'instance', personId: owner.id, instanceId: 'i1', email: 'ann@koala.test' }, { name: 'Shop', projectId: 'p-shop' })
 if (!made.ok) throw new Error(made.why)
 const SHARED = made.value.view.project.id
 let join = ''
@@ -61,7 +62,7 @@ expectTypeOf<Wire<BackendSharingPreview>>().toExtend<SharingPreview>()
 expectTypeOf<Wire<BackendGroupCheck>>().toExtend<GroupCheck>()
 expectTypeOf<Wire<NonNullable<Awaited<ReturnType<ProjectInviteService['invitation']>>>>>().toExtend<RootInvitation>()
 
-describe('projects shared between people, combined', () => {
+describe('projects shared between people', () => {
   it('lists the shared project as its owner\'s, with everything an owner may do', async () => {
     expect(await listSharedProjects()).toEqual([{ project: objectWith({ id: SHARED, name: 'Shop', createdBy: owner.id }), role: 'owner' }])
     expect(await getSharedProject(SHARED)).toEqual(objectWith({ project: objectWith({ id: SHARED }), role: 'owner', can: anyOf(Array), members: [objectWith({ personId: owner.id, email: 'ann@koala.test', role: 'owner' })] }))

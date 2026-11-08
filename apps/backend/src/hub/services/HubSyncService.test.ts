@@ -11,7 +11,8 @@ import { CHANGES_PAGE, HubService, type SyncOrigin } from './HubService.js';
 import { HubRelay, type RelayCall } from './HubRelay.js';
 import type { Processes } from '../../platform/lib/processes.js';
 import type { GitEnd } from './HubRepoSync.js';
-import { HubSyncService, localHubSync, type HubLineHandlers, type HubRepoSides, type HubSyncTransport } from './HubSyncService.js';
+import { localHubSync } from '../testing/in-process-hub.js';
+import { HubSyncService, type HubLineHandlers, type HubRepoSides, type HubSyncTransport } from './HubSyncService.js';
 import { HubInstanceWork, type HubInstanceWorkDeps, type InstanceCall } from './HubInstanceWork.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
@@ -32,10 +33,10 @@ async function shared() {
   const db = memoryDatabase();
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
-  const created = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
+  const created = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i1', projectId: 'p1' } });
   if (!created.ok) throw new Error(created.why);
   const hubId = created.value.project.id;
-  const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' }));
+  const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1' }));
   return { db, hub, sync, onHub: store.project(hubId), hubId, store };
 }
 
@@ -122,8 +123,8 @@ describe('keeping a shared project\'s board in step with the hub', () => {
   it('keeps a change waiting while the hub cannot be reached, and sends it once it can', async () => {
     const { db, onHub, hub, hubId } = await shared();
     let down = true;
-    const transport = localHubSync(hub, 'combined');
-    const sync = made(new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, push: (to, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(to, changes)) } }));
+    const transport = localHubSync(hub, 'i1');
+    const sync = made(new HubSyncService({ store: db.hub, origin: 'instance:i1', transport: { ...transport, push: (to, changes) => (down ? Promise.reject(new Error('unreachable')) : transport.push(to, changes)) } }));
     await db.hub.saveHubLink(link({ hubProjectId: hubId }));
     await db.projects.saveTree(tree());
     await sync.once();
@@ -146,11 +147,11 @@ describe('keeping a shared project\'s board in step with the hub', () => {
 
   it('asked for a pass while one runs, answers only after a pass that began after it was asked', async () => {
     const { db, onHub, hub, hubId } = await shared();
-    const transport = localHubSync(hub, 'combined');
+    const transport = localHubSync(hub, 'i1');
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     let pulls = 0;
-    const sync = made(new HubSyncService({ store: db.hub, origin: 'instance:combined', transport: { ...transport, pull: async (...args) => { pulls += 1; if (pulls === 1) await held; return transport.pull(...args); } } }));
+    const sync = made(new HubSyncService({ store: db.hub, origin: 'instance:i1', transport: { ...transport, pull: async (...args) => { pulls += 1; if (pulls === 1) await held; return transport.pull(...args); } } }));
     await db.hub.saveHubLink(link({ hubProjectId: hubId }));
     const first = sync.once();
     await vi.waitFor(() => expect(pulls).toBe(1));
@@ -169,7 +170,7 @@ describe('keeping a shared project\'s board in step with the hub', () => {
     transport.push.mockResolvedValue({ through: 0 });
     transport.pull.mockResolvedValue({ changes: [], through: 0 });
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     let fail: (reason: Error) => void = () => undefined;
     transport.pull.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
     const first = sync.once().then(() => 'finished', (err: Error) => err.message);
@@ -191,7 +192,7 @@ describe('what goes to the hub in a pass', () => {
     const second = link({ projectId: 'p2', hubProjectId: 'hub-2' });
     await db.hub.saveHubLink(first);
     await db.hub.saveHubLink(second);
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     await db.projects.saveTree(tree());
     expect(await sync.pushOnce()).toBe(1);
     await db.projects.saveTree(tree({ projectIds: ['p2'] }));
@@ -208,7 +209,7 @@ describe('what goes to the hub in a pass', () => {
     const transport = mock<HubSyncTransport>();
     transport.push.mockResolvedValue({ through: 1 });
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     await db.projects.saveTree(tree());
     await sync.pushOnce();
     await db.projects.saveTree(tree());
@@ -221,7 +222,7 @@ describe('what goes to the hub in a pass', () => {
     const db = memoryDatabase();
     const transport = mock<HubSyncTransport>();
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     await db.hub.saveHubSnapshot('gone', 'trees', { id: 't9', name: 'Old' });
     await db.projects.saveTree(tree({ id: 't9', projectIds: [] }));
     expect(await sync.pushOnce()).toBe(0);
@@ -236,7 +237,7 @@ describe('what goes to the hub in a pass', () => {
     transport.push.mockRejectedValue(new Error('unreachable'));
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', log: (line) => lines.push(line) }));
     await db.projects.saveTree(tree());
     expect(await sync.pushOnce()).toBe(0);
     expect(lines).toEqual(['hub sync: p1 not sent yet: unreachable']);
@@ -251,7 +252,7 @@ describe('what goes to the hub in a pass', () => {
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
     await db.hub.saveHubSnapshot('p1', 'trees', { id: 'old' });
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', log: (line) => lines.push(line) }));
     await db.projects.saveTree(tree());
     await sync.pushOnce();
     expect(lines).toEqual(['hub sync: p1 is no longer on the hub, so it is no longer shared']);
@@ -265,13 +266,13 @@ describe('what comes back from the hub in a pass', () => {
     const transport = mock<HubSyncTransport>();
     transport.pull.mockResolvedValue({
       changes: [
-        { seq: 1, origin: 'instance:combined', change: { kind: 'trees', id: 't1', patch: { set: { name: 'mine' } } }, at: now },
+        { seq: 1, origin: 'instance:i1', change: { kind: 'trees', id: 't1', patch: { set: { name: 'mine' } } }, at: now },
         { seq: 2, origin: 'person:bo', change: { kind: 'trees', id: 't1', patch: { set: { name: 'bo' } } }, at: now },
       ],
       through: 2,
     });
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     expect(await sync.pullOnce()).toBe(1);
     expect(await db.hub.syncedRecord('trees', 't1')).toMatchObject({ name: 'bo' });
     expect((await db.hub.getHubLinks())[0]?.pulledThrough).toBe(2);
@@ -284,7 +285,7 @@ describe('what comes back from the hub in a pass', () => {
     transport.pull.mockResolvedValue({ changes: [], through: 0, members });
     await db.hub.saveHubLink(link());
     const save = vi.spyOn(db.hub, 'saveHubLink');
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     await sync.pullOnce();
     expect((await db.hub.getHubLinks())[0]?.members).toEqual(members);
     await sync.pullOnce();
@@ -299,7 +300,7 @@ describe('what comes back from the hub in a pass', () => {
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
     await db.hub.saveHubLink(link({ projectId: 'p2', hubProjectId: 'hub-2' }));
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', log: (line) => lines.push(line) }));
     expect(await sync.pullOnce()).toBe(1);
     expect(lines).toEqual(['hub sync: p1 not read yet: hub down']);
   });
@@ -309,7 +310,7 @@ describe('what comes back from the hub in a pass', () => {
     const transport = mock<HubSyncTransport>();
     transport.pull.mockRejectedValue(Object.assign(new Error('gone'), { status: 404 }));
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     expect(await sync.pullOnce()).toBe(0);
     expect(await db.hub.getHubLinks()).toEqual([]);
   });
@@ -334,7 +335,7 @@ describe('keeping main in step with the hub\'s', () => {
   function setUp(git: Processes, sides: HubRepoSides | undefined = mock<HubRepoSides>({ ends: async () => ends })) {
     const db = memoryDatabase();
     const lines: string[] = [];
-    const sync = made(new HubSyncService({ store: db.hub, transport: mock<HubSyncTransport>(), origin: 'instance:combined', repos: sides, git, log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport: mock<HubSyncTransport>(), origin: 'instance:i1', repos: sides, git, log: (line) => lines.push(line) }));
     return { db, sync, lines, sides };
   }
 
@@ -349,7 +350,7 @@ describe('keeping main in step with the hub\'s', () => {
     const db = memoryDatabase();
     const repos = mock<HubRepoSides>();
     repos.ends.mockImplementation(async () => { asked(); return ends; });
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', repos, git: remotes({ owner: OWNER_HEAD }), log: () => undefined }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', repos, git: remotes({ owner: OWNER_HEAD }), log: () => undefined }));
     await db.hub.saveHubLink(link({ repo }));
     sync.repoMoved();
     await comparing;
@@ -436,7 +437,7 @@ describe('keeping main in step with the hub\'s', () => {
       await db.hub.deleteHubLink(given.projectId);
       return ends;
     });
-    const unshared = made(new HubSyncService({ store: db.hub, transport: mock<HubSyncTransport>(), origin: 'instance:combined', repos: sides, git }));
+    const unshared = made(new HubSyncService({ store: db.hub, transport: mock<HubSyncTransport>(), origin: 'instance:i1', repos: sides, git }));
     expect(await unshared.syncRepos()).toBe(0);
     expect(await sync.syncRepos()).toBe(0);
     expect(await db.hub.getHubLinks()).toEqual([]);
@@ -452,7 +453,7 @@ describe('carrying out what members asked for', () => {
     const work = mock<HubInstanceWork>();
     const lines: string[] = [];
     await db.hub.saveHubLink(link({ pulledThrough: 5 }));
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', work: () => work, log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', work: () => work, log: (line) => lines.push(line) }));
     return { db, transport, work, sync, lines };
   }
 
@@ -460,7 +461,7 @@ describe('carrying out what members asked for', () => {
     const db = memoryDatabase();
     await db.hub.saveHubLink(link());
     const transport = mock<HubSyncTransport>();
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1' }));
     expect([await sync.carryOutRequests(), await sync.sendStatus()]).toEqual([0, 0]);
     expect(transport.requests).not.toHaveBeenCalled();
   });
@@ -517,7 +518,7 @@ describe('telling the hub what is live', () => {
     const work = mock<HubInstanceWork>();
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', work: () => work, log: (line) => lines.push(line) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', work: () => work, log: (line) => lines.push(line) }));
     return { db, transport, work, sync, lines };
   }
 
@@ -595,7 +596,7 @@ describe('answering what the hub asks of the owner\'s instance', () => {
     transport.connect.mockImplementation((given) => { line = given; return () => { line = undefined; }; });
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', ...(withWork ? { work: () => work } : {}), log: (logged) => lines.push(logged) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', ...(withWork ? { work: () => work } : {}), log: (logged) => lines.push(logged) }));
     await sync.start();
     return { db, transport, work, sync, lines, line: () => line };
   }
@@ -653,7 +654,7 @@ describe('running on what happens', () => {
     vi.spyOn(db.hub, 'watchHubDirty').mockImplementation((on) => { order.push('watch'); return watch(on); });
     await db.hub.saveHubLink(link());
     const lines: string[] = [];
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (logged) => lines.push(logged) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', log: (logged) => lines.push(logged) }));
     return { db, transport, sync, lines, order, line: () => line! };
   }
   const pulls = (transport: ReturnType<typeof mock<HubSyncTransport>>, times: number) => vi.waitFor(() => expect(transport.pull).toHaveBeenCalledTimes(times));
@@ -770,7 +771,7 @@ describe('members working a shared project from the hub', () => {
     const store = memoryHubStore();
     const relay = new HubRelay();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
-    const created = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
+    const created = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'i1', projectId: 'p1' } });
     if (!created.ok) throw new Error(created.why);
     const hubId = created.value.project.id;
     for (const [personId, role] of [['cy', 'client'], ['bo', 'collaborator']] as const) {
@@ -788,7 +789,7 @@ describe('members working a shared project from the hub', () => {
     act.openChat.mockResolvedValue(ok);
     const status = vi.fn<HubInstanceWorkDeps['status']>(async (ownerId, project, treeIds) => ({ at: 'now', releases: [{ id: 'r1', state: 'live', commit: 'abc', startedAt: '1' }], runs: [], treeRuns: Object.fromEntries(treeIds.map((id) => [id, { state: 'idle' }])), addresses: { owner: ownerId, project: project.id } }));
     const work = new HubInstanceWork({ store: db, status, act, live: mock<HubInstanceWorkDeps['live']>(), files: mock<HubInstanceWorkDeps['files']>() });
-    const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work }));
+    const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1', work: () => work }));
     await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
     await db.hub.saveHubLink(link({ hubProjectId: hubId }));
     await db.projects.saveTree(tree());
@@ -798,7 +799,7 @@ describe('members working a shared project from the hub', () => {
     await db.engine.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
     await sync.start();
     await sync.once();
-    expect(relay.online('combined')).toBe(true);
+    expect(relay.online('i1')).toBe(true);
     return { db, hub, hubId, sync, act, relay, store, status };
   }
 

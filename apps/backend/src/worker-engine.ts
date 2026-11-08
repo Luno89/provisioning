@@ -140,7 +140,7 @@ async function buildActivities() {
   });
   const kubeInfra = new InfrastructureService();
   const clusterAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data });
-  const clusterService = new ClusterService(db, kubeInfra, clusterAccess);
+  const clusterService = new ClusterService(db, kubeInfra, clusterAccess, { instanceOwnerId: roleFromEnv(process.env).instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
   const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
@@ -240,6 +240,7 @@ async function buildActivities() {
             masterKey: keys.data,
             clusterById: (id) => clusterService.getByIdUnscoped(id),
             handOver: (id) => clusterService.access.handOver(id),
+            ownClusterId: () => clusterService.ownClusterId(),
             logDir: LOG_DIR,
             claims: claimSettingsFrom(engineRole),
           }, project, run);
@@ -309,10 +310,8 @@ async function buildActivities() {
       runs: () => db.releases.getPipelineRuns(),
       deployments: () => db.infrastructure.getDeployments(),
       releases: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId),
-      clusters: async (ownerId) => {
-        const system = await clusterService.getSystemClusterEntry();
-        return [system, ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem && cluster.id !== system.id)];
-      },
+      clusters: (ownerId) => clusterService.clustersOwnedBy(ownerId),
+      ownClusterId: () => clusterService.ownClusterId(),
       appTypes: async (ownerId) => visibleAppSpecs(await db.infrastructure.getAppSpecs(), ownerId)
         .map((spec) => ({ id: spec.id, builtIn: spec.builtIn, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
       readPath: (project, path) => projectRepos.readPath(project, path),
@@ -328,10 +327,8 @@ async function buildActivities() {
       proposals: { list: (ownerId) => db.engine.getActionProposals(ownerId), save: (proposal) => db.engine.saveActionProposal(proposal) },
     },
     kube: {
-      clusters: async (ownerId) => {
-        const system = await clusterService.getSystemClusterEntry();
-        return [system, ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem && cluster.id !== system.id)];
-      },
+      clusters: (ownerId) => clusterService.clustersOwnedBy(ownerId),
+      ownClusterId: () => clusterService.ownClusterId(),
       deployments: () => db.infrastructure.getDeployments(),
       kubectl: (cluster, argv) => clusterAccess.kubectl(cluster.id, argv),
       principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
@@ -538,6 +535,7 @@ async function buildActivities() {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
       }),
       scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
+      ownClusterId: () => clusterService.ownClusterId(),
       releases: createCheckReleases({
         browser: releaseBrowser,
         cluster: namespacedCluster(clusterService.access, () => gitea.registryLogin()),

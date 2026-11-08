@@ -46,14 +46,15 @@ beforeAll(async () => {
     hubCredential: 'h', hubCredentialHash: hashCredential('h'), rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
   });
   const own = (database: string) => ({ MONGO_URI: `${mongo}${database}_${randomUUID().slice(0, 8)}` });
-  const roles = { combined: { ROLE: 'combined', ...own('combined') }, root: { ...plan.rootEnv, ...own('root') }, instance: { ...plan.instanceEnv, ...own('instance') }, hub: { ...plan.hubEnv, ...own('hub') } };
+  const roles = { root: { ...plan.rootEnv, ...own('root') }, instance: { ...plan.instanceEnv, ...own('instance') }, hub: { ...plan.hubEnv, ...own('hub') } };
   await Promise.all(Object.entries(roles).map(async ([role, env]) => { byRole[role] = await routesFor(env as Record<string, string>); }));
 }, 240_000);
 
 describe('every call the frontend makes is one some backend serves', () => {
   it('reads each role\'s routes from Express itself', () => {
-    expect(Object.keys(byRole).sort()).toEqual(['combined', 'hub', 'instance', 'root']);
-    expect(byRole.combined).toContainEqual({ method: 'GET', path: '/api/auth/me' });
+    expect(Object.keys(byRole).sort()).toEqual(['hub', 'instance', 'root']);
+    expect(byRole.root).toContainEqual({ method: 'GET', path: '/api/auth/me' });
+    expect(byRole.instance).toContainEqual({ method: 'GET', path: '/api/server-orders' });
     expect(byRole.instance).toContainEqual({ method: 'GET', path: '/api/auth/account-removal' });
   });
 

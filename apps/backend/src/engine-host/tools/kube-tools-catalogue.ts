@@ -106,7 +106,7 @@ export const KUBE_TOOLS: ToolDefinition[] = [
   {
     name: 'cluster_capacity',
     summary: 'Measure how busy a cluster\'s nodes are (CPU and memory in use), or how much one deployment\'s pods use',
-    guidance: 'Use this when something might not fit or is being starved. Without a cluster or deployment it measures the management cluster.',
+    guidance: 'Use this when something might not fit or is being starved. Without a cluster or deployment it measures the cluster Koala runs in.',
     binding: 'platform',
     effect: 'read',
     idempotent: true,

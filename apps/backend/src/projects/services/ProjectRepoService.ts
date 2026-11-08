@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson } from '../../platform/index.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
-import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import { ignore } from '@koala/engine-core/failures';
 import {
   giteaUsernameFor,
@@ -151,6 +150,7 @@ export class ProjectRepoService {
       if (mine.some((p) => p.giteaRepo === repo)) throw new Error(`You already have a project whose repository is called "${repo}".`);
       const giteaOwner = (await this.ensureAccount(ownerId)).username;
       if (!creating && !(await this.gitea.findRepo(giteaOwner, repo))) throw new Error(`You have no repository called "${repo}" to use; make it here instead.`);
+      const target = input.targetClusterId ?? this.options.defaultCluster;
       project = await this.db.projects.saveProjectInfo({
         id,
         name: input.name.trim() || repo,
@@ -159,7 +159,7 @@ export class ProjectRepoService {
         giteaRepo: repo,
         ...(input.language ? { language: input.language } : {}),
         appType: 'gitapp',
-        targetClusterId: input.targetClusterId ?? this.options.defaultCluster ?? DEFAULT_TARGET_CLUSTER,
+        ...(target ? { targetClusterId: target } : {}),
         autoDeployOnBuild: input.autoDeployOnBuild,
         ...input.extra,
         createdAt: new Date().toISOString(),

@@ -1,10 +1,12 @@
 import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
-import { localHubSharing, localProjectGroups, ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
+import { ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
+import { localHubSharing, localProjectGroups } from '../../projects/testing/in-process-sharing.js';
 import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { HubService } from '../services/HubService.js';
-import { HubSyncService, localHubSync } from '../services/HubSyncService.js';
+import { HubSyncService } from '../services/HubSyncService.js';
+import { localHubSync } from '../testing/in-process-hub.js';
 import { projectSharingRouter } from './project-sharing.js';
 
 const now = '2026-10-21T00:00:00Z';
@@ -19,7 +21,7 @@ async function ownerSite() {
     user: { id: 'ann', email: 'ann@example.com' },
     router: (db) => projectSharingRouter({
       sharing: new ProjectSharingService({
-        store: db, sharing: localHubSharing(hub, 'combined'), sync: new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' }), dataKey: 'k'.repeat(32) as never,
+        store: db, sharing: localHubSharing(hub, 'i1'), sync: new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1' }), dataKey: 'k'.repeat(32) as never,
         ownerRepo: async () => ({ url: 'unused' }), notify: async () => undefined, now: () => now, groups: localProjectGroups(db), republish: async () => undefined,
       }),
     }),

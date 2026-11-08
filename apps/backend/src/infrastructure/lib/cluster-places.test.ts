@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOT_CLUSTER_ID, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
+import { ROOT_CLUSTER_ID, hereFrom, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
 
 const unsealed = (overrides: Partial<KnownCluster> = {}): KnownCluster =>
   ({ id: 'machine-dev2', name: 'machine-dev2', provider: 'machine', machineId: 'dev2', status: 'healthy', ...overrides });
@@ -27,7 +27,7 @@ describe('where a cluster is, as ClusterAccess sees it', () => {
   });
 
   it('refuses a cluster of any other kind and one with no record', () => {
-    expect(placeOf('provisioning-lunorica', machine({ id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d' }), instance)).toMatchObject({ kind: 'unreachable', why: 'other-kind' });
+    expect(placeOf('old', machine({ id: 'old', name: 'old', provider: 'k3d' }), instance)).toMatchObject({ kind: 'unreachable', why: 'other-kind' });
     expect(placeOf('gone', undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'unknown', reason: 'there is no cluster gone' });
   });
 
@@ -38,19 +38,28 @@ describe('where a cluster is, as ClusterAccess sees it', () => {
 });
 
 describe('the cluster this Koala runs in', () => {
-  it('is its machine\'s cluster, the system cluster\'s name where it was told no machine, and root\'s own on root', () => {
+  it('is its machine\'s cluster, its place on Koala\'s servers for a pool instance, root\'s own on root, and none where it was told neither', () => {
     expect(koalasClusterId(instance)).toBe('machine-dev1');
-    expect(koalasClusterId({ root: false })).toBe('provisioning-lunorica');
+    expect(koalasClusterId({ poolName: 'bob', root: false })).toBe('pool-bob');
+    expect(koalasClusterId({ root: false })).toBeUndefined();
     expect(koalasClusterId({ root: true })).toBeUndefined();
     expect(ownReach(instance)).toEqual({ clusterId: 'machine-dev1', kind: 'koala' });
-    expect(ownReach({ root: false })).toEqual({ clusterId: 'provisioning-lunorica', kind: 'koala' });
+    expect(ownReach({ poolName: 'bob', root: false })).toEqual({ clusterId: 'pool-bob', kind: 'koala' });
+    expect(ownReach({ root: false })).toBeUndefined();
     expect(ownReach({ root: true })).toEqual({ clusterId: ROOT_CLUSTER_ID, kind: 'root' });
   });
 
-  it('is reached as Koala\'s own by that name where no machine was named, as a pool instance is, and nowhere else', () => {
-    expect(placeOf('provisioning-lunorica', undefined, { root: false })).toEqual({ kind: 'koala', clusterId: 'provisioning-lunorica' });
-    expect(placeOf('provisioning-lunorica', undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'unknown' });
-    expect(placeOf('provisioning-lunorica', undefined, { root: true })).toMatchObject({ kind: 'unreachable', why: 'unknown' });
+  it('is reached as Koala\'s own by the pool place\'s name only in that pool instance', () => {
+    expect(placeOf('pool-bob', undefined, { poolName: 'bob', root: false })).toEqual({ kind: 'koala', clusterId: 'pool-bob' });
+    expect(placeOf('pool-bob', undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'unknown' });
+    expect(placeOf('pool-bob', undefined, { root: true })).toMatchObject({ kind: 'unreachable', why: 'unknown' });
+  });
+
+  it('is read from the machine the chart names, or the pool place\'s name where the instance is on Koala\'s servers', () => {
+    expect(hereFrom({ INSTANCE_MACHINE_ID: ' dev1 ', INSTANCE_NAME: 'bob' }, false)).toEqual({ koalaMachineId: 'dev1', poolName: undefined, root: false });
+    expect(hereFrom({ POOL: 'true', INSTANCE_NAME: 'bob' }, false)).toEqual({ koalaMachineId: undefined, poolName: 'bob', root: false });
+    expect(hereFrom({ INSTANCE_NAME: 'bob' }, false)).toEqual({ koalaMachineId: undefined, poolName: undefined, root: false });
+    expect(hereFrom({}, true)).toEqual({ koalaMachineId: undefined, poolName: undefined, root: true });
   });
 });
 
@@ -61,7 +70,7 @@ describe('what a workflow is handed to reach a cluster', () => {
   });
 
   it('is no machine for a cluster that is not one, which is reached as it is', () => {
-    expect(machineToStart('provisioning-lunorica', undefined, { root: false })).toBeUndefined();
+    expect(machineToStart('pool-bob', undefined, { poolName: 'bob', root: false })).toBeUndefined();
     expect(machineToStart(ROOT_CLUSTER_ID, undefined, { root: true })).toBeUndefined();
     expect(machineToStart('old', { id: 'old', name: 'old', provider: 'k3d', status: 'healthy' }, instance)).toBeUndefined();
   });
@@ -78,7 +87,6 @@ describe('the kubeconfig a pod reaches its own cluster with', () => {
     expect(kubeconfig).toContain('server: https://10.43.0.1:443');
     expect(kubeconfig).toContain('certificate-authority: /sa/ca.crt');
     expect(kubeconfig).toContain('tokenFile: /sa/token');
-    expect(kubeconfig).not.toContain('provisioning-lunorica');
   });
 
   it('brackets an IPv6 address', () => {

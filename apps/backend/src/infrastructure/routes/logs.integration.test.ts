@@ -26,14 +26,16 @@ describe('/api/logs/pipeline', () => {
 });
 
 describe('/api/logs/cluster', () => {
-  it('shows the system cluster\'s provisioning log only to its operator', async () => {
+  it('shows a cluster\'s provisioning log only to whoever owns it', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cluster-logs-'));
-    const system = { id: 'provisioning-lunorica', isSystem: true, lastLogPath: path.join(dir, 'system.log') };
+    const system = { id: 'machine-koala', ownerId: 'its-owner', lastLogPath: path.join(dir, 'system.log') };
     await fs.writeFile(system.lastLogPath, 'k3s installed');
     const clusterService = { getById: async (id: string, principal: Principal, action: 'see-everything') => (id === system.id && allowed(principal, action, clusterResource(system)) ? system : undefined) };
     const harness = await mountRouter({ prefix: '/api/logs', router: async (db) => logsRouter({ db, clusterService, appService: { getAll: async () => [] } }) });
     expect((await axios.get(harness.url(`/api/logs/cluster/${system.id}`))).data).toEqual({ content: 'Initializing...' });
     harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
+    expect((await axios.get(harness.url(`/api/logs/cluster/${system.id}`))).data).toEqual({ content: 'Initializing...' });
+    harness.setUser({ ...TEST_USER, id: 'its-owner' });
     expect((await axios.get(harness.url(`/api/logs/cluster/${system.id}`))).data).toEqual({ content: 'k3s installed' });
     await harness.close();
     await fs.rm(dir, { recursive: true });

@@ -5,7 +5,7 @@ import { asPerson } from '../../platform/lib/permissions.js';
 import { metricsOf, type PrometheusClient, type Viewer } from '../../monitoring/services/MonitoringService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
-const system = { id: 'sys', name: 'system', status: 'healthy', isSystem: true } as ClusterMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'admin' } as ClusterMetadata;
 const mine = { id: 'c1', name: 'mine', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const podsJson = JSON.stringify({ items: [
@@ -24,10 +24,10 @@ function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean, answ
     alerts: async () => [],
   };
   const service = new ClusterContentsService({
-    monitoring: { clustersOf: async () => [system, mine], ownsCluster: owns, reach: async () => ({ metrics: metricsOf(prometheus) }) },
+    monitoring: { clustersOf: async () => [koalas, mine], ownsCluster: owns, reach: async () => ({ metrics: metricsOf(prometheus) }) },
     deployments: async () => [
-      { id: 'd1', name: 'shop', namespace: 'shop', clusterId: 'sys', ownerId: 'me', status: 'running' },
-      { id: 'd2', name: 'theirs', namespace: 'theirs', clusterId: 'sys', ownerId: 'you', status: 'running' },
+      { id: 'd1', name: 'shop', namespace: 'shop', clusterId: 'machine-koala', ownerId: 'me', status: 'running' },
+      { id: 'd2', name: 'theirs', namespace: 'theirs', clusterId: 'machine-koala', ownerId: 'you', status: 'running' },
     ] as DeploymentMetadata[],
     kubectl: async (cluster, args) => {
       if (!answers(cluster)) throw new Error('connection refused\nmore detail');
@@ -44,7 +44,7 @@ function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean, answ
 describe('what is on a cluster', () => {
   it('shows its owner every workload, with the platform services, Helm releases and nodes', async () => {
     const { service } = setUp(() => true);
-    const contents = await service.contents(asPerson('admin'), 'sys');
+    const contents = await service.contents(asPerson('admin'), 'machine-koala');
     expect(contents.can).toEqual(['see-everything']);
     expect(contents.workloads.map((workload) => [workload.group, workload.name, workload.state])).toEqual([
       ['apps', 'theirs-0', 'down'], ['apps', 'shop', 'ok'], ['platform', 'kube-prometheus-stack-grafana', 'ok'],
@@ -58,7 +58,7 @@ describe('what is on a cluster', () => {
 
   it('shows anyone else only their own, and no services, releases or nodes', async () => {
     const { service } = setUp(() => false);
-    const contents = await service.contents(asPerson('me'), 'sys');
+    const contents = await service.contents(asPerson('me'), 'machine-koala');
     expect(contents.can).toEqual([]);
     expect(contents.workloads.map((workload) => workload.name)).toEqual(['shop']);
     expect(contents.services).toBeUndefined();
@@ -68,18 +68,18 @@ describe('what is on a cluster', () => {
 
   it('reads a cluster once while the read is fresh, and lists what is broken across clusters', async () => {
     const { service, calls } = setUp(() => true);
-    await service.contents(asPerson('admin'), 'sys');
-    await service.contents(asPerson('admin'), 'sys');
+    await service.contents(asPerson('admin'), 'machine-koala');
+    await service.contents(asPerson('admin'), 'machine-koala');
     expect(calls.filter((call) => call.startsWith('get pods'))).toHaveLength(1);
     const broken = await service.broken(asPerson('admin'));
-    expect(broken.workloads.map((workload) => [workload.clusterId, workload.name])).toEqual([['sys', 'theirs-0'], ['c1', 'theirs-0']]);
+    expect(broken.workloads.map((workload) => [workload.clusterId, workload.name])).toEqual([['machine-koala', 'theirs-0'], ['c1', 'theirs-0']]);
     expect(broken.unread).toEqual([]);
   });
 
   it('names a cluster it could not read, rather than counting it as having nothing broken', async () => {
     const { service } = setUp(() => true, (cluster) => cluster.id !== 'c1');
     const broken = await service.broken(asPerson('admin'));
-    expect(broken.workloads.map((workload) => workload.clusterId)).toEqual(['sys']);
+    expect(broken.workloads.map((workload) => workload.clusterId)).toEqual(['machine-koala']);
     expect(broken.unread).toEqual([{ clusterId: 'c1', clusterName: 'mine', problem: 'it does not answer (connection refused)' }]);
   });
 
@@ -96,7 +96,7 @@ describe('what is on a cluster', () => {
 
 describe('what is on a cluster when part of it cannot be read', () => {
   const failing = (what: { helm?: boolean; nodes?: boolean }) => new ClusterContentsService({
-    monitoring: { clustersOf: async () => [system], ownsCluster: (viewer) => viewer.id === 'admin', reach: async () => ({}) },
+    monitoring: { clustersOf: async () => [koalas], ownsCluster: (viewer) => viewer.id === 'admin', reach: async () => ({}) },
     deployments: async () => [],
     kubectl: async (_cluster, args) => {
       if (args[1] === 'nodes' && what.nodes) throw new Error('nodes is forbidden: User cannot list resource "nodes"\nmore detail');
@@ -111,7 +111,7 @@ describe('what is on a cluster when part of it cannot be read', () => {
   });
 
   it('tells its owner why Helm could not list the releases, in Helm\'s own words, instead of showing none, and still shows the workloads', async () => {
-    const contents = await failing({ helm: true }).contents(asPerson('admin'), 'sys');
+    const contents = await failing({ helm: true }).contents(asPerson('admin'), 'machine-koala');
     expect(contents.releases).toBeUndefined();
     expect(contents.releasesProblem).toBe('Helm could not list the releases: Kubernetes cluster unreachable: the server has asked for the client to provide credentials');
     expect(contents.workloads.length).toBeGreaterThan(0);
@@ -120,7 +120,7 @@ describe('what is on a cluster when part of it cannot be read', () => {
   });
 
   it('tells its owner why the nodes could not be listed, instead of showing none', async () => {
-    const contents = await failing({ nodes: true }).contents(asPerson('admin'), 'sys');
+    const contents = await failing({ nodes: true }).contents(asPerson('admin'), 'machine-koala');
     expect(contents.nodes).toBeUndefined();
     expect(contents.nodesProblem).toBe('the nodes could not be listed: nodes is forbidden: User cannot list resource "nodes"');
     expect(contents.releases).toEqual([]);
@@ -128,7 +128,7 @@ describe('what is on a cluster when part of it cannot be read', () => {
   });
 
   it('tells anyone but the owner neither, since they see no releases or nodes at all', async () => {
-    const contents = await failing({ helm: true, nodes: true }).contents(asPerson('someone'), 'sys');
+    const contents = await failing({ helm: true, nodes: true }).contents(asPerson('someone'), 'machine-koala');
     expect(contents).not.toHaveProperty('releasesProblem');
     expect(contents).not.toHaveProperty('nodesProblem');
     expect(contents).not.toHaveProperty('releases');

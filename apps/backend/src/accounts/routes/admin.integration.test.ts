@@ -23,7 +23,7 @@ beforeAll(async () => {
     router: (db) => adminRouter({
       db,
       operatorOnly: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' })),
-      inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'combined' }) }),
+      inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'root' }) }),
     }),
   });
 });

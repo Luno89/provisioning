@@ -43,7 +43,7 @@ function KoalaPanel({ read, about }: { read: KoalaRead; about: string }) {
 
 export function KoalaSection() {
   const view = useInfrastructure()
-  return <KoalaPanel read={{ isPending: view.isPending, isError: view.isError, error: view.error, koala: view.data?.koala }} about="What Koala reports about itself: its requests, model calls and work, read from the system cluster's Prometheus through its collector." />
+  return <KoalaPanel read={{ isPending: view.isPending, isError: view.isError, error: view.error, koala: view.data?.koala }} about="What Koala reports about itself: its requests, model calls and work, read from the Prometheus of the cluster this Koala runs in, through its collector." />
 }
 
 export function RootKoala() {

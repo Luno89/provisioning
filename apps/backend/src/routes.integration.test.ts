@@ -21,6 +21,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
 
   beforeAll(async () => {
     axios.defaults.proxy = false;
+    process.env.ROLE = 'root';
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
     Object.assign(process.env, testMinioEnv(), unreachedPlatformServices());
     home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
@@ -85,10 +86,10 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(profileRes.data.email).toBe(email);
     expect(profileRes.data.twoFactorEnabled).toBe(false);
 
-    const clustersRes = await axios.get(getUrl('/api/clusters'), {
+    const invitesRes = await axios.get(getUrl('/api/admin/invites'), {
       headers: { Cookie: sessionCookie },
     });
-    expect(clustersRes.status).toBe(200);
+    expect(invitesRes.status).toBe(200);
   });
 
   it('no longer starts work the old way: no hand-made leaves, branch chats or legacy chat turns', async () => {

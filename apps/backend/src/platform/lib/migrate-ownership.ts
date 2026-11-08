@@ -3,7 +3,7 @@ import { runOnce } from './migrations.js';
 import { holds, principalOf, type ClaimSettings } from './permissions.js';
 import type { UserMetadata } from './types.js';
 
-const holdsAccounts = (claims: ClaimSettings): boolean => claims.role === 'root' || claims.role === 'combined';
+const holdsAccounts = (claims: ClaimSettings): boolean => claims.role === 'root';
 
 async function firstOperator(db: Database, claims: ClaimSettings): Promise<UserMetadata | undefined> {
   const users = (await db.accounts.getUsers()).filter((user) => !user.space);

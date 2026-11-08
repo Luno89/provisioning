@@ -1,6 +1,6 @@
 import type { ClusterMetadata } from '../../platform/index.js';
 import type { MachineOfCluster } from './app-destroy.js';
-import { machineClusterId, SYSTEM_CLUSTER_ID } from './cluster-name.js';
+import { machineClusterId, poolClusterId } from './cluster-name.js';
 
 export const ROOT_CLUSTER_ID = 'root';
 
@@ -26,6 +26,7 @@ export interface Unreachable { kind: 'unreachable'; clusterId: string; why: WhyU
 
 export interface Here {
   koalaMachineId?: string | undefined;
+  poolName?: string | undefined;
   root: boolean;
 }
 
@@ -33,11 +34,22 @@ export type KnownCluster = Pick<ClusterMetadata, 'id' | 'name' | 'provider' | 'm
 
 const unreachable = (clusterId: string, why: WhyUnreachable, reason: string): Unreachable => ({ kind: 'unreachable', clusterId, why, reason });
 
-export const koalasClusterId = (here: Here): string | undefined =>
-  here.root ? undefined : here.koalaMachineId ? machineClusterId(here.koalaMachineId) : SYSTEM_CLUSTER_ID;
+export function koalasClusterId(here: Here): string | undefined {
+  if (here.root) return undefined;
+  if (here.koalaMachineId) return machineClusterId(here.koalaMachineId);
+  return here.poolName ? poolClusterId(here.poolName) : undefined;
+}
 
-export const ownReach = (here: Here): Reach =>
-  here.root ? { clusterId: ROOT_CLUSTER_ID, kind: 'root' } : { clusterId: koalasClusterId(here)!, kind: 'koala' };
+export function ownReach(here: Here): Reach | undefined {
+  if (here.root) return { clusterId: ROOT_CLUSTER_ID, kind: 'root' };
+  const clusterId = koalasClusterId(here);
+  return clusterId ? { clusterId, kind: 'koala' } : undefined;
+}
+
+export function hereFrom(env: Readonly<Record<string, string | undefined>>, root: boolean): Here {
+  const pool = env.POOL === 'true';
+  return { koalaMachineId: env.INSTANCE_MACHINE_ID?.trim() || undefined, poolName: pool ? env.INSTANCE_NAME?.trim() || undefined : undefined, root };
+}
 
 export function machineToStart(clusterId: string, cluster: KnownCluster | undefined, here: Here): MachineOfCluster | undefined {
   if (cluster?.provider === 'machine' && cluster.machineId) return { deviceId: cluster.machineId };

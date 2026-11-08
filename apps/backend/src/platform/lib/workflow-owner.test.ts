@@ -19,10 +19,10 @@ describe('whose a workflow is', () => {
 });
 
 describe('what a person sees on the Temporal page', () => {
-  const combined = (user: { id: string; roles?: ('operator')[] }) => principalOf(user, { role: 'combined' });
+  const onRoot = (user: { id: string; roles?: ('operator')[] }) => principalOf(user, { role: 'root' });
   const onInstanceOf = (owner: string) => (user: { id: string }) => principalOf(user, { role: 'instance', instanceOwnerId: owner });
-  const bo = combined({ id: 'bo' });
-  const admin = combined({ id: 'ada', roles: ['operator' as const] });
+  const bo = onRoot({ id: 'bo' });
+  const admin = onRoot({ id: 'ada', roles: ['operator' as const] });
 
   it('shows anyone only their own, even when they ask for everything', () => {
     expect(workflowScope(bo, undefined)).toEqual({ all: false, query: 'KoalaOwner = "bo"' });

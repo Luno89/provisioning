@@ -1,25 +1,20 @@
-import { randomBytes } from 'node:crypto';
-import { MongoClient } from 'mongodb';
-import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 'vitest';
-import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
-import { startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
+import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import { otlpSink, type OtlpSink, type OtlpSpan } from '../platform/testing/otlp-sink.js';
-import { until } from '../platform/testing/three-roles.js';
+import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { TRACE_ID_HEADER } from '../platform/services/MetricsService.js';
 import { TURN_PROCEDURE_ID } from '../checks/lib/turn-check.js';
-import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const STAMP = Date.now().toString(36);
-const DATABASE = `telemetry_${STAMP}`;
 const SCENARIO = `telemetry-${STAMP}`;
 const SAID = 'Hello from the scripted model, for the telemetry integration test.';
 const ASKED = 'Say hello, nothing else.';
 
 let collector: OtlpSink;
+let roles: ThreeRoles;
 let backend: LoopbackRole;
-let worker: LoopbackProcess;
+let worker: LoopbackRole;
 let cookie: string;
-let mongoUri: string;
 let checkRunId: string | undefined;
 
 async function call(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; headers: Headers; body: unknown }> {
@@ -32,40 +27,17 @@ async function call(path: string, init: { method?: string; body?: unknown } = {}
 }
 
 beforeAll(async () => {
-  mongoUri = inject('mongoUri');
   collector = await otlpSink();
-  const port = await portToHandOn();
-  const setupCode = randomBytes(12).toString('base64url');
-  const shared = {
-    JWT_SECRET: `telemetry-${STAMP}`,
-    MONGO_URI: `${mongoUri}${DATABASE}`,
-    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
-    TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
-    OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
-    CHECKS_API_URL: `http://localhost:${port}/api`,
-    PORT: String(port),
-  };
-  backend = await startRole('telemetry-backend', { ...shared, ADMIN_SETUP_CODE: setupCode, MACHINE_GATEWAY_PORT: String(await portToHandOn()) }, port);
-  worker = await startWorker('telemetry-engine', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()) });
-  const email = `owner-${STAMP}@telemetry.test`;
-  const password = randomBytes(18).toString('base64url');
-  const post = (path: string, body: unknown) => fetch(`${backend.url}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const made = await post('/auth/register', { email, password, inviteCode: setupCode });
-  if (!made.ok) throw new Error(`the owner could not sign up: ${made.status} ${await made.text()}`);
-  const login = await post('/auth/login', { email, password });
-  cookie = login.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair)) ?? '';
-  if (!cookie) throw new Error('signing in set no session cookie');
+  roles = await startThreeRoles('telemetry', { extra: { OTEL_EXPORTER_OTLP_ENDPOINT: collector.url }, instanceWorkers: ['engine'] });
+  backend = roles.instance;
+  worker = roles.workers['instance-engine']!;
+  cookie = await roles.ownerOnInstance();
 }, 300_000);
 
 afterAll(async () => {
   if (checkRunId) await until(async () => (((await call(`/api/evals/level2/runs/${checkRunId}`)).body as { state: string }).state === 'running' ? undefined : true));
-  await worker?.close();
-  await backend?.close();
+  await roles?.close();
   await collector?.close();
-  const client = new MongoClient(mongoUri);
-  await client.connect();
-  await client.db(DATABASE).dropDatabase();
-  await client.close();
 }, 300_000);
 
 describe('Koala reports its own telemetry to the collector it is pointed at', () => {

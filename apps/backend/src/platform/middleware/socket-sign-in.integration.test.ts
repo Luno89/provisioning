@@ -27,7 +27,7 @@ async function serve(failing = false) {
   const revocations = new AccessRevocations();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
-  const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', sessionEnds });
+  const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds });
   const auth = failing ? { ...real, sessionFromCookie: async () => { throw new Error('the database did not answer'); } } : real;
   const server = http.createServer();
   const io = new SocketServer(server);

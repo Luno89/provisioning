@@ -48,8 +48,6 @@ export function scopedTo(prometheus: PrometheusClient, cluster: string): Prometh
   };
 }
 
-const onMachine = (cluster: Pick<ClusterMetadata, 'provider' | 'isSystem'>) => cluster.provider === 'machine' && !cluster.isSystem;
-
 export interface MetricsClient {
   ask(ask: MonitoringAsk): Promise<Sample[]>;
   askRange(ask: MonitoringAsk, range: RangeAsk): Promise<Array<[number, number]>>;
@@ -109,7 +107,8 @@ export type MonitoringSources = Pick<Database, 'infrastructure' | 'releases' | '
 
 export interface MonitoringDeps {
   store: MonitoringSources;
-  systemCluster(): Promise<ClusterMetadata | undefined>;
+  ownCluster(): Promise<ClusterMetadata | undefined>;
+  ownClusterId(): string | undefined;
   prometheus(cluster: ClusterMetadata): Promise<PrometheusClient>;
   pool?(cluster: ClusterMetadata): PoolMonitor | undefined;
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
@@ -154,7 +153,7 @@ export interface ClusterRow {
   numbers: ClusterNumbers;
   history: HistoryState;
   apps: number;
-  isSystem: boolean;
+  own: boolean;
 }
 
 export interface Attention {
@@ -239,14 +238,27 @@ export class MonitoringService {
     this.newId = deps.newId ?? randomUUID;
   }
 
-  ownsCluster(viewer: Viewer, cluster: Pick<ClusterMetadata, 'id' | 'ownerId' | 'isSystem'>): boolean {
-    return allowed(viewer, 'see-everything', clusterResource(cluster));
+  private may(viewer: Viewer, action: 'see' | 'see-everything', cluster: Pick<ClusterMetadata, 'id' | 'ownerId'>): boolean {
+    if (this.deps.rootAlerts && this.isOwn(cluster)) return allowed(viewer, 'administer', { kind: 'install' });
+    return allowed(viewer, action, clusterResource(cluster));
+  }
+
+  ownsCluster(viewer: Viewer, cluster: Pick<ClusterMetadata, 'id' | 'ownerId'>): boolean {
+    return this.may(viewer, 'see-everything', cluster);
+  }
+
+  isOwn(cluster: Pick<ClusterMetadata, 'id'>): boolean {
+    return cluster.id === this.deps.ownClusterId();
+  }
+
+  private onMachine(cluster: Pick<ClusterMetadata, 'id' | 'provider'>): boolean {
+    return cluster.provider === 'machine' && !this.isOwn(cluster);
   }
 
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
-    const system = await this.deps.systemCluster();
-    const own = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status !== 'destroying' && allowed(viewer, 'see', clusterResource(cluster)));
-    return [...(system ? [system] : []), ...own.filter((cluster) => cluster.id !== system?.id)];
+    const own = await this.deps.ownCluster();
+    const records = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status !== 'destroying' && cluster.id !== own?.id && this.may(viewer, 'see', cluster));
+    return [...(own && this.may(viewer, 'see', own) ? [own] : []), ...records];
   }
 
   async appsOf(viewer: Viewer): Promise<DeploymentMetadata[]> {
@@ -254,8 +266,8 @@ export class MonitoringService {
   }
 
   async allClusters(): Promise<ClusterMetadata[]> {
-    const system = await this.deps.systemCluster();
-    return [...(system ? [system] : []), ...(await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status === 'healthy' && cluster.id !== system?.id)];
+    const own = await this.deps.ownCluster();
+    return [...(own ? [own] : []), ...(await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status === 'healthy' && cluster.id !== own?.id)];
   }
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {
@@ -276,7 +288,7 @@ export class MonitoringService {
       await prometheus.query('vector(1)');
       return { cluster, state: 'ok', metrics: metricsOf(prometheus) };
     } catch (err) {
-      if (onMachine(cluster)) return { cluster, state: 'unreachable', reason: `the Prometheus its machine sends to does not answer (${(err as Error).message})` };
+      if (this.onMachine(cluster)) return { cluster, state: 'unreachable', reason: `the Prometheus its machine sends to does not answer (${(err as Error).message})` };
       const monitoring = await this.deps.kubectl(cluster, ['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch((failure: unknown) => failure as Error);
       if (monitoring instanceof Error) return { cluster, state: 'unreachable', reason: `it does not answer (${monitoring.message})` };
       if (monitoring.trim() === '') return { cluster, state: 'installing', reason: 'its monitoring is installed before its next app is deployed' };
@@ -285,18 +297,18 @@ export class MonitoringService {
   }
 
   private async prometheusOf(cluster: ClusterMetadata): Promise<PrometheusClient> {
-    if (cluster.isSystem) return scopedTo(await this.deps.prometheus(cluster), OWN_SERIES);
-    if (!onMachine(cluster)) return this.deps.prometheus(cluster);
-    const system = await this.deps.systemCluster();
-    if (!system) throw new Error('there is no system cluster for its machine to send to');
-    return scopedTo(await this.deps.prometheus(system), cluster.id);
+    if (this.isOwn(cluster)) return scopedTo(await this.deps.prometheus(cluster), OWN_SERIES);
+    if (!this.onMachine(cluster)) return this.deps.prometheus(cluster);
+    const own = await this.deps.ownCluster();
+    if (!own) throw new Error('this Koala runs in no cluster of its own for its machines to send to');
+    return scopedTo(await this.deps.prometheus(own), cluster.id);
   }
 
   private async ruleHome(cluster: ClusterMetadata, namespace: string): Promise<{ cluster: ClusterMetadata; namespace: string; scope?: string }> {
-    if (!onMachine(cluster)) return { cluster, namespace };
-    const system = await this.deps.systemCluster();
-    if (!system) throw new MonitoringError(409, 'there is no system cluster for its machine to send to');
-    return { cluster: system, namespace: KOALA_ALERT_NAMESPACE, scope: cluster.id };
+    if (!this.onMachine(cluster)) return { cluster, namespace };
+    const own = await this.deps.ownCluster();
+    if (!own) throw new MonitoringError(409, 'this Koala runs in no cluster of its own for its machines to send to');
+    return { cluster: own, namespace: KOALA_ALERT_NAMESPACE, scope: cluster.id };
   }
 
   private async settingOf(clusterId: string): Promise<MonitoringSetting | undefined> {
@@ -311,9 +323,9 @@ export class MonitoringService {
       const kept = await pool.history().catch(ignore('when Koala\'s servers cannot say how long they keep history, how much is kept is shown as not known'));
       return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, can: [], byKoala: true };
     }
-    if (onMachine(cluster)) {
-      const system = await this.deps.systemCluster();
-      return system ? { ...(await this.historyOf(undefined, system)), can: [] } : { days, applied: false, can: [] };
+    if (this.onMachine(cluster)) {
+      const own = await this.deps.ownCluster();
+      return own ? { ...(await this.historyOf(undefined, own)), can: [] } : { days, applied: false, can: [] };
     }
     const can: HistoryAction[] = viewer && this.ownsCluster(viewer, cluster) ? ['change'] : [];
     if (reached && reached.state !== 'ok') return { days, applied: false, can, ...(setting?.problem ? { problem: setting.problem } : {}) };
@@ -395,14 +407,14 @@ export class MonitoringService {
 
   async koala(viewer: Viewer): Promise<KoalaView> {
     const checkedAt = this.now().toISOString();
-    const system = await this.deps.systemCluster();
-    if (!system) return { state: 'unreachable', reasons: ['there is no system cluster'], numbers: {}, services: [], lines: ['Koala cannot be reached: there is no system cluster.'], telemetry: { collector: false, tempo: false }, checkedAt };
-    const reached = await this.reach(system);
-    const { seen: telemetry, problem: telemetryProblem } = await this.telemetryOn(system);
+    const own = await this.deps.ownCluster();
+    if (!own) return { state: 'unreachable', reasons: ['this Koala runs in no cluster of its own'], numbers: {}, services: [], lines: ['Koala cannot be reached: it runs in no cluster of its own.'], telemetry: { collector: false, tempo: false }, checkedAt };
+    const reached = await this.reach(own);
+    const { seen: telemetry, problem: telemetryProblem } = await this.telemetryOn(own);
     const unmeasured = (state: HealthState, reason: string): KoalaView =>
       ({ state, reasons: [reason], numbers: {}, services: [], lines: koalaLines({ state, reasons: [reason] }, {}, []), telemetry, checkedAt });
     if (!reached.metrics) return unmeasured(reached.state, `its cluster ${reached.reason ?? 'cannot be reached'}`);
-    if (this.isPool(system)) return unmeasured('unreachable', 'Koala\'s own telemetry is not kept on Koala\'s servers');
+    if (this.isPool(own)) return unmeasured('unreachable', 'Koala\'s own telemetry is not kept on Koala\'s servers');
     if (telemetryProblem) return unmeasured('unreachable', `its cluster could not say whether its collector and Tempo are there (${telemetryProblem})`);
     if (!telemetry.collector || !telemetry.tempo) return unmeasured('installing', 'its collector and Tempo are installed when the cluster worker starts or an app is deployed');
     const [numbers, reporting] = await Promise.all([
@@ -451,7 +463,7 @@ export class MonitoringService {
 
   private async clusterRow(viewer: Viewer, reached: Reached, firing: VisibleAlert[], apps: number): Promise<ClusterRow> {
     const history = await this.historyOf(viewer, reached.cluster, reached);
-    const base = { id: reached.cluster.id, name: reached.cluster.name, history, apps, isSystem: Boolean(reached.cluster.isSystem) };
+    const base = { id: reached.cluster.id, name: reached.cluster.name, history, apps, own: this.isOwn(reached.cluster) };
     if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [reached.reason] : [], numbers: {} };
     const numbers = await this.clusterNumbers(reached.metrics);
     const verdict = clusterVerdict(numbers, firing.filter((alert) => alert.about.kind === 'cluster').map((alert) => alert.summary), this.isPool(reached.cluster));
@@ -471,7 +483,7 @@ export class MonitoringService {
       return { row, rows, firing: firing.map((alert) => ({ ...alert, clusterId: cluster.id })) };
     }));
     const appRows = worstFirst(per.flatMap((entry) => entry.rows));
-    const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || allowed(viewer, 'see-everything', { kind: 'system-cluster', id: row.id })));
+    const clusterRows = worstFirst(per.map((entry) => entry.row));
     const attention = worstFirst([
       ...clusterRows.filter((row) => row.state !== 'ok' && row.state !== 'stopped').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
       ...appRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'app' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
@@ -580,7 +592,7 @@ export class MonitoringService {
     if (!cluster) throw new MonitoringError(404, 'no such cluster');
     if (!this.ownsCluster(viewer, cluster)) throw new MonitoringError(403, 'only whoever owns this cluster can change how long it keeps history');
     if (this.deps.pool?.(cluster)) throw new MonitoringError(409, 'Koala\'s servers keep this history, for as long as they keep everyone\'s');
-    if (onMachine(cluster)) throw new MonitoringError(409, 'a machine\'s history is kept with this Koala\'s own, for as long as its system cluster keeps it');
+    if (this.onMachine(cluster)) throw new MonitoringError(409, 'a machine\'s history is kept with this Koala\'s own, for as long as the cluster this Koala runs in keeps it');
     await this.deps.store.monitoring.saveMonitoringSetting({ clusterId, ownerId: viewer.id, historyDays: days as number, updatedAt: this.now().toISOString() });
     await this.applyHistory(cluster);
     return this.historyOf(viewer, cluster);
@@ -608,7 +620,7 @@ export class MonitoringService {
   }
 
   async applyHistory(cluster: ClusterMetadata): Promise<boolean> {
-    if (this.isPool(cluster) || onMachine(cluster)) return false;
+    if (this.isPool(cluster) || this.onMachine(cluster)) return false;
     const setting = await this.settingOf(cluster.id);
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
     const now = await this.prometheusResource(cluster).catch(ignore('a Prometheus that cannot be read now has its history applied on the watcher\'s next pass'));
@@ -628,12 +640,12 @@ export class MonitoringService {
   }
 
   async applyRootRules(cluster: ClusterMetadata): Promise<void> {
-    if (!this.deps.rootAlerts || !cluster.isSystem) return;
+    if (!this.deps.rootAlerts || !this.isOwn(cluster)) return;
     await this.deps.apply(cluster, JSON.stringify(rootAlertsManifest()));
   }
 
   async applyReceiver(cluster: ClusterMetadata): Promise<boolean> {
-    if (!cluster.isSystem || this.isPool(cluster)) return false;
+    if (!this.isOwn(cluster) || this.isPool(cluster)) return false;
     const now = await this.prometheusResource(cluster);
     if (now.receives) return false;
     const version = chartVersionOf(JSON.parse(await this.deps.helm(cluster, ['list', '-n', 'monitoring', '-o', 'json'])) as Array<{ name?: string; chart?: string }>);
@@ -703,14 +715,14 @@ export class MonitoringService {
   }
 
   private async koalaAlertProblem(viewer: Viewer, spec: AlertSpec): Promise<{ cluster: ClusterMetadata; expression: string } | { error: string }> {
-    const system = await this.deps.systemCluster();
-    if (!system) return { error: 'there is no system cluster to watch Koala on' };
-    if (!this.ownsCluster(viewer, system)) return { error: 'only whoever runs this Koala can set alerts on Koala itself' };
-    if (this.isPool(system)) return { error: 'Koala\'s own telemetry is not kept on Koala\'s servers, so it cannot be watched there' };
-    const reached = await this.reach(system);
+    const own = await this.deps.ownCluster();
+    if (!own) return { error: 'this Koala runs in no cluster of its own to watch it on' };
+    if (!this.ownsCluster(viewer, own)) return { error: 'only whoever runs this Koala can set alerts on Koala itself' };
+    if (this.isPool(own)) return { error: 'Koala\'s own telemetry is not kept on Koala\'s servers, so it cannot be watched there' };
+    const reached = await this.reach(own);
     if (!reached.metrics) return { error: `its cluster ${reached.reason ?? 'cannot be reached'}, so an alert cannot be set there now` };
     const expression = koalaAlertExpression(spec);
-    return typeof expression === 'string' ? { cluster: system, expression } : expression;
+    return typeof expression === 'string' ? { cluster: own, expression } : expression;
   }
 
   async proposeAlertProblem(viewer: Viewer, appNameOrId: string, spec: AlertSpec): Promise<{ subject: { id: string; name: string }; summary: string } | { error: string }> {

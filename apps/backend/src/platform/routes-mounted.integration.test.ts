@@ -1,17 +1,13 @@
-import { randomBytes } from 'node:crypto';
-import { MongoClient } from 'mongodb';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sessionFrom } from './testing/handoff.js';
-import { startRole, type LoopbackRole } from './testing/roles-on-loopback.js';
 import { startThreeRoles, type ThreeRoles } from './testing/three-roles.js';
 
-type Role = 'root' | 'instance' | 'hub' | 'combined';
+type Role = 'root' | 'instance' | 'hub';
 interface Probe { method?: 'post'; path: string; body?: unknown; on: Role[] }
 
-const TENANT: Role[] = ['instance', 'combined'];
-const ACCOUNTS: Role[] = ['root', 'combined'];
-const EVERY: Role[] = ['root', 'instance', 'hub', 'combined'];
+const TENANT: Role[] = ['instance'];
+const ACCOUNTS: Role[] = ['root'];
+const EVERY: Role[] = ['root', 'instance', 'hub'];
 
 const ROUTERS: Probe[] = [
   { path: '/api/account/removal', on: ACCOUNTS },
@@ -38,7 +34,7 @@ const ROUTERS: Probe[] = [
   { path: '/api/engine-tools', on: TENANT },
   { path: '/api/evals/level2/bench', on: TENANT },
   { path: '/api/files/shares', on: TENANT },
-  { path: '/api/hub/projects', on: ['hub', 'combined'] },
+  { path: '/api/hub/projects', on: ['hub'] },
   { path: '/api/identity/keys', on: ACCOUNTS },
   { path: '/api/infrastructure', on: TENANT },
   { path: '/api/instance-addresses', on: TENANT },
@@ -64,7 +60,7 @@ const ROUTERS: Probe[] = [
   { path: '/api/release-settings/options', on: TENANT },
   { path: '/api/running', on: TENANT },
   { path: '/api/secret-requests', on: TENANT },
-  { path: '/api/server-orders', on: ['combined'] },
+  { path: '/api/server-orders', on: TENANT },
   { path: '/api/share/no-such-token', on: TENANT },
   { path: '/api/temporal/status', on: TENANT },
   { path: '/api/trees', on: TENANT },
@@ -94,32 +90,17 @@ async function call(url: string, init: { method?: string; body?: unknown; raw?: 
 const unmounted = (answer: Answer): boolean => answer.status === 404 && /Cannot (GET|POST)/.test(answer.text);
 
 let roles: ThreeRoles;
-let combined: LoopbackRole;
-const combinedDatabase = `routes_mounted_${Date.now().toString(36)}_combined`;
-const setupCode = randomBytes(12).toString('base64url');
+const stamp = Date.now().toString(36);
 const urls = {} as Record<Role, string>;
 const sessions = {} as Record<Role, string>;
 
 beforeAll(async () => {
   roles = await startThreeRoles('routes');
-  combined = await startRole('combined', {
-    JWT_SECRET: `routes-mounted-${combinedDatabase}`,
-    MONGO_URI: `${inject('mongoUri')}${combinedDatabase}`,
-    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
-    TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
-    CERTIFICATES: 'internal',
-    ADMIN_SETUP_CODE: setupCode,
-  });
-  Object.assign(urls, { root: roles.root.url, instance: roles.instance.url, hub: roles.hub.url, combined: combined.url });
+  Object.assign(urls, { root: roles.root.url, instance: roles.instance.url, hub: roles.hub.url });
 }, 240_000);
 
 afterAll(async () => {
-  await combined?.close();
   await roles?.close();
-  const client = new MongoClient(inject('mongoUri'));
-  await client.connect();
-  await client.db(combinedDatabase).dropDatabase();
-  await client.close();
 });
 
 describe('every router answers where it is mounted, and what is public answers before the guard', () => {
@@ -165,26 +146,15 @@ describe('every router answers where it is mounted, and what is public answers b
     }
   });
 
-  it('a throwaway account signs up on a combined backend with an admin\'s invite, and the owner is signed in on root, the instance and the hub', async () => {
-    const email = `admin-${combinedDatabase.replace(/_/g, '-')}@routes.test`;
-    const password = randomBytes(18).toString('base64url');
-    expect((await call(`${combined.url}/api/auth/register`, { method: 'POST', body: { email, password, inviteCode: setupCode } })).status).toBe(200);
-    const adminLogin = await fetch(`${combined.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
-    const adminCookie = sessionFrom(adminLogin.headers.getSetCookie());
-    expect(adminCookie).toBeTruthy();
-    const invite = await call(`${combined.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: adminCookie });
+  it('a throwaway account signs up on root with the operator\'s invite, and the owner is signed in on root, the instance and the hub', async () => {
+    const invite = await call(`${roles.root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: roles.operator.cookie });
     expect(invite.status, invite.text).toBe(201);
-    const throwaway = { email: `throwaway-${combinedDatabase.replace(/_/g, '-')}@routes.test`, password: randomBytes(18).toString('base64url') };
-    const asked = await call(`${combined.url}/api/auth/register`, { method: 'POST', body: { ...throwaway, inviteCode: (invite.body as { code: string }).code } });
-    expect(asked.status, asked.text).toBe(200);
-    const { verify, devCode } = asked.body as { verify: string; devCode: string };
-    const verified = await fetch(`${combined.url}/api/auth/register/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: verify, code: devCode }) });
-    expect(verified.status, await verified.clone().text()).toBe(200);
-    const login = await fetch(`${combined.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(throwaway) });
+    const throwaway = await roles.signUp(`throwaway-${stamp}@routes.test`, (invite.body as { code: string }).code);
+    const login = await fetch(`${roles.root.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: throwaway.email, password: throwaway.password }) });
     const cookie = sessionFrom(login.headers.getSetCookie());
     expect(login.status === 200 && cookie, await login.clone().text()).toBeTruthy();
-    expect(((await call(`${combined.url}/api/auth/me`, { cookie })).body as { email?: string }).email).toBe(throwaway.email);
-    Object.assign(sessions, { combined: cookie, root: roles.owner.cookie, instance: await roles.ownerOnInstance(), hub: await roles.ownerOnHub() });
+    expect(((await call(`${roles.root.url}/api/auth/me`, { cookie })).body as { email?: string }).email).toBe(throwaway.email);
+    Object.assign(sessions, { root: roles.owner.cookie, instance: await roles.ownerOnInstance(), hub: await roles.ownerOnHub() });
   });
 
   it(`every router is mounted where its role serves it: ${ROUTERS.length} routes each answer with their own response, none with Express's "Cannot GET"`, async () => {
@@ -198,6 +168,6 @@ describe('every router answers where it is mounted, and what is public answers b
       }
     }
     expect(problems).toEqual([]);
-    expect(ROUTERS.filter((probe) => !probe.on.includes('combined'))).toEqual([]);
+    expect(ROUTERS.filter((probe) => probe.on.length === 0)).toEqual([]);
   });
 }, 300_000);

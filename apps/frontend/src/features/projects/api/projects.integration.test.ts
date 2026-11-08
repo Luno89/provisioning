@@ -35,7 +35,7 @@ describe('a project, as the projects pages ask for it', () => {
     await expect(createProject({ executionTargetDeviceId: desk })).rejects.toMatchObject({ response: { status: 400, data: { error: 'name is required' } } })
     await expect(createProject({ name: 'Elsewhere', executionTargetDeviceId: 'not-mine' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Unknown local execution device' } } })
     await expect(createProject({ name: 'Twice', executionTargetDeviceId: desk, executionTargetPath: 'work' })).rejects.toMatchObject({ response: { status: 409, data: { error: 'That machine (at that path) is already the execution target for another project.' } } })
-    await expect(createProject({ name: 'Somewhere', giteaRepo: 'somewhere', targetClusterId: 'no-such-cluster' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Deploy to the system cluster or one of your own clusters.' } } })
+    await expect(createProject({ name: 'Somewhere', giteaRepo: 'somewhere', targetClusterId: 'no-such-cluster' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Deploy to one of your own clusters.' } } })
   })
 
   it('lists the project beside the one its machine was added with, each with its status rolled up', async () => {

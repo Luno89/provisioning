@@ -12,14 +12,11 @@ export function labelOfFlat(host: string, instance: string, domain: string): str
   return host.endsWith(suffix) && host.length > suffix.length ? host.slice(0, -suffix.length) : undefined;
 }
 
-export type AddressScope = { kind: 'group' | 'instance' | 'combined'; name: string };
+export type AddressScope = { kind: 'group' | 'instance'; name: string };
 
-export const idFragment = (deploymentId: string): string => deploymentId.replace(/-/g, '').slice(0, 6);
-
-export function addressScope(given: { group?: string | undefined; instance?: string | undefined; deploymentId: string }): AddressScope {
+export function addressScope(given: { group?: string | undefined; instance: string }): AddressScope {
   if (given.group) return { kind: 'group', name: given.group };
-  if (given.instance) return { kind: 'instance', name: given.instance };
-  return { kind: 'combined', name: idFragment(given.deploymentId) };
+  return { kind: 'instance', name: given.instance };
 }
 
 export const inScope = (host: string, scope: AddressScope, domain: string): boolean => labelOfFlat(host, scope.name, domain) !== undefined;

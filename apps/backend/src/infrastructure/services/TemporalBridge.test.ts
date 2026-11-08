@@ -26,7 +26,7 @@ function bridge(options: { headscale?: Headscale; io?: SocketServer; clusterServ
   const client = mock<Client>({ workflow });
   const generateKeypair = vi.fn(async (comment: string) => ({ privateKey: `PRIVATE-${comment}`, publicKey: `PUBLIC-${comment}` }));
   const connect = vi.fn<TemporalConnect>(async () => client);
-  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, options.headscale, undefined, { connect, generateKeypair });
+  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, options.headscale, { role: 'instance', instanceOwnerId: 'op' }, { connect, generateKeypair });
   return { db, workflow, client, connect, generateKeypair, instance, ready: () => { instance.client = client; return instance; } };
 }
 

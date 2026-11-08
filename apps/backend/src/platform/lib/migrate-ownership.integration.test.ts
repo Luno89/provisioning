@@ -13,13 +13,13 @@ describe('records nobody owned', () => {
     await db.projects.saveProjectInfo({ id: 'mine', name: 'Mine', ownerId: 'old', createdAt: 't' } as never);
     await db.infrastructure.saveCluster({ id: 'c', name: 'c', provider: 'k3d', status: 'healthy' } as never);
 
-    expect(await ownUnownedProjects(db, { role: 'combined' })).toEqual({ owned: 1 });
-    await migrateLegacyOwnership(db, { role: 'combined' });
+    expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 1 });
+    await migrateLegacyOwnership(db, { role: 'root' });
     const projects = await db.projects.getProjects();
     expect(projects.find((project) => project.id === 'legacy')?.ownerId).toBe('op');
     expect(projects.find((project) => project.id === 'mine')?.ownerId).toBe('old');
     expect((await db.infrastructure.getClusters())[0]?.ownerId).toBe('op');
-    expect(await ownUnownedProjects(db, { role: 'combined' })).toEqual({ owned: 0 });
+    expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 0 });
     await db.close();
   });
 

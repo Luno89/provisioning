@@ -27,8 +27,9 @@ export interface AppDeployDeps {
   masterKey: SecretKey;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
   handOver: (clusterId: string) => Promise<HandOver>;
+  ownClusterId: () => string | undefined;
   logDir: string;
-  claims: ClaimSettings;
+  claims: ClaimSettings | undefined;
 }
 
 export interface StartedDeploy {
@@ -204,10 +205,10 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       ...handed,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
-      ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
+      ...(dep.appType === 'tabbyapi' && dep.clusterId === deps.ownClusterId()
         ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
         : {}),
-      ...(dep.appType === 'vllm' && targetCluster?.isSystem
+      ...(dep.appType === 'vllm' && dep.clusterId === deps.ownClusterId()
         ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
         : {}),
       strategy: dep.strategy || 'helm',

@@ -63,7 +63,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         const targetUrl = await clusterProxyService.ensurePortForward(cluster.id, serviceKey);
 
         if (serviceKey === 'gitea' || serviceKey === 'grafana' || serviceKey === 'infisical') {
-          if (signsInAsPlatform(serviceKey, cluster.id)) {
+          if (signsInAsPlatform(serviceKey, clusterService.isKoalasCluster(cluster.id))) {
             try {
               const credentials = serviceKey === 'gitea'
                 ? await giteaService.getAdminCredentials()
@@ -124,6 +124,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
     const decision = authorize(principalFrom(req), 'delete', clusterResource(cluster));
     if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
+    if (clusterService.isKoalasCluster(cluster.id)) return res.status(409).json({ error: 'This is the cluster this Koala runs in; it goes only with its machine, removed under My Machines' });
     try {
       clusterProxyService.stopForCluster(idOf(req));
       if (cluster.status === 'provisioning') {

@@ -12,17 +12,17 @@ describe('cluster room visibility', () => {
     expect(allowed(alice, 'see', clusterResource({ id: 'c1', ownerId: 'user-bob' }))).toBe(false);
   });
 
-  it('lets everyone see the shared system cluster, and only its operator all of it, its provisioning log included', () => {
-    const system = clusterResource({ id: 'provisioning-lunorica', isSystem: true });
-    expect(allowed(alice, 'see', system)).toBe(true);
-    expect(allowed(alice, 'see-everything', system)).toBe(false);
-    expect(allowed(principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'combined' }), 'see-everything', system)).toBe(true);
+  it('lets nobody but its owner into the room of the cluster an instance runs in, operator or not, its provisioning log included', () => {
+    const koalas = clusterResource({ id: 'machine-desk', ownerId: 'user-bob' });
+    expect(allowed(alice, 'see', koalas)).toBe(false);
+    expect(allowed(principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'root' }), 'see-everything', koalas)).toBe(false);
+    expect(allowed(asPerson('user-bob'), 'see-everything', koalas)).toBe(true);
   });
 });
 
 describe('project ownership', () => {
-  const alice = principalOf({ id: 'user-alice' }, { role: 'combined' });
-  const admin = principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'combined' });
+  const alice = principalOf({ id: 'user-alice' }, { role: 'root' });
+  const admin = principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'root' });
   const project = (ownerId?: string) => ({ kind: 'project' as const, ownerId });
 
   it('lets an owner in', () => {

@@ -9,6 +9,7 @@ import {
 
 export interface KubeAccess {
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
+  ownClusterId(): string | undefined;
   deployments(): Promise<DeploymentMetadata[]>;
   kubectl(cluster: ClusterMetadata, argv: string[]): Promise<string>;
   principal(ownerId: string): Promise<Principal>;
@@ -36,8 +37,9 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
     if (!(PLATFORM_NAMESPACES as readonly string[]).includes(namespace)) return { problem: `${namespace} is not a platform namespace — for your own deployments, name the deployment` } as const;
     const open = conversationId ? await access.openNamespaces(ownerId, conversationId) : [];
     if (!open.includes(namespace)) return { problem: `${namespace} is not open in this conversation — request_cluster_access asks an admin to open it` } as const;
-    const cluster = (await access.clusters(ownerId)).find((entry) => entry.isSystem);
-    if (!cluster) return { problem: 'the management cluster is not known here' } as const;
+    const own = access.ownClusterId();
+    const cluster = (await access.clusters(ownerId)).find((entry) => entry.id === own);
+    if (!cluster) return { problem: 'the cluster this Koala runs in is not one of yours, so its platform namespaces cannot be opened for you' } as const;
     return { cluster, namespace } as const;
   };
 
@@ -106,7 +108,7 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
       const lines = clusters.map((cluster) => {
         const capacity = cluster.capacity ? `, ${cluster.capacity.cpuCores} cores, ${cluster.capacity.ramGb} GB` : '';
         const gpu = cluster.capacity?.gpuCount ? `, ${cluster.capacity.gpuCount} ${cluster.capacity.gpuVendor ?? ''} GPU` : '';
-        const head = `- ${cluster.name} (${cluster.isSystem ? 'the always-on management cluster' : cluster.provider}, ${cluster.status}${capacity}${gpu})`;
+        const head = `- ${cluster.name} (${cluster.id === access.ownClusterId() ? 'the cluster this Koala runs in' : cluster.provider}, ${cluster.status}${capacity}${gpu})`;
         const onIt = deployments.filter((deployment) => deployment.clusterId === cluster.id || deployment.clusterId === cluster.name);
         const apps = onIt.map((deployment) => {
           const why = deployment.record.healthReason ? ` — ${deployment.record.healthReason}` : '';
@@ -196,7 +198,8 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
 
       const { clusters } = await world(caller.ownerId);
       const wanted = asString(parsed, 'cluster');
-      const cluster = wanted ? clusterNamed(clusters, wanted) : clusters.find((entry) => entry.isSystem) ?? clusters[0];
+      const own = access.ownClusterId();
+      const cluster = wanted ? clusterNamed(clusters, wanted) : clusters.find((entry) => entry.id === own) ?? clusters[0];
       if (!cluster) return refuse(wanted ? `you have no cluster called "${wanted}"` : 'there are no clusters to measure');
       if (!allowed(await access.principal(caller.ownerId), 'see-everything', clusterResource(cluster))) return refuse(`only whoever runs ${cluster.name} sees its nodes; name one of your deployments there to see its own usage`);
       const [usage, nodes] = await Promise.all([read(cluster, ['top', 'nodes']), read(cluster, ['get', 'nodes', '-o', 'wide'])]);

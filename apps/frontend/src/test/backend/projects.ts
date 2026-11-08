@@ -147,7 +147,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   const machines = machinesOf(site)
   const temporal = temporalOnPaper()
   const host = outsideThisTier<InfrastructureService>('the host\'s k3d, kubectl and helm', { listLocalClusters: async () => [] })
-  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY }), { koalaMachineId: undefined })
+  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY }))
   const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, undefined, { connect: async () => temporal.client })
   await bridge.start()
   const gitea = outsideThisTier<GiteaService>('Gitea')

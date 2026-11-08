@@ -166,7 +166,9 @@ export class AppExposureService extends BaseService<AppExposureDb> {
   }
 
   private async scopeOf(dep: DeploymentMetadata): Promise<AddressScope> {
-    return addressScope({ group: await this.groupOf(dep), instance: this.edge?.name, deploymentId: dep.id });
+    const instance = this.theEdge().name;
+    if (!instance) throw new Error(NO_DOMAIN);
+    return addressScope({ group: await this.groupOf(dep), instance });
   }
 
   private async hostnameFor(dep: DeploymentMetadata, domain: string, scope: AddressScope): Promise<string> {

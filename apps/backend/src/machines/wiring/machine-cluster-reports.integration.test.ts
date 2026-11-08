@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { loadKeys } from '../../platform/lib/keys.js';
-import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -64,7 +63,7 @@ beforeEach(async () => {
   server = http.createServer();
   io = new SocketServer(server);
   wireSockets({
-    io, db, role: roleFromEnv({}), env: {}, payloadKey: keys.payload, dataKey: keys.data,
+    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, env: {}, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines, workTokens, clusters: {} as never, apps: {} as never,

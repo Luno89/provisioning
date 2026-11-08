@@ -103,6 +103,7 @@ export interface CheckRunDeps {
   says?: ((args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, means: string, answer: string, index: number) => Promise<boolean>) | undefined;
   scripted: { base: string; dataKey: SecretKey };
   terminate: (runId: string, reason: string) => Promise<void>;
+  ownClusterId: () => string | undefined;
   releases?: CheckReleases | undefined;
   leftovers: { records(ownerId: string): Promise<Record<string, number>>; workspaces(ownerId: string): Promise<string[]>; giteaUser(ownerId: string): Promise<boolean> };
   pollMs?: number;
@@ -388,7 +389,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const worldApps: Record<string, string> = {};
       const worldNamespaces: Record<string, string> = {};
       for (const app of scenario.world?.apps ?? []) {
-        const made = await http.post('/deployments', { name: app.name, clusterId: 'provisioning-lunorica', appType: app.appType, strategy: 'native' }, { validateStatus: () => true });
+        const clusterId = deps.ownClusterId();
+        if (!clusterId) return { result: failedResult(scenario, '', `the world's app ${app.name} has no cluster to go on: this Koala runs in no cluster of its own`, startedAt), runIds: [] };
+        const made = await http.post('/deployments', { name: app.name, clusterId, appType: app.appType, strategy: 'native' }, { validateStatus: () => true });
         if (made.status >= 300) return { result: failedResult(scenario, '', `the world's app ${app.name} could not be deployed: ${(made.data as { error?: string }).error ?? made.status}`, startedAt), runIds: [] };
         const id = (made.data as { id: string }).id;
         for (;;) {

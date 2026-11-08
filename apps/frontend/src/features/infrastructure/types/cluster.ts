@@ -11,10 +11,9 @@ export type ClusterStatus =
 export interface Cluster {
   id: string
   name: string
-  provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner'
+  provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner' | 'pool' | 'root'
   status: ClusterStatus
-  isSystem?: boolean
-  gpuEnabled?: boolean
+  capacity?: { cpuCores: number; ramGb: number; gpuCount?: number; gpuVendor?: 'nvidia' | 'amd' }
   createdAt?: string
   progress?: { stage?: string; message?: string }
   remoteHost?: string
@@ -35,7 +34,6 @@ export interface ClusterPod {
 export interface GpuStatus {
   hasGpu?: boolean
   vendor?: string
-  passthroughEnabled?: boolean
   totalCapacity?: number
   totalAllocatable?: number
   totalAllocated?: number

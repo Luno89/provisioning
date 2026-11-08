@@ -33,7 +33,7 @@ export function machinesOf({ db, origin }: Site): Machines {
     dataKey: DATA_KEY,
     signing: identityKeysFrom(generateIdentityKey()),
     settings: { url: origin },
-    koala: { of: async () => ({ url: origin, audience: 'combined' }) },
+    koala: { of: async () => ({ url: origin, audience: 'site-instance' }) },
     followers: { joined: (machine) => machines.adopt(machine), removed: (machine) => machines.forget(machine), changed: async () => undefined },
     toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
     placer: instances,

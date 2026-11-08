@@ -40,19 +40,19 @@ vi.mock('../../engine/api/poisoning', async (orig) => ({
 }))
 vi.mock('../api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
-  useGpuStatus: () => ({ isPending: false, data: { vendor: 'NVIDIA', hasGpu: true, passthroughEnabled: true, totalCapacity: 2, totalAllocatable: 2, totalAllocated: 1, availableGpus: 1, devicePlugins: [], gpuPods: [] } }),
+  useGpuStatus: () => ({ isPending: false, data: { vendor: 'NVIDIA', hasGpu: true, totalCapacity: 2, totalAllocatable: 2, totalAllocated: 1, availableGpus: 1, devicePlugins: [], gpuPods: [] } }),
 }))
 
 const { default: InfrastructureView } = await import('./InfrastructureView')
 
 const shell = {
   clusters: [
-    { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3s', status: 'healthy', isSystem: true },
+    { id: 'machine-koala', name: 'machine-koala', provider: 'machine', status: 'healthy' },
     { id: 'c2', name: 'edge', provider: 'hetzner', status: 'healthy' },
   ],
   deployments: [
-    { id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'provisioning-lunorica', status: 'running', url: 'http://books.local', listing: { checked: true, onCluster: true } },
-    { id: 'shop', name: 'Shop', appType: 'odoo', clusterId: 'provisioning-lunorica', status: 'running', listing: { checked: true, onCluster: false } },
+    { id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'machine-koala', status: 'running', url: 'http://books.local', listing: { checked: true, onCluster: true } },
+    { id: 'shop', name: 'Shop', appType: 'odoo', clusterId: 'machine-koala', status: 'running', listing: { checked: true, onCluster: false } },
     { id: 'new', name: 'New', appType: 'wordpress', clusterId: 'c2', status: 'deploying', listing: { checked: false, why: 'edge is stopped until something runs on it' } },
   ],
   providers: [],
@@ -71,9 +71,9 @@ const show = () => render(
 )
 
 const cluster: ClusterRow = {
-  id: 'provisioning-lunorica', name: 'provisioning-lunorica', state: 'warning', reasons: ['the disk is 95% full'],
+  id: 'machine-koala', name: 'machine-koala', state: 'warning', reasons: ['the disk is 95% full'],
   numbers: { nodes: 1, cpuShare: 0.3, memoryShare: 0.5, diskShare: 0.95 },
-  history: { days: 10, kept: 10, applied: true, can: ['change'] as 'change'[] }, apps: 2, isSystem: true,
+  history: { days: 10, kept: 10, applied: true, can: ['change'] as 'change'[] }, apps: 2, own: true,
 }
 
 const monitoring: Overview = {
@@ -148,7 +148,7 @@ describe('the Infrastructure page', () => {
     vi.mocked(monitoringApi.getOverview).mockResolvedValue(monitoring)
     vi.mocked(monitoringApi.getAlerts).mockResolvedValue({ firing: monitoring.firing, episodes: [], rules: appView.rules })
     vi.mocked(monitoringApi.getAppHealth).mockResolvedValue(appView)
-    vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster, lines: ['provisioning-lunorica needs attention: the disk is 95% full.'], range: '24h', series: [{ chart: 'diskShare', points: [[1, 0.95]] }], firing: [], episodes: [], apps: monitoring.apps })
+    vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster, lines: ['machine-koala needs attention: the disk is 95% full.'], range: '24h', series: [{ chart: 'diskShare', points: [[1, 0.95]] }], firing: [], episodes: [], apps: monitoring.apps })
   })
 
   it('shows what needs attention, then apps, clusters and what runs, all on the one page', async () => {
@@ -187,14 +187,14 @@ describe('the Infrastructure page', () => {
       '#/infrastructure/cluster/machine-desk',
       '#/projects/project/p1',
       '#/infrastructure/app/shop',
-      '#/infrastructure/cluster/provisioning-lunorica',
-      '#/infrastructure/cluster/provisioning-lunorica',
+      '#/infrastructure/cluster/machine-koala',
+      '#/infrastructure/cluster/machine-koala',
       '#/projects/tree/t1',
       '#/temporal',
     ])
     expect(within(attention).getByText('waits for your answer')).toBeInTheDocument()
     expect(within(attention).getAllByRole('link')[0]).toHaveTextContent('Cluster unavailabledeskWhat runs on it could not be read: it does not answer (connection refused).')
-    expect(within(attention).getByTestId('attention-workload')).toHaveTextContent('searxng on provisioning-lunorica')
+    expect(within(attention).getByTestId('attention-workload')).toHaveTextContent('searxng on machine-koala')
     expect(within(attention).getAllByTestId('attention-failure')[0]).toHaveTextContent('the executor could not start its sandbox')
     expect(screen.getByRole('list', { name: 'Firing alerts' })).toHaveTextContent('Shop is not answering')
   })
@@ -257,11 +257,12 @@ describe('the Infrastructure page', () => {
     expect(useShellStore.getState().confirmDestroy).toEqual({ type: 'app', id: 'new', name: 'New', isAbort: true })
   })
 
-  it('lists every cluster, provisions a new one, and keeps the system cluster read-only', async () => {
+  it('lists every cluster, the one Koala runs in first, provisions a new one, and offers no way to destroy the one Koala runs in', async () => {
     show()
-    const cards = await screen.findAllByTestId('cluster-card')
-    expect(cards.map((card) => within(card).getAllByRole('link')[0]?.textContent)).toEqual(['provisioning-lunorica', 'edge'])
+    await waitFor(() => expect(screen.getAllByTestId('cluster-card').map((card) => within(card).getAllByRole('link')[0]?.textContent)).toEqual(['machine-koala', 'edge']))
+    const cards = screen.getAllByTestId('cluster-card')
     await waitFor(() => expect(within(cards[0]!).getByRole('meter', { name: 'Disk' })).toHaveAttribute('aria-valuenow', '95'))
+    expect(cards[0]).toHaveTextContent('this Koala runs here')
     expect(within(cards[0]!).queryByRole('button')).toBeNull()
     fireEvent.click(within(cards[1]!).getByRole('button', { name: 'Logs of edge' }))
     expect(shell.openDashboard).toHaveBeenCalledWith('cluster', 'c2')
@@ -291,7 +292,7 @@ describe('the Infrastructure page', () => {
     expect(screen.getByText(/3 finished jobs not shown/)).toBeInTheDocument()
 
     const services = screen.getAllByTestId('platform-service')
-    expect(within(services[0]!).getByRole('link', { name: /Open dashboard/ })).toHaveAttribute('href', expect.stringContaining('/clusters/provisioning-lunorica/proxy/grafana/'))
+    expect(within(services[0]!).getByRole('link', { name: /Open dashboard/ })).toHaveAttribute('href', expect.stringContaining('/clusters/machine-koala/proxy/grafana/'))
     expect(services[1]).toHaveTextContent('Not installed')
     expect(services[0]).toHaveTextContent('Opens signed in as admin.')
     expect(screen.getByTestId('node-row')).toHaveTextContent('Readylunorica')
@@ -332,7 +333,7 @@ describe('the Infrastructure page', () => {
     expect(await screen.findByText('Books is healthy.')).toBeInTheDocument()
     expect(screen.getByRole('figure', { name: 'Answering' })).toBeInTheDocument()
     expect(screen.getByText('Dashed lines: deployed abcdef12.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Open in Grafana/ })).toHaveAttribute('href', expect.stringContaining('/clusters/provisioning-lunorica/proxy/grafana/'))
+    expect(screen.getByRole('link', { name: /Open in Grafana/ })).toHaveAttribute('href', expect.stringContaining('/clusters/machine-koala/proxy/grafana/'))
     expect(screen.getByRole('list', { name: 'Alert history' })).toHaveTextContent('Books is not answering')
     expect(screen.getByRole('link', { name: /Infrastructure/ })).toHaveAttribute('href', '#/infrastructure')
     expect(screen.getByRole('link', { name: '← Apps' })).toHaveAttribute('href', '#/infrastructure/apps')

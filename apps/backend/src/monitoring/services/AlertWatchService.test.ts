@@ -10,11 +10,11 @@ import { AlertWatchService, HISTORY_RETRY_MS, WATCH_EVERY_MS, type AlertWatchDep
 import type { MetricsClient } from './MonitoringService.js';
 
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
-const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 const other = { id: 'c-other', name: 'other', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
-  ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
+  ({ clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
 
 let db: Database;
 let metrics: MockProxy<MetricsClient>;
@@ -44,8 +44,8 @@ beforeEach(async () => {
   metrics = mock<MetricsClient>();
   metrics.alerts.mockResolvedValue([]);
   monitoring = mock<AlertWatchDeps['monitoring']>();
-  monitoring.allClusters.mockResolvedValue([system]);
-  monitoring.reach.mockResolvedValue({ cluster: system, state: 'ok', metrics });
+  monitoring.allClusters.mockResolvedValue([koalas]);
+  monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'ok', metrics });
   monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
@@ -81,7 +81,7 @@ describe('watching alerts', () => {
   });
 
   it('tells only the rule\'s owner about it, with the rule and its app', async () => {
-    await db.monitoring.saveAlertRule({ id: 'r1', ownerId: 'me', deploymentId: 'books', clusterId: system.id, namespace: 'books', appName: 'Books', spec: alertSpec('down') as AlertSpec, summary: 'Books: down', createdAt: 'then' });
+    await db.monitoring.saveAlertRule({ id: 'r1', ownerId: 'me', deploymentId: 'books', clusterId: koalas.id, namespace: 'books', appName: 'Books', spec: alertSpec('down') as AlertSpec, summary: 'Books: down', createdAt: 'then' });
     metrics.alerts.mockResolvedValue([{ labels: { alertname: 'Koala_down', namespace: 'books', [RULE_LABEL]: 'r1' }, annotations: { summary: 'Books: down' }, state: 'firing' }]);
     const tell = vi.fn<AlertWatchDeps['tell']>().mockResolvedValue(undefined);
     await watcher({ tell }).tick();
@@ -93,7 +93,7 @@ describe('watching alerts', () => {
   });
 
   it('tells whoever set an alert on Koala itself when it fires, and nobody else', async () => {
-    await db.monitoring.saveAlertRule({ id: 'k1', ownerId: 'me', deploymentId: 'koala', clusterId: system.id, namespace: 'monitoring', appName: 'Koala', spec: alertSpec('koala_down') as AlertSpec, summary: 'Koala is not answering', createdAt: 'then' });
+    await db.monitoring.saveAlertRule({ id: 'k1', ownerId: 'me', deploymentId: 'koala', clusterId: koalas.id, namespace: 'monitoring', appName: 'Koala', spec: alertSpec('koala_down') as AlertSpec, summary: 'Koala is not answering', createdAt: 'then' });
     metrics.alerts.mockResolvedValue([{ labels: { alertname: 'Koala_koala_down', namespace: 'monitoring', [RULE_LABEL]: 'k1' }, annotations: { summary: 'Koala is not answering' }, state: 'firing' }]);
     const OTHER = principalOf({ id: 'other' }, { role: 'instance', instanceOwnerId: 'me' });
     await watcher({ people: async () => [ME, OTHER] }).tick();
@@ -112,8 +112,8 @@ describe('watching alerts', () => {
   it('sets root\'s own alerts on each cluster it watches as it reconciles it, and says when that failed', async () => {
     monitoring.applyRootRules.mockRejectedValueOnce(new Error('kubectl is away'));
     await watcher().tick();
-    expect(monitoring.applyRootRules).toHaveBeenCalledWith(system);
-    expect(logged).toContain('[alerts] provisioning-lunorica: root\'s own alerts could not be set (kubectl is away)');
+    expect(monitoring.applyRootRules).toHaveBeenCalledWith(koalas);
+    expect(logged).toContain('[alerts] koala: root\'s own alerts could not be set (kubectl is away)');
   });
 
   it('tells a machine alert without an app or a rule', async () => {
@@ -130,11 +130,11 @@ describe('watching alerts', () => {
     metrics.alerts.mockRejectedValue(new Error('down'));
     await watch.tick();
     expect(told.filter((line) => line.includes('resolved'))).toEqual([]);
-    expect(logged).toContain('[alerts] provisioning-lunorica: its alerts could not be read, so none are opened or resolved this pass (down)');
+    expect(logged).toContain('[alerts] koala: its alerts could not be read, so none are opened or resolved this pass (down)');
   });
 
   it('skips a cluster with no metrics', async () => {
-    monitoring.reach.mockResolvedValue({ cluster: system, state: 'unreachable', reason: 'it is down' });
+    monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'unreachable', reason: 'it is down' });
     await watcher().tick();
     expect(monitoring.syncPoolProbes).not.toHaveBeenCalled();
     expect(told).toEqual([]);
@@ -182,7 +182,7 @@ describe('watching alerts', () => {
     monitoring.syncPoolProbes.mockRejectedValue(new Error('root is away'));
     metrics.alerts.mockResolvedValue([{ labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing' }]);
     await watcher().tick();
-    expect(logged).toContain('[alerts] provisioning-lunorica: its probes were not handed to Koala\'s servers (root is away)');
+    expect(logged).toContain('[alerts] koala: its probes were not handed to Koala\'s servers (root is away)');
     expect(told).toEqual(['me fired Books is not answering']);
   });
 
@@ -190,7 +190,7 @@ describe('watching alerts', () => {
     const remoteMetrics = mock<MetricsClient>();
     remoteMetrics.alerts.mockResolvedValue([{ labels: { alertname: 'AppProbeDown', namespace: 'erp' }, state: 'firing' }]);
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp', clusterId: other.id }));
-    monitoring.allClusters.mockResolvedValue([system, other]);
+    monitoring.allClusters.mockResolvedValue([koalas, other]);
     monitoring.reach.mockImplementation(async (cluster) => ({ cluster, state: 'ok', metrics: cluster.id === other.id ? remoteMetrics : metrics }));
     await watcher().tick();
     expect(told).toEqual(['me fired ERP is not answering']);
@@ -203,7 +203,7 @@ describe('keeping a cluster as it was set', () => {
     monitoring.applyRequestMetrics.mockResolvedValue('applied');
     const watch = watcher();
     await watch.tick();
-    expect(logged).toEqual(['[alerts] provisioning-lunorica now keeps the history it was set to', '[alerts] provisioning-lunorica now counts each app\'s requests']);
+    expect(logged).toEqual(['[alerts] koala now keeps the history it was set to', '[alerts] koala now counts each app\'s requests']);
     await watch.tick();
     expect(monitoring.applyHistory).toHaveBeenCalledTimes(1);
     clock = new Date(clock.getTime() + HISTORY_RETRY_MS);
@@ -211,28 +211,28 @@ describe('keeping a cluster as it was set', () => {
     expect(monitoring.applyHistory).toHaveBeenCalledTimes(2);
   });
 
-  it('has the system cluster\'s Prometheus take what machines send, and says when that could not be done', async () => {
+  it('has the Prometheus of the cluster Koala runs in take what machines send, and says when that could not be done', async () => {
     monitoring.applyReceiver.mockResolvedValue(true);
     await watcher().tick();
-    expect(logged).toContain('[alerts] provisioning-lunorica now takes the metrics its machines send');
+    expect(logged).toContain('[alerts] koala now takes the metrics its machines send');
     logged.length = 0;
     clock = new Date(clock.getTime() + HISTORY_RETRY_MS);
     monitoring.applyReceiver.mockRejectedValue(new Error('helm is away'));
     await watcher().tick();
-    expect(logged).toContain('[alerts] provisioning-lunorica: its Prometheus could not be set to take what machines send (helm is away)');
+    expect(logged).toContain('[alerts] koala: its Prometheus could not be set to take what machines send (helm is away)');
   });
 
   it('says what stopped the history or the request counting', async () => {
     monitoring.applyHistory.mockRejectedValue(new Error('helm is away'));
     monitoring.applyRequestMetrics.mockResolvedValue({ problem: 'k3s\'s Traefik has settings of its own here' });
     await watcher().tick();
-    expect(logged).toEqual(['[alerts] provisioning-lunorica: its history could not be set (helm is away)', '[alerts] provisioning-lunorica: k3s\'s Traefik has settings of its own here']);
+    expect(logged).toEqual(['[alerts] koala: its history could not be set (helm is away)', '[alerts] koala: k3s\'s Traefik has settings of its own here']);
   });
 
   it('says a request counting that threw as a problem', async () => {
     monitoring.applyRequestMetrics.mockRejectedValue(new Error('no helm'));
     await watcher().tick();
-    expect(logged).toEqual(['[alerts] provisioning-lunorica: no helm']);
+    expect(logged).toEqual(['[alerts] koala: no helm']);
   });
 });
 

@@ -93,8 +93,9 @@ export function appRows(deployments: readonly Deployment[], health: readonly App
 
 export function clusterCards(clusters: readonly Cluster[], health: readonly ClusterRow[]): Array<{ cluster: Cluster; health?: ClusterRow }> {
   const byId = new Map(health.map((row) => [row.id, row]))
+  const own = (cluster: Cluster) => Number(byId.get(cluster.id)?.own === true)
   return [...clusters]
-    .sort((a, b) => Number(Boolean(b.isSystem)) - Number(Boolean(a.isSystem)) || a.name.localeCompare(b.name))
+    .sort((a, b) => own(b) - own(a) || a.name.localeCompare(b.name))
     .map((cluster) => {
       const row = byId.get(cluster.id)
       return row ? { cluster, health: row } : { cluster }

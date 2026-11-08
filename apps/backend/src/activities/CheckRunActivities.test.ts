@@ -104,7 +104,8 @@ beforeEach(() => {
   released = undefined;
 });
 
-const activities = (over: { reported?: boolean; says?: boolean } = {}): CheckRunActivities => createCheckRunActivities({
+const activities = (over: { reported?: boolean; says?: boolean; ownClusterId?: string | undefined } = {}): CheckRunActivities => createCheckRunActivities({
+  ownClusterId: () => ('ownClusterId' in over ? over.ownClusterId : 'machine-koala'),
   store: db,
   api: (space) => axios.create({ baseURL: BASE, headers: { 'x-space': space.id } }),
   seedFiles: async (_owner, repo, files) => {
@@ -126,7 +127,7 @@ const makeSpace = async (id = 'space-1'): Promise<void> => {
   await db.accounts.saveUser(spaceUser(id, { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, 't'));
 };
 
-const perform = async (scenario: Scenario, over: Record<string, Route> = {}, extra: { modelId?: string; temperature?: number; reported?: boolean; says?: boolean } = {}) => {
+const perform = async (scenario: Scenario, over: Record<string, Route> = {}, extra: { modelId?: string; temperature?: number; reported?: boolean; says?: boolean; ownClusterId?: string | undefined } = {}) => {
   routes = chatRoutes(over);
   await makeSpace();
   const { modelId, temperature, ...rest } = extra;
@@ -554,7 +555,7 @@ describe('a check\'s world', () => {
         return { data: [{ id: 'd1', status: listed < 2 ? 'deploying' : 'running', namespace: 'shop-abc' }] };
       },
     });
-    expect(happened('POST /deployments')[0]!.body).toEqual({ name: 'shop', clusterId: 'provisioning-lunorica', appType: 'wordpress', strategy: 'native' });
+    expect(happened('POST /deployments')[0]!.body).toEqual({ name: 'shop', clusterId: 'machine-koala', appType: 'wordpress', strategy: 'native' });
     expect((await db.accounts.getUserById('space-1'))?.space?.world).toMatchObject({ apps: { shop: 'd1' }, namespaces: { shop: 'shop-abc' } });
     expect(ok.result.outcome).toBe('ok');
 
@@ -562,6 +563,9 @@ describe('a check\'s world', () => {
     expect(failed.result.error).toBe('the world\'s app shop did not deploy');
     const gone = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { ...apps, 'GET /deployments': { data: [] } });
     expect(gone.result.error).toBe('the world\'s app shop did not deploy: it is gone');
+    const nowhere = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, apps, { ownClusterId: undefined });
+    expect(nowhere.result.error).toBe('the world\'s app shop has no cluster to go on: this Koala runs in no cluster of its own');
+    expect(happened('POST /deployments')).toHaveLength(3);
     const refused = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { 'POST /deployments': { status: 400, data: { error: 'no cluster' } } });
     expect(refused.result.error).toBe('the world\'s app shop could not be deployed: no cluster');
   });

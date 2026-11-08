@@ -5,7 +5,7 @@ import { ClusterHealth, useOverview } from '../../monitoring'
 
 export function RootMonitoring() {
   const overview = useOverview()
-  const root = overview.data?.clusters.find((cluster) => cluster.isSystem)
+  const root = overview.data?.clusters.find((cluster) => cluster.own)
 
   return (
     <section id="monitoring" className="space-y-3" aria-labelledby="monitoring-heading">

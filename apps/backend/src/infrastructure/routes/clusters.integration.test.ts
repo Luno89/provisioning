@@ -24,8 +24,8 @@ import { testClusterAccess } from '../testing/cluster-access.js';
 
 const ANY_STATUS = { validateStatus: () => true };
 const KEY = 'test-secret';
-const SYSTEM = 'provisioning-lunorica';
-const NO_GPUS = { passthroughEnabled: false, hasGpu: false, vendor: 'none', totalCapacity: 0, totalAllocatable: 0, totalAllocated: 0, availableGpus: 0, nodes: [], devicePlugins: [], gpuPods: [] };
+const KOALAS = 'machine-koala-box';
+const NO_GPUS = { hasGpu: false, vendor: 'none', totalCapacity: 0, totalAllocatable: 0, totalAllocated: 0, availableGpus: 0, nodes: [], devicePlugins: [], gpuPods: [] };
 const NODES = ['get', 'nodes', '-o', 'json'];
 
 let env: TestWorkflowEnvironment;
@@ -66,10 +66,6 @@ afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); v
 
 const infraOnHost = (unreachable?: string) => {
   const infra = mock<InfrastructureService>();
-  infra.getManagementClusterKubeconfig.mockImplementation(async (name) => {
-    if (unreachable) throw new Error(unreachable);
-    return `apiVersion: v1\nkind: Config\ncurrent-context: k3d-${name}\n`;
-  });
   infra.getKubeconfig.mockImplementation(async (name) => `apiVersion: v1\nkind: Config\ncurrent-context: k3d-${name}\n`);
   infra.listLocalClusters.mockResolvedValue([]);
   infra.runHelm.mockResolvedValue('[]');
@@ -103,7 +99,7 @@ interface MountOptions {
   user?: typeof TEST_USER | null;
   instanceOwner?: string | undefined;
   temporal?: boolean;
-  koalaMachineId?: string;
+  koalaMachineId?: string | undefined;
   unreachable?: string;
   seed?: (db: Database) => Promise<void>;
 }
@@ -121,13 +117,14 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
   h = await mountRouter({
     prefix: '/api/clusters',
     user,
-    claims: options.instanceOwner ? { role: 'instance', instanceOwnerId: options.instanceOwner } : { role: 'combined' },
+    claims: { role: 'instance', instanceOwnerId: options.instanceOwner ?? TEST_USER.id },
     router: async (db) => {
       if (user) await db.accounts.saveUser({ id: user.id, email: user.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', roles: user.roles ?? [] } as never);
       await seedOwnCluster(db);
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
-      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
+      const koalaMachineId = 'koalaMachineId' in options ? options.koalaMachineId : 'koala-box';
+      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: KEY, koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, instanceOwnerId: options.instanceOwner ?? TEST_USER.id });
       const clusterProxyService = new ClusterProxyService(clusterService.access);
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
       if (options.temporal) bridge.client = env.client;
@@ -157,7 +154,7 @@ describe('listing clusters', () => {
     const res = await axios.get<ClusterMetadata[]>(h.url('/api/clusters'));
     expect(res.status).toBe(200);
     expect(spies.getAll).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_USER.id }), expect.anything());
-    expect(res.data.map((cluster) => cluster.id)).toEqual(['provisioning-lunorica', 'c1']);
+    expect(res.data.map((cluster) => cluster.id)).toEqual([KOALAS, 'c1']);
   });
 
   it('refuses an unauthenticated caller', async () => {
@@ -220,14 +217,14 @@ describe('what only whoever owns a cluster may open', () => {
   const someone = { id: 'someone', email: 'someone@example.com' };
   const admin = { id: 'an-admin', email: 'admin@example.com', roles: ['operator' as const] };
 
-  it('answers someone who only sees the system cluster exactly as for an unknown one, and opens nothing', async () => {
+  it('answers someone who does not own the cluster Koala runs in exactly as for an unknown one, and opens nothing', async () => {
     const { h, spies, infra } = await mount({ user: someone });
     for (const service of PROXIES) {
-      const err = await axios.get<unknown>(h.url(`/api/clusters/${SYSTEM}/proxy/${service}`), { maxRedirects: 0, ...ANY_STATUS });
+      const err = await axios.get<unknown>(h.url(`/api/clusters/${KOALAS}/proxy/${service}`), { maxRedirects: 0, ...ANY_STATUS });
       expect(err.status, service).toBe(404);
       expect(err.data, service).toEqual({ error: 'Cluster not found' });
     }
-    const gpu = await axios.get<unknown>(h.url(`/api/clusters/${SYSTEM}/gpu-status`), ANY_STATUS);
+    const gpu = await axios.get<unknown>(h.url(`/api/clusters/${KOALAS}/gpu-status`), ANY_STATUS);
     expect(gpu.status).toBe(404);
     expect(gpu.data).toEqual({ error: 'Cluster not found' });
     expect(spies.ensurePortForward).not.toHaveBeenCalled();
@@ -238,7 +235,7 @@ describe('what only whoever owns a cluster may open', () => {
 
   it('on an instance, refuses an admin who is not its owner', async () => {
     const { h, spies } = await mount({ user: admin, instanceOwner: 'the-owner' });
-    const err = await axios.get<unknown>(h.url(`/api/clusters/${SYSTEM}/proxy/grafana`), { maxRedirects: 0, ...ANY_STATUS });
+    const err = await axios.get<unknown>(h.url(`/api/clusters/${KOALAS}/proxy/grafana`), { maxRedirects: 0, ...ANY_STATUS });
     expect(err.status).toBe(404);
     expect(spies.ensurePortForward).not.toHaveBeenCalled();
   });
@@ -254,14 +251,17 @@ describe('what only whoever owns a cluster may open', () => {
     expect((await axios.get(h.url('/api/clusters/machine-koala-box/gpu-status'))).data).toEqual(NO_GPUS);
   });
 
-  it('lets nobody delete the system cluster, the operator included', async () => {
-    const { h } = await mount({ user: someone });
-    const deleted = await axios.delete<unknown>(h.url(`/api/clusters/${SYSTEM}`), ANY_STATUS);
-    expect([deleted.status, deleted.data]).toEqual([403, { error: 'The system cluster cannot be deleted' }]);
+  it('hides the cluster Koala runs in from anyone else who would delete it, and keeps it for its owner, whose machine takes it with it', async () => {
+    const { h, spies } = await mount({ user: someone });
+    const deleted = await axios.delete<unknown>(h.url(`/api/clusters/${KOALAS}`), ANY_STATUS);
+    expect([deleted.status, deleted.data]).toEqual([404, { error: 'Cluster not found' }]);
     await h.close();
-    const asOperator = await mount({ user: admin });
-    const operatorDeletes = await axios.delete<unknown>(asOperator.h.url(`/api/clusters/${SYSTEM}`), ANY_STATUS);
-    expect(operatorDeletes.status).toBe(403);
+    const asOwner = await mount();
+    const destroy = vi.spyOn(asOwner.bridge, 'destroyCluster');
+    const ownerDeletes = await axios.delete<unknown>(asOwner.h.url(`/api/clusters/${KOALAS}`), ANY_STATUS);
+    expect([ownerDeletes.status, ownerDeletes.data]).toEqual([409, { error: 'This is the cluster this Koala runs in; it goes only with its machine, removed under My Machines' }]);
+    expect(destroy).not.toHaveBeenCalled();
+    expect(spies.ensurePortForward).not.toHaveBeenCalled();
   });
 
   it('opens a cluster of the caller\'s own', async () => {

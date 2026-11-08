@@ -38,15 +38,15 @@ describe('metrics about Koala itself', () => {
   });
 
   it('serves its text only to the bearer of the metrics token, and counts failed work by kind', async () => {
-    const metrics = new MetricsService({ token: 'secret', role: 'combined' });
+    const metrics = new MetricsService({ token: 'secret', role: 'instance' });
     expect(metrics.allowed('Bearer secret')).toBe(true);
     expect(metrics.allowed('Bearer other')).toBe(false);
     expect(metrics.allowed(undefined)).toBe(false);
-    expect(new MetricsService({ role: 'combined' }).allowed('Bearer anything')).toBe(false);
+    expect(new MetricsService({ role: 'instance' }).allowed('Bearer anything')).toBe(false);
     metrics.failed('chat');
     metrics.failed('chat');
     const text = await metrics.text();
-    expect(text).toContain('koala_work_failures_total{kind="chat",role="combined"} 2');
+    expect(text).toContain('koala_work_failures_total{kind="chat",role="instance"} 2');
     expect(text).toContain('process_cpu_user_seconds_total');
     expect(metrics.contentType).toMatch(/text\/plain/);
   });
@@ -60,7 +60,7 @@ describe('metrics about Koala itself', () => {
   });
 
   it('answers the trace id of a request and times it by its whole path once it finishes', async () => {
-    const metrics = new MetricsService({ role: 'combined' });
+    const metrics = new MetricsService({ role: 'instance' });
     const { req, res, headers } = exchange('/api/evals/level2/runs?x=1', 200, 'POST');
     const next = vi.fn();
     metrics.middleware()(req, res, next);
@@ -68,22 +68,22 @@ describe('metrics about Koala itself', () => {
     expect(headers.get(TRACE_ID_HEADER)).toBe(TRACE_ID);
     res.emit('finish');
     const text = await metrics.text();
-    expect(text).toContain('koala_http_request_seconds_count{role="combined",method="POST",route="/api/evals/level2/runs",status="200"} 1');
+    expect(text).toContain('koala_http_request_seconds_count{role="instance",method="POST",route="/api/evals/level2/runs",status="200"} 1');
     expect(span.updateName).toHaveBeenCalledWith('POST /api/evals/level2/runs');
     expect(span.end).toHaveBeenCalled();
   });
 
   it('counts a request once even when the connection closes after it finished', async () => {
-    const metrics = new MetricsService({ role: 'combined' });
+    const metrics = new MetricsService({ role: 'instance' });
     const { req, res } = exchange('/api/things', 204);
     metrics.middleware()(req, res, vi.fn());
     res.emit('finish');
     res.emit('close');
-    expect(await metrics.text()).toContain('koala_http_request_seconds_count{role="combined",method="GET",route="/api/things",status="204"} 1');
+    expect(await metrics.text()).toContain('koala_http_request_seconds_count{role="instance",method="GET",route="/api/things",status="204"} 1');
   });
 
   it('marks the trace of a request that failed on the server as an error, and not one that was refused', () => {
-    const metrics = new MetricsService({ role: 'combined' });
+    const metrics = new MetricsService({ role: 'instance' });
     span.setStatus.mockClear();
     const refused = exchange('/api/things', 404);
     metrics.middleware()(refused.req, refused.res, vi.fn());

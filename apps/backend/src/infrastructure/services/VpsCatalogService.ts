@@ -1,6 +1,6 @@
 import { ignore } from '@koala/engine-core/failures';
 import { type CloudCredentials, type Database, decryptValue, type SecretKey, textAt } from '../../platform/index.js';
-import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { usesOperatorCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import type { ClaimSettings } from '../../platform/index.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
@@ -34,7 +34,7 @@ export class VpsCatalogService {
     private readonly db: VpsCatalogDb,
     private readonly masterKey: SecretKey,
     private readonly adapters: readonly VpsCatalogAdapter[],
-    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly claims?: ClaimSettings | undefined,
   ) {}
 
   private cacheKey(provider: string, token?: string): string {

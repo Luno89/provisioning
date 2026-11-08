@@ -70,7 +70,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
 
   const sessionEnds = new SessionEnds(db.platform)
   const revocations = new AccessRevocations()
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'combined', setupCode: SETUP_CODE, sessionEnds })
+  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', setupCode: SETUP_CODE, sessionEnds })
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })

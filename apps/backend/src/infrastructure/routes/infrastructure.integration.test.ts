@@ -31,8 +31,8 @@ import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
-const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
-const shop = { id: 'd1', name: 'Shop', namespace: 'shop', clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' } as DeploymentMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata;
+const shop = { id: 'd1', name: 'Shop', namespace: 'shop', clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' } as DeploymentMetadata;
 
 const crashing = (namespace: string, name: string) => ({
   metadata: { name: `${name}-5d9c7b-abcde`, namespace, creationTimestamp: '2026-10-17T10:00:00Z', labels: { 'pod-template-hash': '5d9c7b' }, ownerReferences: [{ kind: 'ReplicaSet', name: `${name}-5d9c7b`, controller: true }] },
@@ -132,7 +132,8 @@ async function app(root?: { rootPort: number }) {
       shopIsDown(prom);
       const monitoring = new MonitoringService({
         store: db,
-        systemCluster: async () => system,
+        ownCluster: async () => koalas,
+        ownClusterId: () => koalas.id,
         prometheus: async () => prom.client,
         kubectl: async (_cluster, args) => (args[0] === 'get' && args[1] === 'service' ? `service/${args[2]}` : ''),
         apply: async () => undefined,
@@ -250,8 +251,8 @@ describe('/api/infrastructure', () => {
 
   it('reads one cluster', async () => {
     await app();
-    const res = await axios.get(harness.url(`/api/infrastructure/clusters/${system.id}`));
-    expect(res.data).toMatchObject({ clusterId: system.id, reachable: true });
+    const res = await axios.get(harness.url(`/api/infrastructure/clusters/${koalas.id}`));
+    expect(res.data).toMatchObject({ clusterId: koalas.id, reachable: true });
   });
 
   it('clears the failures named, or all of them, and refuses anything else', async () => {

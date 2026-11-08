@@ -8,6 +8,8 @@ import { ClusterAccess } from '../services/ClusterAccess.js';
 export interface TestClusterAccess {
   dataKey?: SecretKey | undefined;
   koalaMachineId?: string | undefined;
+  poolName?: string | undefined;
+  root?: boolean | undefined;
   serviceAccount?: ServiceAccount | undefined;
   folder?: string | undefined;
   processes?: Processes | undefined;
@@ -26,7 +28,7 @@ const answering = (answers: (args: readonly string[]) => Promise<string>): Proce
 });
 
 export const testClusterAccess = (db: Pick<Database, 'infrastructure'>, options: TestClusterAccess = {}): ClusterAccess => new ClusterAccess({
-  here: { koalaMachineId: options.koalaMachineId, root: false },
+  here: { koalaMachineId: options.koalaMachineId, poolName: options.poolName, root: options.root ?? false },
   folder: options.folder ?? mkdtempSync(join(tmpdir(), 'koala-test-clusters-')),
   processes: options.processes ?? (options.answers ? answering(options.answers) : nodeProcesses),
   streams: options.streams ?? nodeStreams,

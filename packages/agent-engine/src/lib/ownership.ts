@@ -16,13 +16,6 @@ export function ownsProject<T extends OwnedRecord>(
   return project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
 }
 
-export function clusterVisible<T extends OwnedRecord & { isSystem?: boolean | undefined }>(
-  cluster: T | null | undefined,
-  userId: string,
-): boolean {
-  return !!cluster && (cluster.isSystem === true || cluster.ownerId === userId);
-}
-
 export function ownedBy<T extends { ownerId?: string | undefined }>(
   records: readonly T[],
   userId: string,

@@ -40,7 +40,7 @@ export interface AuthDeps {
   db: Database;
   sessionKey: SecretKey;
   publicUrl: string;
-  role?: PlatformRole | undefined;
+  role: PlatformRole;
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
@@ -103,7 +103,7 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 

@@ -36,8 +36,8 @@ describe('/api/logs/pipeline', () => {
 });
 
 describe('/api/logs/cluster', () => {
-  it('shows the system cluster\'s provisioning log only to its operator', async () => {
-    const system = { id: 'provisioning-lunorica', isSystem: true, lastLogPath: logAt('system.log', 'k3s installed') };
+  it('shows a cluster\'s provisioning log only to whoever owns it', async () => {
+    const system = { id: 'machine-koala', ownerId: OPERATOR.id, lastLogPath: logAt('system.log', 'k3s installed') };
     const clusterService: LogsRouterDeps['clusterService'] = { getById: async (id: string, principal: Principal, action: 'see-everything') => (id === system.id && allowed(principal, action, clusterResource(system)) ? system : undefined) };
     const router = logsRouter({ db: memoryDatabase(), clusterService, appService: mock<AppService>() });
     expect((await (await on(router)).get(`/api/logs/cluster/${system.id}`)).data).toEqual({ content: 'Initializing...' });

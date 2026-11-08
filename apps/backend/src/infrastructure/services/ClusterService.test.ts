@@ -18,15 +18,18 @@ const NODES = JSON.stringify({ items: [{ metadata: { labels: {} }, status: { all
 const k3d = (id: string, status: ClusterMetadata['status'] = 'healthy', extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: id, provider: 'k3d', status, ownerId: 'bo', ...extra });
 const originalEnv = { NODE_ENV: process.env.NODE_ENV, HCLOUD_TOKEN: process.env.HCLOUD_TOKEN };
 
-function setup(places: { shell?: Shell; koalaMachineId?: string | undefined } = {}) {
+interface Places { shell?: Shell; koalaMachineId?: string | undefined; poolName?: string | undefined; root?: boolean | undefined; instanceOwnerId?: string | undefined }
+
+function setup(places: Places = { koalaMachineId: 'desk', instanceOwnerId: 'bo' }) {
   const noHostTools = mockFn<Shell>();
   noHostTools.mockRejectedValue(new Error('not on this host'));
   const db: Database = memoryDatabase();
   const infra = mock<InfrastructureService>();
-  infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('no management cluster here'));
   infra.listLocalClusters.mockResolvedValue([]);
+  infra.runKubectl.mockRejectedValue(new Error('no nodes here'));
   const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
-  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
+  const access = testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: MASTER, koalaMachineId: places.koalaMachineId, poolName: places.poolName, root: places.root, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } });
+  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, access, { kubeconfigDir, shell: places.shell ?? noHostTools, instanceOwnerId: places.instanceOwnerId }) };
 }
 
 beforeEach(() => { process.env.NODE_ENV = 'development'; delete process.env.HCLOUD_TOKEN; });
@@ -38,7 +41,7 @@ describe('a machine\'s own cluster', () => {
   const machine = (extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', machineId: 'desk', ...extra });
 
   it('opens the kubeconfig its machine handed over, sealed on the record, into a file only this process reads', async () => {
-    const { db, service, kubeconfigDir } = setup();
+    const { db, service, kubeconfigDir } = setup({ koalaMachineId: 'home', instanceOwnerId: 'bo' });
     const sealed = machine({ kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', MASTER) });
     await db.infrastructure.saveCluster(sealed);
     const where = await service.getKubeconfigPath(sealed);
@@ -48,7 +51,7 @@ describe('a machine\'s own cluster', () => {
   });
 
   it('says it has not started rather than fall back to another cluster', async () => {
-    const { db, service } = setup();
+    const { db, service } = setup({ koalaMachineId: 'home', instanceOwnerId: 'bo' });
     await db.infrastructure.saveCluster(machine());
     await expect(service.getKubeconfigPath(machine())).rejects.toThrow('desk has not started yet, so there is no way to reach it');
   });
@@ -90,61 +93,66 @@ describe('whether a cluster runs as local containers', () => {
   });
 });
 
-describe('the system cluster', () => {
-  it('is healthy with its capacity and a private kubeconfig when the management cluster answers', async () => {
-    const { service, infra, kubeconfigDir } = setup();
-    infra.getManagementClusterKubeconfig.mockResolvedValue('apiVersion: v1');
+describe('the cluster this Koala runs in, read with its capacity', () => {
+  it('is its machine\'s record, running while Koala is on it, with the capacity its nodes report', async () => {
+    const { service, infra, db } = setup();
+    await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' });
     infra.runKubectl.mockResolvedValue(NODES);
-    const entry = await service.getSystemClusterEntry();
-    expect(entry).toMatchObject({ id: 'provisioning-lunorica', status: 'healthy', gpuEnabled: true, isSystem: true, provider: 'k3d', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1, gpuVendor: 'nvidia' } });
-    const written = join(kubeconfigDir, 'kubeconfig-provisioning-lunorica');
-    expect(readFileSync(written, 'utf8')).toBe('apiVersion: v1');
-    expect(statSync(written).mode & 0o777).toBe(0o600);
+    expect(await service.ownCluster()).toMatchObject({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1, gpuVendor: 'nvidia' } });
   });
 
   it('adds the VRAM nvidia-smi reports when the nodes do not label it', async () => {
     const shell = mockFn<Shell>();
     shell.calledWith('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits').mockResolvedValue({ stdout: '24576\n', stderr: '' });
-    const { service, infra } = setup({ shell });
-    infra.getManagementClusterKubeconfig.mockResolvedValue('apiVersion: v1');
+    const { service, infra } = setup({ shell, koalaMachineId: 'desk', instanceOwnerId: 'bo' });
     infra.runKubectl.mockResolvedValue(NODES);
-    expect((await service.getSystemClusterEntry()).capacity).toMatchObject({ gpuVramMib: 24576 });
+    expect((await service.ownCluster())?.capacity).toMatchObject({ gpuVramMib: 24576 });
   });
 
   it('shows its capacity without VRAM when nvidia-smi does not answer, and without capacity when its nodes cannot be read', async () => {
     const shell = mockFn<Shell>();
     shell.mockRejectedValue(new Error('nvidia-smi: not found'));
-    const { service, infra } = setup({ shell });
-    infra.getManagementClusterKubeconfig.mockResolvedValue('apiVersion: v1');
+    const { service, infra } = setup({ shell, koalaMachineId: 'desk', instanceOwnerId: 'bo' });
     infra.runKubectl.mockResolvedValue(NODES);
-    expect((await service.getSystemClusterEntry()).capacity).not.toHaveProperty('gpuVramMib');
+    expect((await service.ownCluster())?.capacity).not.toHaveProperty('gpuVramMib');
     infra.runKubectl.mockRejectedValue(new Error('refused'));
-    const without = await service.getSystemClusterEntry();
-    expect(without.status).toBe('healthy');
-    expect(without.capacity).toBeUndefined();
+    const without = await service.ownCluster();
+    expect(without?.status).toBe('healthy');
+    expect(without?.capacity).toBeUndefined();
   });
 
-  it('is failed when the management cluster does not answer', async () => {
+  it('is its machine\'s cluster, the instance owner\'s, before the machine has reported it', async () => {
     const { service } = setup();
-    expect((await service.getSystemClusterEntry()).status).toBe('failed');
+    expect(await service.ownCluster()).toMatchObject({ id: 'machine-desk', name: 'machine-desk', provider: 'machine', machineId: 'desk', ownerId: 'bo', status: 'healthy' });
   });
 
-  it('installs the GPU device plugin when the toolkit is there', async () => {
-    const { service, infra, kubeconfigDir } = setup();
-    infra.getManagementClusterKubeconfig.mockResolvedValue('apiVersion: v1');
-    await service.ensureSystemClusterGpuReady();
-    expect(infra.checkGpuToolkit).toHaveBeenCalledWith('nvidia');
-    expect(infra.installGpuDevicePlugin).toHaveBeenCalledWith('nvidia', join(kubeconfigDir, 'kubeconfig-provisioning-lunorica'));
+  it('is its place on Koala\'s servers for a pool instance, the instance owner\'s', async () => {
+    const { service } = setup({ poolName: 'bob', instanceOwnerId: 'bo' });
+    expect(await service.ownCluster()).toMatchObject({ id: 'pool-bob', name: 'pool-bob', provider: 'pool', ownerId: 'bo', status: 'healthy' });
+    expect(service.isKoalasCluster('pool-bob')).toBe(true);
   });
 
-  it('skips the GPU device plugin, without failing, when the host has no toolkit or no management cluster', async () => {
-    const { service, infra } = setup();
-    infra.getManagementClusterKubeconfig.mockResolvedValue('apiVersion: v1');
-    infra.checkGpuToolkit.mockRejectedValue(new Error('NVIDIA GPU toolkit not found'));
-    await expect(service.ensureSystemClusterGpuReady()).resolves.toBeUndefined();
-    expect(infra.installGpuDevicePlugin).not.toHaveBeenCalled();
-    infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('no management cluster'));
-    await expect(service.ensureSystemClusterGpuReady()).resolves.toBeUndefined();
+  it('is root\'s own on root, nobody\'s', async () => {
+    const own = await setup({ root: true }).service.ownCluster();
+    expect(own).toMatchObject({ id: 'root', name: 'root', provider: 'root', status: 'healthy' });
+    expect(own).not.toHaveProperty('ownerId');
+  });
+
+  it('is none where Koala was named neither its machine nor its pool place, and no id is taken for it', async () => {
+    const { service } = setup({});
+    expect(await service.ownCluster()).toBeUndefined();
+    expect(service.ownClusterId()).toBeUndefined();
+    expect(service.isKoalasCluster('provisioning-lunorica')).toBe(false);
+  });
+});
+
+describe('the clusters a person owns', () => {
+  it('are the cluster Koala runs in when they own this instance, then their own records, and never someone else\'s', async () => {
+    const { service, db } = setup();
+    await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'nas' });
+    await db.infrastructure.saveCluster({ id: 'machine-other', name: 'other', provider: 'machine', status: 'stopped', ownerId: 'cy', machineId: 'other' });
+    expect((await service.clustersOwnedBy('bo')).map((cluster) => cluster.id)).toEqual(['machine-desk', 'machine-nas']);
+    expect((await service.clustersOwnedBy('cy')).map((cluster) => cluster.id)).toEqual(['machine-other']);
   });
 });
 
@@ -170,12 +178,12 @@ describe('reconciling clusters against k3d', () => {
     expect(room.emit).toHaveBeenCalledWith('resource-destroyed', { id: 'gone', type: 'cluster', name: 'gone', outOfBand: true });
   });
 
-  it('answers the system cluster first and leaves other providers\' clusters alone', async () => {
+  it('answers the cluster Koala runs in first and leaves other providers\' clusters alone', async () => {
     const { service, db } = setup();
     await db.infrastructure.saveCluster(k3d('vm', 'healthy', { provider: 'hetzner' }));
-    await db.infrastructure.saveCluster(k3d('gpu', 'healthy', { gpuEnabled: true }));
+    await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'nas' });
     const all = await service.reconcileAllClusters();
-    expect(all.map((cluster) => cluster.id)).toEqual(['provisioning-lunorica', 'vm', 'gpu']);
+    expect(all.map((cluster) => cluster.id)).toEqual(['machine-desk', 'vm', 'machine-nas']);
   });
 
   it('marks a cluster stuck provisioning for a quarter of an hour failed when its containers are gone, and healthy when its stack is up', async () => {
@@ -211,15 +219,15 @@ describe('reconciling clusters against k3d', () => {
 });
 
 describe('getAll', () => {
-  it('shows each person the system cluster and their own clusters, and the operator the system cluster too', async () => {
+  it('shows each person only the clusters they own, the cluster Koala runs in to the instance\'s owner alone', async () => {
     const { service, db, infra } = setup();
     infra.listLocalClusters.mockResolvedValue(['mine', 'theirs']);
     await db.infrastructure.saveCluster(k3d('mine', 'healthy', { ownerId: 'bo' }));
     await db.infrastructure.saveCluster(k3d('theirs', 'healthy', { ownerId: 'someone-else' }));
-    const bo = (await service.getAll(asPerson('bo'))).map((cluster) => cluster.id);
-    expect(bo).toEqual(['provisioning-lunorica', 'mine']);
-    const operator = (await service.getAll(principalOf({ id: 'op', roles: ['operator'] }, { role: 'combined' }))).map((cluster) => cluster.id);
-    expect(operator).toEqual(['provisioning-lunorica']);
+    expect((await service.getAll(asPerson('bo'))).map((cluster) => cluster.id)).toEqual(['machine-desk', 'mine']);
+    expect((await service.getAll(asPerson('someone-else'))).map((cluster) => cluster.id)).toEqual(['theirs']);
+    const operator = (await service.getAll(principalOf({ id: 'op', roles: ['operator'] }, { role: 'root' }))).map((cluster) => cluster.id);
+    expect(operator).toEqual([]);
   });
 });
 
@@ -250,11 +258,11 @@ describe('the kubeconfig a deleted cluster leaves', () => {
     const { service, db, infra, kubeconfigDir } = setup();
     const operators = own();
     infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    await db.infrastructure.saveCluster(k3d('gpu', 'provisioning', { gpuEnabled: true }));
-    writeFileSync(join(kubeconfigDir, 'kubeconfig-gpu'), 'written for it');
-    await service.abort('gpu', asPerson('bo'));
+    await db.infrastructure.saveCluster(k3d('lab', 'provisioning'));
+    writeFileSync(join(kubeconfigDir, 'kubeconfig-lab'), 'written for it');
+    await service.abort('lab', asPerson('bo'));
     await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
-    expect(existsSync(join(kubeconfigDir, 'kubeconfig-gpu'))).toBe(false);
+    expect(existsSync(join(kubeconfigDir, 'kubeconfig-lab'))).toBe(false);
     expect(readFileSync(operators, 'utf8')).toBe('the operator keeps every cluster here');
   });
 });
@@ -263,25 +271,20 @@ describe('Koala\'s own cluster when Koala runs on one of the person\'s machines'
   const desk: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' };
 
   it('is that machine\'s cluster, the one record, running while Koala is on it and reached from Koala\'s own pods', async () => {
-    const { db, infra, service, kubeconfigDir } = setup({ koalaMachineId: 'desk' });
+    const { db, infra, service, kubeconfigDir } = setup();
     infra.runKubectl.mockResolvedValue(NODES);
     await db.infrastructure.saveCluster(desk);
     await db.infrastructure.saveCluster({ ...desk, id: 'machine-nas', name: 'nas', machineId: 'nas' });
-    const own = await service.getSystemClusterEntry();
-    expect(own).toMatchObject({ id: 'machine-desk', provider: 'machine', status: 'healthy', isSystem: true, machineId: 'desk' });
+    const own = await service.ownCluster();
+    expect(own).toMatchObject({ id: 'machine-desk', provider: 'machine', status: 'healthy', machineId: 'desk' });
     expect((await service.reconcileAllClusters()).map((cluster) => cluster.id)).toEqual(['machine-desk', 'machine-nas']);
-    for (const id of ['machine-desk', 'provisioning-lunorica']) expect((await service.getByIdUnscoped(id))?.id).toBe('machine-desk');
+    expect((await service.getByIdUnscoped('machine-desk'))?.status).toBe('healthy');
+    expect(await service.getByIdUnscoped('provisioning-lunorica')).toBeUndefined();
     expect(service.isKoalasCluster('machine-desk')).toBe(true);
     expect(service.isKoalasCluster('machine-nas')).toBe(false);
-    const reached = await service.getKubeconfigPath(own);
+    const reached = await service.getKubeconfigPath(own!);
     expect(reached).toBe(join(kubeconfigDir, 'kubeconfig-koala'));
     expect(readFileSync(reached, 'utf8')).toContain('server: https://kubernetes.default.svc:443');
     expect(readFileSync(reached, 'utf8')).toContain('tokenFile: /sa/token');
-  });
-
-  it('is still the fixed entry where Koala names no machine', async () => {
-    const { service } = setup({ koalaMachineId: undefined });
-    expect(await service.getSystemClusterEntry()).toMatchObject({ id: 'provisioning-lunorica', isSystem: true });
-    expect(service.isKoalasCluster('machine-desk')).toBe(false);
   });
 });

@@ -20,6 +20,7 @@ import { ClusterHealth } from '../../../monitoring';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 import { safeHref } from '../../../../shared/lib/safe-href';
+import { useInfrastructure } from '../../shared';
 
 export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
@@ -41,6 +42,7 @@ export default function AppDashboard({
   const queryClient = qc;
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const showLogModal = target;
+  const clusterRow = useInfrastructure().data?.monitoring.clusters.find((row) => row.id === currentCluster?.id);
 
   const [logTab, setLogTab] = useState<LogTab>(initialTab);
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
@@ -200,7 +202,7 @@ export default function AppDashboard({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {!(showLogModal.type === 'cluster' && currentCluster?.isSystem) && (
+            {!(showLogModal.type === 'cluster' && (!clusterRow || clusterRow.own)) && (
               <button
                 onClick={() => {
                   const resource = showLogModal.type === 'app' ? currentDeployment : currentCluster;

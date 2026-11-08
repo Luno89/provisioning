@@ -170,10 +170,16 @@ describe('ClusterAccess: the cluster a process runs in', () => {
       .toThrow('this process runs in no cluster of its own');
   });
 
-  it('is Koala\'s own by the system cluster\'s name in a pod that was named no machine, as a pool instance is', () => {
+  it('is refused in a pod that was named neither its machine nor its pool place, whatever account the pod has', () => {
     const account = { host: '10.43.0.1', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' };
-    expect(new ClusterAccess({ here: { root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' }, serviceAccount: account }).own())
-      .toEqual({ clusterId: 'provisioning-lunorica', kind: 'koala' });
+    expect(() => new ClusterAccess({ here: { root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' }, serviceAccount: account }).own())
+      .toThrow('was named neither the machine it runs on (INSTANCE_MACHINE_ID) nor its place on Koala\'s servers (POOL with INSTANCE_NAME)');
+  });
+
+  it('is the pool place\'s stand-in cluster in a pool instance', () => {
+    const account = { host: '10.43.0.1', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' };
+    expect(new ClusterAccess({ here: { poolName: 'bob', root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' }, serviceAccount: account }).own())
+      .toEqual({ clusterId: 'pool-bob', kind: 'koala' });
   });
 });
 

@@ -9,7 +9,8 @@ import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsServi
 import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { HubService } from '../../hub/services/HubService.js';
-import { localHubPeople, type HubPeople } from '../../hub/services/HubPeople.js';
+import type { HubPeople } from '../../hub/services/HubPeople.js';
+import { localHubPeople } from '../../hub/testing/in-process-hub.js';
 import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 
@@ -41,7 +42,7 @@ const confirmed = async (req: { body?: { password?: string } }) => {
   return req.body?.password === PROOF ? undefined : { status: 403 as const, error: 'Enter your password to do this' };
 };
 
-const principalFor = (user: { id: string; roles?: ('operator')[] | undefined }) => principalOf(user, { role: 'combined' });
+const principalFor = (user: { id: string; roles?: ('operator')[] | undefined }) => principalOf(user, { role: 'root' });
 
 const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
   harness = await mountRouter({

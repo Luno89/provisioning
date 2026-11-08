@@ -41,7 +41,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
       kubectl('wait', `pod/${name}`, '--for=jsonpath={.status.phase}=Succeeded', '--timeout=720h');
       return kubectl('logs', name).trim().split('\n').at(-1)!;
     };
-    const reaches = 'wget -q -T 5 -O /dev/null http://luno-minio:9000/minio/health/live';
+    const reaches = 'wget -q -T 5 -O /dev/null http://luno-minio:9000/minio/health/live 2>/dev/null';
     expect(knock('own', { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' }, `until ${reaches}; do sleep 1; done; echo reached`)).toBe('reached');
     expect(knock('stranger', { app: 'shop' }, `${reaches} && echo reached || echo refused`)).toBe('refused');
 

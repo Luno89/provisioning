@@ -8,7 +8,7 @@ export type { Branch, Leaf } from './lib/leaves.js';
 export { parsePlan } from './lib/plan-proposals.js';
 export type { AdoptedPlan, ItemChange, PlanProposal, PlanStatus } from './lib/plan-proposals.js';
 export { projectWorkflowIds } from './lib/project-removal.js';
-export { DEFAULT_TARGET_CLUSTER, koalasClusterFor, webhookUrlAt } from './lib/project-shipping.js';
+export { koalasClusterFor, webhookUrlAt } from './lib/project-shipping.js';
 export { deploymentForProject } from './lib/project-status.js';
 export { giteaUsernameFor, sanitiseNamespaceName } from './lib/projects.js';
 export { serverProgress } from './lib/proposal-progress.js';
@@ -31,7 +31,7 @@ export { ensureInfisicalOperator, syncProjectSecrets } from './services/ProjectS
 export type { SecretSyncInfra } from './services/ProjectSecretSync.js';
 export { projectSecretsFor } from './services/ProjectSecretsService.js';
 export type { SignIn } from './services/ProjectSecretsService.js';
-export { localHubSharing, localProjectGroups, ProjectSharingService } from './services/ProjectSharingService.js';
+export { ProjectSharingService } from './services/ProjectSharingService.js';
 export type { HubSharing, SharingOutcome } from './services/ProjectSharingService.js';
 export { createSecretVault, SecretRequestService } from './services/SecretRequestService.js';
 export { TreeHomeService } from './services/TreeHomeService.js';

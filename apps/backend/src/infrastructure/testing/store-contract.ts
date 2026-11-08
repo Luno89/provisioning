@@ -79,9 +79,9 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
   describe('clusters', () => {
     it('keeps a cluster as it was saved, replaces it whole when saved again, and forgets it when deleted', async () => {
       const store = await make();
-      await store.saveCluster(cluster('a', { gpuEnabled: true, capacity: { cpuCores: 4, ramGb: 8 } }));
+      await store.saveCluster(cluster('a', { machineId: 'desk', capacity: { cpuCores: 4, ramGb: 8 } }));
       await store.saveCluster(cluster('b'));
-      expect(await store.getClusters()).toEqual([cluster('a', { gpuEnabled: true, capacity: { cpuCores: 4, ramGb: 8 } }), cluster('b')]);
+      expect(await store.getClusters()).toEqual([cluster('a', { machineId: 'desk', capacity: { cpuCores: 4, ramGb: 8 } }), cluster('b')]);
       await store.saveCluster(cluster('a', { status: 'failed' }));
       expect((await store.getClusters()).find((stored) => stored.id === 'a')).toEqual(cluster('a', { status: 'failed' }));
       await store.deleteCluster('a');

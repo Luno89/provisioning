@@ -13,7 +13,7 @@ import { monitoringDepsFor, type MonitoredClusters, type PrometheusProxy } from 
 
 const KEY = 'monitoring-wiring-key' as never;
 const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo' } as ClusterMetadata;
-const system = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', isSystem: true } as ClusterMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'bo' } as ClusterMetadata;
 
 function parts() {
   const access = mock<ClusterAccess>();
@@ -51,14 +51,16 @@ describe('the monitoring both the backend and the engine worker build', () => {
     expect(access.apply).toHaveBeenCalledWith('machine-desk', 'kind: PrometheusRule');
   });
 
-  it('asks the pool only about the system cluster, and finds the system cluster through the cluster service', async () => {
+  it('asks the pool only about the cluster Koala runs in, and finds that cluster and its id through the cluster service', async () => {
     const { clusters, proxy, db } = parts();
     const pool = mock<PoolMonitor>();
-    clusters.getSystemClusterEntry.mockResolvedValue(system);
+    clusters.ownCluster.mockResolvedValue(koalas);
+    clusters.ownClusterId.mockReturnValue(koalas.id);
     const deps = monitoringDepsFor({ db, clusters, proxy, pool });
-    expect(deps.pool?.(system)).toBe(pool);
+    expect(deps.pool?.(koalas)).toBe(pool);
     expect(deps.pool?.(desk)).toBeUndefined();
-    expect(await deps.systemCluster()).toBe(system);
+    expect(await deps.ownCluster()).toBe(koalas);
+    expect(deps.ownClusterId()).toBe('machine-koala');
   });
 
   it('carries the machine status and root\'s own alerts only as given', () => {
@@ -79,7 +81,7 @@ describe('the same monitoring over ClusterAccess itself', () => {
     const folder = mkdtempSync(join(tmpdir(), 'koala-monitoring-wiring-'));
     const access = testClusterAccess(db, { dataKey: KEY, folder, answers: async (args) => { asked.push([...args]); return 'answered'; } });
     const proxy = new ClusterProxyService(access, async (host, port) => host === 'answered' && port === 9090);
-    const deps = monitoringDepsFor({ db, clusters: { access, getSystemClusterEntry: async () => system }, proxy });
+    const deps = monitoringDepsFor({ db, clusters: { access, ownCluster: async () => koalas, ownClusterId: () => koalas.id }, proxy });
     expect(await deps.kubectl(desk, ['get', 'probes', '-A'])).toBe('answered');
     expect(asked).toEqual([['get', 'probes', '-A']]);
     await deps.prometheus(desk);
@@ -92,7 +94,7 @@ describe('the same monitoring over ClusterAccess itself', () => {
     await db.infrastructure.saveCluster({ ...desk, status: 'stopped' });
     const asked: string[][] = [];
     const access = testClusterAccess(db, { dataKey: KEY, answers: async (args) => { asked.push([...args]); return ''; } });
-    const deps = monitoringDepsFor({ db, clusters: { access, getSystemClusterEntry: async () => system }, proxy: mock<PrometheusProxy>() });
+    const deps = monitoringDepsFor({ db, clusters: { access, ownCluster: async () => koalas, ownClusterId: () => koalas.id }, proxy: mock<PrometheusProxy>() });
     await expect(deps.kubectl(desk, ['get', 'pods'])).rejects.toThrow('desk is stopped until something runs on it');
     expect(asked).toEqual([]);
   });

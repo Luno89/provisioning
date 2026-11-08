@@ -39,7 +39,6 @@ describe('reconciling clusters against k3d', () => {
     const db = await testDatabase();
     class K3dHere extends InfrastructureService {
       override async listLocalClusters(): Promise<string[]> { await during(db); return running; }
-      override async getManagementClusterKubeconfig(): Promise<string> { throw new Error('no management cluster here'); }
     }
     return { db, svc: new ClusterService(db, new K3dHere(), testClusterAccess(db, { dataKey: MASTER })) };
   }
@@ -75,17 +74,18 @@ describe('reconciling clusters against k3d', () => {
 });
 
 describe('Koala\'s own cluster on a machine, stored', () => {
-  it('is the stored machine cluster, listed once, and every id Koala used for its cluster reaches it', async () => {
+  it('is the stored machine cluster, listed once and first, running, and no other id reaches it', async () => {
     const db = await testDatabase();
     class OwnCluster extends InfrastructureService {
       override async listLocalClusters(): Promise<string[]> { return []; }
-      override async getManagementClusterKubeconfig(): Promise<string> { return 'server: https://kubernetes.default.svc'; }
       override async runKubectl(): Promise<string> { return JSON.stringify({ items: [] }); }
     }
-    const svc = new ClusterService(db, new OwnCluster(), testClusterAccess(db, { dataKey: MASTER, koalaMachineId: 'desk', serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir: mkdtempSync(join(tmpdir(), 'cluster-service-')), koalaMachineId: 'desk' });
+    const svc = new ClusterService(db, new OwnCluster(), testClusterAccess(db, { dataKey: MASTER, koalaMachineId: 'desk', serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir: mkdtempSync(join(tmpdir(), 'cluster-service-')), instanceOwnerId: 'bo' });
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' });
     await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'nas' });
-    expect((await svc.reconcileAllClusters()).map((cluster) => [cluster.id, cluster.isSystem === true])).toEqual([['machine-desk', true], ['machine-nas', false]]);
-    expect((await svc.getByIdUnscoped('provisioning-lunorica'))?.id).toBe('machine-desk');
+    expect((await svc.reconcileAllClusters()).map((cluster) => [cluster.id, cluster.status])).toEqual([['machine-desk', 'healthy'], ['machine-nas', 'stopped']]);
+    expect((await svc.getByIdUnscoped('machine-desk'))?.status).toBe('healthy');
+    expect(await svc.getByIdUnscoped('provisioning-lunorica')).toBeUndefined();
+    expect((await svc.clustersOwnedBy('bo')).map((cluster) => cluster.id)).toEqual(['machine-desk', 'machine-nas']);
   });
 });

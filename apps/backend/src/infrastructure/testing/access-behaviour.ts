@@ -6,7 +6,7 @@ import { AccessService } from '../services/AccessService.js';
 
 const OWNER = 'owner-1';
 const person = asPerson(OWNER);
-const operator = principalOf({ id: OWNER, roles: ['operator'] }, { role: 'combined' });
+const operator = principalOf({ id: OWNER }, { role: 'instance', instanceOwnerId: OWNER });
 const NOW = '2026-11-02T00:00:00.000Z';
 
 const asked = (over: Partial<AccessRequest> = {}): AccessRequest =>

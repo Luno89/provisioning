@@ -50,7 +50,7 @@ describe('Koala\'s telemetry', () => {
 
   it('sends spans and metrics as OTLP JSON to the sink it is given, naming the service, and the cluster whose view it belongs to, as a resource', async () => {
     const sink = collecting();
-    telemetry = startTelemetry({ service: 'koala-test', role: 'combined', cluster: 'root', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
+    telemetry = startTelemetry({ service: 'koala-test', role: 'root', cluster: 'root', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
     expect(telemetry.exporting).toBe(true);
     const value = await withSpan('model.call', { 'koala.model.name': 'glm' }, async (span) => {
       expect(currentTraceId()).toBe(span.spanContext().traceId);
@@ -65,7 +65,7 @@ describe('Koala\'s telemetry', () => {
     const resource = (sink.sent.find((batch) => batch.signal === 'traces')!.body as { resourceSpans: { resource: { attributes: { key: string; value: { stringValue: string } }[] } }[] }).resourceSpans[0]!.resource.attributes;
     expect(resource).toEqual(expect.arrayContaining([
       { key: 'service.name', value: { stringValue: 'koala-test' } },
-      { key: 'koala.role', value: { stringValue: 'combined' } },
+      { key: 'koala.role', value: { stringValue: 'root' } },
       { key: 'koala.cluster', value: { stringValue: 'root' } },
     ]));
     expect(metricNames(sink.sent)).toEqual(expect.arrayContaining(['koala_work_failures', 'koala_http_request_seconds', 'koala_up']));

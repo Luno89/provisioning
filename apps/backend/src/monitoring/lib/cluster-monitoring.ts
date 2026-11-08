@@ -30,11 +30,7 @@ export interface MonitoringPlan {
 
 const lines = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
-export const SYSTEM_CLUSTER = 'provisioning-lunorica';
-
-export const placedOnPool = (env: NodeJS.ProcessEnv, physicalName: string): boolean => env.POOL === 'true' && physicalName === SYSTEM_CLUSTER;
-
-export const monitoringOwner = (cluster: { physicalName: string; koala?: boolean | undefined }): string => (cluster.koala ? SYSTEM_CLUSTER : cluster.physicalName);
+export const placedOnPool = (env: NodeJS.ProcessEnv, reach: Pick<Reach, 'kind'>): boolean => env.POOL === 'true' && reach.kind === 'koala';
 
 export interface KoalaClusterMonitoring {
   physicalName: string;
@@ -46,10 +42,10 @@ export interface KoalaClusterMonitoring {
 }
 
 export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, reach: Reach, instance: boolean): KoalaClusterMonitoring => ({
-  physicalName: SYSTEM_CLUSTER,
+  physicalName: reach.clusterId,
   reach,
   local: !instance,
-  pool: placedOnPool(env, SYSTEM_CLUSTER),
+  pool: placedOnPool(env, reach),
   nodePortIngress: Boolean(env.INSTANCE_MACHINE_ID),
   koala: true,
 });

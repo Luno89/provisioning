@@ -101,7 +101,7 @@ describe('a person\'s own password, second factor and sessions, combined', () =>
   })
 })
 
-describe('what someone who is not an operator may do, combined', () => {
+describe('what someone who is not an operator may do on root', () => {
   it('refuses them the invites and the people', async () => {
     await expect(listInvites()).rejects.toMatchObject({ response: { status: 403 } })
     await expect(mintInvite()).rejects.toMatchObject({ response: { status: 403 } })
@@ -114,7 +114,7 @@ describe('what someone who is not an operator may do, combined', () => {
     await expect(removeMyAccount('wrong', { password: NEW_PASSWORD })).rejects.toMatchObject({ response: { status: 400 } })
     await expect(removeMyAccount('member@koala.test', { password: 'not it' })).rejects.toMatchObject({ response: { status: 403, data: { error: anyOf(String) } } })
     expect(await removeMyAccount('member@koala.test', { password: NEW_PASSWORD })).toEqual({ state: 'running', done: [] })
-    expect(temporal.started).toEqual([objectWith({ workflowType: 'RemoveAccountWorkflow' })])
+    expect(temporal.started).toEqual([objectWith({ workflowType: 'RootAccountRemovalWorkflow' })])
     expect(await getMe()).toBeNull()
   })
 })

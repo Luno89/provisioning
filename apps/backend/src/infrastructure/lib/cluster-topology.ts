@@ -4,7 +4,7 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 export const CLUSTER_PROVIDER_NAMES: readonly string[] = ['k3d', 'aws', 'gcp', 'azure', 'do', 'machine', 'hetzner'];
 
-export const NEVER_MOCK_PROVIDERS: readonly string[] = ['k3d', 'machine', 'hetzner', 'do'];
+export const NEVER_MOCK_PROVIDERS: readonly string[] = ['k3d', 'machine', 'hetzner', 'do', 'pool', 'root'];
 
 export type ClusterBuild = 'here' | 'joined' | 'vm-then-ssh' | 'not-yet';
 

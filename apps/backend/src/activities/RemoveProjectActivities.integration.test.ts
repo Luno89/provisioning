@@ -25,7 +25,7 @@ const deps = (): ProjectRemovalDeps => ({
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
   files: new FileService({ files: stored().files, shares: db.files }),
   apps: {
-    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
+    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'k3d', status: 'running' } as never : undefined),
     handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }),
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
@@ -120,7 +120,7 @@ describe('the steps that delete a project', () => {
       deploymentId: 'odoo-p1',
       workflowId: expect.stringMatching(/^app-destroy-shop-p1-/) as unknown,
       taskQueue: 'cluster-ops-queue',
-      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
     }]);
     expect((await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')?.status).toBe('destroying');
 

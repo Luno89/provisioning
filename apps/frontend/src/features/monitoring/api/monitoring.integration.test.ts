@@ -115,7 +115,7 @@ describe('monitoring, as the health tabs ask for it', () => {
 
   it('refuses a history length it cannot keep, and a machine\'s, which is kept with Koala\'s own', async () => {
     await expect(setHistoryDays('machine-desk', -3)).rejects.toMatchObject({ response: { status: 400 } })
-    await expect(setHistoryDays('machine-desk', 30)).rejects.toMatchObject({ response: { status: 409, data: { error: 'a machine\'s history is kept with this Koala\'s own, for as long as its system cluster keeps it' } } })
+    await expect(setHistoryDays('machine-desk', 30)).rejects.toMatchObject({ response: { status: 409, data: { error: 'a machine\'s history is kept with this Koala\'s own, for as long as the cluster this Koala runs in keeps it' } } })
   })
 
   it('answers 404 for an alert rule that is not the person\'s', async () => {

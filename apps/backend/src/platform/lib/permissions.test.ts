@@ -10,11 +10,10 @@ const instanceOwner = person('owner', [{ role: 'operator' }, { role: 'instance-o
 const someone = person('someone');
 
 describe('claimsOf', () => {
-  it('gives the operator claim from the operator role on root and combined, never on the hub', () => {
+  it('gives the operator claim from the operator role on root, never on the hub', () => {
     expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'root' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
-    expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'combined' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
     expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'hub' })).toEqual([{ role: 'person' }]);
-    expect(claimsOf({ id: 'a' }, { role: 'combined' })).toEqual([{ role: 'person' }]);
+    expect(claimsOf({ id: 'a' }, { role: 'root' })).toEqual([{ role: 'person' }]);
   });
 
   it('makes the instance owner the operator of their instance by its owner id, whatever role is stored', () => {
@@ -50,15 +49,14 @@ describe('the permissions table', () => {
     expect(allowed(operator, 'remove', { kind: 'account', id: 'other' })).toBe(true);
   });
 
-  it('lets anyone see and deploy to the system cluster, only the operator see all of it or change it, and nobody delete it', () => {
-    const system = clusterResource({ id: 'sys', isSystem: true });
-    expect(allowed(someone, 'see', system)).toBe(true);
-    expect(allowed(someone, 'deploy-to', system)).toBe(true);
-    expect(authorize(someone, 'see-everything', system)).toMatchObject({ allowed: false, status: 404 });
-    expect(authorize(someone, 'change', system)).toMatchObject({ allowed: false, status: 403 });
-    expect(allowed(operator, 'see-everything', system)).toBe(true);
-    expect(allowed(operator, 'change', system)).toBe(true);
-    expect(authorize(operator, 'delete', system)).toMatchObject({ allowed: false, status: 403 });
+  it('keeps the cluster an instance runs in to its owner like any other, and from the operator who does not own it', () => {
+    const koalas = clusterResource({ id: 'machine-desk', ownerId: 'owner' });
+    for (const action of Object.keys(PERMISSIONS.cluster) as (keyof typeof PERMISSIONS.cluster)[]) {
+      expect(allowed(instanceOwner, action, koalas), action).toBe(true);
+      expect(authorize(someone, action, koalas), action).toMatchObject({ allowed: false, status: 404 });
+      expect(allowed(operator, action, koalas), action).toBe(false);
+    }
+    expect(clusterResource({ id: 'machine-desk', ownerId: 'owner' })).toEqual({ kind: 'cluster', id: 'machine-desk', ownerId: 'owner' });
   });
 
   it('keeps every other record to its owner, hiding it from anyone else, operator included', () => {
@@ -118,7 +116,7 @@ describe('the permissions table', () => {
 });
 
 describe('what the session says a person may do', () => {
-  const on = (role: 'root' | 'combined' | 'instance' | 'hub', roles: ('operator')[] = []) =>
+  const on = (role: 'root' | 'instance' | 'hub', roles: ('operator')[] = []) =>
     principalOf({ id: 'me', roles }, { role, instanceOwnerId: role === 'instance' ? 'me' : undefined });
 
   it('gives an instance\'s owner its settings and the operator\'s powers there, but no accounts to manage', () => {

@@ -149,9 +149,9 @@ describe('removing an app', () => {
 
 describe('resizing an app\'s disk', () => {
   it('applies its stack again with the new sizes, through the kubeconfig of the cluster it was handed', async () => {
-    await ResizeDiskActivity({ name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' }, steps());
+    await ResizeDiskActivity({ name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'koala', provider: 'k3d', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' }, steps());
     expect(access.kubeconfigOf).toHaveBeenCalledWith(KOALA);
-    expect(infra.deploy).toHaveBeenCalledWith('app-provisioning-lunorica-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress' }) as unknown });
+    expect(infra.deploy).toHaveBeenCalledWith('app-koala-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress' }) as unknown });
     expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
   });
 

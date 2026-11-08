@@ -7,7 +7,7 @@ import { monitoringRouter } from './monitoring.js';
 import { MonitoringService, prometheusAt } from '../services/MonitoringService.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
 
-const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
+const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata;
 
 let harness: Harness;
 let ranges: string[] = [];
@@ -45,7 +45,8 @@ beforeEach(async () => {
     router: (db) => monitoringRouter({
       monitoring: new MonitoringService({
         store: db,
-        systemCluster: async () => system,
+        ownCluster: async () => koalas,
+        ownClusterId: () => koalas.id,
         prometheus: async () => prometheusAt(prometheusUrl),
         kubectl: async () => JSON.stringify({ spec: { retention: '10d' } }),
         apply: async () => {},
@@ -53,7 +54,7 @@ beforeEach(async () => {
       }),
     }),
   });
-  await harness.db.infrastructure.saveDeploymentInfo({ id: 'books', name: 'Books', namespace: 'books', clusterId: system.id, strategy: 'native', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' });
+  await harness.db.infrastructure.saveDeploymentInfo({ id: 'books', name: 'Books', namespace: 'books', clusterId: koalas.id, strategy: 'native', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' });
 });
 
 afterEach(async () => { await harness.close(); });
@@ -73,6 +74,6 @@ describe('/api/monitoring', () => {
 
   it('answers 404 for an app that is not the person\'s and 400 for bad days', async () => {
     await expect(axios.get(harness.url('/api/monitoring/apps/nope'))).rejects.toMatchObject({ response: { status: 404 } });
-    await expect(axios.put(harness.url(`/api/monitoring/clusters/${system.id}/history`), { days: 'ten' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'days is a whole number' } } });
+    await expect(axios.put(harness.url(`/api/monitoring/clusters/${koalas.id}/history`), { days: 'ten' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'days is a whole number' } } });
   });
 });

@@ -48,7 +48,8 @@ afterAll(async () => {
 
 describe('the settings every process starts telemetry with', () => {
   it('names the service, the role and the instance, and exports only where the environment names a collector', () => {
-    expect(telemetrySettings({}, 'koala-backend')).toEqual({ service: 'koala-backend', role: 'combined', sink: undefined });
+    expect(() => telemetrySettings({}, 'koala-backend')).toThrow('ROLE is not set');
+    expect(telemetrySettings({ ROLE: 'hub' }, 'koala-backend')).toEqual({ service: 'koala-backend', role: 'hub', sink: undefined });
     const settings = telemetrySettings({ ROLE: 'instance', INSTANCE_ID: 'inst-1', KOALA_VERSION: 'abc123', OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c:4318' }, 'koala-worker-engine');
     expect(settings).toMatchObject({ service: 'koala-worker-engine', role: 'instance', instanceId: 'inst-1', version: 'abc123' });
     expect(settings.sink).toBeDefined();
@@ -69,7 +70,7 @@ describe('one trace from the request through the workflow to the activity', () =
       activities: { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; } },
     });
 
-    const metrics = new MetricsService({ role: 'combined' });
+    const metrics = new MetricsService({ role: 'instance' });
     const app = express();
     app.use(metrics.middleware());
     app.post('/api/trees/:id/conclude', (req, res) => {

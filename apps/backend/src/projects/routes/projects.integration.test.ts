@@ -7,7 +7,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { DEFAULT_TARGET_CLUSTER, koalasClusterFor } from '../lib/project-shipping.js';
+import { koalasClusterFor } from '../lib/project-shipping.js';
 
 const project = {
   id: 'proj-1',
@@ -27,7 +27,7 @@ function giteaServiceStub(commit: { message: string } | null) {
 
 const unused = (): never => { throw new Error('not used by this test'); };
 
-const systemCluster: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true };
+const koalasCluster: ClusterMetadata = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id };
 
 async function mountWithGitea(gitea: Pick<GiteaService, 'getCommit'>): Promise<Harness> {
   return mountRouter({
@@ -62,7 +62,7 @@ async function mountForCreate(defaultCluster?: string): Promise<Harness> {
       } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`, { defaultCluster }),
       clusterService: {
         getById: async (id, principal, action = 'see') => {
-          const found = id === systemCluster.id ? systemCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
+          const found = id === koalasCluster.id ? koalasCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
           return found && allowed(principal, action, clusterResource(found)) ? found : undefined;
         },
       },
@@ -395,11 +395,12 @@ describe('PATCH /:id — execution target', () => {
 });
 
 describe('POST / — where it deploys', () => {
-  it('sends a project with a repository to its own cluster when none is picked', async () => {
+  it('leaves a project with no cluster to go to where Koala runs in none and none is picked, rather than naming one', async () => {
     const harness = await mountForCreate();
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
     expect(res.status).toBe(201);
-    expect(res.data.targetClusterId).toBe(DEFAULT_TARGET_CLUSTER);
+    expect(res.data.targetClusterId).toBeUndefined();
+    expect((await harness.db.projects.getProjects()).find((entry) => entry.id === res.data.id)).not.toHaveProperty('targetClusterId');
     await harness.close();
   });
 
@@ -419,7 +420,7 @@ describe('POST / — where it deploys', () => {
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
     expect(res.data.targetClusterId).toBe('my-k3d');
     const theirs = await axios.post<{ error?: string }>(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }, { validateStatus: () => true });
-    expect([theirs.status, theirs.data.error]).toEqual([400, 'Deploy to the system cluster or one of your own clusters.']);
+    expect([theirs.status, theirs.data.error]).toEqual([400, 'Deploy to one of your own clusters.']);
     await harness.close();
   });
 });

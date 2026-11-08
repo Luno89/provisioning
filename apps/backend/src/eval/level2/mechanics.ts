@@ -253,7 +253,7 @@ const treeModel: Scenario = {
 const monitored: Scenario = {
   id: 'mechanics-monitoring',
   name: 'Koala reads how an app is doing and sets an alert on it only once its card is applied',
-  describe: 'Mechanics, on a script, with a real app: an app is deployed on the system cluster for the space; Koala reads its health from the cluster\'s Prometheus and proposes an alert for when it stops answering; nothing is set until the card is applied, and then the alert is on the app. Off the bench, since the app takes a minute or two to deploy.',
+  describe: 'Mechanics, on a script, with a real app: an app is deployed on the cluster Koala runs in for the space; Koala reads its health from the cluster\'s Prometheus and proposes an alert for when it stops answering; nothing is set until the card is applied, and then the alert is on the app. Off the bench, since the app takes a minute or two to deploy.',
   agent: 'koala',
   procedure: { id: 'interactive-chat' },
   input: { message: 'How is my books app doing? Tell me when it has been down for 5 minutes.' },

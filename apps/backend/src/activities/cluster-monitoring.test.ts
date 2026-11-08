@@ -75,14 +75,14 @@ describe('monitoring Koala\'s own cluster', () => {
     expect(deploy).toBe(worker);
     open();
     await Promise.all([worker, deploy]);
-    expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['provisioning-lunorica', 'provisioning-lunorica-observability']);
-    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'provisioning-lunorica', KUBECONFIG_PATH: '/clusters/kubeconfig-koala', INGRESS_SERVICE: 'NodePort', KOALA_CLUSTER: 'true' } });
+    expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk', 'machine-desk-observability']);
+    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-koala', INGRESS_SERVICE: 'NodePort', KOALA_CLUSTER: 'true' } });
   });
 
-  it('keeps that name when only a deploy asks, so the stacks the worker applied stay the only ones', async () => {
+  it('keeps that name, the cluster\'s id, when only a deploy asks, so the stacks the worker applied stay the only ones', async () => {
     const steps = cluster({ operator: false, blackbox: false });
     await ensureClusterMonitoring(steps, fromDeploy);
-    expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['provisioning-lunorica', 'provisioning-lunorica-observability']);
+    expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk', 'machine-desk-observability']);
   });
 });
 

@@ -22,7 +22,7 @@ const PREFIX = '/api/auth';
 
 function set(options: { accounts?: boolean; hub?: boolean; withProviders?: boolean } = {}) {
   const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
   const authService = mock<AuthService>();
   const passwords = mock<Pick<PasswordService, 'newPasswordProblem'>>();
   const providers = mock<Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'>>();

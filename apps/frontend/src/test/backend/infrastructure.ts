@@ -20,9 +20,9 @@ export interface Infrastructure {
   io: Server
 }
 
-export async function infrastructureOf({ db }: Site, koalaMachineId?: string): Promise<Infrastructure> {
+export async function infrastructureOf({ db }: Site, koalaMachineId?: string, instanceOwnerId?: string): Promise<Infrastructure> {
   const host = outsideThisTier<InfrastructureService>('the host\'s k3d, kubectl and helm', { listLocalClusters: async () => [] })
-  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY, koalaMachineId }), { koalaMachineId })
+  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY, koalaMachineId }), { instanceOwnerId })
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
   const temporal = recordedTemporal()
   const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, undefined, { connect: async () => temporal.client })
@@ -30,7 +30,8 @@ export async function infrastructureOf({ db }: Site, koalaMachineId?: string): P
   const reach = (what: string) => async (): Promise<never> => { throw new Error(`${what} reaches a cluster, which the integration tier never does`) }
   const monitoring = new MonitoringService({
     store: db,
-    systemCluster: () => clusters.getSystemClusterEntry(),
+    ownCluster: () => clusters.ownCluster(),
+    ownClusterId: () => clusters.ownClusterId(),
     prometheus: reach('Prometheus'),
     kubectl: reach('kubectl'),
     apply: reach('kubectl apply'),

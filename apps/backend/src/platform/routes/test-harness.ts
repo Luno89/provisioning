@@ -34,7 +34,7 @@ export async function harnessApp(opts: HarnessOptions, db: Database, user: (req:
     const current = user(req);
     if (!current) return opts.open ? next() : res.status(401).json({ error: 'Session missing' });
     (req as unknown as { user: HarnessUser }).user = current;
-    (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'combined' });
+    (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'root' });
     next();
   });
   app.use(opts.prefix, await opts.router(db));

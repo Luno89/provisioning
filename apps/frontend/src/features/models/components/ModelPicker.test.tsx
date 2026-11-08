@@ -53,7 +53,7 @@ const setup = (over: Partial<Parameters<typeof ModelPicker>[0]> = {}) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  listClusters.mockResolvedValue([{ id: 'c1', name: 'provisioning-lunorica' }] as never);
+  listClusters.mockResolvedValue([{ id: 'c1', name: 'koala' }] as never);
   listLlmProviders.mockResolvedValue([
     { provider: 'openrouter', label: 'OpenRouter', modelCount: 425, hasKey: true },
     { provider: 'groq', label: 'Groq', modelCount: 0, hasKey: false },
@@ -71,7 +71,7 @@ describe('tiers', () => {
     setup();
     expect(await screen.findByText('turboderp/Qwen3.8-27B-exl3')).toBeInTheDocument();
     // The cluster name arrives from its own query, so it lands a tick after the model.
-    expect(await screen.findByText('TabbyAPI · provisioning-lunorica · 32k')).toBeInTheDocument();
+    expect(await screen.findByText('TabbyAPI · koala · 32k')).toBeInTheDocument();
     // No group to expand for a single model.
     expect(screen.queryByLabelText('Expand TabbyAPI')).not.toBeInTheDocument();
   });

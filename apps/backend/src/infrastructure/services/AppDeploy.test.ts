@@ -28,8 +28,9 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
     masterKey: KEY,
     clusterById: async (id) => (id === cluster.id ? cluster : undefined),
     handOver: (clusterId) => access.handOver(clusterId),
+    ownClusterId: () => 'machine-koala',
     logDir: '/tmp/logs',
-    claims: { role: 'combined' },
+    claims: { role: 'instance', instanceOwnerId: 'ann' },
   };
   return { deps: all, db, workflow, started, access };
 }
@@ -103,7 +104,7 @@ describe('starting a deploy', () => {
 
   it('records a new app under the cluster\'s own id, however the request named it', async () => {
     const { deps: d } = await deps();
-    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'provisioning-lunorica' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'provisioning-lunorica', appType: 'wordpress' });
+    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
     expect(named.deployment.clusterId).toBe(CLUSTER.id);
   });
 
@@ -152,11 +153,12 @@ describe('starting a deploy', () => {
     expect(started().map((run) => [run.args.odooRepo, run.args.odooTag])).toEqual([['bitnami/wordpress', '6'], ['bitnami/wordpress', '6'], ['bitnami/wordpress', '7']]);
   });
 
-  it('gives a model on the system cluster its cache folder on the host', async () => {
-    const system: ClusterMetadata = { ...CLUSTER, isSystem: true };
-    const { deps: d, started } = await deps(system);
-    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyCachePvc: 'models' }, 'ann');
-    expect(started()[0]?.args.modelCacheHostPath).toEqual(expect.stringContaining('models'));
+  it('gives a model on the cluster Koala runs in its cache folder on the host, and one on any other cluster none', async () => {
+    const { deps: d, started } = await deps();
+    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyCachePvc: 'models' }, 'ann');
+    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmCachePvc: 'weights' }, 'ann');
+    await startAppDeploy(d, { name: 'elsewhere', clusterId: 'c1', appType: 'tabbyapi', tabbyCachePvc: 'models' }, 'ann');
+    expect(started().map((run) => run.args.modelCacheHostPath)).toEqual([expect.stringContaining('models'), expect.stringContaining('weights'), undefined]);
   });
 
   it('gives a model the Hugging Face token the person stored, the operator\'s from the environment, or none', async () => {

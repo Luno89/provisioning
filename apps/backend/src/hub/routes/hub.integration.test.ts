@@ -33,7 +33,7 @@ const ask = { validateStatus: () => true };
 
 async function hubFor(people: { id: string; email: string }[]) {
   const invites: InviteMetadata[] = [];
-  const projectInvites = new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' });
+  const projectInvites = new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'root' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' });
   const hub = new HubService({ store: await hubStore(), invites: projectInvites });
   const sites = [];
   for (const person of people) {
@@ -91,7 +91,7 @@ describe('/api/hub-link, on root', () => {
     const site = await mountRouter({
       prefix: '/api/hub-link',
       router: async () => hubLinkRouter({
-        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => PEOPLE.find((person) => person.id === id), getUserByEmail: async () => undefined }, limits: async () => ({ perHour: 1 }), rootUrl: 'http://root' }),
+        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'root' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => PEOPLE.find((person) => person.id === id), getUserByEmail: async () => undefined }, limits: async () => ({ perHour: 1 }), rootUrl: 'http://root' }),
         credentialHash: hashCredential('the-hub'),
         hash: hashCredential,
         signInKeys: { get: async () => held, save: async (key) => { held = key; } },
@@ -296,7 +296,7 @@ describe('a member inviting through the hub, which asks root to send it', () => 
     const rootSite = await mountRouter({
       prefix: '/api/hub-link',
       router: async () => hubLinkRouter({
-        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => ({ perHour }), rootUrl: 'http://root' }),
+        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'root' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => ({ perHour }), rootUrl: 'http://root' }),
         credentialHash: hashCredential('the-hub'),
         hash: hashCredential,
         personAtHub: async (token) => (token === 'ann-at-the-hub' ? 'ann' : undefined),

@@ -25,7 +25,7 @@ vi.mock('../../../infrastructure/api/credentials', async (orig) => ({
 }))
 vi.mock('../../../infrastructure/api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
-  listClusters: vi.fn(async () => [{ id: 'c1', name: 'provisioning-lunorica' }]),
+  listClusters: vi.fn(async () => [{ id: 'c1', name: 'koala' }]),
 }))
 
 const desk = [{

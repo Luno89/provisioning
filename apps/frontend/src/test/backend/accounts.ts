@@ -37,10 +37,10 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
   const authService = new AuthService(site.db, {})
   wireAccounts({
     app: { use: (path, router) => site.api.use(path.replace(/^\/api/, ''), router) },
-    role: roleFromEnv({}),
+    role: roleFromEnv({ ROLE: 'root' }),
     env: {},
     db: site.db,
-    temporalBridge: { client: temporal.client },
+    temporal: () => temporal.client,
     hubPeople: undefined,
     operatorOnly: site.auth.requireOperator('manage-accounts'),
     clearSession: site.auth.clearSession,

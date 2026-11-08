@@ -17,14 +17,12 @@ export interface ClusterMetadata {
   createdAt?: string;
   lastSyncedAt?: string;
   progress?: ClusterProgress;
-  gpuEnabled?: boolean;
   capacity?: {
     cpuCores: number;
     ramGb: number;
     gpuCount?: number;
     gpuVendor?: 'nvidia' | 'amd';
   };
-  isSystem?: boolean;
   ownerId?: string;
   remoteHost?: string;
   remoteUsername?: string;

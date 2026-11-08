@@ -175,8 +175,8 @@ describe('streaming files through Koala\'s own cluster', () => {
     const folder = await mkdtemp(path.join(os.tmpdir(), 'koala-kube-'));
     const cluster = mock<KoalasCluster>();
     let output: WriteStream | undefined;
-    cluster.start.mockImplementation(async (_args, io) => { output = io?.output as WriteStream; throw new Error('there is no cluster provisioning-lunorica'); });
-    await expect(createKubeStreamer(cluster).toFile(['exec'], path.join(folder, 'bundle'))).rejects.toThrow('there is no cluster provisioning-lunorica');
+    cluster.start.mockImplementation(async (_args, io) => { output = io?.output as WriteStream; throw new Error('there is no cluster machine-gone'); });
+    await expect(createKubeStreamer(cluster).toFile(['exec'], path.join(folder, 'bundle'))).rejects.toThrow('there is no cluster machine-gone');
     expect(output?.destroyed).toBe(true);
   });
 

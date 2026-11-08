@@ -14,7 +14,7 @@ async function setUp() {
   ]) await db.accounts.saveUser({ twoFactorEnabled: false, createdAt: 't', emailVerified: true, ...user });
   await db.accounts.saveInvite({ id: 'i1', codeHash: 'h1', createdBy: 'ann', createdAt: '2026-10-26T11:00:00.000Z', expiresAt: '2026-11-09T11:00:00.000Z', email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'j' }, makesAccount: true });
   await db.accounts.saveInvite({ id: 'i2', codeHash: 'h2', createdBy: 'ann', createdAt: '2026-10-26T11:00:00.000Z', expiresAt: '2026-11-09T11:00:00.000Z', email: 'bo@example.com', project: { name: 'Shop', role: 'client', join: 'k' }, makesAccount: false });
-  return { db, service: new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'combined' }), now: () => now }) };
+  return { db, service: new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'root' }), now: () => now }) };
 }
 
 describe('how many people a person\'s project invites may bring to Koala', () => {
@@ -64,7 +64,7 @@ describe('how many people a person\'s project invites may bring to Koala', () =>
   it('reads the clock when none is given', async () => {
     const db = memoryDatabase();
     await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, createdAt: 't', emailVerified: true });
-    const service = new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'combined' }) });
+    const service = new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'root' }) });
     expect((await service.overview()).people).toEqual([{ id: 'ann', email: 'ann@example.com', made: 0 }]);
     expect(await service.setOwn('ann', 2)).toMatchObject({ ok: true, value: { made: 0, own: 2 } });
   });

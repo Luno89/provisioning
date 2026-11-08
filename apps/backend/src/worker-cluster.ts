@@ -88,7 +88,7 @@ async function main() {
 
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
   ensureClusterMonitoring(steps, koalaClusterMonitoring(process.env, steps.access.own(), role === 'instance'))
-    .then(() => logger.info('[ClusterWorker] the system cluster has monitoring and Koala\'s own telemetry stack'))
+    .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
     .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   const port = healthPort(process.env);
   if (port) serveHealth(port, () => worker.getState() === 'RUNNING');

@@ -11,19 +11,19 @@ describe("where a stack keeps its Terraform state", () => {
 
   it("puts every stack's state in that folder, one file per stack", () => {
     const app = Testing.app() as App;
-    const one = new TerraformStack(app, "provisioning-lunorica");
-    const two = new TerraformStack(app, "provisioning-lunorica-observability");
+    const one = new TerraformStack(app, "machine-desk");
+    const two = new TerraformStack(app, "machine-desk-observability");
     keepState(app, { CDKTF_STATE_DIR: "/data/terraform" });
-    expect(backendOf(one)).toEqual({ local: { path: "/data/terraform/terraform.provisioning-lunorica.tfstate" } });
-    expect(backendOf(two)).toEqual({ local: { path: "/data/terraform/terraform.provisioning-lunorica-observability.tfstate" } });
+    expect(backendOf(one)).toEqual({ local: { path: "/data/terraform/terraform.machine-desk.tfstate" } });
+    expect(backendOf(two)).toEqual({ local: { path: "/data/terraform/terraform.machine-desk-observability.tfstate" } });
   });
 
   it("keeps each stack's state in a Secret of its own in the namespace given, read with the pod's own account", () => {
     const app = Testing.app() as App;
-    const one = new TerraformStack(app, "provisioning-lunorica");
+    const one = new TerraformStack(app, "machine-desk");
     const two = new TerraformStack(app, "app-machine-ab12-12345678");
     keepState(app, { CDKTF_STATE_DIR: "/data/terraform", CDKTF_STATE_NAMESPACE: "koala" });
-    expect(backendOf(one)).toEqual({ kubernetes: { secret_suffix: "provisioning-lunorica-state", namespace: "koala", in_cluster_config: true } });
+    expect(backendOf(one)).toEqual({ kubernetes: { secret_suffix: "machine-desk-state", namespace: "koala", in_cluster_config: true } });
     expect(backendOf(two)).toEqual({ kubernetes: { secret_suffix: "app-machine-ab12-12345678-state", namespace: "koala", in_cluster_config: true } });
   });
 
@@ -39,7 +39,7 @@ describe("the suffix a stack's state Secret is named with", () => {
   const label = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
   it("is the stack's own name with -state, so it never ends in a number Terraform would take for a chunk of the state", () => {
-    expect(stateSecretSuffix("app-provisioning-lunorica-40213377")).toBe("app-provisioning-lunorica-40213377-state");
+    expect(stateSecretSuffix("app-machine-desk-40213377")).toBe("app-machine-desk-40213377-state");
   });
 
   it("fits a label and a Secret's name however long or odd the stack's name, and two names never share one", () => {

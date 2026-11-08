@@ -9,12 +9,12 @@ import { ProjectRepoService } from './ProjectRepoService.js';
 const KEY = 'a'.repeat(64) as never;
 const webhook = async (id: string) => `http://10.0.0.5:3001/webhooks/gitea/${id}`;
 
-function setUp(options: { webhook?: typeof webhook | undefined; recordWaitMs?: number } = {}) {
+function setUp(options: { webhook?: typeof webhook | undefined; recordWaitMs?: number; defaultCluster?: string | undefined } = {}) {
   const db = memoryDatabase();
   const gitea = mock<GiteaService>();
   gitea.createUserAccount.mockImplementation(async (username) => ({ password: `pw-${username}` }));
   gitea.revokeUserToken.mockResolvedValue(undefined);
-  const make = (withDb = db, withGitea: GiteaService = gitea) => new ProjectRepoService(withDb, withGitea, KEY, 'webhook' in options ? options.webhook : webhook, options.recordWaitMs === undefined ? {} : { recordWaitMs: options.recordWaitMs });
+  const make = (withDb = db, withGitea: GiteaService = gitea) => new ProjectRepoService(withDb, withGitea, KEY, 'webhook' in options ? options.webhook : webhook, { ...(options.recordWaitMs === undefined ? {} : { recordWaitMs: options.recordWaitMs }), ...(options.defaultCluster ? { defaultCluster: options.defaultCluster } : {}) });
   return { db, gitea, repos: make(), make };
 }
 
@@ -164,11 +164,11 @@ describe('pointing every project\'s build webhook at where Gitea reaches Koala n
 });
 
 describe('making a project with a repository', () => {
-  it('makes the repository, its build webhook and the record, deploying itself to the system cluster unless told otherwise, and lays the starter in last', async () => {
-    const { db, gitea, repos } = setUp();
+  it('makes the repository, its build webhook and the record, deploying itself to the cluster Koala runs in unless told otherwise, and lays the starter in last', async () => {
+    const { db, gitea, repos } = setUp({ defaultCluster: 'machine-koala' });
     gitea.findRepo.mockResolvedValue(null);
     const project = await repos.createProject('u1', { id: 'p1', name: ' My Shop ', repo: 'My Shop', language: 'odoo', autoDeployOnBuild: true, description: 'A shop', starter: [{ path: 'Dockerfile', content: 'FROM odoo' }] });
-    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaOwner: 'koala-u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'provisioning-lunorica', autoDeployOnBuild: true });
+    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaOwner: 'koala-u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'machine-koala', autoDeployOnBuild: true });
     expect(decryptValue(project.webhookSecretEnc!, KEY)).toMatch(/^[0-9a-f]{64}$/);
     expect(gitea.createRepoForUser).toHaveBeenCalledWith('koala-u1', 'my-shop', { private: true, description: 'A shop' });
     expect(gitea.replaceWebhook).toHaveBeenCalledWith('koala-u1', 'my-shop', 'http://10.0.0.5:3001/webhooks/gitea/p1', decryptValue(project.webhookSecretEnc!, KEY));

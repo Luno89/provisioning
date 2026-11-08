@@ -300,7 +300,7 @@ describe('the parts of a pool instance root may take', () => {
 });
 
 describe('a pool instance reaching the cluster it runs in', () => {
-  const own = { clusterId: 'provisioning-lunorica', kind: 'koala' } as const;
+  const own = { clusterId: 'pool-bob', kind: 'koala' } as const;
   const starts = () => {
     const access = mock<ClusterStarts>();
     access.own.mockReturnValue(own);

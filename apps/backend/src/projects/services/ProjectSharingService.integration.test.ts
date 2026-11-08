@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
-import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
+import { HubSyncService } from '../../hub/services/HubSyncService.js';
+import { localHubSync } from '../../hub/testing/in-process-hub.js';
+import { localHubSharing, localProjectGroups } from '../testing/in-process-sharing.js';
 import { sharedProjectRecordsBehaviour } from '../testing/project-sharing-behaviour.js';
-import { localHubSharing, localProjectGroups, ProjectSharingService, type ProjectGroups } from './ProjectSharingService.js';
+import { ProjectSharingService, type ProjectGroups } from './ProjectSharingService.js';
 
 const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
@@ -15,10 +17,10 @@ async function setUp(given: { groups?: (db: Awaited<ReturnType<typeof testDataba
   const republished: number[] = [];
   const store = memoryHubStore();
   const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
-  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined' });
+  const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'i1'), origin: 'instance:i1' });
   const notices: unknown[] = [];
   const sharing = new ProjectSharingService({
-    store: db, sharing: localHubSharing(hub, 'combined'), sync, dataKey: 'k'.repeat(32) as never,
+    store: db, sharing: localHubSharing(hub, 'i1'), sync, dataKey: 'k'.repeat(32) as never,
     ownerRepo: async () => ({ url: 'unused' }), notify: async (_owner, _scope, notice) => { notices.push(notice); }, now: () => now,
     groups: given.groups ? given.groups(db) : localProjectGroups(db), republish: async () => { republished.push(1); }, ...(given.domain ? { domain: given.domain } : {}),
   });
