@@ -91,6 +91,16 @@ const podOf = (doc: Doc): PodSpec => {
 };
 
 describe('the instance chart', () => {
+  it('names every container port as Kubernetes allows: at most 15 lowercase letters, digits and dashes, with a letter', () => {
+    const names = render().flatMap((doc) => {
+      const pod = doc.spec?.template?.spec ?? doc.spec?.jobTemplate?.spec.template.spec;
+      const containers: unknown[] = pod ? [...(pod.containers ?? []), ...((pod as { initContainers?: unknown[] }).initContainers ?? [])] : [];
+      return containers.flatMap((container) => ((container as { ports?: { name?: string }[] }).ports ?? []).flatMap((port) => (port.name ? [port.name] : [])));
+    });
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.filter((name) => !/^(?=.*[a-z])[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?$/.test(name) || name.includes('--'))).toEqual([]);
+  });
+
   it('runs the backend and all three workers from the one image, each as its own process', () => {
     const docs = render();
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
@@ -407,7 +417,7 @@ describe('the instance chart', () => {
       const ports = (container.ports ?? []) as Array<{ name: string; containerPort: number }>;
       const env = envOf(process);
       if (process === 'backend') expect(ports).toEqual(expect.arrayContaining([{ name: 'http', containerPort: Number(env.PORT) }, { name: 'machine-gateway', containerPort: Number(env.MACHINE_GATEWAY_PORT) }]));
-      else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'temporal-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
+      else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'wf-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
     }
   });
 
