@@ -66,10 +66,16 @@ export interface AttachmentPlace {
   path: string
 }
 
-export const attachmentPlace = (conversationId: string, projectId: string | undefined, name: string): AttachmentPlace =>
+export const numberedName = (name: string, n: number): string => {
+  if (n <= 1) return name
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`
+}
+
+export const attachmentPlace = (conversationId: string, projectId: string | undefined, name: string, n = 1): AttachmentPlace =>
   projectId
-    ? { scope: { kind: 'project', projectId }, path: joinPath('chats', conversationId, attachmentName(name)) }
-    : { scope: { kind: 'conversation', conversationId }, path: attachmentName(name) }
+    ? { scope: { kind: 'project', projectId }, path: joinPath('chats', conversationId, numberedName(attachmentName(name), n)) }
+    : { scope: { kind: 'conversation', conversationId }, path: numberedName(attachmentName(name), n) }
 
 export const sentAttachmentPlace = (
   attachment: Pick<MessageAttachment, 'fileId' | 'name' | 'project'>,

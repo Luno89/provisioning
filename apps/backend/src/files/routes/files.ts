@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute, at, type Principal, principalFrom, type ProjectMetadata } from '../../platform/index.js';
+import { DROP_TYPE } from '../lib/drops.js';
 import { cleanPath } from '../lib/file-places.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
 import { isShareDays, SHARE_DAYS } from '../lib/file-shares.js';
@@ -15,9 +16,16 @@ export interface FilesRouterDeps {
 
 const userOf = (req: Request) => (req as unknown as { user: { id: string; email: string } }).user;
 
-const answer = <T>(res: Response, outcome: FilesOutcome<T>, status = 200) => (
-  outcome.ok ? res.status(status).json(outcome.value) : res.status(outcome.status).json({ error: outcome.why })
-);
+const answer = <T>(res: Response, outcome: FilesOutcome<T>, status = 200) => {
+  if (outcome.ok) return res.status(status).json(outcome.value);
+  const { ok: _ok, status: refusedWith, why, ...details } = outcome;
+  return res.status(refusedWith).json({ error: why, ...details });
+};
+
+const lengthOf = (req: Request): number | undefined => {
+  const length = req.headers['content-length'];
+  return length ? Number(length) : undefined;
+};
 
 export function filesRouter(deps: FilesRouterDeps): Router {
   const router = Router();
@@ -43,6 +51,10 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     if (!cleaned.ok) { res.status(400).json({ error: cleaned.why }); return undefined; }
     return cleaned.path;
   };
+
+  router.get('/room', asyncRoute(async (_req, res) => {
+    res.json(await deps.files.room());
+  }));
 
   router.get('/shares', asyncRoute(async (req, res) => {
     res.json(await deps.files.shares(userOf(req).id));
@@ -97,9 +109,15 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     if (!scope) return;
     const path = pathOf(req, res, 'path');
     if (path === undefined) return;
-    const length = req.headers['content-length'];
     const type = String(req.headers[FILE_TYPE_HEADER] ?? 'application/octet-stream');
-    answer(res, await deps.files.upload(userOf(req).id, scope, path, req, length ? Number(length) : undefined, type), 201);
+    answer(res, await deps.files.upload(userOf(req).id, scope, path, req, lengthOf(req), type, { replace: req.query.replace === '1' }), 201);
+  }));
+
+  router.post('/:scope/:id?/drop', asyncRoute(async (req, res) => {
+    if (!req.is(DROP_TYPE)) return res.status(415).json({ error: `Send a drop as ${DROP_TYPE}.` });
+    const scope = await scopeOf(req, res);
+    if (!scope) return;
+    answer(res, await deps.files.drop(userOf(req).id, scope, req, lengthOf(req)), 201);
   }));
 
   router.get('/:scope/:id?/content', asyncRoute(async (req, res) => {

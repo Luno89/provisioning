@@ -1,3 +1,4 @@
+import { alreadyThere } from './file-room.js';
 import { cleanPath, SEARCH_LIMIT, type FileEntry } from './file-places.js';
 
 export const STORED_SCOPE_KINDS = ['project', 'person', 'conversation', 'run'] as const;
@@ -26,6 +27,15 @@ export interface StoredFileRecord {
   state: StoredFileState;
   touchedAt: string;
   expiresAt?: string | undefined;
+}
+
+export interface FilesRefusal {
+  ok: false;
+  status: 400 | 404 | 409 | 507;
+  why: string;
+  exists?: true | string[] | undefined;
+  needed?: number | undefined;
+  free?: number | undefined;
 }
 
 export const STORED_FILES_BUCKET = 'koala';
@@ -67,7 +77,7 @@ export function expired(record: Pick<StoredFileRecord, 'expiresAt'>, now: string
 
 const entryOf = (record: StoredFileRecord): FileEntry => (record.kind === 'folder'
   ? { name: nameOf(record.path), path: record.path, type: 'dir', modified: record.changedAt }
-  : { name: nameOf(record.path), path: record.path, type: 'file', size: record.size, modified: record.changedAt });
+  : { id: record.id, name: nameOf(record.path), path: record.path, type: 'file', size: record.size, modified: record.changedAt });
 
 const byFoldersThenName = (a: FileEntry, b: FileEntry): number => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1);
 
@@ -161,7 +171,7 @@ export interface StoredFileCommit {
 
 export type CommitPlan =
   | { ok: true; stored: StoredFileRecord[]; replaced: string[]; absorbed: string[] }
-  | { ok: false; status: 404 | 409 | 400; why: string };
+  | { ok: false; status: 404 | 409 | 400; why: string; exists?: string[] | undefined };
 
 export const committedAs = (record: StoredFileRecord | undefined, commit: StoredFileCommit): boolean =>
   record !== undefined && (record.id === commit.id || record.objectId === commit.id);
@@ -177,6 +187,7 @@ export function commitPlan(
   const replaced: string[] = [];
   const absorbed: string[] = [];
   const claimed = new Set<string>();
+  const taken: string[] = [];
   for (const [index, commit] of commits.entries()) {
     const record = uploading[index];
     if (!record || !committedAs(record, commit)) return { ok: false, status: 404, why: `the upload ${commit.id} is not waiting to be kept` };
@@ -192,7 +203,10 @@ export function commitPlan(
     const plan = uploadPlan([...others.filter((other) => other.id !== record.id && !batch.some((planned) => planned.id === other.id)), ...batch], record.path);
     if (!plan.ok) return plan;
     const old = others.find((other) => other.state === 'stored' && other.kind === 'file' && other.path === record.path);
-    if (old && !options.replace) return { ok: false, status: 409, why: `${record.path} is already there, and it may not be replaced` };
+    if (old && !options.replace) {
+      taken.push(record.path);
+      continue;
+    }
     if (old) {
       replaced.push(old.objectId);
       absorbed.push(record.id);
@@ -202,5 +216,6 @@ export function commitPlan(
       stored.push({ ...record, state: 'stored', size: commit.size, changedAt: at, touchedAt: at, version: 1 });
     }
   }
+  if (taken.length > 0) return { ok: false, status: 409, why: alreadyThere(taken), exists: taken };
   return { ok: true, stored, replaced, absorbed };
 }

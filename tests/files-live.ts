@@ -38,10 +38,10 @@ let retire: (() => Promise<void>) | undefined;
 const projects: Project[] = [];
 const conversations: string[] = [];
 
-const put = (scope: string, path: string, bytes: Buffer, type: string) =>
-  api!.put(`/files/${scope}/content`, bytes, { params: { path }, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Type': type }, maxBodyLength: Infinity });
-const stored = async (scope: string, path: string, bytes: Buffer, type: string): Promise<string> => {
-  const answer = await put(scope, path, bytes, type);
+const put = (scope: string, path: string, bytes: Buffer, type: string, replace = false) =>
+  api!.put(`/files/${scope}/content`, bytes, { params: { path, ...(replace ? { replace: '1' } : {}) }, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Type': type }, maxBodyLength: Infinity });
+const stored = async (scope: string, path: string, bytes: Buffer, type: string, replace = false): Promise<string> => {
+  const answer = await put(scope, path, bytes, type, replace);
   assert.equal(answer.status, 201, JSON.stringify(answer.data));
   const body = answer.data as { path: string; id: string };
   assert.equal(body.path, path);
@@ -108,6 +108,18 @@ async function exercise(scope: string, label: string): Promise<void> {
   const found = (await api!.get(`/files/${scope}/search`, { params: { q: 'BRIEF' } })).data as { path: string }[];
   assert.deepEqual(found.map((entry) => entry.path), ['archive/docs/brief.pdf']);
   console.log('  an empty folder was made and listed, and a search found the PDF in a folder two down');
+  const room = await api!.get('/files/room');
+  assert.equal(room.status, 200, JSON.stringify(room.data));
+  assert.ok((room.data as { free: number }).free > 0, 'the instance says it has no room');
+  const batch = await api!.post(`/files/${scope}/drop`, dropBody({ dir: 'batch', replace: false }, [{ path: 'one.txt', bytes: Buffer.from('one') }, { path: 'two/three.txt', bytes: Buffer.from('three') }]), { headers: { 'Content-Type': DROP_TYPE } });
+  assert.equal(batch.status, 201, JSON.stringify(batch.data));
+  assert.deepEqual((batch.data as { files: { path: string }[] }).files.map((file) => file.path).sort(), ['batch/one.txt', 'batch/two/three.txt']);
+  const again = await api!.post(`/files/${scope}/drop`, dropBody({ dir: 'batch', replace: false }, [{ path: 'one.txt', bytes: Buffer.from('uno') }, { path: 'four.txt', bytes: Buffer.from('four') }]), { headers: { 'Content-Type': DROP_TYPE } });
+  assert.equal(again.status, 409, 'a drop replaced a file without the person being asked');
+  assert.deepEqual((again.data as { exists: string[] }).exists, ['batch/one.txt']);
+  const listedBatch = await api!.get(`/files/${scope}/list`, { params: { dir: 'batch' } });
+  assert.deepEqual((listedBatch.data as { name: string }[]).map((entry) => entry.name).sort(), ['one.txt', 'two'], 'a refused drop kept some of its files');
+  console.log('  the room left was told, a drop of two files was kept as one, and a drop over a file already there was refused whole, naming it');
 
   const share = await api!.post(`/files/${scope}/shares`, { path: 'archive/docs/brief.pdf', days: 1 });
   assert.equal(share.status, 201, JSON.stringify(share.data));
@@ -116,7 +128,10 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.equal(stranger.status, 200, 'the link did not open signed out');
   assert.equal(sha(stranger.bytes), sha(pdf));
   const newer = Buffer.concat([pdf, Buffer.from('\n% a second version\n')]);
-  assert.equal(await stored(scope, 'archive/docs/brief.pdf', newer, 'application/pdf'), pdfId, 'a new version at the same path became another file');
+  const unasked = await put(scope, 'archive/docs/brief.pdf', newer, 'application/pdf');
+  assert.equal(unasked.status, 409, 'a file was replaced without the person being asked');
+  assert.deepEqual((unasked.data as { exists?: boolean }).exists, true);
+  assert.equal(await stored(scope, 'archive/docs/brief.pdf', newer, 'application/pdf', true), pdfId, 'a new version at the same path became another file');
   const followed = await opens(link);
   assert.equal(followed.status, 200, 'the link stopped when its file got a new version');
   assert.equal(sha(followed.bytes), sha(newer), 'the link gave the old version');

@@ -8,6 +8,7 @@ export interface DropSettings {
   ref?: string | undefined;
   message?: string | undefined;
   leafId?: string | undefined;
+  replace?: boolean | undefined;
 }
 
 export interface DroppedFile {
@@ -18,7 +19,7 @@ export interface DroppedFile {
 
 export type DropEvent =
   | { kind: 'settings'; settings: DropSettings }
-  | { kind: 'file'; path: string; size: number }
+  | { kind: 'file'; path: string; size: number; type?: string | undefined }
   | { kind: 'bytes'; chunk: Buffer }
   | { kind: 'fileEnd' }
   | { kind: 'refused'; why: string };
@@ -33,8 +34,8 @@ export function dropLine(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(value)}\n`);
 }
 
-export function dropBody(settings: Partial<DropSettings>, files: readonly { path: string; bytes: Buffer }[]): Buffer {
-  return Buffer.concat([dropLine(settings), ...files.flatMap((file) => [dropLine({ path: file.path, size: file.bytes.length }), file.bytes])]);
+export function dropBody(settings: Partial<DropSettings>, files: readonly { path: string; bytes: Buffer; type?: string }[]): Buffer {
+  return Buffer.concat([dropLine(settings), ...files.flatMap((file) => [dropLine({ path: file.path, size: file.bytes.length, ...(file.type ? { type: file.type } : {}) }), file.bytes])]);
 }
 
 export class DropReader {
@@ -106,22 +107,25 @@ export class DropReader {
       if (!isSafeRepoDir(dir) || CONTROL.test(dir)) return [this.refuse(`${dir} is not a folder inside the repository`)];
       this.dir = dir;
       this.state = 'entry';
-      return [{ kind: 'settings', settings: { dir, ref: text(input.ref), message: text(input.message), leafId: text(input.leafId) } }];
+      return [{ kind: 'settings', settings: { dir, ref: text(input.ref), message: text(input.message), leafId: text(input.leafId), ...(input.replace === true ? { replace: true } : {}) } }];
     }
     const size = input.size;
     if (typeof input.path !== 'string' || typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
       return [this.refuse('each dropped file needs a path and its size')];
     }
+    if (input.type !== undefined && (typeof input.type !== 'string' || CONTROL.test(input.type))) return [this.refuse(`the type of ${input.path} is not a media type`)];
+    const type = text(input.type);
     const path = joined(this.dir, input.path);
     if (!isSafeRepoFilePath(path) || CONTROL.test(path)) return [this.refuse(`${input.path} would land outside the repository`)];
     if (this.seen.has(path)) return [this.refuse(`${path} was dropped twice`)];
     this.seen.add(path);
     this.files += 1;
     this.current = path;
-    if (size === 0) return [{ kind: 'file', path, size }, { kind: 'fileEnd' }];
+    const file: DropEvent = { kind: 'file', path, size, ...(type ? { type } : {}) };
+    if (size === 0) return [file, { kind: 'fileEnd' }];
     this.remaining = size;
     this.state = 'bytes';
-    return [{ kind: 'file', path, size }];
+    return [file];
   }
 }
 

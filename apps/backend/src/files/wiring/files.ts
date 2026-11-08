@@ -13,6 +13,7 @@ import { ArtifactService } from '../services/ArtifactService.js';
 import { FileService } from '../services/FileService.js';
 import { minioBucketReader, minioObjectStore } from '../services/ObjectStore.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
+import { roomOn } from '../services/room.js';
 import { createStoredFilesActivities } from '../services/stored-files-activities.js';
 import { temporalStoredFileCommits } from '../services/StoredFileCommits.js';
 import { StoredFiles } from '../services/StoredFiles.js';
@@ -34,12 +35,13 @@ export interface InstanceFilesDeps {
   env: Readonly<Record<string, string | undefined>>;
   workflows: () => Promise<Pick<Workflows, 'start'>>;
   engineTaskQueue: string;
+  dataDir: string;
 }
 
 export function storedFilesFor(deps: InstanceFilesDeps): InstanceFiles {
   const objects = minioObjectStore(minioSettingsFrom(deps.env));
   const records = deps.db.files;
-  const storedFiles = new StoredFiles({ records, objects, commits: temporalStoredFileCommits(deps.workflows, deps.engineTaskQueue) });
+  const storedFiles = new StoredFiles({ records, objects, commits: temporalStoredFileCommits(deps.workflows, deps.engineTaskQueue), room: roomOn(deps.dataDir) });
   return {
     storedFiles,
     activities: createStoredFilesActivities({ records, objects }),

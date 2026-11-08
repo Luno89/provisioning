@@ -13,6 +13,7 @@ import type { TurnLogEntry } from '../types/turns';
 import * as plansApi from '../../projects/api/plans';
 import { planKeys } from '../../projects/api/plans';
 import * as channelApi from '../../projects/api/project-channel.js';
+import * as filesApi from '../../files/api/files';
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
@@ -24,6 +25,11 @@ vi.mock('../api/chat-pack', async (orig) => ({
   })),
   patchChatConversation: vi.fn().mockResolvedValue({ id: 'c1', title: 'Test Conversation', messages: [] }),
   getConversationContext: vi.fn().mockResolvedValue({ given: {}, text: '' }),
+}));
+
+vi.mock('../../files/api/files', async (orig) => ({
+  ...(await orig<typeof filesApi>()),
+  listStoredFiles: vi.fn().mockResolvedValue([{ name: 'notes.txt', path: 'notes.txt', type: 'file', size: 4 }]),
 }));
 
 vi.mock('../api/auto-mode', async (orig) => ({
@@ -403,6 +409,32 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     renderWithProviders(<ChatSurface conversationId="c2" pinned intro={<p>Ask Koala</p>} />);
     expect(await screen.findByTestId('chat-intro')).toHaveTextContent('Ask Koala');
     expect(await screen.findByTestId('conversation-context')).toBeInTheDocument();
+  });
+
+  it('shows the chat\'s files beside it once it exists, in a channel too', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({ id: 'c1', title: 'T', messages: [{ role: 'user', content: 'hello from user' }] } as never);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    await screen.findByText('hello from user');
+    expect(screen.queryByRole('complementary', { name: 'Files in this chat' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    const panel = await screen.findByRole('complementary', { name: 'Files in this chat' });
+    expect(await within(panel).findByText('notes.txt')).toBeInTheDocument();
+    expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'conversation', conversationId: 'c1' }, '');
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    expect(screen.queryByRole('complementary', { name: 'Files in this chat' })).not.toBeInTheDocument();
+  });
+
+  it('offers no files before the chat exists', () => {
+    renderWithProviders(<ChatSurface />);
+    expect(screen.queryByRole('button', { name: 'Files' })).not.toBeInTheDocument();
+  });
+
+  it('shows a channel\'s files under the channel', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({ id: 'channel-p1', title: 'Shop', messages: [{ role: 'user', content: 'a note' }] } as never);
+    renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);
+    await screen.findByText('a note');
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+    await waitFor(() => expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'conversation', conversationId: 'channel-p1' }, ''));
   });
 
   it('shows nothing of the sort for a conversation bound to nothing', async () => {

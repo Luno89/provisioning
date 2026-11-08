@@ -22,7 +22,7 @@ describe('files attached in a chat', () => {
     expect(result.current.uploading).toBe(true)
     await waitFor(() => expect(result.current.ready).toHaveLength(1))
     expect(vi.mocked(filesApi.uploadStoredFile).mock.calls[0]!.slice(0, 3)).toEqual([{ kind: 'project', projectId: 'p1' }, 'chats/c1/a_brief.pdf', pdf])
-    expect(result.current.ready[0]).toEqual({ fileId: 'file-1', name: 'a/brief.pdf', size: 4, type: 'application/pdf', project: { id: 'p1', name: 'Shop' } })
+    expect(result.current.ready[0]).toEqual({ fileId: 'file-1', name: 'a_brief.pdf', size: 4, type: 'application/pdf', project: { id: 'p1', name: 'Shop' } })
     act(() => result.current.clear())
     expect(result.current.attached).toEqual([])
   })
@@ -33,6 +33,27 @@ describe('files attached in a chat', () => {
     act(() => result.current.attach([{ path: 'x.png', file: new File(['x'], 'x.png') }]))
     await waitFor(() => expect(result.current.ready).toEqual([{ fileId: 'file-2', name: 'x.png', size: 1 }]))
     expect(vi.mocked(filesApi.uploadStoredFile).mock.calls[0]!.slice(0, 2)).toEqual([{ kind: 'conversation', conversationId: 'c2' }, 'x.png'])
+  })
+
+  it('take the next free name when the chat already has a file by that name, and say the name it was kept under', async () => {
+    const taken = Object.assign(new Error('409'), { isAxiosError: true, response: { status: 409, data: { error: 'photo.png is already there', exists: true } } })
+    vi.mocked(filesApi.uploadStoredFile).mockImplementation(async (_scope, path) => {
+      if (path === 'photo.png' || path === 'photo (2).png') throw taken
+      return { path, id: 'file-3' }
+    })
+    const { result } = renderHook(() => useChatAttachments(undefined, inChat('c4')))
+    act(() => result.current.attach([{ path: 'photo.png', file: new File(['png'], 'photo.png') }]))
+    await waitFor(() => expect(result.current.ready).toEqual([{ fileId: 'file-3', name: 'photo (3).png', size: 3 }]))
+    expect(vi.mocked(filesApi.uploadStoredFile).mock.calls.map((call) => call[1])).toEqual(['photo.png', 'photo (2).png', 'photo (3).png'])
+    expect(result.current.attached[0]?.name).toBe('photo (3).png')
+  })
+
+  it('try no other name when an upload fails for any other reason', async () => {
+    vi.mocked(filesApi.uploadStoredFile).mockRejectedValue(Object.assign(new Error('409'), { isAxiosError: true, response: { status: 409, data: { error: 'photo.png is a folder' } } }))
+    const { result } = renderHook(() => useChatAttachments(undefined, inChat('c5')))
+    act(() => result.current.attach([{ path: 'photo.png', file: new File(['png'], 'photo.png') }]))
+    await waitFor(() => expect(result.current.attached[0]?.state).toBe('failed'))
+    expect(vi.mocked(filesApi.uploadStoredFile)).toHaveBeenCalledTimes(1)
   })
 
   it('keep why one failed to upload', async () => {

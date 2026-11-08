@@ -8,12 +8,15 @@ import StoredFiles from './StoredFiles'
 import ProjectStoredFiles from './ProjectStoredFiles'
 import RepositoryFiles from './RepositoryFiles'
 import OwnFiles from './OwnFiles'
+import ChatFiles from './ChatFiles'
 import FileShares from './FileShares'
 
 vi.mock('../api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
   listStoredFiles: vi.fn(),
   uploadStoredFile: vi.fn(async (_scope: unknown, path: string) => ({ path, id: `id-${path}` })),
+  dropStoredFiles: vi.fn(async (_scope: unknown, dir: string, picked: readonly { path: string }[]) => ({ files: picked.map((one) => ({ path: dir ? `${dir}/${one.path}` : one.path, id: `id-${one.path}` })) })),
+  storedRoom: vi.fn(async () => ({ free: 1024 ** 3 })),
   removeStoredFile: vi.fn(async (_scope: unknown, path: string) => ({ path })),
   moveStoredFile: vi.fn(async (_scope: unknown, _from: string, to: string) => ({ path: to })),
   makeStoredFolder: vi.fn(async (_scope: unknown, path: string) => ({ path })),
@@ -42,7 +45,11 @@ const dropOn = (target: HTMLElement, files: File[]) => {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(filesApi.listStoredFiles).mockResolvedValue([])
+  vi.mocked(filesApi.listFileShares).mockResolvedValue([])
+  vi.mocked(filesApi.storedRoom).mockResolvedValue({ free: 1024 ** 3 })
 })
+
+const refused = (status: number, data: unknown) => Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data } })
 
 describe('a project\'s stored files', () => {
   it('lists them with their sizes and download links, uploads what is dropped into the folder it is dropped on', async () => {
@@ -54,7 +61,7 @@ describe('a project\'s stored files', () => {
     const pdf = new File(['%PDF'], 'spec.pdf', { type: 'application/pdf' })
     const docsTarget = screen.getAllByTestId('drop-target').find((element) => element.getAttribute('aria-label') === 'Drop to add to docs')!
     await act(async () => { dropOn(docsTarget, [pdf]) })
-    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'docs/spec.pdf', pdf, expect.any(Function)))
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'docs/spec.pdf', pdf, expect.any(Function), false))
   })
 
   it('shows and adds for someone who may not move or remove, offering no rename, remove or selection', async () => {
@@ -89,7 +96,7 @@ describe('a project\'s stored files', () => {
     expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, '')
     const photo = new File(['x'], 'other.jpg', { type: 'image/jpeg' })
     await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [photo]) })
-    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'other.jpg', photo, expect.any(Function)))
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'other.jpg', photo, expect.any(Function), false))
   })
 
   it('reaches a chat\'s own files under the chat', async () => {
@@ -170,6 +177,137 @@ describe('browsing a project\'s files', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close the preview' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open logo.png' }))
     expect(screen.getByRole('img', { name: 'logo.png' })).toHaveAttribute('src', expect.stringContaining('path=logo.png&inline=1'))
+  })
+})
+
+describe('adding files', () => {
+  const scope = { kind: 'project' as const, projectId: 'p1' }
+
+  it('asks before replacing a file of the same name, sends nothing on Cancel, and replaces only once told to', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockImplementation(async (_scope, dir) => (dir === '' ? [{ name: 'report.pdf', path: 'report.pdf', type: 'file', size: 3, id: 'R' }] : []))
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText('report.pdf')
+    const report = new File(['new'], 'report.pdf')
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [report]) })
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask).toHaveTextContent('Replace report.pdf? The file there now is replaced and can\'t be brought back.')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(filesApi.uploadStoredFile).not.toHaveBeenCalled()
+
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [report]) })
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Replace' }))
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith(scope, 'report.pdf', report, expect.any(Function), true))
+    expect(filesApi.uploadStoredFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('names every file a batch would replace in one question, then sends the batch replacing', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockImplementation(async (_scope, dir) => (dir === '' ? [{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1 }, { name: 'b.txt', path: 'b.txt', type: 'file', size: 1 }] : []))
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText('a.txt')
+    const files = [new File(['1'], 'a.txt'), new File(['2'], 'b.txt'), new File(['3'], 'c.txt')]
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, files) })
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask).toHaveTextContent('Replace a.txt and b.txt? The files there now are replaced and can\'t be brought back.')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Replace' }))
+    await waitFor(() => expect(filesApi.dropStoredFiles).toHaveBeenCalledWith(scope, '', files.map((file) => ({ path: file.name, file })), true, expect.any(Function)))
+    expect(filesApi.uploadStoredFile).not.toHaveBeenCalled()
+  })
+
+  it('sends several files as one batch, asking nothing when no name is taken', async () => {
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText(/Nothing here yet/)
+    const files = [new File(['1'], 'x.txt'), new File(['2'], 'y.txt')]
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, files) })
+    await waitFor(() => expect(filesApi.dropStoredFiles).toHaveBeenCalledWith(scope, '', files.map((file) => ({ path: file.name, file })), false, expect.any(Function)))
+    expect(filesApi.dropStoredFiles).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it('asks the same when the server finds the name taken first', async () => {
+    vi.mocked(filesApi.uploadStoredFile).mockRejectedValueOnce(refused(409, { error: 'taken', exists: true }))
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText(/Nothing here yet/)
+    const late = new File(['x'], 'late.txt')
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [late]) })
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask).toHaveTextContent('Replace late.txt?')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Replace' }))
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenLastCalledWith(scope, 'late.txt', late, expect.any(Function), true))
+  })
+
+  it('says how much is needed and free, sending nothing, when it would not fit, and the same when the server says so', async () => {
+    vi.mocked(filesApi.storedRoom).mockResolvedValueOnce({ free: 2048 })
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText(/Nothing here yet/)
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [new File([new Uint8Array(3 * 1024)], 'big.bin')]) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('This needs 3.0 KB and only 2.0 KB is free, so nothing was uploaded.')
+    expect(filesApi.uploadStoredFile).not.toHaveBeenCalled()
+
+    vi.mocked(filesApi.dropStoredFiles).mockRejectedValueOnce(refused(507, { error: 'full', needed: 5 * 1024 ** 2, free: 1024 ** 2 }))
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [new File(['1'], 'p.txt'), new File(['2'], 'q.txt')]) })
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('This needs 5.0 MB and only 1.0 MB is free, so nothing was uploaded.'))
+  })
+
+  it('on the hub sends each file on its own, and asks no room of the person\'s instance', async () => {
+    const hub = { kind: 'hub' as const, projectId: 'h1' }
+    show(<StoredFiles scope={hub} rearranges={false} />)
+    await screen.findByText(/Nothing here yet/)
+    const files = [new File(['1'], 'x.txt'), new File(['2'], 'y.txt')]
+    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, files) })
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledTimes(2))
+    expect(filesApi.dropStoredFiles).not.toHaveBeenCalled()
+    expect(filesApi.storedRoom).not.toHaveBeenCalled()
+  })
+})
+
+describe('moving files that are shared', () => {
+  const scope = { kind: 'project' as const, projectId: 'p1' }
+  const share = (id: string, fileId: string) => ({ id, token: 't'.repeat(32), ownerId: 'u1', fileId, path: 'x', name: 'x', createdAt: 't', expiresAt: 't' })
+
+  it('says how many links a rename stops and moves only once told to', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1, id: 'A' }])
+    vi.mocked(filesApi.listFileShares).mockResolvedValue([share('s1', 'A'), share('s2', 'A'), share('s3', 'Z')])
+    show(<StoredFiles scope={scope} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename a.txt' }))
+    const name = screen.getByRole('textbox', { name: 'New name for a.txt' })
+    fireEvent.change(name, { target: { value: 'b.txt' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask).toHaveTextContent('Moving this stops 2 share links; whoever has them can no longer open the file.')
+    expect(filesApi.moveStoredFile).not.toHaveBeenCalled()
+    fireEvent.click(within(ask).getByRole('button', { name: 'Move anyway' }))
+    await waitFor(() => expect(filesApi.moveStoredFile).toHaveBeenCalledWith(scope, 'a.txt', 'b.txt'))
+  })
+
+  it('counts the links on every file inside a folder that moves, and Cancel moves nothing', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockImplementation(async (_scope, dir) => (
+      dir === '' ? [{ name: 'docs', path: 'docs', type: 'dir' }, { name: 'archive', path: 'archive', type: 'dir' }]
+        : dir === 'docs' ? [{ name: 'c.txt', path: 'docs/c.txt', type: 'file', size: 1, id: 'C' }]
+          : []))
+    vi.mocked(filesApi.listFileShares).mockResolvedValue([share('s1', 'C')])
+    show(<StoredFiles scope={scope} />)
+    await screen.findByText('docs')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select docs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }))
+    const where = screen.getByRole('textbox', { name: 'Folder to move them to' })
+    fireEvent.change(where, { target: { value: 'archive' } })
+    fireEvent.keyDown(where, { key: 'Enter' })
+    const ask = await screen.findByRole('alertdialog')
+    expect(ask).toHaveTextContent('Moving this stops 1 share link; whoever has it can no longer open the file.')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(filesApi.moveStoredFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('a chat\'s files', () => {
+  it('are the chat\'s own folder, under its own title', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'notes.txt', path: 'notes.txt', type: 'file', size: 4 }])
+    show(<ChatFiles conversationId="c1" />)
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+    expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'conversation', conversationId: 'c1' }, '')
+    expect(screen.getByText('Files in this chat')).toBeInTheDocument()
   })
 })
 

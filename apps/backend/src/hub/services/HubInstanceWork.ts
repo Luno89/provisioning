@@ -60,8 +60,11 @@ export interface HubInstanceWorkDeps {
 
 const json = (status: number, body: unknown): InstanceAnswer => ({ kind: 'json', status, body });
 const refused = (status: number, why: string): InstanceAnswer => json(status, { error: why });
-const fromFiles = <T>(outcome: FilesOutcome<T>): InstanceAnswer =>
-  outcome.ok ? json(200, outcome.value) : refused(outcome.status, outcome.why);
+const fromFiles = <T>(outcome: FilesOutcome<T>): InstanceAnswer => {
+  if (outcome.ok) return json(200, outcome.value);
+  const { ok: _ok, status, why, ...details } = outcome;
+  return json(status, { error: why, ...details });
+};
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 

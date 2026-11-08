@@ -12,8 +12,9 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, unkeptAttachmentsDropped, ...counts } = await seedAll(db);
     expect(signInLinksMoved).toBe(0);
+    expect(unkeptAttachmentsDropped).toBe(0);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
@@ -23,6 +24,25 @@ describe('seed-all', () => {
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }
+  });
+
+  it('drops, once, every chat attachment that names a path and no kept file, keeping the message', async () => {
+    const db = await testDatabase();
+    const at = '2026-01-01T00:00:00.000Z';
+    const kept = { fileId: 'f1', name: 'brief.pdf' };
+    await db.engine.saveConversation({ id: 'chat', ownerId: 'ann', title: 'A chat', createdAt: at, updatedAt: at, messages: [
+      { role: 'user', content: 'see these', at, attachments: [kept, { name: 'old.pdf', path: 'attachments/old.pdf' } as never] },
+      { role: 'user', content: 'and this', at, attachments: [{ name: 'gone.png', path: 'chats/gone.png' } as never] },
+    ] });
+
+    expect(await seedAll(db)).toMatchObject({ unkeptAttachmentsDropped: 1 });
+    await db.engine.appendMessage('ann', 'chat', { role: 'user', content: 'later', at, attachments: [{ name: 'after.pdf', path: 'a.pdf' } as never] });
+    expect(await seedAll(db)).toMatchObject({ unkeptAttachmentsDropped: 0 });
+    expect((await db.engine.getConversation('ann', 'chat'))?.messages).toEqual([
+      { role: 'user', content: 'see these', at, attachments: [kept] },
+      { role: 'user', content: 'and this', at },
+      { role: 'user', content: 'later', at, attachments: [{ name: 'after.pdf', path: 'a.pdf' }] },
+    ]);
   });
 
   it('keeps only a hash of every machine\'s token, and the machine is still found by its token', async () => {

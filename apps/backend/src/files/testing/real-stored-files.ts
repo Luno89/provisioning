@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -12,6 +13,7 @@ import type { StoredFilesActivities } from '../lib/stored-files-work.js';
 import { minioObjectStore, type ObjectStore } from '../services/ObjectStore.js';
 import { createStoredFilesActivities } from '../services/stored-files-activities.js';
 import { temporalStoredFileCommits } from '../services/StoredFileCommits.js';
+import { roomOn } from '../services/room.js';
 import { StoredFiles } from '../services/StoredFiles.js';
 import { testBucket } from './real-minio.js';
 
@@ -35,7 +37,7 @@ export async function realStoredFiles(): Promise<RealStoredFiles> {
   const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
   const stream = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   const running = Promise.all([workflows.run(), stream.run()]);
-  const files = new StoredFiles({ records: db.files, objects, commits: temporalStoredFileCommits(async () => env.client.workflow, queue), now: () => clock.now });
+  const files = new StoredFiles({ records: db.files, objects, commits: temporalStoredFileCommits(async () => env.client.workflow, queue), room: roomOn(tmpdir()), now: () => clock.now });
   return {
     db, files, objects, activities, clock,
     async stop() {

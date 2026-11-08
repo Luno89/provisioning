@@ -44,6 +44,7 @@ export interface EngineStore extends AreaStore {
   runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
+  dropUnkeptAttachments(): Promise<number>;
   getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
   getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
   saveMcpRequest(request: McpRequest): Promise<void>;
@@ -468,6 +469,34 @@ export class MongoEngineStore implements EngineStore {
 
   async deleteConversation(id: string): Promise<void> {
     await this.conversations.deleteOne({ _id: id });
+  }
+
+  async dropUnkeptAttachments(): Promise<number> {
+    const kept = { $and: [{ $eq: [{ $type: '$$file.fileId' }, 'string'] }, { $ne: ['$$file.fileId', ''] }] };
+    const unkept = { $or: [{ fileId: { $not: { $type: 'string' } } }, { fileId: '' }] };
+    const result = await this.conversations.updateMany({ messages: { $elemMatch: { attachments: { $elemMatch: unkept } } } }, [{
+      $set: {
+        messages: {
+          $map: {
+            input: '$messages',
+            as: 'message',
+            in: {
+              $let: {
+                vars: { attachments: { $filter: { input: { $ifNull: ['$$message.attachments', []] }, as: 'file', cond: kept } } },
+                in: {
+                  $cond: [
+                    { $eq: [{ $type: '$$message.attachments' }, 'missing'] },
+                    '$$message',
+                    { $cond: [{ $gt: [{ $size: '$$attachments' }, 0] }, { $mergeObjects: ['$$message', { attachments: '$$attachments' }] }, { $unsetField: { field: 'attachments', input: '$$message' } }] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    return result.modifiedCount;
   }
 
   async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {

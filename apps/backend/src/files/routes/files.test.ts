@@ -6,6 +6,7 @@ import type { ProjectMetadata } from '../../platform/lib/types.js';
 import { TEST_USER } from '../../platform/routes/test-harness.js';
 import { routesInProcess } from '../../platform/testing/routes.js';
 import { equalTo } from '../../platform/testing/matchers.js';
+import { DROP_TYPE, dropBody } from '../lib/drops.js';
 import type { FileShare } from '../lib/file-shares.js';
 import type { FileService } from '../services/FileService.js';
 import { filesRouter, FILE_TYPE_HEADER, shareRouter, type FilesRouterDeps } from './files.js';
@@ -28,7 +29,7 @@ async function setUp() {
   return { files, routes };
 }
 
-const refused = (status: 400 | 404 | 409, why: string) => ({ ok: false as const, status, why });
+const refused = (status: 400 | 404 | 409 | 507, why: string) => ({ ok: false as const, status, why });
 
 describe('/api/files', () => {
   it('lists the person\'s share links and revokes one', async () => {
@@ -106,10 +107,12 @@ describe('/api/files', () => {
   it('stores an upload byte for byte with the type it was sent as, and refuses a path outside the files', async () => {
     const { files, routes } = await setUp();
     const received: { bytes: Buffer; size: number | undefined; type: string }[] = [];
-    files.upload.mockImplementation(async (_owner, _scope, path, body, size, type) => {
+    const replacing: boolean[] = [];
+    files.upload.mockImplementation(async (_owner, _scope, path, body, size, type, options) => {
       const parts: Buffer[] = [];
       for await (const part of body) parts.push(Buffer.from(part as Buffer));
       received.push({ bytes: Buffer.concat(parts), size, type });
+      replacing.push(options.replace);
       return { ok: true, value: { path, id: `id-${received.length}` } };
     });
     const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
@@ -118,6 +121,9 @@ describe('/api/files', () => {
     expect(received).toEqual([{ bytes: pdf, size: 6, type: 'application/pdf' }]);
     await routes.put('/mine/content?path=a.bin', undefined, { raw: Buffer.from('a') });
     expect(received[1]?.type).toBe('application/octet-stream');
+    await routes.put('/mine/content?path=a.bin&replace=1', undefined, { raw: Buffer.from('a') });
+    await routes.put('/mine/content?path=a.bin&replace=yes', undefined, { raw: Buffer.from('a') });
+    expect(replacing).toEqual([false, false, true, false]);
     expect((await routes.put('/projects/p1/content?path=../../x', undefined, { raw: Buffer.from('x') })).status).toBe(400);
     expect((await routes.put('/projects/p2/content?path=a', undefined, { raw: Buffer.from('x') })).status).toBe(404);
   });
@@ -127,6 +133,51 @@ describe('/api/files', () => {
     files.upload.mockResolvedValue(refused(409, 'a.pdf is a folder'));
     const no = await routes.put('/projects/p1/content?path=a.pdf', undefined, { raw: Buffer.from('x') });
     expect([no.status, no.data]).toEqual([409, { error: 'a.pdf is a folder' }]);
+    files.upload.mockResolvedValue({ ok: false, status: 409, why: 'a.pdf is already there', exists: true });
+    const there = await routes.put('/projects/p1/content?path=a.pdf', undefined, { raw: Buffer.from('x') });
+    expect([there.status, there.data]).toEqual([409, { error: 'a.pdf is already there', exists: true }]);
+    files.upload.mockResolvedValue({ ok: false, status: 507, why: 'This needs 1 bytes, and 0 bytes is free', needed: 1, free: 0 });
+    const full = await routes.put('/projects/p1/content?path=a.pdf', undefined, { raw: Buffer.from('x') });
+    expect([full.status, full.data]).toEqual([507, { error: 'This needs 1 bytes, and 0 bytes is free', needed: 1, free: 0 }]);
+  });
+
+  it('says how much room is left for files', async () => {
+    const { files, routes } = await setUp();
+    files.room.mockResolvedValue({ free: 1234 });
+    const room = await routes.get('/room');
+    expect([room.status, room.data]).toEqual([200, { free: 1234 }]);
+  });
+
+  it('keeps a drop of files in one go, passing on its body and declared length, and answers each file\'s path and id', async () => {
+    const { files, routes } = await setUp();
+    const drop = dropBody({ dir: 'docs' }, [{ path: 'a.txt', bytes: Buffer.from('a') }]);
+    const seen: { bytes: Buffer; declared: number | undefined }[] = [];
+    files.drop.mockImplementation(async (_owner, _scope, body, declared) => {
+      const parts: Buffer[] = [];
+      for await (const part of body) parts.push(Buffer.from(part as Buffer));
+      seen.push({ bytes: Buffer.concat(parts), declared });
+      return { ok: true, value: { files: [{ path: 'docs/a.txt', id: 'f1' }] } };
+    });
+    const kept = await routes.post('/conversations/channel-p1/drop', undefined, { raw: drop, headers: { 'content-type': DROP_TYPE } });
+    expect([kept.status, kept.data]).toEqual([201, { files: [{ path: 'docs/a.txt', id: 'f1' }] }]);
+    expect(seen).toEqual([{ bytes: drop, declared: drop.length }]);
+    expect(files.drop).toHaveBeenCalledWith(TEST_USER.id, inChannel, expect.anything(), drop.length);
+  });
+
+  it('says why a drop was refused, naming what is already there, and takes a drop only in its own shape and for the person\'s own place', async () => {
+    const { files, routes } = await setUp();
+    const drop = dropBody({}, [{ path: 'a.txt', bytes: Buffer.from('a') }]);
+    files.drop.mockResolvedValue({ ok: false, status: 409, why: '2 files are already there: a.txt, b.txt', exists: ['a.txt', 'b.txt'] });
+    const there = await routes.post('/projects/p1/drop', undefined, { raw: drop, headers: { 'content-type': DROP_TYPE } });
+    expect([there.status, there.data]).toEqual([409, { error: '2 files are already there: a.txt, b.txt', exists: ['a.txt', 'b.txt'] }]);
+    files.drop.mockResolvedValue({ ok: false, status: 507, why: 'This needs 9 bytes, and 1 bytes is free', needed: 9, free: 1 });
+    const full = await routes.post('/mine/drop', undefined, { raw: drop, headers: { 'content-type': DROP_TYPE } });
+    expect([full.status, full.data]).toEqual([507, { error: 'This needs 9 bytes, and 1 bytes is free', needed: 9, free: 1 }]);
+    const wrong = await routes.post('/mine/drop', undefined, { raw: drop, headers: { 'content-type': 'application/octet-stream' } });
+    expect([wrong.status, wrong.data]).toEqual([415, { error: `Send a drop as ${DROP_TYPE}.` }]);
+    expect((await routes.post('/projects/p2/drop', undefined, { raw: drop, headers: { 'content-type': DROP_TYPE } })).status).toBe(404);
+    expect((await routes.post('/conversations/theirs/drop', undefined, { raw: drop, headers: { 'content-type': DROP_TYPE } })).status).toBe(404);
+    expect(files.drop).toHaveBeenCalledTimes(2);
   });
 
   it('gives back a file of the person\'s by its id, shown when asked, and says when they keep none', async () => {

@@ -5,6 +5,7 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { FrontierClaim, FrontierUrl } from '../../platform/index.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
+import { withoutUnkeptAttachments } from '../lib/attachments.js';
 import type { AutoModeSettings } from '../lib/auto-mode.js';
 import type { Conversation, ConversationMessage } from '../lib/conversations.js';
 import type { CorpusPage } from '../lib/corpus.js';
@@ -377,6 +378,17 @@ export class MemoryEngineStore implements EngineStore {
 
   async deleteConversation(id: string): Promise<void> {
     this.conversations.delete(id);
+  }
+
+  async dropUnkeptAttachments(): Promise<number> {
+    let changed = 0;
+    for (const conversation of this.conversations.all()) {
+      const messages = withoutUnkeptAttachments(conversation.messages ?? []);
+      if (!messages) continue;
+      this.conversations.change(conversation.id, (current) => ({ ...current, messages }));
+      changed += 1;
+    }
+    return changed;
   }
 
   async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {

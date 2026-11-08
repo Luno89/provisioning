@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
@@ -13,6 +14,7 @@ import { storedFilesContract, type StoredFilesWorld } from '../testing/stored-fi
 import { minioObjectStore } from './ObjectStore.js';
 import { createStoredFilesActivities } from './stored-files-activities.js';
 import { temporalStoredFileCommits } from './StoredFileCommits.js';
+import { roomOn } from './room.js';
 import { StoredFiles } from './StoredFiles.js';
 
 let env: TestWorkflowEnvironment;
@@ -36,7 +38,7 @@ beforeAll(async () => {
     await running;
   };
   const commits = temporalStoredFileCommits(async () => env.client.workflow, queue);
-  const files = new StoredFiles({ records: db.files, objects, commits, now: () => clock.now });
+  const files = new StoredFiles({ records: db.files, objects, commits, room: roomOn(tmpdir()), now: () => clock.now });
   world = { files, objects, records: db.files, commits, sweep: () => activities.StoredFilesSweepActivity(), clock };
 }, 300_000);
 

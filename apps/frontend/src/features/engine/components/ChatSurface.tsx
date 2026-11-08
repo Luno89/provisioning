@@ -1,5 +1,5 @@
 import { Fragment, useState, useRef, useCallback, useMemo, type ReactNode } from 'react';
-import { ArrowDown, AlertTriangle, X } from 'lucide-react';
+import { ArrowDown, AlertTriangle, FolderOpen, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import { ModelConfigDrawer } from '../../models';
@@ -14,6 +14,7 @@ import DocumentPanel from './DocumentPanel.js';
 import type { FileArtifact } from './Chat/ChatToolCallCard.js';
 import { type ConversationBinding } from '../api/chat-pack.js';
 import { addressOf } from '../../projects';
+import { ChatFiles } from '../../files';
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from '../hooks/useChatScroll.js';
 import { useConversationTurn } from '../hooks/useConversationTurn.js';
@@ -64,6 +65,7 @@ export default function ChatSurface({
   const [showHistory, setShowHistory] = useState(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState(false);
   const [showModelDrawer, setShowModelDrawer] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [openDocument, setOpenDocument] = useState<FileArtifact | undefined>(undefined);
   const showDocument = useCallback((file: FileArtifact) => setOpenDocument(file), []);
 
@@ -171,7 +173,7 @@ export default function ChatSurface({
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full bg-[var(--bark-950,#090d0b)] text-slate-200 font-sans overflow-hidden">
-      {(!(channel || pinned) || mcpServers.length > 0) && (
+      {(!(channel || pinned) || mcpServers.length > 0 || conv.selectedConvId) && (
       <ChatHeader
         hideSidebar={hideSidebar}
         showHistory={showHistory}
@@ -188,12 +190,28 @@ export default function ChatSurface({
         {...(channel || pinned ? {} : { onNewChat: () => conv.createMutation.mutate() })}
         isCreatingChat={conv.createMutation.isPending}
         actions={conv.selectedConvId ? (
-          <McpServersMenu
-            servers={mcpServers}
-            enabled={conv.activeConversation?.mcpServers ?? []}
-            busy={mcp.busy}
-            onChoose={mcp.choose}
-          />
+          <>
+            <button
+              type="button"
+              aria-pressed={filesOpen}
+              onClick={() => setFilesOpen((was) => !was)}
+              title="Files in this chat"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors border cursor-pointer ${
+                filesOpen
+                  ? 'bg-[var(--bark-800,#1b2620)] text-emerald-300 border-emerald-500/50'
+                  : 'bg-[var(--bark-950,#090d0b)] text-slate-300 border-[var(--bark-700,#24332b)] hover:text-white'
+              }`}
+            >
+              <FolderOpen size={13} className={filesOpen ? 'text-emerald-400' : 'text-slate-400'} />
+              <span className="hidden sm:inline">Files</span>
+            </button>
+            <McpServersMenu
+              servers={mcpServers}
+              enabled={conv.activeConversation?.mcpServers ?? []}
+              busy={mcp.busy}
+              onChoose={mcp.choose}
+            />
+          </>
         ) : undefined}
       />
       )}
@@ -354,6 +372,17 @@ export default function ChatSurface({
             </>
           )}
         </div>
+
+        {filesOpen && conv.selectedConvId && (
+          <aside
+            aria-label="Files in this chat"
+            className={cardsLayout === 'column'
+              ? 'w-[18rem] shrink-0 order-last overflow-y-auto border-l border-[var(--bark-800,#1b2620)] bg-[var(--bark-950,#090d0b)] p-3'
+              : 'max-h-64 shrink-0 order-first overflow-y-auto border-b border-[var(--bark-800,#1b2620)] bg-[var(--bark-950,#090d0b)] p-3'}
+          >
+            <ChatFiles conversationId={conv.selectedConvId} />
+          </aside>
+        )}
 
         {cardsLayout === 'column' && cards.length > 0 && (
           <aside className="w-[22rem] xl:w-[26rem] shrink-0 flex flex-col min-h-0 border-l border-[var(--bark-800,#1b2620)] bg-[var(--bark-950,#090d0b)]" aria-label="Cards">

@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
-  listFileShares, listStoredFiles, makeStoredFolder, moveStoredFile, readStoredText,
-  removeStoredFile, revokeFileShare, searchStoredFiles, shareStoredFile, shareUrl, uploadStoredFile,
+  dropStoredFiles, listFileShares, listStoredFiles, makeStoredFolder, moveStoredFile, readStoredText,
+  removeStoredFile, revokeFileShare, searchStoredFiles, shareStoredFile, shareUrl, storedRoom, uploadStoredFile,
 } from './files'
 import { attachmentPlace } from '../lib/file-drop'
 import type { FileShare, StoredFile } from '../types'
@@ -15,8 +15,10 @@ import type { FileEntry } from '../../../../../backend/src/files/lib/file-places
 import type { FileShare as BackendFileShare } from '../../../../../backend/src/files/lib/file-shares'
 import { authorize } from '../../../../../backend/src/platform/lib/permissions'
 
+let free = 1024 ** 3
+
 const backend = await startBackend(async ({ api, db }) => {
-  const files = new FileService({ files: await storedFilesOnMinio(db), shares: db.files })
+  const files = new FileService({ files: await storedFilesOnMinio(db, async () => free), shares: db.files })
   api.use('/files', filesRouter({
     files,
     getOwnedProject: async (id, principal) => {
@@ -83,7 +85,7 @@ describe('a person\'s files on their instance, as the file browser asks for them
     expect(await listFileShares()).toEqual([objectWith({ id: shared.id, path: 'shared.txt' })])
     const opened = await fetch(shareUrl(shared.token, backend.origin))
     expect([opened.status, await opened.text()]).toEqual([200, 'first'])
-    await uploadStoredFile({ kind: 'mine' }, 'shared.txt', new Blob(['second'], { type: 'text/plain' }))
+    await uploadStoredFile({ kind: 'mine' }, 'shared.txt', new Blob(['second'], { type: 'text/plain' }), undefined, true)
     const again = await fetch(shareUrl(shared.token, backend.origin))
     expect([again.status, await again.text()]).toEqual([200, 'second'])
     await moveStoredFile({ kind: 'mine' }, 'shared.txt', 'moved.txt')
@@ -94,6 +96,45 @@ describe('a person\'s files on their instance, as the file browser asks for them
     expect(await revokeFileShare(kept.id)).toEqual({ id: kept.id })
     expect((await listFileShares()).map((share) => share.id)).not.toContain(kept.id)
     expect((await fetch(shareUrl(kept.token, backend.origin))).status).toBe(404)
+  })
+})
+
+describe('adding files, as the file browser sends them', () => {
+  const kept = { kind: 'project' as const, projectId: 'shop' }
+
+  it('lists each file with its id, refuses a taken path unless told to replace it, and names the stored file the link follows', async () => {
+    const first = await uploadStoredFile(kept, 'taken/report.pdf', new Blob(['one'], { type: 'application/pdf' }))
+    expect(await listStoredFiles(kept, 'taken')).toEqual([objectWith({ path: 'taken/report.pdf', id: first.id })])
+    await expect(uploadStoredFile(kept, 'taken/report.pdf', new Blob(['two']))).rejects.toMatchObject({ response: { status: 409, data: objectWith({ exists: true }) } })
+    expect(await readStoredText(kept, 'taken/report.pdf')).toBe('one')
+    expect(await uploadStoredFile(kept, 'taken/report.pdf', new Blob(['two']), undefined, true)).toEqual({ path: 'taken/report.pdf', id: first.id })
+    expect(await readStoredText(kept, 'taken/report.pdf')).toBe('two')
+    const link = await shareStoredFile(kept, 'taken/report.pdf', 1)
+    expect((await listFileShares()).find((share) => share.id === link.id)).toEqual(objectWith({ fileId: first.id }))
+  })
+
+  it('keeps a batch in one drop, refuses the whole batch when a path is taken, and replaces when told to', async () => {
+    const files = [{ path: 'a.txt', file: new File(['a'], 'a.txt') }, { path: 'deep/b.txt', file: new File(['bb'], 'b.txt') }]
+    const dropped = await dropStoredFiles(kept, 'batch', files, false)
+    expect(dropped.files).toEqual([{ path: 'batch/a.txt', id: anyOf(String) }, { path: 'batch/deep/b.txt', id: anyOf(String) }])
+    expect(await readStoredText(kept, 'batch/deep/b.txt')).toBe('bb')
+    const again = [{ path: 'a.txt', file: new File(['A'], 'a.txt') }, { path: 'c.txt', file: new File(['c'], 'c.txt') }]
+    await expect(dropStoredFiles(kept, 'batch', again, false)).rejects.toMatchObject({ response: { status: 409, data: objectWith({ exists: ['batch/a.txt'] }) } })
+    expect((await listStoredFiles(kept, 'batch')).map((entry) => entry.path)).not.toContain('batch/c.txt')
+    await dropStoredFiles(kept, 'batch', again, true)
+    expect(await readStoredText(kept, 'batch/a.txt')).toBe('A')
+  })
+
+  it('says how much room is left, and refuses what would not fit', async () => {
+    free = 4
+    try {
+      expect(await storedRoom()).toEqual({ free: 4 })
+      await expect(uploadStoredFile(kept, 'full/big.bin', new Blob(['too big']))).rejects.toMatchObject({ response: { status: 507, data: objectWith({ needed: anyOf(Number), free: 4 }) } })
+      await expect(dropStoredFiles(kept, 'full', [{ path: 'x', file: new File(['xx'], 'x') }, { path: 'y', file: new File(['yyy'], 'y') }], false)).rejects.toMatchObject({ response: { status: 507 } })
+      expect((await listStoredFiles(kept, '')).map((entry) => entry.path)).not.toContain('full')
+    } finally {
+      free = 1024 ** 3
+    }
   })
 })
 

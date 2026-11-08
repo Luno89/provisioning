@@ -3,14 +3,16 @@ import type { Readable } from 'node:stream';
 import { allowed, asPerson } from '../../platform/index.js';
 import { inside, outside, storedPlaceOf, type FileEntry, type FileScope, type StoredPlace } from '../lib/file-places.js';
 import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';
-import { nameOf, sameScope } from '../lib/stored-files.js';
+import { alreadyThere, noRoomFor } from '../lib/file-room.js';
+import { nameOf, sameScope, type FilesRefusal } from '../lib/stored-files.js';
 import type { FilesStore } from '../store.js';
+import { receiveStoredDrop } from './stored-drop.js';
 import type { Folder, StoredFiles } from './StoredFiles.js';
 
 export type { FileScope };
 
 export interface FileServiceDeps {
-  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById'>;
+  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById' | 'room'>;
   shares: Pick<FilesStore, 'getFileShares' | 'getFileShare' | 'getFileShareByToken' | 'saveFileShare' | 'deleteFileShare'>;
   now?: (() => string) | undefined;
 }
@@ -29,7 +31,12 @@ export interface AttachableFile {
   projectId?: string | undefined;
 }
 
-export type FilesOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409; why: string };
+export type FilesOutcome<T> = { ok: true; value: T } | FilesRefusal;
+
+export interface KeptFile {
+  path: string;
+  id: string;
+}
 
 const refused = <T>(status: 400 | 404 | 409, why: string): FilesOutcome<T> => ({ ok: false, status, why });
 
@@ -99,11 +106,28 @@ export class FileService {
     };
   }
 
-  async upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string, options: { replace: boolean } = { replace: true }): Promise<FilesOutcome<{ path: string; id: string }>> {
+  async room(): Promise<{ free: number }> {
+    return { free: await this.deps.files.room() };
+  }
+
+  async upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string, options: { replace: boolean }): Promise<FilesOutcome<KeptFile>> {
     const { folder, place } = this.open(ownerId, scope);
     const stored = await folder.upload(inside(place.under, path), body, size, contentType, { replace: options.replace });
-    if (!stored.ok) return stored;
+    if (!stored.ok) return stored.exists ? { ...stored, why: alreadyThere([path]), exists: true } : stored;
     return { ok: true, value: { path: outside(place.under, stored.value.path) ?? path, id: stored.value.id } };
+  }
+
+  async drop(ownerId: string, scope: FileScope, body: AsyncIterable<Buffer | string>, declared: number | undefined): Promise<FilesOutcome<{ files: KeptFile[] }>> {
+    const noRoom = noRoomFor(declared, await this.deps.files.room());
+    if (noRoom) return { ok: false, status: 507, ...noRoom };
+    const { folder, place } = this.open(ownerId, scope);
+    const kept = await receiveStoredDrop(body, (replace) => folder.startBatch({ replace }), (path) => inside(place.under, path));
+    if (!kept.ok) {
+      if (!Array.isArray(kept.exists)) return kept;
+      const exists = kept.exists.map((path) => outside(place.under, path) ?? path);
+      return { ...kept, why: alreadyThere(exists), exists };
+    }
+    return { ok: true, value: { files: kept.value.map((record) => ({ path: outside(place.under, record.path) ?? record.path, id: record.id })) } };
   }
 
   async remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {

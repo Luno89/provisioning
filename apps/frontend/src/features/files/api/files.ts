@@ -1,4 +1,7 @@
+import { isAxiosError } from 'axios'
 import { api, API_BASE } from '../../../api/client'
+import { DROP_TYPE, dropBody } from '../../../shared/lib/drop-body'
+import type { PickedFile } from '../lib/file-drop'
 import type { FileScope, FileShare, ShareableScope, ShareDays, StoredFile } from '../types'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
@@ -28,14 +31,25 @@ export const fileKeys = {
 export const listStoredFiles = (scope: FileScope, dir: string): Promise<StoredFile[]> =>
   api.get<StoredFile[]>(`${base(scope)}/list`, { params: { dir } }).then((r) => r.data)
 
-export const uploadStoredFile = (scope: FileScope, path: string, file: Blob, onProgress?: (share: number) => void): Promise<{ path: string; id: string }> =>
+export const uploadStoredFile = (scope: FileScope, path: string, file: Blob, onProgress?: (share: number) => void, replace = false): Promise<{ path: string; id: string }> =>
   api.put<{ path: string; id: string }>(`${base(scope)}/content`, file, {
-    params: { path },
+    params: replace ? { path, replace: '1' } : { path },
     headers: { 'Content-Type': 'application/octet-stream', [FILE_TYPE_HEADER]: file.type || 'application/octet-stream' },
     timeout: 0,
     maxBodyLength: Infinity,
     onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : 0),
   }).then((r) => r.data)
+
+export const dropStoredFiles = (scope: ShareableScope, dir: string, picked: readonly PickedFile[], replace: boolean, onProgress?: (share: number) => void): Promise<{ files: { path: string; id: string }[] }> =>
+  api.post<{ files: { path: string; id: string }[] }>(`${ownBase(scope)}/drop`, dropBody({ dir, replace }, picked), {
+    headers: { 'Content-Type': DROP_TYPE },
+    timeout: 0,
+    maxBodyLength: Infinity,
+    onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : 0),
+  }).then((r) => r.data)
+
+export const storedRoom = (): Promise<{ free: number }> =>
+  api.get<{ free: number }>('/files/room').then((r) => r.data)
 
 export const removeStoredFile = (scope: FileScope, path: string): Promise<{ path: string }> =>
   api.delete<{ path: string }>(`${base(scope)}/content`, { params: { path } }).then((r) => r.data)
@@ -65,3 +79,6 @@ export const shareUrl = (token: string, origin: string): string => new URL(`${AP
 
 export const readStoredText = (scope: FileScope, path: string): Promise<string> =>
   api.get<string>(`${base(scope)}/content`, { params: { path, inline: '1' }, responseType: 'text', transformResponse: (raw: unknown) => raw }).then((r) => String(r.data))
+
+export const isNameTaken = (err: unknown): boolean =>
+  isAxiosError(err) && err.response?.status === 409 && (err.response.data as { exists?: unknown } | undefined)?.exists === true

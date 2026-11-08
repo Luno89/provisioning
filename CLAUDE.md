@@ -2359,7 +2359,27 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
     scope)` for everything else. `/api/files/<scope>/<id>/list|search|folder|shares|content|move` with scopes `mine`,
     `projects/:id` (the owner's) and `conversations/:id` (the owner's chat, its project's files under its folder when it has
     one); an upload (`PUT …/content?path=`, the type in `X-File-Type`, the body octet-stream so nothing parses it) answers
-    `{ path, id }`, and `GET /api/files/stored/:fileId` serves a file of the person's by its id. No size limit and no quota.
+    `{ path, id }`, and `GET /api/files/stored/:fileId` serves a file of the person's by its id. A listing's or search's file
+    carries its stored file's `id` (a folder none). No size limit and no quota.
+  - **Overwriting asks** (owner, 2026-11-07: "make sure the user is aware they would overwrite it"). An upload keeps a file only
+    where nothing is unless it says `replace=1`; otherwise it answers 409 `{ error: '<path> is already there', exists: true }`, and
+    the browser asks before sending it again with `replace=1`. The commit enforces it too (`commitPlan` names every path already
+    there). Koala's own callers say their choice: `store_file`, the Archive and run artifacts replace; a hub member's upload replaces
+    only for an owner or a collaborator (`change-files`).
+  - **Room is checked before an upload** (owner: "the size should be calculated before the upload and inform the user if it wouldn't
+    fit"). `GET /api/files/room` answers `{ free }`, the bytes left on the volume the backend's data folder is on, which is the one
+    MinIO, Mongo and Temporal's database keep their stores on (`fs.statfs`, `roomOn` in `files/services/room.ts`, given to
+    `StoredFiles` as `room`). Any upload whose size is known (its `Content-Length`, a drop's whole length, each dropped file's size)
+    larger than that is refused before a byte is stored: 507 `{ error: 'This needs <size>, and <size> is free', needed, free }`
+    (`noRoomFor` in `files/lib/file-room.ts`).
+  - **A drop is one batch** (owner: "I'm ok with a batched approach"). `POST /api/files/<scope>/<id>/drop` takes the repository
+    drop's streamed body (`application/vnd.koala.drop`, read by `DropReader`): a settings line `{ dir, replace }`, then each file's
+    `{ path, size, type? }` (the type judged from its name when not given) followed by its bytes. Each file streams to MinIO under
+    an id of its own as it arrives (`receiveStoredDrop` in `files/services/stored-drop.ts`, through `Folder.startBatch` →
+    `UploadBatch`), and all of them are kept in one commit, so the batch is all or nothing; it answers 201 `{ files: [{ path, id }] }`.
+    Without `replace` a drop onto files already there stores nothing past the first of them and answers 409
+    `{ error, exists: [paths] }` naming every one. A refused drop removes what it had sent through the remove workflow; a drop
+    that fails part way (the connection lost, MinIO failing) leaves its uploads to the daily sweep.
 - **Koala's own file browser** (`features/files/components/StoredFiles.tsx`, rules in `files/lib/file-browser.ts`): upload, new folder, search by
   name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection
   onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
@@ -2384,8 +2404,9 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   (`/api/files/conversations/<id>/content`), then sent with the message by id (`attachments: [{ fileId }]`); the backend reads each
   from what the person keeps (`readAttachments` in `engine/lib/attachments.ts`, through `FileService.attachable`) and keeps its
   `fileId`, name, size, type and project on the message. The model is told each file's id and to read it with `read_stored_file`
-  (`fileId`), in that turn and every later one (`heardAs`). An attachment from before, with a path and no id, is told as no longer
-  kept. A channel post can be only attachments.
+  (`fileId`), in that turn and every later one (`heardAs`). Attachments from before, with a path and no id, were removed from every
+  message once at start (owner, 2026-11-07: "just delete em"; the migration `unkept-attachments-dropped`,
+  `EngineStore.dropUnkeptAttachments`), the message kept. A channel post can be only attachments.
 - **A run's artifacts** (`ArtifactService`, what a browser test or a failed task left) are stored files of the run's scope, kept 14
   days (`expiresAt`, removed by the sweep) within the run's 50 MB; `/api/artifacts/runs/:runId` lists them and
   `/api/artifacts/:id` (a stored file's id) serves one. A check space's run files are handed to the person with its runs

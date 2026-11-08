@@ -1,11 +1,15 @@
 import { Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { anyObject, mock } from 'vitest-mock-extended';
 import type { FileShare } from '../lib/file-shares.js';
 import type { StoredFileRecord } from '../lib/stored-files.js';
 import type { FilesStore } from '../store.js';
 import { FileService, type FileServiceDeps } from './FileService.js';
-import type { Folder } from './StoredFiles.js';
+import { receiveStoredDrop } from './stored-drop.js';
+import type { Folder, UploadBatch } from './StoredFiles.js';
+
+vi.mock('./stored-drop.js', () => ({ receiveStoredDrop: vi.fn() }));
+const received = vi.mocked(receiveStoredDrop);
 
 const AT = '2026-10-21T10:00:00.000Z';
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz012345';
@@ -55,7 +59,7 @@ describe('the file service', () => {
     folder.makeFolder.calledWith('chats/channel-p1/new').mockResolvedValue({ ok: true, value: { path: 'chats/channel-p1/new', made: true } });
     expect(await service.list('u1', channel, 'docs')).toEqual({ ok: true, value: [{ name: 'a.png', path: 'docs/a.png', type: 'file' }] });
     expect(await service.search('u1', channel, 'a')).toEqual({ ok: true, value: [{ name: 'a.png', path: 'docs/a.png', type: 'file' }] });
-    expect(await service.upload('u1', channel, 'b.png', Readable.from([Buffer.from('b')]), 1, 'image/png')).toEqual({ ok: true, value: { path: 'b.png', id: 'f2' } });
+    expect(await service.upload('u1', channel, 'b.png', Readable.from([Buffer.from('b')]), 1, 'image/png', { replace: false })).toEqual({ ok: true, value: { path: 'b.png', id: 'f2' } });
     expect(await service.move('u1', channel, 'b.png', 'old/b.png')).toEqual({ ok: true, value: { path: 'old/b.png' } });
     expect(await service.remove('u1', channel, 'old')).toEqual({ ok: true, value: { path: 'old' } });
     expect(await service.makeFolder('u1', channel, 'new')).toEqual({ ok: true, value: { path: 'new' } });
@@ -69,11 +73,59 @@ describe('the file service', () => {
     expect(await service.list('u1', project, '')).toEqual({ ok: false, status: 404, why: 'not a folder here' });
   });
 
-  it('uploads replacing what is at the path, and passes on a refusal', async () => {
+  it('uploads with the replace choice it is given, and passes on a refusal', async () => {
     const { folder, service } = setUp();
     folder.upload.mockResolvedValueOnce({ ok: false, status: 409, why: 'a.pdf is a folder' });
-    expect(await service.upload('u1', project, 'a.pdf', Readable.from([]), 0, 'application/pdf')).toEqual({ ok: false, status: 409, why: 'a.pdf is a folder' });
+    expect(await service.upload('u1', project, 'a.pdf', Readable.from([]), 0, 'application/pdf', { replace: true })).toEqual({ ok: false, status: 409, why: 'a.pdf is a folder' });
     expect(folder.upload).toHaveBeenCalledWith('a.pdf', anyObject(), 0, 'application/pdf', { replace: true });
+    folder.upload.mockResolvedValueOnce({ ok: false, status: 507, why: 'This needs 2 bytes, and 1 bytes is free', needed: 2, free: 1 });
+    expect(await service.upload('u1', project, 'a.pdf', Readable.from([]), 2, 'application/pdf', { replace: false })).toEqual({ ok: false, status: 507, why: 'This needs 2 bytes, and 1 bytes is free', needed: 2, free: 1 });
+    expect(folder.upload).toHaveBeenLastCalledWith('a.pdf', anyObject(), 2, 'application/pdf', { replace: false });
+  });
+
+  it('says a file is already there by the path the person sees, when it may not be replaced', async () => {
+    const { folder, service } = setUp();
+    folder.upload.mockResolvedValueOnce({ ok: false, status: 409, why: 'chats/channel-p1/a.pdf is already there', exists: ['chats/channel-p1/a.pdf'] });
+    expect(await service.upload('u1', channel, 'a.pdf', Readable.from([]), 0, 'application/pdf', { replace: false })).toEqual({ ok: false, status: 409, why: 'a.pdf is already there', exists: true });
+  });
+
+  it('says how much room is left where files are kept', async () => {
+    const { files, service } = setUp();
+    files.room.mockResolvedValue(4096);
+    expect(await service.room()).toEqual({ free: 4096 });
+  });
+
+  it('refuses a drop larger than the room left before reading any of it', async () => {
+    const { files, service } = setUp();
+    files.room.mockResolvedValue(10);
+    received.mockClear();
+    expect(await service.drop('u1', project, Readable.from([]), 11)).toEqual({ ok: false, status: 507, why: 'This needs 11 bytes, and 10 bytes is free', needed: 11, free: 10 });
+    expect(received).not.toHaveBeenCalled();
+  });
+
+  it('keeps a drop in the scope\'s place, opening batches there and answering each file\'s path and id as the person sees it', async () => {
+    const { files, folder, service } = setUp();
+    files.room.mockResolvedValue(10);
+    const batch = mock<UploadBatch>();
+    folder.startBatch.calledWith(anyObject()).mockResolvedValue(batch);
+    const body = Readable.from([]);
+    received.mockImplementationOnce(async (_body, open, placed) => {
+      expect(await open(true)).toBe(batch);
+      expect(placed('docs/a.png')).toBe('chats/channel-p1/docs/a.png');
+      return { ok: true, value: [record('f1', 'chats/channel-p1/docs/a.png'), record('f2', 'chats/channel-p1/b.png')] };
+    });
+    expect(await service.drop('u1', channel, body, 10)).toEqual({ ok: true, value: { files: [{ path: 'docs/a.png', id: 'f1' }, { path: 'b.png', id: 'f2' }] } });
+    expect(received.mock.lastCall?.[0]).toBe(body);
+    expect(folder.startBatch).toHaveBeenCalledWith({ replace: true });
+  });
+
+  it('names every file of a drop that is already there by the path the person sees, and passes on any other refusal', async () => {
+    const { files, service } = setUp();
+    files.room.mockResolvedValue(10);
+    received.mockResolvedValueOnce({ ok: false, status: 409, why: '2 files are already there', exists: ['chats/channel-p1/a.png', 'chats/channel-p1/b/c.png'] });
+    expect(await service.drop('u1', channel, Readable.from([]), undefined)).toEqual({ ok: false, status: 409, why: '2 files are already there: a.png, b/c.png', exists: ['a.png', 'b/c.png'] });
+    received.mockResolvedValueOnce({ ok: false, status: 400, why: 'nothing was dropped' });
+    expect(await service.drop('u1', channel, Readable.from([]), undefined)).toEqual({ ok: false, status: 400, why: 'nothing was dropped' });
   });
 
   it('downloads by path with the record\'s size and type, and names a missing file', async () => {

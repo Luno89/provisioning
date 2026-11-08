@@ -161,8 +161,8 @@ describe('listing a folder', () => {
     expect(listing(records, '')).toEqual([
       { name: 'docs', path: 'docs', type: 'dir' },
       { name: 'empty', path: 'empty', type: 'dir', modified: AT },
-      { name: 'b.txt', path: 'b.txt', type: 'file', size: 3, modified: LATER },
-      { name: 'z.txt', path: 'z.txt', type: 'file', size: 9, modified: AT },
+      { id: '4', name: 'b.txt', path: 'b.txt', type: 'file', size: 3, modified: LATER },
+      { id: '1', name: 'z.txt', path: 'z.txt', type: 'file', size: 9, modified: AT },
     ]);
   });
 
@@ -170,13 +170,13 @@ describe('listing a folder', () => {
     const records = [file('1', 'docs/a.txt'), file('2', 'docs/deep/b.txt'), file('3', 'docs/deep/c.txt'), file('4', 'other/x.txt'), file('5', 'docsx.txt')];
     expect(listing(records, 'docs')).toEqual([
       { name: 'deep', path: 'docs/deep', type: 'dir' },
-      { name: 'a.txt', path: 'docs/a.txt', type: 'file', size: 3, modified: AT },
+      { id: '1', name: 'a.txt', path: 'docs/a.txt', type: 'file', size: 3, modified: AT },
     ]);
   });
 
   it('leaves out uploads still in flight and the folder\'s own record', () => {
     expect(listing([uploading('1', 'docs/a.txt'), folder('2', 'docs'), file('3', 'docs/b.txt')], 'docs')).toEqual([
-      { name: 'b.txt', path: 'docs/b.txt', type: 'file', size: 3, modified: AT },
+      { id: '3', name: 'b.txt', path: 'docs/b.txt', type: 'file', size: 3, modified: AT },
     ]);
   });
 
@@ -185,7 +185,7 @@ describe('listing a folder', () => {
   });
 
   it('lets a file at a path win over a folder seen there before it', () => {
-    expect(listing([folder('1', 'a'), file('2', 'a')], '')).toEqual([{ name: 'a', path: 'a', type: 'file', size: 3, modified: AT }]);
+    expect(listing([folder('1', 'a'), file('2', 'a')], '')).toEqual([{ id: '2', name: 'a', path: 'a', type: 'file', size: 3, modified: AT }]);
   });
 
   it('keeps the folder a deeper path made when the folder\'s own record comes after it', () => {
@@ -212,8 +212,8 @@ describe('searching by name', () => {
   it('finds stored files whose name holds the words, whatever their case, sorted by path', () => {
     const records = [file('1', 'b/Report.PDF'), file('2', 'a/report-2.txt'), file('3', 'reports/x.txt'), folder('4', 'report'), uploading('5', 'report-3.txt')];
     expect(searching(records, '  REPORT ')).toEqual([
-      { name: 'report-2.txt', path: 'a/report-2.txt', type: 'file', size: 3, modified: AT },
-      { name: 'Report.PDF', path: 'b/Report.PDF', type: 'file', size: 3, modified: AT },
+      { id: '2', name: 'report-2.txt', path: 'a/report-2.txt', type: 'file', size: 3, modified: AT },
+      { id: '1', name: 'Report.PDF', path: 'b/Report.PDF', type: 'file', size: 3, modified: AT },
     ]);
   });
 
@@ -431,10 +431,19 @@ describe('planning a commit', () => {
       .toEqual({ ok: false, status: 409, why: 'a is a folder' });
   });
 
-  it('refuses to replace a stored file when replacing is not allowed', () => {
+  it('refuses to replace a stored file when replacing is not allowed, naming it', () => {
     const record = uploading('u1', 'a');
     expect(commitPlan([record], [{ id: 'u1', size: 1 }], () => [record, file('old', 'a')], { replace: false }, LATER))
-      .toEqual({ ok: false, status: 409, why: 'a is already there, and it may not be replaced' });
+      .toEqual({ ok: false, status: 409, why: 'a is already there', exists: ['a'] });
+  });
+
+  it('names every file of a batch that is already there when replacing is not allowed, and keeps none of the batch', () => {
+    const a = uploading('u1', 'a');
+    const b = uploading('u2', 'b');
+    const c = uploading('u3', 'c/d');
+    const there = [a, b, c, file('old-a', 'a'), file('old-d', 'c/d')];
+    expect(commitPlan([a, b, c], [{ id: 'u1', size: 1 }, { id: 'u2', size: 1 }, { id: 'u3', size: 1 }], () => there, { replace: false }, LATER))
+      .toEqual({ ok: false, status: 409, why: '2 files are already there: a, c/d', exists: ['a', 'c/d'] });
   });
 
   it('gives a stored file the upload\'s bytes as its next version: the file keeps its id and when it was first made, the upload\'s record is absorbed and the old bytes are replaced', () => {

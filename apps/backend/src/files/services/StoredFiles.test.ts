@@ -32,8 +32,9 @@ const setUp = (records: StoredFileRecord[] = [], clock: { now: number } = { now:
   const commits = mock<StoredFileCommits>();
   store.storedFilesIn.calledWith('u1', matches<StoredScope>((scope) => sameScope(scope, PROJECT))).mockResolvedValue(records);
   const ids = ['id-1', 'id-2', 'id-3'];
-  const service = new StoredFiles({ records: store, objects, commits, now: () => clock.now, newId: () => ids.shift()! });
-  return { store, objects, commits, service, folder: service.at('u1', PROJECT), clock };
+  const room = { free: 1024 ** 3 };
+  const service = new StoredFiles({ records: store, objects, commits, room: async () => room.free, now: () => clock.now, newId: () => ids.shift()! });
+  return { store, objects, commits, service, folder: service.at('u1', PROJECT), clock, room };
 };
 
 const storing = (objects: ReturnType<typeof setUp>['objects'], size = 5): { sent: Promise<string> } => {
@@ -63,7 +64,7 @@ describe('the stored files service', () => {
 
   it('works without a clock or ids handed to it', async () => {
     const store = mock<StoredFileRecords>();
-    const service = new StoredFiles({ records: store, objects: mock<ObjectStore>(), commits: mock<StoredFileCommits>() });
+    const service = new StoredFiles({ records: store, objects: mock<ObjectStore>(), commits: mock<StoredFileCommits>(), room: async () => 0 });
     store.makeStoredFolder.mockResolvedValue({ ok: true, made: true });
     await service.at('u1', PROJECT).makeFolder('a');
     const made = store.makeStoredFolder.mock.calls[0]![0];
@@ -155,7 +156,7 @@ describe('a folder of stored files', () => {
 
     it('lists a folder something is in', async () => {
       const { folder: place } = setUp([file('1', 'docs/a.txt')]);
-      expect(await place.list('docs')).toEqual({ ok: true, value: [{ name: 'a.txt', path: 'docs/a.txt', type: 'file', size: 3, modified: AT }] });
+      expect(await place.list('docs')).toEqual({ ok: true, value: [{ id: '1', name: 'a.txt', path: 'docs/a.txt', type: 'file', size: 3, modified: AT }] });
     });
 
     it('lists an empty folder by its own record', async () => {
@@ -270,7 +271,7 @@ describe('a folder of stored files', () => {
       expect(await place.upload('', body(), 1, 'text/plain', { replace: true })).toEqual({ ok: false, status: 400, why: 'a file needs a name' });
       expect(await place.upload('dir', body(), 1, 'text/plain', { replace: true })).toEqual({ ok: false, status: 409, why: 'dir is a folder' });
       expect(await place.upload('a/b', body(), 1, 'text/plain', { replace: true })).toEqual({ ok: false, status: 409, why: 'a is a file, not a folder' });
-      expect(await place.upload('a', body(), 1, 'text/plain', { replace: false })).toEqual({ ok: false, status: 409, why: 'a is already there, and it may not be replaced' });
+      expect(await place.upload('a', body(), 1, 'text/plain', { replace: false })).toEqual({ ok: false, status: 409, why: 'a is already there', exists: ['a'] });
       expect(store.beginStoredFile).not.toHaveBeenCalled();
       expect(objects.put).not.toHaveBeenCalled();
       expect(commits.commit).not.toHaveBeenCalled();
@@ -346,6 +347,102 @@ describe('a folder of stored files', () => {
       });
       store.touchStoredFile.mockRejectedValue(new Error('the record is gone'));
       await expect(place.upload('a', Readable.from([Buffer.from('x')]), 1, 'text/plain', { replace: true })).rejects.toThrow('the record is gone');
+      expect(commits.commit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('room for an upload', () => {
+    it('takes an upload exactly as large as the room left, and one whose size is not known', async () => {
+      const { folder: place, objects, commits, room } = setUp();
+      room.free = 5;
+      storing(objects);
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
+      expect((await place.upload('a', Readable.from(['12345']), 5, 'text/plain', { replace: false })).ok).toBe(true);
+      expect((await place.upload('b', Readable.from(['123456']), undefined, 'text/plain', { replace: false })).ok).toBe(true);
+    });
+
+    it('refuses an upload one byte larger than the room left before storing anything, saying how much it needs and how much is free', async () => {
+      const { folder: place, store, objects, commits, room } = setUp();
+      room.free = 5;
+      expect(await place.upload('a', Readable.from(['123456']), 6, 'text/plain', { replace: true })).toEqual({ ok: false, status: 507, why: 'This needs 6 bytes, and 5 bytes is free', needed: 6, free: 5 });
+      expect(store.beginStoredFile).not.toHaveBeenCalled();
+      expect(objects.put).not.toHaveBeenCalled();
+      expect(commits.commit).not.toHaveBeenCalled();
+    });
+
+    it('says how much room is left', async () => {
+      const { service, room } = setUp();
+      room.free = 77;
+      expect(await service.room()).toBe(77);
+    });
+  });
+
+  describe('a batch of uploads', () => {
+    it('stores every file under its own id and keeps them all in one commit', async () => {
+      const { folder: place, objects, commits, store } = setUp([file('old', 'keep.txt')]);
+      objects.put.mockImplementation(async (_id, body) => { await drained(body); });
+      objects.stat.mockResolvedValue({ size: 1 });
+      const kept = [file('id-1', 'a'), file('id-2', 'b/c'), file('id-3', 'd')];
+      commits.commit.mockResolvedValue({ ok: true, stored: kept, replaced: [], absorbed: [] });
+      const batch = await place.startBatch({ replace: false });
+      expect(batch.replace).toBe(false);
+      for (const path of ['a', 'b/c', 'd']) expect((await batch.add(path, Readable.from(['x']), 1, 'text/plain')).ok).toBe(true);
+      expect(await batch.keep()).toEqual({ ok: true, value: kept });
+      expect(commits.commit).toHaveBeenCalledExactlyOnceWith('u1', [{ id: 'id-1', size: 1 }, { id: 'id-2', size: 1 }, { id: 'id-3', size: 1 }], { replace: false });
+      expect(store.beginStoredFile.mock.calls.map(([record]) => [record.id, record.path, record.state])).toEqual([['id-1', 'a', 'uploading'], ['id-2', 'b/c', 'uploading'], ['id-3', 'd', 'uploading']]);
+    });
+
+    it('checks a path against what is there and what the batch already holds, saying whether a file is there', async () => {
+      const { folder: place, objects } = setUp([file('old', 'a'), file('x', 'dir/x')]);
+      objects.put.mockImplementation(async (_id, body) => { await drained(body); });
+      objects.stat.mockResolvedValue({ size: 1 });
+      const batch = await place.startBatch({ replace: true });
+      expect(batch.check('/a/')).toEqual({ ok: true, value: { path: 'a', taken: true } });
+      expect(batch.check('new.txt')).toEqual({ ok: true, value: { path: 'new.txt', taken: false } });
+      expect(batch.check('dir')).toEqual({ ok: false, status: 409, why: 'dir is a folder' });
+      expect(batch.check('../x')).toMatchObject({ ok: false, status: 400 });
+      await batch.add('n/one', Readable.from(['x']), 1, 'text/plain');
+      expect(batch.check('n/one')).toEqual({ ok: false, status: 409, why: 'n/one is uploaded twice at once' });
+      expect(batch.check('n/one/two')).toEqual({ ok: false, status: 409, why: 'n/one is a file, not a folder' });
+      expect(batch.check('n')).toEqual({ ok: false, status: 409, why: 'n is a folder' });
+    });
+
+    it('refuses to add a file that is there when it may not replace, storing nothing for it', async () => {
+      const { folder: place, objects, store } = setUp([file('old', 'a')]);
+      const batch = await place.startBatch({ replace: false });
+      expect(await batch.add('a', Readable.from(['x']), 1, 'text/plain')).toEqual({ ok: false, status: 409, why: 'a is already there', exists: ['a'] });
+      expect(store.beginStoredFile).not.toHaveBeenCalled();
+      expect(objects.put).not.toHaveBeenCalled();
+    });
+
+    it('keeps nothing when nothing was added, and refuses to keep while a file is still arriving', async () => {
+      const { folder: place, objects, commits } = setUp();
+      const empty = await place.startBatch({ replace: true });
+      expect(await empty.keep()).toEqual({ ok: false, status: 400, why: 'nothing was uploaded' });
+      const batch = await place.startBatch({ replace: true });
+      objects.put.mockImplementation(async (_id, body) => { await drained(body); });
+      objects.stat.mockResolvedValue({ size: 1 });
+      await batch.add('a', Readable.from(['x']), 1, 'text/plain');
+      const input = new PassThrough();
+      objects.put.mockImplementation(() => new Promise<void>(() => undefined));
+      void batch.add('b', input, 1, 'text/plain');
+      await new Promise((resolve) => setImmediate(resolve));
+      await expect(batch.keep()).rejects.toThrow('a file of this upload is still arriving, so the upload cannot be kept yet');
+      expect(commits.commit).not.toHaveBeenCalled();
+    });
+
+    it('abandons what it began, records and bytes, and asks nothing removed when nothing began', async () => {
+      const { folder: place, objects, commits } = setUp();
+      const untouched = await place.startBatch({ replace: true });
+      await untouched.abandon();
+      expect(commits.remove).not.toHaveBeenCalled();
+      objects.put.mockImplementation(async (_id, body) => { await drained(body); });
+      objects.stat.mockResolvedValue({ size: 1 });
+      const batch = await place.startBatch({ replace: true });
+      await batch.add('a', Readable.from(['x']), 1, 'text/plain');
+      await batch.add('b', Readable.from(['y']), 1, 'text/plain');
+      await batch.abandon();
+      expect(removing(commits)).toEqual([['id-1', 'id-1'], ['id-2', 'id-2']]);
       expect(commits.commit).not.toHaveBeenCalled();
     });
   });

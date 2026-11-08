@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachmentName, attachmentPlace, droppedFiles, joinPath, pickedFiles, sentAttachment, sentAttachmentPlace, sizeText } from './file-drop'
+import { attachmentName, attachmentPlace, numberedName, droppedFiles, joinPath, pickedFiles, sentAttachment, sentAttachmentPlace, sizeText } from './file-drop'
 
 const file = (name: string, text = name) => new File([text], name)
 
@@ -79,5 +79,24 @@ describe('what is sent of an attachment', () => {
 
   it('is nothing for one that has no id', () => {
     expect(sentAttachment({ name: 'old.png', path: 'chats/2026-10-21/old.png' })).toEqual([])
+  })
+})
+
+describe('the name an attachment takes when its name is already in the chat', () => {
+  it('keeps the name the first time, then numbers it before its extension', () => {
+    expect(numberedName('photo.png', 1)).toBe('photo.png')
+    expect(numberedName('photo.png', 0)).toBe('photo.png')
+    expect(numberedName('photo.png', 2)).toBe('photo (2).png')
+    expect(numberedName('archive.tar.gz', 3)).toBe('archive.tar (3).gz')
+  })
+
+  it('numbers a name with no extension, or one that only starts with a dot, at its end', () => {
+    expect(numberedName('README', 2)).toBe('README (2)')
+    expect(numberedName('.env', 2)).toBe('.env (2)')
+  })
+
+  it('puts the numbered name in the chat\'s place', () => {
+    expect(attachmentPlace('c1', undefined, 'photo.png', 2)).toEqual({ scope: { kind: 'conversation', conversationId: 'c1' }, path: 'photo (2).png' })
+    expect(attachmentPlace('c1', 'p1', 'photo.png', 2)).toEqual({ scope: { kind: 'project', projectId: 'p1' }, path: 'chats/c1/photo (2).png' })
   })
 })

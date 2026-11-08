@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attachmentsText, readAttachments, type AttachableFile, type MessageAttachment } from './attachments.js';
+import { attachmentsText, readAttachments, type AttachableFile } from './attachments.js';
 
 const projects = [{ id: 'p1', name: 'Shop' }];
 const files: Record<string, AttachableFile> = {
@@ -39,10 +39,5 @@ describe('files attached to a message', () => {
       + '- x.png, in the person\'s files, file id f2',
     );
     expect(attachmentsText([])).toBe('');
-  });
-
-  it('says an attachment from before files were kept by id is gone', () => {
-    const before = { name: 'old.pdf', path: 'attachments/old.pdf' } as unknown as MessageAttachment;
-    expect(attachmentsText([before])).toBe('\n\nAttached to this message (read each with read_stored_file, giving its file id as fileId):\n- old.pdf, attached before Koala kept files itself, and no longer kept');
   });
 });

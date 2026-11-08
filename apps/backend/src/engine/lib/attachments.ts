@@ -1,3 +1,5 @@
+import { sizeText } from '../../files/lib/file-room.js';
+
 export interface MessageAttachment {
   fileId: string;
   name: string;
@@ -20,7 +22,6 @@ export const MAX_ATTACHMENTS = 20;
 
 export type AttachmentsReading = { ok: true; attachments: MessageAttachment[] } | { ok: false; why: string };
 
-const sizeText = (bytes: number): string => (bytes < 1024 ? `${bytes} bytes` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
 
 const fileIdOf = (entry: unknown): string | undefined => {
   const id = typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>).fileId : undefined;
@@ -55,10 +56,23 @@ export async function readAttachments(value: unknown, find: FindAttachable | und
 export function attachmentsText(attachments: readonly MessageAttachment[] | undefined): string {
   if (!attachments?.length) return '';
   const lines = attachments.map((file) => {
-    if (!file.fileId) return `- ${file.name}, attached before Koala kept files itself, and no longer kept`;
     const what = [file.type, file.size !== undefined ? sizeText(file.size) : undefined].filter(Boolean).join(', ');
     const where = file.project ? `in the project ${file.project.name}'s files` : 'in the person\'s files';
     return `- ${file.name}${what ? ` (${what})` : ''}, ${where}, file id ${file.fileId}`;
   });
   return `\n\nAttached to this message (read each with read_stored_file, giving its file id as fileId):\n${lines.join('\n')}`;
+}
+
+export const keptAttachment = (entry: Partial<MessageAttachment>): boolean => typeof entry.fileId === 'string' && entry.fileId !== '';
+
+export function withoutUnkeptAttachments<M extends { attachments?: MessageAttachment[] | undefined }>(messages: readonly M[]): M[] | undefined {
+  let changed = false;
+  const kept = messages.map((message) => {
+    if (!message.attachments || message.attachments.every(keptAttachment)) return message;
+    changed = true;
+    const attachments = message.attachments.filter(keptAttachment);
+    const { attachments: _was, ...rest } = message;
+    return (attachments.length > 0 ? { ...rest, attachments } : rest) as M;
+  });
+  return changed ? kept : undefined;
 }

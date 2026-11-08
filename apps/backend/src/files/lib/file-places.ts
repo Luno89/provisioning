@@ -4,6 +4,7 @@ export const FOLDER_MARK = '.keep';
 export const SEARCH_LIMIT = 200;
 
 export interface FileEntry {
+  id?: string | undefined;
   name: string;
   path: string;
   type: 'file' | 'dir';

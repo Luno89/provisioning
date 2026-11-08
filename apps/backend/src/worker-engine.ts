@@ -141,7 +141,7 @@ async function buildActivities() {
   });
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data }));
-  const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE });
+  const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },

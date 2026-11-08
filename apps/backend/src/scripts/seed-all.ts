@@ -28,6 +28,7 @@ export async function seedAll(db: Database) {
   counts.shareTokensSealed = (await runOnce(ledger, 'share-tokens-sealed', now, async () => ({ sealed: await db.files.sealShareTokens() }))).sealed ?? 0;
   counts.signInLinksMoved = (await runOnce(ledger, 'sign-in-links', now, async () => ({ moved: await db.accounts.moveProviderIdsToLinks() }))).moved ?? 0;
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
+  counts.unkeptAttachmentsDropped = (await runOnce(ledger, 'unkept-attachments-dropped', now, async () => ({ conversations: await db.engine.dropUnkeptAttachments() }))).conversations ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
   counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, loadKeys(process.env).data) }))).hashed ?? 0;
   counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;

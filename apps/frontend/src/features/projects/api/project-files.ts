@@ -1,6 +1,6 @@
 import { api } from '../../../api/client'
 import type { StoryDrop } from '../lib/leaf-types'
-import { dropBody, type DropSettings, type DroppedCode } from '../lib/drop-body'
+import { DROP_TYPE, dropBody, type DropSettings, type DroppedCode } from '../../../shared/lib/drop-body'
 
 export interface RepoFileEntry {
   path: string
@@ -35,7 +35,6 @@ export const saveProjectFileContent = (
 export const deleteProjectFile = (projectId: string, path: string, sha: string): Promise<{ success: boolean }> =>
   api.delete<{ success: boolean }>(`/projects/${projectId}/files/content`, { params: { path, sha } }).then((r) => r.data)
 
-export const DROP_TYPE = 'application/vnd.koala.drop'
 
 export type DropAnswer = { ok: true; paths: string[]; commit?: string } | { ok: true; drop: StoryDrop; said: string }
 

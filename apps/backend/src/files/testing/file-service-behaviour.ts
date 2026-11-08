@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { FileService } from '../services/FileService.js';
 import type { StoredFiles } from '../services/StoredFiles.js';
 import type { FilesStore } from '../store.js';
+import { dropBody } from '../lib/drops.js';
 import type { FileScope } from '../lib/file-places.js';
 
 export interface FileServiceWorld {
-  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById'>;
+  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById' | 'room'>;
   shares: FilesStore;
 }
 
@@ -27,7 +28,7 @@ export function fileServiceBehaviour(make: () => Promise<FileServiceWorld>): voi
     const project: FileScope = { kind: 'project', project: { id: `p-${randomUUID().slice(0, 8)}` } };
     const service = new FileService({ files: world.files, shares: world.shares, now: () => clock.now });
     const kept = async (scope: FileScope, path: string, text: string, type = 'text/plain') => {
-      const stored = await service.upload(me, scope, path, body(text), Buffer.byteLength(text), type);
+      const stored = await service.upload(me, scope, path, body(text), Buffer.byteLength(text), type, { replace: true });
       if (!stored.ok) throw new Error(stored.why);
       return stored.value;
     };
@@ -60,6 +61,74 @@ export function fileServiceBehaviour(make: () => Promise<FileServiceWorld>): voi
       const byId = await service.downloadById(me, first.id);
       if (!byId.ok) throw new Error(byId.why);
       expect((await bytesOf(byId.value.stream)).toString()).toBe('second');
+    });
+
+    it('refuses to overwrite a file unless told to, naming it as the person sees it and leaving it as it was', async () => {
+      const { service, me, project, kept } = await setUp();
+      const projectId = project.kind === 'project' ? project.project.id : '';
+      const channel: FileScope = { kind: 'conversation', conversationId: 'channel-y', projectId };
+      const first = await kept(channel, 'a.txt', 'one');
+      expect(await service.upload(me, channel, 'a.txt', body('two'), 3, 'text/plain', { replace: false })).toEqual({ ok: false, status: 409, why: 'a.txt is already there', exists: true });
+      const still = await service.download(me, channel, 'a.txt');
+      if (!still.ok) throw new Error(still.why);
+      expect((await bytesOf(still.value.stream)).toString()).toBe('one');
+      expect(await service.upload(me, channel, 'b.txt', body('b'), 1, 'text/plain', { replace: false })).toMatchObject({ ok: true, value: { path: 'b.txt' } });
+      expect(await service.upload(me, channel, 'a.txt', body('two'), 3, 'text/plain', { replace: true })).toEqual({ ok: true, value: { path: 'a.txt', id: first.id } });
+    });
+
+    it('lists each file with its id, and folders with none', async () => {
+      const { service, me, project, kept } = await setUp();
+      const a = await kept(project, 'docs/a.txt', 'a');
+      const listed = await service.list(me, project, 'docs');
+      expect(listed).toMatchObject({ ok: true, value: [{ id: a.id, path: 'docs/a.txt', type: 'file' }] });
+      const root = await service.list(me, project, '');
+      expect(root.ok && root.value[0]).toEqual({ name: 'docs', path: 'docs', type: 'dir' });
+      expect(await service.search(me, project, 'a.txt')).toMatchObject({ ok: true, value: [{ id: a.id, path: 'docs/a.txt' }] });
+    });
+
+    it('keeps a drop of several files where it was dropped, each byte for byte under an id of its own', async () => {
+      const { service, me } = await setUp();
+      const chat: FileScope = { kind: 'conversation', conversationId: `c-${randomUUID().slice(0, 8)}` };
+      const png = Buffer.from([0x89, 0x50, 0x0a, 0x00, 0xff]);
+      const drop = dropBody({ dir: 'shots' }, [{ path: 'a.png', bytes: png }, { path: 'deep/b.txt', bytes: Buffer.from('b'), type: 'text/markdown' }, { path: 'empty.txt', bytes: Buffer.alloc(0) }]);
+      const dropped = await service.drop(me, chat, Readable.from([drop]), drop.length);
+      if (!dropped.ok) throw new Error(dropped.why);
+      expect(dropped.value.files.map((file) => file.path)).toEqual(['shots/a.png', 'shots/deep/b.txt', 'shots/empty.txt']);
+      expect(new Set(dropped.value.files.map((file) => file.id)).size).toBe(3);
+      const a = await service.download(me, chat, 'shots/a.png');
+      if (!a.ok) throw new Error(a.why);
+      expect([a.value.contentType, await bytesOf(a.value.stream)]).toEqual(['image/png', png]);
+      const b = await service.downloadById(me, dropped.value.files[1]!.id);
+      if (!b.ok) throw new Error(b.why);
+      expect([b.value.contentType, (await bytesOf(b.value.stream)).toString()]).toEqual(['text/markdown', 'b']);
+      expect(await service.list(me, chat, 'shots')).toMatchObject({ ok: true, value: [{ path: 'shots/deep', type: 'dir' }, { path: 'shots/a.png', size: 5 }, { path: 'shots/empty.txt', size: 0 }] });
+    });
+
+    it('refuses a drop naming every file already there, keeping none of it, and keeps it all when told to replace', async () => {
+      const { service, me, project, kept } = await setUp();
+      const a = await kept(project, 'a.txt', 'old a');
+      await kept(project, 'c/d.txt', 'old d');
+      const files = ['a.txt', 'b.txt', 'c/d.txt'].map((path) => ({ path, bytes: Buffer.from(`new ${path}`) }));
+      const refused = await service.drop(me, project, Readable.from([dropBody({}, files)]), undefined);
+      expect(refused).toEqual({ ok: false, status: 409, why: '2 files are already there: a.txt, c/d.txt', exists: ['a.txt', 'c/d.txt'] });
+      expect(await service.download(me, project, 'b.txt')).toMatchObject({ ok: false, status: 404 });
+      const stillA = await service.download(me, project, 'a.txt');
+      expect(stillA.ok && (await bytesOf(stillA.value.stream)).toString()).toBe('old a');
+      const replaced = await service.drop(me, project, Readable.from([dropBody({ replace: true }, files)]), undefined);
+      if (!replaced.ok) throw new Error(replaced.why);
+      expect(replaced.value.files.find((file) => file.path === 'a.txt')?.id).toBe(a.id);
+      const newA = await service.download(me, project, 'a.txt');
+      expect(newA.ok && (await bytesOf(newA.value.stream)).toString()).toBe('new a.txt');
+    });
+
+    it('refuses a drop larger than the room left before keeping any of it, and a drop that is not one', async () => {
+      const { service, me, project } = await setUp();
+      const free = (await service.room()).free;
+      expect(free).toBeGreaterThan(0);
+      const drop = dropBody({}, [{ path: 'a.txt', bytes: Buffer.from('a') }]);
+      expect(await service.drop(me, project, Readable.from([drop]), free * 2)).toMatchObject({ ok: false, status: 507, needed: free * 2 });
+      expect(await service.drop(me, project, Readable.from([dropBody({}, [])]), undefined)).toEqual({ ok: false, status: 400, why: 'nothing was dropped' });
+      expect(await service.list(me, project, '')).toEqual({ ok: true, value: [] });
     });
 
     it('lists, searches, makes folders, moves and removes, refusing what is not there', async () => {

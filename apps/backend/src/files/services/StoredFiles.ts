@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { Transform, type Readable } from 'node:stream';
+import { alreadyThere, noRoomFor } from '../lib/file-room.js';
 import { cleanPath, type FileEntry } from '../lib/file-places.js';
 import {
   FOLDER_TYPE, isUnder, listing, scopeProblem, searching, sameScope, touchDue, uploadPlan,
-  type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope,
+  type CommitPlan, type FilesRefusal, type StoredFileCommit, type StoredFileRecord, type StoredScope,
 } from '../lib/stored-files.js';
 import type { FilesStore } from '../store.js';
 import type { ObjectStore } from './ObjectStore.js';
 
-export type StoredOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409; why: string };
+export type StoredOutcome<T> = { ok: true; value: T } | FilesRefusal;
 
 export interface StoredFileCommits {
   commit(ownerId: string, commits: readonly StoredFileCommit[], options: { replace: boolean }): Promise<CommitPlan>;
@@ -22,6 +23,7 @@ export interface StoredFilesDeps {
   records: StoredFileRecords;
   objects: ObjectStore;
   commits: StoredFileCommits;
+  room: () => Promise<number>;
   now?: () => number;
   newId?: () => string;
 }
@@ -38,6 +40,8 @@ export interface UploadOptions {
 
 const refused = <T>(status: 400 | 404 | 409, why: string): StoredOutcome<T> => ({ ok: false, status, why });
 
+const asIfKept = (record: StoredFileRecord): StoredFileRecord => ({ ...record, state: 'stored' });
+
 export class StoredFiles {
   private readonly now: () => number;
   private readonly newId: () => string;
@@ -51,6 +55,10 @@ export class StoredFiles {
     const problem = scopeProblem(scope);
     if (problem) throw new Error(problem);
     return new Folder(this.deps, ownerId, { ...scope }, this.now, this.newId);
+  }
+
+  room(): Promise<number> {
+    return this.deps.room();
   }
 
   async byId(ownerId: string, id: string): Promise<StoredDownload | undefined> {
@@ -125,44 +133,16 @@ export class Folder {
     return { ok: true, value: { record, body: await this.deps.objects.get(record.objectId) } };
   }
 
-  async upload(path: string, body: Readable, size: number | undefined, contentType: string, options: UploadOptions): Promise<StoredOutcome<StoredFileRecord>> {
-    const cleaned = cleanPath(path);
-    if (!cleaned.ok) return refused(400, cleaned.why);
-    const records = await this.records();
-    const plan = uploadPlan(records, cleaned.path);
-    if (!plan.ok) return plan;
-    if (!options.replace && records.some((record) => record.kind === 'file' && record.path === cleaned.path)) return refused(409, `${cleaned.path} is already there, and it may not be replaced`);
-    const at = this.iso();
-    const id = this.newId();
-    const record: StoredFileRecord = {
-      id, objectId: id, ownerId: this.ownerId, scope: this.scope, path: cleaned.path, kind: 'file', size: 0, contentType,
-      version: 0, madeAt: at, changedAt: at, state: 'uploading', touchedAt: at,
-      ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
-    };
-    await this.deps.records.beginStoredFile(record);
-    await this.deps.objects.put(record.objectId, body.pipe(this.touching(record.id)), size, contentType);
-    const stat = await this.deps.objects.stat(record.objectId);
-    if (!stat) throw new Error(`the bytes of ${cleaned.path} were sent to the instance's MinIO and are not there`);
-    const committed = await this.deps.commits.commit(this.ownerId, [{ id: record.id, size: stat.size }], { replace: options.replace });
-    if (!committed.ok) return committed;
-    return { ok: true, value: committed.stored[0]! };
+  async startBatch(options: UploadOptions): Promise<UploadBatch> {
+    return new UploadBatch(this.deps, this.ownerId, this.scope, await this.records(), options, this.now, this.newId);
   }
 
-  private touching(id: string): Transform {
-    let last = this.now();
-    const { records } = this.deps;
-    const now = this.now;
-    return new Transform({
-      transform(chunk: Buffer, _encoding, done) {
-        const at = now();
-        if (!touchDue(last, at)) {
-          done(null, chunk);
-          return;
-        }
-        last = at;
-        records.touchStoredFile(id, new Date(at).toISOString()).then(() => done(null, chunk), (err: unknown) => done(err as Error));
-      },
-    });
+  async upload(path: string, body: Readable, size: number | undefined, contentType: string, options: UploadOptions): Promise<StoredOutcome<StoredFileRecord>> {
+    const batch = await this.startBatch(options);
+    const added = await batch.add(path, body, size, contentType);
+    if (!added.ok) return added;
+    const kept = await batch.keep();
+    return kept.ok ? { ok: true, value: kept.value[0]! } : kept;
   }
 
   async makeFolder(path: string): Promise<StoredOutcome<{ path: string; made: boolean }>> {
@@ -198,5 +178,86 @@ export class Folder {
     const going = await this.records();
     if (going.length > 0) await this.deps.commits.remove(this.ownerId, going);
     return going.length;
+  }
+}
+
+export class UploadBatch {
+  private readonly begun: StoredFileRecord[] = [];
+  private readonly commits: StoredFileCommit[] = [];
+
+  constructor(
+    private readonly deps: StoredFilesDeps,
+    readonly ownerId: string,
+    readonly scope: StoredScope,
+    private readonly there: readonly StoredFileRecord[],
+    readonly options: UploadOptions,
+    private readonly now: () => number,
+    private readonly newId: () => string,
+  ) {}
+
+  get replace(): boolean {
+    return this.options.replace;
+  }
+
+  check(path: string): StoredOutcome<{ path: string; taken: boolean }> {
+    const cleaned = cleanPath(path);
+    if (!cleaned.ok) return refused(400, cleaned.why);
+    if (this.begun.some((record) => record.path === cleaned.path)) return refused(409, `${cleaned.path} is uploaded twice at once`);
+    const plan = uploadPlan([...this.there, ...this.begun.map(asIfKept)], cleaned.path);
+    if (!plan.ok) return plan;
+    const taken = this.there.some((record) => record.state === 'stored' && record.kind === 'file' && record.path === cleaned.path);
+    return { ok: true, value: { path: cleaned.path, taken } };
+  }
+
+  async add(path: string, body: Readable, size: number | undefined, contentType: string): Promise<StoredOutcome<StoredFileRecord>> {
+    const checked = this.check(path);
+    if (!checked.ok) return checked;
+    const at = checked.value.path;
+    if (checked.value.taken && !this.options.replace) return { ok: false, status: 409, why: alreadyThere([at]), exists: [at] };
+    const noRoom = noRoomFor(size, await this.deps.room());
+    if (noRoom) return { ok: false, status: 507, ...noRoom };
+    const madeAt = new Date(this.now()).toISOString();
+    const id = this.newId();
+    const record: StoredFileRecord = {
+      id, objectId: id, ownerId: this.ownerId, scope: this.scope, path: at, kind: 'file', size: 0, contentType,
+      version: 0, madeAt, changedAt: madeAt, state: 'uploading', touchedAt: madeAt,
+      ...(this.options.expiresAt ? { expiresAt: this.options.expiresAt } : {}),
+    };
+    await this.deps.records.beginStoredFile(record);
+    this.begun.push(record);
+    await this.deps.objects.put(record.objectId, body.pipe(this.touching(record.id)), size, contentType);
+    const stat = await this.deps.objects.stat(record.objectId);
+    if (!stat) throw new Error(`the bytes of ${at} were sent to the instance's MinIO and are not there`);
+    this.commits.push({ id: record.id, size: stat.size });
+    return { ok: true, value: record };
+  }
+
+  async keep(): Promise<StoredOutcome<StoredFileRecord[]>> {
+    if (this.commits.length === 0) return refused(400, 'nothing was uploaded');
+    if (this.commits.length < this.begun.length) throw new Error('a file of this upload is still arriving, so the upload cannot be kept yet');
+    const committed: CommitPlan = await this.deps.commits.commit(this.ownerId, this.commits, { replace: this.options.replace });
+    if (!committed.ok) return committed;
+    return { ok: true, value: committed.stored };
+  }
+
+  async abandon(): Promise<void> {
+    if (this.begun.length > 0) await this.deps.commits.remove(this.ownerId, this.begun);
+  }
+
+  private touching(id: string): Transform {
+    let last = this.now();
+    const { records } = this.deps;
+    const now = this.now;
+    return new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        const at = now();
+        if (!touchDue(last, at)) {
+          done(null, chunk);
+          return;
+        }
+        last = at;
+        records.touchStoredFile(id, new Date(at).toISOString()).then(() => done(null, chunk), (err: unknown) => done(err as Error));
+      },
+    });
   }
 }

@@ -9,7 +9,10 @@ export interface DropSettings {
   ref?: string
   message?: string
   leafId?: string
+  replace?: boolean
 }
+
+export const DROP_TYPE = 'application/vnd.koala.drop'
 
 export interface DroppedCode {
   path: string

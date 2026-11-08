@@ -4,10 +4,11 @@ import { errorMessage } from '../../../api/client'
 import { storedFileUrl } from '../api/files'
 import { joinPath, pickedFiles, sizeText, type PickedFile } from '../lib/file-drop'
 import { MOVE_TYPE, moveInto, parentOf, sortEntries, type SortBy } from '../lib/file-browser'
+import { movePrompt, replacePrompt, roomText } from '../lib/file-upload'
 import type { FileScope, StoredFile } from '../types'
 import DropTarget from './DropTarget'
 import StoredFilePreview from './StoredFilePreview'
-import { useStoredChanges, useStoredFiles, useStoredSearch, useStoredUpload } from '../shared'
+import { useStoredChanges, useStoredFiles, useStoredSearch, useStoredUpload, type Move, type UploadProgress } from '../shared'
 
 const row = 'group flex items-center gap-1 rounded px-1 py-0.5 text-[12px]'
 const tool = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-[var(--bark-700)] hover:text-slate-200 disabled:opacity-50'
@@ -21,7 +22,23 @@ interface Browsing {
   open: (path: string) => void
   add: (dir: string, picked: PickedFile[]) => void
   moveTo: (paths: readonly string[], folder: string) => void
+  move: (moves: readonly Move[]) => void
 }
+
+function Ask({ text, yes, onYes, onNo }: { text: string; yes: string; onYes: () => void; onNo: () => void }) {
+  return (
+    <div role="alertdialog" aria-label={text} className="mb-1 flex flex-wrap items-center gap-1.5 rounded border border-amber-800/40 bg-amber-950/30 px-1.5 py-1 text-[11px]">
+      <span className="min-w-0 flex-1 text-amber-200">{text}</span>
+      <button type="button" onClick={onYes} className="shrink-0 rounded bg-red-700 px-1.5 py-0.5 text-white hover:bg-red-600">{yes}</button>
+      <button type="button" onClick={onNo} className="shrink-0 rounded px-1.5 py-0.5 text-slate-300 hover:bg-[var(--bark-700)]">Cancel</button>
+    </div>
+  )
+}
+
+const progressText = (progress: UploadProgress): string =>
+  progress.current === undefined
+    ? `Uploading ${progress.total} files (${Math.round(progress.share * 100)}%)`
+    : `Uploading ${progress.current} (${progress.done + 1} of ${progress.total}, ${Math.round(progress.share * 100)}%)`
 
 const draggedPaths = (event: DragEvent): string[] => {
   const raw = event.dataTransfer.getData(MOVE_TYPE)
@@ -52,7 +69,7 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState<string | undefined>()
   const [removing, setRemoving] = useState(false)
-  const { remove, move } = useStoredChanges(browsing.scope)
+  const { remove } = useStoredChanges(browsing.scope)
   const chosen = browsing.selected.has(entry.path)
 
   const dragging = !browsing.rearranges ? {} : {
@@ -82,7 +99,7 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
       onChange={(event) => setRenaming(event.target.value)}
       onKeyDown={(event) => {
         if (event.key === 'Escape') setRenaming(undefined)
-        if (event.key === 'Enter' && renaming.trim() && renaming.trim() !== entry.name) { move.mutate({ from: entry.path, to: joinPath(parentOf(entry.path), renaming.trim()) }); setRenaming(undefined) }
+        if (event.key === 'Enter' && renaming.trim() && renaming.trim() !== entry.name) { browsing.move([{ from: entry.path, to: joinPath(parentOf(entry.path), renaming.trim()) }]); setRenaming(undefined) }
       }}
       onBlur={() => setRenaming(undefined)}
       className="min-w-0 flex-1 rounded border border-[var(--leaf-stem)] bg-[var(--bark-900)] px-1 text-[12px] text-slate-200 outline-none"
@@ -154,13 +171,15 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', onOpen, 
   const [moving, setMoving] = useState<string | undefined>()
   const [removing, setRemoving] = useState(false)
   const [previewing, setPreviewing] = useState<string | undefined>()
-  const moveTo = (paths: readonly string[], folder: string) => {
-    const moves = paths.flatMap((from) => {
-      const to = moveInto(from, folder)
-      return to ? [{ from, to }] : []
-    })
-    if (moves.length) changes.moveMany.mutate(moves, { onSuccess: () => setSelected(new Set()) })
+  const move = (moves: readonly Move[], confirmed = false) => {
+    if (moves.length) changes.moveMany.mutate({ moves, confirmed }, { onSuccess: (outcome) => { if (outcome.kind === 'moved') setSelected(new Set()) } })
   }
+  const moveTo = (paths: readonly string[], folder: string) => move(paths.flatMap((from) => {
+    const to = moveInto(from, folder)
+    return to ? [{ from, to }] : []
+  }))
+  const asked = upload.data
+  const movingAsk = changes.moveMany.data?.kind === 'links' ? changes.moveMany.data : undefined
 
   const browsing: Browsing = {
     scope,
@@ -169,8 +188,9 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', onOpen, 
     selected,
     toggle: (path) => setSelected((was) => { const next = new Set(was); if (next.has(path)) next.delete(path); else next.add(path); return next }),
     open: (path) => (onOpen ? onOpen(path) : setPreviewing(path)),
-    add: (into, picked) => upload.mutate({ dir: into, picked }),
+    add: (into, picked) => upload.mutate({ upload: { dir: into, picked }, replace: false }),
     moveTo,
+    move,
   }
   const failure = upload.error ?? changes.moveMany.error ?? changes.removeMany.error ?? changes.makeFolder.error
 
@@ -240,7 +260,14 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', onOpen, 
           <button type="button" onClick={() => setSelected(new Set())} className={`${tool} ml-auto`}>Clear</button>
         </div>
       )}
-      {progress && <p className="text-[11px] text-sky-300">Uploading {progress.current} ({progress.done + 1} of {progress.total}, {Math.round(progress.share * 100)}%)</p>}
+      {asked?.kind === 'taken' && upload.variables && (
+        <Ask text={replacePrompt(asked.paths)} yes="Replace" onYes={() => upload.mutate({ upload: upload.variables!.upload, replace: true })} onNo={() => upload.reset()} />
+      )}
+      {asked?.kind === 'room' && <p role="alert" className="text-[11px] text-red-300">{roomText(asked.needed, asked.free)}</p>}
+      {movingAsk && changes.moveMany.variables && (
+        <Ask text={movePrompt(movingAsk, changes.moveMany.variables.moves.length > 1)} yes="Move anyway" onYes={() => move(changes.moveMany.variables!.moves, true)} onNo={() => changes.moveMany.reset()} />
+      )}
+      {progress && <p className="text-[11px] text-sky-300">{progressText(progress)}</p>}
       {(changes.moveMany.isPending || changes.removeMany.isPending) && <p className="text-[11px] text-sky-300"><Loader2 size={11} className="inline animate-spin" /> Working…</p>}
       {failure && <p role="alert" className="text-[11px] text-red-300">{errorMessage(failure)}</p>}
       {query.trim() ? <Found query={query} browsing={browsing} /> : <FolderList dir={dir} depth={0} browsing={browsing} />}

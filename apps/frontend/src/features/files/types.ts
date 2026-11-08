@@ -9,6 +9,7 @@ export interface StoredFile {
   type: 'file' | 'dir'
   size?: number
   modified?: string
+  id?: string
 }
 
 export interface MessageAttachment {
@@ -33,6 +34,7 @@ export interface FileShare {
   token: string
   ownerId: string
   projectId?: string
+  fileId?: string
   path: string
   name: string
   createdAt: string

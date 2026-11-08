@@ -45,6 +45,16 @@ describe('a drop of files onto a repository, read as it arrives', () => {
     expect(refusal(Buffer.alloc(MAX_DROP_LINE + 1, 0x61))).toEqual({ kind: 'refused', why: 'a line of the drop is too long to name a file' });
   });
 
+  it('says whether the drop may replace what is there only when it says so, and carries each file\'s type', () => {
+    const replacing = readAll(dropBody({ dir: 'docs', replace: true }, [{ path: 'a.pdf', bytes: Buffer.from('x'), type: 'application/pdf' }, { path: 'b', bytes: Buffer.from('y') }]));
+    expect(replacing[0]).toEqual({ kind: 'settings', settings: { dir: 'docs', ref: undefined, message: undefined, leafId: undefined, replace: true } });
+    expect(replacing.filter((event) => event.kind === 'file')).toEqual([{ kind: 'file', path: 'docs/a.pdf', size: 1, type: 'application/pdf' }, { kind: 'file', path: 'docs/b', size: 1 }]);
+    const keeping = readAll(Buffer.concat([dropLine({ dir: '', replace: 'yes' }), dropLine({ path: 'a', size: 0 })]));
+    expect(keeping[0]).toEqual({ kind: 'settings', settings: { dir: '', ref: undefined, message: undefined, leafId: undefined } });
+    const badType = readAll(Buffer.concat([dropLine({}), dropLine({ path: 'a', size: 0, type: 7 })]));
+    expect(badType.find((event) => event.kind === 'refused')).toEqual({ kind: 'refused', why: 'the type of a is not a media type' });
+  });
+
   it('names the commit after what was dropped unless the person said something', () => {
     expect(dropMessage([{ path: 'a.ts' }])).toBe('Add a.ts');
     expect(dropMessage([{ path: 'a.ts' }, { path: 'b.ts' }])).toBe('Add 2 files');

@@ -181,6 +181,24 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       expect(Date.parse(bound!.updatedAt)).toBeGreaterThanOrEqual(before - 1000);
       expect(await store.getConversation('owner-1', 'chat-2')).not.toHaveProperty('projectId');
     });
+    it('drops attachments that name no kept file from every message, keeping the messages and anything else, once', async () => {
+      const store = await make();
+      const kept = { fileId: 'f1', name: 'brief.pdf', size: 3 };
+      const old = { name: 'old.pdf', path: 'attachments/old.pdf' } as unknown as typeof kept;
+      const blank = { fileId: '', name: 'blank.txt' };
+      const mixed: ConversationMessage = { ...said('both', 1), attachments: [kept, old] };
+      const onlyOld: ConversationMessage = { ...said('only the old one', 2), attachments: [old, blank] };
+      const untouched: ConversationMessage = { ...said('kept only', 3), attachments: [kept] };
+      await store.saveConversation(conversation({ messages: [mixed, onlyOld, said('none', 4)] }));
+      await store.saveConversation(conversation({ id: 'chat-2', messages: [untouched] }));
+      await store.saveConversation(conversation({ id: 'chat-3', ownerId: 'owner-2', messages: [{ ...said('theirs', 1), attachments: [old] }] }));
+      expect(await store.dropUnkeptAttachments()).toBe(2);
+      expect((await store.getConversation('owner-1', 'chat-1'))?.messages).toEqual([{ ...said('both', 1), attachments: [kept] }, said('only the old one', 2), said('none', 4)]);
+      expect((await store.getConversation('owner-1', 'chat-2'))?.messages).toEqual([untouched]);
+      expect((await store.getConversation('owner-2', 'chat-3'))?.messages).toEqual([said('theirs', 1)]);
+      expect(await store.dropUnkeptAttachments()).toBe(0);
+      expect((await store.getConversation('owner-1', 'chat-1'))?.messages).toEqual([{ ...said('both', 1), attachments: [kept] }, said('only the old one', 2), said('none', 4)]);
+    });
   });
 
   describe('the turn log', () => {

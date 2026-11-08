@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { cleanPath } from '../../files/lib/file-places.js';
+import { sizeText } from '../../files/lib/file-room.js';
 import type { ProjectMetadata } from '../../platform/index.js';
 import type { FileScope, FileService } from '../../files/index.js';
 import { LIST_FILES, READ_STORED_FILE, REMOVE_STORED_FILE, STORE_FILE } from './catalogue.js';
@@ -21,7 +22,6 @@ const text = (value: unknown): string | undefined => (typeof value === 'string' 
 const TEXTUAL = /^(text\/|application\/(json|xml|yaml|x-yaml|javascript|csv|x-sh|sql))/;
 const TEXT_NAMES = /\.(txt|md|markdown|csv|tsv|json|ya?ml|xml|html?|css|js|ts|py|sql|log|ini|toml|conf|sh|svg)$/i;
 
-const sizeText = (bytes: number): string => (bytes < 1024 ? `${bytes} bytes` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
 
 export function createFilesTools(deps: FilesToolDeps | undefined): Record<string, ToolHandler> {
   if (!deps) {
@@ -109,7 +109,7 @@ export function createFilesTools(deps: FilesToolDeps | undefined): Record<string
       if ('refused' in path) return path.refused;
       if (typeof args.content !== 'string') return refuse('give the text to store as content');
       const bytes = Buffer.from(args.content, 'utf8');
-      const stored = await deps.files.upload(caller.ownerId!, where.scope, path.path, Readable.from([bytes]), bytes.length, TEXT_NAMES.test(path.path) && /\.md$/i.test(path.path) ? 'text/markdown' : 'text/plain; charset=utf-8');
+      const stored = await deps.files.upload(caller.ownerId!, where.scope, path.path, Readable.from([bytes]), bytes.length, TEXT_NAMES.test(path.path) && /\.md$/i.test(path.path) ? 'text/markdown' : 'text/plain; charset=utf-8', { replace: true });
       if (!stored.ok) return refuse(stored.why);
       return { ok: true, digest: `stored ${path.path}`, content: `Stored ${path.path} in ${where.named} (${sizeText(bytes.length)}).` };
     },

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import { uploadStoredFile } from '../../files'
-import { attachmentPlace, type PickedFile } from '../../files'
+import { attachmentName, attachmentPlace, isNameTaken, numberedName, type PickedFile } from '../../files'
 import type { MessageAttachment } from '../../files'
 
 export interface ChatAttachment {
@@ -26,14 +26,21 @@ export function useChatAttachments(project: { id: string; name: string } | undef
       const key = `${Date.now()}-${counter}`
       setAttached((all) => [...all, { key, name: one.file.name, size: one.file.size, state: 'uploading', share: 0 }])
       conversation()
-        .then((conversationId) => {
-          const place = attachmentPlace(conversationId, project?.id, one.file.name)
-          return uploadStoredFile(place.scope, place.path, one.file, (share) => change(key, { share }))
+        .then(async (conversationId) => {
+          for (let n = 1; ; n += 1) {
+            const place = attachmentPlace(conversationId, project?.id, one.file.name, n)
+            try {
+              return { ...(await uploadStoredFile(place.scope, place.path, one.file, (share) => change(key, { share }))), name: numberedName(attachmentName(one.file.name), n) }
+            } catch (err) {
+              if (!isNameTaken(err)) throw err
+            }
+          }
         })
-        .then(({ id }) => change(key, {
+        .then(({ id, name }) => change(key, {
           state: 'ready',
           share: 1,
-          stored: { fileId: id, name: one.file.name, size: one.file.size, ...(one.file.type ? { type: one.file.type } : {}), ...(project ? { project } : {}) },
+          name,
+          stored: { fileId: id, name, size: one.file.size, ...(one.file.type ? { type: one.file.type } : {}), ...(project ? { project } : {}) },
         }))
         .catch((err: unknown) => change(key, { state: 'failed', why: errorMessage(err) }))
     }
