@@ -150,7 +150,7 @@ export function buildGraph(options: GraphOptions): Graph {
       return;
     }
     const known = implementations.get(keyOf(member)) ?? new Map<string, Unit | 'member'>();
-    known.set(keyOf(body), isMember(body) ? 'member' : unitAt(body));
+    known.set(keyOf(body), isMember(body) || ts.isFunctionTypeNode(body) ? 'member' : unitAt(body));
     implementations.set(keyOf(member), known);
   };
   const implementationsByKey = (key: string, seen: Set<string>): Unit[] => {
@@ -193,6 +193,12 @@ export function buildGraph(options: GraphOptions): Graph {
       if (ts.isShorthandPropertyAssignment(node)) return memberBehind(aliased(checker.getShorthandAssignmentValueSymbol(node))?.valueDeclaration, depth + 1);
       if (ts.isIdentifier(node)) return memberBehind(aliased(checker.getSymbolAtLocation(node))?.valueDeclaration, depth + 1);
       if (ts.isVariableDeclaration(node)) return memberBehind(node.initializer, depth + 1);
+      if (ts.isParameter(node) && node.type) {
+        let type: ts.TypeNode = node.type;
+        while (ts.isParenthesizedTypeNode(type)) type = type.type;
+        if (ts.isUnionTypeNode(type)) type = type.types.map((part) => (ts.isParenthesizedTypeNode(part) ? part.type : part)).find(ts.isFunctionTypeNode) ?? type;
+        return ts.isFunctionTypeNode(type) ? type : undefined;
+      }
       if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
         const property = checker.getTypeAtLocation(node.parent).getProperty((node.propertyName ?? node.name).getText());
         return property?.getDeclarations()?.find((declaration) => isMember(declaration) && ownCode(declaration.getSourceFile().fileName));

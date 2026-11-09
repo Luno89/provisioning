@@ -59,6 +59,11 @@ describe('the edge graph', () => {
     expect(graph.edges.filter((edge) => edge.site.file === 'src/handlers/waiting.ts' && edge.through === 'interface' && edge.to.length === 0)).toEqual([]);
   });
 
+  it('follows a function stored into an object from a parameter to what the callers pass for that parameter', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/stored.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toEqual(['src/handlers/token-wiring.ts#realToken']);
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);
