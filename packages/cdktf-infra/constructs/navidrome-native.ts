@@ -108,6 +108,7 @@ export class NavidromeNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "navidrome-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "navidrome",
         namespace: ns.metadata.name,

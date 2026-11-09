@@ -1,4 +1,4 @@
-export { appServiceType, COLLECTOR_OTLP_PORT, koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, TELEMETRY_SERVICES, telemetryPresent, TEMPO_PORT } from './lib/cluster-monitoring.js';
+export { appServiceType, COLLECTOR_OTLP_PORT, koalaClusterMonitoring, metricsTokenManifests, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, TELEMETRY_SERVICES, telemetryPresent, TEMPO_PORT } from './lib/cluster-monitoring.js';
 export type { TelemetrySeen } from './lib/cluster-monitoring.js';
 export { ALERT_KINDS, alertSpec, isAlertKind, isKoalaAlertKind, KOALA_ALERT_KINDS, KOALA_SUBJECT, ruleResourceName } from './lib/monitoring-alerts.js';
 export type { AlertAbout, AlertSpec, PromAlert } from './lib/monitoring-alerts.js';

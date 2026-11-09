@@ -2,6 +2,7 @@ import { Construct } from "constructs";
 import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { defaultServiceType } from "../lib/service-type.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export interface PrometheusConfig {
   readonly namespace?: string;
@@ -41,12 +42,13 @@ export class PrometheusApp extends Construct {
     }
 
     new Release(this, "prometheus-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "prometheus",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "kube-prometheus-stack",
       version: "88.6.2",
       namespace: ns.metadata.name,
-      timeout: 600,
       set: helmValues,
     });
   }

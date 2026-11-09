@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release";
 import { Namespace } from "../.gen/providers/kubernetes/namespace";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export class MonitoringStack extends Construct {
   /**
@@ -27,6 +28,7 @@ export class MonitoringStack extends Construct {
       version: "88.6.2",
       namespace: ns.metadata.name,
       wait: false,
+      timeout: HELM_CEILING_SECONDS,
       set: [
         {
           name: "grafana.enabled",

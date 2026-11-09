@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assessWorkload, creationRefused, reconciledStatus } from './workload-health.js';
+import { assessWorkload, reconciledStatus } from './workload-health.js';
 
 const pods = (...containers: object[][]) => ({
   items: containers.map((cs, i) => ({
@@ -148,21 +148,5 @@ describe('what the record should say', () => {
   it('does not rewrite a status that already agrees', () => {
     expect(reconciledStatus('running', 'healthy')).toBeUndefined();
     expect(reconciledStatus('unhealthy', 'unhealthy')).toBeUndefined();
-  });
-});
-
-describe('a workload whose pods are never made', () => {
-  it('is unhealthy, saying why, when its deployment or replica set reports the refusal', () => {
-    const refused = { items: [
-      { metadata: { name: 'audiobookshelf' }, status: { conditions: [{ type: 'Available', status: 'False' }] } },
-      { metadata: { name: 'audiobookshelf-7c9d' }, status: { conditions: [{ type: 'ReplicaFailure', status: 'True', reason: 'FailedCreate', message: 'pods "audiobookshelf-7c9d-x" is forbidden: exceeded quota: books, requested: limits.memory=2Gi' }] } },
-    ] };
-    expect(creationRefused(refused)).toEqual({ health: 'unhealthy', reason: 'audiobookshelf-7c9d cannot make its pods: pods "audiobookshelf-7c9d-x" is forbidden: exceeded quota: books, requested: limits.memory=2Gi' });
-  });
-
-  it('is left to its pods when nothing was refused', () => {
-    expect(creationRefused({ items: [{ metadata: { name: 'shop' }, status: { conditions: [{ type: 'ReplicaFailure', status: 'False' }] } }] })).toBeUndefined();
-    expect(creationRefused({ items: [] })).toBeUndefined();
-    expect(creationRefused(undefined)).toBeUndefined();
   });
 });

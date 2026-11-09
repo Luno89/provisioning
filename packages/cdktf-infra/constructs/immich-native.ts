@@ -75,6 +75,7 @@ export class ImmichNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "immich-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "immich",
         namespace: ns.metadata.name,

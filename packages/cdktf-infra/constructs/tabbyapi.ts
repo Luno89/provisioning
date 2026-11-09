@@ -307,6 +307,7 @@ export class TabbyApiApp extends Construct {
     };
 
     new Deployment(this, "tabbyapi-deployment", {
+      waitForRollout: false,
       metadata: {
         name: `${sanitizedName}-tabbyapi`,
         namespace: ns.metadata.name,
@@ -319,15 +320,6 @@ export class TabbyApiApp extends Construct {
         // Same single-replica GPU-release reasoning as vllm.ts: tear the old pod down before
         // scheduling the new one so it isn't stuck Pending on GPUs the old pod still holds.
         strategy: gpuCount > 0 ? { type: "Recreate" } : undefined,
-        // Kubernetes' own stall detector, independent of (and enforced before) the `timeouts`
-        // block below — it defaults to 600s and the API server marks the Deployment
-        // ProgressDeadlineExceeded at that point regardless of how patient Terraform is willing
-        // to be. Confirmed live: a TabbyAPI rollout (apt-get install + a multi-GB model download
-        // + GPU model load, all before the startupProbe can ever pass) blew past the 600s
-        // default and failed here even though `timeouts.create` below still had time left — and
-        // then even the first bumped value (30min) turned out not to be enough for a slow
-        // download. Matches startupProbe's own ~60min allowance so neither cuts the other off
-        // first; bump both together if 60min still isn't enough; they have to move as a pair.
         progressDeadlineSeconds: 3630,
         selector: {
           matchLabels: {
@@ -342,10 +334,6 @@ export class TabbyApiApp extends Construct {
           },
           spec: podSpec,
         },
-      },
-      timeouts: {
-        create: "65m",
-        update: "65m",
       },
     });
 

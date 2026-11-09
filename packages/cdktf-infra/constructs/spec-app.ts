@@ -78,7 +78,7 @@ export class SpecApp extends Construct {
       new PersistentVolumeClaim(this, `pvc-${i}`, {
         metadata: { ...pvc.metadata, namespace: ns.metadata.name },
         spec: pvc.spec,
-        waitUntilBound: pvc.waitUntilBound,
+        waitUntilBound: false,
       });
     });
 
@@ -91,6 +91,7 @@ export class SpecApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "deployment", {
+      waitForRollout: false,
       ...rendered.deployment,
       metadata: { ...rendered.deployment.metadata, namespace: ns.metadata.name },
     });

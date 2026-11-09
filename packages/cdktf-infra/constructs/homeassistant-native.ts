@@ -75,6 +75,7 @@ export class HomeassistantNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "homeassistant-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "homeassistant",
         namespace: ns.metadata.name,

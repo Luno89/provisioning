@@ -26,6 +26,7 @@ export interface ExecuteOptions {
   resourceId?: string | undefined;
   io?: SocketServer | undefined;
   outputsFile?: string | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export interface TerraformPlaces {
@@ -46,6 +47,16 @@ async function adoptStateFromBefore(stackName: string, places: TerraformPlaces):
     await fs.unlink(before).catch(ignore('a checkout mounted read-only keeps its copy; the state folder now holds the one Terraform uses'));
   }
 }
+
+export class TerraformStopped extends Error {
+  constructor(readonly why: string) {
+    super(`Terraform was stopped: ${why}`);
+    this.name = 'TerraformStopped';
+  }
+}
+
+const reasonOf = (reason: unknown): string => (reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : 'it was stopped');
+const stoppedBy = (signal: AbortSignal): TerraformStopped => new TerraformStopped(reasonOf(signal.reason));
 
 const sharedOutputGone = new Map<string, Promise<void>>();
 const dropSharedOutput = (stateDir: string): Promise<void> => {
@@ -157,7 +168,6 @@ export class InfrastructureService {
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
 
     return new Promise<{ stdout: string; logFile: string }>((resolve, reject) => {
-      const child = spawn(cmd, args, { cwd, env });
       let stdout = '', stderr = '';
       const broadcast = (data: string) => {
         if (options.io && options.resourceId) {
@@ -165,6 +175,18 @@ export class InfrastructureService {
         }
       };
 
+      if (options.signal?.aborted) {
+        reject(stoppedBy(options.signal));
+        return;
+      }
+      const child = spawn(cmd, args, { cwd, env, detached: Boolean(options.signal) });
+      const interrupt = () => {
+        const said = `\n--- STOPPED: ${reasonOf(options.signal?.reason)} ---\n`;
+        broadcast(said);
+        fs.appendFile(logFile, said).catch(console.error);
+        if (child.pid) process.kill(-child.pid, 'SIGINT');
+      };
+      options.signal?.addEventListener('abort', interrupt, { once: true });
       child.stdout.on('data', (data: Buffer) => {
         const chunk = data.toString();
         stdout += chunk;
@@ -180,6 +202,11 @@ export class InfrastructureService {
       });
 
       child.on('close', (code) => {
+        options.signal?.removeEventListener('abort', interrupt);
+        if (options.signal?.aborted) {
+            reject(stoppedBy(options.signal));
+            return;
+        }
         if (code === 0) {
             resolve({ stdout, logFile });
         } else {

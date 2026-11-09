@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
+import { ROLLOUT_KINDS } from '../infrastructure/lib/rollout.js';
 import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
 import { koalaClusterMonitoring } from '../monitoring/lib/cluster-monitoring.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
@@ -10,13 +11,14 @@ const PROBES = 'probes.monitoring.coreos.com\n';
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1' };
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
 
-function cluster(seen: { operator: boolean; blackbox: boolean }) {
+function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespace: string) => unknown[] }) {
   const access = mock<ClusterAccess>();
   const reached: Reach[] = [];
   access.kubectl.mockImplementation(async (target, args) => {
     reached.push(target as Reach);
     if (args[0] === 'api-resources') return seen.operator ? PROBES : '';
     if (args[0] === 'get' && args[1] === 'service') return args[2] === 'blackbox-exporter' && seen.blackbox ? 'service/blackbox-exporter' : '';
+    if (args[0] === 'get' && args[1] === ROLLOUT_KINDS) return JSON.stringify({ items: seen.rolled?.(args[3]!) ?? [] });
     return '';
   });
   access.apply.mockResolvedValue('');
@@ -93,5 +95,27 @@ describe('monitoring a cluster that cannot be reached', () => {
     steps.access.kubectl.mockRejectedValue(new Error('machine-desk is stopped until something runs on it'));
     await expect(ensureClusterMonitoring(steps, { physicalName: 'stopped-desk', reach: DESK })).rejects.toThrow('stopped until something runs on it');
     expect(steps.infra.deploy).not.toHaveBeenCalled();
+  });
+});
+
+describe('waiting for the monitoring to run', () => {
+  const exporter = (available: number) => ({ kind: 'Deployment', metadata: { name: 'blackbox-exporter', generation: 1, annotations: { 'deployment.kubernetes.io/revision': '1' } }, spec: { replicas: 1 }, status: { observedGeneration: 1, replicas: 1, updatedReplicas: 1, availableReplicas: available } });
+  const set = { kind: 'ReplicaSet', metadata: { name: 'blackbox-exporter-1', annotations: { 'deployment.kubernetes.io/revision': '1' }, ownerReferences: [{ kind: 'Deployment', name: 'blackbox-exporter' }] } };
+  const pod = (state: Record<string, unknown>) => ({ kind: 'Pod', metadata: { name: 'blackbox-exporter-1-a', ownerReferences: [{ kind: 'ReplicaSet', name: 'blackbox-exporter-1' }] }, status: { phase: 'Running', containerStatuses: [{ name: 'c', ...state }] } });
+
+  it('reads the namespaces each part installs into once Terraform is done, and ends when everything there has rolled out', async () => {
+    let reads = 0;
+    const steps = cluster({ operator: false, blackbox: false, rolled: (namespace) => (namespace === 'monitoring' && (reads += 1) < 3 ? [exporter(0), set, pod({ ready: false, state: { waiting: { reason: 'ContainerCreating' } } })] : [exporter(1), set, pod({ ready: true, state: { running: {} } })]) });
+    await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, undefined, async () => undefined);
+    const watched = steps.access.kubectl.mock.calls.filter(([, args]) => args[1] === ROLLOUT_KINDS).map(([, args]) => args[3]);
+    expect(new Set(watched)).toEqual(new Set(['monitoring', 'traefik']));
+    expect(reads).toBeGreaterThanOrEqual(3);
+  });
+
+  it('fails the install, saying why, once something it made can never run', async () => {
+    const steps = cluster({ operator: false, blackbox: false, rolled: (namespace) => (namespace === 'monitoring' ? [exporter(0), set, pod({ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } })] : []) });
+    await expect(ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, undefined, async () => undefined))
+      .rejects.toThrow('the monitoring of shop-box cannot finish: blackbox-exporter-1-a: ImagePullBackOff');
+    expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box']);
   });
 });

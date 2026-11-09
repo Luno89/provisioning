@@ -103,6 +103,7 @@ export class KavitaNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "kavita-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "kavita",
         namespace: ns.metadata.name,

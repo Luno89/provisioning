@@ -131,6 +131,7 @@ export class JellyfinNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "jellyfin-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "jellyfin",
         namespace: ns.metadata.name,

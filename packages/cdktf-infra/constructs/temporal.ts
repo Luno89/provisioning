@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export interface TemporalConfig {
   readonly namespace?: string;
@@ -29,11 +30,12 @@ export class TemporalApp extends Construct {
     }
 
     new Release(this, "temporal-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "temporal",
       repository: "https://temporal.io/charts",
       chart: "temporal",
       namespace: ns.metadata.name,
-      timeout: 600,
       set: helmValues,
     });
   }

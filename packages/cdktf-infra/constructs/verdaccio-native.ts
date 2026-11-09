@@ -172,6 +172,7 @@ export class VerdaccioNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "verdaccio-deployment", {
+      waitForRollout: false,
       metadata: { name: "verdaccio", namespace: ns.metadata.name, labels: { app: `verdaccio-${id}` } },
       spec: {
         replicas: "1",

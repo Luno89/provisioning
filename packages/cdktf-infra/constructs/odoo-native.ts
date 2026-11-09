@@ -66,6 +66,7 @@ export class OdooNativeApp extends Construct {
 
     // PostgreSQL Deployment
     new Deployment(this, "pg-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "odoo-db",
         namespace: ns.metadata.name,
@@ -160,6 +161,7 @@ export class OdooNativeApp extends Construct {
 
     // Odoo Deployment
     new Deployment(this, "odoo-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "odoo",
         namespace: ns.metadata.name,

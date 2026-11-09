@@ -4,6 +4,7 @@ import {
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
+import { applyWatched } from './watched-apply.js';
 
 export interface ResizeDiskArgs {
   name: string;
@@ -24,7 +25,7 @@ export interface ResizeDiskResult {
   msg: string;
 }
 
-export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSteps): Promise<ResizeDiskResult> {
+export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<ResizeDiskResult> {
   const reach = handedReach(args);
   const physicalName = args.clusterName;
   const deploymentId = args.deploymentId || 'default';
@@ -41,7 +42,7 @@ export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSte
     ...StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage),
   };
 
-  await steps.infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile: args.logFile, env });
+  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile: args.logFile, env }, { what: args.name, reach, namespaces: [namespaceOf(args)], signal });
 
   return { status: 'resize_complete', msg: `Disk resize requested for ${args.name}` };
 }

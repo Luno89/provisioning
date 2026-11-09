@@ -1,5 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
-import { assessWorkload } from '../infrastructure/index.js';
+import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne } from '../infrastructure/index.js';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
 export interface NamespacedCluster {
@@ -18,21 +18,16 @@ export const inNamespace = (manifest: Record<string, unknown>, namespace: string
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const rolledOut = (said: string): boolean => /successfully rolled out|roll out complete|rolling update complete/i.test(said);
-
 export async function waitUntilRolledOut(cluster: NamespacedCluster, workload: string, watch: JobWatch): Promise<void> {
-  const prefix = `${workload.slice(workload.indexOf('/') + 1)}-`;
   const waiting = waitingOn(`the rollout of ${workload}`);
   for (;;) {
     watch.beat(workload);
     watch.stopped?.();
-    const said = await cluster.kubectl(['rollout', 'status', workload, '--watch=false']).catch((err: unknown) => { waiting(err); return ''; });
-    if (rolledOut(said)) return;
-    const pods = await cluster.kubectl(['get', 'pods', '-o', 'json']).catch((err: unknown) => { waiting(err); return ''; });
-    if (pods) {
-      const mine = { items: ((JSON.parse(pods) as { items?: { metadata?: { name?: string } }[] }).items ?? []).filter((pod) => pod.metadata?.name?.startsWith(prefix)) };
-      const health = assessWorkload(mine);
-      if (health.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${workload} cannot become ready: ${health.reason}`);
+    const listed = await cluster.kubectl(['get', ROLLOUT_KINDS, '-o', 'json']).then((said) => JSON.parse(said) as unknown).catch((err: unknown) => { waiting(err); return undefined; });
+    if (listed !== undefined) {
+      const rollout = rolloutOfOne(listed, workload);
+      if (rollout.state === 'done') return;
+      if (rollout.state === 'hopeless') throw ApplicationFailure.nonRetryable(`${workload} cannot become ready: ${rollout.reason}`);
     }
     await sleep(watch.pollMs ?? 5_000);
   }

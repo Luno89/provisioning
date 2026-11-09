@@ -8,6 +8,7 @@ import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } fro
 import { createDatabase, type DatabaseSettings } from '../platform/index.js';
 
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
@@ -128,8 +129,8 @@ async function rememberMetricsToken(database: DatabaseSettings, clusterId: strin
   }
 }
 
-export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps): Promise<DeployAppResult> {
-  const { access, infra } = steps;
+export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<DeployAppResult> {
+  const { access } = steps;
   if (args.modules && args.modules.length > 0) {
     throw ApplicationFailure.nonRetryable(`${args.name} names Odoo modules to build into its image, and that image would be built in this computer's Docker, where no cluster Koala reaches pulls from; release the modules through the project's repository instead`, 'ModulesImageUnreachable');
   }
@@ -419,10 +420,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     ...(reach.kind === 'koala' ? { koala: true } : {}),
     ...(reach.kind === 'machine' ? { machine: { metricsUrl: metricsUrlOf(steps.machineMetricsUrl), remember: (tokenHash: string) => rememberMetricsToken(steps.database, args.clusterId, tokenHash) } } : {}),
   }, logFile);
-  await infra.deploy(
-    `app-${physicalName}-${deploymentId}`,
-    { logFile, env },
-  );
+  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
 
   if (args.appType === 'gitapp') {
     const { gitea } = steps;
@@ -470,8 +468,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
           '--dry-run=client', '-o', 'yaml'],
       );
       await access.apply(reach, secretYaml);
-      await kubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace])
-        .catch((err: unknown) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${messageOf(err)}`));
+      await kubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace]);
     }
   }
 

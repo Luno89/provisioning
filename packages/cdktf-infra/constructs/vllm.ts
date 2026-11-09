@@ -208,6 +208,7 @@ export class VllmApp extends Construct {
     };
 
     new Deployment(this, "vllm-deployment", {
+      waitForRollout: false,
       metadata: {
         name: `${sanitizedName}-vllm`,
         namespace: ns.metadata.name,
@@ -232,10 +233,6 @@ export class VllmApp extends Construct {
           },
           spec: podSpec,
         },
-      },
-      timeouts: {
-        create: "65m",
-        update: "65m",
       },
     });
 

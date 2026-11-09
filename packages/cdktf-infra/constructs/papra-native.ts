@@ -103,6 +103,7 @@ export class PapraNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "papra-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "papra",
         namespace: ns.metadata.name,

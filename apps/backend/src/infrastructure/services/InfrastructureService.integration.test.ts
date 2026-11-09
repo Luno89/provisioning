@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { InfrastructureService, type TerraformPlaces } from './InfrastructureService.js';
+import { InfrastructureService, TerraformStopped, type TerraformPlaces } from './InfrastructureService.js';
 import { terraformCliConfig } from '../lib/terraform-state.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../');
@@ -57,6 +57,7 @@ async function standUp(home: 'local' | 'kubernetes'): Promise<Stand> {
     'for (const id of ["desk", "shelf"]) {',
     '  const stack = new TerraformStack(app, id);',
     '  new TerraformResource(stack, "thing", { terraformResourceType: "terraform_data" }).addOverride("input", process.env.INPUT ?? "one");',
+    '  if (process.env.HANG) new TerraformResource(stack, "slow", { terraformResourceType: "terraform_data" }).addOverride("provisioner", [{ "local-exec": { command: "sleep 600" } }]);',
     `  if (process.env.CDKTF_STATE_NAMESPACE) new LocalBackend(stack, { path: ${JSON.stringify(cluster)} + "/" + process.env.CDKTF_STATE_NAMESPACE + "-" + id + ".tfstate" });`,
     '}',
     'if (!process.env.CDKTF_STATE_NAMESPACE) keepState(app, process.env);',
@@ -100,6 +101,26 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     expect((await resourcesIn(path.join(stand.places.stateDir, 'terraform.desk.tfstate')))[0]?.instances[0]?.attributes.input.value).toBe('for the desk');
     expect((await resourcesIn(path.join(stand.places.stateDir, 'terraform.shelf.tfstate')))[0]?.instances[0]?.attributes.input.value).toBe('for the shelf');
     expect(await readdir(stand.places.runsDir)).toEqual([]);
+  }, 180_000);
+
+  it('stops Terraform when told to, saying why, and leaves the stack free for the next run', async () => {
+    const service = new InfrastructureService(stand.places);
+    const logFile = path.join(stand.root, 'stopped.log');
+    const stop = new AbortController();
+    const deploying = service.deploy('shelf', { logFile, env: { HANG: '1' }, signal: stop.signal });
+    const settled = deploying.then(() => 'applied', (err: unknown) => err);
+    while (!(await readFile(logFile, 'utf8').catch(() => '')).includes('local-exec')) {
+      if (await Promise.race([settled, new Promise((done) => { setTimeout(() => done(undefined), 200); })])) break;
+    }
+    const startedAt = Date.now();
+    stop.abort(new Error('the person stopped the deploy'));
+    const ended = await settled;
+    expect(ended).toBeInstanceOf(TerraformStopped);
+    expect((ended as Error).message).toBe('Terraform was stopped: the person stopped the deploy');
+    expect(Date.now() - startedAt).toBeLessThan(60_000);
+    expect(await readFile(logFile, 'utf8')).toContain('STOPPED: the person stopped the deploy');
+    expect(await readdir(stand.places.runsDir)).toEqual([]);
+    await service.deploy('shelf', { logFile: path.join(stand.root, 'after-stop.log') });
   }, 180_000);
 
   it('removes the run\'s folder when the run fails too', async () => {

@@ -72,6 +72,12 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
   };
 }
 
+export const INGRESS_NAMESPACE = 'traefik';
+
+export function monitoringNamespaces(part: MonitoringStackPart, keepIngress: boolean): string[] {
+  return part === 'cluster' && !keepIngress ? ['monitoring', INGRESS_NAMESPACE] : ['monitoring'];
+}
+
 export function monitoringStackName(physicalName: string, part: MonitoringStackPart): string {
   return part === 'cluster' ? physicalName : `${physicalName}-observability`;
 }

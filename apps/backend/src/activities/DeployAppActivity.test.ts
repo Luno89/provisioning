@@ -51,6 +51,8 @@ beforeEach(async () => {
     if (args[0] === 'get' && args[1] === 'service') return `service/${args[2]}`;
     if (args[0] === 'get' && args[1] === 'nodes') return nodes;
     if (args[0] === 'create' && args.includes('--dry-run=client')) return 'apiVersion: v1\nkind: Secret\n';
+    if (args[0] === 'get' && args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
+    if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
     return '';
   });
   infra.deploy.mockResolvedValue({ stdout: '', logFile: LOG });
@@ -60,7 +62,7 @@ describe('deploying an app on the cluster it was handed', () => {
   it('applies the app\'s stack with that cluster\'s kubeconfig and no context, and reaches nothing else', async () => {
     const done = await DeployAppActivity(deploy(), steps());
     expect(done.status).toBe('running');
-    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine-desk', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'blog-1a2b3c', APP_SERVICE_TYPE: 'NodePort' }) as unknown });
+    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine-desk', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'blog-1a2b3c', APP_SERVICE_TYPE: 'NodePort' }) as unknown, signal: expect.any(AbortSignal) as unknown });
     expect(infra.deploy.mock.calls.at(-1)![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
     expect(infra.deploy.mock.calls.at(-1)![1]?.env).not.toHaveProperty('SELF_MANAGED_K8S');
     expect(new Set(reached)).toEqual(new Set([DESK]));
@@ -71,6 +73,7 @@ describe('deploying an app on the cluster it was handed', () => {
     access.kubectl.mockImplementation(async (target, args) => {
       reached.push(target as Reach);
       if (args[0] === 'get' && args[1] === 'nodes') return nodes;
+      if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
       return '';
     });
     await DeployAppActivity(deploy(), steps());
@@ -111,7 +114,7 @@ describe('deploying an app on the cluster it was handed', () => {
     const POOL: Reach = { clusterId: 'pool-bob', kind: 'koala' };
     Object.defineProperty(access, 'here', { value: { root: false, poolName: 'bob' }, configurable: true });
     {
-      access.kubectl.mockImplementation(async (_target, args) => (args[0] === 'api-resources' || (args[0] === 'get' && args[1] === 'ingressclass') ? '' : ''));
+      access.kubectl.mockImplementation(async (_target, args) => (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods' ? JSON.stringify({ items: [] }) : ''));
       await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', machine: undefined }), steps());
       const [monitoring, app] = infra.deploy.mock.calls;
       expect([monitoring![0], monitoring![1]?.env]).toEqual(['pool-bob', expect.objectContaining({ CLUSTER_NAME: 'pool-bob', CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' })]);
@@ -124,6 +127,7 @@ describe('deploying an app on the cluster it was handed', () => {
     access.kubectl.mockImplementation(async (target, args) => {
       reached.push(target as Reach);
       if (args[0] === 'get' && args[1] === 'nodes') return nodes;
+      if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
       return '';
     });
     await DeployAppActivity(deploy({ clusterId: 'machine-home', reach: OWN, clusterName: 'home', machine: undefined }), steps());

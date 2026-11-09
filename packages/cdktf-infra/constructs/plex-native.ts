@@ -103,6 +103,7 @@ export class PlexNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "plex-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "plex",
         namespace: ns.metadata.name,

@@ -117,6 +117,7 @@ export class MinioNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "minio-deployment", {
+      waitForRollout: false,
       metadata: { name: "minio", namespace: ns.metadata.name, labels: { app: `minio-${id}` } },
       spec: {
         replicas: "1",

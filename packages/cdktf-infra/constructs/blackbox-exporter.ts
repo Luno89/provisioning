@@ -1,5 +1,6 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 /**
  * Installed once per cluster into the `monitoring` namespace (co-located with
@@ -11,12 +12,13 @@ export class BlackboxExporterStack extends Construct {
     super(scope, id);
 
     new Release(this, "blackbox-exporter-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "blackbox-exporter",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "prometheus-blackbox-exporter",
       version: "11.18.0",
       namespace: "monitoring",
-      timeout: 300,
       // Chart defaults to naming everything "<release>-prometheus-blackbox-exporter" (confirmed
       // live via `helm template`) — fullnameOverride keeps the Service name short and
       // predictable so lib/app-probe.ts's Probe targets don't need to know the chart's naming

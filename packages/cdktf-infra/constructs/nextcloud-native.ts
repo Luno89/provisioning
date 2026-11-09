@@ -90,6 +90,7 @@ export class NextcloudNativeApp extends Construct {
 
     // DB Deployment (MariaDB)
     new Deployment(this, "db-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "nextcloud-db",
         namespace: ns.metadata.name,
@@ -205,6 +206,7 @@ export class NextcloudNativeApp extends Construct {
 
     // Nextcloud Web Deployment
     new Deployment(this, "web-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "nextcloud",
         namespace: ns.metadata.name,

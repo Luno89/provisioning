@@ -2,6 +2,7 @@ import { Construct } from "constructs";
 import type { ITerraformDependable } from "cdktf";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export class IngressStack extends Construct {
   /**
@@ -26,13 +27,13 @@ export class IngressStack extends Construct {
     if (!serviceType) throw new Error("the cluster stack is told how Traefik's Service is reached, in INGRESS_SERVICE, and it was not");
 
     new Release(this, "traefik-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "traefik",
       repository: "https://traefik.github.io/charts",
       chart: "traefik",
       version: "41.4.0",
       namespace: ns.metadata.name,
-      timeout: 600,
-      atomic: true,
       ...(dependsOn && dependsOn.length > 0 ? { dependsOn } : {}),
       cleanupOnFail: true,
       forceUpdate: true,

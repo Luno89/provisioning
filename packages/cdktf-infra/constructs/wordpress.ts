@@ -4,6 +4,7 @@ import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export interface WordPressConfig {
   readonly namespace?: string;
@@ -69,10 +70,11 @@ export class WordPressApp extends Construct {
     }
 
     new Release(this, "wordpress-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "wordpress",
       chart: "oci://registry-1.docker.io/bitnamicharts/wordpress",
       namespace: ns.metadata.name,
-      timeout: 600,
       set: helmValues,
     });
 

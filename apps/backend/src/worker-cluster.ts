@@ -20,6 +20,7 @@ import { GiteaService } from './projects/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { Context } from '@temporalio/activity';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
 import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
@@ -85,11 +86,11 @@ async function main() {
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(settings.role) },
         activities: {
-          DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps),
+          DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
           CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
           DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
-          ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps),
-          SyncConfigActivity: (args: SyncConfigArgs) => SyncConfigActivity(args, steps),
+          ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps, Context.current().cancellationSignal),
+          SyncConfigActivity: (args: SyncConfigArgs) => SyncConfigActivity(args, steps, Context.current().cancellationSignal),
           DownloadModelActivity,
           VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
           RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),

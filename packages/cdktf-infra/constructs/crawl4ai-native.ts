@@ -116,6 +116,7 @@ export class Crawl4aiNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "crawl4ai-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "crawl4ai",
         namespace: ns.metadata.name,

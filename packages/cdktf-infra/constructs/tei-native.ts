@@ -118,6 +118,7 @@ export class TeiNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "tei-deployment", {
+      waitForRollout: false,
       metadata: { name: "tei", namespace: ns.metadata.name, labels: { app: `tei-${id}` } },
       spec: {
         replicas: "1",

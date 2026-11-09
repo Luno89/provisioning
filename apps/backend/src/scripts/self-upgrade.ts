@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
-import { clusterAccessFrom } from '../infrastructure/index.js';
+import { abandonedJobs, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
+import { clusterAccessFrom, ROLLOUT_KINDS, rolloutOf, stuckHook } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
 
 export interface SelfUpgradeCluster {
@@ -139,7 +139,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   async function rollout(): Promise<{ state: 'done' } | { state: 'hopeless'; reason: string }> {
     let said = '';
     for (;;) {
-      const listed: unknown = JSON.parse(await deps.cluster.kubectl(['get', 'deployments,statefulsets,replicasets,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
+      const listed: unknown = JSON.parse(await deps.cluster.kubectl(['get', ROLLOUT_KINDS, '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
       const now = rolloutOf(listed);
       if (now.state !== 'rolling') return now;
       if (now.waiting !== said) log(`waiting: ${now.waiting}`);

@@ -2,11 +2,11 @@ import {
   StorageAdapter, buildAppEnv, modelHfToken, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
+import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { Context } from '@temporalio/activity';
-import { messageOf } from './failure-reasons.js';
 
 export interface SyncConfigArgs {
   name: string;
@@ -72,7 +72,7 @@ export interface SyncConfigResult {
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSteps): Promise<SyncConfigResult> {
+export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<SyncConfigResult> {
   const reach = handedReach(args);
   const kubectl = (argv: string[]) => steps.access.kubectl(reach, argv);
   const logFile = args.logFile;
@@ -141,23 +141,14 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     storageEnv,
   });
 
-  await steps.infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
-
-  try {
-    await kubectl(['rollout', 'restart', 'deployment', '-n', namespace]);
-  } catch (err) {
-    console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${namespace}: ${messageOf(err)}`);
-  }
+  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
+  await kubectl(['rollout', 'restart', 'deployment', '-n', namespace]);
 
   if (args.appType === 'openwebui') {
-    try {
-      await waitUntilRolledOut({
-        kubectl: (kubectlArgs) => kubectl(['-n', namespace, ...kubectlArgs]),
-        apply: async () => undefined,
-      }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
-    } catch (err) {
-      console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${messageOf(err)} — attempting the config push anyway`);
-    }
+    await waitUntilRolledOut({
+      kubectl: (kubectlArgs) => kubectl(['-n', namespace, ...kubectlArgs]),
+      apply: async () => undefined,
+    }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
     await pushOpenWebUiWebSearchConfig(kubectl, namespace, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),
       ...(args.webuiWebSearchEngine !== undefined ? { webSearchEngine: args.webuiWebSearchEngine } : {}),

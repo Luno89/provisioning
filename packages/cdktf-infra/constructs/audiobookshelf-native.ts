@@ -137,6 +137,7 @@ export class AudiobookshelfNativeApp extends Construct {
 
     // Audiobookshelf Deployment
     new Deployment(this, "audiobookshelf-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "audiobookshelf",
         namespace: ns.metadata.name,

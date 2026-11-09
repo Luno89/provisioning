@@ -108,6 +108,7 @@ export class OpenWebUiApp extends Construct {
     }
 
     new Deployment(this, "open-webui-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "open-webui",
         namespace: ns.metadata.name,
@@ -164,10 +165,6 @@ export class OpenWebUiApp extends Construct {
             ],
           },
         },
-      },
-      timeouts: {
-        create: "10m",
-        update: "10m",
       },
     });
 

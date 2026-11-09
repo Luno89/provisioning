@@ -143,6 +143,7 @@ export class QuickwitNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "quickwit-deployment", {
+      waitForRollout: false,
       metadata: { name: "quickwit", namespace: ns.metadata.name, labels: { app: `quickwit-${id}` } },
       spec: {
         replicas: "1",

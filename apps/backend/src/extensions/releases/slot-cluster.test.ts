@@ -220,9 +220,9 @@ describe('working in the release\'s namespace', () => {
 
   it('waits for a rollout on the target\'s cluster', async () => {
     const { access, cluster } = made();
-    access.kubectl.mockResolvedValue('deployment "shop-a" successfully rolled out');
+    access.kubectl.mockResolvedValue(JSON.stringify({ items: [{ kind: 'Deployment', metadata: { name: 'shop-a', generation: 1 }, spec: { replicas: 0 }, status: { observedGeneration: 1 } }] }));
     await cluster.waitReady(target, 'deployment/shop-a');
-    expect(access.kubectl).toHaveBeenCalledWith('machine-own', ['-n', 'shop-1a2b3c', 'rollout', 'status', 'deployment/shop-a', '--watch=false']);
+    expect(access.kubectl).toHaveBeenCalledWith('machine-own', ['-n', 'shop-1a2b3c', 'get', 'deployments,statefulsets,daemonsets,replicasets,jobs,pods', '-o', 'json']);
   });
 });
 

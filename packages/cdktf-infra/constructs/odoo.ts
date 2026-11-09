@@ -4,6 +4,7 @@ import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export interface OdooConfig {
   readonly namespace?: string;
@@ -77,10 +78,11 @@ export class OdooApp extends Construct {
     }
 
     new Release(this, "odoo-release", {
+      wait: false,
+      timeout: HELM_CEILING_SECONDS,
       name: "odoo",
       chart: "oci://registry-1.docker.io/bitnamicharts/odoo",
       namespace: ns.metadata.name,
-      timeout: 600,
       set: helmValues,
     });
 

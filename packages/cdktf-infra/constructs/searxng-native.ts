@@ -149,6 +149,7 @@ export class SearxngNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "searxng-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "searxng",
         namespace: ns.metadata.name,

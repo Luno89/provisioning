@@ -39,7 +39,10 @@ beforeEach(() => {
   infra = mock<InfrastructureService>();
   said = [];
   access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).kind}`);
-  access.kubectl.mockImplementation(async (target, args) => { said.push({ reach: target as Reach, args }); return ''; });
+  access.kubectl.mockImplementation(async (target, args) => {
+    said.push({ reach: target as Reach, args });
+    return args.includes('deployments,statefulsets,daemonsets,replicasets,jobs,pods') ? JSON.stringify({ items: [{ kind: 'Deployment', metadata: { name: 'open-webui', generation: 1 }, spec: { replicas: 0 }, status: { observedGeneration: 1 } }] }) : '';
+  });
   access.helm.mockResolvedValue('');
   access.apply.mockResolvedValue('');
   infra.deploy.mockResolvedValue({ stdout: '', logFile: LOG });
@@ -61,21 +64,27 @@ describe('the reach a cluster step works with', () => {
 });
 
 describe('checking a workload', () => {
-  const pods = (items: unknown[]) => JSON.stringify({ items });
-  const running = { metadata: { name: 'shop-1' }, status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }], containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } };
+  const listed = (items: unknown[]) => JSON.stringify({ items });
+  const shop = { kind: 'Deployment', metadata: { name: 'shop', generation: 2, annotations: { 'deployment.kubernetes.io/revision': '2' } }, spec: { replicas: 1 }, status: { observedGeneration: 2, replicas: 1, updatedReplicas: 1, availableReplicas: 1 } };
+  const set = (name: string, revision: string, extra: Record<string, unknown> = {}) => ({ kind: 'ReplicaSet', metadata: { name, annotations: { 'deployment.kubernetes.io/revision': revision }, ownerReferences: [{ kind: 'Deployment', name: 'shop' }] }, ...extra });
+  const pod = (name: string, owner: string, ready: boolean) => ({ kind: 'Pod', metadata: { name, ownerReferences: [{ kind: 'ReplicaSet', name: owner }] }, status: { phase: 'Running', containerStatuses: [{ ready, restartCount: 0, state: { running: {} } }] } });
 
-  it('reads the pods of the app\'s namespace on the cluster it was handed', async () => {
-    access.kubectl.mockResolvedValueOnce(pods([running]));
+  it('reads the workloads of the app\'s namespace on the cluster it was handed, and is healthy once they have rolled out', async () => {
+    access.kubectl.mockResolvedValueOnce(listed([shop, set('shop-2', '2'), pod('shop-2-a', 'shop-2', true)]));
     const read = await CheckWorkloadActivity({ name: 'shop', namespace: 'shop-1a2b3c', clusterId: 'machine-desk', reach: DESK }, { access });
     expect(read.health).toBe('healthy');
-    expect(access.kubectl).toHaveBeenCalledWith(DESK, ['get', 'pods', '-n', 'shop-1a2b3c', '-o', 'json']);
+    expect(access.kubectl).toHaveBeenCalledWith(DESK, ['get', 'deployments,statefulsets,daemonsets,replicasets,jobs,pods', '-n', 'shop-1a2b3c', '-o', 'json']);
   });
 
-  it('asks the controllers too while nothing has started, and says when the cluster refuses to make the pods', async () => {
-    access.kubectl.mockResolvedValueOnce(pods([]));
-    access.kubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ kind: 'ReplicaSet', metadata: { name: 'shop-7c' }, status: { conditions: [{ type: 'ReplicaFailure', status: 'True', reason: 'FailedCreate', message: 'exceeded quota: koala' }] } }] }));
+  it('is still starting while the deployment has not seen its new spec, though the old pods are ready', async () => {
+    access.kubectl.mockResolvedValueOnce(listed([{ ...shop, metadata: { ...shop.metadata, generation: 3 } }, set('shop-2', '2'), pod('shop-2-a', 'shop-2', true)]));
     const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access });
-    expect(access.kubectl).toHaveBeenLastCalledWith(DESK, ['get', 'deployments,replicasets', '-n', 'shop', '-o', 'json']);
+    expect(read).toEqual({ health: 'starting', reason: 'deployment/shop has not seen its new spec' });
+  });
+
+  it('says when the cluster refuses to make the pods', async () => {
+    access.kubectl.mockResolvedValueOnce(listed([{ ...shop, status: { observedGeneration: 2 } }, set('shop-2', '2', { status: { conditions: [{ type: 'ReplicaFailure', status: 'True', reason: 'FailedCreate', message: 'exceeded quota: koala' }] } })]));
+    const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access });
     expect(read.health).toBe('unhealthy');
     expect(read.reason).toContain('exceeded quota');
   });
@@ -153,7 +162,7 @@ describe('resizing an app\'s disk', () => {
   it('applies its stack again with the new sizes, through the kubeconfig of the cluster it was handed', async () => {
     await ResizeDiskActivity({ name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'koala', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' }, steps());
     expect(access.kubeconfigOf).toHaveBeenCalledWith(KOALA);
-    expect(infra.deploy).toHaveBeenCalledWith('app-koala-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress', APP_SERVICE_TYPE: 'NodePort' }) as unknown });
+    expect(infra.deploy).toHaveBeenCalledWith('app-koala-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress', APP_SERVICE_TYPE: 'NodePort' }) as unknown, signal: expect.any(AbortSignal) as unknown });
     expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
   });
 
@@ -167,13 +176,13 @@ describe('syncing an app\'s settings', () => {
   it('applies its stack, restarts its deployments and pushes Open WebUI\'s search settings, all on the cluster it was handed', async () => {
     access.kubectl.mockImplementation(async (target, args) => {
       said.push({ reach: target as Reach, args });
-      if (args.includes('rollout') && args.includes('status')) return 'deployment "open-webui" successfully rolled out';
+      if (args.includes('deployments,statefulsets,daemonsets,replicasets,jobs,pods')) return JSON.stringify({ items: [{ kind: 'Deployment', metadata: { name: 'open-webui', generation: 1 }, spec: { replicas: 0 }, status: { observedGeneration: 1 } }] });
       return 'OK';
     });
     await SyncConfigActivity({ name: 'chat', namespace: 'chat-1', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', strategy: 'native', appType: 'openwebui', logFile: LOG, deploymentId: 'd2', webuiEnableWebSearch: true }, steps());
     expect(infra.deploy.mock.calls[0]![1]?.env).toMatchObject({ KUBECONFIG: '/clusters/kubeconfig-machine', APP_SERVICE_TYPE: 'NodePort' });
     expect(said.every((call) => call.reach === DESK)).toBe(true);
-    expect(said.map((call) => call.args.slice(0, 3).join(' '))).toEqual(['rollout restart deployment', '-n chat-1 rollout', 'exec -n chat-1']);
+    expect(said.map((call) => call.args.slice(0, 3).join(' '))).toEqual(['rollout restart deployment', '-n chat-1 get', 'exec -n chat-1']);
   });
 });
 

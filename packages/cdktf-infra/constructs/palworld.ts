@@ -92,6 +92,7 @@ export class PalworldApp extends Construct {
     const selector = { app: `palworld-${id}` };
 
     new Deployment(this, "deployment", {
+      waitForRollout: false,
       metadata: {
         name: "palworld",
         namespace: ns.metadata.name,
@@ -105,9 +106,6 @@ export class PalworldApp extends Construct {
         // permanently — the new pod stays Pending on the port/volume while the old one is never
         // torn down. Recreate removes the old pod first.
         strategy: { type: "Recreate" },
-        // Kubernetes' own stall detector, enforced independently of the `timeouts` block below.
-        // Must exceed the startupProbe window or the API server fails the rollout while SteamCMD
-        // is still legitimately downloading. Same reasoning as vllm.ts.
         progressDeadlineSeconds: STARTUP_WINDOW_SECONDS + 60,
         selector: { matchLabels: selector },
         template: {
@@ -203,10 +201,6 @@ export class PalworldApp extends Construct {
             ],
           },
         },
-      },
-      timeouts: {
-        create: "70m",
-        update: "70m",
       },
     });
 

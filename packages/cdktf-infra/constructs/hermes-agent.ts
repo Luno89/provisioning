@@ -70,6 +70,7 @@ export class HermesAgentApp extends Construct {
     }
 
     new Deployment(this, "hermes-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "hermes",
         namespace: ns.metadata.name,
@@ -124,10 +125,6 @@ export class HermesAgentApp extends Construct {
             ],
           },
         },
-      },
-      timeouts: {
-        create: "10m",
-        update: "10m",
       },
     });
 

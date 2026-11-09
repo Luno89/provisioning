@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { BlackboxExporterStack } from "./blackbox-exporter.js";
+import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
 export const METRICS_TOKEN_SECRET = "koala-metrics";
 
@@ -34,6 +35,7 @@ export class AgentMonitoringStack extends Construct {
       version: "88.6.2",
       namespace: "monitoring",
       wait: false,
+      timeout: HELM_CEILING_SECONDS,
       values: [JSON.stringify(agentValues(remoteWriteUrl))],
     });
     new BlackboxExporterStack(this, "blackbox").node.addDependency(this.prometheusRelease);

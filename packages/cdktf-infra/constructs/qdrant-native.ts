@@ -118,6 +118,7 @@ export class QdrantNativeApp extends Construct {
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
     new Deployment(this, "qdrant-deployment", {
+      waitForRollout: false,
       metadata: { name: "qdrant", namespace: ns.metadata.name, labels: { app: `qdrant-${id}` } },
       spec: {
         replicas: "1",

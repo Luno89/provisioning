@@ -65,6 +65,7 @@ export class WordPressNativeApp extends Construct {
 
     // DB Deployment (MariaDB)
     new Deployment(this, "db-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "wordpress-db",
         namespace: ns.metadata.name,
@@ -167,6 +168,7 @@ export class WordPressNativeApp extends Construct {
 
     // WordPress Web Deployment
     new Deployment(this, "web-deployment", {
+      waitForRollout: false,
       metadata: {
         name: "wordpress",
         namespace: ns.metadata.name,

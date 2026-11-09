@@ -181,10 +181,6 @@ export class GitappApp extends Construct {
           },
         },
       },
-      timeouts: {
-        create: "10m",
-        update: "10m",
-      },
     });
 
     new Service(this, "gitapp-service", {
