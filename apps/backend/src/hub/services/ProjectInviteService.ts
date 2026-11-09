@@ -66,6 +66,6 @@ export class ProjectInviteService {
 
   async invitation(code: string): Promise<{ email?: string | undefined; project?: InviteMetadata['project']; used: boolean } | undefined> {
     const invite = await this.deps.invites.getInviteByCode(code);
-    return invite?.project && !inviteExpired(invite, new Date()) ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
+    return invite?.project && !inviteExpired(invite, new Date(this.deps.now?.() ?? new Date().toISOString())) ? { ...(invite.email ? { email: invite.email } : {}), ...(invite.project ? { project: invite.project } : {}), used: Boolean(invite.usedBy) } : undefined;
   }
 }
