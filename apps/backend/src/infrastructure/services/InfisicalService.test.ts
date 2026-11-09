@@ -199,7 +199,7 @@ describe('InfisicalService', () => {
   });
 
   it('hands the operator and a new reader the workspace as it is now, not the id it knew before Infisical lost it', async () => {
-    const gone = () => Promise.reject(Object.assign(new Error('status 404'), { response: { status: 404, data: { message: "Project with ID 'ws1' not found during bot lookup." } } }));
+    const gone = () => Promise.reject(Object.assign(new Error('status 404'), { response: { status: 404, data: { message: 'Project with ws1 not found' } } }));
     let listed = [{ id: 'ws1', name: 'provisioning-p1' }];
     post.mockImplementation(async (url: string) => {
       if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'tok' } };

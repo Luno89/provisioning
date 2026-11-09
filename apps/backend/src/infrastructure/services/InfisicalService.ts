@@ -38,7 +38,7 @@ const statusOf = (err: unknown): number | undefined => numberAt(err, 'response',
 const messageOf = (err: unknown): string => (err as Error | undefined)?.message ?? String(err);
 
 const workspaceGone = (err: unknown): boolean =>
-  statusOf(err) === 404 && /^Project with ID /.test(textAt(err, 'response', 'data', 'message') ?? '');
+  statusOf(err) === 404 && /^Project with (ID )?\S+ not found/.test(textAt(err, 'response', 'data', 'message') ?? '');
 
 export type InfisicalAt = InfisicalSettings | { none: string };
 
