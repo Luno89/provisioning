@@ -27,7 +27,7 @@ import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import { RootPresence } from '../../instances/services/RootPresence.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
-import { downAcross, type DependencyDown } from '../../platform/lib/dependencies.js';
+import type { DependencyDown } from '../../platform/lib/dependencies.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
@@ -212,7 +212,7 @@ async function app(root?: { rootPort: number }) {
       }
       const infrastructure = new InfrastructureViewService({
         monitoring, contents, running, failures,
-        ...(dependencies ? { dependencies: async () => downAcross(dependencies.down(), await db.platform.dependencyStates()) } : {}),
+        ...(dependencies ? { dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() } } : {}),
       });
       return infrastructureRouter({ infrastructure });
     },

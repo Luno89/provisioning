@@ -194,6 +194,18 @@ describe('the Infrastructure page', () => {
     expect(item).toHaveTextContent('Seen by this Koala\'s backend and the engine worker')
   })
 
+  it('says when what the workers see of their dependencies could not be read, rather than calling everything healthy', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [], signals: [],
+      dependencies: [], dependenciesUnread: 'connection to 127.0.0.1:27017 closed',
+    })
+    show()
+    const item = await screen.findByTestId('attention-dependencies-unread')
+    expect(item).toHaveTextContent('What the workers see of their dependencies')
+    expect(item).toHaveTextContent('connection to 127.0.0.1:27017 closed')
+    expect(screen.queryByText(/Everything is healthy/)).toBeNull()
+  })
+
   it('scrolls to the section an old address names', async () => {
     const scrolled = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrolled

@@ -147,6 +147,7 @@ export interface InfrastructureOverview {
   runningProblem?: string
   failures: WorkFailure[]
   dependencies: DependencyDown[]
+  dependenciesUnread?: string
   signals: SignalView[]
 }
 

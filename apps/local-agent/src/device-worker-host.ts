@@ -1,3 +1,4 @@
+import { reopening } from '@koala/engine-core/reopening';
 import { settingsFingerprint, type EngineSettings } from './remote-blobs.js';
 
 export interface RunningWorker {
@@ -20,19 +21,13 @@ const realAfter: After = (ms, then) => {
   return () => clearTimeout(timer);
 };
 
-export const RETRY_FIRST_MS = 5_000;
-export const RETRY_MOST_MS = 60_000;
 export const RAN_LONG_ENOUGH_MS = 60_000;
-
-export function retryDelay(failures: number): number {
-  return Math.min(RETRY_MOST_MS, RETRY_FIRST_MS * 2 ** Math.max(0, failures - 1));
-}
 
 export class DeviceWorkerHost {
   private current: Current | undefined;
   private queue: Promise<void> = Promise.resolve();
   private settingsOf: (() => Promise<EngineSettings>) | undefined;
-  private failures = 0;
+  private readonly wait = reopening();
   private cancelRetry: (() => void) | undefined;
   private stopped = false;
   private paused = false;
@@ -88,8 +83,7 @@ export class DeviceWorkerHost {
 
   private retryLater(): void {
     if (this.stopped || this.paused || this.cancelRetry || !this.settingsOf) return;
-    this.failures += 1;
-    const delay = retryDelay(this.failures);
+    const delay = this.wait.take();
     this.log(`the engine worker starts again in ${Math.round(delay / 1000)}s`);
     this.cancelRetry = this.after(delay, () => {
       this.cancelRetry = undefined;
@@ -113,7 +107,7 @@ export class DeviceWorkerHost {
       done: worker.run().catch((err: Error) => this.log(`the engine worker stopped: ${err.message}`)).finally(() => {
         if (this.current !== current) return;
         this.current = undefined;
-        if (this.now() - startedAt >= RAN_LONG_ENOUGH_MS) this.failures = 0;
+        if (this.now() - startedAt >= RAN_LONG_ENOUGH_MS) this.wait.reset();
         this.retryLater();
       }),
     };

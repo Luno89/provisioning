@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DeviceWorkerHost, RETRY_MOST_MS, retryDelay, type After, type RunningWorker } from './device-worker-host.js';
+import { DeviceWorkerHost, type After, type RunningWorker } from './device-worker-host.js';
 
 const fakeWorker = () => {
   let finish: () => void = () => {};
@@ -125,7 +125,18 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
     expect(host.fingerprint).toBeDefined();
   });
 
-  it('never waits more than a minute between tries', () => {
-    expect([1, 2, 3, 4, 5, 6, 40].map(retryDelay)).toEqual([5_000, 10_000, 20_000, 40_000, RETRY_MOST_MS, RETRY_MOST_MS, RETRY_MOST_MS]);
+  it('tries again on the layer\'s backoff, 5 s doubling to a minute and never more', async () => {
+    const pending: { ms: number; then: () => void }[] = [];
+    const after: After = (ms, then) => { const entry = { ms, then }; pending.push(entry); return () => { pending.splice(pending.indexOf(entry), 1); }; };
+    const host = new DeviceWorkerHost(async () => { throw new Error('the gateway refused the connection'); }, () => {}, after);
+    await host.connected(async () => ({ ring: { current: 'a'.repeat(64) } }));
+    const waits: number[] = [];
+    for (let tries = 0; tries < 7; tries += 1) {
+      const next = pending.shift()!;
+      waits.push(next.ms);
+      next.then();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(waits).toEqual([5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000]);
   });
 });

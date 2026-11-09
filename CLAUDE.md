@@ -1392,10 +1392,10 @@ its state, and nothing falls back to something else (slices 1 and 2).
   Mongo answers again); the backend reads them on each `GET /api/infrastructure` and puts them beside its own (`downAcross`).
 - **What the person sees**: `dependencies` on `GET /api/infrastructure` (down ones: name, since, reason, which process saw it, and
   for root its address), only for whoever runs this Koala (`see-platform-dependencies`); Infrastructure → Needs attention lists
-  them first (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", one item per
+  them first, and says so when what the workers recorded cannot be read (`dependenciesUnread`), never showing them as answering (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", one item per
   dependency with the processes that saw it, root in the words it always had ("Your instance has not reached Koala's root since …"), each gone once it answers.
 - **One HTTP client per process** (`@koala/engine-core/http`, owner 2026-11-09: "yep go for it"): `useDependencyHttp()` (called by
-  `dependencyStatesFor`, so by every process) makes undici's global dispatcher and axios's default agents the layer's own: no limit on
+  `dependencyStatesFor`, so by every backend process, and by the machine agent as it starts) makes undici's global dispatcher and axios's default agents the layer's own: no limit on
   the answer (headers or body), and one connect limit, `CONNECT_MS` (10 s), covering the TCP connect and the TLS handshake. Opening a
   connection does no work, so cutting it short loses nothing and is safe to try again; it is how a host that does not answer at all
   (dropped packets, a machine off the mesh, a process stuck mid-handshake) is noticed, where Linux would take about 2 minutes or, for a
@@ -1412,7 +1412,7 @@ its state, and nothing falls back to something else (slices 1 and 2).
   from a failure), a chat whose turn cannot be told running says "Koala can't tell whether this turn still runs: …" (`liveTurn.unknown`),
   and a finished deploy's verdict or build's image is read again until Temporal answers (`TemporalBridge.resultOf`).
 - **One backoff** (`reopening()` in `@koala/engine-core/reopening`: 5 s doubling to a minute, `take()` for a caller that waits its own
-  way): the dependency checks, `keepTrying`, root's key announcement (`keepAnnouncing`), every worker's connect loop, the model call's
+  way): the dependency checks, `keepTrying`, root's key announcement (`keepAnnouncing`), every worker's connect loop (the machine's device worker included), the model call's
   wait for its server (`serverAnswers`), root's logout deliveries (`keepDelivering`, whose last failure People shows on the instance:
   "signing out has not reached it since …"), the move import, the drain's endpoint reads and the repository's wait to be served.
 - **No fallbacks** (decisions 10 and 11, rule 4): web search is SearXNG and pages are read by Crawl4AI, each saying why when it cannot

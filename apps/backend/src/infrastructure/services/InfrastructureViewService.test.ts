@@ -5,14 +5,14 @@ import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenWorkload, ClusterContents, UnreadCluster } from './ClusterContentsService.js';
 import { idsToClear, InfrastructureViewService, waitingOnPerson, type InfrastructureViewDeps } from './InfrastructureViewService.js';
-import type { DependencyDown, Principal } from '../../platform/index.js';
+import type { DependencyDown, DependencyStateRow, Principal } from '../../platform/index.js';
 import type { RunningView } from './RunningService.js';
 
 const viewer = { id: 'person-1' } as Viewer;
 const item = (workflowId: string, over: Partial<RunningItem> = {}): RunningItem => ({ workflowId, kind: 'tree', title: workflowId, since: 'x', opens: { kind: 'tree', id: 't' }, cancel: { how: 'workflow' }, ...over }) as unknown as RunningItem;
 const broken = (name: string, about: BrokenWorkload['about']): BrokenWorkload => ({ name, about }) as unknown as BrokenWorkload;
 
-function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; unread?: UnreadCluster[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; dependencies?: DependencyDown[] | undefined; signals?: boolean } = {}) {
+function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; unread?: UnreadCluster[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; dependencies?: { own: DependencyDown[]; workers: DependencyStateRow[] | Error } | undefined; signals?: boolean } = {}) {
   const monitoring = mock<InfrastructureViewDeps['monitoring']>();
   monitoring.overview.mockResolvedValue({ attention: over.attention ?? [] } as Overview);
   monitoring.koala.mockResolvedValue({ state: 'ok' } as never);
@@ -24,7 +24,7 @@ function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload
   failures.shown.mockResolvedValue([{ id: 'run:a' } as WorkFailure]);
   const signals = mock<NonNullable<InfrastructureViewDeps['signals']>>();
   signals.open.mockResolvedValue([{ id: 's1' } as never]);
-  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, ...(over.dependencies ? { dependencies: async () => over.dependencies! } : {}), ...(over.signals ? { signals } : {}) };
+  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, ...(over.dependencies ? { dependencies: { own: () => over.dependencies!.own, workers: async () => { const workers = over.dependencies!.workers; if (workers instanceof Error) throw workers; return workers; } } } : {}), ...(over.signals ? { signals } : {}) };
   return { all, monitoring, contents, running, failures, signals };
 }
 
@@ -85,15 +85,24 @@ describe('InfrastructureViewService', () => {
   });
 
   it('carries the dependencies that are down, root among them, to whoever runs this Koala and to nobody else', async () => {
-    const down: DependencyDown[] = [
-      { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: 'https://app.example.com' },
-      { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T10:05:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
-    ];
-    const { all } = deps({ dependencies: down });
+    const root: DependencyDown = { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: 'https://app.example.com' };
+    const gitea: DependencyStateRow = { process: 'worker-engine', dependency: 'gitea', state: 'down', since: '2026-10-29T10:05:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', at: '2026-10-29T10:05:00.000Z' };
+    const { all } = deps({ dependencies: { own: [root], workers: [gitea] } });
     const owner: Principal = { kind: 'person', id: 'owner', claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }] };
     const member: Principal = { kind: 'person', id: 'member', claims: [{ role: 'person' }] };
-    expect((await new InfrastructureViewService(all).overview(owner)).dependencies).toEqual(down);
+    const seen = await new InfrastructureViewService(all).overview(owner);
+    expect(seen.dependencies).toEqual([root, { dependency: 'gitea', name: 'Gitea', since: gitea.since, reason: gitea.reason, process: 'worker-engine' }]);
+    expect(seen.dependenciesUnread).toBeUndefined();
     expect((await new InfrastructureViewService(all).overview(member)).dependencies).toEqual([]);
+  });
+
+  it('says the workers\' dependencies could not be read instead of showing them all answering, keeping what this backend sees', async () => {
+    const root: DependencyDown = { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend' };
+    const { all } = deps({ dependencies: { own: [root], workers: new Error('connection to 127.0.0.1:27017 closed') } });
+    const owner: Principal = { kind: 'person', id: 'owner', claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }] };
+    const seen = await new InfrastructureViewService(all).overview(owner);
+    expect(seen.dependencies).toEqual([root]);
+    expect(seen.dependenciesUnread).toBe('connection to 127.0.0.1:27017 closed');
   });
 
   it('reads a cluster\'s contents and clears failures as the viewer', async () => {

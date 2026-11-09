@@ -26,6 +26,7 @@ import { forgetThisMachine, meshIp } from './machine-removal.js';
 import { clusterOnConnect, hostCluster, runMachineCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
 import { installKoala, ownValuesFile, placedFrom } from './koala-install.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { useDependencyHttp } from '@koala/engine-core/http';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding, type Release } from './idle-gate.js';
 import { SelfUpdate, serviceManagerOf, type UpdateReport } from './self-update.js';
@@ -338,6 +339,7 @@ function sayVersion(): Promise<void> {
   return Promise.resolve();
 }
 
+useDependencyHttp();
 const command = process.argv[2];
 const started = command === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : command === 'version' ? sayVersion() : main();
 started.then(() => {

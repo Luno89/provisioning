@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, drainThenStop, inClusterSlices, runOnce,
-  backendSettingsFrom, connectTemporalAs, downAcross, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
+  backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
 import { rateLimit } from 'express-rate-limit';
@@ -430,10 +430,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
     bench, keeper: memoryKeeper, access: clusterAccess,
-    dependencies: async () => downAcross(dependencies.down(), await db.platform.dependencyStates().catch((err: Error) => {
-      console.warn(`[dependencies] what the workers see of their dependencies could not be read: ${err.message}`);
-      return [];
-    })),
+    dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() },
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });
   runningNow = async () => {
