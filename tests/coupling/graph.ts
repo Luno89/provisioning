@@ -187,6 +187,19 @@ export function buildGraph(options: GraphOptions): Graph {
       return undefined;
     };
 
+    const memberBehind = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
+      if (!node || depth > 4) return undefined;
+      if (ts.isPropertyAssignment(node)) return memberBehind(node.initializer, depth + 1);
+      if (ts.isShorthandPropertyAssignment(node)) return memberBehind(aliased(checker.getShorthandAssignmentValueSymbol(node))?.valueDeclaration, depth + 1);
+      if (ts.isIdentifier(node)) return memberBehind(aliased(checker.getSymbolAtLocation(node))?.valueDeclaration, depth + 1);
+      if (ts.isVariableDeclaration(node)) return memberBehind(node.initializer, depth + 1);
+      if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
+        const property = checker.getTypeAtLocation(node.parent).getProperty((node.propertyName ?? node.name).getText());
+        return property?.getDeclarations()?.find((declaration) => isMember(declaration) && ownCode(declaration.getSourceFile().fileName));
+      }
+      if (ts.isPropertyAccessExpression(node)) return checker.getSymbolAtLocation(node.name)?.getDeclarations()?.find((declaration) => isMember(declaration) && ownCode(declaration.getSourceFile().fileName));
+      return undefined;
+    };
     const ownMembers = new Map<ts.Type, Array<[string, ts.Node[]]>>();
     const membersWanted = (type: ts.Type): Array<[string, ts.Node[]]> => {
       const known = ownMembers.get(type);
@@ -211,7 +224,7 @@ export function buildGraph(options: GraphOptions): Graph {
         const property = actual.getProperty(name);
         if (!property) continue;
         for (const declaration of property.getDeclarations() ?? []) {
-          const body = isMember(declaration) ? declaration : functionOf(declaration);
+          const body = isMember(declaration) ? declaration : functionOf(declaration) ?? memberBehind(declaration);
           if (body && !members.includes(body)) for (const member of members) implement(member, body);
         }
         const wanted = target.getProperty(name);
@@ -219,7 +232,7 @@ export function buildGraph(options: GraphOptions): Graph {
         const inner = typeOf(wanted, near);
         const given = typeOf(property, near);
         if (inner.getCallSignatures().length > 0) {
-          callsInto(inner, given, (property.getDeclarations() ?? []).map((declaration) => functionOf(declaration)).find(Boolean));
+          callsInto(inner, given, (property.getDeclarations() ?? []).map((declaration) => functionOf(declaration) ?? memberBehind(declaration)).find(Boolean));
           continue;
         }
         if (membersWanted(inner).length === 0) continue;
@@ -240,7 +253,7 @@ export function buildGraph(options: GraphOptions): Graph {
         return;
       }
       const actual = checker.getTypeAtLocation(value).getNonNullableType();
-      callsInto(wanted, actual, functionOf(value));
+      callsInto(wanted, actual, functionOf(value) ?? memberBehind(value));
       if (membersWanted(wanted).length === 0) return;
       matchTypes(wanted, actual, value);
     };

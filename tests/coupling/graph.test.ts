@@ -45,6 +45,11 @@ describe('the edge graph', () => {
     expect(called && named(inFile, called.to)).toEqual(['src/handlers/registry.ts#(anonymous)']);
   });
 
+  it('follows a function handed over by a name destructured from, or read off, an object to what that object\'s member was given', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/consumer.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toEqual(['src/handlers/core.ts#lookup']);
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);
