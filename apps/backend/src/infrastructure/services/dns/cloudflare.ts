@@ -1,5 +1,6 @@
-import { CLOUDFLARE_DNS, DnsProviderRefusal, type DnsCredentials, type DnsProvider, type DnsRecord, type DnsRecordType, type DnsValidation, type DnsZone } from '../../lib/dns-providers.js';
+import { CLOUDFLARE_DNS, DnsProviderRefusal, dnsProviderBusy, type DnsCredentials, type DnsProvider, type DnsRecord, type DnsRecordType, type DnsValidation, type DnsZone } from '../../lib/dns-providers.js';
 import type { FetchLike } from '../OvhClient.js';
+import { temporaryStatus } from '../../../platform/index.js';
 
 export const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 
@@ -16,6 +17,7 @@ const tokenOf = (credentials: DnsCredentials): string => {
 export function cloudflareProvider(fetchImpl: FetchLike = fetch): DnsProvider {
   const call = async <T>(token: string, path: string, init: RequestInit = {}): Promise<{ status: number; body: CfAnswer<T> }> => {
     const answer = await fetchImpl(`${CLOUDFLARE_API}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+    if (temporaryStatus(answer.status)) throw dnsProviderBusy('Cloudflare', answer.status);
     return { status: answer.status, body: await answer.json() as CfAnswer<T> };
   };
   const refusal = (path: string, status: number, body: CfAnswer<unknown>): DnsProviderRefusal => {

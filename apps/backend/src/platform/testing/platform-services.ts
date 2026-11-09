@@ -19,6 +19,7 @@ export function unreachedPlatformServices(backend: string = NO_SERVICE): Record<
     REGISTRY_PULL_HOST: NO_SERVICE_HOST,
     SEARXNG_URL: NO_SERVICE,
     CRAWL4AI_URL: NO_SERVICE,
+    CRAWL4AI_API_TOKEN: 'no-crawl4ai-here',
     CHECKS_API_URL: `${backend}/api`,
   };
 }

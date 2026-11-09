@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useImageTags, TAG_SORTS, TAG_SORT_LABELS, EMPTY_TAG_PAGE, type TagSort } from '../../../models'
+import { errorMessage } from '../../../../api/client'
+import { TypedTag } from './TypedTag'
 
 interface TagPickerProps {
   repo: string
@@ -14,7 +16,7 @@ export function TagPicker({ repo, selected, onSelect, enabled, label = 'Availabl
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<TagSort>('newest')
 
-  const { data = EMPTY_TAG_PAGE, isLoading, isFetching } = useImageTags(repo, enabled, { page, sort })
+  const { data = EMPTY_TAG_PAGE, isLoading, isFetching, error } = useImageTags(repo, enabled, { page, sort })
   const { tags, total, totalPages } = data
 
   const changeSort = (next: TagSort) => {
@@ -43,7 +45,9 @@ export function TagPicker({ repo, selected, onSelect, enabled, label = 'Availabl
         </select>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <TypedTag why={errorMessage(error)} value={selected} onChange={onSelect} />
+      ) : isLoading ? (
         <div className="flex items-center gap-2 text-slate-500 py-3">
           <Loader2 size={16} className="animate-spin" /> Fetching tags...
         </div>

@@ -1,4 +1,4 @@
-import { BaseService, type Database, listAt, textAt } from '../../platform/index.js';
+import { BaseService, type Database, failureOf, listAt, textAt } from '../../platform/index.js';
 import axios from 'axios';
 import { execShell, type Shell } from '../lib/shell.js';
 import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
@@ -14,23 +14,6 @@ export class RegistryService extends BaseService {
   }
 
   private tagCache = new Map<string, { tags: string[]; expiresAt: number }>();
-
-  private FALLBACK_TAGS: Record<string, string[]> = {
-    'bitnami/odoo': ['latest'],
-    'bitnamilegacy/odoo': ['latest'],
-    'bitnami/postgresql': ['latest'],
-    'bitnamilegacy/postgresql': ['latest'],
-    'bitnami/nginx': ['latest'],
-    'ghcr.io/open-webui/open-webui': ['main', 'latest', 'cuda', 'ollama'],
-    'jellyfin/jellyfin': ['latest'],
-    'plexinc/pms-docker': ['latest'],
-    'deluan/navidrome': ['latest'],
-    'jvmorgan/kavita': ['latest'],
-    'ghcr.io/immich-app/immich-server': ['release', 'main'],
-    'papra/papra': ['latest'],
-    'ghcr.io/home-assistant/home-assistant': ['stable', 'latest', 'beta', 'dev'],
-    'ghcr.io/advplyr/audiobookshelf': ['latest'],
-  };
 
   async search(query: string): Promise<unknown[]> {
     const response = await axios.get<unknown>(`https://hub.docker.com/v2/search/repositories/?query=${query}&page_size=10`);
@@ -82,30 +65,29 @@ export class RegistryService extends BaseService {
     return tags;
   }
 
-  private async resolveTags(repo: string): Promise<string[]> {
+  private async readFrom(repo: string, registry: string, read: () => Promise<string[]>): Promise<string[]> {
     try {
-      if (repo.startsWith('bitnami/')) {
-        const repoName = repo.split('/')[1];
-        if (repoName) {
-          const tags = normalizeTags(await this.fetchEcrTags(repoName), 'newest-first');
-          if (tags.length > 0) return tags;
-        }
-      }
+      return await read();
+    } catch (err) {
+      throw Object.assign(new Error(`The tags of ${repo} could not be read from ${registry}: ${failureOf(err).reason}`, { cause: err }), { status: 502 });
+    }
+  }
 
-      if (repo.startsWith('ghcr.io/')) {
-        const tags = normalizeTags(await this.fetchGhcrTags(repo.slice('ghcr.io/'.length)), 'oldest-first');
+  private async resolveTags(repo: string): Promise<string[]> {
+    if (repo.startsWith('bitnami/')) {
+      const repoName = repo.split('/')[1];
+      if (repoName) {
+        const tags = normalizeTags(await this.readFrom(repo, 'the public ECR gallery', () => this.fetchEcrTags(repoName)), 'newest-first');
         if (tags.length > 0) return tags;
       }
-
-      const hubRepo = repo.includes('/') ? repo : `library/${repo}`;
-      const tags = normalizeTags(await this.fetchHubTags(hubRepo), 'newest-first');
-      if (tags.length > 0) return tags;
-
-      return this.FALLBACK_TAGS[repo] ?? ['latest'];
-    } catch (err) {
-      this.logger.warn(`Failed to fetch tags for ${repo}: ${(err as Error).message}`);
-      return this.FALLBACK_TAGS[repo] ?? ['latest'];
     }
+
+    if (repo.startsWith('ghcr.io/')) {
+      return normalizeTags(await this.readFrom(repo, 'the GitHub Container Registry', () => this.fetchGhcrTags(repo.slice('ghcr.io/'.length))), 'oldest-first');
+    }
+
+    const hubRepo = repo.includes('/') ? repo : `library/${repo}`;
+    return normalizeTags(await this.readFrom(repo, 'Docker Hub', () => this.fetchHubTags(hubRepo)), 'newest-first');
   }
 
   async getTagPage(repo: string, request: TagPageRequest = {}): Promise<TagPage> {

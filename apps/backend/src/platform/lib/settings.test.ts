@@ -29,7 +29,7 @@ const TENANT = {
   INFISICAL_URL: 'http://infisical.infisical.svc.cluster.local:8080',
   MINIO_ENDPOINT: 'instance-minio:9000', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'minio-secret', MINIO_BUCKET: 'koala',
   KOALA_REGISTRY: '127.0.0.1:31737', KOALA_REGISTRY_PUSH: 'gitea-http.gitea.svc.cluster.local:3000', REGISTRY_PULL_HOST: '127.0.0.1:31737',
-  SEARXNG_URL: 'http://searxng.searxng.svc.cluster.local:8080', CRAWL4AI_URL: 'http://crawl4ai.crawl4ai.svc.cluster.local:11235',
+  SEARXNG_URL: 'http://searxng.searxng.svc.cluster.local:8080', CRAWL4AI_URL: 'http://crawl4ai.crawl4ai.svc.cluster.local:11235', CRAWL4AI_API_TOKEN: 'crawl-token',
   CHECKS_API_URL: 'http://instance.nowrinkles.svc.cluster.local/api',
 };
 
@@ -103,13 +103,13 @@ describe('the settings a backend reads once, at start', () => {
 
   it('takes an instance\'s, with the services the chart names and nothing guessed for the ones it does not', () => {
     const settings = backendSettingsFrom(INSTANCE);
-    expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL } });
+    expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL, crawl4aiToken: 'crawl-token' } });
     expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, poolMonitor: { off: ANY_TEXT } });
     expect(settings.endpointRules).toEqual({ scriptedBase: 'http://instance.nowrinkles.svc.cluster.local/api/checks/scripted', lab: false });
     expect(settings.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(settings.mesh).toEqual({ off: 'instance runs no mesh; root does' });
-    const missing = problemsOf(() => backendSettingsFrom({ ...INSTANCE, MINIO_BUCKET: '', SEARXNG_URL: '', CHECKS_API_URL: '', INSTANCE_CREDENTIAL: '', MACHINE_GATEWAY_PORT: '' }));
-    for (const name of ['MINIO_BUCKET', 'SEARXNG_URL', 'CHECKS_API_URL', 'INSTANCE_CREDENTIAL', 'MACHINE_GATEWAY_PORT']) expect(missing.some((problem) => problem.includes(name)), name).toBe(true);
+    const missing = problemsOf(() => backendSettingsFrom({ ...INSTANCE, MINIO_BUCKET: '', SEARXNG_URL: '', CRAWL4AI_API_TOKEN: '', CHECKS_API_URL: '', INSTANCE_CREDENTIAL: '', MACHINE_GATEWAY_PORT: '' }));
+    for (const name of ['MINIO_BUCKET', 'SEARXNG_URL', 'CRAWL4AI_API_TOKEN', 'CHECKS_API_URL', 'INSTANCE_CREDENTIAL', 'MACHINE_GATEWAY_PORT']) expect(missing.some((problem) => problem.includes(name)), name).toBe(true);
   });
 
   it('takes an instance with no machine named as one with no cluster of its own, and a trial on Koala\'s servers only with its name', () => {
@@ -140,7 +140,7 @@ describe('the settings each worker reads once, at start', () => {
   });
 
   it('asks an instance\'s host worker for nothing of root\'s', () => {
-    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
+    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
   });
 
   it('gives the cluster worker its services, its Terraform and the address machines send metrics to, or why there is none', () => {

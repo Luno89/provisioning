@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import * as client from 'openid-client';
 import { importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, endsSessions, refusedByServer, revocationShaped, signJWT, verifyJWT,
+  decryptValue, encryptValue, endsSessions, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -78,7 +78,7 @@ export class RootSignIn {
         this.settings.clientId,
         { id_token_signed_response_alg: SIGNING_ALG, token_endpoint_auth_signing_alg: SIGNING_ALG },
         client.PrivateKeyJwt({ key, kid: this.settings.clientKeys.kid }),
-        this.issuer.startsWith('http://') ? { execute: [client.allowInsecureRequests] } : undefined,
+        { ...withAnswerUnlimited(), ...(this.issuer.startsWith('http://') ? { execute: [client.allowInsecureRequests] } : {}) },
       );
     })();
     this.configured.catch(() => { this.configured = undefined; });
@@ -98,17 +98,11 @@ export class RootSignIn {
     if (!answer.ok) throw new Error(`root answered ${answer.status} to this ${this.settings.kind}'s sign-in key`);
   }
 
-  keepAnnouncing(log: (message: string) => void, everyMs = 10_000): void {
-    const attempt = async (): Promise<void> => {
-      try {
-        await this.announce();
-        this.markAnnounced();
-      } catch (err) {
-        log(`root has not taken this ${this.settings.kind}'s sign-in key yet: ${(err as Error).message}; trying again in ${Math.round(everyMs / 1000)} s`);
-        setTimeout(() => { void attempt(); }, everyMs);
-      }
-    };
-    void attempt();
+  keepAnnouncing(log: (message: string) => void, again: Reopening = reopening()): void {
+    void keepTrying(`root has not taken this ${this.settings.kind}'s sign-in key yet`, async () => {
+      await this.announce();
+      this.markAnnounced();
+    }, log, again);
   }
 
   async start(next: unknown): Promise<Started> {

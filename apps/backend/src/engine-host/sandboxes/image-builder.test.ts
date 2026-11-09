@@ -1,8 +1,10 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { countsIn, lastComplaint } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createImageBuilder, ImageBuildError } from './image-builder.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
 import type { KubeResult, KubeRunner } from './kube.js';
+import { reopening } from '@koala/engine-core/reopening';
 
 const REGISTRY = '10.0.0.1:31737';
 const HOSTS = { pull: REGISTRY, push: REGISTRY };
@@ -312,5 +314,42 @@ describe('the token a workspace build pushes with', () => {
     await build.start(other);
     expect(minting.revoked).toEqual(['build-1', 'build-0']);
     expect([...secrets.values()].map((entry) => entry.annotations?.['koala.dev/push-token'])).toEqual(['build-2']);
+  });
+});
+
+describe('whether an image is published, asked of the registry', () => {
+  it('is published on 200 and not on 404, and anything else is a failure with what the registry answered', async () => {
+    const answers = new Map([[200, true], [404, false]]);
+    let status = 200;
+    const fetched = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status }));
+    try {
+      const build = createImageBuilder({ run: kube().run, registry: HOSTS });
+      for (const [given, published] of answers) {
+        status = given;
+        expect(await build.exists(PLAIN)).toBe(published);
+      }
+      for (const given of [401, 500]) {
+        status = given;
+        await expect(build.exists(PLAIN)).rejects.toMatchObject({ status: given, message: matching(new RegExp(`^the image registry answered ${given} when asked whether .+ is published$`)) });
+      }
+      expect(fetched.mock.calls[0]![0]).toMatch(/^http:\/\/10\.0\.0\.1:31737\/v2\/.+\/manifests\//);
+    } finally {
+      fetched.mockRestore();
+    }
+  });
+});
+
+describe('an image registry that cannot say whether an image is built', () => {
+  it('is asked again until it answers, never taken as having no image, and a refusal stops the build with why', async () => {
+    let asked = 0;
+    const flaky = createImageBuilder({
+      run: kube().run, registry: HOSTS, askAgain: () => reopening(1),
+      published: async () => { asked += 1; if (asked < 3) throw Object.assign(new Error('the image registry answered 503'), { status: 503 }); return true; },
+    });
+    expect(await flaky.ensure(CUSTOM)).toBe(imageReference(REGISTRY, CUSTOM));
+    expect(asked).toBe(3);
+
+    const refusing = createImageBuilder({ run: kube().run, registry: HOSTS, published: async () => { throw Object.assign(new Error('the image registry answered 401'), { status: 401 }); } });
+    await expect(refusing.ensure(CUSTOM)).rejects.toThrow(`The image registry could not be asked whether ${CUSTOM.fingerprint} is built: the image registry answered 401`);
   });
 });

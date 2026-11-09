@@ -1,6 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
-import { DnsProviderRefusal, PORKBUN_ACCESS, PORKBUN_DNS, type DnsCredentials, type DnsProvider, type DnsRecord, type DnsRecordType, type DnsValidation, type DnsZone } from '../../lib/dns-providers.js';
+import { DnsProviderRefusal, dnsProviderBusy, PORKBUN_ACCESS, PORKBUN_DNS, type DnsCredentials, type DnsProvider, type DnsRecord, type DnsRecordType, type DnsValidation, type DnsZone } from '../../lib/dns-providers.js';
 import type { FetchLike } from '../OvhClient.js';
+import { temporaryStatus } from '../../../platform/index.js';
 
 export const PORKBUN_API = 'https://api.porkbun.com/api/json/v3';
 
@@ -27,6 +28,7 @@ export const subdomainIn = (name: string, zone: string): string => {
 export function porkbunProvider(fetchImpl: FetchLike = fetch): DnsProvider {
   const call = async (path: string, body: Record<string, string>): Promise<PbAnswer> => {
     const answer = await fetchImpl(`${PORKBUN_API}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (temporaryStatus(answer.status)) throw dnsProviderBusy('Porkbun', answer.status);
     const parsed: PbAnswer = (await answer.json().catch(ignore('an answer that is not JSON is told by its HTTP status')) as PbAnswer | undefined) ?? {};
     if (parsed.status !== 'SUCCESS') {
       const said = parsed.message || `HTTP ${answer.status}`;
@@ -43,7 +45,8 @@ export function porkbunProvider(fetchImpl: FetchLike = fetch): DnsProvider {
         const answer = await call('/ping', keysOf(credentials));
         return { valid: true, message: `Porkbun accepts these keys${answer.yourIp ? ` (from ${answer.yourIp})` : ''}. ${PORKBUN_ACCESS}` };
       } catch (error) {
-        return { valid: false, message: (error as Error).message };
+        if (!(error instanceof DnsProviderRefusal)) throw error;
+        return { valid: false, message: error.message };
       }
     },
     async zone(credentials: DnsCredentials, zone: string): Promise<DnsZone> {

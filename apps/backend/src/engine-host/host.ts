@@ -486,7 +486,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
               search: async (query: string, signal?: AbortSignal) => {
                 const outcome = await web.search(query, signal);
                 return outcome.unavailable
-                  ? { error: 'Search is unavailable — no backend could be reached. Rephrasing will not help.' }
+                  ? { error: `Search is unavailable: ${outcome.reason}. Rephrasing will not help.` }
                   : { results: outcome.hits };
               },
               fetchPage: (url: string, signal?: AbortSignal) => web.readPage(url, signal),

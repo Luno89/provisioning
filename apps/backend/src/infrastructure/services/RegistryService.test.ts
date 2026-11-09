@@ -1,3 +1,4 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { mockFn } from 'vitest-mock-extended';
@@ -51,11 +52,25 @@ describe('RegistryService.getTags', () => {
     expect(await service().getTags('ghcr.io/advplyr/audiobookshelf')).toEqual(expect.arrayContaining(['2.1.0', '2.2.0']));
   });
 
-  it('falls back to the tags it knows when the registry cannot be asked', async () => {
+  it('says why, rather than offering tags it never read, when the registry cannot be asked', async () => {
     server.use(http.get('https://hub.docker.com/v2/repositories/jellyfin/jellyfin/tags', () => new HttpResponse(null, { status: 500 })));
-    expect(await service().getTags('jellyfin/jellyfin')).toEqual(['latest']);
-    server.use(http.get('https://hub.docker.com/v2/repositories/someone/unknown/tags', () => new HttpResponse(null, { status: 500 })));
-    expect(await service().getTags('someone/unknown')).toEqual(['latest']);
+    await expect(service().getTags('jellyfin/jellyfin')).rejects.toMatchObject({ status: 502, message: 'The tags of jellyfin/jellyfin could not be read from Docker Hub: it answered 500' });
+    server.use(
+      http.get('https://ghcr.io/token', () => HttpResponse.json({ token: 'pull-token' })),
+      http.get('https://ghcr.io/v2/theroyallab/tabbyapi/tags/list', () => HttpResponse.error()),
+    );
+    await expect(service().getTags('ghcr.io/theroyallab/tabbyapi')).rejects.toMatchObject({ status: 502, message: matching(/^The tags of ghcr\.io\/theroyallab\/tabbyapi could not be read from the GitHub Container Registry: /) });
+  });
+
+  it('finds no tags for an image the registry has none for, and keeps no answer it could not read', async () => {
+    server.use(http.get('https://hub.docker.com/v2/repositories/someone/unknown/tags', () => hubTags([])));
+    expect(await service().getTags('someone/unknown')).toEqual([]);
+    let failing = true;
+    server.use(http.get('https://hub.docker.com/v2/repositories/someone/flaky/tags', () => (failing ? new HttpResponse(null, { status: 503 }) : hubTags(['1.0']))));
+    const registry = service();
+    await expect(registry.getTags('someone/flaky')).rejects.toMatchObject({ status: 502 });
+    failing = false;
+    expect(await registry.getTags('someone/flaky')).toEqual(['1.0']);
   });
 
   it('pages the tags it found', async () => {

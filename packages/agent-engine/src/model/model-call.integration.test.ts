@@ -115,6 +115,7 @@ describe('a model call whose connection is lost', () => {
     expect(server.modelsAsked).toBe(2);
     expect(server.asked).toHaveLength(2);
     expect(server.asked[1]?.body).toEqual(server.asked[0]?.body);
+    expect(server.asked[1]!.at - server.asked[0]!.at, 'it waits 5 s, then 10 s, as every dependency is asked again').toBeGreaterThanOrEqual(15_000);
   });
 
   it('waits for a server that refuses connections to come up and then asks it', async () => {

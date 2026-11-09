@@ -1,6 +1,5 @@
 import { fieldsOf } from '../../platform/lib/request-fields.js';
-import { patientFetch } from '@koala/agent-engine';
-import { withoutHiddenHtml } from './hidden-text.js';
+import { dependencyFetch } from '@koala/engine-core/http';
 
 export interface SearchHit {
   title: string;
@@ -13,17 +12,14 @@ export interface WebToolsConfig {
   crawl4aiUrl?: string | undefined;
   crawl4aiToken?: string | undefined;
   fetchImpl?: typeof fetch;
-  pageFetch?: typeof fetch;
   searxngFetch?: typeof fetch | undefined;
   crawl4aiFetch?: typeof fetch | undefined;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
 }
 
-export interface SearchOutcome {
-  hits: SearchHit[];
-  answeredBy?: 'searxng' | 'duckduckgo';
-  unavailable: boolean;
-}
+export type SearchOutcome =
+  | { hits: SearchHit[]; unavailable: false }
+  | { hits: []; unavailable: true; reason: string };
 
 export type WebSearchFn = (query: string) => Promise<SearchOutcome>;
 
@@ -32,26 +28,20 @@ export function renderSearchOutcome(query: string, outcome: SearchOutcome): Reco
     return {
       query,
       unavailable: true,
-      error: 'Search is unavailable — no backend could be reached.',
+      error: `Search is unavailable: ${outcome.reason}`,
       note: 'This says NOTHING about whether results exist. Rephrasing will not help. Work from what '
         + 'you already have, and say in your summary that search was down.',
     };
   }
   if (!outcome.hits.length) {
-    return {
-      query,
-      source: outcome.answeredBy,
-      results: [],
-      note: `${outcome.answeredBy} answered with no matches for this query. Different terms may help.`,
-    };
+    return { query, results: [], note: 'SearXNG answered with no matches for this query. Different terms may help.' };
   }
-  return { query, source: outcome.answeredBy, results: outcome.hits };
+  return { query, results: outcome.hits };
 }
 
 export interface PageOutcome {
   ok: boolean;
   text: string;
-  /** The site answered 401/403: it refused this client rather than the fetch breaking. */
   declined?: boolean;
   hiddenRemoved?: number;
 }
@@ -60,75 +50,44 @@ export interface WebTools {
   search: (query: string, signal?: AbortSignal) => Promise<SearchOutcome>;
   fetchPage: (url: string, signal?: AbortSignal) => Promise<string>;
   readPage: (url: string, signal?: AbortSignal) => Promise<PageOutcome>;
-  sources: { search: 'searxng' | 'duckduckgo'; fetch: 'crawl4ai' | 'strip-tags' };
+  sources: { search: 'searxng' | 'none'; fetch: 'crawl4ai' | 'none' };
 }
 
 const MAX_PAGE_CHARS = 8000;
 
-async function tryFetch(
+type Asked = { res: Response } | { failed: string };
+
+async function ask(
   doFetch: typeof fetch,
   url: string,
   init: RequestInit,
   signal: AbortSignal | undefined,
-): Promise<Response | undefined> {
+): Promise<Asked> {
   try {
-    return await doFetch(url, { ...init, ...(signal ? { signal } : {}) });
-  } catch {
-    return undefined;
-  }
-}
-
-async function bodyText(res: Response): Promise<string | Error> {
-  try {
-    return await res.text();
+    return { res: await doFetch(url, { ...init, ...(signal ? { signal } : {}) }) };
   } catch (err) {
-    return err instanceof Error ? err : new Error(String(err));
+    if (signal?.aborted) throw err;
+    return { failed: (err as Error).message };
   }
 }
 
-async function bodyJson(res: Response): Promise<unknown> {
+async function bodyJson(res: Response): Promise<{ json: unknown } | { failed: string }> {
   try {
-    const parsed: unknown = await res.json();
-    return parsed;
-  } catch {
-    return undefined;
+    return { json: await res.json() };
+  } catch (err) {
+    return { failed: `its answer could not be read: ${(err as Error).message}` };
   }
 }
 
-async function duckduckgo(doFetch: typeof fetch, query: string, signal?: AbortSignal): Promise<SearchHit[] | undefined> {
-  const res = await tryFetch(doFetch, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    },
-  }, signal);
-  if (!res?.ok) return undefined;
-
-  const html = await bodyText(res);
-  if (html instanceof Error) return undefined;
-  if (/anomaly|unusual traffic|blocked/i.test(html) && !html.includes('result__url')) return undefined;
-
-  const hits: SearchHit[] = [];
-  const pattern = /<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-
-  for (const match of html.matchAll(pattern)) {
-    if (hits.length >= 5) break;
-    const raw = (match[1] ?? '').replace(/&amp;/g, '&');
-    const redirect = /uddg=([^&]+)/.exec(raw);
-    const url = redirect?.[1] ? decodeURIComponent(redirect[1]) : raw;
-    const title = (match[2] ?? '').replace(/<[^>]+>/g, '').trim();
-    const snippet = (match[3] ?? '').replace(/<[^>]+>/g, '').trim();
-    if (title && url) hits.push({ title, snippet, url });
-  }
-  return hits;
-}
-
-async function searxng(doFetch: typeof fetch, base: string, query: string, signal?: AbortSignal): Promise<SearchHit[] | undefined> {
+async function searxng(doFetch: typeof fetch, base: string, query: string, signal?: AbortSignal): Promise<SearchHit[] | { failed: string }> {
   const url = `${base.replace(/\/$/, '')}/search?q=${encodeURIComponent(query)}&format=json`;
-  const res = await tryFetch(doFetch, url, { headers: { accept: 'application/json' } }, signal);
-  if (!res?.ok) return undefined;
-
-  const { results } = fieldsOf(await bodyJson(res));
-  if (!Array.isArray(results)) return undefined;
+  const asked = await ask(doFetch, url, { headers: { accept: 'application/json' } }, signal);
+  if ('failed' in asked) return asked;
+  if (!asked.res.ok) return { failed: `SearXNG answered ${asked.res.status}` };
+  const body = await bodyJson(asked.res);
+  if ('failed' in body) return { failed: `SearXNG's ${body.failed}` };
+  const { results } = fieldsOf(body.json);
+  if (!Array.isArray(results)) return { failed: 'SearXNG answered without a list of results' };
 
   return results.slice(0, 5).map((r) => {
     const hit = fieldsOf(r);
@@ -140,90 +99,48 @@ async function searxng(doFetch: typeof fetch, base: string, query: string, signa
   }).filter((h) => h.url);
 }
 
-async function stripTags(doFetch: typeof fetch, url: string, signal?: AbortSignal): Promise<PageOutcome> {
-  const res = await tryFetch(doFetch, url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    },
-  }, signal);
-  if (!res) return { ok: false, text: 'Failed to fetch page.' };
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      return {
-        ok: false,
-        declined: true,
-        text: `HTTP ${res.status}: this site refused the fetch — it blocks automatic clients. ` +
-          'Do not retry this site; work from search results, or choose another source.',
-      };
-    }
-    return { ok: false, text: `HTTP error ${res.status}` };
-  }
-
-  const html = await bodyText(res);
-  if (html instanceof Error) return { ok: false, text: `The page could not be read: ${html.message}` };
-  const shown = withoutHiddenHtml(html);
-  const text = shown.html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_PAGE_CHARS);
-  return { ok: true, text, ...(shown.removed ? { hiddenRemoved: shown.removed } : {}) };
-}
-
 function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
   const root = base.replace(/\/$/, '');
 
-  return async (url: string, signal?: AbortSignal): Promise<string | undefined> => {
-    const res = await tryFetch(doFetch, `${root}/md`, {
+  return async (url: string, signal?: AbortSignal): Promise<PageOutcome> => {
+    const asked = await ask(doFetch, `${root}/md`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify({ url }),
     }, signal);
-    if (!res?.ok) return undefined;
-
-    const { markdown: said } = fieldsOf(await bodyJson(res));
-    const markdown = typeof said === 'string' ? said : undefined;
-    return markdown?.trim() ? markdown.slice(0, MAX_PAGE_CHARS) : undefined;
+    if ('failed' in asked) return { ok: false, text: `The page could not be read: ${asked.failed}` };
+    if (!asked.res.ok) return { ok: false, text: `The page could not be read: Crawl4AI answered ${asked.res.status}` };
+    const body = await bodyJson(asked.res);
+    if ('failed' in body) return { ok: false, text: `The page could not be read: Crawl4AI's ${body.failed}` };
+    const { markdown: said } = fieldsOf(body.json);
+    const markdown = typeof said === 'string' ? said.trim() : '';
+    if (!markdown) return { ok: false, text: 'The page could not be read: Crawl4AI found no text on it' };
+    return { ok: true, text: markdown.slice(0, MAX_PAGE_CHARS) };
   };
 }
 
 export function createWebTools(config: WebToolsConfig = {}): WebTools {
-  const doFetch = config.fetchImpl ?? patientFetch;
+  const doFetch = config.fetchImpl ?? dependencyFetch;
   const scrape = config.crawl4aiUrl && config.crawl4aiToken
     ? crawl4ai(config.crawl4aiFetch ?? doFetch, config.crawl4aiUrl, config.crawl4aiToken)
     : undefined;
 
   return {
-    sources: {
-      search: config.searxngUrl ? 'searxng' : 'duckduckgo',
-      fetch: scrape ? 'crawl4ai' : 'strip-tags',
-    },
+    sources: { search: config.searxngUrl ? 'searxng' : 'none', fetch: scrape ? 'crawl4ai' : 'none' },
 
     async search(query: string, signal?: AbortSignal): Promise<SearchOutcome> {
       if (!query.trim()) return { hits: [], unavailable: false };
-
-      if (config.searxngUrl) {
-        const hits = await searxng(config.searxngFetch ?? doFetch, config.searxngUrl, query, signal);
-        if (hits) return { hits, answeredBy: 'searxng', unavailable: false };
-      }
-
-      const hits = await duckduckgo(doFetch, query, signal);
-      if (hits) return { hits, answeredBy: 'duckduckgo', unavailable: false };
-
-      return { hits: [], unavailable: true };
+      if (!config.searxngUrl) return { hits: [], unavailable: true, reason: 'no SearXNG is set up for this Koala' };
+      const hits = await searxng(config.searxngFetch ?? doFetch, config.searxngUrl, query, signal);
+      return 'failed' in hits ? { hits: [], unavailable: true, reason: hits.failed } : { hits, unavailable: false };
     },
 
     async readPage(url: string, signal?: AbortSignal): Promise<PageOutcome> {
       if (!/^https?:\/\//i.test(url)) return { ok: false, text: 'Only http and https URLs can be fetched.' };
       const refused = await config.pageCheck?.(url);
       if (refused) return { ok: false, declined: true, text: `Koala fetches only pages on the open internet, and not this one: ${refused}.` };
-      if (scrape) {
-        const markdown = await scrape(url, signal);
-        if (markdown) return { ok: true, text: markdown };
-      }
-      return stripTags(config.pageFetch ?? doFetch, url, signal);
+      if (!scrape) return { ok: false, text: 'Pages cannot be read: no Crawl4AI is set up for this Koala' };
+      return scrape(url, signal);
     },
 
     async fetchPage(url: string, signal?: AbortSignal): Promise<string> {

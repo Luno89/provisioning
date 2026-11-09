@@ -17,7 +17,8 @@ export function instanceLine(instance: PersonInstance): string {
   const version = instance.version ? ` ${instance.version}${instance.versionWithdrawn ? ' (withdrawn)' : ''}` : ''
   const updates = instance.autoUpdates === undefined ? '' : instance.autoUpdates ? ', updates automatically' : ', updates by hand'
   const reach = instance.unreachableSince ? `, not answering since ${day(instance.unreachableSince)}` : ''
-  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${version}${reach}${trial}${updates}`
+  const signOuts = instance.signOutsUndelivered ? `, signing out has not reached it since ${day(instance.signOutsUndelivered.since)} (${instance.signOutsUndelivered.why})` : ''
+  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${version}${reach}${signOuts}${trial}${updates}`
 }
 
 export function yoursGoes(instance: PersonInstance | undefined): string[] {

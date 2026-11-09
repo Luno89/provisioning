@@ -1,4 +1,4 @@
-import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
+import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, failureOf, isRecord, maskSecret, type SecretKey, temporaryStatus, textAt } from '../../platform/index.js';
 import { usesOperatorCredentials, type OperatorEnv, type ResolvedCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
@@ -60,73 +60,83 @@ export class CredentialService {
     provider: string,
     creds: Record<string, string>,
   ): Promise<{ valid: boolean; message: string; details?: unknown }> {
-    try {
-      if (isDnsProviderName(provider)) return await this.dns.validate(provider, creds);
-
-      if (provider === 'huggingface') {
-        const token = creds.hfToken || creds.token;
-        if (!token) return { valid: false, message: 'Hugging Face Access Token is required.' };
-        const res = await fetch('https://huggingface.co/api/whoami-v2', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        }
-        const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Hugging Face user @${textAt(data, 'name') || textAt(data, 'fullname') || 'user'}`, details: data };
+    const uncheckable = (who: string, reason: string): Error =>
+      Object.assign(new Error(`${who} could not check these credentials just now: ${reason}`), { status: 502 });
+    const answered = async (who: string, asked: Promise<Response>): Promise<Response> => {
+      let res: Response;
+      try {
+        res = await asked;
+      } catch (err) {
+        throw uncheckable(who, failureOf(err).reason);
       }
+      if (temporaryStatus(res.status)) throw uncheckable(who, `it answered ${res.status}`);
+      return res;
+    };
+    if (isDnsProviderName(provider)) return await this.dns.validate(provider, creds);
 
-      if (provider === 'ovh') {
-        const { applicationKey, applicationSecret, consumerKey } = creds;
-        const subsidiary = String(creds.subsidiary ?? '').trim().toUpperCase();
-        if (!applicationKey || !applicationSecret || !consumerKey || !subsidiary) {
-          return { valid: false, message: 'OVHcloud needs the application key, application secret, consumer key and your account\'s subsidiary (for example AU, FR or CA).' };
-        }
-        if (!OVH_SUBSIDIARIES.includes(subsidiary)) {
-          return { valid: false, message: `${subsidiary} is not an OVHcloud subsidiary; known ones are ${OVH_SUBSIDIARIES.join(', ')}.` };
-        }
-        try {
-          const me = await new OvhClient({ applicationKey, applicationSecret, consumerKey, subsidiary }, this.fetchImpl).get<{ nichandle?: string; ovhSubsidiary?: string; currency?: { code?: string } }>('/me');
-          if (me.ovhSubsidiary && me.ovhSubsidiary !== subsidiary) {
-            return { valid: false, message: `These keys belong to an OVHcloud ${me.ovhSubsidiary} account, not ${subsidiary}; set the subsidiary to ${me.ovhSubsidiary}.` };
-          }
-          return { valid: true, message: `Signed in to OVHcloud as ${me.nichandle ?? 'your account'} (${subsidiary}${me.currency?.code ? `, ${me.currency.code}` : ''}).` };
-        } catch (error) {
-          return { valid: false, message: (error as Error).message };
-        }
+    if (provider === 'huggingface') {
+      const token = creds.hfToken || creds.token;
+      if (!token) return { valid: false, message: 'Hugging Face Access Token is required.' };
+      const res = await answered('Hugging Face', fetch('https://huggingface.co/api/whoami-v2', {
+        headers: { Authorization: `Bearer ${token}` },
+      }));
+      if (!res.ok) {
+        return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
       }
-
-      if (provider === 'googledrive') {
-        const refreshToken = creds.refreshToken;
-        if (!refreshToken) return { valid: false, message: 'Not connected — use "Connect with Google" first.' };
-        const google = this.operator?.credentials.googleDrive;
-        if (!google || 'off' in google) {
-          return { valid: false, message: google ? google.off : 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.' };
-        }
-        const { clientId, clientSecret } = google;
-        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
-        });
-        if (!tokenRes.ok) {
-          return { valid: false, message: `Google Drive refresh token is no longer valid (HTTP ${tokenRes.status}) — reconnect.` };
-        }
-        const accessToken = textAt(await readJson(tokenRes), 'access_token');
-        const aboutRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!aboutRes.ok) {
-          return { valid: false, message: `Drive API check failed (HTTP ${aboutRes.status}).` };
-        }
-        const about = await readJson(aboutRes);
-        return { valid: true, message: `Connected to Google Drive as ${textAt(about, 'user', 'emailAddress') || 'unknown account'}` };
-      }
-
-      return { valid: true, message: 'Credentials formatted.' };
-    } catch (err) {
-      return { valid: false, message: `Validation failed: ${(err as Error | undefined)?.message || 'Network error'}` };
+      const data = await readJson(res);
+      return { valid: true, message: `Authenticated as Hugging Face user @${textAt(data, 'name') || textAt(data, 'fullname') || 'user'}`, details: data };
     }
+
+    if (provider === 'ovh') {
+      const { applicationKey, applicationSecret, consumerKey } = creds;
+      const subsidiary = String(creds.subsidiary ?? '').trim().toUpperCase();
+      if (!applicationKey || !applicationSecret || !consumerKey || !subsidiary) {
+        return { valid: false, message: 'OVHcloud needs the application key, application secret, consumer key and your account\'s subsidiary (for example AU, FR or CA).' };
+      }
+      if (!OVH_SUBSIDIARIES.includes(subsidiary)) {
+        return { valid: false, message: `${subsidiary} is not an OVHcloud subsidiary; known ones are ${OVH_SUBSIDIARIES.join(', ')}.` };
+      }
+      try {
+        const me = await new OvhClient({ applicationKey, applicationSecret, consumerKey, subsidiary }, this.fetchImpl).get<{ nichandle?: string; ovhSubsidiary?: string; currency?: { code?: string } }>('/me');
+        if (me.ovhSubsidiary && me.ovhSubsidiary !== subsidiary) {
+          return { valid: false, message: `These keys belong to an OVHcloud ${me.ovhSubsidiary} account, not ${subsidiary}; set the subsidiary to ${me.ovhSubsidiary}.` };
+        }
+        return { valid: true, message: `Signed in to OVHcloud as ${me.nichandle ?? 'your account'} (${subsidiary}${me.currency?.code ? `, ${me.currency.code}` : ''}).` };
+      } catch (error) {
+        const failure = failureOf(error);
+        if (failure.kind === 'temporary') throw uncheckable('OVHcloud', failure.reason);
+        return { valid: false, message: (error as Error).message };
+      }
+    }
+
+    if (provider === 'googledrive') {
+      const refreshToken = creds.refreshToken;
+      if (!refreshToken) return { valid: false, message: 'Not connected — use "Connect with Google" first.' };
+      const google = this.operator?.credentials.googleDrive;
+      if (!google || 'off' in google) {
+        return { valid: false, message: google ? google.off : 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.' };
+      }
+      const { clientId, clientSecret } = google;
+      const tokenRes = await answered('Google', fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+      }));
+      if (!tokenRes.ok) {
+        return { valid: false, message: `Google Drive refresh token is no longer valid (HTTP ${tokenRes.status}) — reconnect.` };
+      }
+      const accessToken = textAt(await readJson(tokenRes), 'access_token');
+      const aboutRes = await answered('Google Drive', fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }));
+      if (!aboutRes.ok) {
+        return { valid: false, message: `Drive API check failed (HTTP ${aboutRes.status}).` };
+      }
+      const about = await readJson(aboutRes);
+      return { valid: true, message: `Connected to Google Drive as ${textAt(about, 'user', 'emailAddress') || 'unknown account'}` };
+    }
+
+    return { valid: true, message: 'Credentials formatted.' };
   }
 
   async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: unknown }> {

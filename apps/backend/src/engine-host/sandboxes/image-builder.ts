@@ -4,7 +4,8 @@ import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { forPushing, kanikoRegistryArgs, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 import { dockerConfigJson } from '../../instances/lib/registry-pull.js';
-import { reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';
+import { failureOf, reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';
+import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
@@ -44,6 +45,7 @@ export interface ImageBuilderOptions {
   namespace?: string | undefined;
   pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
+  askAgain?: (() => Reopening) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
   pushToken?: (() => Promise<PushToken>) | undefined;
   revokePushToken?: ((name: string) => Promise<void>) | undefined;
@@ -215,7 +217,9 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
         },
       },
     );
-    return response.ok;
+    if (response.ok) return true;
+    if (response.status === 404) return false;
+    throw Object.assign(new Error(`the image registry answered ${response.status} when asked whether ${reference} is published`), { status: response.status });
   });
 
   const exists = async (plan: ImagePlan): Promise<boolean> => published(await target(plan));
@@ -244,10 +248,21 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     console.warn(`[images] the push tokens of finished builds stay valid until the next try, at the next build or check: ${(err as Error).message}`);
   });
 
-  const inRegistry = (plan: ImagePlan): Promise<boolean> => exists(plan).catch((err: unknown) => {
-    console.warn(`[images] the registry could not say whether ${plan.fingerprint} is there, so its build is gone by instead: ${(err as Error).message}`);
-    return false;
-  });
+  const inRegistry = async (plan: ImagePlan): Promise<boolean> => {
+    const again = (options.askAgain ?? reopening)();
+    let told: string | undefined;
+    for (;;) {
+      try {
+        return await exists(plan);
+      } catch (err) {
+        const failure = failureOf(err);
+        if (failure.kind === 'final') throw new ImageBuildError(`The image registry could not be asked whether ${plan.fingerprint} is built: ${(err as Error).message}`);
+        if (failure.reason !== told) console.warn(`[images] the image registry could not say whether ${plan.fingerprint} is built (${failure.reason}); asking again`);
+        told = failure.reason;
+        await again.after();
+      }
+    }
+  };
 
   const apply = async (plan: ImagePlan, reference: string): Promise<void> => {
     await releaseTokensNow();

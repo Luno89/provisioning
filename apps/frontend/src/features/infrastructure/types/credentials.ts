@@ -15,6 +15,7 @@ export interface GoogleDriveStatus {
 
 export interface ValidationResult {
   valid?: boolean
+  unchecked?: boolean
   message?: string
 }
 

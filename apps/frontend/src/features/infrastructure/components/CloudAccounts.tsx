@@ -1,3 +1,4 @@
+import { ValidationNote } from './ValidationNote';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink } from 'lucide-react';
@@ -48,7 +49,7 @@ export default function CloudAccounts() {
     mutationFn: (v: { provider: string; values: Record<string, string> }) =>
       validateCredentials(v.provider, v.values),
     onSuccess: (result) => setValResult(result),
-    onError: (err) => setValResult({ valid: false, message: errorMessage(err) }),
+    onError: (err) => setValResult({ valid: false, unchecked: true, message: errorMessage(err) }),
   });
 
   const saving = save.isPending;
@@ -263,18 +264,7 @@ export default function CloudAccounts() {
                         </div>
                       ))}
 
-                      {valResult && (
-                        <div
-                          className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                            valResult.valid
-                              ? 'bg-green-500/10 border border-green-500/20 text-green-400'
-                              : 'bg-red-500/10 border border-red-500/20 text-red-400'
-                          }`}
-                        >
-                          {valResult.valid ? <Check size={14} /> : <AlertTriangle size={14} />}
-                          <span>{valResult.message}</span>
-                        </div>
-                      )}
+                      {valResult && <ValidationNote result={valResult} />}
                     </div>
 
                     <div className="flex gap-3">

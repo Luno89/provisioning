@@ -335,7 +335,17 @@ describe('calling the model', () => {
     bus.subscribe((event) => { events.push(event); });
     const traces: NodeTrace[] = [];
 
-    const result = await runV2(services, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let result: Awaited<ReturnType<typeof runV2>>;
+    try {
+      const running = runV2(services, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(chats, 'it waits the layer\'s first 5 s before asking whether the server answers').toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      result = await running;
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(result.outcome).toBe('ok');
     expect(chats).toBe(2);

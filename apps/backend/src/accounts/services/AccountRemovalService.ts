@@ -75,10 +75,27 @@ export interface AccountRemovalDeps {
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
   watches?: (() => Promise<InstanceWatchRecord[]>) | undefined;
+  logouts?: (() => Promise<UndeliveredLogout[]>) | undefined;
   hub?: HubPeople | undefined;
   principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   now?: () => string;
+}
+
+export interface UndeliveredLogout {
+  clientId: string;
+  revokedAt: string;
+  attempts?: number | undefined;
+  lastError?: string | undefined;
+  lastTriedAt?: string | undefined;
+}
+
+function signOutsUndelivered(instanceId: string, logouts: readonly UndeliveredLogout[]): { since: string; why: string } | undefined {
+  const failed = logouts.filter((logout) => logout.clientId === instanceId && logout.lastError);
+  if (!failed.length) return undefined;
+  const since = failed.map((logout) => logout.revokedAt).sort()[0]!;
+  const latest = [...failed].sort((a, b) => (b.lastTriedAt ?? '').localeCompare(a.lastTriedAt ?? ''))[0]!;
+  return { since, why: latest.lastError! };
 }
 
 export interface PersonInstance {
@@ -92,6 +109,7 @@ export interface PersonInstance {
   versionWithdrawn?: boolean | undefined;
   autoUpdates?: boolean | undefined;
   unreachableSince?: string | undefined;
+  signOutsUndelivered?: { since: string; why: string } | undefined;
 }
 
 export interface PersonEntry {
@@ -103,18 +121,22 @@ export interface PersonEntry {
   removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
 }
 
-const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord): PersonInstance => ({
-  ...(instance.name ? { name: instance.name } : {}),
-  where: instance.pool ? 'pool' : 'own',
-  status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
-  ...(instance.detail ? { detail: instance.detail } : {}),
-  url: instance.url,
-  ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
-  ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
-  ...(releases.some((release) => release.imageTag === instance.running && release.withdrawn) ? { versionWithdrawn: true } : {}),
-  ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
-  ...(watch?.reach?.toldDown && !watch.reach.reachable ? { unreachableSince: watch.reach.unreachableSince } : {}),
-});
+function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord, logouts: readonly UndeliveredLogout[] = []): PersonInstance {
+  const undelivered = signOutsUndelivered(instance.id, logouts);
+  return {
+    ...(instance.name ? { name: instance.name } : {}),
+    where: instance.pool ? 'pool' : 'own',
+    status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
+    ...(instance.detail ? { detail: instance.detail } : {}),
+    url: instance.url,
+    ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
+    ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
+    ...(releases.some((release) => release.imageTag === instance.running && release.withdrawn) ? { versionWithdrawn: true } : {}),
+    ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
+    ...(watch?.reach?.toldDown && !watch.reach.reachable ? { unreachableSince: watch.reach.unreachableSince } : {}),
+    ...(undelivered ? { signOutsUndelivered: undelivered } : {}),
+  };
+}
 
 export class AccountRemovalService {
   constructor(private readonly deps: AccountRemovalDeps) {}
@@ -169,6 +191,7 @@ export class AccountRemovalService {
     const instances = this.deps.instances ? await this.deps.instances() : [];
     const releases = this.deps.releases ? await this.deps.releases() : [];
     const watches = this.deps.watches ? await this.deps.watches() : [];
+    const logouts = this.deps.logouts ? await this.deps.logouts() : [];
     const steps = this.deps.steps;
     return Promise.all(users.map(async (user) => {
       const instance = instances.find((entry) => entry.ownerId === user.id);
@@ -177,7 +200,7 @@ export class AccountRemovalService {
         email: user.email,
         operator: this.operator(user),
         createdAt: user.createdAt,
-        ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id)) } : {}),
+        ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id), logouts) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
       };
     }));

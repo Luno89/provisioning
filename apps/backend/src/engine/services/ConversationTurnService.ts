@@ -34,10 +34,12 @@ export class ConversationTurnService {
   async settle(conversation: Conversation): Promise<Conversation> {
     const live = conversation.liveTurn;
     if (!live) return conversation;
-    const running = await this.deps.running(live.runId).catch((err: unknown) => {
-      console.warn(`[turns] could not ask whether run ${live.runId} still runs, so its turn stays open: ${(err as Error).message}`);
-      return true;
-    });
+    let running: boolean;
+    try {
+      running = await this.deps.running(live.runId);
+    } catch (err) {
+      return { ...conversation, liveTurn: { ...live, unknown: `Koala can't tell whether this turn still runs: ${(err as Error).message}` } };
+    }
     if (running) return conversation;
     const reply = replyFromLog(await this.deps.log.getTurnLog(conversation.ownerId, live.runId, 0), live.runId);
     const now = this.now();

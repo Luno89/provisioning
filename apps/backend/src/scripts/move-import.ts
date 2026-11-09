@@ -10,7 +10,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import { clusterAccessFrom, InfrastructureService, terraformPlacesFor, type ClusterAccess } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { mongoClientFor, moveImportSettingsFrom, type MoveImportSettings } from '../platform/index.js';
+import { failureOf, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -38,12 +38,24 @@ async function part(name: MovePart | string, saying?: string, absentFromOlder?: 
   const words = saying ?? MOVE_STEP_WORDS[name as MovePart] ?? name;
   await report('installing', words);
   console.log(`▶ ${words}`);
-  let response = await fetch(`${settings().rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers: headers() });
-  while (response.status === 502 || response.status === 503) {
-    await response.body?.cancel();
-    console.log(`  Koala's servers are not ready to give ${name} yet (${response.status}); asking again`);
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    response = await fetch(`${settings().rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers: headers() });
+  const again = reopening();
+  let response: Response;
+  for (;;) {
+    const asked = await fetch(`${settings().rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers: headers() }).then(
+      (answer) => answer,
+      (err: unknown) => {
+        const failure = failureOf(err);
+        if (failure.kind === 'final') throw err;
+        return failure.reason;
+      },
+    );
+    if (typeof asked !== 'string' && asked.status !== 502 && asked.status !== 503) {
+      response = asked;
+      break;
+    }
+    if (typeof asked !== 'string') await asked.body?.cancel();
+    console.log(`  Koala's servers are not ready to give ${name} yet (${typeof asked === 'string' ? asked : `they answered ${asked.status}`}); asking again in ${again.seconds} s`);
+    await again.after();
   }
   if (absentFromOlder && response.status === 404) {
     await response.body?.cancel();
@@ -83,19 +95,21 @@ const kubectl = (args: string[], input?: Readable): Promise<string> => kubectlOn
 
 async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<void> {
   const waiting = waitingOn(what);
+  const again = reopening(3_000);
   for (;;) {
     if (await probe().catch((err: unknown) => { waiting(err); return false; })) return;
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await again.after();
   }
 }
 
 export async function restoreMongoInto(target: { uri: string; dbName: string }, gzipped: Readable, log: (line: string) => void): Promise<number> {
   const client = mongoClientFor(target.uri);
+  const again = reopening(3_000);
   for (;;) {
     const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
     if (unreachable === undefined) break;
-    log(`  waiting for this machine's Mongo: ${unreachable}`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    log(`  waiting for this machine's Mongo: ${unreachable}; trying again in ${again.seconds} s`);
+    await again.after();
   }
   try {
     return await restoreMongoFrom(client, target.dbName, gzipped);

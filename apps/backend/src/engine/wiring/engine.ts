@@ -7,7 +7,7 @@ import type { PersonaRecord } from '@koala/agent-engine';
 import {
   type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, sessionToken, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
-  publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings,
+  publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
@@ -156,7 +156,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     store: db.engine,
     log: db.engine,
     running: async (runId) => {
-      if (!temporalBridge.isReady()) return true;
+      if (!temporalBridge.isReady()) throw new Error('the backend has not connected to Temporal yet');
       try {
         return (await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).describe()).status.name === 'RUNNING';
       } catch (err) {
@@ -658,6 +658,7 @@ export interface EngineStreamDeps {
   postNotice: (what: string, posting: Promise<unknown>) => void;
   workFailures: Pick<WorkFailureService, 'runEnded' | 'workflowFailed'>;
   storedFiles: StoredFilesActivities | undefined;
+  dependencies: DependencyReporter;
 }
 
 export function startEngineStream(deps: EngineStreamDeps): void {
@@ -675,7 +676,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
         registry: engineRegistry,
         endpoints: createEndpointResolver({ models: deps.models, registry: engineRegistry }),
         streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: deps.models }), ['stream']),
-        runCancelled: runCancelledVia(() => getTemporalClient()),
+        runCancelled: runCancelledVia(() => getTemporalClient(), deps.dependencies),
         conclude: async (event) => {
           const grown = event.kind === 'run-ended' ? grovedTree(event.runId, event.depth) : undefined;
           if (event.kind === 'run-ended' && grown) {

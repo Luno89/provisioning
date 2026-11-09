@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { http, HttpResponse } from 'msw';
 import { mock } from 'vitest-mock-extended';
-import type { Database } from '../../platform/index.js';
+import { reopening, type Database } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { serveInProcess } from '../testing/serve-in-process.js';
@@ -245,6 +245,19 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect((await whoami(instanceJar)).status).toBe(401);
   });
 
+  it('keeps delivering a revocation on its own, waiting longer each time, until the instance answers', async () => {
+    await signIn.announce();
+    const { instanceJar } = await signInAs('u1');
+    instance.up = false;
+    provider.keepDelivering(reopening(20));
+    await provider.revoke({ personId: 'u1', at: after(), because: 'account-removed' });
+    await vi.waitFor(async () => expect((await rootDb.instances.pendingLogouts())[0]?.attempts).toBeGreaterThanOrEqual(2));
+    instance.up = true;
+    await vi.waitFor(async () => expect(await rootDb.instances.pendingLogouts()).toEqual([]), { timeout: 5_000 });
+    expect((await whoami(instanceJar)).status).toBe(401);
+    provider.stopDelivering();
+  });
+
   it('in production sends a logout only where its check for public addresses lets it', async () => {
     await signIn.announce();
     const { instanceJar } = await signInAs('u1');
@@ -355,7 +368,7 @@ describe('what an instance does when the sign-in does not go through', () => {
     instance.up = true;
     root.up = false;
     const said: string[] = [];
-    signIn.keepAnnouncing((message) => said.push(message), 5);
+    signIn.keepAnnouncing((message) => said.push(message), reopening(5));
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(said.length).toBeGreaterThanOrEqual(1);
     expect(said[0]).toMatch(/^root has not taken this instance's sign-in key yet: .*; trying again in 0 s$/);

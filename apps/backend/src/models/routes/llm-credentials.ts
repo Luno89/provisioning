@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, at, type Database, encryptValue, isRecord, type JsonRecord, listAt, type ModelEndpointMetadata, parseCookie, type SecretKey, textAt } from '../../platform/index.js';
+import { asyncRoute, at, type Database, encryptValue, failureOf, isRecord, type JsonRecord, listAt, type ModelEndpointMetadata, parseCookie, type SecretKey, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { CredentialService } from '../../infrastructure/index.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -135,7 +135,7 @@ async function fetchModelList(
   }
 
   try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       const text = await res.text().catch(ignore('a refusal whose body cannot be read is reported by its status alone')) ?? '';
       return { models: [], error: `Provider returned ${res.status}: ${text.slice(0, 200)}` };
@@ -166,32 +166,29 @@ async function fetchModelList(
 
 const AA_MODELS_URL = 'https://artificialanalysis.ai/api/v2/data/llms/models';
 
-/**
- * Artificial Analysis' catalogue, keyed for lookup — or an empty index when the account has no key
- * for them or they are unreachable.
- *
- * Scores are a nice-to-have beside a model, never a reason a refresh fails: without this the one
- * unreachable third party would block backfilling pricing and context windows too.
- */
+type Scores = { scores: Map<string, number>; notRead?: string };
+
 async function intelligenceIndex(
   credentials: Credentials | undefined,
   userId: string,
-): Promise<Map<string, number>> {
+): Promise<Scores> {
+  const none = (notRead: string): Scores => ({ scores: new Map(), notRead });
+  let apiKey: unknown;
   try {
-    const resolved = await credentials?.resolveCredentials(userId, 'artificialanalysis');
-    const apiKey = resolved?.env.ARTIFICIALANALYSIS_API_KEY;
-    if (!apiKey) return new Map();
-
-    const res = await fetch(AA_MODELS_URL, {
-      headers: { accept: 'application/json', 'x-api-key': String(apiKey) },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return new Map();
-    const body: unknown = await res.json();
-    return buildIntelligenceIndex(listAt(body, 'data').filter(isRecord).map(aaModelOf));
-  } catch {
-    return new Map();
+    apiKey = (await credentials?.resolveCredentials(userId, 'artificialanalysis'))?.env.ARTIFICIALANALYSIS_API_KEY;
+  } catch (err) {
+    return none(`your Artificial Analysis key could not be read: ${(err as Error).message}`);
   }
+  if (!apiKey) return none('no Artificial Analysis key is saved');
+  let res: Response;
+  try {
+    res = await fetch(AA_MODELS_URL, { headers: { accept: 'application/json', 'x-api-key': String(apiKey) } });
+  } catch (err) {
+    return none(`Artificial Analysis could not be reached: ${failureOf(err).reason}`);
+  }
+  if (!res.ok) return none(`Artificial Analysis answered ${res.status}`);
+  const body: unknown = await res.json();
+  return { scores: buildIntelligenceIndex(listAt(body, 'data').filter(isRecord).map(aaModelOf)) };
 }
 
 async function connectPreset(
@@ -372,7 +369,7 @@ export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
     if (error) return res.status(400).json({ error });
 
     const fresh = new Map(models.map((m) => [m.id, m]));
-    const scores = await intelligenceIndex(credentialService, userId);
+    const { scores, notRead } = await intelligenceIndex(credentialService, userId);
 
     let updated = 0;
     let scored = 0;
@@ -396,6 +393,7 @@ export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
       total: mine.length,
       scored,
       scoresAvailable: scores.size,
+      ...(notRead ? { scoresNotRead: notRead } : {}),
     });
   }));
 

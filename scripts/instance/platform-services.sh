@@ -39,10 +39,13 @@ spec:
 POLICY
 }
 
-services "${ROOT}/k8s/searxng" searxng | "$KUBECTL" --context "$CONTEXT" apply -f - \
-  || echo "  ⚠️  SearXNG apply failed — web_search will fall back to DuckDuckGo"
-services "${ROOT}/k8s/crawl4ai" crawl4ai | "$KUBECTL" --context "$CONTEXT" apply -f - \
-  || echo "  ⚠️  Crawl4AI apply failed — fetch_web_page will fall back to raw HTML stripping"
+services "${ROOT}/k8s/searxng" searxng | "$KUBECTL" --context "$CONTEXT" apply -f -
+: "${CRAWL4AI_API_TOKEN:?CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it}"
+case "$CRAWL4AI_API_TOKEN" in *[!A-Za-z0-9]*) echo "CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes" >&2; exit 1 ;; esac
+services "${ROOT}/k8s/crawl4ai" crawl4ai | sed "s|\${CRAWL4AI_API_TOKEN}|${CRAWL4AI_API_TOKEN}|" | "$KUBECTL" --context "$CONTEXT" apply -f -
+CRAWL4AI_TOKEN_STAMP="$(printf '%s' "$CRAWL4AI_API_TOKEN" | sha256sum | cut -c1-16)"
+"$KUBECTL" --context "$CONTEXT" -n crawl4ai patch deployment crawl4ai --type merge \
+  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"koala.dev/token\":\"${CRAWL4AI_TOKEN_STAMP}\"}}}}}" >/dev/null
 
 bash "${ROOT}/scripts/ensure-gitea.sh"
 bash "${ROOT}/scripts/ensure-verdaccio.sh"

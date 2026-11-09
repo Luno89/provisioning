@@ -22,6 +22,15 @@ export const CONCEPTS: readonly Concept[] = [
   { id: 'work', label: 'starts or hands work to another process', through: ['temporal'] },
   { id: 'config', label: 'reads configuration', marks: [/\bprocess\.env\b/, /\benv\.[A-Z][A-Z0-9_]{2,}\b/, /\benv\[['"`][A-Z][A-Z0-9_]{2,}['"`]\]/, /\b(?:required|urlSetting|hostPortSetting|portSetting)\(read, ['"`][A-Z][A-Z0-9_]{2,}['"`]/, /\bsettingIn\(read\.env, ['"`][A-Z][A-Z0-9_]{2,}['"`]/] },
   { id: 'store', label: 'reads or writes stored records', inFile: /(^|\/)store\.ts$/ },
+  {
+    id: 'dependencies',
+    label: 'waits on, retries, limits or reports an outside dependency',
+    marks: [
+      /\b(DependencyStates|DependencyReporter|DependencyDownError|reportingFetch|reportStatus|thrownFor|failureOf|useDependencyHttp|dependencyFetch|dependencyDispatcher|connectLimitedAgents)\b/,
+      /\breopening\(/, /\bkeepTrying\(/, /\bkeepAnnouncing\(/,
+      /\bnew Agent\(/, /\bAbortSignal\.timeout\(/, /\bsetTimeout\(\(\) => \w+\.abort\(/, /\btimeout: \d/,
+    ],
+  },
   { id: 'calls-out', label: 'calls a service over the network', marks: [/\bfetch\(/, /\baxios\.(get|post|put|patch|delete|create|request)\b/, /\bpublicFetch\(/] },
   {
     id: 'files',

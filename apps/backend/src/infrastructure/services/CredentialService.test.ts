@@ -221,9 +221,9 @@ describe('CredentialService.validateCredentials for each provider', () => {
     expect(await stored.testGoogleDriveConnection('user-1')).toMatchObject({ valid: true });
   });
 
-  it('accepts a provider it has no check for, and says a network failure is one', async () => {
+  it('accepts a provider it has no check for, and fails a check the network stopped with why, never calling the credentials wrong', async () => {
     expect(await service.validateCredentials('artificialanalysis', { apiKey: 'k' })).toEqual({ valid: true, message: 'Credentials formatted.' });
     server.use(http.get('https://huggingface.co/api/whoami-v2', () => HttpResponse.error()));
-    expect((await service.validateCredentials('huggingface', { hfToken: 't' })).message).toMatch(/^Validation failed: /);
+    await expect(service.validateCredentials('huggingface', { hfToken: 't' })).rejects.toMatchObject({ status: 502, message: matching(/^Hugging Face could not check these credentials just now: /) });
   });
 });

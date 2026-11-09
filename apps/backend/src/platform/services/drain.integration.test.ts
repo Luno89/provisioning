@@ -1,6 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
+import { reopening } from '@koala/engine-core/reopening';
 import { drainThenStop, PROXIES_CATCH_UP_MS } from './drain.js';
 
 interface Answer { status: number | string; connection?: string | undefined }
@@ -69,16 +70,19 @@ describe('a backend told to stop in its pod', () => {
     ]);
   }, 30_000);
 
-  it('outside a pod goes straight to asking clients to reconnect, and in one whose endpoints cannot be read still lets the proxies catch up', async () => {
+  it('outside a pod goes straight to asking clients to reconnect, and in one whose endpoints could not be read at first reads them again', async () => {
     for (const place of [undefined, { ip: '10.42.0.9', namespace: 'nowrinkles' }]) {
+      let refused = 0;
       const server = http.createServer((_request, answer) => answer.end('ok'));
       await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
       const lines: string[] = [];
       const wait = vi.fn(async () => undefined);
-      await drainThenStop({ place, slices: async () => { throw new Error('forbidden'); }, server, sockets: { disconnectSockets: () => undefined }, log: (line) => lines.push(line), wait });
+      const slices = async () => { if (refused++ === 0) throw new Error('forbidden'); return { items: [] }; };
+      await drainThenStop({ place, slices, server, sockets: { disconnectSockets: () => undefined }, log: (line) => lines.push(line), wait, readAgain: reopening(50) });
       expect(server.listening).toBe(false);
       expect(wait).toHaveBeenCalledTimes(place ? 1 : 0);
-      if (place) expect(lines).toContain('[drain] the endpoints could not be read, so the backend drains now: forbidden');
+      expect(refused).toBe(place ? 2 : 0);
+      if (place) expect(lines).toContain('[drain] the endpoints could not be read (forbidden), so it keeps serving and reads them again');
     }
   });
 });

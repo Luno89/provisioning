@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson } from '../../platform/index.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening } from '../../platform/index.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { ignore } from '@koala/engine-core/failures';
 import {
@@ -297,9 +297,8 @@ export class ProjectRepoService {
   }
 
   private async untilServed(owner: string, repo: string): Promise<void> {
-    while (!(await this.gitea.repoServesFiles(owner, repo))) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
+    const again = reopening(250);
+    while (!(await this.gitea.repoServesFiles(owner, repo))) await again.after();
   }
 
   async mergeDocuments(request: { ownerId: string; repo: string; head: string; base: string; title: string; body: string }): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {

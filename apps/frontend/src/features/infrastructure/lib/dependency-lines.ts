@@ -9,39 +9,53 @@ export interface DependencyLine {
   seenBy: string
 }
 
-const SEEN_BY: Record<KoalaProcess, string> = {
-  backend: 'seen by this Koala\'s backend',
-  'worker-engine': 'seen by the engine worker',
-  'worker-cluster': 'seen by the cluster worker',
-  'worker-host': 'seen by the host worker',
+const PROCESSES: Record<KoalaProcess, string> = {
+  backend: 'this Koala\'s backend',
+  'worker-engine': 'the engine worker',
+  'worker-cluster': 'the cluster worker',
+  'worker-host': 'the host worker',
 }
+
+const PROCESS_ORDER: readonly KoalaProcess[] = ['backend', 'worker-engine', 'worker-cluster', 'worker-host']
 
 export const shownTime = (at: string): string =>
   new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-export function dependencyLine(down: DependencyDown, when: (at: string) => string = shownTime): DependencyLine {
-  const key = `${down.process}:${down.dependency}`
-  if (down.dependency === 'root') {
+const listed = (names: readonly string[]): string =>
+  names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+
+function seenBy(downs: readonly DependencyDown[]): string {
+  const processes = PROCESS_ORDER.filter((process) => downs.some((down) => down.process === process))
+  return `Seen by ${listed(processes.map((process) => PROCESSES[process]))}`
+}
+
+function lineFor(downs: readonly DependencyDown[], when: (at: string) => string): DependencyLine {
+  const first = [...downs].sort((a, b) => a.since.localeCompare(b.since))[0]!
+  if (first.dependency === 'root') {
     return {
-      key,
+      key: 'root',
       root: true,
       label: 'Root not answering',
-      title: down.where ?? down.name,
-      text: `Your instance has not reached Koala's root since ${when(down.since)}. Signing in through root and your addresses may not work; everything here keeps running.`,
-      seenBy: SEEN_BY[down.process],
+      title: first.where ?? first.name,
+      text: `Your instance has not reached Koala's root since ${when(first.since)}. Signing in through root and your addresses may not work; everything here keeps running.`,
+      seenBy: seenBy(downs),
     }
   }
   return {
-    key,
+    key: first.dependency,
     root: false,
     label: 'Not answering',
-    title: down.name,
-    text: `${down.name} isn't answering since ${when(down.since)}: ${down.reason}`,
-    seenBy: SEEN_BY[down.process],
+    title: first.name,
+    text: `${first.name} isn't answering since ${when(first.since)}: ${first.reason}`,
+    seenBy: seenBy(downs),
   }
 }
 
 export function dependencyLines(downs: readonly DependencyDown[], when: (at: string) => string = shownTime): DependencyLine[] {
-  const ordered = [...downs].sort((a, b) => Number(b.dependency === 'root') - Number(a.dependency === 'root') || a.since.localeCompare(b.since))
-  return ordered.map((down) => dependencyLine(down, when))
+  const byDependency = new Map<string, DependencyDown[]>()
+  for (const down of downs) byDependency.set(down.dependency, [...(byDependency.get(down.dependency) ?? []), down])
+  const since = (group: readonly DependencyDown[]) => group.map((down) => down.since).sort()[0]!
+  return [...byDependency.values()]
+    .sort((a, b) => Number(b[0]!.dependency === 'root') - Number(a[0]!.dependency === 'root') || since(a).localeCompare(since(b)))
+    .map((group) => lineFor(group, when))
 }

@@ -95,7 +95,7 @@ export function createWorkspaceServers(options: { environments: ServingEnvironme
       return found.client;
     }
     const stop: { signal?: AbortSignal | undefined } = { signal };
-    const client = new McpClient(urlOf(server), execFetch(driver, () => stop.signal), 0);
+    const client = new McpClient(urlOf(server), execFetch(driver, () => stop.signal));
     clients.set(key, { client, stop });
     return client;
   };

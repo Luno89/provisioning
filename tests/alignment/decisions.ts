@@ -431,4 +431,18 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'MinIO is the instance\'s object store, as Mongo is its record store: the instance chart runs it beside Mongo in the instance\'s namespace, reached only by the instance\'s own pods by its service name, its console not exposed, its credentials made by the chart. Every file the person or Koala keeps (uploads, attachments, a story\'s files, run artifacts) is there; code, and what agents write while they work, is in Gitea, since agents writing at once are merged by git. Files are not kept as plain files in a person\'s folder: a project whose content was a folder on the person\'s computer becomes an ordinary project. Neither Mongo nor MinIO has a size limit by default; the pool keeps its 10 GB for files. A MinIO someone deploys is an app like any other. A finished deliverable also landing in Files is a later feature, not decided.',
   },
+  {
+    id: 'outside-dependencies',
+    subject: 'Every outside dependency goes through one layer that says when it is down, and work that can wait for it waits',
+    terms: ['dependency', 'dependencies', 'down', 'retry', 'timeout', 'connect', 'fallback'],
+    words: [
+      { at: '2026-11-08T16:29', text: 'yes, but maybe broader, it should be a layer for any dependency that might be slow or can be retried' },
+      { at: '2026-11-08T16:34', text: 'a - sounds much more reasonable, if a dependecy is down we should inform the user and have metrics alerts and best practices around our dependecies, at the same time if its a process that can wait for the dependecy to return it should with temporal and we should have a way to show admins of instances flows that are waiting, but some of that can come later' },
+      { at: '2026-11-08T17:05', text: 'a for Q1, b for Q2 for now, make sure we track what we need to do in the future somewhere tho' },
+      { at: '2026-11-09T01:38', text: 'do we have a concept for this? or is it part of something' },
+      { at: '2026-11-09T01:39', text: 'seems like 1 is fine but you should probably research and think about 2' },
+      { at: '2026-11-09T04:54', text: 'yep go for it' },
+    ],
+    reading: 'Each dependency Koala calls is described once, with one rule for whether a failure is temporary or final; a temporary one marks it down with when and why, it is checked again with no deadline, and the person sees it (Needs attention, one line per dependency naming the processes that saw it; a page or action that needs it answers with its state) instead of a fallback. Q1 (a): work started while Temporal is down is refused at once, nothing recorded. Q2 (b): the run-once engine steps fail their run after a Temporal outage, saying why, until trees are unfrozen and they are made safe to rerun. HTTP has one client per process with no limit on the answer and one 10 s connect limit, owned by the layer: opening a connection does no work, so cutting it short loses nothing, and it is how a host that does not answer at all is noticed; hitting it is a temporary failure. The outside-dependencies layer is a concept of its own in the concept index. Alerts per dependency and the admins\' view of waiting work come later.',
+  },
 ];

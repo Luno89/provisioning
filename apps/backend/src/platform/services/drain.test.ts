@@ -83,13 +83,21 @@ describe('a backend told to stop in its pod', () => {
     expect(server.close).toHaveBeenCalled();
   });
 
-  it('in a pod whose endpoints cannot be read still lets the proxies catch up', async () => {
+  it('in a pod whose endpoints cannot be read keeps serving and reads them again, 5 s doubling, until they say nothing routes to it', async () => {
     const server = serverWith([0]);
     const lines: string[] = [];
     const wait = vi.fn(async () => undefined);
-    await drainThenStop({ place: POD, slices: async () => { throw new Error('forbidden'); }, server, sockets: { disconnectSockets: vi.fn() }, log: (line) => lines.push(line), wait });
+    const answers: Array<() => unknown> = [() => { throw new Error('forbidden'); }, () => { throw new Error('forbidden'); }, () => routedTo(false)];
+    const slices = vi.fn(async () => answers.shift()!());
+    const drained = drainThenStop({ place: POD, slices: slices as never, server, sockets: { disconnectSockets: vi.fn() }, log: (line) => lines.push(line), wait });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(slices).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1 + 10_000);
+    await drained;
+    expect(slices).toHaveBeenCalledTimes(3);
     expect(wait).toHaveBeenCalledTimes(1);
-    expect(lines).toContain('[drain] the endpoints could not be read, so the backend drains now: forbidden');
+    expect(lines.filter((line) => line.includes('could not be read'))).toEqual(['[drain] the endpoints could not be read (forbidden), so it keeps serving and reads them again']);
   });
 
   it('does not close a server that already stopped listening, and counts an unreadable connection total as none left', async () => {

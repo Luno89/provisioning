@@ -9,13 +9,13 @@ import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { REMOVE_ACCOUNT_WORKFLOW, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
-import { AccountRemovalService, temporalRemovalWorkflows, type AccountRemovalWorkflows } from './AccountRemovalService.js';
+import { type UndeliveredLogout, AccountRemovalService, temporalRemovalWorkflows, type AccountRemovalWorkflows } from './AccountRemovalService.js';
 
 const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role: 'root' });
 
 const user = (id: string, extra: Partial<UserMetadata> = {}): UserMetadata => ({ id, email: `${id}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', ...extra });
 
-async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; releases?: InstanceRelease[]; watches?: InstanceWatchRecord[]; steps?: boolean } = {}) {
+async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; releases?: InstanceRelease[]; watches?: InstanceWatchRecord[]; logouts?: UndeliveredLogout[]; steps?: boolean } = {}) {
   const db = memoryDatabase();
   await db.accounts.saveUser(user('ana', { roles: ['operator'] }));
   await db.accounts.saveUser(user('bob'));
@@ -32,6 +32,7 @@ async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; rel
     instances: options.instances ? async () => options.instances! : undefined,
     releases: options.releases ? async () => options.releases! : undefined,
     watches: options.watches ? async () => options.watches! : undefined,
+    logouts: options.logouts ? async () => options.logouts! : undefined,
     ...(options.steps ? { workflowType: ROOT_REMOVAL_WORKFLOW, steps: ROOT_REMOVAL_STEPS } : {}),
   });
   return { db, workflows, revoked, service };
@@ -205,6 +206,21 @@ describe('the people on root', () => {
       watches: [{ instanceId: 'inst-1', reach: { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z' } }],
     });
     expect((await quiet.service.people()).find((person) => person.id === 'bob')?.instance?.unreachableSince).toBeUndefined();
+  });
+
+  it('says since when signing out has not reached an instance, and why it last failed, until it does', async () => {
+    const { service } = await set({
+      instances: [instance()],
+      logouts: [
+        { clientId: 'inst-1', revokedAt: '2026-11-08T10:05:00.000Z', attempts: 3, lastError: 'it answered 502', lastTriedAt: '2026-11-08T10:20:00.000Z' },
+        { clientId: 'inst-1', revokedAt: '2026-11-08T10:00:00.000Z', attempts: 4, lastError: 'it refused the connection (ECONNREFUSED)', lastTriedAt: '2026-11-08T10:10:00.000Z' },
+        { clientId: 'inst-2', revokedAt: '2026-11-08T09:00:00.000Z', attempts: 1, lastError: 'not bob\'s' },
+        { clientId: 'inst-1', revokedAt: '2026-11-08T11:00:00.000Z' },
+      ],
+    });
+    expect((await service.people()).find((person) => person.id === 'bob')?.instance?.signOutsUndelivered).toEqual({ since: '2026-11-08T10:00:00.000Z', why: 'it answered 502' });
+    const delivered = await set({ instances: [instance()], logouts: [{ clientId: 'inst-1', revokedAt: '2026-11-08T11:00:00.000Z' }] });
+    expect((await delivered.service.people()).find((person) => person.id === 'bob')?.instance?.signOutsUndelivered).toBeUndefined();
   });
 
   it('shows an instance with no status as ready when it has an address and waiting when it has none, and a waiting one as having no update setting', async () => {

@@ -2,7 +2,7 @@ import type { Readable } from 'node:stream';
 import { Client } from 'minio';
 import type { MinioSettings } from '../lib/minio-settings.js';
 import { idOfObjectKey, objectKey } from '../lib/stored-files.js';
-import type { DependencyReporter } from '../../platform/index.js';
+import { thrownFor, type DependencyReporter } from '../../platform/index.js';
 
 export type { MinioSettings };
 
@@ -43,8 +43,8 @@ export function minioObjectStore(settings: MinioSettings, given?: MinioClient, r
       reportsTo.answered('minio');
       return answer;
     } catch (err) {
-      if (missing(err)) reportsTo.answered('minio');
-      else reportsTo.failed('minio', err);
+      if (!missing(err)) throw thrownFor(reportsTo, 'minio', err);
+      reportsTo.answered('minio');
       throw err;
     }
   };
@@ -105,8 +105,7 @@ export function minioObjectStore(settings: MinioSettings, given?: MinioClient, r
           if (id) yield id;
         }
       } catch (err) {
-        reportsTo.failed('minio', err);
-        throw err;
+        throw thrownFor(reportsTo, 'minio', err);
       }
     },
   };

@@ -1,18 +1,10 @@
 import { at, listAt, recordAt } from '../../../platform/lib/json-shapes.js';
 import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer, type VpsPricePart } from './types.js';
 
-const TIMEOUT_MS = 15_000;
-
 async function getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { headers, signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
 }
 
 export const linodeAdapter: VpsCatalogAdapter = {
@@ -410,23 +402,16 @@ export function interserverOffersFromSliceXml(xml: string): AdapterResult {
 export const interserverAdapter: VpsCatalogAdapter = {
   provider: 'interserver',
   async fetch() {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(INTERSERVER_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'urn:myapi#get_vps_slice_types' },
-        body:
-          '<?xml version="1.0" encoding="UTF-8"?>' +
-          '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:myapi">' +
-          '<soap:Body><urn:get_vps_slice_types/></soap:Body></soap:Envelope>',
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return interserverOffersFromSliceXml(await res.text());
-    } finally {
-      clearTimeout(timer);
-    }
+    const res = await fetch(INTERSERVER_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'urn:myapi#get_vps_slice_types' },
+      body:
+        '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:myapi">' +
+        '<soap:Body><urn:get_vps_slice_types/></soap:Body></soap:Envelope>',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return interserverOffersFromSliceXml(await res.text());
   },
 };
 

@@ -34,6 +34,7 @@ export function wireAccounts(deps: AccountsWiringDeps): void {
     instances: () => db.instances.getInstances(),
     releases: () => db.instances.getReleases(),
     watches: () => db.instances.getWatches(),
+    logouts: () => db.instances.pendingLogouts(),
     hub: deps.hubPeople,
     principalFor,
     revocations: deps.revocations,

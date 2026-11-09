@@ -272,6 +272,25 @@ describe('following work to its end', () => {
     expect(await statusOf(db, 'd1')).toBe('failed');
   });
 
+  it('reads a finished deploy\'s verdict again while Temporal does not answer, never taking the app as running unread', async () => {
+    const { db, workflow, ready } = bridge();
+    const result = vi.fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('14 UNAVAILABLE: connection refused'))
+      .mockResolvedValue({ workload: 'unhealthy', workloadReason: 'its pod cannot pull its image' });
+    workflow.getHandle.mockReturnValue(closing(result, 'COMPLETED') as never);
+    await db.infrastructure.saveDeployment(deploying);
+
+    const following = ready().follow('wf-1', 'app-deploy', 'd1', 'shop', deploying);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await statusOf(db, 'd1')).toBe('deploying');
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+    await following;
+
+    expect(result).toHaveBeenCalledTimes(3);
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'unhealthy', healthReason: 'its pod cannot pull its image' });
+  });
+
   it('follows an app another process starts deploying as soon as its record names the workflow', async () => {
     const { db, workflow, ready } = bridge();
     workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);

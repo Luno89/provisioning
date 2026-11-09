@@ -1,3 +1,4 @@
+import { ValidationNote } from './ValidationNote';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2, Loader2, AlertTriangle, HardDriveDownload, PlayCircle } from 'lucide-react';
@@ -40,7 +41,7 @@ export default function GoogleDriveCard() {
   const testDrive = useMutation({
     mutationFn: () => validateCredentials('googledrive'),
     onSuccess: (result) => setDriveTestResult(result),
-    onError: (err) => setDriveTestResult({ valid: false, message: errorMessage(err) }),
+    onError: (err) => setDriveTestResult({ valid: false, unchecked: true, message: errorMessage(err) }),
   });
 
   const disconnectDrive = useMutation({
@@ -168,14 +169,7 @@ export default function GoogleDriveCard() {
               </div>
             </div>
 
-            {driveTestResult && (
-              <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                driveTestResult.valid ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
-              }`}>
-                {driveTestResult.valid ? <Check size={14} /> : <AlertTriangle size={14} />}
-                <span>{driveTestResult.message}</span>
-              </div>
-            )}
+            {driveTestResult && <ValidationNote result={driveTestResult} />}
 
             {backupOutput && (
               <div className={`p-3 rounded-xl text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto ${

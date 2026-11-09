@@ -7,6 +7,12 @@ describe('a person\'s instance in People', () => {
     expect(instanceLine(base)).toBe('bob on their own machine: running, updates automatically')
     expect(instanceLine({ ...base, unreachableSince: '2026-10-29T10:00:00.000Z' })).toMatch(/^bob on their own machine: running, not answering since .*2026, updates automatically$/)
   })
+
+  it('says since when signing out has not reached it, and why', () => {
+    const base = { name: 'bob', where: 'own' as const, status: 'ready' as const, url: 'https://bob.koala.dev', autoUpdates: true }
+    expect(instanceLine({ ...base, signOutsUndelivered: { since: '2026-11-08T10:00:00.000Z', why: 'it answered 502' } }))
+      .toMatch(/^bob on their own machine: running, signing out has not reached it since .*2026 \(it answered 502\), updates automatically$/)
+  })
 })
 
 describe('an instance in root\'s People', () => {

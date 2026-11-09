@@ -1,3 +1,4 @@
+import { TypedTag } from './TypedTag';
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Database, Layers, Loader2, Package, X, Zap } from 'lucide-react';
@@ -77,7 +78,7 @@ export default function AppDeployWizard({
   const currentUiDefaults = uiDefaultsFor(wizardData.appType);
   const currentStrategies = currentUiDefaults.strategies ?? [];
 
-  const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags } = useTabbyImageTags(
+  const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags, unread: tabbyTagsUnread } = useTabbyImageTags(
     wizardStep === 4 && wizardData.appType === 'tabbyapi',
   );
 
@@ -502,12 +503,16 @@ export default function AppDeployWizard({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
-                      <select value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
-                        {tabbyImageTagOptions.length === 0 && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
-                        {tabbyImageTagOptions.map(opt => (
-                          <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
-                        ))}
-                      </select>
+                      {tabbyTagsUnread ? (
+                        <TypedTag why={tabbyTagsUnread} value={wizardData.tabbyImageTag} onChange={tabbyImageTag => setWizardData({...wizardData, tabbyImageTag})} />
+                      ) : (
+                        <select value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                          {tabbyImageTagOptions.length === 0 && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
+                          {tabbyImageTagOptions.map(opt => (
+                            <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
+                          ))}
+                        </select>
+                      )}
                       {loadingTabbyImageTags && <p className="text-[11px] text-slate-500 mt-1">Fetching available tags from ghcr.io...</p>}
                     </div>
                     <div className="flex items-center gap-3">

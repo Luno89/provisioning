@@ -30,4 +30,9 @@ describe('trying again after something was lost', () => {
     expect(ran).toHaveBeenCalledOnce();
     expect(again.seconds).toBe(4);
   });
+
+  it('hands out each wait for a caller that waits its own way', () => {
+    const again = reopening();
+    expect([again.take(), again.take(), again.take(), again.take(), again.take(), again.take()]).toEqual([5_000, 10_000, 20_000, 40_000, 60_000, 60_000]);
+  });
 });

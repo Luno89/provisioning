@@ -78,7 +78,7 @@ export interface Conversation {
   mcpServers?: string[] | undefined;
   platformNamespaces?: string[] | undefined;
   compaction?: { summary: string; through: number } | undefined;
-  liveTurn?: { runId: string; startedAt: string } | undefined;
+  liveTurn?: { runId: string; startedAt: string; unknown?: string | undefined } | undefined;
   allowedTools?: string[] | undefined;
   autoMode?: boolean | undefined;
   machineSessions?: Record<string, string> | undefined;

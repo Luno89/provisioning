@@ -57,33 +57,25 @@ export class McpClient {
   constructor(
     private readonly url: string,
     private readonly fetchImpl: Fetcher = fetch,
-    private readonly timeoutMs = 30_000,
   ) {}
 
   private async rpc(method: string, params: Record<string, unknown> = {}): Promise<RpcResult & { headers: Headers }> {
-    const controller = new AbortController();
-    const timer = this.timeoutMs > 0 ? setTimeout(() => controller.abort(), this.timeoutMs) : undefined;
-    try {
-      const res = await this.fetchImpl(this.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json, text/event-stream',
-          ...(this.session?.sessionId ? { 'mcp-session-id': this.session.sessionId } : {}),
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id: this.nextId++, method, params }),
-        signal: controller.signal,
-      });
+    const res = await this.fetchImpl(this.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        ...(this.session?.sessionId ? { 'mcp-session-id': this.session.sessionId } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: this.nextId++, method, params }),
+    });
 
-      const text = await res.text();
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} from ${method}: ${text.slice(0, 200)}`);
-      }
-      const parsed = parseRpcBody(res.headers.get('content-type') ?? '', text) as RpcResult;
-      return { ...parsed, headers: res.headers };
-    } finally {
-      clearTimeout(timer);
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from ${method}: ${text.slice(0, 200)}`);
     }
+    const parsed = parseRpcBody(res.headers.get('content-type') ?? '', text) as RpcResult;
+    return { ...parsed, headers: res.headers };
   }
 
   async initialize(): Promise<McpSession> {

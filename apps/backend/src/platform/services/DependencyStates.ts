@@ -1,7 +1,7 @@
 import type { ObservableResult } from '@opentelemetry/api';
 import { koalaMetrics } from '@koala/engine-core/telemetry';
-import { reopening, type Reopening } from '../lib/reopening.js';
-import { DEPENDENCIES, failureOf, type DependencyDown, type DependencyId, type DependencyReporter, type DependencyState, type DependencyStateRow } from '../lib/dependencies.js';
+import { reopening, type Reopening } from '@koala/engine-core/reopening';
+import { DEPENDENCIES, DependencyDownError, failureOf, type DependencyDown, type DependencyId, type DependencyReporter, type DependencyState, type DependencyStateRow } from '../lib/dependencies.js';
 import type { KoalaProcess } from '../lib/settings.js';
 
 export type DependencyCheck = () => Promise<void>;
@@ -60,11 +60,13 @@ export class DependencyStates implements DependencyReporter {
     koalaMetrics().dependencyUp.removeCallback(this.observe);
   }
 
-  failed(dependency: DependencyId, error: unknown): void {
-    if (!this.known(dependency)) return;
+  failed(dependency: DependencyId, error: unknown): unknown {
+    if (!this.known(dependency)) return error;
     const failure = failureOf(error);
-    if (failure.kind === 'final') return;
+    if (failure.kind === 'final') return error;
     this.wentDown(dependency, failure.reason, this.now().toISOString());
+    const state = this.stateOf(dependency);
+    return state.state === 'down' ? new DependencyDownError(dependency, state.since, state.reason, { cause: error }) : error;
   }
 
   wentDown(dependency: DependencyId, reason: string, since: string): void {

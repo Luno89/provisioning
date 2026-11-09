@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,6 +35,17 @@ const setup = (selected = '') => {
 
 describe('TagPicker', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('says why the tags could not be read and takes a tag typed by hand', async () => {
+    useImageTags.mockReturnValue({
+      data: undefined, isLoading: false, isFetching: false,
+      error: { response: { data: { error: 'The tags of library/odoo could not be read from Docker Hub: it answered 500' } } },
+    } as unknown as ReturnType<typeof modelsApi.useImageTags>);
+    const { onSelect } = setup();
+    expect(screen.getByText('The tags of library/odoo could not be read from Docker Hub: it answered 500')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Tag' }), { target: { value: '18.0' } });
+    expect(onSelect).toHaveBeenLastCalledWith('18.0');
+  });
 
   it('renders a button per tag and reports the total', () => {
     mockPage({ tags: ['latest', 'v2.0.0', 'v1.0.0'], total: 97, totalPages: 4 });

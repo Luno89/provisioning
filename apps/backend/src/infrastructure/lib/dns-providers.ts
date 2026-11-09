@@ -50,6 +50,9 @@ export interface DnsProvider extends DnsProviderDescription {
 
 export class DnsProviderRefusal extends Error {}
 
+export const dnsProviderBusy = (provider: string, status: number): Error =>
+  Object.assign(new Error(`${provider} could not answer just now: it answered ${status}`), { status: 502, answered: status });
+
 export const CLOUDFLARE_DNS: DnsProviderDescription = {
   name: 'cloudflare',
   label: 'Cloudflare DNS',

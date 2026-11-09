@@ -1,3 +1,4 @@
+import { TypedTag } from '../AppDeployWizard/TypedTag';
 import { useState, useRef, useEffect } from 'react';
 import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileText, Gauge, HardDrive, Layers, Loader2, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Trash2, X, Zap } from 'lucide-react';
 import { AppSignInReveal } from './AppSignInReveal';
@@ -67,7 +68,7 @@ export default function AppDashboard({
   const hasDatabaseFor = (appType: string | undefined) =>
     Boolean(catalogue.find((c) => c.id === (appType || 'odoo'))?.uiDefaults?.hasDatabase);
   const tabbyToolFormats = catalogue.find((c) => c.id === 'tabbyapi')?.uiDefaults?.toolFormats ?? [];
-  const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags } = useTabbyImageTags(
+  const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags, unread: tabbyTagsUnread } = useTabbyImageTags(
     currentDeployment?.appType === 'tabbyapi',
   );
 
@@ -468,12 +469,16 @@ export default function AppDashboard({
                        </div>
                        <div>
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
-                         <select value={configInputs.tabbyImageTag} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyImageTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
-                           {tabbyImageTagOptions.length === 0 && <option value={configInputs.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : configInputs.tabbyImageTag}</option>}
-                           {tabbyImageTagOptions.map(opt => (
-                             <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
-                           ))}
-                         </select>
+                         {tabbyTagsUnread ? (
+                           <TypedTag why={tabbyTagsUnread} value={configInputs.tabbyImageTag} onChange={tabbyImageTag => setConfigInputs(prev => ({ ...prev, tabbyImageTag }))} />
+                         ) : (
+                           <select value={configInputs.tabbyImageTag} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyImageTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                             {tabbyImageTagOptions.length === 0 && <option value={configInputs.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : configInputs.tabbyImageTag}</option>}
+                             {tabbyImageTagOptions.map(opt => (
+                               <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
+                             ))}
+                           </select>
+                         )}
                          {loadingTabbyImageTags && <p className="text-[11px] text-slate-500 mt-1">Fetching available tags from ghcr.io...</p>}
                        </div>
                        <div className="flex items-center gap-3 pt-6">

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../../api/client'
+import { api, errorMessage } from '../../api/client'
 import { useDebounce } from '../../shared/lib/use-debounce'
 
 export interface HfModelSize {
@@ -132,7 +132,7 @@ export function useTabbyImageTags(enabled: boolean) {
       label: TABBY_IMAGE_TAG_HINTS[tag] ? `${tag} — ${TABBY_IMAGE_TAG_HINTS[tag]}` : tag,
     }))
 
-  return { options, loading: remote.isLoading }
+  return { options, loading: remote.isLoading, ...(remote.error ? { unread: errorMessage(remote.error) } : {}) }
 }
 
 export function useHfBranches(repo: string, enabled: boolean) {

@@ -162,6 +162,18 @@ describe('CredentialService', () => {
       expect((await service.resolveCredentials('user-1', 'ovh')).env).toEqual({ OVH_APPLICATION_KEY: 'AK-test', OVH_APPLICATION_SECRET: 'AS-test', OVH_CONSUMER_KEY: 'CK-test', OVH_SUBSIDIARY: 'AU' });
     });
   });
+  describe('a check that could not be made', () => {
+    it('is never read as credentials that are wrong: a refusal is, a busy or unreachable service is a failure with why', async () => {
+      server.use(http.get('https://huggingface.co/api/whoami-v2', ({ request }) => (request.headers.get('authorization') === 'Bearer hf_wrong' ? new HttpResponse(null, { status: 401 }) : new HttpResponse(null, { status: 503 }))));
+      await expect(service.validateCredentials('huggingface', { hfToken: 'hf_wrong' })).resolves.toEqual({ valid: false, message: 'Invalid token or unauthorized (HTTP 401).' });
+      await expect(service.validateCredentials('huggingface', { hfToken: 'hf_right' })).rejects.toMatchObject({ status: 502, message: 'Hugging Face could not check these credentials just now: it answered 503' });
+      server.use(http.get('https://huggingface.co/api/whoami-v2', () => HttpResponse.error()));
+      await expect(service.validateCredentials('huggingface', { hfToken: 'hf_right' })).rejects.toMatchObject({ status: 502, message: matching(/^Hugging Face could not check these credentials just now: /) });
+      const offline = new CredentialService(db, TEST_KEY, undefined, async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }); });
+      await expect(offline.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'AU' })).rejects.toMatchObject({ status: 502, message: 'OVHcloud could not check these credentials just now: it refused the connection (ECONNREFUSED)' });
+    });
+  });
+
   describe('Google Drive', () => {
     it('tests the refresh token stored for the person against Google', async () => {
       const withDrive = new CredentialService(db, TEST_KEY, { claims: { role: 'instance' }, credentials: { env: {}, ovhSubsidiary: { off: 'OVH_SUBSIDIARY is not set' }, googleDrive: { clientId: 'id', clientSecret: 'secret' } } });
@@ -172,6 +184,8 @@ describe('CredentialService', () => {
         http.get('https://www.googleapis.com/drive/v3/about', () => HttpResponse.json({ user: { emailAddress: 'me@example.com' } })),
       );
       expect(await withDrive.testGoogleDriveConnection('user-1')).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
+      server.use(http.post('https://oauth2.googleapis.com/token', () => new HttpResponse(null, { status: 503 })));
+      await expect(withDrive.testGoogleDriveConnection('user-1')).rejects.toMatchObject({ status: 502, message: 'Google could not check these credentials just now: it answered 503' });
     });
   });
 });

@@ -178,16 +178,20 @@ describe('the Infrastructure page', () => {
     expect(items[0]).toBe(item)
   })
 
-  it('lists a dependency that is not answering, since when and why, and clears it once it answers', async () => {
+  it('lists a dependency that is not answering once, since when and why, naming every process that saw it', async () => {
     vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
       ...overview,
-      dependencies: [{ dependency: 'minio', name: 'file storage (MinIO)', since: '2026-10-29T09:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'backend' }],
+      dependencies: [
+        { dependency: 'minio', name: 'file storage (MinIO)', since: '2026-10-29T09:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'backend' },
+        { dependency: 'minio', name: 'file storage (MinIO)', since: '2026-10-29T09:02:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
+      ],
     })
     show()
     const item = await screen.findByTestId('attention-dependency')
+    expect(screen.getAllByTestId('attention-dependency')).toHaveLength(1)
     expect(item).toHaveTextContent('Not answering')
     expect(item).toHaveTextContent(/file storage \(MinIO\) isn't answering since .+: it refused the connection \(ECONNREFUSED\)/)
-    expect(item).toHaveTextContent('seen by this Koala\'s backend')
+    expect(item).toHaveTextContent('Seen by this Koala\'s backend and the engine worker')
   })
 
   it('scrolls to the section an old address names', async () => {

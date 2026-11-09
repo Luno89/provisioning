@@ -15,7 +15,7 @@ import {
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
   sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
-  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, SettingsError, type EngineWorkerSettings, type DependencyStates,
+  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
@@ -341,7 +341,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     onLeak: (runId, ageMs) => {
       logger.warn(`[engine] sandbox for ${runId} was still up ${Math.round(ageMs / 60_000)}m after it started, though its run has ended — tearing it down`);
     },
-    runEnded: runEndedVia(() => getTemporalClient()),
+    runEnded: runEndedVia(() => getTemporalClient(), dependencies),
   });
   const { registry, endpoints, environments, tools } = host;
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) });
@@ -388,7 +388,9 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   });
 
   const sweeper = setInterval(() => {
-    void host.runEnvironments.sweep();
+    host.runEnvironments.sweep().catch((err: Error) => {
+      logger.warn(`[engine] the sandbox sweep could not ask Temporal which runs ended, so it removes none this time: ${err.message}`);
+    });
   }, 10 * 60_000);
   sweeper.unref();
 
@@ -406,7 +408,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     environments,
     tools,
     hostNodes,
-    runCancelled: runCancelledVia(() => getTemporalClient()),
+    runCancelled: runCancelledVia(() => getTemporalClient(), dependencies),
     tasks: {
       list: (ownerId: string) => db.projects.getTasks(ownerId),
       save: (task: Task) => db.projects.saveTask(task),
@@ -580,6 +582,7 @@ async function main() {
   if (settings.healthPort) serveHealth(settings.healthPort, () => current?.getState() === 'RUNNING');
   void dependencies.start();
 
+  const connecting = reopening();
   for (;;) {
     try {
       activities ??= await buildActivities(settings, dependencies);
@@ -604,8 +607,8 @@ async function main() {
       return;
     } catch (err) {
       if (activities) dependencies.failed('temporal', err);
-      logger.error(`[EngineWorker] ${(err as Error).message} — retrying in 5s`);
-      await new Promise((done) => setTimeout(done, 5_000));
+      logger.error(`[EngineWorker] ${(err as Error).message} — retrying in ${connecting.seconds} s`);
+      await connecting.after();
     }
   }
 }

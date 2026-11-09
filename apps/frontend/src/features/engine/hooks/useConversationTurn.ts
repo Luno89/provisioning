@@ -331,6 +331,7 @@ export function useConversationTurn({
   }, [apply]);
 
   const liveTurnOf = activeConversation?.liveTurn?.runId;
+  const liveTurnUnknown = activeConversation?.liveTurn?.unknown;
   useEffect(() => {
     const convId = activeConversation?.id;
     if (!enabled || !convId || !liveTurnOf || follower.following(liveTurnOf) || endedTurns.has(liveTurnOf)) return;
@@ -466,7 +467,7 @@ export function useConversationTurn({
     renderedMessages,
     streaming,
     liveState,
-    error,
+    error: error ?? liveTurnUnknown ?? null,
     setError,
     pinnedModelId,
     setPinnedModelId,

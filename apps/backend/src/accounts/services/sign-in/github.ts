@@ -1,4 +1,5 @@
 import * as client from 'openid-client';
+import { answerUnlimited } from '../../../platform/index.js';
 import { plainHttpAllowed, SignInRefusal, type ProviderIdentity, type SignInChecks, type SignInClient, type SignInProvider } from '../../lib/sign-in-providers.js';
 import { githubPrimaryEmail, type GithubEmail } from '../../lib/provider-sign-in.js';
 
@@ -10,6 +11,7 @@ export function githubSignIn(provider: SignInProvider): SignInClient {
     provider.clientId,
     provider.clientSecret,
   );
+  config[client.customFetch] = answerUnlimited();
   if (plainHttpAllowed(endpoints.token)) client.allowInsecureRequests(config);
 
   const read = async <T>(path: string, token: string): Promise<T> => {

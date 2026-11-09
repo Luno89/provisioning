@@ -50,8 +50,8 @@ async function main(): Promise<void> {
     console.log(`Endpoints — vectors: ${ends.vectors ? 'yes' : 'NO'}`
       + `  index: ${ends.index ? 'yes' : 'NO'}  embeddings: ${ends.embeddings ? 'yes' : 'NO'}`);
     if (!ends.vectors && !ends.index) {
-      return console.log('\nNeither half is deployed — recall degrades to recency, which is the '
-        + 'documented fallback. Nothing to measure here.');
+      return console.log('\nNeither half is deployed, so there is no memory search: recall orders memories by '
+        + 'how recent and used they are. Nothing to measure here.');
     }
 
     const live = mine.filter((m) => !m.invalidAt);
@@ -81,14 +81,12 @@ async function main(): Promise<void> {
         .map((l) => l.slice(2).split(':')[0]).join(' | ') || '(nothing)'}`);
     }
 
-    console.log(`\n${'─'.repeat(78)}\nDEGRADATION — pointing recall at a dead port:`);
-    const began = Date.now();
+    console.log(`\n${'─'.repeat(78)}\nA SEARCH THAT CANNOT BE REACHED — pointing recall at a dead port:`);
     const dead = await recallMemories({
       memories: mine, ownerId, projectId, query: 'anything at all',
       endpoints: async () => ({ vectors: { base: 'http://127.0.0.1:1', apiKey: 'x' }, embeddings: { base: 'http://127.0.0.1:1' } }),
-    });
-    console.log(`  via: ${dead.via}  in ${Date.now() - began}ms  injected ${dead.selected.length} memories`);
-    console.log(`  identical to the old recency block: ${dead.context === buildMemoryContext(mine, projectId)}`);
+    }).then(() => 'it answered, which a dead port cannot', (err: Error) => err.message);
+    console.log(`  ${dead}`);
   } finally {
     await db.close();
   }

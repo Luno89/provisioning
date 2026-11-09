@@ -1,3 +1,4 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
@@ -164,7 +165,7 @@ export function llmCredentialsBehaviour(make: () => Promise<Database>): void {
 
     it('updates the window and prices on the rows already stored, keeping their ids and keys, and counts what no longer matches', async () => {
       const answer = await call('/llm/openrouter/refresh', { method: 'POST' });
-      expect(answer.data).toEqual({ updated: 1, unmatched: 1, total: 2, scored: 0, scoresAvailable: 0 });
+      expect(answer.data).toEqual({ updated: 1, unmatched: 1, total: 2, scored: 0, scoresAvailable: 0, scoresNotRead: 'no Artificial Analysis key is saved' });
       expect((await mine()).find((row) => row.id === 'llama')).toMatchObject({ contextTokens: 131072, pricing: { promptPerMTok: 0, completionPerMTok: 0 }, apiKeyEnc: 'sealed' });
     });
 
@@ -178,16 +179,19 @@ export function llmCredentialsBehaviour(make: () => Promise<Database>): void {
       const answer = await call('/llm/openrouter/refresh', { method: 'POST' });
       expect(sent).toBe('aa');
       expect((answer.data as { scoresAvailable: number }).scoresAvailable).toBeGreaterThan(0);
+      expect(answer.data).not.toHaveProperty('scoresNotRead');
       expect(credentials.resolveCredentials).toHaveBeenCalledWith(PERSON.id, 'artificialanalysis');
     });
 
-    it('still refreshes when the scores cannot be had', async () => {
+    it('refreshes the rest and says why the scores were not read', async () => {
       credentials.resolveCredentials.mockResolvedValue({ mode: 'user', env: { ARTIFICIALANALYSIS_API_KEY: 'aa' } } as never);
       network.use(http.get(AA_MODELS, () => new HttpResponse(null, { status: 500 })));
-      expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
+      expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0, scoresNotRead: 'Artificial Analysis answered 500' });
+      network.use(http.get(AA_MODELS, () => HttpResponse.error()));
+      expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0, scoresNotRead: matching(/^Artificial Analysis could not be reached: /) });
       credentials.resolveCredentials.mockRejectedValue(new Error('no credentials'));
-      expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
-      expect((await call('/llm/openrouter/refresh', { method: 'POST', withCredentials: false })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
+      expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0, scoresNotRead: 'your Artificial Analysis key could not be read: no credentials' });
+      expect((await call('/llm/openrouter/refresh', { method: 'POST', withCredentials: false })).data).toMatchObject({ updated: 1, scoresAvailable: 0, scoresNotRead: 'no Artificial Analysis key is saved' });
     });
 
     it('refuses a gateway the person has not set up, an unknown one, and a list that cannot be read', async () => {

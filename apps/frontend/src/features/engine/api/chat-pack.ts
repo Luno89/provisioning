@@ -71,7 +71,7 @@ export interface ChatConversation {
   branchId?: string | undefined;
   mcpServers?: string[] | undefined;
   projectId?: string | undefined;
-  liveTurn?: { runId: string; startedAt: string } | undefined;
+  liveTurn?: { runId: string; startedAt: string; unknown?: string | undefined } | undefined;
   messages?: ChatConversationMessage[] | undefined;
 }
 

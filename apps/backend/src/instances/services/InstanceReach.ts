@@ -1,3 +1,4 @@
+import { CONNECT_MS } from '@koala/engine-core/http';
 import { Agent, buildConnector, fetch as undiciFetch, type RequestInit as UndiciInit } from 'undici';
 import { publicAddressProblem, publicFetch } from '../../platform/index.js';
 import { instanceOrigin, notReachable, reachOf, throughOwnCaddy, type ReachedInstance, type ReachSettings, type ThroughCaddy } from '../lib/instance-reach.js';
@@ -23,8 +24,8 @@ export function caddyFetch(tls: { ca?: string | Buffer } = {}, transport: CaddyT
     const key = `${to.host}:${to.port}/${to.servername}`;
     let agent = agents.get(key);
     if (!agent) {
-      const connect = transport.buildConnector({ ...(tls.ca ? { ca: tls.ca } : {}) });
-      agent = new transport.Agent({ connect: (options, callback) => connect({ ...options, hostname: to.host, port: String(to.port), servername: to.servername }, callback) });
+      const connect = transport.buildConnector({ timeout: CONNECT_MS, ...(tls.ca ? { ca: tls.ca } : {}) });
+      agent = new transport.Agent({ headersTimeout: 0, bodyTimeout: 0, connect: (options, callback) => connect({ ...options, hostname: to.host, port: String(to.port), servername: to.servername }, callback) });
       agents.set(key, agent);
     }
     const answered = await transport.fetch(url.href, { ...(init as UndiciInit | undefined), dispatcher: agent });

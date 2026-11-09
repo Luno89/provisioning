@@ -60,7 +60,7 @@ describe('the pinned layout fact', () => {
 describe('when search does not answer', () => {
   const recencyOrder = buildMemoryContext(bank);
 
-  it('falls back to recency when no endpoints exist at all', async () => {
+  it('recalls by recency where no memory search is set up at all', async () => {
     const out = await recallMemories({ memories: bank, ownerId: 'u1', query: 'anything' });
 
     expect(out.via).toBe('recency');
@@ -68,38 +68,28 @@ describe('when search does not answer', () => {
     expect(searchMemories).not.toHaveBeenCalled();
   });
 
-  it('falls back when the search throws', async () => {
+  it('fails with why when the search throws, never recalling by recency instead', async () => {
     searchMemories.mockImplementation(() => { throw new Error('Qdrant refused: HTTP 503'); });
-    const out = await recallMemories({
+    await expect(recallMemories({
       memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => ({ index: { base: 'http://x' } }),
-    });
-
-    expect(out.via).toBe('recency');
-    expect(out.context).toBe(recencyOrder);
+    })).rejects.toThrow('memories could not be searched: Qdrant refused: HTTP 503');
   });
 
-  it('falls back when resolving the endpoints throws', async () => {
-    const out = await recallMemories({
+  it('fails with why when where to search cannot be found', async () => {
+    await expect(recallMemories({
       memories: bank, ownerId: 'u1', query: 'x',
       endpoints: async () => { throw new Error('no kubeconfig'); },
-    });
-
-    expect(out.via).toBe('recency');
-    expect(out.context).toBe(recencyOrder);
+    })).rejects.toThrow('memories could not be searched: no kubeconfig');
   });
 
-  it('gives up on a wedged service rather than holding the leaf open', async () => {
-    searchMemories.mockImplementation(() => new Promise((r) => setTimeout(() => r([]), 400)));
-    const began = Date.now();
+  it('waits for a slow search rather than giving up on it', async () => {
+    searchMemories.mockImplementation(() => new Promise((r) => setTimeout(() => r([{ id: 'relevant', score: 1, via: ['dense'] }]), 300)));
     const out = await recallMemories({
       memories: bank, ownerId: 'u1', query: 'x',
       endpoints: async () => ({ index: { base: 'http://x' } }),
-      timeoutMs: 50,
     });
 
-    expect(Date.now() - began).toBeLessThan(1_000);
-    expect(out.via).toBe('recency');
-    expect(out.context).toBe(recencyOrder);
+    expect(out.via).toBe('hybrid');
   });
 
   it('says recency when the stack is deployed but ranked nothing', async () => {

@@ -1,3 +1,5 @@
+import axios from 'axios';
+import { useDependencyHttp } from '@koala/engine-core/http';
 import type { SinkListener } from '@koala/engine-core/telemetry-sdk';
 import { mongoClientFor } from '../lib/collection.js';
 import { answerFailure, dependenciesOf, temporaryStatus, type DependencyId, type DependencyReporter } from '../lib/dependencies.js';
@@ -61,7 +63,14 @@ export function checkServices(states: DependencyStates, at: ServiceAddresses, do
   for (const [dependency, url] of checks) if (url) states.checkWith(dependency, answersHttp(url, doFetch));
 }
 
+export function useOneHttpClient(): void {
+  const { httpAgent, httpsAgent } = useDependencyHttp();
+  axios.defaults.httpAgent = httpAgent;
+  axios.defaults.httpsAgent = httpsAgent;
+}
+
 export function dependencyStatesFor(settings: ProcessSettings, options: { record?: DependencyStatesDeps['record']; where?: Partial<Record<DependencyId, string>> } = {}): DependencyStates {
+  useOneHttpClient();
   const states = new DependencyStates({ process: settings.koalaProcess, described: dependenciesOf(settings), ...options });
   reportTemporalTo(states);
   states.checkWith('temporal', temporalAnswers);

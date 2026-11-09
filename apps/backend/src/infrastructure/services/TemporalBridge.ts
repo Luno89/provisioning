@@ -1,7 +1,7 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, closedAs, reopening, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
+  stopIfRunning, getTemporalClient, closedAs, reopening, thrownFor, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
   type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
@@ -262,16 +262,27 @@ export class TemporalBridge {
     }
   }
 
+  private async resultOf<T>(wfId: string, what: string): Promise<T> {
+    const again = reopening()
+    let told: string | undefined
+    for (;;) {
+      try {
+        return await this.client.workflow.getHandle(wfId).result() as T
+      } catch (err) {
+        if (err instanceof WorkflowNotFoundError) throw err
+        const reason = (thrownFor(this.seams.dependencies, 'temporal', err) as Error).message
+        if (reason !== told) console.warn(`[TemporalBridge] ${wfId} finished, but ${what} could not be read (${reason}); reading it again`)
+        told = reason
+        await again.after()
+      }
+    }
+  }
+
   private async appliedOutcome(
     wfId: string,
     meta: TrackedDeployment,
   ): Promise<{ status: 'running' | 'unhealthy'; meta: TrackedDeployment }> {
-    let verdict: unknown
-    try {
-      verdict = await this.client.workflow.getHandle(wfId).result()
-    } catch (err) {
-      console.warn(`[TemporalBridge] ${wfId} finished, but its verdict on the workload could not be read, so the app is taken as running: ${(err as Error).message}`)
-    }
+    const verdict = await this.resultOf<unknown>(wfId, 'its verdict on the workload')
     const unhealthy = textAt(verdict, 'workload') === 'unhealthy'
     return {
       status: unhealthy ? 'unhealthy' : 'running',
@@ -344,11 +355,7 @@ export class TemporalBridge {
     const applied = async () => this.appliedOutcome(wfId, deployment())
     let pipelineImageTag: string | undefined
     if (name === 'COMPLETED' && action === 'pipeline-run') {
-      try {
-        pipelineImageTag = (await this.client.workflow.getHandle<typeof executePipelineRunWorkflow>(wfId).result()).imageTag
-      } catch (err) {
-        console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${(err as Error).message}`)
-      }
+      pipelineImageTag = (await this.resultOf<Awaited<ReturnType<typeof executePipelineRunWorkflow>>>(wfId, 'the image it built')).imageTag
     }
 
     if (action === 'app-deploy') {

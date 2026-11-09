@@ -475,3 +475,26 @@ describe('landing a story\'s branch on main', () => {
     expect(said).not.toContain('bot-token');
   });
 });
+
+describe('scaffolding a repository', () => {
+  const REPO = `${BASE}/api/v1/repos/koala-u1/shop`;
+
+  it('writes every missing file in one commit, and fails with Gitea\'s reason rather than writing them one at a time', async () => {
+    const { gitea } = setUp();
+    writeData('.gitea-admin-password', 'admin-pass');
+    const commits: unknown[] = [];
+    let answer = 201;
+    server.use(
+      http.get(`${REPO}/contents/Dockerfile`, () => new HttpResponse(null, { status: 404 })),
+      http.get(`${REPO}/contents/README.md`, () => HttpResponse.json({ path: 'README.md' })),
+      http.post(`${REPO}/contents`, async ({ request }) => { commits.push(await request.json()); return answer === 201 ? HttpResponse.json({}, { status: 201 }) : HttpResponse.text('the repository is being migrated', { status: answer }); }),
+    );
+    const files = [{ path: 'Dockerfile', content: 'FROM odoo' }, { path: 'README.md', content: '# shop' }];
+    expect(await gitea.seedTemplate('koala-u1', 'shop', files)).toEqual(['Dockerfile']);
+    expect(commits).toEqual([{ message: 'Scaffold the project\n\n- Dockerfile', files: [{ operation: 'create', path: 'Dockerfile', content: Buffer.from('FROM odoo').toString('base64') }] }]);
+
+    answer = 503;
+    await expect(gitea.seedTemplate('koala-u1', 'shop', files)).rejects.toMatchObject({ status: 503, message: 'Gitea did not scaffold koala-u1/shop (HTTP 503): the repository is being migrated' });
+    expect(commits).toHaveLength(2);
+  });
+});

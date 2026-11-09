@@ -144,7 +144,7 @@ export function createMcpOperations(deps: McpOperationDeps): Record<string, Host
       const started = await driver.exec({ command: startScript(server.name, { start: runs.start, port: runs.port, path: serverPath(runs) }) });
       if (started.exitCode !== 0) return { exit: 'failed', outputs: { reason: `${server.name} did not start: ${(started.stdout + started.stderr).trim() || `it exited ${started.exitCode}`}` } };
       try {
-        const client = new McpClient(`http://127.0.0.1:${runs.port}${serverPath(runs)}`, execFetch(driver), 0);
+        const client = new McpClient(`http://127.0.0.1:${runs.port}${serverPath(runs)}`, execFetch(driver));
         return { exit: 'captured', outputs: { captured: await ask(client, now(), server.fingerprint) } };
       } catch (err) {
         return { exit: 'failed', outputs: { reason: `${server.name} started but did not answer as an MCP server: ${(err as Error).message}` } };

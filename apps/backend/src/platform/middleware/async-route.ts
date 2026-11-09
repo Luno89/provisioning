@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import type { ParamsDictionary } from 'express-serve-static-core';
+import { DependencyDownError } from '../lib/dependencies.js';
 
 export function asyncRoute<P = ParamsDictionary>(
   handler: (req: Request<P>, res: Response, next: NextFunction) => Promise<unknown>,
@@ -16,5 +17,9 @@ export function errorResponder(
   next: NextFunction,
 ): void {
   if (res.headersSent) return next(err);
+  if (err instanceof DependencyDownError) {
+    res.status(503).json({ error: err.message, dependency: err.dependency, since: err.since, reason: err.reason });
+    return;
+  }
   res.status(err.status ?? 500).json({ error: err.message });
 }

@@ -131,7 +131,8 @@ describe('the connection through root\'s own Caddy', () => {
     const via = caddyFetch({ ca: 'CA-PEM' }, rig.transport);
     const got = await via(new URL('https://luno.people.example/a'), { method: 'POST' }, to);
     expect(await got.json()).toEqual({ via: 'caddy' });
-    expect(rig.connectors).toEqual([{ ca: 'CA-PEM' }]);
+    expect(rig.connectors).toEqual([{ timeout: 10_000, ca: 'CA-PEM' }]);
+    expect(rig.agents[0]!.options).toMatchObject({ headersTimeout: 0, bodyTimeout: 0 });
     expect(rig.fetched).toHaveBeenCalledWith('https://luno.people.example/a', matches<{ method: string; dispatcher: unknown }>((init) => init.method === 'POST' && init.dispatcher === rig.agents[0]));
     const callback = () => undefined;
     rig.agents[0]!.options.connect({ hostname: 'luno.people.example', port: '443', protocol: 'https:' } as never, callback);
@@ -145,7 +146,7 @@ describe('the connection through root\'s own Caddy', () => {
     await via(new URL('https://luno.people.example/b'), undefined, to);
     await via(new URL('https://other.people.example/b'), undefined, { ...to, servername: 'other.people.example' });
     expect(rig.agents).toHaveLength(2);
-    expect(rig.connectors).toEqual([{}, {}]);
+    expect(rig.connectors).toEqual([{ timeout: 10_000 }, { timeout: 10_000 }]);
   });
 });
 

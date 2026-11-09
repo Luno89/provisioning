@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
-import { endsSessions, type AccessRevoked, type Database } from '../../platform/index.js';
+import { endsSessions, reopening, type AccessRevoked, type Database, type Reopening } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   CLAIMS_SECONDS, clientMetadata, claimsFor, HUB_CLIENT_ID, hubClient, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
@@ -42,6 +42,8 @@ const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined
 export class RootProvider {
   readonly provider: Provider;
   private delivering: Promise<void> | undefined;
+  private again: Reopening | undefined;
+  private nextDelivery: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly settings: RootProviderSettings,
@@ -213,7 +215,30 @@ export class RootProvider {
       };
       await this.store.instances.enqueueLogout(delivery);
     }
-    void this.deliverLogouts();
+    void this.deliverAndSchedule();
+  }
+
+  keepDelivering(again: Reopening = reopening()): void {
+    this.again = again;
+    void this.deliverAndSchedule();
+  }
+
+  stopDelivering(): void {
+    clearTimeout(this.nextDelivery);
+    this.again = undefined;
+  }
+
+  private async deliverAndSchedule(): Promise<void> {
+    await this.deliverLogouts();
+    const again = this.again;
+    if (!again) return;
+    clearTimeout(this.nextDelivery);
+    if (!(await this.store.instances.pendingLogouts()).length) {
+      again.reset();
+      return;
+    }
+    this.nextDelivery = again.later(() => { void this.deliverAndSchedule(); });
+    this.nextDelivery.unref?.();
   }
 
   async logoutToken(delivery: LogoutDelivery): Promise<string> {

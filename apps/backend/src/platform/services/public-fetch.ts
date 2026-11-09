@@ -1,6 +1,6 @@
 import dns from 'node:dns';
 import { isIP, type LookupFunction } from 'node:net';
-import { Agent } from 'undici';
+import { dependencyDispatcher } from '@koala/engine-core/http';
 import { addressProblem } from '../lib/public-address.js';
 import { ignore } from '@koala/engine-core/failures';
 
@@ -23,7 +23,7 @@ const publicLookup: LookupFunction = (hostname, options, callback) => {
   });
 };
 
-const PUBLIC_ONLY = new Agent({ connect: { lookup: publicLookup }, headersTimeout: 0, bodyTimeout: 0 });
+const PUBLIC_ONLY = dependencyDispatcher({ lookup: publicLookup });
 
 const literalProblem = (url: URL): string | undefined => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return `${url.protocol} is not http or https`;

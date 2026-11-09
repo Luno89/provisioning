@@ -8,6 +8,7 @@ import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { MachineRunWatch } from '../../machines/services/MachineRunWatch.js';
 import { runClosedVia, runLifeVia } from './run-cancellation.js';
+import { reopening } from '@koala/engine-core/reopening';
 
 const QUEUE = 'run-life-test';
 let env: TestWorkflowEnvironment;
@@ -47,7 +48,7 @@ describe('whether a run still runs, read from Temporal', () => {
   }, 60_000);
 
   it('hears the moment a run closes, however it closes, without asking on a clock', async () => {
-    const closed = runClosedVia(client, 60_000);
+    const closed = runClosedVia(client, undefined, () => reopening(60_000));
     const finished = await start('chat-3-koala-1');
     let heard: string | undefined;
     const waiting = closed('chat-3-koala-1', 'owner-1').then((life) => { heard = life; });
@@ -67,7 +68,7 @@ describe('a machine told when the runs holding its sessions end', () => {
   it('is told once each run it names ends, and never about another person\'s run', async () => {
     const told: string[] = [];
     const logged: string[] = [];
-    const watch = new MachineRunWatch({ life: runLifeVia(client), closed: runClosedVia(client, 60_000) }, (line) => logged.push(line));
+    const watch = new MachineRunWatch({ life: runLifeVia(client), closed: runClosedVia(client, undefined, () => reopening(60_000)) }, (line) => logged.push(line));
     const mine = await start('chat-5-koala-1');
     await start('chat-6-koala-1', 'someone-else');
     await start('chat-7-koala-1');

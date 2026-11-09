@@ -1,6 +1,6 @@
 import type { ChangeStream, Collection, Document } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
-import { REOPEN_FIRST_MS, reopening } from './reopening.js';
+import { REOPEN_FIRST_MS, reopening } from '@koala/engine-core/reopening';
 
 export interface Watching {
   ready: Promise<void>;

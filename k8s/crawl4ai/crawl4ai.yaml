@@ -12,7 +12,7 @@ metadata:
   namespace: crawl4ai
 type: Opaque
 stringData:
-  api_token: "koala-dev-crawl4ai-token"
+  api_token: "${CRAWL4AI_API_TOKEN}"
 ---
 apiVersion: apps/v1
 kind: Deployment

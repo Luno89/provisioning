@@ -128,7 +128,7 @@ describe('the instance chart', () => {
       ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
-    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['DATA_KEY', 'EGRESS_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
+    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
     expect(Buffer.from(keys.data!.DATA_KEY!, 'base64').toString().length).toBeGreaterThanOrEqual(32);
     expect(keys.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
     expect(Object.keys(keys.data ?? {})).not.toContain('ROOT_IDENTITY_KEY');

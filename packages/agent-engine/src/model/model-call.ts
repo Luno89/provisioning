@@ -2,7 +2,8 @@ import type { ModelKind, SamplingConfig } from '@koala/harness-types';
 import { causeCode, ignore, LOST_CONNECTION, streamCutOff } from '@koala/engine-core/failures';
 import { buildModelRequest } from './model-request.js';
 import { pause, rateLimitedFetch } from './model-rate-limiter.js';
-import { patientFetch } from './patient-fetch.js';
+import { dependencyFetch } from '@koala/engine-core/http';
+import { reopening } from '@koala/engine-core/reopening';
 import { createStreamParser, type StreamEvent, type StreamToolCall } from '../runtime/stream.js';
 import { elapsedSeconds, errorType, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
@@ -133,7 +134,7 @@ async function askModel(spec: ModelCallSpec, sink: StreamSink): Promise<ModelCal
     ...(spec.toolChoice ? { extra: { tool_choice: spec.toolChoice } } : {}),
   });
 
-  const fetchImpl = spec.fetchImpl ?? patientFetch;
+  const fetchImpl = spec.fetchImpl ?? dependencyFetch;
   const doFetch = rateLimitedFetch(endpoint.rateLimitKey, endpoint.ownerId, endpoint.label, fetchImpl);
   const headers = {
     'content-type': 'application/json',
@@ -170,12 +171,10 @@ const describeLoss = (err: unknown): string => {
   return code ? `${(err as Error).message} (${code})` : (err as Error).message;
 };
 
-const ANSWER_WAIT_FIRST_MS = 2_000;
-const ANSWER_WAIT_MOST_MS = 30_000;
-
 async function serverAnswers(endpoint: EngineEndpoint, fetchImpl: typeof fetch, headers: Record<string, string>, signal: AbortSignal | undefined): Promise<void> {
-  for (let wait = ANSWER_WAIT_FIRST_MS; ; wait = Math.min(wait * 2, ANSWER_WAIT_MOST_MS)) {
-    await pause(wait, signal);
+  const again = reopening();
+  for (;;) {
+    await pause(again.take(), signal);
     try {
       const answer = await fetchImpl(`${endpoint.baseUrl}/models`, { headers, ...(signal ? { signal } : {}) });
       await answer.body?.cancel().catch(ignore('only the status is asked for; cancelling the body only lets the connection go'));

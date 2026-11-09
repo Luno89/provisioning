@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute, principalFrom } from '../../platform/index.js';
 import { signsInAsPlatform } from '../lib/cluster-name.js';
+import { signInFailedPage } from '../lib/sign-in-failed-page.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { GiteaService } from '../../projects/index.js';
@@ -55,7 +56,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
               const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
               for (const cookie of cookies) res.append('Set-Cookie', cookie);
             } catch (err) {
-              console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${(err as Error).message} — falling back to manual login`);
+              res.setHeader('Content-Type', 'text/html');
+              return res.send(signInFailedPage(serviceKey, targetUrl, (err as Error).message));
             }
           }
           return res.redirect(302, targetUrl);

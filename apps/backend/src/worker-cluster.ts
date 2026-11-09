@@ -14,7 +14,7 @@ import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
-import { createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
@@ -71,6 +71,7 @@ async function main() {
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   let worker;
+  const connecting = reopening();
   while (true) {
     try {
       const connection = await connectTemporalWorker('koala-worker-cluster', settings);
@@ -97,8 +98,8 @@ async function main() {
       break;
     } catch (err) {
       dependencies.failed('temporal', err);
-      logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);
+      await connecting.after();
     }
   }
 

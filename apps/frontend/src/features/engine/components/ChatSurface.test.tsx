@@ -184,6 +184,17 @@ describe('ChatSurface in a channel', () => {
     ],
   } as never);
 
+  it('says so when whether its turn still runs cannot be told', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValue({
+      id: 'c-unknown',
+      title: 'Shop',
+      messages: [{ role: 'user', content: 'still there?', at: NOTE_AT, runId: 'run-live' }],
+      liveTurn: { runId: 'run-live', startedAt: NOTE_AT, unknown: 'Koala can\'t tell whether this turn still runs: Temporal isn\'t answering since 10:02 UTC: it refused the connection (ECONNREFUSED)' },
+    } as never);
+    renderWithProviders(<ChatSurface conversationId="c-unknown" hideSidebar />);
+    expect(await screen.findByText('Koala can\'t tell whether this turn still runs: Temporal isn\'t answering since 10:02 UTC: it refused the connection (ECONNREFUSED)')).toBeInTheDocument();
+  });
+
   it('says of each message whether Koala was asked', async () => {
     channelThread();
     renderWithProviders(<ChatSurface conversationId="channel-p1" channel hideSidebar />);

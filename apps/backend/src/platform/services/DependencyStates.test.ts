@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { DependencyStates } from './DependencyStates.js';
-import { REOPEN_FIRST_MS } from '../lib/reopening.js';
-import type { DependencyStateRow } from '../lib/dependencies.js';
+import { REOPEN_FIRST_MS } from '@koala/engine-core/reopening';
+import { DependencyDownError, type DependencyStateRow } from '../lib/dependencies.js';
 
 const refused = (): Error => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
 const NOW = new Date('2026-11-08T10:00:00.000Z');
@@ -132,6 +132,27 @@ describe('DependencyStates', () => {
     made.answered('gitea');
     await vi.advanceTimersByTimeAsync(0);
     expect(rows.map((row) => row.state)).toEqual(['down', 'answering']);
+    made.stop();
+  });
+
+  it('hands a caller back what to throw: the dependency\'s state for a temporary failure, the error itself for a final one', () => {
+    const { made } = states();
+    const cause = refused();
+    const thrown = made.failed('gitea', cause);
+    expect(thrown).toBeInstanceOf(DependencyDownError);
+    expect(thrown).toMatchObject({
+      message: 'Gitea isn\'t answering since 10:00 UTC: it refused the connection (ECONNREFUSED)',
+      status: 503,
+      dependency: 'gitea',
+      since: NOW.toISOString(),
+      reason: 'it refused the connection (ECONNREFUSED)',
+      cause,
+    });
+    vi.setSystemTime(new Date(NOW.getTime() + 120_000));
+    expect((made.failed('gitea', Object.assign(new Error('busy'), { status: 503 })) as Error).message).toBe('Gitea isn\'t answering since 10:00 UTC: it refused the connection (ECONNREFUSED)');
+    const forbidden = Object.assign(new Error('nope'), { response: { status: 403 } });
+    expect(made.failed('gitea', forbidden)).toBe(forbidden);
+    expect(made.failed('minio', thrown)).toMatchObject({ dependency: 'minio', reason: 'it refused the connection (ECONNREFUSED)' });
     made.stop();
   });
 

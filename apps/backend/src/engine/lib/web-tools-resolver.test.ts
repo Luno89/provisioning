@@ -25,23 +25,23 @@ describe('resolving a deployed service', () => {
 
   it('ignores a deployment that is not running', async () => {
     const tools = await resolveWebTools(deps([dep({ status: 'deploying' })]));
-    expect(tools.sources.search).toBe('duckduckgo');
+    expect(tools.sources.search).toBe('none');
   });
 
-  it('falls back rather than throwing when the forward cannot be established', async () => {
+  it('is left without that deployment, rather than throwing, when the forward cannot be established', async () => {
     const d = deps([dep()], { serviceUrl: vi.fn(async () => { throw new Error('no such service'); }) });
 
-    await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
+    await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'none' } });
   });
 
-  it('falls back when the cluster cannot be reached', async () => {
+  it('is left without that deployment when its cluster cannot be reached', async () => {
     const d = deps([dep()], { serviceUrl: vi.fn(async () => { throw new Error('c1 is stopped until something runs on it'); }) });
-    expect((await resolveWebTools(d)).sources.search).toBe('duckduckgo');
+    expect((await resolveWebTools(d)).sources.search).toBe('none');
   });
 
   it('does not route one owner through another owner\'s service', async () => {
     const d = deps([dep({ ownerId: 'someone-else' })]);
-    expect((await resolveWebTools(d, 'me')).sources.search).toBe('duckduckgo');
+    expect((await resolveWebTools(d, 'me')).sources.search).toBe('none');
   });
 
   it('uses an unowned deployment for anyone', async () => {
@@ -58,13 +58,13 @@ describe('crawl4ai credentials', () => {
   });
 
   it('will not use a deployment whose token was never stored', async () => {
-    expect((await resolveWebTools(deps([untokened()]))).sources.fetch).toBe('strip-tags');
+    expect((await resolveWebTools(deps([untokened()]))).sources.fetch).toBe('none');
   });
 
   it('never pairs a deployment URL with an env var token', async () => {
     const d = deps([untokened()], { settings: { crawl4aiToken: 'unrelated' } });
 
-    expect((await resolveWebTools(d)).sources.fetch).toBe('strip-tags');
+    expect((await resolveWebTools(d)).sources.fetch).toBe('none');
   });
 
   it('uses the env pair when nothing is deployed', async () => {
@@ -83,7 +83,7 @@ describe('precedence', () => {
 
   it('survives the database being unavailable', async () => {
     const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('mongo down'); }) } });
-    await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
+    await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'none' } });
   });
 });
 
@@ -101,6 +101,6 @@ describe('the deps a process builds', () => {
     proxy.serviceUrl.mockRejectedValue(new Error('there is no cluster c1'));
     const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
     await expect(built.serviceUrl('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 })).rejects.toThrow('there is no cluster c1');
-    expect((await resolveWebTools({ ...built, settings: {} })).sources.search).toBe('duckduckgo');
+    expect((await resolveWebTools({ ...built, settings: {} })).sources.search).toBe('none');
   });
 });

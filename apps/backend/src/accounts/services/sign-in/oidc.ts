@@ -1,4 +1,5 @@
 import * as client from 'openid-client';
+import { withAnswerUnlimited } from '../../../platform/index.js';
 import { identityFromIdToken, plainHttpAllowed, SignInRefusal, type SignInChecks, type SignInClient, type SignInProvider } from '../../lib/sign-in-providers.js';
 
 export const reachedOverPlainHttp = (provider: Pick<SignInProvider, 'issuer'>): ((config: client.Configuration) => void)[] =>
@@ -9,6 +10,7 @@ export function oidcSignIn(provider: SignInProvider): SignInClient {
   const config = (): Promise<client.Configuration> => {
     configured ??= client.discovery(new URL(provider.issuer), provider.clientId, provider.clientSecret, undefined, {
       execute: [...reachedOverPlainHttp(provider), client.enableNonRepudiationChecks],
+      ...withAnswerUnlimited(),
     });
     configured.catch(() => { configured = undefined; });
     return configured;

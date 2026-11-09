@@ -183,7 +183,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, { engineQueue: settings.queues.engine, dependencies });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
-    await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
+    await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
       await temporalBridge.start();
       await temporalBridge.startActiveWorkflowRecovery();
     }, (message) => console.warn(message));
@@ -196,7 +196,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities });
+  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies });
   if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
   if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
@@ -304,7 +304,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, signsEveryoneIn: signsEveryoneIn(settings), payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, signsEveryoneIn: signsEveryoneIn(settings), payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
 
   const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
   const signInReturn = settings.root ? settings.root.signInReturn : {};

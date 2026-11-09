@@ -53,7 +53,7 @@ describe('checking a dependency over HTTP', () => {
 });
 
 describe('web search at the platform\'s SearXNG', () => {
-  it('reports SearXNG failing and answering from the searches themselves, and still searches as it did', async () => {
+  it('reports SearXNG failing and answering from the searches themselves, saying why search is down while it is', async () => {
     let status = 502;
     const searxng = await serving(() => status);
     const states = new DependencyStates({ process: 'worker-engine', described: ['searxng'], log: quiet });
@@ -65,13 +65,12 @@ describe('web search at the platform\'s SearXNG', () => {
       settings: { searxngUrl: searxng },
       dependencies: states,
       baseFetch: (input, init) => (String(input).startsWith(searxng) ? fetch(input, init) : offline(input, init)),
-      pageFetch: offline,
     });
     expect(tools.sources.search).toBe('searxng');
-    expect(await tools.search('koala')).toEqual({ hits: [], unavailable: true });
+    expect(await tools.search('koala')).toEqual({ hits: [], unavailable: true, reason: 'SearXNG answered 502' });
     expect(states.stateOf('searxng')).toMatchObject({ state: 'down', reason: 'it answered 502, asking to be asked again after 7' });
     status = 200;
-    expect(await tools.search('koala')).toMatchObject({ answeredBy: 'searxng', hits: [{ url: 'https://koala.example' }] });
+    expect(await tools.search('koala')).toMatchObject({ unavailable: false, hits: [{ url: 'https://koala.example' }] });
     expect(states.stateOf('searxng')).toEqual({ state: 'answering' });
   });
 });

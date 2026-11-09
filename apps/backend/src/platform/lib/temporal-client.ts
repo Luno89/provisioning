@@ -8,7 +8,7 @@ import type { PlatformKeys } from './keys.js'
 import { temporalApiKey, temporalToken } from './temporal-auth.js'
 import { temporalTls } from './temporal-tls.js'
 import type { TemporalPlace } from './temporal-connection.js'
-import type { DependencyReporter } from './dependencies.js'
+import { thrownFor, type DependencyReporter } from './dependencies.js'
 
 export interface TemporalClientSettings {
   temporal: TemporalPlace
@@ -92,8 +92,7 @@ export async function getTemporalClient(): Promise<Client> {
     tls: temporalTls(temporal),
     apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'write' }),
   }).catch((err: unknown) => {
-    reporter?.failed('temporal', err)
-    throw err
+    throw thrownFor(reporter, 'temporal', err)
   })
   reporter?.answered('temporal')
   await registerOwnerAttribute(connection, temporal.namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }))

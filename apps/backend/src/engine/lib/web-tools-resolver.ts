@@ -15,7 +15,6 @@ export interface WebToolsDeps {
   db: Pick<InfrastructureStore, 'getDeployments'>;
   serviceUrl: (clusterId: string, serviceKey: string, target: ProxyTarget) => Promise<string>;
   settings?: { searxngUrl?: string | undefined; crawl4aiUrl?: string | undefined; crawl4aiToken?: string | undefined } | undefined;
-  pageFetch?: typeof fetch;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
   dependencies?: DependencyReporter | undefined;
   baseFetch?: typeof fetch | undefined;
@@ -83,7 +82,6 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
     ...(deps.baseFetch ? { fetchImpl: deps.baseFetch } : {}),
     ...(searxngFetch ? { searxngFetch } : {}),
     ...(crawl4aiFetch ? { crawl4aiFetch } : {}),
-    ...(deps.pageFetch ? { pageFetch: deps.pageFetch } : {}),
     ...(deps.pageCheck ? { pageCheck: deps.pageCheck } : {}),
     ...(searxngUrl ? { searxngUrl } : {}),
     ...(crawl4aiUrl && crawl4aiToken ? { crawl4aiUrl, crawl4aiToken } : {}),

@@ -23,6 +23,7 @@ export interface PersonInstance {
   versionWithdrawn?: boolean
   autoUpdates?: boolean
   unreachableSince?: string
+  signOutsUndelivered?: { since: string; why: string }
 }
 
 export interface PersonEntry {

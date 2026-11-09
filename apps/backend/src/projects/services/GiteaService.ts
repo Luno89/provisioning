@@ -406,18 +406,12 @@ export class GiteaService {
           content: Buffer.from(f.content).toString('base64'),
         })),
       }),
-    }).catch((err: unknown) => {
-      console.warn(`[GiteaService] scaffolding ${username}/${name} in one commit did not reach Gitea, so each file is written on its own: ${(err as Error).message}`);
-      return undefined;
     });
-
-    if (res?.ok) return missing.map((f) => f.path);
-
-    const written: string[] = [];
-    for (const f of missing) {
-      if (await this.ensureFile(username, name, f.path, f.content, `Scaffold ${f.path}`)) written.push(f.path);
+    if (!res.ok) {
+      const said = (await res.text().catch((err: Error) => `its answer could not be read: ${err.message}`)).slice(0, 300);
+      throw Object.assign(new Error(`Gitea did not scaffold ${username}/${name} (HTTP ${res.status})${said ? `: ${said}` : ''}`), { status: res.status });
     }
-    return written;
+    return missing.map((f) => f.path);
   }
 
   async commitFiles(username: string, name: string, files: { path: string; content: string }[], message: string): Promise<void> {

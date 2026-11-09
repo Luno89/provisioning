@@ -4,8 +4,6 @@ import {
   type MemoryItem, type MemoryContextOptions,
 } from './memory-store.js';
 
-export const RECALL_TIMEOUT_MS = 3_000;
-
 export const PINNED_TITLES: readonly string[] = ['Repository layout'];
 
 export const MAX_QUERY_CHARS = 2_000;
@@ -16,7 +14,6 @@ export interface RecallInput {
   projectId?: string | undefined;
   query: string;
   endpoints?: (() => Promise<MemoryEndpoints | undefined>) | undefined;
-  timeoutMs?: number;
 }
 
 export interface RecallOutcome {
@@ -50,28 +47,20 @@ export function orderByRelevance(memories: MemoryItem[], rankedIds: readonly str
   return out;
 }
 
-function within<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
-  let timer: NodeJS.Timeout;
-  return Promise.race([
-    promise.catch((err: unknown) => {
-      console.warn(`[Recall] searching memories failed, so they are recalled by recency: ${(err as Error).message}`);
-      return null;
-    }),
-    new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
-  ]).finally(() => clearTimeout(timer));
+async function searched(input: RecallInput): Promise<{ id: string }[] | null> {
+  if (!input.endpoints || !input.query.trim()) return null;
+  try {
+    const ends = await input.endpoints();
+    if (!ends || (!ends.vectors && !ends.index)) return null;
+    return await searchMemories(ends, input.query, { ownerId: input.ownerId });
+  } catch (err) {
+    throw new Error(`memories could not be searched: ${(err as Error).message}`, { cause: err });
+  }
 }
 
 export async function recallMemories(input: RecallInput): Promise<RecallOutcome> {
   const opts: MemoryContextOptions = { preRanked: true };
-
-  const hits = input.endpoints && input.query.trim()
-    ? await within((async () => {
-      const ends = await input.endpoints!();
-      if (!ends || (!ends.vectors && !ends.index)) return null;
-      return searchMemories(ends, input.query, { ownerId: input.ownerId });
-    })(), input.timeoutMs ?? RECALL_TIMEOUT_MS)
-    : null;
-
+  const hits = await searched(input);
   const ordered = orderByRelevance(input.memories, (hits ?? []).map((h) => h.id));
   const { kept, dropped } = selectForContext(ordered, input.projectId, opts);
 

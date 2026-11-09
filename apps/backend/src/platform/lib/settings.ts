@@ -303,7 +303,7 @@ function webToolsFrom(read: Reading): WebToolSettings {
   return {
     searxngUrl: urlSetting(read, 'SEARXNG_URL', 'it is where web search is asked; the instance chart sets it'),
     crawl4aiUrl: urlSetting(read, 'CRAWL4AI_URL', 'it is where pages are read and crawled; the instance chart sets it'),
-    ...(settingIn(read.env, 'CRAWL4AI_API_TOKEN') ? { crawl4aiToken: settingIn(read.env, 'CRAWL4AI_API_TOKEN') } : {}),
+    crawl4aiToken: required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding its token; the instance chart makes it'),
   };
 }
 

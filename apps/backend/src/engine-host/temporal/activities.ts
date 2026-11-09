@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { MachineSendRequest, MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
 import type { StoredFilesActivities } from '../../files/index.js';
 import type { BroughtBack } from '../sandboxes/workspace-documents.js';
@@ -184,7 +185,7 @@ export function createNodeRunner(
     const runId = request.run.identity.runId;
     const watching = options.runCancelled && !request.hearsStops
       ? setInterval(() => {
-        void options.runCancelled!(runId).then((cancelled) => { if (cancelled) stop.abort('the run was cancelled'); });
+        void options.runCancelled!(runId).then((cancelled) => { if (cancelled) stop.abort('the run was cancelled'); }, ignore('Temporal not answering is shown as its dependency state; whether the run was stopped is asked again on the next poll'));
       }, CANCEL_POLL_MS)
       : undefined;
     const notices: CarriedNotice[] = [];
@@ -293,7 +294,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       if (args.stoppedBecause) stop.abort(args.stoppedBecause);
       const watching = services.runCancelled && !args.hearsStops
         ? setInterval(() => {
-          void services.runCancelled!(args.ticket.runId).then((cancelled) => { if (cancelled) stop.abort('the run was stopped'); });
+          void services.runCancelled!(args.ticket.runId).then((cancelled) => { if (cancelled) stop.abort('the run was stopped'); }, ignore('Temporal not answering is shown as its dependency state; whether the run was stopped is asked again on the next poll'));
         }, CANCEL_POLL_MS)
         : undefined;
       const beating = context ? setInterval(() => context.heartbeat(), NODE_HEARTBEAT_MS) : undefined;

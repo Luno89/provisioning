@@ -33,9 +33,28 @@ export const isDependencyId = (value: unknown): value is DependencyId =>
 export type Failure = { kind: 'temporary'; reason: string } | { kind: 'final'; reason: string };
 
 export interface DependencyReporter {
-  failed(dependency: DependencyId, error: unknown): void;
+  failed(dependency: DependencyId, error: unknown): unknown;
   answered(dependency: DependencyId): void;
 }
+
+const sinceAt = (since: string): string => `${new Date(since).toISOString().slice(11, 16)} UTC`;
+
+export class DependencyDownError extends Error {
+  readonly status = 503;
+
+  constructor(
+    readonly dependency: DependencyId,
+    readonly since: string,
+    readonly reason: string,
+    options: { cause?: unknown } = {},
+  ) {
+    super(`${DEPENDENCIES[dependency].name.replace(/^./, (first) => first.toUpperCase())} isn't answering since ${sinceAt(since)}: ${reason}`, options);
+    this.name = 'DependencyDownError';
+  }
+}
+
+export const thrownFor = (reporter: DependencyReporter | undefined, dependency: DependencyId, error: unknown): unknown =>
+  reporter?.failed(dependency, error) ?? error;
 
 export type DependencyState =
   | { state: 'answering' }
@@ -138,6 +157,7 @@ function codeFailure(code: string): Failure | undefined {
 }
 
 export function failureOf(error: unknown): Failure {
+  if (error instanceof DependencyDownError) return temporary(error.reason);
   if (nameOf(error) === STILL_DOWN) return temporary(messageOf(error));
   if (refusedByServer(error)) return final(`it refused: ${messageOf(error)}`);
   const status = httpStatusOf(error);
@@ -170,8 +190,7 @@ export function reportingFetch(reporter: DependencyReporter, dependency: Depende
     try {
       response = await doFetch(input, init);
     } catch (err) {
-      reporter.failed(dependency, err);
-      throw err;
+      throw thrownFor(reporter, dependency, err);
     }
     reportStatus(reporter, dependency, response.status, response.headers.get('retry-after'));
     return response;

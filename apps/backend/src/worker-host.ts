@@ -11,7 +11,7 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorEndpoint, collectorSink } from './monitoring/index.js';
@@ -57,6 +57,7 @@ async function main() {
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   let worker;
+  const connecting = reopening();
   while (true) {
     try {
       const connection = await connectTemporalWorker('koala-worker-host', settings);
@@ -108,8 +109,8 @@ async function main() {
       break;
     } catch (err) {
       dependencies.failed('temporal', err);
-      logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);
+      await connecting.after();
     }
   }
 

@@ -823,7 +823,7 @@ page signs them in and `resumePathFrom` sends them back), takes only an instance
 `claimsOf`). `requireAuth` checks it locally (no database, no call to root) and renews it through the refresh token once the claims are
 20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate** (the one event in
 "Who may do what"): root forgets the person's grants, sessions and tokens and sends each client a back-channel logout token
-(`logoutDeliveries`, retried every 30 s until the client answers, the reason in `koala_why`); the client records it (`sessionRevocations`,
+(`logoutDeliveries`, retried on the layer's backoff until the client answers, People showing since when and why not, the reason in `koala_why`); the client records it (`sessionRevocations`,
 the in-memory `RevocationList`), drops the person's sessions and fires the event on its own `AccessRevocations`, which ends its runs' grants. **Only over https in
 production**: an instance or the hub refuses to start when its `ROOT_URL` is plain http to the open internet (`plaintextProblem` in
 `platform/lib/lab.ts`, from `roleFromEnv`); a lab, loopback, a private or mesh address and a name under `.internal` or `.localhost`
@@ -1110,8 +1110,8 @@ for this chat** (switches it on and lets the call through; so does switching it 
 Plan: `~/.claude/plans/poisoning-detection.md` (owner, 2026-10-28: notice it, never block or ask). Nothing here stops a call.
 - **Hidden text never reaches the model**: the tool runtime passes every result through `withoutHidden` (`engine/lib/hidden-text.ts`):
   Unicode tag characters, zero-width and bidi characters (the joiners emoji and joined scripts need are kept), and in HTML comments,
-  scripts, styles, templates, meta, hidden inputs and elements hidden by attribute or inline style; the page fetcher removes hidden
-  HTML before it strips tags. The digest says how many characters were taken out.
+  scripts, styles, templates, meta, hidden inputs and elements hidden by attribute or inline style; pages come from Crawl4AI as
+  text. The digest says how many characters were taken out.
 - **Where a result comes from**: `TOOL_SOURCES` beside `TOOL_ACCESS` in `engine/lib/tool-access.ts` (a test fails on a tool with none).
   Each run family (keyed by its grant) keeps keyed fingerprints of what it read in `runReads`, private and outside apart, the hosts
   logs, stored files and MCP output named, and the runs it read with `read_run` (`PoisoningWatch` in `engine-host/tools/poisoning-watch.ts`,
@@ -1354,8 +1354,9 @@ relay for anyone else. `test:routing-live` proves an instance's email reaching i
 ## Outside dependencies
 
 Owner, 2026-11-08: "it should be a layer for any dependency that might be slow or can be retried"; "if a dependecy is down we
-should inform the user and have metrics alerts and best practices around our dependecies". This is slice 1: each dependency
-described once, with its state, shown and measured. Callers still handle their own failures as before.
+should inform the user and have metrics alerts and best practices around our dependecies". Each dependency is described once, with
+its state, shown and measured; one HTTP client and one backoff serve every call; a caller of a dependency that is down is answered with
+its state, and nothing falls back to something else (slices 1 and 2).
 - **Described once** (`platform/lib/dependencies.ts`, pure): `DEPENDENCIES` names each one Koala's own processes call (Mongo "the
   database", Temporal, MinIO "file storage (MinIO)", Gitea, Infisical, "the image registry", SearXNG, Crawl4AI, "Koala's root" from
   an instance, "the hub" from an instance, "the telemetry collector") and how it is checked. `dependenciesOf(settings)` says which a
@@ -1386,8 +1387,40 @@ described once, with its state, shown and measured. Callers still handle their o
   Mongo answers again); the backend reads them on each `GET /api/infrastructure` and puts them beside its own (`downAcross`).
 - **What the person sees**: `dependencies` on `GET /api/infrastructure` (down ones: name, since, reason, which process saw it, and
   for root its address), only for whoever runs this Koala (`see-platform-dependencies`); Infrastructure → Needs attention lists
-  them first (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", root in the words
-  it always had ("Your instance has not reached Koala's root since …"), each gone once it answers.
+  them first (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", one item per
+  dependency with the processes that saw it, root in the words it always had ("Your instance has not reached Koala's root since …"), each gone once it answers.
+- **One HTTP client per process** (`@koala/engine-core/http`, owner 2026-11-09: "yep go for it"): `useDependencyHttp()` (called by
+  `dependencyStatesFor`, so by every process) makes undici's global dispatcher and axios's default agents the layer's own: no limit on
+  the answer (headers or body), and one connect limit, `CONNECT_MS` (10 s), covering the TCP connect and the TLS handshake. Opening a
+  connection does no work, so cutting it short loses nothing and is safe to try again; it is how a host that does not answer at all
+  (dropped packets, a machine off the mesh, a process stuck mid-handshake) is noticed, where Linux would take about 2 minutes or, for a
+  handshake, forever. Hitting it is temporary (`UND_ERR_CONNECT_TIMEOUT`, `ETIMEDOUT`). Model calls (`dependencyFetch`), `publicFetch`
+  (`dependencyDispatcher({ lookup })`), the drain's endpoint reads and root's Caddy agent (`InstanceReach`) use the same limits. No call
+  sets a time limit of its own: Infisical's, the model lists', Artificial Analysis's, the VPS catalog's, hosted MCP's and openid-client's
+  (`withAnswerUnlimited`, which drops the 30 s signal it puts on every request) are gone.
+- **A caller is answered with the state** (`DependencyDownError`): a reporter's `failed` returns what to throw, the dependency's state
+  for a temporary failure ("Gitea isn't answering since 10:02 UTC: it refused the connection (ECONNREFUSED)", status 503) and the error
+  itself for a final one; `thrownFor(reporter, dependency, err)` is the one way a client throws (`reportingFetch`, `minioObjectStore`,
+  `InfisicalService`, the Temporal client's connect, the run-state reads), and `errorResponder` answers it as 503 with `dependency`,
+  `since` and `reason`. A Temporal read that cannot be made says so rather than answering: a run's state (`runCancelledVia`,
+  `runEndedVia`, `runAskingVia`, `runWaitingVia`, `runLifeVia`) throws it (a workflow Temporal no longer has is the only answer taken
+  from a failure), a chat whose turn cannot be told running says "Koala can't tell whether this turn still runs: …" (`liveTurn.unknown`),
+  and a finished deploy's verdict or build's image is read again until Temporal answers (`TemporalBridge.resultOf`).
+- **One backoff** (`reopening()` in `@koala/engine-core/reopening`: 5 s doubling to a minute, `take()` for a caller that waits its own
+  way): the dependency checks, `keepTrying`, root's key announcement (`keepAnnouncing`), every worker's connect loop, the model call's
+  wait for its server (`serverAnswers`), root's logout deliveries (`keepDelivering`, whose last failure People shows on the instance:
+  "signing out has not reached it since …"), the move import, the drain's endpoint reads and the repository's wait to be served.
+- **No fallbacks** (decisions 10 and 11, rule 4): web search is SearXNG and pages are read by Crawl4AI, each saying why when it cannot
+  (DuckDuckGo scraping and tag-stripping are gone; the instance chart makes Crawl4AI's token, `CRAWL4AI_API_TOKEN`, which the
+  backend requires); memory recall fails with why (no recency instead); image tags that cannot be read say why and take a tag typed by
+  hand (no made-up list); a credential check that cannot be made is not called invalid (502, shown apart); a DNS provider's 5xx or 429
+  is temporary, not a refusal; only a 404 means an image is not published, and the build asks the registry again rather than rebuilding;
+  the drain keeps reading its endpoints; the dashboards' automatic sign-in says why it failed and offers the dashboard; a scaffold is one
+  commit or an error with Gitea's reason.
+- **Needs attention shows one item per dependency**, since the first process saw it, naming every process that did ("Seen by this
+  Koala's backend and the engine worker").
+- **The concept** `dependencies` in `tests/coupling/concepts.ts` marks every place that waits on, retries, limits or reports a
+  dependency, so the flow maps list them, a stray `new Agent(`, `AbortSignal.timeout(` or `timeout:` included.
 - **The metric**: every process exports `koala_dependency_up{dependency}` (1 answering, 0 down) through `KoalaMetrics`. No alert
   rule yet.
 - **Adding a dependency**: its entry in `DEPENDENCIES`, the processes that use it in `dependenciesOf` (from their settings), a check
@@ -1752,10 +1785,10 @@ No wait inside an activity watches a clock: it ends on the thing it waits for, o
 (`assessWorkload` in `infrastructure/lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like, or pods a quota or
 admission refuses to make, `creationRefused`), or on a stop. The
 pieces that used to cut work off and no longer do:
-- **Model calls** go out through `patientFetch` (`agent-engine/src/model/patient-fetch.ts`): Node's `fetch` with an
-  undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. A call
-  whose connection is lost (refused, reset, the stream cut off) waits until the server answers `/models` again, with no
-  deadline, and asks again from the start, telling the run with a notice (`callModel`, `onConnectionLost`). TabbyAPI's
+- **Model calls** go out through `dependencyFetch` (`@koala/engine-core/http`): the process's one client, with no header
+  or body timeout, so a long prefill or a slow stream is never dropped at 300 s, and the layer's 10 s connect limit. A call
+  whose connection is lost (refused, reset, timed out connecting, the stream cut off) waits until the server answers `/models`
+  again, on the layer's backoff with no deadline, and asks again from the start, telling the run with a notice (`callModel`, `onConnectionLost`). TabbyAPI's
   liveness probe checks only that its port accepts connections (`constructs/tabbyapi.ts`): its `/health` shares the thread
   that generates, so a busy server used to be killed mid-answer. The
   per-endpoint queue (`model-rate-limiter.ts`) waits for its turn with no deadline and leaves when the run is stopped.
@@ -2086,10 +2119,10 @@ workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` 
 research run.
 
 Temporal is not optional, and there is no DB-polling fallback. A backend whose Temporal is down at start still starts: it tries the
-Temporal bridge every 10 s (`keepTrying` in `bootstrap()`), and until it connects deploys, builds and syncs fail, chats and runs answer
+Temporal bridge on the layer's backoff (`keepTrying` in `bootstrap()`), and until it connects deploys, builds and syncs fail, chats and runs answer
 503, Running and the Temporal page say Temporal cannot be reached, and no deployment or build is followed. Once connected, a Temporal
-that goes away makes each call fail after the client's own gRPC retries (about 20 s); the host and cluster workers retry their
-connection every 10 s, the engine worker every 5 s. Either way Temporal shows under Needs attention as a dependency that is not
+that goes away makes each call fail after the client's own gRPC retries (about 20 s); every worker retries its
+connection on the layer's backoff. Either way Temporal shows under Needs attention as a dependency that is not
 answering (**Outside dependencies**). Start it with `docker compose -f docker-compose.temporal.yml up`.
 
 ## GPU / vLLM support
@@ -2182,12 +2215,13 @@ typecheck + lint + both unit suites before anything reaches `main`. Each rule be
   is types only (interfaces and type aliases, no dependencies): the shapes the backend, the frontend, `agent-engine` and
   `context-engine` share. `@koala/engine-core` is what every process that runs tools shares: the tool and environment
   contracts (`./contracts`), tool execution, scopes, fingerprints, the external-agent shapes, `heartbeatWhileRunning`,
-  and the payload codec (`./payloads`, `buildDataConverter`); it depends only on `@temporalio/common`, uses Node's
-  `crypto`, `path` and `zlib`, and is imported by the backend, the machine agent (`apps/local-agent`) and
+  the payload codec (`./payloads`, `buildDataConverter`), the dependency layer's HTTP client (`./http`) and backoff
+  (`./reopening`); it depends on `@temporalio/common` and `undici`, uses Node's `crypto`, `path`, `zlib`, `http` and
+  `https`, and is imported by the backend, the machine agent (`apps/local-agent`) and
   `agent-engine`. `@koala/context-engine` is what fits in a model's context (compaction settings, token budgets,
   observation masking, the state vector); it depends on `harness-types` and is imported by `agent-engine`, the machine
   agent, and once by the backend (`memory/lib/memory-store.ts`). `@koala/agent-engine` is procedures, their nodes,
-  agents, the model layer (`patientFetch`, the rate limiter) and the procedure builder, over `engine-core`,
+  agents, the model layer (`callModel`, the rate limiter) and the procedure builder, over `engine-core`,
   `context-engine` and `harness-types`; its root export uses Node, so a workflow takes values only from its
   `./workflow` and `./procedure` subpaths and only types from its root and from `engine-core`; the frontend imports
   `./procedure` and `./procedure-builder`. `cdktf-infra` is imported by nothing: `InfrastructureService` runs it as a

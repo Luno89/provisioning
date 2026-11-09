@@ -194,8 +194,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   if (deps.provider) {
     const provider = deps.provider;
     app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
-    void provider.deliverLogouts();
-    setInterval(() => { void provider.deliverLogouts(); }, 30_000);
+    provider.keepDelivering();
   }
   if (signsInThroughRoot(role.role) && deps.signIn) {
     await deps.signIn.load();

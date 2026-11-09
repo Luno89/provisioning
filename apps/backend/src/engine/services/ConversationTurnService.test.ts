@@ -29,15 +29,24 @@ describe('a conversation turn on the server', () => {
     expect(current()).toMatchObject({ id: 'c1', liveTurn: { runId: 'r1' }, messages: [{ role: 'user', content: 'hi', runId: 'r1' }] });
   });
 
-  it('is left alone while its run is going, or when that cannot be told', async () => {
-    for (const running of [true, new Error('Temporal is away')]) {
-      const { service, saved } = world(running);
-      await service.open({ ownerId: 'u1', conversationId: 'c1', runId: 'r1', message: 'hi' });
-      const open = saved[0]!;
+  it('is left alone while its run is going', async () => {
+    const running = true;
+    const { service, saved } = world(running);
+    await service.open({ ownerId: 'u1', conversationId: 'c1', runId: 'r1', message: 'hi' });
+    const open = saved[0]!;
 
-      expect(await service.settle(open)).toBe(open);
-      expect(saved).toHaveLength(1);
-    }
+    expect(await service.settle(open)).toBe(open);
+    expect(saved).toHaveLength(1);
+  });
+
+  it('is left open, saying why, when whether its run still goes cannot be told', async () => {
+    const running = new Error('Temporal isn\'t answering since 10:02 UTC: it refused the connection (ECONNREFUSED)');
+    const { service, saved } = world(running);
+    await service.open({ ownerId: 'u1', conversationId: 'c1', runId: 'r1', message: 'hi' });
+    const open = saved[0]!;
+
+    expect(await service.settle(open)).toEqual({ ...open, liveTurn: { ...open.liveTurn, unknown: 'Koala can\'t tell whether this turn still runs: Temporal isn\'t answering since 10:02 UTC: it refused the connection (ECONNREFUSED)' } });
+    expect(saved).toHaveLength(1);
   });
 
   it('is closed with what its log holds, marked interrupted, once its run is gone without saving', async () => {

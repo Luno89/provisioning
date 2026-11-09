@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { ClusterMetadata, Principal } from '../../platform/index.js';
 import type { GiteaService } from '../../projects/index.js';
@@ -97,14 +97,15 @@ describe('opening a cluster\'s dashboards', () => {
     expect(clusterProxyService.getAutoLoginCookies).toHaveBeenLastCalledWith('infisical', 'http://127.0.0.1:4000', { username: 'a@b.c', password: 'infisical-pw' });
   });
 
-  it('falls back to the manual login when the automatic one fails', async () => {
+  it('says why it could not sign in for the person, and offers the dashboard to sign in to themselves', async () => {
     const { giteaService, call } = seen();
-    giteaService.getAdminCredentials.mockRejectedValue(new Error('no admin'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    giteaService.getAdminCredentials.mockRejectedValue(new Error('Gitea\'s admin <login> was not found'));
     const answer = await call('/machine-koala/proxy/gitea', 'GET', undefined, OPERATOR);
-    warn.mockRestore();
-    expect(answer.status).toBe(302);
+    expect(answer.status).toBe(200);
+    expect(answer.headers['content-type']).toMatch(/text\/html/);
     expect(answer.headers['set-cookie']).toBeUndefined();
+    expect(answer.text).toContain('Koala could not sign you in to gitea: Gitea&#39;s admin &lt;login&gt; was not found');
+    expect(answer.text).toContain('<a href="http://127.0.0.1:4000">Open gitea and sign in yourself</a>');
   });
 
   it('answers 502 with why when the cluster cannot be reached', async () => {
