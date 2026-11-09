@@ -230,7 +230,7 @@ export function buildGraph(options: GraphOptions): Graph {
       const signatures = target.getCallSignatures().map((signature) => signature.getDeclaration()).filter((declaration) => declaration && (ts.isCallSignatureDeclaration(declaration) || ts.isFunctionTypeNode(declaration)) && ownCode(declaration.getSourceFile().fileName));
       if (signatures.length === 0) return;
       const made = body ?? actual.getCallSignatures().map((signature) => signature.getDeclaration()).find((declaration) => declaration && (FUNCTION_KINDS.has(declaration.kind) || ts.isCallSignatureDeclaration(declaration)));
-      if (made) for (const signature of signatures) implement(signature, made);
+      if (made) for (const signature of signatures) implement(declaringMember(signature as ts.Declaration) ?? signature!, made);
     };
     const handedTo = (target: ts.Type | undefined, value: ts.Node): void => {
       if (!target) return;
@@ -266,8 +266,12 @@ export function buildGraph(options: GraphOptions): Graph {
           handedTo(checker.getContextualType(node.expression), node.expression);
         } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
           handedTo(checker.getTypeAtLocation(node.left), node.right);
+        } else if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+          handedTo(checker.getTypeAtLocation(node.left), node.right);
         } else if (ts.isSatisfiesExpression(node) || ts.isAsExpression(node)) {
           handedTo(checker.getTypeAtLocation(node.type), node.expression);
+        } else if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+          handedTo(checker.getContextualType(node.initializer.expression), node.initializer.expression);
         } else if (ts.isArrowFunction(node) && !ts.isBlock(node.body)) {
           handedTo(checker.getContextualType(node.body), node.body);
         }

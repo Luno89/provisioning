@@ -9,3 +9,12 @@ export async function dispatch(handlers: Record<string, Handler>, name: string, 
 export function around(run: () => Promise<string>): Promise<string> {
   return run();
 }
+
+export interface Clocked {
+  now?: () => string;
+}
+
+export function stamp(options: Clocked): string {
+  const now = options.now ?? (() => new Date().toISOString());
+  return now();
+}

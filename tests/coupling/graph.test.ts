@@ -39,6 +39,12 @@ describe('the edge graph', () => {
     expect(inAround).toEqual([]);
   });
 
+  it('takes the function given after ?? for an optional one, so a clock nobody passes outside tests still has its implementation', () => {
+    const inFile = fixture(true);
+    const called = inFile.edges.find((edge) => edge.site.file === 'src/handlers/registry.ts' && edge.through === 'interface' && edge.site.line === 19);
+    expect(called && named(inFile, called.to)).toEqual(['src/handlers/registry.ts#(anonymous)']);
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);
@@ -115,12 +121,18 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
   });
 
   it('follows a component to each of our own components it renders, and not to an HTML element', () => {
-    expect(kinds(screens(true), 'render')).toEqual(['Section -> src/Wizard.tsx#Wizard']);
+    expect(kinds(screens(true), 'render')).toEqual(['Board -> src/Panel.tsx#Panel', 'Section -> src/Wizard.tsx#Wizard']);
+  });
+
+  it('takes a function handed to a component as a prop for what calls that prop, so the call is never left with no implementation', () => {
+    const graph = screens(false);
+    const called = graph.edges.find((edge) => edge.site.file === 'src/Panel.tsx' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toEqual(['src/Board.tsx#(anonymous)']);
   });
 
   it('follows a function handed over to be called later, but not one called, imported or named only as a type', () => {
     const graph = screens(true);
-    expect(kinds(graph, 'reference')).toEqual(['useApps -> src/api.ts#getApps']);
+    expect(kinds(graph, 'reference')).toEqual(['Panel -> src/Panel.tsx#done', 'useApps -> src/api.ts#getApps']);
     expect(kinds(graph, 'call')).toEqual(expect.arrayContaining(['useDelete -> src/api.ts#deleteApp', 'Section -> src/hooks.ts#useApps']));
   });
 });
