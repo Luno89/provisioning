@@ -193,11 +193,16 @@ export function buildGraph(options: GraphOptions): Graph {
       if (ts.isShorthandPropertyAssignment(node)) return memberBehind(aliased(checker.getShorthandAssignmentValueSymbol(node))?.valueDeclaration, depth + 1);
       if (ts.isIdentifier(node)) return memberBehind(aliased(checker.getSymbolAtLocation(node))?.valueDeclaration, depth + 1);
       if (ts.isVariableDeclaration(node)) return memberBehind(node.initializer, depth + 1);
-      if (ts.isParameter(node) && node.type) {
-        let type: ts.TypeNode = node.type;
-        while (ts.isParenthesizedTypeNode(type)) type = type.type;
-        if (ts.isUnionTypeNode(type)) type = type.types.map((part) => (ts.isParenthesizedTypeNode(part) ? part.type : part)).find(ts.isFunctionTypeNode) ?? type;
-        return ts.isFunctionTypeNode(type) ? type : undefined;
+      if (ts.isParameter(node)) {
+        if (node.type) {
+          let type: ts.TypeNode = node.type;
+          while (ts.isParenthesizedTypeNode(type)) type = type.type;
+          if (ts.isUnionTypeNode(type)) type = type.types.map((part) => (ts.isParenthesizedTypeNode(part) ? part.type : part)).find(ts.isFunctionTypeNode) ?? type;
+          return ts.isFunctionTypeNode(type) ? type : undefined;
+        }
+        return checker.getTypeAtLocation(node).getNonNullableType().getCallSignatures()
+          .map((signature) => signature.getDeclaration())
+          .find((declaration): declaration is ts.FunctionTypeNode => declaration !== undefined && ts.isFunctionTypeNode(declaration) && ownCode(declaration.getSourceFile().fileName));
       }
       if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
         const property = checker.getTypeAtLocation(node.parent).getProperty((node.propertyName ?? node.name).getText());
@@ -315,6 +320,8 @@ export function buildGraph(options: GraphOptions): Graph {
           handedTo(checker.getTypeAtLocation(node.type), node.expression);
         } else if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression) {
           handedTo(checker.getContextualType(node.initializer.expression), node.initializer.expression);
+        } else if (ts.isJsxExpression(node) && node.expression && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))) {
+          handedTo(checker.getContextualType(node.expression), node.expression);
         } else if (ts.isArrowFunction(node) && !ts.isBlock(node.body)) {
           handedTo(checker.getContextualType(node.body), node.body);
         }

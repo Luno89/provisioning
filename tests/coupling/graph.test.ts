@@ -70,6 +70,11 @@ describe('the edge graph', () => {
     expect(at(11).map((edge) => edge.to)).toEqual([[]]);
   });
 
+  it('follows a function given as one side of a choice, through a spread too', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/consumer.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toContain('src/handlers/chosen.ts#found');
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);
@@ -146,7 +151,7 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
   });
 
   it('follows a component to each of our own components it renders, and not to an HTML element', () => {
-    expect(kinds(screens(true), 'render')).toEqual(['Board -> src/Panel.tsx#Panel', 'Section -> src/Wizard.tsx#Wizard']);
+    expect(kinds(screens(true), 'render')).toEqual(['(anonymous) -> src/Tree.tsx#Leaf', 'Board -> src/Panel.tsx#Panel', 'Section -> src/Wizard.tsx#Wizard', 'Tree -> src/Commits.tsx#Commits']);
   });
 
   it('takes a function handed to a component as a prop for what calls that prop, so the call is never left with no implementation', () => {
@@ -155,9 +160,17 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
     expect(called && named(graph, called.to)).toEqual(['src/Board.tsx#(anonymous)']);
   });
 
+  it('follows a render function given as children, and a function it hands on by a parameter typed only where it is used', () => {
+    const graph = screens(false);
+    const rendered = graph.edges.find((edge) => edge.site.file === 'src/Commits.tsx' && edge.through === 'interface');
+    expect(rendered && named(graph, rendered.to)).toEqual(['src/Tree.tsx#(anonymous)']);
+    const dropped = graph.edges.find((edge) => edge.site.file === 'src/Tree.tsx' && edge.through === 'interface');
+    expect(dropped && named(graph, dropped.to)).toEqual(['src/Commits.tsx#commit']);
+  });
+
   it('follows a function handed over to be called later, but not one called, imported or named only as a type', () => {
     const graph = screens(true);
-    expect(kinds(graph, 'reference')).toEqual(['Panel -> src/Panel.tsx#done', 'useApps -> src/api.ts#getApps']);
+    expect(kinds(graph, 'reference')).toEqual(['Commits -> src/Commits.tsx#commit', 'Panel -> src/Panel.tsx#done', 'useApps -> src/api.ts#getApps']);
     expect(kinds(graph, 'call')).toEqual(expect.arrayContaining(['useDelete -> src/api.ts#deleteApp', 'Section -> src/hooks.ts#useApps']));
   });
 });
