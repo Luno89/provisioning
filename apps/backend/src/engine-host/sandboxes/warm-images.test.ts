@@ -59,23 +59,29 @@ describe('getting workspace images built before a run needs them', () => {
     expect(warmed.every((image) => image.state === 'ready')).toBe(true);
   });
 
-  it('reports a build it could not start rather than throwing the boot', async () => {
-    const problems: string[] = [];
+  it('reports a build it could not start rather than throwing the boot, saying why on each image', async () => {
     const images = {
       standing: vi.fn(async () => ({ state: 'unbuilt' as const, reference: '' })),
       start: vi.fn(async () => { throw new Error('the registry is not up'); }),
     };
-    const workspace = createWorkspaceImages({
-      images,
-      personas: async () => personas(),
-      tools: async () => tools(),
-      onProblem: (agent, problem) => problems.push(`${agent}: ${problem}`),
-    });
+    const workspace = createWorkspaceImages({ images, personas: async () => personas(), tools: async () => tools() });
 
     const warmed = await workspace.warm();
 
-    expect(warmed.every((image) => image.state === 'failed')).toBe(true);
-    expect(problems[0]).toContain('the registry is not up');
+    expect(warmed.length).toBeGreaterThan(0);
+    expect(warmed.every((image) => image.state === 'failed' && image.detail === 'the registry is not up')).toBe(true);
+  });
+
+  it('shows an agent whose workspace cannot be planned as failed, with why, instead of leaving it out', async () => {
+    const images = builder().images;
+    const needing = tools().map((tool) => ({ ...tool, needs: ['no-such-dependency'] }));
+    const workspace = createWorkspaceImages({ images, personas: async () => personas(), tools: async () => needing });
+
+    const warmed = await workspace.warm();
+
+    const failed = warmed.filter((image) => image.state === 'failed');
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed[0]!.detail).toMatch(/^its workspace could not be planned: .*no-such-dependency/);
   });
 });
 

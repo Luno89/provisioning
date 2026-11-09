@@ -24,7 +24,6 @@ export interface WarmImagesOptions {
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   /** Everyone whose agents could run. Without it, only the owners who have rows of their own. */
   owners?(): Promise<string[]>;
-  onProblem?: ((agent: string, problem: string) => void) | undefined;
 }
 
 export interface WorkspaceImages {
@@ -43,19 +42,20 @@ export function sayWaiting(image: WorkspaceImage | undefined): string | undefine
 export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImages {
   const serversOf = async (ownerId: string | undefined): Promise<readonly McpServerRecord[]> => (ownerId && options.servers ? options.servers(ownerId) : []);
   const dependenciesOf = async (ownerId: string | undefined): Promise<readonly WorkspaceDependency[] | undefined> => (ownerId && options.dependencies ? options.dependencies(ownerId) : undefined);
-  const safely = (persona: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[], dependencies: readonly WorkspaceDependency[] | undefined) => {
+  const planOf = (persona: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[], dependencies: readonly WorkspaceDependency[] | undefined): { plan?: ReturnType<typeof planWorkspace>; problem?: string } => {
     try {
-      return planWorkspace(persona, tools, servers, undefined, dependencies);
+      return { plan: planWorkspace(persona, tools, servers, undefined, dependencies) };
     } catch (err) {
-      options.onProblem?.(persona.slug, (err as Error).message);
-      return undefined;
+      return { problem: (err as Error).message };
     }
   };
+  const safely = (persona: Persona, tools: readonly ToolDefinition[], servers: readonly McpServerRecord[], dependencies: readonly WorkspaceDependency[] | undefined) => planOf(persona, tools, servers, dependencies).plan;
   const planned = async (ownerId?: string) => {
     const [personas, tools, servers, dependencies] = await Promise.all([options.personas(ownerId), options.tools(ownerId), serversOf(ownerId), dependenciesOf(ownerId)]);
 
-    return personas.flatMap((persona) => {
-      const plan = safely(persona, tools, servers, dependencies);
+    return personas.flatMap((persona): Array<{ agent: string; plan: NonNullable<ReturnType<typeof planWorkspace>> } | { agent: string; problem: string }> => {
+      const { plan, problem } = planOf(persona, tools, servers, dependencies);
+      if (problem !== undefined) return [{ agent: persona.slug, problem }];
       return plan ? [{ agent: persona.slug, plan }] : [];
     });
   };
@@ -65,14 +65,18 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
     const seen = new Set<string>();
     const images: WorkspaceImage[] = [];
 
-    for (const { agent, plan } of wanted) {
+    for (const entry of wanted) {
+      if ('problem' in entry) {
+        images.push({ agent: entry.agent, fingerprint: '', state: 'failed', reference: '', detail: `its workspace could not be planned: ${entry.problem}` });
+        continue;
+      }
+      const { agent, plan } = entry;
       if (seen.has(plan.fingerprint)) continue;
       seen.add(plan.fingerprint);
 
       try {
         images.push({ agent, fingerprint: plan.fingerprint, ...(await take(plan)) });
       } catch (err) {
-        options.onProblem?.(agent, (err as Error).message);
         images.push({ agent, fingerprint: plan.fingerprint, state: 'failed', reference: '', detail: (err as Error).message });
       }
     }
