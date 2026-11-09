@@ -228,6 +228,13 @@ describe('InfisicalService', () => {
     expect(post.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/identity-memberships/')).at(-1)).toContain('/workspace/ws2/');
   });
 
+  it('names the request Infisical refused and what it said, never only the status', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    get.mockImplementationOnce(() => Promise.reject(Object.assign(new Error('Request failed with status code 403'), { response: { status: 403, data: { message: 'You are not allowed to read secrets' } } })));
+    await expect(service.getSecret('p1', 'KEY')).rejects.toThrow('Infisical answered 403 to GET /api/v3/secrets/raw/KEY: You are not allowed to read secrets');
+  });
+
   it('refuses to authenticate with no machine identity instead of inventing a token', async () => {
     files.clear();
     post.mockImplementation(unreachable);

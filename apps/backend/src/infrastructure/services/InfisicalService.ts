@@ -53,7 +53,7 @@ export class InfisicalService {
     private readonly reportsTo?: DependencyReporter | undefined,
   ) {}
 
-  private async reported<T>(asked: Promise<T>): Promise<T> {
+  private async reported<T>(method: string, url: string, asked: Promise<T>): Promise<T> {
     try {
       const answer = await asked;
       this.reportsTo?.answered('infisical');
@@ -62,15 +62,17 @@ export class InfisicalService {
       const status = statusOf(err);
       if (status === undefined) throw thrownFor(this.reportsTo, 'infisical', err);
       if (this.reportsTo) reportStatus(this.reportsTo, 'infisical', status);
+      const said = textAt(err, 'response', 'data', 'message');
+      (err as Error).message = `Infisical answered ${status} to ${method} ${new URL(url).pathname}${said ? `: ${said}` : ''}`;
       throw err;
     }
   }
 
   private readonly http = {
-    get: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported(axios.get<T>(url, config)),
-    post: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported(axios.post<T>(url, data, config)),
-    patch: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported(axios.patch<T>(url, data, config)),
-    delete: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported(axios.delete<T>(url, config)),
+    get: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported('GET', url, axios.get<T>(url, config)),
+    post: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported('POST', url, axios.post<T>(url, data, config)),
+    patch: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported('PATCH', url, axios.patch<T>(url, data, config)),
+    delete: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported('DELETE', url, axios.delete<T>(url, config)),
   };
 
   async resolveBaseUrl(): Promise<string> {
