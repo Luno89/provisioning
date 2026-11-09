@@ -148,6 +148,7 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
     return at && (ts.isMethodSignature(at) || ts.isPropertySignature(at)) ? at : undefined;
   };
   const forwarders = new Map<ts.Node, number>();
+  const forwarding = new Set<ts.Node>();
   const ownSources = program.getSourceFiles().filter((source) => !source.fileName.includes('/node_modules/') && !source.fileName.endsWith('.d.ts'));
   for (const source of ownSources) {
     visit(source, (node) => {
@@ -165,7 +166,10 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
       for (const part of parts) {
         for (const declaration of part.getProperty(holder.name.getText())?.getDeclarations() ?? []) {
           const member = memberOf(declaration);
-          if (member) forwarders.set(member, position);
+          if (member) {
+            forwarders.set(member, position);
+            forwarding.add(node);
+          }
         }
       }
     });
@@ -214,6 +218,7 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
       const declared = checker.getResolvedSignature(call)?.getDeclaration()?.getSourceFile().fileName ?? '';
       const fromTemporal = STARTS.has(method) ? declared.includes('/@temporalio/client/') : declared.includes('/@temporalio/workflow/');
       if (!fromTemporal) return undefined;
+      if (forwarding.has(call)) return undefined;
       const first = call.arguments[0];
       return first ? workflowsNamedBy(first) : [];
     },
@@ -226,6 +231,14 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
   };
 
   function workflowsNamedBy(expression: ts.Expression): ts.Node[] {
+    if (ts.isParenthesizedExpression(expression)) return workflowsNamedBy(expression.expression);
+    if (ts.isBinaryExpression(expression) && (expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+      return [...new Set([...workflowsNamedBy(expression.left), ...workflowsNamedBy(expression.right)])];
+    }
+    if (ts.isPropertyAccessExpression(expression)) {
+      const member = checker.getSymbolAtLocation(expression.name)?.getDeclarations()?.find((declaration) => ts.isPropertySignature(declaration) || ts.isPropertyDeclaration(declaration));
+      if (member && !checker.getTypeAtLocation(expression).isStringLiteral()) return [...new Set(valuesGiven(member).flatMap(workflowsNamedBy))];
+    }
     const type = checker.getTypeAtLocation(expression);
     if (type.isStringLiteral()) return workflowFunction(type.value);
     if (type.isUnion() && type.types.every((part) => part.isStringLiteral())) return type.types.flatMap((part) => (part.isStringLiteral() ? workflowFunction(part.value) : []));
@@ -233,6 +246,22 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
     const declaration = (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol)?.valueDeclaration;
     if (declaration && (ts.isFunctionDeclaration(declaration) || ts.isVariableDeclaration(declaration))) return [declaration];
     return [];
+  }
+
+  function valuesGiven(member: ts.Node): ts.Expression[] {
+    const name = (member as ts.NamedDeclaration).name?.getText();
+    if (!name) return [];
+    const found: ts.Expression[] = [];
+    for (const source of ownSources) {
+      if (/\.test\.tsx?$|\/testing\//.test(source.fileName)) continue;
+      visit(source, (node) => {
+        if (!ts.isPropertyAssignment(node) || node.name.getText() !== name || !ts.isObjectLiteralExpression(node.parent)) return;
+        const wanted = checker.getContextualType(node.parent)?.getNonNullableType();
+        const parts = wanted?.isUnion() ? wanted.types : wanted ? [wanted] : [];
+        if (parts.some((part) => part.getProperty(name)?.getDeclarations()?.includes(member as ts.Declaration))) found.push(node.initializer);
+      });
+    }
+    return found;
   }
 
   function workflowFunction(name: string): ts.Node[] {

@@ -13,3 +13,14 @@ export async function throughStarter(starter: Starter): Promise<void> {
 export function throughListing(listing: Listing): void {
   listing.start('DemoWorkflow');
 }
+
+export interface Removal {
+  workflowType?: string | undefined;
+  starter: Starter;
+}
+
+export async function removeWith(deps: Removal): Promise<void> {
+  await deps.starter.start(deps.workflowType ?? 'DemoWorkflow', 'r');
+}
+
+export const removeAtRoot = (starter: Starter): Promise<void> => removeWith({ starter, workflowType: 'OtherWorkflow' });

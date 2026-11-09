@@ -65,6 +65,16 @@ describe('Temporal edges', () => {
     expect(fromUnit('throughListing').filter((edge) => edge.through === 'temporal')).toEqual([]);
   });
 
+  it('give the start inside a wrapper that hands on its own parameter no edge of its own, since each call of the wrapper names the workflow', () => {
+    expect(into('src/starter-client.ts').filter((edge) => edge.through === 'temporal')).toEqual([]);
+  });
+
+  it('name every workflow a choice can give, the constant and each name production sets the optional one to', () => {
+    const removed = graph.edges.filter((edge) => graph.units[edge.from]?.name === 'removeWith' && edge.through === 'temporal')
+      .map((edge) => edge.to.map((id) => `${graph.units[id]!.file}#${graph.units[id]!.name}`).sort());
+    expect(removed).toEqual([['src/workflows/DemoWorkflow.ts#DemoWorkflow', 'src/workflows/OtherWorkflow.ts#OtherWorkflow']]);
+  });
+
   it('are never taken as a call inside the workflow\'s process', () => {
     expect(graph.edges.filter((edge) => edge.site.file.startsWith('src/workflows/') && edge.to.some((id) => graph.units[id]!.file.startsWith('src/activities/')) && edge.through !== 'temporal')).toEqual([]);
   });

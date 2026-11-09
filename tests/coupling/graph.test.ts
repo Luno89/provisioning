@@ -64,10 +64,19 @@ describe('the edge graph', () => {
     expect(called && named(graph, called.to)).toEqual(['src/handlers/token-wiring.ts#realToken']);
   });
 
-  it('leaves a call whose only implementations are in tests without an edge, since production never makes it, and still names a call nothing implements', () => {
+  it('leaves a call whose only implementations are in tests without an edge, since production never makes it', () => {
     const at = (line: number) => graph.edges.filter((edge) => edge.site.file === 'src/handlers/clocked.ts' && edge.site.line === line && edge.through === 'interface');
     expect(at(7)).toEqual([]);
-    expect(at(11).map((edge) => edge.to)).toEqual([[]]);
+  });
+
+  it('follows a function given as a ?? choice in an object\'s property to the function on either side', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/clocked.ts' && edge.site.line === 11 && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toEqual(['src/handlers/clocked-wiring.ts#(anonymous)']);
+  });
+
+  it('still names a call nothing implements', () => {
+    const lone = graph.edges.filter((edge) => edge.site.file === 'src/handlers/clocked.ts' && edge.through === 'interface' && edge.to.length === 0);
+    expect(lone.map((edge) => edge.site.line)).toEqual([19]);
   });
 
   it('follows a function given as one side of a choice, through a spread too', () => {
