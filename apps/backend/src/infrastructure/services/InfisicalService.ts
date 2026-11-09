@@ -329,12 +329,15 @@ export class InfisicalService {
   }
 
   async workspaceIdFor(projectId: string): Promise<string> {
-    return this.ensureWorkspace(projectId);
+    return this.inWorkspace(projectId, async (workspaceId) => {
+      await this.authorized((token, baseUrl) => this.http.get<unknown>(`${baseUrl}/api/v1/workspace/${workspaceId}`, { headers: { Authorization: `Bearer ${token}` }, proxy: false }));
+      return workspaceId;
+    });
   }
 
   async createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }> {
-    const workspaceId = await this.ensureWorkspace(projectId);
-    return this.authorized(async (token, baseUrl) => {
+    await this.ensureWorkspace(projectId);
+    const reader = await this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
       const options = { headers, proxy: false as const };
       const identity = await this.http.post<unknown>(
@@ -357,12 +360,13 @@ export class InfisicalService {
       );
       const clientSecret = textAt(secret.data, 'clientSecret');
       if (!clientId || !clientSecret) throw new Error('Infisical did not return a client credential for the reader');
-      await this.http.post(
-        `${baseUrl}/api/v2/workspace/${workspaceId}/identity-memberships/${identityId}`,
-        { role: 'viewer' },
-        options,
-      );
-      return { clientId, clientSecret };
+      return { identityId, clientId, clientSecret };
     });
+    await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => this.http.post(
+      `${baseUrl}/api/v2/workspace/${workspaceId}/identity-memberships/${reader.identityId}`,
+      { role: 'viewer' },
+      { headers: { Authorization: `Bearer ${token}` }, proxy: false },
+    )));
+    return { clientId: reader.clientId, clientSecret: reader.clientSecret };
   }
 }

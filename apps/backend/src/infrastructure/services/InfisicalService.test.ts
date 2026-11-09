@@ -187,6 +187,7 @@ describe('InfisicalService', () => {
     });
     get.mockImplementation(async (url: string, options: { params?: { workspaceId?: string } }) => {
       if (url.endsWith('/api/v1/workspace')) return { data: { workspaces: [] } };
+      if (url.endsWith('/api/v1/workspace/ws2')) return { data: { workspace: { id: 'ws2' } } };
       return options.params?.workspaceId === 'ws2' ? missing() : gone();
     });
     get.mockResolvedValueOnce({ data: { workspaces: [{ id: 'ws1', name: 'provisioning-p1' }] } });
@@ -195,6 +196,36 @@ describe('InfisicalService', () => {
     expect(await service.workspaceIdFor('p1')).toBe('ws2');
     await service.setSecret('p1', 'KEY', 'v');
     expect(post.mock.calls.filter(([url]) => String(url).includes('/secrets/raw/')).map(([, body]) => (body as { workspaceId: string }).workspaceId)).toEqual(['ws2']);
+  });
+
+  it('hands the operator and a new reader the workspace as it is now, not the id it knew before Infisical lost it', async () => {
+    const gone = () => Promise.reject(Object.assign(new Error('status 404'), { response: { status: 404, data: { message: "Project with ID 'ws1' not found during bot lookup." } } }));
+    let listed = [{ id: 'ws1', name: 'provisioning-p1' }];
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'tok' } };
+      if (url.endsWith('/api/v2/workspace')) return { data: { project: { id: 'ws2' } } };
+      if (url.endsWith('/api/v1/identities')) return { data: { identity: { id: 'id1' } } };
+      if (url.endsWith('/universal-auth/identities/id1')) return { data: { identityUniversalAuth: { clientId: 'reader' } } };
+      if (url.endsWith('/client-secrets')) return { data: { clientSecret: 'reader-secret' } };
+      if (url.includes('/identity-memberships/')) return url.includes('/workspace/ws2/') ? { data: {} } : gone();
+      return { data: {} };
+    });
+    get.mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/v1/workspace')) return { data: { workspaces: listed } };
+      if (url.endsWith('/api/v1/workspace/ws1')) return listed.length > 0 ? { data: { workspace: { id: 'ws1' } } } : gone();
+      return { data: { workspace: { id: 'ws2' } } };
+    });
+
+    expect(await service.workspaceIdFor('p1')).toBe('ws1');
+    listed = [];
+    expect(await service.workspaceIdFor('p1')).toBe('ws2');
+
+    const fresh = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false });
+    listed = [{ id: 'ws1', name: 'provisioning-p1' }];
+    expect(await fresh.workspaceIdFor('p1')).toBe('ws1');
+    listed = [];
+    expect(await fresh.createProjectReader('p1')).toEqual({ clientId: 'reader', clientSecret: 'reader-secret' });
+    expect(post.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/identity-memberships/')).at(-1)).toContain('/workspace/ws2/');
   });
 
   it('refuses to authenticate with no machine identity instead of inventing a token', async () => {
