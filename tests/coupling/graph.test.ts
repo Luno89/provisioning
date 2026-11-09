@@ -50,6 +50,10 @@ describe('the edge graph', () => {
     expect(called && named(graph, called.to)).toEqual(['src/handlers/core.ts#lookup']);
   });
 
+  it('takes a Promise\'s own resolve, kept and called later, as implemented outside our code rather than by nothing', () => {
+    expect(graph.edges.filter((edge) => edge.site.file === 'src/handlers/waiting.ts' && edge.through === 'interface' && edge.to.length === 0)).toEqual([]);
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);

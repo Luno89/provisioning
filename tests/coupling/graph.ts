@@ -242,7 +242,10 @@ export function buildGraph(options: GraphOptions): Graph {
     const callsInto = (target: ts.Type, actual: ts.Type, body: ts.Node | undefined) => {
       const signatures = target.getCallSignatures().map((signature) => signature.getDeclaration()).filter((declaration) => declaration && (ts.isCallSignatureDeclaration(declaration) || ts.isFunctionTypeNode(declaration)) && ownCode(declaration.getSourceFile().fileName));
       if (signatures.length === 0) return;
-      const made = body ?? actual.getCallSignatures().map((signature) => signature.getDeclaration()).find((declaration) => declaration && (FUNCTION_KINDS.has(declaration.kind) || ts.isCallSignatureDeclaration(declaration)));
+      const declared = actual.getCallSignatures().map((signature) => signature.getDeclaration()).filter((declaration): declaration is ts.SignatureDeclaration => declaration !== undefined);
+      const made = body
+        ?? declared.find((declaration) => FUNCTION_KINDS.has(declaration.kind) || ts.isCallSignatureDeclaration(declaration))
+        ?? declared.find((declaration) => !ownCode(declaration.getSourceFile().fileName));
       if (made) for (const signature of signatures) implement(declaringMember(signature as ts.Declaration) ?? signature!, made);
     };
     const handedTo = (target: ts.Type | undefined, value: ts.Node): void => {
