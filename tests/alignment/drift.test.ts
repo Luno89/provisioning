@@ -65,6 +65,12 @@ describe('drift between what was agreed and what the code does', () => {
     expect(found.map((finding) => finding.id)).toEqual(['decided-not-done:the system cluster']);
   });
 
+  it('takes a folder named after a tool, such as Kaniko\'s .docker, for no branch on that tool', () => {
+    const source = 'const mounts = [...(login ? [{ name: \'registry\', mountPath: \'/kaniko/.docker\' }] : [])]\nif (docker.ok) say(\'Docker\')';
+    const found = driftOf(input([step('E1')], [trace('E1', { files: ['apps/backend/src/x/services/A.ts'] })], { sourceOf: () => source }));
+    expect(found.find((finding) => finding.id === 'decided-not-done:Docker')?.where).toEqual(['apps/backend/src/x/services/A.ts:2  if (docker.ok) say(\'Docker\')']);
+  });
+
   it('reads no branch into words inside a message or a template', () => {
     const source = 'throw new Error(`Is the cluster running? Run sudo systemctl start k3s`)\nlog(\'restart it with sudo ? maybe\')';
     expect(driftOf(input([step('E1')], [trace('E1', { files: ['apps/backend/src/x/services/A.ts'] })], { sourceOf: () => source }))).toEqual([]);

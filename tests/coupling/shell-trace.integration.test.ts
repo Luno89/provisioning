@@ -72,7 +72,7 @@ describe('scripts run under tests, traced line by line', () => {
       },
       edges: ends.map((end) => ({ from: end.unit.line === 7 ? 'sent' : 'never', site: { file: SCRIPT, line: end.unit.line, column: 1, start: 0, end: 0 }, to: ['handler'], through: 'http' as const })),
       unresolved: [],
-      unmatched: [],
+      unmatched: [], records: [],
     };
     const runs: Ran[] = [{ testFile: 'x.test.ts', files: { ...shellRan(join(dir, 'run.trace'), ROOT), [handler]: [{ start: { line: 1, column: 1 }, end: { line: 9, column: 1 }, count: 1, fn: 'things' }] } }];
     expect(judge(graph, runs, () => 'component').map((entry) => entry.covered.length)).toEqual([1, 0]);

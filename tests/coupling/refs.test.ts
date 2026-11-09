@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { referencesOf } from './refs.js';
 
@@ -22,5 +24,18 @@ describe('finding references through the type checker', () => {
 
   it('refuses a name the file does not declare, so a typo never answers with nothing', () => {
     expect(() => referencesOf(root, ['tsconfig.json'], 'src/secret.ts', 'Secret.nothing')).toThrow('no declaration of Secret.nothing in src/secret.ts');
+  });
+});
+
+describe('finding references across workspaces linked by a symlink, as npm links them', () => {
+  const root = mkdtempSync(join(tmpdir(), 'refs-workspace-'));
+  cpSync(join(import.meta.dirname, 'fixture-refs-workspace'), root, { recursive: true });
+  mkdirSync(join(root, 'apps/app/node_modules/@fixture'), { recursive: true });
+  symlinkSync('../../../../packages/lib', join(root, 'apps/app/node_modules/@fixture/lib'));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it('finds an app\'s use of a package\'s function through the link and the package\'s export *', () => {
+    const found = referencesOf(root, ['apps/app/tsconfig.json'], 'packages/lib/src/tool.ts', 'tool').map(({ file, line, kind }) => `${file}:${line} ${kind}`);
+    expect(found).toEqual(['apps/app/src/use.ts:1 import', 'apps/app/src/use.ts:3 read', 'packages/lib/src/tool.ts:1 declaration']);
   });
 });

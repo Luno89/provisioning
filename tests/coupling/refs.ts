@@ -27,6 +27,7 @@ const serviceFor = (config: ts.ParsedCommandLine): ts.LanguageService => {
     getCompilationSettings: () => config.options,
     getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
     fileExists: ts.sys.fileExists,
+    ...(ts.sys.realpath ? { realpath: ts.sys.realpath } : {}),
     readFile: ts.sys.readFile,
     readDirectory: ts.sys.readDirectory,
     directoryExists: ts.sys.directoryExists,

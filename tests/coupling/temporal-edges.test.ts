@@ -16,7 +16,9 @@ const graph: Graph = buildGraph({
         const proxied = world.proxied(call);
         if (proxied) return { to: world.implementations(proxied), through: 'temporal' };
         const started = world.started(call);
-        return started ? { to: started, through: 'temporal' } : undefined;
+        if (started) return { to: started, through: 'temporal' };
+        const startedThrough = world.startedThrough(call);
+        return startedThrough ? { to: startedThrough, through: 'temporal', alsoCalls: true } : undefined;
       };
     },
   }],
@@ -51,6 +53,16 @@ describe('Temporal edges', () => {
   it('keep a start whose workflow is named only at run time, reaching nothing, and take no other start method for one', () => {
     expect(graph.edges.filter((edge) => graph.units[edge.from]?.name === 'byAnyName' && edge.through === 'temporal').map((edge) => edge.to)).toEqual([[]]);
     expect(graph.edges.filter((edge) => graph.units[edge.from]?.name === 'notTemporal' && edge.through === 'temporal')).toEqual([]);
+  });
+
+  it('reach the workflow named through an interface whose implementation hands that name to the client\'s start, and still reach the implementation', () => {
+    const fromUnit = (name: string) => graph.edges.filter((edge) => graph.units[edge.from]?.name === name)
+      .map((edge) => ({ through: edge.through, to: edge.to.map((id) => `${graph.units[id]!.file}#${graph.units[id]!.name}`).sort() }));
+    expect(fromUnit('throughStarter')).toEqual(expect.arrayContaining([
+      { through: 'temporal', to: ['src/workflows/OtherWorkflow.ts#OtherWorkflow'] },
+      { through: 'interface', to: ['src/starter-client.ts#start'] },
+    ]));
+    expect(fromUnit('throughListing').filter((edge) => edge.through === 'temporal')).toEqual([]);
   });
 
   it('are never taken as a call inside the workflow\'s process', () => {

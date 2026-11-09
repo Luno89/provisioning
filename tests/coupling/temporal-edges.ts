@@ -50,6 +50,7 @@ export interface TemporalWorld {
   proxied: (call: ts.CallExpression) => Proxied | undefined;
   implementations: (proxied: Proxied) => ts.Node[];
   started: (call: ts.CallExpression) => ts.Node[] | undefined;
+  startedThrough: (call: ts.CallExpression) => ts.Node[] | undefined;
 }
 
 const STARTS = new Set(['start', 'execute', 'signalWithStart']);
@@ -129,6 +130,47 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
   };
   const reachable = (workflow: string) => reachableFrom(fileOfWorkflow(workflow));
 
+  const methodOf = (call: ts.CallExpression): string | undefined => {
+    const callee = call.expression;
+    return ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+  };
+  const isClientStart = (call: ts.CallExpression): boolean => {
+    const method = methodOf(call);
+    if (!method || !STARTS.has(method)) return false;
+    return (checker.getResolvedSignature(call)?.getDeclaration()?.getSourceFile().fileName ?? '').includes('/@temporalio/client/');
+  };
+  const memberOf = (declaration: ts.Node | undefined): ts.Node | undefined => {
+    let at = declaration;
+    if (at && ts.isFunctionTypeNode(at)) {
+      at = at.parent;
+      while (at && (ts.isParenthesizedTypeNode(at) || ts.isUnionTypeNode(at))) at = at.parent;
+    }
+    return at && (ts.isMethodSignature(at) || ts.isPropertySignature(at)) ? at : undefined;
+  };
+  const forwarders = new Map<ts.Node, number>();
+  const ownSources = program.getSourceFiles().filter((source) => !source.fileName.includes('/node_modules/') && !source.fileName.endsWith('.d.ts'));
+  for (const source of ownSources) {
+    visit(source, (node) => {
+      if (!ts.isCallExpression(node) || !isClientStart(node)) return;
+      const first = node.arguments[0];
+      if (!first || !ts.isIdentifier(first)) return;
+      const parameter = checker.getSymbolAtLocation(first)?.valueDeclaration;
+      if (!parameter || !ts.isParameter(parameter)) return;
+      const made = parameter.parent;
+      const position = made.parameters.indexOf(parameter);
+      const holder = ts.isMethodDeclaration(made) ? made : ts.isPropertyAssignment(made.parent) ? made.parent : undefined;
+      if (!holder || !ts.isObjectLiteralExpression(holder.parent)) return;
+      const wanted = checker.getContextualType(holder.parent)?.getNonNullableType();
+      const parts = wanted?.isUnion() ? wanted.types : wanted ? [wanted] : [];
+      for (const part of parts) {
+        for (const declaration of part.getProperty(holder.name.getText())?.getDeclarations() ?? []) {
+          const member = memberOf(declaration);
+          if (member) forwarders.set(member, position);
+        }
+      }
+    });
+  }
+
   const ownQueues = new Map<string, Set<Queue>>();
   for (const [workflow, queue] of Object.entries(tables.startedOn)) {
     for (const file of reachable(workflow)) ownQueues.set(file, new Set([...(ownQueues.get(file) ?? []), queue]));
@@ -167,14 +209,19 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
     },
     implementations: (proxied) => proxied.queues.flatMap((queue) => registered[queue].get(proxied.activity) ?? []),
     started: (call) => {
-      const callee = call.expression;
-      const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+      const method = methodOf(call);
       if (!method || !(STARTS.has(method) || CHILD_STARTS.has(method))) return undefined;
       const declared = checker.getResolvedSignature(call)?.getDeclaration()?.getSourceFile().fileName ?? '';
       const fromTemporal = STARTS.has(method) ? declared.includes('/@temporalio/client/') : declared.includes('/@temporalio/workflow/');
       if (!fromTemporal) return undefined;
       const first = call.arguments[0];
       return first ? workflowsNamedBy(first) : [];
+    },
+    startedThrough: (call) => {
+      const position = forwarders.get(memberOf(checker.getResolvedSignature(call)?.getDeclaration()) ?? call);
+      if (position === undefined) return undefined;
+      const named = call.arguments[position];
+      return named ? workflowsNamedBy(named) : [];
     },
   };
 

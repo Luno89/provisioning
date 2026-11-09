@@ -11,7 +11,16 @@
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "My Machines lists the machine",
+        "entries": [
+          "apps/frontend/src/features/machines/api.ts#listMyMachines"
+        ]
+      }
     ]
   },
   {
@@ -25,7 +34,16 @@
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "My Machines shows Koala on the machine, or why not",
+        "entries": [
+          "apps/frontend/src/features/machines/api.ts#listMyMachines"
+        ]
+      }
     ]
   },
   {
@@ -39,7 +57,17 @@
       "work",
       "calls-out",
       "config",
-      "store"
+      "store",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Every request after it is signed in as the person: the guard reads the session cookie sign-in set, and the app reads who it is",
+        "entries": [
+          "apps/backend/src/platform/middleware/auth.ts#requireAuth",
+          "apps/frontend/src/features/platform/api.ts#getMe"
+        ]
+      }
     ]
   },
   {
@@ -52,7 +80,22 @@
       "work",
       "kubeconfig",
       "cluster-command",
-      "config"
+      "config",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Apps shows it running, or failed with why",
+        "entries": [
+          "apps/frontend/src/features/infrastructure/api/deployments.ts#listDeployments"
+        ]
+      },
+      {
+        "title": "Needs attention shows failed work and dependencies that are down",
+        "entries": [
+          "apps/frontend/src/features/infrastructure/api/infrastructure.ts#getInfrastructure"
+        ]
+      }
     ]
   },
   {
@@ -65,21 +108,51 @@
       "work",
       "calls-out",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Studio \u2192 Models shows the default",
+        "entries": [
+          "apps/frontend/src/features/models/api.ts#getDefaultModel"
+        ]
+      }
     ]
   },
   {
     "name": "chat",
     "title": "Chat on a model (the request, then the run it starts)",
     "entries": [
-      "apps/frontend/src/features/engine/api/engine.ts#startRun",
-      "apps/backend/src/workflows/AgentRunWorkflow.ts#AgentRunWorkflow"
+      "apps/frontend/src/features/engine/api/engine.ts#startRun"
     ],
     "concepts": [
       "work",
       "calls-out",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "The reply, or why the turn failed, in the chat",
+        "entries": [
+          "apps/frontend/src/features/engine/api/chat-pack.ts#getChatConversation",
+          "apps/frontend/src/features/engine/api/turns.ts#readTurn"
+        ]
+      },
+      {
+        "title": "Running lists the run while it works or waits on the person",
+        "entries": [
+          "apps/frontend/src/features/infrastructure/api/running.ts#getRunning"
+        ]
+      },
+      {
+        "title": "Needs attention shows a failed run",
+        "entries": [
+          "apps/frontend/src/features/infrastructure/api/infrastructure.ts#getInfrastructure"
+        ]
+      }
     ]
   },
   {
@@ -96,7 +169,16 @@
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "The file list shows the change",
+        "entries": [
+          "apps/frontend/src/features/files/api/files.ts#listStoredFiles"
+        ]
+      }
     ]
   },
   {
@@ -111,36 +193,80 @@
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Settings lists the share links",
+        "entries": [
+          "apps/frontend/src/features/files/api/files.ts#listFileShares"
+        ]
+      }
     ]
   },
   {
     "name": "plan-adopted",
     "title": "A chat becomes a project (plan approved)",
     "entries": [
-      "apps/frontend/src/features/projects/api/plans.ts#approvePlan",
-      "apps/backend/src/workflows/AdoptPlanWorkflow.ts#AdoptPlanWorkflow"
+      "apps/frontend/src/features/projects/api/plans.ts#approvePlan"
     ],
     "concepts": [
       "work",
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "The plan shows approved, or failed with why",
+        "entries": [
+          "apps/frontend/src/features/projects/api/plans.ts#listPlans"
+        ]
+      },
+      {
+        "title": "The project and its tree are on the board",
+        "entries": [
+          "apps/frontend/src/features/projects/api/grove.ts#listTrees"
+        ]
+      },
+      {
+        "title": "The channel tells what happened",
+        "entries": [
+          "apps/frontend/src/features/projects/api/project-channel.ts#getProjectChannel"
+        ]
+      }
     ]
   },
   {
     "name": "project-removed",
     "title": "A project is deleted",
     "entries": [
-      "apps/backend/src/workflows/RemoveProjectWorkflow.ts#RemoveProjectWorkflow"
+      "apps/frontend/src/features/projects/api/projects.ts#deleteProject"
     ],
     "concepts": [
       "work",
       "calls-out",
       "config",
       "kubeconfig",
-      "cluster-command"
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "The removal shows its progress, or why it stopped",
+        "entries": [
+          "apps/frontend/src/features/projects/api/projects.ts#getProjectRemoval"
+        ]
+      },
+      {
+        "title": "The project and its trees are gone from the board",
+        "entries": [
+          "apps/frontend/src/features/projects/api/grove.ts#listTrees"
+        ]
+      }
     ]
   }
 ]

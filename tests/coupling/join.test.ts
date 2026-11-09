@@ -21,7 +21,7 @@ const graph: Graph = {
     { from: 'caller', site: site(CALLER, 5), to: ['callee'], through: 'interface' },
   ],
   unresolved: [],
-  unmatched: [],
+  unmatched: [], records: [],
 };
 
 const ran = (count: number, from: number, to: number, fn?: string): RanRange => ({ start: { line: from, column: 1 }, end: { line: to, column: 80 }, count, ...(fn ? { fn } : {}) });
@@ -54,7 +54,7 @@ describe('the join', () => {
 describe('which functions a test ran', () => {
   const at = (line: number, column: number) => ({ line, column });
   const FILE = 'apps/backend/src/a/remote.ts';
-  const units = (...list: Unit[]): Graph => ({ units: Object.fromEntries(list.map((entry) => [entry.id, entry])), edges: [], unresolved: [], unmatched: [] });
+  const units = (...list: Unit[]): Graph => ({ units: Object.fromEntries(list.map((entry) => [entry.id, entry])), edges: [], unresolved: [], unmatched: [], records: [] });
   const callback = (id: string, line: number, column: number, ends: { line: number; column: number }): Unit => ({ ...unit(id, FILE, '(anonymous)', line), column, ends });
 
   it('finds a function by where it ends, since its range can start where the line before it ends or after an export', () => {
@@ -82,7 +82,7 @@ describe('which functions a test ran', () => {
   });
 
   it('judges a call site in each copy of its function apart, since V8 leaves out a block that ran as often as its function', () => {
-    const graph: Graph = { units: { caller: { ...unit('caller', FILE, 'caller', 10), ends: at(20, 2) }, callee: unit('callee', CALLEE, 'callee', 1) }, edges: [{ from: 'caller', site: { file: FILE, line: 15, column: 5, start: 0, end: 0 }, to: ['callee'], through: 'call' }], unresolved: [], unmatched: [] };
+    const graph: Graph = { units: { caller: { ...unit('caller', FILE, 'caller', 10), ends: at(20, 2) }, callee: unit('callee', CALLEE, 'callee', 1) }, edges: [{ from: 'caller', site: { file: FILE, line: 15, column: 5, start: 0, end: 0 }, to: ['callee'], through: 'call' }], unresolved: [], unmatched: [], records: [] };
     const caller = (count: number, loop?: number): RanRange[] => [{ start: at(10, 1), end: at(20, 1), count, fn: 'caller' }, ...(loop === undefined ? [] : [{ start: at(13, 3), end: at(17, 3), count: loop }])];
     const files = { [FILE]: [...caller(1, 0), ...caller(1), ...caller(1, 0)], [CALLEE]: [{ start: at(1, 1), end: at(5, 1), count: 1, fn: 'callee' }] };
     const [judged] = judge(graph, [{ testFile: 'component.test.ts', files }], levelOf);

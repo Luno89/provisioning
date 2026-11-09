@@ -30,9 +30,15 @@ for (const name of Object.keys(snapshot.flows)) writeFileSync(join(out, `${name}
 writeFileSync(join(out, 'flows.html'), flowsPage(snapshot, index, changes));
 if (changes) writeFileSync(join(out, 'changes.txt'), `${changesText(changes)}\n`);
 
-for (const flow of flows) console.log(`${flow.title}: ${snapshot.flows[flow.name]!.files.files.length} files${flow.missing.length > 0 ? `, entry not found: ${flow.missing.join(', ')}` : ''}`);
+for (const flow of flows) {
+  console.log(`${flow.title}: ${snapshot.flows[flow.name]!.files.files.length} files${flow.missing.length > 0 ? `, entry not found: ${flow.missing.join(', ')}` : ''}`);
+  for (const ending of flow.endings) {
+    const where = ending.meets.length > 0 ? `meets the flow at ${ending.meets.join('; ')}` : 'MEETS THE FLOW NOWHERE';
+    console.log(`  ends: ${ending.title}: ${where}${ending.missing.length > 0 ? `, entry not found: ${ending.missing.join(', ')}` : ''}`);
+  }
+}
 for (const [concept, implementations] of Object.entries(snapshot.concepts)) console.log(`${concept}: ${implementations.length} functions`);
 if (changes) console.log(`\n${changesText(changes)}`);
 console.log(`\nwritten to ${out}`);
-const missing = flows.filter((flow) => flow.missing.length > 0);
+const missing = flows.filter((flow) => flow.missing.length > 0 || flow.endings.some((ending) => ending.missing.length > 0 || ending.meets.length === 0));
 if (missing.length > 0) process.exitCode = 1;

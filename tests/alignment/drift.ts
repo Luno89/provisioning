@@ -23,7 +23,7 @@ export interface ModelWord {
 
 export const MODEL_WORDS: ModelWord[] = [
   { word: 'k3d', pattern: /\bk3d\b/i, decidedBy: ['how-a-machine-cluster-is-made', 'no-koala-made-k3d-clusters'], goes: 'Koala making k3d clusters beside itself goes; k3d stays only as how a machine without a GPU wanted and with Docker makes its cluster, which the machine agent does.' },
-  { word: 'Docker', pattern: /\bdocker\b/i, decidedBy: ['how-a-machine-cluster-is-made', 'koala-work-in-pods'], goes: 'Koala never installs Docker, and its work on a machine runs only in pods: no Docker driver, no Docker socket.' },
+  { word: 'Docker', pattern: /(?<!\.)\bdocker\b/i, decidedBy: ['how-a-machine-cluster-is-made', 'koala-work-in-pods'], goes: 'Koala never installs Docker, and its work on a machine runs only in pods: no Docker driver, no Docker socket.' },
   { word: 'sudo', pattern: /\bsudo\b/, decidedBy: ['how-a-machine-cluster-is-made', 'side-with-the-user', 'agents-on-the-host', 'cluster-on-demand'] },
   { word: 'a cloud provider', pattern: /\bprovider\s*(===|!==)|\b(hetzner|digitalocean)\b/i, decidedBy: ['providers', 'one-cluster-per-machine'], goes: 'Hetzner, DigitalOcean and mock cloud go, and a cluster has one kind, a machine\'s, so nothing branches on a provider.' },
   { word: 'the system cluster', pattern: /\bisSystem\b|\bgpuEnabled\b|provisioning-lunorica|SYSTEM_CLUSTER/, decidedBy: ['one-cluster-per-machine'], goes: 'There is one kind of cluster, a machine\'s; the system cluster as a kind of its own goes, including gpuEnabled, which doubles as "this is the management cluster".' },

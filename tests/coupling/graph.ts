@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
 import ts from 'typescript';
+import type { RecordAccess } from './record-access.js';
 
 export interface Unit {
   id: string;
@@ -29,14 +30,17 @@ export interface ExtraEnd { unit: { file: string; line: number; name: string }; 
 
 export interface Unmatched { kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; site: Site }
 
+export interface RecordTouch { unit: string; collection: string; writes: boolean; site: Site }
+
 export interface Graph {
   units: Record<string, Unit>;
   edges: Edge[];
   unresolved: Unresolved[];
   unmatched: Unmatched[];
+  records: RecordTouch[];
 }
 
-export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean }
+export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean; alsoCalls?: boolean }
 
 export interface ChannelEnd { kind: 'socket' | 'http' | 'env'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
 
@@ -46,6 +50,7 @@ export interface Project {
   crossing?: (program: ts.Program) => (call: ts.CallExpression) => CrossProcess | undefined;
   channels?: (program: ts.Program) => (call: ts.CallExpression) => ChannelEnd[] | undefined;
   readers?: (program: ts.Program) => (node: ts.Node) => ChannelEnd[] | undefined;
+  records?: (program: ts.Program) => (call: ts.CallExpression) => RecordAccess[];
 }
 
 export interface GraphOptions {
@@ -100,6 +105,7 @@ export function buildGraph(options: GraphOptions): Graph {
   const units: Record<string, Unit> = {};
   const edges: Edge[] = [];
   const unresolved: Unresolved[] = [];
+  const records: RecordTouch[] = [];
   const at = (file: string) => relative(options.root, file);
 
   const unitOf = (node: ts.Node): Unit => {
@@ -144,6 +150,7 @@ export function buildGraph(options: GraphOptions): Graph {
     const crossing = project.crossing?.(program);
     const channels = project.channels?.(program);
     const readers = project.readers?.(program);
+    const recordOf = project.records?.(program);
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -306,15 +313,17 @@ export function buildGraph(options: GraphOptions): Graph {
               const handler = end.handler ? functionOf(end.handler) : undefined;
               ends.push({ kind: end.kind, name: end.name, side: end.side, from: from.id, site, ...(handler ? { handler: unitOf(handler).id } : {}) });
             }
+            for (const touched of recordOf && ts.isCallExpression(node) ? recordOf(node) : []) records.push({ unit: from.id, collection: touched.collection, writes: touched.writes, site });
             const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
-            const declaration = crossed ? undefined : declaringMember(checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined);
             if (crossed) {
               const to = crossed.to.flatMap((declared) => (isMember(declared) ? implementationsOf(declared) : [functionOf(declared)])).filter((body): body is ts.Node => body !== undefined).map(unitOf).filter((unit) => !unit.inTest);
               edges.push({ from: from.id, site, to: [...new Set(to.map((unit) => unit.id))], through: crossed.through, ...(crossed.device ? { device: true } : {}) });
-            } else if (!declaration) {
+            }
+            const declaration = crossed && !crossed.alsoCalls ? undefined : declaringMember(checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined);
+            if (!crossed && !declaration) {
               const type = checker.getTypeAtLocation(node.expression);
               if (type.flags & ts.TypeFlags.Any) unresolved.push({ from: from.id, site, text: node.expression.getText().slice(0, 80), why: 'called through any' });
-            } else if (ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {
+            } else if (declaration && ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {
               const target = at(declaration.getSourceFile().fileName);
               const counted = (file: string) => options.withinFiles || file !== from.file;
               if (FUNCTION_KINDS.has(declaration.kind)) {
@@ -361,5 +370,5 @@ export function buildGraph(options: GraphOptions): Graph {
     const to = [...new Set(partners.map((partner) => partner.handler ?? partner.from))];
     edges.push({ from: end.from, site: end.site, to, through: end.kind });
   }
-  return { units, edges, unresolved, unmatched };
+  return { units, edges, unresolved, unmatched, records };
 }

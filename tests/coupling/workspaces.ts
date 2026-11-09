@@ -4,6 +4,7 @@ import { chartEnv, envChannels } from './env-edges.js';
 import { httpChannels, httpMatches } from './http-routes.js';
 import { shellEnds, shellScripts } from './shell-edges.js';
 import { socketChannels } from './socket-edges.js';
+import { mongoRecords } from './record-access.js';
 import { temporalWorld } from './temporal-edges.js';
 
 export interface Workspace { name: string; folder: string; tsconfig: string }
@@ -26,7 +27,9 @@ const temporalCalls = (root: string): NonNullable<Project['crossing']> => (progr
     const proxied = world.proxied(call);
     if (proxied) return { to: world.implementations(proxied), through: 'temporal', ...(proxied.device ? { device: true } : {}) };
     const started = world.started(call);
-    return started ? { to: started, through: 'temporal' } : undefined;
+    if (started) return { to: started, through: 'temporal' };
+    const startedThrough = world.startedThrough(call);
+    return startedThrough ? { to: startedThrough, through: 'temporal', alsoCalls: true } : undefined;
   };
 };
 
@@ -43,7 +46,7 @@ export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORK
     tsconfig: join(root, workspace.folder, workspace.tsconfig),
     owns: (file) => workspaceOf(file) === workspace,
     channels: bothChannels,
-    ...(workspace.name === 'backend' ? { crossing: temporalCalls(root), readers: envChannels } : {}),
+    ...(workspace.name === 'backend' ? { crossing: temporalCalls(root), readers: envChannels, records: mongoRecords } : {}),
   }));
 
 export function areaOf(file: string): string {

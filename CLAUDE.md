@@ -39,6 +39,11 @@ right?"
   assumption). Every finding for the owner is asked before code, and recorded in `tests/alignment/answers.ts` as `asked`, or
   as `noted` with why when it is not a question; the owner's answer becomes a decision in the register. Ship refuses while any is
   neither (`npm run drift -- --check`). "Decided, not done" findings are the work list, not questions.
+- **A change list comes from the coding tools, never from grep** (owner, 2026-11-08: "grep isn't the right tool most of time why
+  do you keep using it"). The `change-list` skill (`.claude/skills/change-list/`) is the procedure: each affected flow named from
+  its frontend action to every way it ends, `npm run flows` for the path and the concept index, `npm run refs` and LSP for every
+  symbol touched, tests included. A project hook (`.claude/hooks/symbol-search-reminder.sh`) answers a text search of the source
+  with the same reminder.
 
 ## What this is
 

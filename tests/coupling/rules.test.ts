@@ -17,7 +17,7 @@ const graph: Graph = {
     edge('lonely', [], 'interface', 5),
   ],
   unresolved: [{ from: 'service', site: { file: 'apps/backend/src/x/service.ts', line: 9, column: 1, start: 0, end: 0 }, text: 'deps.thing', why: 'called through any' }],
-  unmatched: [],
+  unmatched: [], records: [],
 };
 
 const judged = (covered: Covered[][]): Judged[] => graph.edges.map((entry, index) => {
@@ -119,7 +119,7 @@ describe('R5, the layers a service, route or activity is tested at', () => {
       ['never', 'apps/backend/src/hub/services/Never.ts'],
       ['pure', 'apps/backend/src/hub/lib/pure.ts'],
     ].map(([id, file]) => [id!, unit(id!, file!)])),
-    edges: [], unresolved: [], unmatched: [],
+    edges: [], unresolved: [], unmatched: [], records: [],
   };
   const levels = new Map<string, Set<Covered['level']>>([
     ['both', new Set(['unit', 'component'])],
@@ -147,7 +147,7 @@ describe('R5, the layers a service, route or activity is tested at', () => {
       },
       edges: [edge('main', ['service'], 'call', 1), edge('wire', ['service'], 'temporal', 2), edge('service', ['store'], 'interface', 3)],
       unresolved: [],
-      unmatched: [],
+      unmatched: [], records: [],
     };
     const live = [by('live', true)];
     const found = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: live, lowest: 'live' as const, withCallerAt: 'live' as const })), started);

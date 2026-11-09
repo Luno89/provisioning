@@ -1,11 +1,16 @@
 import { basename } from 'node:path';
 import type { Concept } from './concepts.js';
 import type { Edge, Graph, Unit } from './graph.js';
+import { UNNAMED } from './record-access.js';
 import { areaOf } from './workspaces.js';
 
 export interface Touch { unit: string; concept: string; line: number }
 
-export interface FlowSpec { name: string; title: string; entries: string[]; concepts: string[] }
+export interface EndingSpec { title: string; entries: string[] }
+
+export interface FlowSpec { name: string; title: string; entries: string[]; concepts: string[]; endings?: EndingSpec[] }
+
+export interface Ending { title: string; entries: string[]; missing: string[]; units: string[]; meets: string[] }
 
 export interface FlowLink { from: string; to: string; through: Edge['through'] | 'within' }
 
@@ -20,6 +25,7 @@ export interface Flow {
   links: FlowLink[];
   touches: Touch[];
   gaps: Gap[];
+  endings: Ending[];
 }
 
 export interface FileNode { file: string; area: string; entry: boolean; concepts: string[]; gaps: string[] }
@@ -28,7 +34,8 @@ export interface FileFlow { files: FileNode[]; links: FileLink[] }
 
 export interface Implementation { unit: string; file: string; line: number; callers: number }
 
-export interface SnapshotFlow { title: string; missing: string[]; files: FileFlow; touches: string[]; gaps: string[] }
+export interface SnapshotEnding { title: string; missing: string[]; files: string[]; meets: string[] }
+export interface SnapshotFlow { title: string; missing: string[]; files: FileFlow; touches: string[]; gaps: string[]; endings: SnapshotEnding[] }
 export interface Snapshot { commit: string; flows: Record<string, SnapshotFlow>; concepts: Record<string, string[]> }
 
 export interface Change { where: string; kind: 'added' | 'removed'; what: string }
@@ -124,24 +131,20 @@ export function unitsNamed(graph: Graph, entry: string): string[] {
   return Object.values(graph.units).filter((unit) => ownCode(unit) && unit.file === file && unit.name === name).map((unit) => unit.id);
 }
 
-export function flowFrom(graph: Graph, spec: FlowSpec, touches: readonly Touch[]): Flow {
-  const wanted = new Set(spec.concepts);
-  const touching = new Map<string, Touch[]>();
-  for (const touch of touches) if (wanted.has(touch.concept)) touching.set(touch.unit, [...(touching.get(touch.unit) ?? []), touch]);
+const linksOf = (graph: Graph): Map<string, FlowLink[]> => {
   const out = new Map<string, FlowLink[]>();
-  const unfollowed = new Map<string, Gap[]>();
   for (const edge of graph.edges) {
     if (!ownCode(graph.units[edge.from])) continue;
-    if (edge.to.length === 0 && edge.through !== 'call') unfollowed.set(edge.from, [...(unfollowed.get(edge.from) ?? []), { unit: edge.from, at: `${edge.site.file}:${edge.site.line}`, through: edge.through }]);
     for (const to of edge.to) {
       if (!ownCode(graph.units[to]) || to === edge.from) continue;
       out.set(edge.from, [...(out.get(edge.from) ?? []), { from: edge.from, to, through: edge.through }]);
     }
   }
   for (const [child, parent] of enclosingUnits(graph)) out.set(parent, [...(out.get(parent) ?? []), { from: parent, to: child, through: 'within' }]);
-  const resolved = spec.entries.map((entry) => ({ entry, units: unitsNamed(graph, entry) }));
-  const missing = resolved.filter((entry) => entry.units.length === 0).map((entry) => entry.entry);
-  const entries = resolved.flatMap((entry) => entry.units);
+  return out;
+};
+
+const reachedFrom = (out: ReadonlyMap<string, FlowLink[]>, entries: readonly string[]): Set<string> => {
   const reached = new Set(entries);
   for (const queue = [...entries]; queue.length > 0;) {
     const unit = queue.pop()!;
@@ -151,6 +154,38 @@ export function flowFrom(graph: Graph, spec: FlowSpec, touches: readonly Touch[]
       queue.push(link.to);
     }
   }
+  return reached;
+};
+
+export function meetingPoints(graph: Graph, flow: ReadonlySet<string>, ending: ReadonlySet<string>): string[] {
+  const written = new Set(graph.records.filter((record) => record.writes && flow.has(record.unit)).map((record) => record.collection));
+  const read = new Set(graph.records.filter((record) => !record.writes && ending.has(record.unit)).map((record) => record.collection));
+  const records = [...written].filter((collection) => collection !== UNNAMED && read.has(collection)).map((collection) => `record ${collection}`);
+  const heard = graph.edges.filter((edge) => edge.through === 'socket' && flow.has(edge.from) && edge.to.some((to) => ending.has(to)))
+    .map((edge) => `socket ${nameOf(graph, edge.from)} -> ${edge.to.filter((to) => ending.has(to)).map((to) => nameOf(graph, to)).join(', ')}`);
+  return [...new Set([...records, ...heard])].sort();
+}
+
+export function flowFrom(graph: Graph, spec: FlowSpec, touches: readonly Touch[]): Flow {
+  const wanted = new Set(spec.concepts);
+  const touching = new Map<string, Touch[]>();
+  for (const touch of touches) if (wanted.has(touch.concept)) touching.set(touch.unit, [...(touching.get(touch.unit) ?? []), touch]);
+  const out = linksOf(graph);
+  const unfollowed = new Map<string, Gap[]>();
+  for (const edge of graph.edges) {
+    if (!ownCode(graph.units[edge.from])) continue;
+    if (edge.to.length === 0 && edge.through !== 'call') unfollowed.set(edge.from, [...(unfollowed.get(edge.from) ?? []), { unit: edge.from, at: `${edge.site.file}:${edge.site.line}`, through: edge.through }]);
+  }
+  const resolvedOf = (named: readonly string[]) => named.map((entry) => ({ entry, units: unitsNamed(graph, entry) }));
+  const resolved = resolvedOf(spec.entries);
+  const missing = resolved.filter((entry) => entry.units.length === 0).map((entry) => entry.entry);
+  const entries = resolved.flatMap((entry) => entry.units);
+  const reached = reachedFrom(out, entries);
+  const endings = (spec.endings ?? []).map((ending): Ending => {
+    const named = resolvedOf(ending.entries);
+    const units = reachedFrom(out, named.flatMap((entry) => entry.units));
+    return { title: ending.title, entries: named.flatMap((entry) => entry.units), missing: named.filter((entry) => entry.units.length === 0).map((entry) => entry.entry), units: [...units].sort(), meets: meetingPoints(graph, reached, units) };
+  });
   const back = new Map<string, string[]>();
   for (const unit of reached) for (const link of out.get(unit) ?? []) if (reached.has(link.to)) back.set(link.to, [...(back.get(link.to) ?? []), unit]);
   const kept = new Set([...reached].filter((unit) => touching.has(unit) || unfollowed.has(unit)));
@@ -181,6 +216,7 @@ export function flowFrom(graph: Graph, spec: FlowSpec, touches: readonly Touch[]
     links,
     touches: [...kept].flatMap((unit) => touching.get(unit) ?? []),
     gaps: [...kept].flatMap((unit) => unfollowed.get(unit) ?? []),
+    endings,
   };
 }
 
@@ -234,6 +270,7 @@ export function snapshotOf(graph: Graph, commit: string, flows: readonly Flow[],
       files: byFile(graph, flow),
       touches: [...new Set(flow.touches.map((touch) => `${touch.concept} ${nameOf(graph, touch.unit)}`))].sort(),
       gaps: [...new Set(flow.gaps.map((gap) => `${gap.through} ${gap.at}`))].sort(),
+      endings: flow.endings.map((ending) => ({ title: ending.title, missing: ending.missing, files: [...new Set(ending.units.map((unit) => graph.units[unit]?.file ?? unit))].sort(), meets: ending.meets })),
     }])),
     concepts: Object.fromEntries(Object.entries(index).map(([concept, implementations]) => [concept, [...new Set(implementations.map((entry) => entry.unit))].sort()])),
   };
@@ -248,6 +285,8 @@ const compared = (where: string, before: readonly string[], after: readonly stri
   ];
 };
 
+const endingKeys = (flow: SnapshotFlow | undefined): string[] => (flow?.endings ?? []).map((ending) => `${ending.title}: ${ending.meets.length > 0 ? `meets at ${ending.meets.join('; ')}` : 'meets the flow nowhere'}`);
+
 const linkKeys = (flow: SnapshotFlow | undefined): string[] => (flow?.files.links ?? []).map((link) => `${link.from} -> ${link.to}${link.through.some((through) => through !== 'call') ? ` (${link.through.join(', ')})` : ''}`);
 
 export function flowDiff(before: Snapshot, after: Snapshot): Change[] {
@@ -258,6 +297,7 @@ export function flowDiff(before: Snapshot, after: Snapshot): Change[] {
       ...compared(`flow ${flow}`, linkKeys(before.flows[flow]), linkKeys(after.flows[flow])),
       ...compared(`flow ${flow}`, before.flows[flow]?.touches ?? [], after.flows[flow]?.touches ?? []),
       ...compared(`flow ${flow}, where the map stops`, before.flows[flow]?.gaps ?? [], after.flows[flow]?.gaps ?? []),
+      ...compared(`flow ${flow}, how it ends`, endingKeys(before.flows[flow]), endingKeys(after.flows[flow])),
     ]),
     ...concepts.flatMap((concept) => compared(`concept ${concept}`, before.concepts[concept] ?? [], after.concepts[concept] ?? [])),
   ];

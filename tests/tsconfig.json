@@ -23,6 +23,7 @@
   "exclude": [
     "e2e.spec.ts",
     "playwright.config.ts",
+    "coupling/fixture-refs-workspace",
     "../scripts/**/node_modules"
   ]
 }

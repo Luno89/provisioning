@@ -18,7 +18,7 @@ const GRAPH: Graph = {
   units: Object.fromEntries([SCREEN, CALL, ROUTE, READ, STORE].map((entry) => [entry.id, entry])),
   edges: [edge(SCREEN, CALL, 'reference'), edge(CALL, ROUTE, 'http'), edge(ROUTE, READ, 'call'), edge(SCREEN, STORE, 'call')],
   unresolved: [],
-  unmatched: [],
+  unmatched: [], records: [],
 };
 
 const step = (overrides: Partial<Step>): Step => ({ id: 'D1', does: 'signs in', screen: { on: 'instance', component: `${SCREEN.file}#Page` }, decisions: ['root'], ...overrides });

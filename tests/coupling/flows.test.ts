@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Concept } from './concepts.js';
 import type { Edge, Graph, Unit } from './graph.js';
 import { byFile, conceptIndex, enclosingUnits, flowDiff, flowFrom, mermaidOf, snapshotOf, touchesIn, type FlowSpec, type Snapshot } from './flows.js';
+import { UNNAMED } from './record-access.js';
 
 const SOURCES: Record<string, string> = {
   'apps/frontend/src/features/x/api.ts': 'export const go = () => post("/go");\n',
@@ -50,7 +51,7 @@ const TEST = id('apps/backend/src/x/Reach.test.ts', '(anonymous)');
 const edge = (from: string, to: string[], through: Edge['through'], line = 1): Edge =>
   ({ from, to, through, site: { file: UNITS.find((entry) => entry.id === from)!.file, line, column: 1, start: 0, end: 0 } });
 
-const graphWith = (edges: Edge[]): Graph => ({ units: Object.fromEntries(UNITS.map((entry) => [entry.id, entry])), edges, unresolved: [], unmatched: [] });
+const graphWith = (edges: Edge[]): Graph => ({ units: Object.fromEntries(UNITS.map((entry) => [entry.id, entry])), edges, unresolved: [], unmatched: [], records: [] });
 
 const GRAPH = graphWith([
   edge(GO, [ROUTE], 'http'),
@@ -129,6 +130,44 @@ describe('a flow from where the browser starts it', () => {
     expect(drawn).toContain(':::entry');
     expect(drawn).toContain('map stops here');
     expect(drawn).toContain('-->|http|');
+  });
+});
+
+describe('how a flow ends', () => {
+  const written = (unit: string, collection: string, writes: boolean) => ({ unit, collection, writes, site: { file: UNITS.find((entry) => entry.id === unit)!.file, line: 1, column: 1, start: 0, end: 0 } });
+  const recorded = (records: Graph['records'], edges = GRAPH.edges): Graph => ({ ...graphWith(edges), records });
+  const ending = (title: string, entry: string) => ({ title, entries: [entry] });
+  const IDLE_ENTRY = 'apps/backend/src/x/services/Idle.ts#idle';
+
+  it('meets the flow at a record the flow writes and the ending reads', () => {
+    const graph = recorded([written(SAVE, 'things', true), written(IDLE, 'things', false)]);
+    expect(flowFrom(graph, { ...SPEC, endings: [ending('Shown', IDLE_ENTRY)] }, touches).endings).toMatchObject([{ title: 'Shown', missing: [], meets: ['record things'] }]);
+  });
+
+  it('meets it nowhere when the ending reads only what the flow never writes, or a collection named at run time', () => {
+    const graph = recorded([written(SAVE, 'things', true), written(SAVE, UNNAMED, true), written(IDLE, 'other', false), written(IDLE, UNNAMED, false)]);
+    expect(flowFrom(graph, { ...SPEC, endings: [ending('Shown', IDLE_ENTRY)] }, touches).endings[0]!.meets).toEqual([]);
+  });
+
+  it('meets it at a socket event the flow sends and the ending hears', () => {
+    const graph = recorded([], [...GRAPH.edges, edge(START, [IDLE], 'socket', 2)]);
+    expect(flowFrom(graph, { ...SPEC, endings: [ending('Heard', IDLE_ENTRY)] }, touches).endings[0]!.meets).toEqual(['socket apps/backend/src/x/services/Start.ts#start -> apps/backend/src/x/services/Idle.ts#idle']);
+  });
+
+  it('says which ending entries it could not find, and puts the endings in the snapshot and its diff', () => {
+    const graph = recorded([written(SAVE, 'things', true), written(IDLE, 'things', false)]);
+    const flow = flowFrom(graph, { ...SPEC, endings: [ending('Shown', IDLE_ENTRY), ending('Lost', 'apps/backend/src/x/services/Gone.ts#gone')] }, touches);
+    expect(flow.endings[1]).toMatchObject({ missing: ['apps/backend/src/x/services/Gone.ts#gone'], meets: [] });
+    const after = snapshotOf(graph, 'c', [flow], {});
+    expect(after.flows.go!.endings).toEqual([
+      { title: 'Shown', missing: [], files: ['apps/backend/src/x/services/Idle.ts'], meets: ['record things'] },
+      { title: 'Lost', missing: ['apps/backend/src/x/services/Gone.ts#gone'], files: [], meets: [] },
+    ]);
+    const before = snapshotOf(graph, 'c', [flowFrom(recorded([]), { ...SPEC, endings: [ending('Shown', IDLE_ENTRY)] }, touches)], {});
+    expect(flowDiff(before, after).map((change) => `${change.where} ${change.kind} ${change.what}`)).toEqual(expect.arrayContaining([
+      'flow go, how it ends added Shown: meets at record things',
+      'flow go, how it ends removed Shown: meets the flow nowhere',
+    ]));
   });
 });
 
