@@ -160,20 +160,28 @@ export function buildGraph(options: GraphOptions): Graph {
       .flatMap(([body, found]) => (found === 'member' ? implementationsByKey(body, seen) : [kept(found)]));
   };
   const implementationsOf = (member: ts.Node): Unit[] => implementationsByKey(keyOf(member), new Set<string>());
+  const outsideByKey = (key: string, seen: Set<string>): boolean => {
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (implementedOutside.has(key)) return true;
+    return [...(implementations.get(key) ?? new Map<string, Unit | 'member'>()).entries()].some(([body, found]) => found === 'member' && outsideByKey(body, seen));
+  };
+  const implementedElsewhere = (member: ts.Node): boolean => outsideByKey(keyOf(member), new Set<string>());
 
   const seenSites = new Set<string>();
   const ends: Array<{ kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string }> = [];
 
-  for (const project of options.projects) {
+  for (const pass of ['index', 'visit'] as const) for (const project of options.projects) {
     const config = ts.getParsedCommandLineOfConfigFile(project.tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
     if (!config) throw new Error(`${project.tsconfig} could not be read`);
     const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
     const checker = program.getTypeChecker();
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
-    const crossing = project.crossing?.(program);
-    const channels = project.channels?.(program);
-    const readers = project.readers?.(program);
-    const recordOf = project.records?.(program);
+    const visiting = pass === 'visit';
+    const crossing = visiting ? project.crossing?.(program) : undefined;
+    const channels = visiting ? project.channels?.(program) : undefined;
+    const readers = visiting ? project.readers?.(program) : undefined;
+    const recordOf = visiting ? project.records?.(program) : undefined;
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -309,7 +317,7 @@ export function buildGraph(options: GraphOptions): Graph {
       if (symbol) matchTypes(target.getNonNullableType(), checker.getDeclaredTypeOfSymbol(symbol), made);
     };
 
-    for (const source of sources) {
+    if (!visiting) for (const source of sources) {
       const index = (node: ts.Node) => {
         if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.heritageClauses) {
           for (const clause of node.heritageClauses) for (const type of clause.types) classInto(checker.getTypeAtLocation(type), node);
@@ -368,7 +376,7 @@ export function buildGraph(options: GraphOptions): Graph {
       return ts.isVariableDeclaration(declaration) ? functionOf(declaration) : undefined;
     };
 
-    for (const source of sources) {
+    if (visiting) for (const source of sources) {
       const file = at(source.fileName);
       if (!project.owns(file) || !options.calledFrom(file)) continue;
       const visit = (node: ts.Node) => {
@@ -405,7 +413,7 @@ export function buildGraph(options: GraphOptions): Graph {
                 const all = implementationsOf(declaration);
                 const real = all.filter((unit) => !unit.inTest);
                 const elsewhere = real.filter((unit) => counted(unit.file));
-                if ((all.length === 0 && !implementedOutside.has(keyOf(declaration))) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
+                if ((all.length === 0 && !implementedElsewhere(declaration)) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
               } else if (ts.isFunctionTypeNode(declaration) && ts.isTypeAliasDeclaration(declaration.parent)) {
                 const given = implementationsOf(declaration).filter((unit) => !unit.inTest && counted(unit.file));
                 if (given.length > 0) edges.push({ from: from.id, site, to: given.map((unit) => unit.id), through: 'interface' });

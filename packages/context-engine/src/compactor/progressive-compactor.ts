@@ -11,7 +11,6 @@ export interface CompactionOptions {
   windowTokens: number;
   marginTokens?: number | undefined;
   config?: Partial<ExtendedCompactionConfig> | undefined;
-  now?: (() => string) | undefined;
 }
 
 /**
@@ -163,7 +162,7 @@ export function progressiveCompact<T extends ContextMessage>(
   options: CompactionOptions,
 ): CompactionResult<T> {
   const cfg = createCompactionConfig(options.config);
-  const now = options.now?.() ?? new Date().toISOString();
+  const now = new Date().toISOString();
   const originalTokens = estimateMessageTokens(messages);
   const initialPressure = calculatePressure(originalTokens, {
     windowTokens: options.windowTokens,

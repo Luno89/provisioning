@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildGraph, isTest, type Graph } from './graph.js';
-import { areaOf } from './workspaces.js';
+import { areaOf, projectsOf } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, 'fixture');
 
@@ -165,7 +165,7 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
   });
 
   it('follows a component to each of our own components it renders, and not to an HTML element', () => {
-    expect(kinds(screens(true), 'render')).toEqual(['(anonymous) -> src/Tree.tsx#Leaf', 'Board -> src/Panel.tsx#Panel', 'Section -> src/Wizard.tsx#Wizard', 'Tree -> src/Commits.tsx#Commits']);
+    expect(kinds(screens(true), 'render')).toEqual(['(anonymous) -> src/Tree.tsx#Leaf', 'Board -> src/Panel.tsx#Panel', 'Middle -> src/Opener.tsx#Opener', 'Page -> src/Middle.tsx#Middle', 'Section -> src/Wizard.tsx#Wizard', 'Tree -> src/Commits.tsx#Commits']);
   });
 
   it('takes a function handed to a component as a prop for what calls that prop, so the call is never left with no implementation', () => {
@@ -182,6 +182,10 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
     expect(dropped && named(graph, dropped.to)).toEqual(['src/Commits.tsx#commit']);
   });
 
+  it('takes a prop passed on from one component to another as implemented by the runtime when the first was given one of the runtime\'s functions', () => {
+    expect(screens(false).edges.filter((edge) => edge.site.file === 'src/Opener.tsx' && edge.through === 'interface' && edge.to.length === 0)).toEqual([]);
+  });
+
   it('follows a function handed over to be called later, but not one called, imported or named only as a type', () => {
     const graph = screens(true);
     expect(kinds(graph, 'reference')).toEqual(['Commits -> src/Commits.tsx#commit', 'Panel -> src/Panel.tsx#done', 'useApps -> src/api.ts#getApps']);
@@ -196,15 +200,24 @@ describe('calls between workspaces linked as npm links them', () => {
   symlinkSync('../../../../packages/runner', join(root, 'apps/app/node_modules/@fixture/runner'));
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-  it('follows a package\'s call through a function type to the handlers an app gives it, the app read before the package', () => {
+  it('follows a package\'s call through a function type to the handlers an app gives it, whatever order the workspaces are read in', () => {
     const graph = buildGraph({
       projects: [
-        { tsconfig: join(root, 'apps/app/tsconfig.json'), owns: (file) => file.startsWith('apps/') },
         { tsconfig: join(root, 'packages/runner/tsconfig.json'), owns: (file) => file.startsWith('packages/') },
+        { tsconfig: join(root, 'apps/app/tsconfig.json'), owns: (file) => file.startsWith('apps/') },
       ],
       root, calledFrom: () => true,
     });
     const called = graph.edges.find((edge) => edge.site.file === 'packages/runner/src/run.ts' && edge.through === 'interface');
     expect(called && named(graph, called.to)).toEqual(['apps/app/src/handlers.ts#greet']);
+  });
+});
+
+describe('the programs the repository graph reads', () => {
+  it('reads the frontend\'s integration tests only for what they implement, never as callers', () => {
+    const tests = projectsOf('/repo').filter((project) => project.tsconfig === '/repo/apps/frontend/tsconfig.integration.json');
+    expect(tests).toHaveLength(1);
+    expect(tests[0]!.owns('apps/frontend/src/features/infrastructure/api/running.integration.test.ts')).toBe(false);
+    expect(tests[0]!.crossing).toBeUndefined();
   });
 });
