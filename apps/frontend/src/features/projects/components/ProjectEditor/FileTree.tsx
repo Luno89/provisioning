@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, ChevronDown, Folder, File, Loader2, Paperclip } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, File, Loader2 } from 'lucide-react'
 import { listProjectFiles, projectFileKeys } from '../../api/project-files.js'
 import type { RepoFileEntry } from './shared.js'
 import { DropTarget } from '../../../files'
@@ -13,13 +13,12 @@ function sortedEntries(entries: RepoFileEntry[]): RepoFileEntry[] {
   })
 }
 
-function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropFiles }: {
+function DirNode({ projectId, path, depth, activePath, onOpen, onDropFiles }: {
   projectId: string
   path: string
   depth: number
   activePath: string | null
   onOpen: (path: string) => void
-  onAttach?: ((path: string, type: 'file' | 'dir') => void) | undefined
   onDropFiles?: ((dir: string, picked: PickedFile[]) => void) | undefined
 }) {
   const [open, setOpen] = useState(depth === 0)
@@ -42,16 +41,6 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropF
             <Folder size={12} className="text-sky-400 shrink-0" />
             <span className="truncate">{path.split('/').pop()}</span>
           </button>
-          {onAttach && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onAttach(path, 'dir') }}
-              className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bark-700)] text-slate-500 hover:text-emerald-300"
-              title="Attach this folder as chat context"
-            >
-              <Paperclip size={11} />
-            </button>
-          )}
         </div>
       )}
 
@@ -69,7 +58,7 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropF
             entry.type === 'dir' ? (
               <DirNode
                 key={entry.path} projectId={projectId} path={entry.path} depth={depth + 1}
-                activePath={activePath} onOpen={onOpen} onAttach={onAttach} onDropFiles={onDropFiles}
+                activePath={activePath} onOpen={onOpen} onDropFiles={onDropFiles}
               />
             ) : (
               <div key={entry.path} className="group flex items-center" style={{ paddingLeft: (depth + 1) * 12 + 14 }}>
@@ -83,16 +72,6 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropF
                   <File size={12} className="text-slate-500 shrink-0" />
                   <span className="truncate">{entry.name}</span>
                 </button>
-                {onAttach && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onAttach(entry.path, 'file') }}
-                    className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--bark-700)] text-slate-500 hover:text-emerald-300"
-                    title="Attach this file as chat context"
-                  >
-                    <Paperclip size={11} />
-                  </button>
-                )}
               </div>
             )
           ))}
@@ -107,14 +86,13 @@ function DirNode({ projectId, path, depth, activePath, onOpen, onAttach, onDropF
   return <DropTarget label={`Drop to commit into ${path}`} onFiles={(picked) => onDropFiles(path, picked)}>{body}</DropTarget>
 }
 
-export function FileTree({ projectId, activePath, onOpen, onAttach, onDropFiles }: {
+export function FileTree({ projectId, activePath, onOpen, onDropFiles }: {
   projectId: string
   activePath: string | null
   onOpen: (path: string) => void
-  onAttach?: ((path: string, type: 'file' | 'dir') => void) | undefined
   onDropFiles?: ((dir: string, picked: PickedFile[]) => void) | undefined
 }) {
-  return <DirNode projectId={projectId} path="" depth={0} activePath={activePath} onOpen={onOpen} onAttach={onAttach} onDropFiles={onDropFiles} />
+  return <DirNode projectId={projectId} path="" depth={0} activePath={activePath} onOpen={onOpen} onDropFiles={onDropFiles} />
 }
 
 export default FileTree

@@ -44,7 +44,6 @@ export interface ChatSurfaceProps {
   onOpenTree?: ((treeId: string) => void) | undefined;
   onOpenStory?: ((story: StoryAddress) => void) | undefined;
   binding?: ConversationBinding | undefined;
-  autoSend?: { text: string; onSent?: (() => void) | undefined } | undefined;
 }
 
 export default function ChatSurface({
@@ -60,7 +59,6 @@ export default function ChatSurface({
   onOpenTree,
   onOpenStory,
   binding,
-  autoSend,
 }: ChatSurfaceProps) {
   const [showHistory, setShowHistory] = useState(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState(false);
@@ -110,7 +108,6 @@ export default function ChatSurface({
     binding,
     channel,
     externalConvId,
-    autoSend,
     jumpToLatest: () => {
       setIsAtBottom(true);
       requestAnimationFrame(scrollToBottomInstant);

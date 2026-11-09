@@ -1,7 +1,6 @@
 export interface DualBoundaryOptions {
   maxChars?: number;
   headRatio?: number;
-  omissionNotice?: (omittedChars: number) => string;
 }
 
 const DEFAULT_MAX_CHARS = 30_000;
@@ -31,9 +30,7 @@ export function clampDualBoundary(
   const tailChars = maxChars - headChars;
   const omitted = text.length - maxChars;
 
-  const notice = options.omissionNotice
-    ? options.omissionNotice(omitted)
-    : `\n\n... [${omitted.toLocaleString()} characters omitted from middle — inspect specific file or run with filters if more detail is needed] ...\n\n`;
+  const notice = `\n\n... [${omitted.toLocaleString()} characters omitted from middle — inspect specific file or run with filters if more detail is needed] ...\n\n`;
 
   if (headChars <= 0) {
     return `... [${omitted.toLocaleString()} characters omitted from start] ...\n\n${text.slice(-tailChars)}`;

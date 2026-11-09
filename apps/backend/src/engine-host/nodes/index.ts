@@ -9,7 +9,6 @@ import {
   type NodeImplementation,
   type OrchestrationPorts,
   type QuestionAnswer,
-  type NodeTrace,
 } from '@koala/agent-engine/procedure';
 import { createEnvironmentNodes } from './environment-nodes.js';
 import { childInputs } from './child-inputs.js';
@@ -58,7 +57,6 @@ export interface InProcessOptions {
   registry: Pick<AgentRegistry, 'runnable' | 'agent'>;
   approve?: OrchestrationPorts['approve'] | undefined;
   ask?: OrchestrationPorts['ask'] | undefined;
-  onTrace?: ((trace: NodeTrace, run: RunIdentity) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -123,7 +121,6 @@ export function createProcedureExecutor(
         inputs: childInputs(inputs),
         budget: runnable.procedure.budget,
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.onTrace ? { onTrace: (trace) => options.onTrace!(trace, { runId, agentSlug: agent, procedureId: runnable.procedure.id, procedureVersion: runnable.procedure.version }) } : {}),
       });
 
       return {

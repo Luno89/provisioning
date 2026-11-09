@@ -2,7 +2,7 @@ import type { RegistryHosts, RegistryLoginSource } from '../instances/index.js';
 import { BUILDER_TOOLS, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
-import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
+import { environmentHandlers } from '@koala/engine-core';
 import { createAgentDirectory, grantStoreFrom, type AgentRecordStore, type ToolGrantStore } from './registries/agent-directory.js';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
 import { stepNeedsReader } from './registries/procedure-store.js';
@@ -37,7 +37,7 @@ import type { HostNodeServices } from './nodes/services.js';
 import { extensionRuntimes, operationHandlers, toolHandlers } from '../extensions/runtime.js';
 import { releaseAgentsOf, releaseProblemOf } from '../releases/index.js';
 import { restoringApp } from '../releases/lib/release-run.js';
-import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
+import type { ToolRuntime } from './temporal/contracts.js';
 import type { Database } from '../platform/index.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
@@ -135,7 +135,6 @@ export interface EngineHostOptions {
   registryPushToken?: (() => Promise<PushToken>) | undefined;
   revokeRegistryPushToken?: ((name: string) => Promise<void>) | undefined;
   registryLogin?: RegistryLoginSource | undefined;
-  onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   runEnded?: ((runId: string) => Promise<boolean>) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
@@ -236,7 +235,6 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
             : {}),
         }),
       });
-      await options.onSandbox?.(driver, ticket);
       return driver;
     },
     ...(options.onLeak ? { onLeak: options.onLeak } : {}),

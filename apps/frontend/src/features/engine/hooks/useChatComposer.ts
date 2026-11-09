@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAgents, agentKeys, type Agent } from '../api/agents';
 import { chatPackKeys, type ConversationBinding } from '../api/chat-pack.js';
@@ -18,11 +18,10 @@ export interface ChatComposerState {
   binding?: ConversationBinding | undefined;
   channel: boolean;
   externalConvId?: string | undefined;
-  autoSend?: { text: string; onSent?: (() => void) | undefined } | undefined;
   jumpToLatest: () => void;
 }
 
-export function useChatComposer({ conv, binding, channel, externalConvId, autoSend, jumpToLatest }: ChatComposerState) {
+export function useChatComposer({ conv, binding, channel, externalConvId, jumpToLatest }: ChatComposerState) {
   const { streaming, setError } = conv;
   const qc = useQueryClient();
 
@@ -91,15 +90,6 @@ export function useChatComposer({ conv, binding, channel, externalConvId, autoSe
     void conv.sendConversationTurn(text, { attachments: ready });
   };
 
-  const autoSentRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!autoSend || streaming || !conv.selectedConvId) return;
-    const key = `${conv.selectedConvId}:${autoSend.text}`;
-    if (autoSentRef.current === key) return;
-    autoSentRef.current = key;
-    handleSend(autoSend.text);
-    autoSend.onSent?.();
-  }, [autoSend, conv.selectedConvId, streaming, handleSend]);
 
   const autoMode = useConversationAutoMode(conv.selectedConvId, conv.activeConversation);
   const switchAutoMode = async (on: boolean) => {

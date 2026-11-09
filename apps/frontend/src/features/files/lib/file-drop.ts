@@ -5,30 +5,25 @@ export interface PickedFile {
   file: File
 }
 
-interface EntryLike {
-  isFile: boolean
-  isDirectory: boolean
-  name: string
-  file?: (done: (file: File) => void, failed?: (err: unknown) => void) => void
-  createReader?: () => { readEntries: (done: (entries: EntryLike[]) => void, failed?: (err: unknown) => void) => void }
-}
+const fileOf = (entry: FileSystemFileEntry): Promise<File> => new Promise((resolve, reject) => entry.file(resolve, reject))
 
-const fileOf = (entry: EntryLike): Promise<File> => new Promise((resolve, reject) => entry.file!(resolve, reject))
-
-const childrenOf = async (entry: EntryLike): Promise<EntryLike[]> => {
-  const reader = entry.createReader!()
-  const all: EntryLike[] = []
+const childrenOf = async (entry: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
+  const reader = entry.createReader()
+  const all: FileSystemEntry[] = []
   for (;;) {
-    const batch = await new Promise<EntryLike[]>((resolve, reject) => reader.readEntries(resolve, reject))
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject))
     if (batch.length === 0) return all
     all.push(...batch)
   }
 }
 
-async function walk(entry: EntryLike, prefix: string): Promise<PickedFile[]> {
+const isFileEntry = (entry: FileSystemEntry): entry is FileSystemFileEntry => entry.isFile
+const isDirectoryEntry = (entry: FileSystemEntry): entry is FileSystemDirectoryEntry => entry.isDirectory
+
+async function walk(entry: FileSystemEntry, prefix: string): Promise<PickedFile[]> {
   const path = prefix ? `${prefix}/${entry.name}` : entry.name
-  if (entry.isFile) return [{ path, file: await fileOf(entry) }]
-  if (!entry.isDirectory) return []
+  if (isFileEntry(entry)) return [{ path, file: await fileOf(entry) }]
+  if (!isDirectoryEntry(entry)) return []
   const nested = await Promise.all((await childrenOf(entry)).map((child) => walk(child, path)))
   return nested.flat()
 }
@@ -36,8 +31,8 @@ async function walk(entry: EntryLike, prefix: string): Promise<PickedFile[]> {
 export async function droppedFiles(transfer: Pick<DataTransfer, 'items' | 'files'>): Promise<PickedFile[]> {
   const entries = Array.from(transfer.items ?? [])
     .filter((item) => item.kind === 'file')
-    .map((item) => (item as DataTransferItem & { webkitGetAsEntry?: () => EntryLike | null }).webkitGetAsEntry?.() ?? null)
-  if (entries.length && entries.every(Boolean)) return (await Promise.all(entries.map((entry) => walk(entry!, '')))).flat()
+    .map((item) => item.webkitGetAsEntry())
+  if (entries.length && entries.every((entry): entry is FileSystemEntry => entry !== null)) return (await Promise.all(entries.map((entry) => walk(entry, '')))).flat()
   return Array.from(transfer.files ?? []).map((file) => ({ path: file.name, file }))
 }
 
