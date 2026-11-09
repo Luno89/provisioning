@@ -46,7 +46,7 @@ function lineFor(downs: readonly DependencyDown[], when: (at: string) => string)
     root: false,
     label: 'Not answering',
     title: first.name,
-    text: `${first.name} isn't answering since ${when(first.since)}: ${first.reason}`,
+    text: `${first.name.replace(/^./, (letter) => letter.toUpperCase())} isn't answering since ${when(first.since)}: ${first.reason}`,
     seenBy: seenBy(downs),
   }
 }

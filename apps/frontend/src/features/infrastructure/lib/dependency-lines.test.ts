@@ -31,6 +31,11 @@ describe('the item Needs attention shows for a dependency that is down', () => {
     }])
   })
 
+  it('starts its sentence with a capital, whatever the name', () => {
+    const registry: DependencyDown = { ...gitea, dependency: 'registry', name: 'the image registry' }
+    expect(dependencyLines([registry], at)[0]!.text).toBe('The image registry isn\'t answering since at 2026-11-08T10:05:00.000Z: it refused the connection (ECONNREFUSED)')
+  })
+
   it('says root is not answering in the words it always used, naming root\'s address', () => {
     expect(dependencyLines([root], at)[0]).toMatchObject({
       key: 'root',

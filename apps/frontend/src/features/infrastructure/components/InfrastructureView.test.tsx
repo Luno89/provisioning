@@ -190,7 +190,7 @@ describe('the Infrastructure page', () => {
     const item = await screen.findByTestId('attention-dependency')
     expect(screen.getAllByTestId('attention-dependency')).toHaveLength(1)
     expect(item).toHaveTextContent('Not answering')
-    expect(item).toHaveTextContent(/file storage \(MinIO\) isn't answering since .+: it refused the connection \(ECONNREFUSED\)/)
+    expect(item).toHaveTextContent(/File storage \(MinIO\) isn't answering since .+: it refused the connection \(ECONNREFUSED\)/)
     expect(item).toHaveTextContent('Seen by this Koala\'s backend and the engine worker')
   })
 
