@@ -39,6 +39,14 @@ describe('the inventory of a release', () => {
     expect(found[1]).toMatchObject({ scope: 'required' });
   });
 
+  it('lists a package installed under an alias by its real name, so an advisory against it is found, and leaves out a local folder', () => {
+    const aliased = { packages: {
+      'node_modules/decode-uri-component': { resolved: 'vendor/decode-uri-component', link: true },
+      'node_modules/decode-uri-component-esm': { name: 'decode-uri-component', version: '0.5.1', resolved: 'https://registry.npmjs.org/decode-uri-component/-/decode-uri-component-0.5.1.tgz' },
+    } };
+    expect(npmComponents(aliased, 'koala').map((component: { purl: string }) => component.purl)).toEqual(['pkg:npm/decode-uri-component@0.5.1']);
+  });
+
   it('follows what a workspace\'s packages need the way Node resolves them, for the machine agent', () => {
     const closure = closureOf(lock, ['worker', 'ms'], 'apps/agent');
     expect(Object.keys(closure.packages).sort()).toEqual(['apps/agent/node_modules/ms', 'node_modules/ms', 'node_modules/worker', 'node_modules/worker/node_modules/proto']);

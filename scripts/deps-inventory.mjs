@@ -34,7 +34,7 @@ export function npmComponents(lock, group) {
   const seen = new Map();
   for (const [path, entry] of Object.entries(lock.packages ?? {})) {
     if (!path.includes('node_modules/') || entry.link || !entry.version) continue;
-    const name = nameAt(path);
+    const name = entry.name ?? nameAt(path);
     const key = `${name}@${entry.version}`;
     const dev = Boolean(entry.dev);
     const known = seen.get(key);
