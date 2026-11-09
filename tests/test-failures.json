@@ -11,5 +11,20 @@
  "tests/app-sign-in-live.ts": [
   "2026-11-09T16:11:33.750Z",
   "2026-11-09T16:12:42.839Z"
+ ],
+ "apps/frontend/src/shell/App.test.tsx": [
+  "2026-11-09T19:56:58.508Z"
+ ],
+ "apps/frontend/src/shell/Router.test.tsx": [
+  "2026-11-09T19:56:58.508Z"
+ ],
+ "apps/frontend/src/features/engine/components/Studio/ProcedureEditor.test.tsx": [
+  "2026-11-09T19:56:58.508Z"
+ ],
+ "apps/frontend/src/features/projects/components/Board/StoryRun.test.tsx": [
+  "2026-11-09T19:56:58.508Z"
+ ],
+ "apps/frontend/src/features/projects/components/Board/index.test.tsx": [
+  "2026-11-09T19:56:58.508Z"
  ]
 }
