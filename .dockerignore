@@ -9,6 +9,7 @@
 !charts/
 !k8s/
 !docker/
+!vendor/
 
 **/node_modules/
 **/.env
