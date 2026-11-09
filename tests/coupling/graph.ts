@@ -383,9 +383,10 @@ export function buildGraph(options: GraphOptions): Graph {
               if (FUNCTION_KINDS.has(declaration.kind)) {
                 if (counted(target)) edges.push({ from: from.id, site, to: [unitOf(declaration).id], through: 'call' });
               } else if (isMember(declaration) || ts.isCallSignatureDeclaration(declaration)) {
-                const real = implementationsOf(declaration).filter((unit) => !unit.inTest);
+                const all = implementationsOf(declaration);
+                const real = all.filter((unit) => !unit.inTest);
                 const elsewhere = real.filter((unit) => counted(unit.file));
-                if ((real.length === 0 && !implementedOutside.has(keyOf(declaration))) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
+                if ((all.length === 0 && !implementedOutside.has(keyOf(declaration))) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
               } else if (ts.isFunctionTypeNode(declaration) && ts.isTypeAliasDeclaration(declaration.parent)) {
                 const given = implementationsOf(declaration).filter((unit) => !unit.inTest && counted(unit.file));
                 if (given.length > 0) edges.push({ from: from.id, site, to: given.map((unit) => unit.id), through: 'interface' });

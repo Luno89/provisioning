@@ -64,6 +64,12 @@ describe('the edge graph', () => {
     expect(called && named(graph, called.to)).toEqual(['src/handlers/token-wiring.ts#realToken']);
   });
 
+  it('leaves a call whose only implementations are in tests without an edge, since production never makes it, and still names a call nothing implements', () => {
+    const at = (line: number) => graph.edges.filter((edge) => edge.site.file === 'src/handlers/clocked.ts' && edge.site.line === line && edge.through === 'interface');
+    expect(at(7)).toEqual([]);
+    expect(at(11).map((edge) => edge.to)).toEqual([[]]);
+  });
+
   it('never counts a fake from a test file, nor a class no one hands in', () => {
     const into = graph.edges.filter((edge) => edge.site.file === 'src/reader/reader.ts').flatMap((edge) => named(graph, edge.to));
     expect(into.some((name) => name.includes('reader.test.ts'))).toBe(false);

@@ -2302,7 +2302,7 @@ real. It works like Lighthouse, gather apart from audit:
     ran it (owner, 2026-11-03), since nothing below live starts a process;
   - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
   - **R3**: an edge between processes is run only by live suites, or by none;
-  - **R4**: a call with no implementation found, or one made through `any`;
+  - **R4**: a call with no implementation found, or one made through `any`; a call only tests give an implementation for is no breach, since production never makes it (owner, 2026-11-09: "I don't think we need to map the test code, just the implementation");
   - **R5**: a function in a backend service, route or activity is not run both by a unit test (its dependencies mocked) and by an
     integration or live test (its real ones); pure logic belongs in `lib/`, which R5 does not hold. It needs the `live` artifact, so
     it is judged by ship's last step, `npm run test:coupling:live`, after the live suites have run on a dev stack started with
