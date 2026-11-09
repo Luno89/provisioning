@@ -1,0 +1,6 @@
+{
+  "name": "decode-uri-component",
+  "version": "0.5.1",
+  "main": "index.js",
+  "dependencies": { "decode-uri-component-esm": "npm:decode-uri-component@0.5.1" }
+}

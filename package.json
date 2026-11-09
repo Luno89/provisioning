@@ -120,9 +120,11 @@
   },
   "dependencies": {
     "axios": "^1.17.0",
-    "protobufjs": "^8.7.1"
+    "protobufjs": "^8.7.1",
+    "decode-uri-component": "file:./vendor/decode-uri-component"
   },
   "overrides": {
-    "seroval": "1.6.11"
+    "seroval": "1.6.11",
+    "decode-uri-component": "$decode-uri-component"
   }
 }
