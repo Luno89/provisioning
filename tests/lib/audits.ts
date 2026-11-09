@@ -11,7 +11,7 @@ export function withFailure(failures: Failures, name: string, at: string): Failu
 }
 
 export function auditOwed(failed: readonly string[], auditedAt: string | undefined): boolean {
-  const since = auditedAt ? failed.filter((at) => at > auditedAt) : failed;
+  const since = auditedAt ? failed.filter((at) => Date.parse(at) > Date.parse(auditedAt)) : failed;
   return since.length >= AUDIT_AFTER;
 }
 
