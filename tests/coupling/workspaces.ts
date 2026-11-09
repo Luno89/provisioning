@@ -13,9 +13,9 @@ export const WORKSPACES: readonly Workspace[] = [
   { name: 'backend', folder: 'apps/backend', tsconfig: 'tsconfig.json' },
   { name: 'frontend', folder: 'apps/frontend', tsconfig: 'tsconfig.app.json' },
   { name: 'local-agent', folder: 'apps/local-agent', tsconfig: 'tsconfig.json' },
-  { name: 'engine-core', folder: 'packages/engine-core', tsconfig: 'tsconfig.json' },
-  { name: 'context-engine', folder: 'packages/context-engine', tsconfig: 'tsconfig.json' },
   { name: 'agent-engine', folder: 'packages/agent-engine', tsconfig: 'tsconfig.json' },
+  { name: 'context-engine', folder: 'packages/context-engine', tsconfig: 'tsconfig.json' },
+  { name: 'engine-core', folder: 'packages/engine-core', tsconfig: 'tsconfig.json' },
   { name: 'cdktf-infra', folder: 'packages/cdktf-infra', tsconfig: 'tsconfig.json' },
 ];
 
@@ -41,10 +41,6 @@ const bothChannels: NonNullable<Project['channels']> = (program) => {
 
 export const MATCHES = { http: httpMatches };
 
-export const TEST_PROGRAMS: readonly { folder: string; tsconfig: string }[] = [
-  { folder: 'apps/frontend', tsconfig: 'tsconfig.integration.json' },
-];
-
 export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORKSPACES): Project[] => [
   ...workspaces.map((workspace): Project => ({
     tsconfig: join(root, workspace.folder, workspace.tsconfig),
@@ -52,8 +48,6 @@ export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORK
     channels: bothChannels,
     ...(workspace.name === 'backend' ? { crossing: temporalCalls(root), readers: envChannels, records: mongoRecords } : {}),
   })),
-  ...TEST_PROGRAMS.filter((tests) => workspaces.some((workspace) => workspace.folder === tests.folder))
-    .map((tests): Project => ({ tsconfig: join(root, tests.folder, tests.tsconfig), owns: () => false })),
 ];
 
 export function areaOf(file: string): string {

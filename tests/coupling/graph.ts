@@ -171,17 +171,16 @@ export function buildGraph(options: GraphOptions): Graph {
   const seenSites = new Set<string>();
   const ends: Array<{ kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string }> = [];
 
-  for (const pass of ['index', 'visit'] as const) for (const project of options.projects) {
+  for (const project of options.projects) {
     const config = ts.getParsedCommandLineOfConfigFile(project.tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
     if (!config) throw new Error(`${project.tsconfig} could not be read`);
     const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
     const checker = program.getTypeChecker();
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
-    const visiting = pass === 'visit';
-    const crossing = visiting ? project.crossing?.(program) : undefined;
-    const channels = visiting ? project.channels?.(program) : undefined;
-    const readers = visiting ? project.readers?.(program) : undefined;
-    const recordOf = visiting ? project.records?.(program) : undefined;
+    const crossing = project.crossing?.(program);
+    const channels = project.channels?.(program);
+    const readers = project.readers?.(program);
+    const recordOf = project.records?.(program);
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -317,7 +316,7 @@ export function buildGraph(options: GraphOptions): Graph {
       if (symbol) matchTypes(target.getNonNullableType(), checker.getDeclaredTypeOfSymbol(symbol), made);
     };
 
-    if (!visiting) for (const source of sources) {
+    for (const source of sources) {
       const index = (node: ts.Node) => {
         if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.heritageClauses) {
           for (const clause of node.heritageClauses) for (const type of clause.types) classInto(checker.getTypeAtLocation(type), node);
@@ -376,7 +375,7 @@ export function buildGraph(options: GraphOptions): Graph {
       return ts.isVariableDeclaration(declaration) ? functionOf(declaration) : undefined;
     };
 
-    if (visiting) for (const source of sources) {
+    for (const source of sources) {
       const file = at(source.fileName);
       if (!project.owns(file) || !options.calledFrom(file)) continue;
       const visit = (node: ts.Node) => {

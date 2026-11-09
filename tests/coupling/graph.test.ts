@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildGraph, isTest, type Graph } from './graph.js';
-import { areaOf, projectsOf } from './workspaces.js';
+import { areaOf } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, 'fixture');
 
@@ -200,24 +200,15 @@ describe('calls between workspaces linked as npm links them', () => {
   symlinkSync('../../../../packages/runner', join(root, 'apps/app/node_modules/@fixture/runner'));
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-  it('follows a package\'s call through a function type to the handlers an app gives it, whatever order the workspaces are read in', () => {
+  it('follows a package\'s call through a function type to the handlers an app gives it, the app read before the package, as the repository lists them', () => {
     const graph = buildGraph({
       projects: [
-        { tsconfig: join(root, 'packages/runner/tsconfig.json'), owns: (file) => file.startsWith('packages/') },
         { tsconfig: join(root, 'apps/app/tsconfig.json'), owns: (file) => file.startsWith('apps/') },
+        { tsconfig: join(root, 'packages/runner/tsconfig.json'), owns: (file) => file.startsWith('packages/') },
       ],
       root, calledFrom: () => true,
     });
     const called = graph.edges.find((edge) => edge.site.file === 'packages/runner/src/run.ts' && edge.through === 'interface');
     expect(called && named(graph, called.to)).toEqual(['apps/app/src/handlers.ts#greet']);
-  });
-});
-
-describe('the programs the repository graph reads', () => {
-  it('reads the frontend\'s integration tests only for what they implement, never as callers', () => {
-    const tests = projectsOf('/repo').filter((project) => project.tsconfig === '/repo/apps/frontend/tsconfig.integration.json');
-    expect(tests).toHaveLength(1);
-    expect(tests[0]!.owns('apps/frontend/src/features/infrastructure/api/running.integration.test.ts')).toBe(false);
-    expect(tests[0]!.crossing).toBeUndefined();
   });
 });

@@ -69,11 +69,10 @@ export class MemoryKeeperService {
     timer: ConversationTimer;
     concludeAfterMinutes: (ownerId: string, agentSlug: string) => Promise<number | undefined>;
     remembersFor?: ((ownerId: string) => Promise<boolean>) | undefined;
-    now?: (() => string) | undefined;
   }) {}
 
   private now(): string {
-    return this.deps.now?.() ?? new Date().toISOString();
+    return new Date().toISOString();
   }
 
   async state(ownerId: string): Promise<KeeperState> {

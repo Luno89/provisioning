@@ -24,7 +24,7 @@ const backend = await startBackend(({ api, db }) => {
     idleTimer: async (ownerId, idleMs) => { idleTimers.push({ ownerId, idleMs }) },
     now: () => Date.now(),
   }))
-  const keeper = new MemoryKeeperService(outsideThisTier<ConstructorParameters<typeof MemoryKeeperService>[0]>('the memory keeper', { store: db, now: () => new Date().toISOString() }))
+  const keeper = new MemoryKeeperService(outsideThisTier<ConstructorParameters<typeof MemoryKeeperService>[0]>('the memory keeper', { store: db }))
   const running = new RunningService({
     workflows: {
       list: async () => {
