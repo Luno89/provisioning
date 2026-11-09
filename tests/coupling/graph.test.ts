@@ -47,7 +47,12 @@ describe('the edge graph', () => {
 
   it('follows a function handed over by a name destructured from, or read off, an object to what that object\'s member was given', () => {
     const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/consumer.ts' && edge.through === 'interface');
-    expect(called && named(graph, called.to)).toEqual(['src/handlers/core.ts#lookup']);
+    expect(called && named(graph, called.to)).toContain('src/handlers/core.ts#lookup');
+  });
+
+  it('follows a function a factory returns to the factory\'s own function, though the factory names only its type', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/consumer.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toContain('src/handlers/factory.ts#(anonymous)');
   });
 
   it('takes a Promise\'s own resolve, kept and called later, as implemented outside our code rather than by nothing', () => {

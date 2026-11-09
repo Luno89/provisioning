@@ -200,6 +200,27 @@ export function buildGraph(options: GraphOptions): Graph {
       if (ts.isPropertyAccessExpression(node)) return checker.getSymbolAtLocation(node.name)?.getDeclarations()?.find((declaration) => isMember(declaration) && ownCode(declaration.getSourceFile().fileName));
       return undefined;
     };
+    const returnedBy = (node: ts.Node | undefined): ts.Node | undefined => {
+      if (!node || !ts.isCallExpression(node)) return undefined;
+      const called = checker.getResolvedSignature(node)?.getDeclaration();
+      if (!called || !FUNCTION_KINDS.has(called.kind) || !ownCode(called.getSourceFile().fileName)) return undefined;
+      const body = (called as ts.FunctionLikeDeclaration).body;
+      if (!body) return undefined;
+      if (!ts.isBlock(body)) return functionOf(body);
+      let found: ts.Node | undefined;
+      const look = (inner: ts.Node): void => {
+        if (found || FUNCTION_KINDS.has(inner.kind)) return;
+        if (ts.isReturnStatement(inner) && inner.expression) found = functionOf(inner.expression);
+        ts.forEachChild(inner, look);
+      };
+      ts.forEachChild(body, look);
+      return found;
+    };
+    const handed = (node: ts.Node | undefined): ts.Node | undefined => {
+      if (!node) return undefined;
+      const value = ts.isPropertyAssignment(node) ? node.initializer : node;
+      return functionOf(node) ?? memberBehind(node) ?? returnedBy(value);
+    };
     const ownMembers = new Map<ts.Type, Array<[string, ts.Node[]]>>();
     const membersWanted = (type: ts.Type): Array<[string, ts.Node[]]> => {
       const known = ownMembers.get(type);
@@ -224,7 +245,7 @@ export function buildGraph(options: GraphOptions): Graph {
         const property = actual.getProperty(name);
         if (!property) continue;
         for (const declaration of property.getDeclarations() ?? []) {
-          const body = isMember(declaration) ? declaration : functionOf(declaration) ?? memberBehind(declaration);
+          const body = isMember(declaration) ? declaration : handed(declaration);
           if (body && !members.includes(body)) for (const member of members) implement(member, body);
         }
         const wanted = target.getProperty(name);
@@ -232,7 +253,7 @@ export function buildGraph(options: GraphOptions): Graph {
         const inner = typeOf(wanted, near);
         const given = typeOf(property, near);
         if (inner.getCallSignatures().length > 0) {
-          callsInto(inner, given, (property.getDeclarations() ?? []).map((declaration) => functionOf(declaration) ?? memberBehind(declaration)).find(Boolean));
+          callsInto(inner, given, (property.getDeclarations() ?? []).map((declaration) => handed(declaration)).find(Boolean));
           continue;
         }
         if (membersWanted(inner).length === 0) continue;
@@ -256,7 +277,7 @@ export function buildGraph(options: GraphOptions): Graph {
         return;
       }
       const actual = checker.getTypeAtLocation(value).getNonNullableType();
-      callsInto(wanted, actual, functionOf(value) ?? memberBehind(value));
+      callsInto(wanted, actual, handed(value));
       if (membersWanted(wanted).length === 0) return;
       matchTypes(wanted, actual, value);
     };
