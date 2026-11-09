@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
-import { textAt } from '../../platform/index.js'
+import { at, listAt, textAt } from '../../platform/index.js'
 import { definedFields, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
 import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
@@ -286,7 +286,7 @@ export class TemporalBridge {
     const unhealthy = textAt(verdict, 'workload') === 'unhealthy'
     return {
       status: unhealthy ? 'unhealthy' : 'running',
-      meta: { ...meta, healthReason: unhealthy ? (textAt(verdict, 'workloadReason') ?? '') : '' },
+      meta: { ...meta, healthReason: unhealthy ? (textAt(verdict, 'workloadReason') ?? '') : '', ...(Array.isArray(at(verdict, 'notes')) ? { deployNotes: listAt(verdict, 'notes').filter((line): line is string => typeof line === 'string') } : {}) },
     }
   }
 
@@ -690,6 +690,7 @@ export class TemporalBridge {
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
       healthReason: '',
+      deployNotes: [],
       temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
@@ -813,6 +814,7 @@ export class TemporalBridge {
       id: dep.id,
       status: 'deploying',
       healthReason: '',
+      deployNotes: [],
       temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })

@@ -70,6 +70,11 @@ function refused(items: readonly Item[], workloads: readonly Item[]): string | u
   return undefined;
 }
 
+function waitsForRoom(pod: Item): string | undefined {
+  const unplaced = pod.status?.conditions?.find((condition) => condition.type === 'PodScheduled' && condition.status === 'False');
+  return unplaced ? `${pod.metadata?.name} waits for room: ${unplaced.message ?? unplaced.reason ?? 'the scheduler has not placed it'}` : undefined;
+}
+
 export interface RolloutOptions {
   none?: 'done' | 'rolling';
   now?: number;
@@ -83,10 +88,13 @@ export function rolloutOf(listed: unknown, options: RolloutOptions = {}): Rollou
   if (unseen) return { state: 'rolling', waiting: waitingOn(unseen) ?? 'a workload has not seen its new spec' };
   const cannot = refused(items, workloads);
   if (cannot) return { state: 'hopeless', reason: cannot };
-  const health = assessWorkload({ items: currentPods(items, workloads) }, options.now);
+  const pods = currentPods(items, workloads);
+  const health = assessWorkload({ items: pods }, options.now);
   if (health.health === 'unhealthy') return { state: 'hopeless', reason: health.reason };
   const waiting = workloads.map(waitingOn).find((reason): reason is string => reason !== undefined);
-  return waiting ? { state: 'rolling', waiting } : { state: 'done' };
+  if (!waiting) return { state: 'done' };
+  const room = pods.map(waitsForRoom).find((reason): reason is string => reason !== undefined);
+  return { state: 'rolling', waiting: room ? `${waiting}; ${room}` : waiting };
 }
 
 export function rolloutOfOne(listed: unknown, workload: string, options: RolloutOptions = {}): Rollout {

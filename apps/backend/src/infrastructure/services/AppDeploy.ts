@@ -276,6 +276,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       id: dep.id || dep.name,
       status: 'deploying',
       healthReason: '',
+      deployNotes: [],
       temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })

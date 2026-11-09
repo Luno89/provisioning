@@ -100,6 +100,11 @@ describe('a failed deployment', () => {
     expect(useInitialLogs).toHaveBeenCalledWith(expect.anything(), true);
   });
 
+  it('shows what a deploy went ahead on without knowing, on a running app too', () => {
+    setup(deployment({ status: 'running', deployNotes: ['Memory is sized for an assumed 20 GB model: Hugging Face could not be asked how big org/model is (it answered 503).'] }), 'general');
+    expect(screen.getByTestId('deploy-notes').textContent).toContain('Memory is sized for an assumed 20 GB model');
+  });
+
   it('does not fetch it for a healthy one on the same tab', () => {
     setup(deployment({ status: 'running' }), 'general');
     expect(useInitialLogs).toHaveBeenCalledWith(expect.anything(), false);

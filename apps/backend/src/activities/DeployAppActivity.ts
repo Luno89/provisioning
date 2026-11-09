@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs/promises';
 import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, type DatabaseSettings } from '../platform/index.js';
+import { createDatabase, failureOf, type DatabaseSettings } from '../platform/index.js';
 
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { applyWatched } from './watched-apply.js';
@@ -14,14 +15,14 @@ import { handedReach } from './handed-reach.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
-import { messageOf } from './failure-reasons.js';
 
-async function nodeAllocatableBytes(kubectl: (args: string[]) => Promise<string>): Promise<number | undefined> {
+async function nodeAllocatableBytes(kubectl: (args: string[]) => Promise<string>): Promise<number> {
   const memories = await kubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
   const sizes = memories.trim().split(/\s+/)
     .map((q: string) => parseQuantity(q))
     .filter((n): n is number => n !== undefined);
-  return sizes.length ? Math.min(...sizes) : undefined;
+  if (sizes.length === 0) throw new Error(`the machine's nodes report no memory Koala can read (${JSON.stringify(memories.trim())})`);
+  return Math.min(...sizes);
 }
 
 export interface DeployAppArgs {
@@ -109,6 +110,7 @@ export interface DeployAppResult {
   status: string;
   msg: string;
   displayUrl: string;
+  notes: string[];
 }
 
 
@@ -175,27 +177,37 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
 
+  const notes: string[] = [];
+  const note = async (line: string) => {
+    notes.push(line);
+    await fs.appendFile(logFile, `[deploy] ${line}\n`).catch(ignore('the note is also kept on the app, and the log only shows progress'));
+  };
+
   if (args.appType === 'palworld') {
     const REQUIRED_GI = 12;
+    let memories: string | undefined;
     try {
-      const memories = await kubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
-      const nodes = memories.trim().split(/\s+/).filter(Boolean);
+      memories = await kubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
+    } catch (err) {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`the machine's memory could not be read: ${failure.reason}`);
+      await note(`Whether Palworld fits in the machine's memory was not checked: the machine's memory could not be read (${failure.reason}).`);
+    }
+    if (memories !== undefined) {
       const toGi = (q: string): number => {
         const m = /^(\d+)(Ki|Mi|Gi)?$/.exec(q ?? '');
         if (!m?.[1]) return 0;
         const n = Number(m[1]);
         return m[2] === 'Gi' ? n : m[2] === 'Mi' ? n / 1024 : n / (1024 * 1024);
       };
-      const largest = Math.max(0, ...nodes.map((memory) => toGi(memory)));
-      if (largest > 0 && largest < REQUIRED_GI) {
-        throw new Error(
-          `Palworld needs a node with at least ${REQUIRED_GI}Gi allocatable memory; the largest node in this ` +
-          `cluster has ${largest.toFixed(1)}Gi. Deploy to a machine with more memory.`,
+      const largest = Math.max(0, ...memories.trim().split(/\s+/).filter(Boolean).map((memory) => toGi(memory)));
+      if (largest === 0) throw ApplicationFailure.nonRetryable(`the machine's nodes report no memory Koala can read (${JSON.stringify(memories.trim())})`);
+      if (largest < REQUIRED_GI) {
+        throw ApplicationFailure.nonRetryable(
+          `Palworld needs a node with at least ${REQUIRED_GI}Gi allocatable memory; the largest node in this `
+          + `cluster has ${largest.toFixed(1)}Gi. Deploy to a machine with more memory.`,
         );
       }
-    } catch (err) {
-      if (messageOf(err).includes('allocatable memory')) throw err;
-      console.warn(`[DeployAppActivity] Palworld node-size preflight skipped: ${messageOf(err)}`);
     }
   }
 
@@ -225,16 +237,22 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
       const size = await getHfModelSize(args.tabbyModel, args.tabbyRevision, args.tabbyHfToken);
       tabbyModelSizeBytes = size.totalBytes;
     } catch (err) {
-      console.warn(`[DeployAppActivity] Could not fetch model size for ${args.tabbyModel}: ${messageOf(err)}`);
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`Hugging Face could not say how big ${args.tabbyModel} is: ${failure.reason}`);
+      await note(`Memory is sized for an assumed 20 GB model: Hugging Face could not be asked how big ${args.tabbyModel} is (${failure.reason}). Set a memory limit on the app if the model is larger.`);
     }
   }
 
   let tabbyMemoryPlan: HostMemoryPlan | undefined;
   if (args.appType === 'tabbyapi') {
-    const allocatableBytes = await nodeAllocatableBytes(kubectl).catch((err: unknown) => {
-      console.warn(`[DeployAppActivity] the nodes' memory could not be read, so the memory plan is made without it: ${messageOf(err)}`);
-      return undefined;
-    });
+    let allocatableBytes: number | undefined;
+    try {
+      allocatableBytes = await nodeAllocatableBytes(kubectl);
+    } catch (err) {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`the machine's memory could not be read: ${failure.reason}`);
+      await note(`Whether the model fits in the machine's memory was not checked: the machine's memory could not be read (${failure.reason}).`);
+    }
     tabbyMemoryPlan = planHostMemory({
       modelBytes: tabbyModelSizeBytes,
       gpuCount: effectiveTabbyGpuCount,
@@ -256,7 +274,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   }
 
   let renderedSpec: unknown;
-  try {
+  {
     const specDb = createDatabase(steps.database);
     await specDb.init();
     const stored = (await specDb.infrastructure.getAppSpecs()).find((s) => s.id === args.appType)
@@ -280,12 +298,10 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
       });
       console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
     }
-  } catch (err) {
-    console.warn(`[DeployAppActivity] could not read app specs: ${messageOf(err)}`);
   }
 
   let bindingsJson = '';
-  try {
+  {
     const bindDb = createDatabase(steps.database);
     await bindDb.init();
     const deployments = await bindDb.infrastructure.getDeployments();
@@ -297,15 +313,12 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     const specs = needs.length && project?.ownerId
       ? visibleAppSpecs(await bindDb.infrastructure.getAppSpecs(), project.ownerId)
       : [];
-    const dynamicTypes = needs.length ? await bindDb.infrastructure.getBindingTypes().catch((err: unknown) => {
-      console.warn(`[bindings] ${physicalName}: the binding types people added could not be read, so only the built-in ones bind: ${messageOf(err)}`);
-      return [];
-    }) : [];
+    const dynamicTypes = needs.length ? await bindDb.infrastructure.getBindingTypes() : [];
     await bindDb.close().catch(ignore('the bindings were already read, and a connection that does not close cleanly holds nothing this deploy needs'));
 
     if (needs.length && project?.ownerId) {
       const { bindings, problems } = resolveBindings(needs, deployments, specs, project.ownerId, { dynamicTypes });
-      for (const p of problems) console.warn(`[bindings] ${physicalName}: ${p}`);
+      if (problems.length > 0) throw ApplicationFailure.nonRetryable(`${args.name} cannot be given what it depends on: ${problems.join('; ')}`);
 
       const projected: ProjectedBinding[] = [];
       for (const b of bindings) {
@@ -320,18 +333,12 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
           type: 'Opaque',
           stringData: files,
         });
-        try {
-          await access.apply(reach, manifest);
-        } catch (err) {
-          console.warn(`[bindings] could not write ${secretName}: ${messageOf(err)}`);
-        }
+        await access.apply(reach, manifest);
         projected.push({ name: b.name, secretName });
         console.log(`[bindings] ${physicalName}: bound ${b.name} (${b.type}) from ${b.source.namespace}`);
       }
       if (projected.length) bindingsJson = JSON.stringify(bindingProjection(projected));
     }
-  } catch (err) {
-    console.warn(`[bindings] ${physicalName}: ${messageOf(err)}`);
   }
 
   const env = buildAppEnv({
@@ -476,5 +483,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     status: 'running',
     msg: `App ${args.appType}/${args.name} deployed`,
     displayUrl,
+    notes,
   };
 }

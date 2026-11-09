@@ -685,6 +685,13 @@ export default function AppDashboard({
             )}
            {logTab === 'general' && currentDeployment && (
              <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
+                {(currentDeployment.deployNotes ?? []).length > 0 && (
+                  <ul data-testid="deploy-notes" className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-2 text-[12px] text-amber-200/90">
+                    {(currentDeployment.deployNotes ?? []).map((line) => (
+                      <li key={line} className="flex gap-2"><AlertTriangle size={14} className="shrink-0 text-amber-400" />{line}</li>
+                    ))}
+                  </ul>
+                )}
                 {currentDeployment.status === 'unhealthy' && (
                   <div className="bg-amber-950/20 border-2 border-amber-500/30 rounded-2xl p-6 flex flex-col gap-4 animate-in fade-in duration-300">
                     <div className="flex items-center gap-3 text-amber-400">

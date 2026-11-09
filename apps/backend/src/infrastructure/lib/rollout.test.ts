@@ -91,6 +91,12 @@ describe('how far a rollout has got', () => {
     expect(rolloutOf(settled, { now: NOW })).toEqual({ state: 'done' });
   });
 
+  it('says why a pod waits when the scheduler has found no room for it, which may still come', () => {
+    const unplaced = { ...pod('backend-new-a', { kind: 'ReplicaSet', name: 'backend-new' }, {}), status: { phase: 'Pending', conditions: [{ type: 'PodScheduled', status: 'False', reason: 'Unschedulable', message: '0/1 nodes are available: 1 Insufficient memory.' }] } };
+    const listed = { items: [deployment('instance-backend', '3', { replicas: 1, updatedReplicas: 1, availableReplicas: 0 }), replicaSet('backend-new', 'instance-backend', '3'), unplaced] };
+    expect(rolloutOf(listed, { now: NOW })).toEqual({ state: 'rolling', waiting: 'deployment/instance-backend has 0 of 1 available; backend-new-a waits for room: 0/1 nodes are available: 1 Insufficient memory.' });
+  });
+
   it('across several places is hopeless if any is, rolling if any still is, and done once all are', () => {
     const done = { items: [deployment('a', '1', { replicas: 1, updatedReplicas: 1, availableReplicas: 1 })] };
     const rolling = { items: [deployment('b', '1', { replicas: 1, updatedReplicas: 0, availableReplicas: 0 })] };

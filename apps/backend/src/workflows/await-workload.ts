@@ -16,8 +16,9 @@ export interface WorkloadVerdict {
 
 export async function awaitWorkload(args: CheckWorkloadArgs): Promise<WorkloadVerdict> {
   const name = args.namespace ?? args.name;
+  let told: string | undefined;
   for (;;) {
-    const { health, reason } = await CheckWorkloadActivity(args);
+    const { health, reason } = await CheckWorkloadActivity({ ...args, ...(told === undefined ? {} : { told }) });
 
     if (health === 'healthy') {
       log.info(`Workload for ${name} is running`);
@@ -27,6 +28,7 @@ export async function awaitWorkload(args: CheckWorkloadArgs): Promise<WorkloadVe
       log.warn(`Workload for ${name} is not running: ${reason}`);
       return { workload: 'unhealthy', workloadReason: reason };
     }
+    if (health === 'starting') told = reason;
     await sleep(ROLLOUT_INTERVAL);
   }
 }

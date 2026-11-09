@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { http, HttpResponse } from 'msw';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,7 @@ import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type Inf
 import type { GiteaService } from '../projects/index.js';
 import type { Database } from '../platform/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
+import { interceptHttp } from '../platform/testing/http.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
 
 const records = vi.hoisted(() => ({ db: undefined as Database | undefined }));
@@ -17,6 +19,9 @@ vi.mock('../platform/index.js', async (actual) => ({
 }));
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
+
+const huggingFace = interceptHttp();
+const MODEL_TREE = 'https://huggingface.co/api/models/org/model/tree/*';
 
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1\nkind: Config\n' };
 const LOG = join(mkdtempSync(join(tmpdir(), 'deploy-app-')), 'deploy.log');
@@ -143,5 +148,45 @@ describe('deploying an app on the cluster it was handed', () => {
   it('is refused when it was handed no way to reach the cluster', async () => {
     await expect(DeployAppActivity(deploy({ reach: undefined }), steps())).rejects.toThrow('handed no way to reach machine-desk');
     expect(infra.deploy).not.toHaveBeenCalled();
+  });
+});
+
+describe('what TabbyAPI\'s memory plan rests on', () => {
+  const tabby = (over: Partial<DeployAppArgs> = {}) => deploy({ appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 1, tabbyMaxSeqLen: 4096, ...over });
+
+  it('goes ahead on an assumed size when Hugging Face is not answering, and says so on the app and in its log', async () => {
+    huggingFace.use(http.get(MODEL_TREE, () => new HttpResponse(null, { status: 503 })));
+    const done = await DeployAppActivity(tabby(), steps());
+    expect(done.notes).toEqual([expect.stringMatching(/^Memory is sized for an assumed 20 GB model: Hugging Face could not be asked how big org\/model is \(.*503.*\)/)]);
+    expect(readFileSync(LOG, 'utf8')).toContain('[deploy] Memory is sized for an assumed 20 GB model');
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).toContain('app-desk-d1');
+  });
+
+  it('stops, saying why, when Hugging Face answers that the model is not there', async () => {
+    huggingFace.use(http.get(MODEL_TREE, () => new HttpResponse(null, { status: 404 })));
+    await expect(DeployAppActivity(tabby(), steps())).rejects.toThrow(/^Hugging Face could not say how big org\/model is: /);
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).not.toContain('app-desk-d1');
+  });
+
+  it('stops when the machine\'s nodes report no memory it can read, which is no outage', async () => {
+    huggingFace.use(http.get(MODEL_TREE, () => HttpResponse.json([{ type: 'file', path: 'model.safetensors', size: 4e9 }])));
+    nodes = '';
+    await expect(DeployAppActivity(tabby(), steps())).rejects.toThrow('the machine\'s nodes report no memory Koala can read ("")');
+  });
+
+  it('goes ahead without the fit check while the machine does not answer, and says so; a refusal of the read stops it', async () => {
+    huggingFace.use(http.get(MODEL_TREE, () => HttpResponse.json([{ type: 'file', path: 'model.safetensors', size: 4e9 }])));
+    const answering = access.kubectl.getMockImplementation()!;
+    access.kubectl.mockImplementation(async (target, args) => {
+      if (args[1] === 'nodes') throw Object.assign(new Error('connect ECONNREFUSED 100.64.0.7:6443'), { code: 'ECONNREFUSED' });
+      return answering(target, args);
+    });
+    const done = await DeployAppActivity(tabby(), steps());
+    expect(done.notes).toEqual([expect.stringMatching(/^Whether the model fits in the machine's memory was not checked: the machine's memory could not be read \(/)]);
+    access.kubectl.mockImplementation(async (target, args) => {
+      if (args[1] === 'nodes') throw new Error('nodes is forbidden: User "koala" cannot list resource "nodes"');
+      return answering(target, args);
+    });
+    await expect(DeployAppActivity(tabby(), steps())).rejects.toThrow(/^the machine's memory could not be read: nodes is forbidden/);
   });
 });

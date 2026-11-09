@@ -40,6 +40,7 @@ export interface DeploymentMetadata {
   namespace?: string;
   status: 'deploying' | 'running' | 'failed' | 'unhealthy' | 'destroying' | 'discovered';
   healthReason?: string;
+  deployNotes?: string[];
   webRepo?: string;
   webTag?: string;
   dbRepo?: string;

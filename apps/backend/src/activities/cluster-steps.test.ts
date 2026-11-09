@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -80,6 +80,15 @@ describe('checking a workload', () => {
     access.kubectl.mockResolvedValueOnce(listed([{ ...shop, metadata: { ...shop.metadata, generation: 3 } }, set('shop-2', '2'), pod('shop-2-a', 'shop-2', true)]));
     const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access });
     expect(read).toEqual({ health: 'starting', reason: 'deployment/shop has not seen its new spec' });
+  });
+
+  it('writes what the app waits on to its deploy log when it changes, and not again while it stays the same', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'waiting-')), 'deploy.log');
+    const unseen = listed([{ ...shop, metadata: { ...shop.metadata, generation: 3 } }, set('shop-2', '2'), pod('shop-2-a', 'shop-2', true)]);
+    access.kubectl.mockResolvedValue(unseen);
+    const first = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK, logFile: log }, { access });
+    await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK, logFile: log, told: first.reason }, { access });
+    expect(readFileSync(log, 'utf8')).toBe('[deploy] waiting: deployment/shop has not seen its new spec\n');
   });
 
   it('says when the cluster refuses to make the pods', async () => {
