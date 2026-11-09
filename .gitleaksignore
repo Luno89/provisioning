@@ -4,3 +4,7 @@ eba2ca52bc1f39d65d7bd7a49dbefb25ec32df5d:apps/backend/src/infrastructure/service
 1cbe1784fdab7d85e8b5f44b6cef50dd9d4b6c84:apps/backend/src/hub/services/HubRepoSync.integration.test.ts:generic-api-key:87
 c487162659c79a1283b2e9497b079bcb409dd94d:apps/backend/src/infrastructure/services/AppDeploy.test.ts:generic-api-key:9
 a5c31cf0cc22b1584e3f7f561d0509aba4b17e1f:apps/backend/src/files/testing/store-contract.ts:generic-api-key:7
+70f025f1a06d29c05fe3facb6a74d688acd434c6:apps/backend/src/platform/lib/key-rotation.test.ts:generic-api-key:40
+70f025f1a06d29c05fe3facb6a74d688acd434c6:apps/backend/src/platform/lib/key-rotation.test.ts:private-key:72
+30a3acdfb89851e5b8a2cc9b575a534615221162:apps/backend/src/files/testing/store-contract.ts:generic-api-key:119
+4417207b8e807c563df8a7e73c7754a4705dbd91:apps/frontend/src/features/monitoring/api/notifications.integration.test.ts:generic-api-key:29
