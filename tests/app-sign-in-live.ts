@@ -1,21 +1,8 @@
 import assert from 'node:assert/strict';
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
+import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
-import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { devKoalaApi, devKoalaEnv, devKubectl, devOwner, devPortForward } from './lib/dev-stack.js';
 
-const run = promisify(execFile);
-const ROOT = process.env.APP_SIGN_IN_LIVE_ROOT ?? 'http://localhost:3001';
-const ADMIN = process.env.MECHANICS_ADMIN ?? process.env.GROVE_LIVE_OWNER;
-const CLUSTER = 'provisioning-lunorica';
-const KUBECONFIG = `/tmp/kubeconfig-${CLUSTER}`;
-const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const NAME = `hermes-${Date.now().toString(36)}`;
 const LOCAL_PORT = 19119;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,24 +42,21 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
   }
 }
 
-const client = (cookie: string): AxiosInstance => axios.create({ baseURL: ROOT, proxy: false, maxRedirects: 0, headers: { Cookie: cookie }, validateStatus: () => true });
-const kubectl = async (...args: string[]) => (await run(KUBECTL, args, { env: { ...process.env, KUBECONFIG } })).stdout.trim();
+const client = (cookie: string): AxiosInstance => axios.create({ baseURL: devKoalaApi, proxy: false, maxRedirects: 0, headers: { Cookie: cookie }, validateStatus: () => true });
 const mine = async (api: AxiosInstance): Promise<Deployment[]> => (await api.get('/api/deployments')).data as Deployment[];
 
 async function main(): Promise<void> {
-  assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who deploys the app on the system cluster');
-  const db = createDatabase(databaseSettingsFrom(process.env));
-  await db.init();
-  const admin = await db.accounts.getUserById(ADMIN);
-  await db.close();
-  assert.ok(admin && admin.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const api = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
+  const owner = await devOwner();
+  const api = client(owner.cookie);
+  const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
+  assert.ok(machine, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
+  const cluster = `machine-${machine}`;
   let id: string | undefined;
-  let forward: ReturnType<typeof spawn> | undefined;
+  let forward: ChildProcess | undefined;
 
   try {
-    const deployed = await stage(`a Hermes, ${NAME}, deploys on the system cluster with a password Koala made for it`, async () => {
-      const made = await api.post('/api/deployments', { name: NAME, clusterId: CLUSTER, appType: 'hermes', strategy: 'native' });
+    const deployed = await stage(`a Hermes, ${NAME}, deploys on the cluster of the machine Koala runs on, ${cluster}, with a password Koala made for it`, async () => {
+      const made = await api.post('/api/deployments', { name: NAME, clusterId: cluster, appType: 'hermes', strategy: 'native' });
       assert.equal(made.status, 202, `the deploy answered ${made.status}: ${JSON.stringify(made.data)}`);
       id = (made.data as { id: string }).id;
       return until(`${NAME} running`, async () => {
@@ -99,7 +83,7 @@ async function main(): Promise<void> {
     });
 
     await stage('the app\'s Deployment holds no password, only where to read it', async () => {
-      const spec = await kubectl('-n', namespace, 'get', 'deployment', 'hermes', '-o', 'json');
+      const spec = await devKubectl(namespace, 'get', 'deployment', 'hermes', '-o', 'json');
       assert.ok(!spec.includes(signIn.password), 'the Deployment carries the password');
       const env = (JSON.parse(spec) as { spec: { template: { spec: { containers: { env: { name: string; value?: string; valueFrom?: { secretKeyRef?: { name: string } } }[] }[] } } } })
         .spec.template.spec.containers[0]!.env;
@@ -109,7 +93,7 @@ async function main(): Promise<void> {
     });
 
     await stage('the dashboard signs in its password, and refuses the old default and anyone not signed in', async () => {
-      forward = spawn(KUBECTL, ['-n', namespace, 'port-forward', 'svc/hermes', `${LOCAL_PORT}:9119`], { env: { ...process.env, KUBECONFIG }, stdio: 'ignore' });
+      forward = devPortForward(namespace, 'svc/hermes', `${LOCAL_PORT}:9119`);
       const hermes = axios.create({ baseURL: `http://127.0.0.1:${LOCAL_PORT}`, proxy: false, validateStatus: () => true, timeout: 10_000 });
       const providers = await until('the dashboard answering through the port-forward', async () => {
         const answer = await hermes.get('/api/auth/providers');
