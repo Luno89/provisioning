@@ -29,6 +29,7 @@ export const CONCEPTS: readonly Concept[] = [
       /\b(DependencyStates|DependencyReporter|DependencyDownError|reportingFetch|reportStatus|thrownFor|failureOf|useDependencyHttp|dependencyFetch|dependencyDispatcher|connectLimitedAgents)\b/,
       /\breopening\(/, /\bkeepTrying\(/, /\bkeepAnnouncing\(/,
       /\bnew Agent\(/, /\bAbortSignal\.timeout\(/, /\bsetTimeout\(\(\) => \w+\.abort\(/, /\btimeout: \d/,
+      /Math\.min\([^)]*\*\s*2\b/, /\*=\s*2\b/, /\b\w+(Delay|Backoff|Wait)\w*\s*\*\s*2\b/,
     ],
   },
   { id: 'calls-out', label: 'calls a service over the network', marks: [/\bfetch\(/, /\baxios\.(get|post|put|patch|delete|create|request)\b/, /\bpublicFetch\(/] },
