@@ -26,5 +26,8 @@
  ],
  "apps/frontend/src/features/projects/components/Board/index.test.tsx": [
   "2026-11-09T19:56:58.508Z"
+ ],
+ "tests/browser-live.ts": [
+  "2026-11-09T20:18:58.633Z"
  ]
 }

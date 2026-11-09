@@ -5,7 +5,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | Script | Last passed | Last failed |
 |---|---|---|
 | `app-sign-in-live` | 2026-11-09 19:28 | 2026-11-09 16:12 |
-| `browser-live` | 2026-11-05 17:34 | 2026-11-04 04:58 |
+| `browser-live` | 2026-11-05 17:34 | 2026-11-09 20:18 |
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
 | `checks-live` | 2026-11-06 03:57 | 2026-11-06 03:47 |
 | `files-live` | 2026-11-08 21:59 | 2026-11-08 00:36 |
