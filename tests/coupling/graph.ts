@@ -108,16 +108,19 @@ export function buildGraph(options: GraphOptions): Graph {
   const records: RecordTouch[] = [];
   const at = (file: string) => relative(options.root, file);
 
-  const unitOf = (node: ts.Node): Unit => {
+  const unitAt = (node: ts.Node): Unit => {
     const source = node.getSourceFile();
     const file = at(source.fileName);
     const start = node.getStart(source);
     const { line, character } = source.getLineAndCharacterOfPosition(start);
-    const id = `${file}:${line + 1}:${character + 1}`;
     const last = source.getLineAndCharacterOfPosition(node.getEnd());
-    units[id] ??= { id, file, name: functionName(node), line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file) };
-    return units[id];
+    return { id: `${file}:${line + 1}:${character + 1}`, file, name: functionName(node), line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file) };
   };
+  const kept = (unit: Unit): Unit => {
+    units[unit.id] ??= unit;
+    return units[unit.id]!;
+  };
+  const unitOf = (node: ts.Node): Unit => kept(unitAt(node));
 
   const moduleUnit = (source: ts.SourceFile): Unit => {
     const file = at(source.fileName);
@@ -137,6 +140,26 @@ export function buildGraph(options: GraphOptions): Graph {
     const { line, character } = source.getLineAndCharacterOfPosition(start);
     return { file: at(source.fileName), line: line + 1, column: character + 1, start, end: node.getEnd() };
   };
+
+  const keyOf = (node: ts.Node): string => `${at(node.getSourceFile().fileName)}:${node.getStart(node.getSourceFile())}`;
+  const implementations = new Map<string, Map<string, Unit | 'member'>>();
+  const implementedOutside = new Set<string>();
+  const implement = (member: ts.Node, body: ts.Node) => {
+    if (!ownCode(body.getSourceFile().fileName)) {
+      implementedOutside.add(keyOf(member));
+      return;
+    }
+    const known = implementations.get(keyOf(member)) ?? new Map<string, Unit | 'member'>();
+    known.set(keyOf(body), isMember(body) ? 'member' : unitAt(body));
+    implementations.set(keyOf(member), known);
+  };
+  const implementationsByKey = (key: string, seen: Set<string>): Unit[] => {
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [...(implementations.get(key) ?? new Map<string, Unit | 'member'>()).entries()]
+      .flatMap(([body, found]) => (found === 'member' ? implementationsByKey(body, seen) : [kept(found)]));
+  };
+  const implementationsOf = (member: ts.Node): Unit[] => implementationsByKey(keyOf(member), new Set<string>());
 
   const seenSites = new Set<string>();
   const ends: Array<{ kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string }> = [];
@@ -164,22 +187,6 @@ export function buildGraph(options: GraphOptions): Graph {
       return undefined;
     };
 
-    const implementations = new Map<ts.Node, Set<ts.Node>>();
-    const implementedOutside = new Set<ts.Node>();
-    const implement = (member: ts.Node, body: ts.Node) => {
-      if (!ownCode(body.getSourceFile().fileName)) {
-        implementedOutside.add(member);
-        return;
-      }
-      const known = implementations.get(member) ?? new Set<ts.Node>();
-      known.add(body);
-      implementations.set(member, known);
-    };
-    const implementationsOf = (member: ts.Node, seen = new Set<ts.Node>()): ts.Node[] => {
-      if (seen.has(member)) return [];
-      seen.add(member);
-      return [...(implementations.get(member) ?? [])].flatMap((body) => (isMember(body) ? implementationsOf(body, seen) : [body]));
-    };
     const ownMembers = new Map<ts.Type, Array<[string, ts.Node[]]>>();
     const membersWanted = (type: ts.Type): Array<[string, ts.Node[]]> => {
       const known = ownMembers.get(type);
@@ -220,7 +227,7 @@ export function buildGraph(options: GraphOptions): Graph {
       }
     };
     const callsInto = (target: ts.Type, actual: ts.Type, body: ts.Node | undefined) => {
-      const signatures = target.getCallSignatures().map((signature) => signature.getDeclaration()).filter((declaration) => declaration && ts.isCallSignatureDeclaration(declaration) && ownCode(declaration.getSourceFile().fileName));
+      const signatures = target.getCallSignatures().map((signature) => signature.getDeclaration()).filter((declaration) => declaration && (ts.isCallSignatureDeclaration(declaration) || ts.isFunctionTypeNode(declaration)) && ownCode(declaration.getSourceFile().fileName));
       if (signatures.length === 0) return;
       const made = body ?? actual.getCallSignatures().map((signature) => signature.getDeclaration()).find((declaration) => declaration && (FUNCTION_KINDS.has(declaration.kind) || ts.isCallSignatureDeclaration(declaration)));
       if (made) for (const signature of signatures) implement(signature, made);
@@ -316,7 +323,7 @@ export function buildGraph(options: GraphOptions): Graph {
             for (const touched of recordOf && ts.isCallExpression(node) ? recordOf(node) : []) records.push({ unit: from.id, collection: touched.collection, writes: touched.writes, site });
             const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
             if (crossed) {
-              const to = crossed.to.flatMap((declared) => (isMember(declared) ? implementationsOf(declared) : [functionOf(declared)])).filter((body): body is ts.Node => body !== undefined).map(unitOf).filter((unit) => !unit.inTest);
+              const to = crossed.to.flatMap((declared) => { if (isMember(declared)) return implementationsOf(declared); const body = functionOf(declared); return body ? [unitOf(body)] : []; }).filter((unit) => !unit.inTest);
               edges.push({ from: from.id, site, to: [...new Set(to.map((unit) => unit.id))], through: crossed.through, ...(crossed.device ? { device: true } : {}) });
             }
             const declaration = crossed && !crossed.alsoCalls ? undefined : declaringMember(checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined);
@@ -329,9 +336,12 @@ export function buildGraph(options: GraphOptions): Graph {
               if (FUNCTION_KINDS.has(declaration.kind)) {
                 if (counted(target)) edges.push({ from: from.id, site, to: [unitOf(declaration).id], through: 'call' });
               } else if (isMember(declaration) || ts.isCallSignatureDeclaration(declaration)) {
-                const real = implementationsOf(declaration).map(unitOf).filter((unit) => !unit.inTest);
+                const real = implementationsOf(declaration).filter((unit) => !unit.inTest);
                 const elsewhere = real.filter((unit) => counted(unit.file));
-                if ((real.length === 0 && !implementedOutside.has(declaration)) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
+                if ((real.length === 0 && !implementedOutside.has(keyOf(declaration))) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
+              } else if (ts.isFunctionTypeNode(declaration) && ts.isTypeAliasDeclaration(declaration.parent)) {
+                const given = implementationsOf(declaration).filter((unit) => !unit.inTest && counted(unit.file));
+                if (given.length > 0) edges.push({ from: from.id, site, to: given.map((unit) => unit.id), through: 'interface' });
               } else if (ts.isVariableDeclaration(declaration)) {
                 const body = functionOf(declaration);
                 if (body && counted(target)) edges.push({ from: from.id, site, to: [unitOf(body).id], through: 'call' });

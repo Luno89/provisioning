@@ -1,5 +1,7 @@
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { buildGraph, isTest, type Graph } from './graph.js';
 import { areaOf } from './workspaces.js';
 
@@ -24,6 +26,17 @@ describe('the edge graph', () => {
   it('follows a function handed to a callable interface, as an object\'s property or as an argument', () => {
     expect(callsAt(graph, 'src/reader/reader.ts', '#shout')?.through).toBe('interface');
     expect(callsAt(graph, 'src/reader/reader.ts', '#quiet')?.through).toBe('interface');
+  });
+
+  it('follows a call through a function type to each function given that type, a map of handlers called by name included', () => {
+    const called = graph.edges.find((edge) => edge.site.file === 'src/handlers/registry.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to).map((name) => name.split('#')[0])).toEqual(['src/handlers/greetings.ts', 'src/handlers/greetings.ts']);
+    expect(called && named(graph, called.to).some((name) => name.includes('farewell'))).toBe(true);
+  });
+
+  it('does not follow a callback typed inline in a parameter to every function anyone hands it, which would join every caller\'s flow', () => {
+    const inAround = graph.edges.filter((edge) => edge.site.file === 'src/handlers/registry.ts' && edge.through === 'interface' && named(graph, edge.to).some((name) => name.includes('measured')));
+    expect(inAround).toEqual([]);
   });
 
   it('never counts a fake from a test file, nor a class no one hands in', () => {
@@ -109,5 +122,25 @@ describe('hand-offs: a component rendered, a function handed over as a value', (
     const graph = screens(true);
     expect(kinds(graph, 'reference')).toEqual(['useApps -> src/api.ts#getApps']);
     expect(kinds(graph, 'call')).toEqual(expect.arrayContaining(['useDelete -> src/api.ts#deleteApp', 'Section -> src/hooks.ts#useApps']));
+  });
+});
+
+describe('calls between workspaces linked as npm links them', () => {
+  const root = mkdtempSync(join(tmpdir(), 'graph-workspaces-'));
+  cpSync(join(import.meta.dirname, 'fixture-graph-workspaces'), root, { recursive: true });
+  mkdirSync(join(root, 'apps/app/node_modules/@fixture'), { recursive: true });
+  symlinkSync('../../../../packages/runner', join(root, 'apps/app/node_modules/@fixture/runner'));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it('follows a package\'s call through a function type to the handlers an app gives it, the app read before the package', () => {
+    const graph = buildGraph({
+      projects: [
+        { tsconfig: join(root, 'apps/app/tsconfig.json'), owns: (file) => file.startsWith('apps/') },
+        { tsconfig: join(root, 'packages/runner/tsconfig.json'), owns: (file) => file.startsWith('packages/') },
+      ],
+      root, calledFrom: () => true,
+    });
+    const called = graph.edges.find((edge) => edge.site.file === 'packages/runner/src/run.ts' && edge.through === 'interface');
+    expect(called && named(graph, called.to)).toEqual(['apps/app/src/handlers.ts#greet']);
   });
 });

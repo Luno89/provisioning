@@ -24,6 +24,7 @@ npm run flows -- --out <scratchpad>/flows
 Read `<scratchpad>/flows/snapshot.json`:
 - `flows.<name>.files`: every file on the path, workflow starts through Koala's own starters and activities on their workers included.
 - `flows.<name>.endings`: each way it ends, from the frontend function where the person sees it, with where it **meets** the flow: a record the flow writes and the ending reads, the session cookie, or a socket event. An ending that meets the flow nowhere fails `npm run flows`; either the code never tells the person, or the map is missing a link. Find which before going on.
+- Since 2026-11-09 the graph follows a call through a named function type (a `ToolHandler` looked up by name) and a package's call to an interface or function type an app implements (a tool handler, an environment driver); maps made before then stop at `tool-runtime.ts` and at engine-core's calls into the backend.
 - `flows.<name>.gaps`: calls the graph could not resolve, such as interfaces. Resolve each one with LSP `goToImplementation`, or name it in the list as unresolved.
 - `concepts.<id>`: every implementation of a cross-cutting concept (`dependencies`, `work`, `config`, `kubeconfig`, `cluster-command`, `calls-out`, `store`, `files`). A change to a concept starts from this list, not from the places you remember.
 

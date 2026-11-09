@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/runner",
+  "type": "module",
+  "exports": { ".": { "types": "./src/run.ts", "default": "./src/run.ts" } }
+}

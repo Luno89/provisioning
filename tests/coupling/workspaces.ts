@@ -13,9 +13,9 @@ export const WORKSPACES: readonly Workspace[] = [
   { name: 'backend', folder: 'apps/backend', tsconfig: 'tsconfig.json' },
   { name: 'frontend', folder: 'apps/frontend', tsconfig: 'tsconfig.app.json' },
   { name: 'local-agent', folder: 'apps/local-agent', tsconfig: 'tsconfig.json' },
-  { name: 'engine-core', folder: 'packages/engine-core', tsconfig: 'tsconfig.json' },
-  { name: 'context-engine', folder: 'packages/context-engine', tsconfig: 'tsconfig.json' },
   { name: 'agent-engine', folder: 'packages/agent-engine', tsconfig: 'tsconfig.json' },
+  { name: 'context-engine', folder: 'packages/context-engine', tsconfig: 'tsconfig.json' },
+  { name: 'engine-core', folder: 'packages/engine-core', tsconfig: 'tsconfig.json' },
   { name: 'cdktf-infra', folder: 'packages/cdktf-infra', tsconfig: 'tsconfig.json' },
 ];
 
