@@ -227,10 +227,22 @@ export function buildGraph(options: GraphOptions): Graph {
       ts.forEachChild(body, look);
       return found;
     };
-    const handed = (node: ts.Node | undefined): ts.Node | undefined => {
-      if (!node) return undefined;
-      const value = ts.isPropertyAssignment(node) ? node.initializer : node;
-      return functionOf(node) ?? memberBehind(node) ?? returnedBy(value);
+    const handed = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
+      if (!node || depth > 5) return undefined;
+      if (ts.isPropertyAssignment(node)) return handed(node.initializer, depth + 1);
+      if (ts.isParenthesizedExpression(node)) return handed(node.expression, depth + 1);
+      if (ts.isConditionalExpression(node)) return handed(node.whenTrue, depth + 1) ?? handed(node.whenFalse, depth + 1);
+      if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+        return handed(node.right, depth + 1) ?? handed(node.left, depth + 1);
+      }
+      if (ts.isIdentifier(node)) {
+        const declared = aliased(checker.getSymbolAtLocation(node))?.valueDeclaration;
+        if (declared && ts.isVariableDeclaration(declared) && declared.initializer && !FUNCTION_KINDS.has(declared.initializer.kind)) {
+          const through = handed(declared.initializer, depth + 1);
+          if (through) return through;
+        }
+      }
+      return functionOf(node) ?? memberBehind(node) ?? returnedBy(node);
     };
     const ownMembers = new Map<ts.Type, Array<[string, ts.Node[]]>>();
     const membersWanted = (type: ts.Type): Array<[string, ts.Node[]]> => {
