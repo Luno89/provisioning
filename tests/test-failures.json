@@ -4,5 +4,12 @@
  ],
  "tests/coupling/ends.integration.test.ts": [
   "2026-11-04T19:49:49.071Z"
+ ],
+ "tests/files-live.ts": [
+  "2026-11-08T00:36:00.999Z"
+ ],
+ "tests/app-sign-in-live.ts": [
+  "2026-11-09T16:11:33.750Z",
+  "2026-11-09T16:12:42.839Z"
  ]
 }
