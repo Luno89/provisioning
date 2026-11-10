@@ -200,9 +200,14 @@ describe('a breach whose caller was renamed or moved within its file', () => {
     expect(movedIn(baseline, found).moves).toEqual([{ from: key('R1', 'w.ts#main', 'd.ts#DependencyStates.failed'), to: key('R1', 'w.ts#startWorker', 'd.ts#DependencyStates.failed'), count: 1 }]);
   });
 
-  it('carries nothing for a caller in another file, or a call to another function', () => {
+  it('carries its count when the caller moved to another file under the same name and calls the same function', () => {
+    const baseline = { [key('R1', 'index.ts#startWork', 'd.ts#DependencyStates.failed')]: 1 };
+    expect(movedIn(baseline, [breach('R1', 'agent-work.ts#startWork', 'd.ts#DependencyStates.failed')]).moves).toHaveLength(1);
+  });
+
+  it('carries nothing for a caller renamed and moved at once, or a call to another function', () => {
     const baseline = { [key('R1', 'w.ts#main', 'd.ts#DependencyStates.failed')]: 1 };
-    expect(movedIn(baseline, [breach('R1', 'v.ts#main', 'd.ts#DependencyStates.failed')]).moves).toEqual([]);
+    expect(movedIn(baseline, [breach('R1', 'v.ts#start', 'd.ts#DependencyStates.failed')]).moves).toEqual([]);
     expect(movedIn(baseline, [breach('R1', 'w.ts#startWorker', 'd.ts#DependencyStates.answered')]).moves).toEqual([]);
   });
 
