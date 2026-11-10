@@ -45,22 +45,42 @@ export const ROOT_RULE_IDS: ReadonlySet<string> = new Set(ROOT_ALERTS.map((alert
 
 export const ROOT_RULES_NAME = 'koala-root-alerts';
 
-export function rootAlertsManifest(): Record<string, unknown> {
-  return {
-    apiVersion: 'monitoring.coreos.com/v1',
-    kind: 'PrometheusRule',
-    metadata: { name: ROOT_RULES_NAME, namespace: KOALA_ALERT_NAMESPACE, labels: { release: 'kube-prometheus-stack', 'koala.dev/alert-rule': ROOT_RULES_NAME } },
-    spec: {
-      groups: [{
-        name: ROOT_RULES_NAME,
-        rules: ROOT_ALERTS.map((rule) => ({
-          alert: rule.alert,
-          expr: rule.expr,
-          for: `${rule.forMinutes}m`,
-          labels: { severity: 'critical', [RULE_LABEL]: rule.id },
-          annotations: { summary: rule.summary },
-        })),
-      }],
-    },
-  };
-}
+const rulesManifest = (name: string, alerts: readonly RootAlert[]): Record<string, unknown> => ({
+  apiVersion: 'monitoring.coreos.com/v1',
+  kind: 'PrometheusRule',
+  metadata: { name, namespace: KOALA_ALERT_NAMESPACE, labels: { release: 'kube-prometheus-stack', 'koala.dev/alert-rule': name } },
+  spec: {
+    groups: [{
+      name,
+      rules: alerts.map((rule) => ({
+        alert: rule.alert,
+        expr: rule.expr,
+        for: `${rule.forMinutes}m`,
+        labels: { severity: 'critical', [RULE_LABEL]: rule.id },
+        annotations: { summary: rule.summary },
+      })),
+    }],
+  },
+});
+
+export const rootAlertsManifest = (): Record<string, unknown> => rulesManifest(ROOT_RULES_NAME, ROOT_ALERTS);
+
+export const INSTANCE_PROCESSES = [
+  { service: 'koala-worker-engine', name: 'The engine worker, which runs your chats, agents and checks' },
+  { service: 'koala-worker-cluster', name: 'The cluster worker, which deploys your apps' },
+  { service: 'koala-worker-host', name: 'The host worker, which runs server orders and the crawl' },
+] as const;
+
+export const INSTANCE_ALERTS: readonly RootAlert[] = INSTANCE_PROCESSES.map((process) => ({
+  id: `instance-${process.service}-down`,
+  alert: 'Instance_worker_down',
+  expr: `absent(koala_up{service_name="${process.service}",koala_role="instance"})`,
+  forMinutes: 5,
+  summary: `${process.name}, has not reported for 5 minutes`,
+}));
+
+export const INSTANCE_RULE_IDS: ReadonlySet<string> = new Set(INSTANCE_ALERTS.map((alert) => alert.id));
+
+export const INSTANCE_RULES_NAME = 'koala-instance-alerts';
+
+export const instanceAlertsManifest = (): Record<string, unknown> => rulesManifest(INSTANCE_RULES_NAME, INSTANCE_ALERTS);

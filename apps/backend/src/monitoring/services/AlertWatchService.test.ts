@@ -50,7 +50,7 @@ beforeEach(async () => {
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
   monitoring.applyReceiver.mockResolvedValue(false);
-  monitoring.applyRootRules.mockResolvedValue(undefined);
+  monitoring.applyOwnRules.mockResolvedValue(undefined);
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
 });
@@ -110,9 +110,9 @@ describe('watching alerts', () => {
   });
 
   it('sets root\'s own alerts on each cluster it watches as it reconciles it, and says when that failed', async () => {
-    monitoring.applyRootRules.mockRejectedValueOnce(new Error('kubectl is away'));
+    monitoring.applyOwnRules.mockRejectedValueOnce(new Error('kubectl is away'));
     await watcher().tick();
-    expect(monitoring.applyRootRules).toHaveBeenCalledWith(koalas);
+    expect(monitoring.applyOwnRules).toHaveBeenCalledWith(koalas);
     expect(logged).toContain('[alerts] koala: root\'s own alerts could not be set (kubectl is away)');
   });
 

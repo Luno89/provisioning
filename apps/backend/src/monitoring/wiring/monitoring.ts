@@ -42,6 +42,7 @@ export interface MonitoringServiceParts {
   pool?: ReturnType<typeof poolMonitor> | undefined;
   machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;
   rootAlerts?: boolean | undefined;
+  instanceAlerts?: boolean | undefined;
 }
 
 export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps {
@@ -56,6 +57,7 @@ export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps
     prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus')),
     ...runnersByRecord(access),
     rootAlerts: parts.rootAlerts,
+    instanceAlerts: parts.instanceAlerts,
   };
 }
 
@@ -72,6 +74,7 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     pool: placeOnPool ? poolMonitor(placeOnPool) : undefined,
     machineStatus: deps.machineStatus,
     rootAlerts: watchesItself,
+    instanceAlerts: servesTenants(role),
   });
   if (watchesItself) deps.app.use('/api/monitoring', Router().use(deps.operatorOnly, monitoringRouter({ monitoring })));
   else tenant.use('/api/monitoring', monitoringRouter({ monitoring }));

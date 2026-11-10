@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parser } from '@prometheus-io/lezer-promql';
-import { ROOT_ALERTS, ROOT_PROCESSES, ROOT_RULE_IDS, ROOT_SERVICES, rootAlertsManifest } from './root-alerts.js';
+import { INSTANCE_ALERTS, INSTANCE_RULE_IDS, instanceAlertsManifest, ROOT_ALERTS, ROOT_PROCESSES, ROOT_RULE_IDS, ROOT_SERVICES, rootAlertsManifest } from './root-alerts.js';
 import { RULE_LABEL } from './monitoring-alerts.js';
 
 const parses = (query: string): boolean => {
@@ -38,5 +38,23 @@ describe('the alerts root sets on its own cluster', () => {
     const rules = manifest.spec.groups[0]!.rules;
     expect(rules.map((rule) => rule.labels[RULE_LABEL])).toEqual(ROOT_ALERTS.map((alert) => alert.id));
     expect(rules.every((rule) => rule.annotations.summary.length > 0)).toBe(true);
+  });
+});
+
+describe('the alerts an instance sets on its own cluster', () => {
+  it('watches each of its workers by its role, and not its backend, which is what tells anyone about an alert', () => {
+    expect(INSTANCE_ALERTS.map((alert) => alert.id)).toEqual(['instance-koala-worker-engine-down', 'instance-koala-worker-cluster-down', 'instance-koala-worker-host-down']);
+    for (const alert of INSTANCE_ALERTS) {
+      expect(alert.expr).toContain('koala_role="instance"');
+      expect(parses(alert.expr), alert.expr).toBe(true);
+    }
+    expect(INSTANCE_ALERTS.find((alert) => alert.id === 'instance-koala-worker-cluster-down')).toMatchObject({ forMinutes: 5, summary: 'The cluster worker, which deploys your apps, has not reported for 5 minutes' });
+    expect([...INSTANCE_RULE_IDS].filter((id) => ROOT_RULE_IDS.has(id))).toEqual([]);
+  });
+
+  it('is one PrometheusRule in the monitoring namespace, each rule labelled with its id', () => {
+    const manifest = instanceAlertsManifest() as { metadata: { name: string; namespace: string }; spec: { groups: { rules: { labels: Record<string, string> }[] }[] } };
+    expect(manifest.metadata).toMatchObject({ name: 'koala-instance-alerts', namespace: 'monitoring' });
+    expect(manifest.spec.groups[0]!.rules.map((rule) => rule.labels[RULE_LABEL])).toEqual(INSTANCE_ALERTS.map((alert) => alert.id));
   });
 });

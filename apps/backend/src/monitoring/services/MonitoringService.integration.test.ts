@@ -570,12 +570,12 @@ describe('Koala\'s own cluster when Koala runs on a machine', () => {
 
 describe('root\'s own alerts', () => {
   it('are written as one PrometheusRule into root\'s own cluster, and nowhere else', async () => {
-    await monitoring.applyRootRules(koalas);
+    await monitoring.applyOwnRules(koalas);
     expect(applied).toEqual([]);
     monitoring = new MonitoringService({ ...deps(), rootAlerts: true });
-    await monitoring.applyRootRules({ ...koalas, id: 'machine-other' } as ClusterMetadata);
+    await monitoring.applyOwnRules({ ...koalas, id: 'machine-other' } as ClusterMetadata);
     expect(applied).toEqual([]);
-    await monitoring.applyRootRules(koalas);
+    await monitoring.applyOwnRules(koalas);
     const written = applied.map((manifest) => JSON.parse(manifest) as { kind: string; metadata: { name: string } });
     expect(written.map((manifest) => [manifest.kind, manifest.metadata.name])).toEqual([['PrometheusRule', 'koala-root-alerts']]);
   });
