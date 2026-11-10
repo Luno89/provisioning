@@ -29,7 +29,7 @@ const QUESTION = process.env.BIG_RUN_LIVE_QUESTION ?? [
 ].join('\n');
 const DEADLINE_MS = Number(process.env.BIG_RUN_LIVE_MINUTES ?? '40') * 60_000;
 const EVENT_LIMIT = 512 * 1024;
-const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set BIG_RUN_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model deployment the run should use');

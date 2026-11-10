@@ -24,6 +24,7 @@ import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
 import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
+import { QUEUES } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,7 +54,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
 
   checkServices(dependencies, { gitea: settings.gitea.url, infisical: settings.infisical.url });
   void dependencies.start();
-  const queue = settings.queues.own || 'cluster-ops-queue';
+  const queue = QUEUES.cluster;
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 

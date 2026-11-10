@@ -11,7 +11,7 @@ import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
-import { DEV_TEMPORAL_ADDRESS, firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 
@@ -89,13 +89,7 @@ export interface SplitStack {
 
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-export function temporalContainer(): string {
-  const name = docker(['ps', '--filter', 'label=com.docker.compose.service=temporal', '--format', '{{.Names}}']).split('\n')[0];
-  if (!name) throw new Error('the dev stack\'s Temporal is not running');
-  return name;
-}
-
-export const temporal = (args: string[]): string => docker(['exec', temporalContainer(), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+export { temporal, temporalContainer } from './suite-root.js';
 
 async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?: () => string): Promise<T> {
   let last = '';
@@ -223,7 +217,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
     await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => logs('root'));
 
-    const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, queue: names.namespace, metricsPort: ports.metrics, env: [] });
+    const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, namespace: names.namespace, metricsPort: ports.metrics, env: [] });
     const plan = draft(owner);
     const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: withDatabase(mongoUri, names.databases.root) }));
     await rootDb.init();

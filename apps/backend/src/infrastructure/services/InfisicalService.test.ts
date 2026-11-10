@@ -44,6 +44,19 @@ describe('InfisicalService', () => {
     service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false });
   });
 
+  it('tells its dependency state how Infisical answered: a 503 as down, a 404 as an answer, and a lost connection as down', async () => {
+    const said: string[] = [];
+    const reporter = { failed: (_dependency: string, err: unknown) => { said.push(`failed: ${(err as Error).message}`); return err; }, answered: () => { said.push('answered'); } };
+    const watched = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, reporter as never);
+    post.mockImplementationOnce(() => status(503));
+    await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow(/^Infisical answered 503 to POST/);
+    post.mockImplementationOnce(() => status(404));
+    await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow(/^Infisical answered 404 to POST/);
+    post.mockImplementationOnce(unreachable);
+    await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow();
+    expect(said).toEqual(['failed: it answered 503', 'answered', expect.stringMatching(/^failed: /)]);
+  });
+
   it('reaches Infisical only at the address it was given', async () => {
     expect(await service.resolveBaseUrl()).toBe('http://vault:8080');
     post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });

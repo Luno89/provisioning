@@ -85,6 +85,8 @@ export { temporalCa, temporalTls, temporalTlsProblem } from './lib/temporal-tls.
 export { failureReason } from './lib/temporal-failure.js';
 export { isCloudProvider } from './lib/types.js';
 export type { CloudCredentials, CloudProvider, ClusterMetadata, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, PlatformGrant, ProjectMetadata, SignInLink, UserMetadata } from './lib/types.js';
+export { HOST_ACTIVITIES, placesOf, queueOf, QUEUES, roleRuns } from './lib/work-places.js';
+export type { Place } from './lib/work-places.js';
 export { createWorkerLogger } from './lib/worker-logger.js';
 export { closedAs } from './lib/workflow-close.js';
 export type { ClosedAs } from './lib/workflow-close.js';

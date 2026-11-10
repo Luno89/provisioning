@@ -9,7 +9,7 @@ import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -54,6 +54,7 @@ let vm: DisposableVm | undefined;
 
 async function startRoot(releaseTag: string): Promise<void> {
   try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
+  makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(),
     '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: releaseTag, registry: '10.0.2.2:5001' }),
@@ -72,6 +73,7 @@ async function teardown(): Promise<void> {
   } catch { /* nothing joined */ }
   if (ownerId) forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
+  dropSuiteNamespace(ROOT);
   await vm?.destroy();
 }
 

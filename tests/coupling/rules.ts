@@ -106,3 +106,42 @@ export function pruned(baseline: Baseline, found: readonly Breach[], rules: read
   const judgedNow = (key: string) => (rules as readonly string[]).includes(ruleOf(key));
   return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, judgedNow(key) ? Math.min(was, now[key] ?? 0) : was]).filter(([, count]) => count > 0));
 }
+
+const KEY = /^(R\d) (\S+) -> (.+) \(([^()]+)\)$/;
+
+interface KeyParts { rule: string; from: string; to: string[]; through: string }
+
+const partsOf = (key: string): KeyParts | undefined => {
+  const at = KEY.exec(key);
+  return at ? { rule: at[1]!, from: at[2]!, to: at[3]!.split(' | '), through: at[4]! } : undefined;
+};
+
+const namesOf = (to: readonly string[]): string => to.map((unit) => unit.slice(unit.indexOf('#'))).sort().join(' | ');
+
+export interface Move { from: string; to: string; count: number }
+
+export function movedIn(baseline: Baseline, found: readonly Breach[]): { baseline: Baseline; moves: Move[] } {
+  const now = counted(found);
+  const gone = Object.keys(baseline).filter((key) => now[key] === undefined);
+  const arrived = Object.keys(now).filter((key) => baseline[key] === undefined);
+  const carried: Baseline = { ...baseline };
+  const moves: Move[] = [];
+  const taken = new Set<string>();
+  for (const key of arrived) {
+    const parts = partsOf(key);
+    if (!parts) continue;
+    const from = gone.find((old) => {
+      if (taken.has(old)) return false;
+      const was = partsOf(old);
+      return was !== undefined && was.rule === parts.rule && was.from === parts.from && was.through === parts.through
+        && namesOf(was.to) === namesOf(parts.to) && was.to.join(' | ') !== parts.to.join(' | ');
+    });
+    if (!from) continue;
+    taken.add(from);
+    const count = baseline[from]!;
+    delete carried[from];
+    carried[key] = count;
+    moves.push({ from, to: key, count });
+  }
+  return { baseline: Object.fromEntries(Object.entries(carried).sort(([a], [b]) => a.localeCompare(b))), moves };
+}

@@ -44,7 +44,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
   const engineMetrics = await portToHandOn();
   const filesPort = await portToHandOn();
   const root = suiteRoot(suite, await portToHandOn());
-  const namespace = root.queue;
+  const namespace = root.namespace;
   const url = `http://localhost:${apiPort}`;
   const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => log(`    ${line}`));
   const container: Record<OwnProcess | 'files', string> = { backend: `nw-${suite}-backend-${namespace}`, engine: `nw-${suite}-engine-${namespace}`, files: `nw-${suite}-files-${namespace}` };

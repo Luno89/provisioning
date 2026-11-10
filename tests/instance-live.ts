@@ -10,7 +10,7 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -56,6 +56,7 @@ async function teardown(): Promise<void> {
   for (const name of ['nw-live-root', WORKER, MAILBOX]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try { run(bin('k3d'), ['cluster', 'delete', CLUSTER]); } catch { /* not created */ }
   await dropSuiteDatabase(ROOT).catch(() => undefined);
+  dropSuiteNamespace(ROOT);
 }
 
 async function main(): Promise<void> {
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   step('root starts, and publishes its public key');
   try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
+  makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }),
     '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),

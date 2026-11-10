@@ -18,7 +18,7 @@ const OWNER = process.env.CONTINUE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.CONTINUE_LIVE_AGENT ?? 'research';
 const QUESTION = process.env.CONTINUE_LIVE_QUESTION ?? 'What does the `jq -r` flag do? Answer in two sentences.';
 const DEADLINE_MS = Number(process.env.CONTINUE_LIVE_MINUTES ?? '20') * 60_000;
-const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set CONTINUE_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model deployment the run should use');

@@ -53,6 +53,7 @@ import { DependencyWatchWorkflow } from '../../workflows/DependencyWatchWorkflow
 import { PoolInstanceWorkflow } from '../../workflows/PoolInstanceWorkflow.js';
 import { PoolRemoveWorkflow } from '../../workflows/PoolRemoveWorkflow.js';
 import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
+import { QUEUES } from '../../platform/index.js';
 
 
 export function edgeOf(edge: EdgeSettings | Off, addresses: () => InstanceAddresses | undefined): InstanceEdge | undefined {
@@ -247,7 +248,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const siteNames = routing
     ? routing.siteDomains.filter((site) => site.endsWith(`.${routing.domain}`)).map((site) => site.slice(0, -(routing.domain.length + 1)))
     : [];
-  const poolTaskQueue = settings.queues.pool || 'host-ops-queue';
+  const poolTaskQueue = QUEUES.host;
   const dependencyWatch = new DependencyWatch({
     store: db.instances,
     inventoryOf: async (tag) => {

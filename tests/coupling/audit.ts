@@ -7,7 +7,7 @@ import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline, type Breach } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, pruned, RULES, type Baseline, type Breach } from './rules.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
 
@@ -66,9 +66,11 @@ if (!existsSync(BASELINE) && !options.seed) {
   if (options.seed) throw new Error(`${BASELINE} exists: the baseline only shrinks, so it is never seeded again; use --prune`);
   const before = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline;
   const lowering = belowLive();
-  const baseline = options.prune ? pruned(before, lowering, rules.judged) : before;
-  if (options.prune) write(baseline);
+  const moved = movedIn(before, found);
+  for (const move of moved.moves) console.log(`moved: ${move.from} -> ${move.to} (${move.count})`);
+  const baseline = options.prune ? pruned(moved.baseline, lowering, rules.judged) : moved.baseline;
   held = { kind: 'held', ...against(found, baseline, rules.judged, lowering) };
+  if (options.prune && held.added.length === 0) write(baseline);
 }
 
 const result = resultOf({

@@ -20,7 +20,7 @@ keepPayloadsIn(connections.mongo);
 const OWNER = process.env.EXTENSIONS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.EXTENSIONS_LIVE_AGENT ?? 'executor';
 const DEADLINE_MS = Number(process.env.EXTENSIONS_LIVE_MINUTES ?? '10') * 60_000;
-const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
 const shout = (suffix: string) => defineGroup('shout', {
   title: 'Shout',

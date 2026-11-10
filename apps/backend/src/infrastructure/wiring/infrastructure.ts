@@ -33,6 +33,7 @@ import { ServerOrderService } from '../services/ServerOrderService.js';
 import { rootNodeWorkflowId } from '../lib/server-orders.js';
 import { RootNodeWorkflow } from '../../workflows/RootNodeWorkflow.js';
 import type { Mounts } from '../../hub/index.js';
+import { QUEUES } from '../../platform/index.js';
 
 export interface InfrastructureWiringDeps {
   tenant: Mounts;
@@ -45,7 +46,6 @@ export interface InfrastructureWiringDeps {
   appUrl: string;
   openRouterUrl: string;
   googleDrive: { clientId: string; clientSecret: string } | { off: string };
-  poolQueue: string | undefined;
   repoRoot: string;
   credentials: CredentialService;
   clusters: ClusterService;
@@ -92,7 +92,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
       const workflowId = rootNodeWorkflowId(order.id);
       await (await getTemporalClient()).workflow.start(RootNodeWorkflow, {
         workflowId,
-        taskQueue: deps.poolQueue || 'host-ops-queue',
+        taskQueue: QUEUES.host,
         args: [order.id],
         ...startedFor(order.ownerId),
       });

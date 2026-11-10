@@ -9,7 +9,7 @@ export interface SuiteRoot {
   database: string;
   mongoUri: string;
   setupCode: string;
-  queue: string;
+  namespace: string;
   metricsPort: number;
   env: string[];
 }
@@ -32,12 +32,12 @@ export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
   const database = `koala_${suite.replace(/-/g, '_')}_${stamp}`;
   const mongoUri = withDatabase(process.env.MONGO_URI || DEV_MONGO, database);
   const setupCode = randomBytes(12).toString('base64url');
-  const queue = `${suite}-${stamp}`;
+  const namespace = `${suite}-${stamp}`;
   return {
-    suite, database, mongoUri, setupCode, queue, metricsPort,
+    suite, database, mongoUri, setupCode, namespace, metricsPort,
     env: [
-      '-e', 'ROLE=root', '-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', `POOL_TASK_QUEUE=${queue}`, '-e', 'CERTIFICATES=internal',
-      '-e', `TEMPORAL_CONNECTION_ADDRESS=${DEV_TEMPORAL_ADDRESS}`, '-e', 'TEMPORAL_NAMESPACE=default', '-e', 'TERRAFORM_STATE=local', '-e', `HEADSCALE_URL=${DEV_HEADSCALE}`,
+      '-e', 'ROLE=root', '-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', 'CERTIFICATES=internal',
+      '-e', `TEMPORAL_CONNECTION_ADDRESS=${DEV_TEMPORAL_ADDRESS}`, '-e', `TEMPORAL_NAMESPACE=${namespace}`, '-e', 'TERRAFORM_STATE=local', '-e', `HEADSCALE_URL=${DEV_HEADSCALE}`,
     ],
   };
 }
@@ -50,7 +50,7 @@ export const rootIdentity = (publicUrl: string, release: { tag: string; registry
   ['-e', `PUBLIC_URL=${publicUrl}`, '-e', `APP_URL=${publicUrl}`, '-e', `INSTANCE_IMAGE_TAG=${release.tag}`, '-e', `INSTANCE_REGISTRY=${release.registry}`];
 
 export const workerEnv = (root: SuiteRoot): string[] =>
-  ['-e', `TEMPORAL_TASK_QUEUE=${root.queue}`, '-e', 'HEALTH_PORT=0', '-e', `TEMPORAL_METRICS_PORT=${root.metricsPort}`];
+  ['-e', 'HEALTH_PORT=0', '-e', `TEMPORAL_METRICS_PORT=${root.metricsPort}`];
 
 export async function firstAdmin(rootUrl: string, root: SuiteRoot): Promise<FirstAdmin> {
   const email = `${root.suite}-owner-${Date.now().toString(36)}@example.com`;
@@ -86,6 +86,24 @@ export async function logoutDeliveries(root: SuiteRoot): Promise<Array<{ url: st
   } finally {
     await client.close();
   }
+}
+
+const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+export function temporalContainer(): string {
+  const name = docker(['ps', '--filter', 'label=com.docker.compose.service=temporal', '--format', '{{.Names}}']).split('\n')[0];
+  if (!name) throw new Error('the dev stack\'s Temporal is not running');
+  return name;
+}
+
+export const temporal = (args: string[]): string => docker(['exec', temporalContainer(), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+
+export function makeSuiteNamespace(root: SuiteRoot): void {
+  temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);
+}
+
+export function dropSuiteNamespace(root: SuiteRoot): void {
+  try { temporal(['namespace', 'delete', '--namespace', root.namespace, '--yes']); } catch { /* never made */ }
 }
 
 export async function dropSuiteDatabase(root: SuiteRoot): Promise<void> {

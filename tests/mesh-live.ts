@@ -9,7 +9,7 @@ import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 
 const GATEWAY_PORT = 30322;
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -103,6 +103,7 @@ async function teardown(): Promise<void> {
   } catch { /* never made */ }
   if (ownerId) forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
+  dropSuiteNamespace(ROOT);
   for (const vm of vms) await vm.destroy();
 }
 
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
 
   step('root starts, with the mesh at its address on this computer');
   for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
+  makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(),
     '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }),

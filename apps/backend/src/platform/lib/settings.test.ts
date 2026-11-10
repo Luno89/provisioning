@@ -124,9 +124,11 @@ describe('the settings a backend reads once, at start', () => {
     expect(problemsOf(() => backendSettingsFrom({ ...HUB, HUB_DATABASE: '' }))).toContain('HUB_DATABASE is not set: it is the database the hub keeps its registry of shared projects in');
   });
 
-  it('keeps the queue names as given, and test parameters at the product\'s value unless a suite shortens them', () => {
-    expect(backendSettingsFrom(ROOT)).toMatchObject({ queues: { engine: undefined, pool: undefined }, tests: { unreachableAfterMs: 600_000, openRouterUrl: 'https://openrouter.ai' } });
-    expect(backendSettingsFrom({ ...ROOT, POOL_TASK_QUEUE: 'suite-queue', WATCH_UNREACHABLE_MINUTES: '1' })).toMatchObject({ queues: { pool: 'suite-queue' }, tests: { unreachableAfterMs: 60_000 } });
+  it('takes no queue names from the environment, which name where work runs in one place, and keeps test parameters at the product\'s value unless a suite shortens them', () => {
+    expect(backendSettingsFrom(ROOT)).toMatchObject({ tests: { unreachableAfterMs: 600_000, openRouterUrl: 'https://openrouter.ai' } });
+    const named = backendSettingsFrom({ ...ROOT, POOL_TASK_QUEUE: 'suite-queue', TEMPORAL_TASK_QUEUE: 'q', TEMPORAL_ENGINE_TASK_QUEUE: 'q', WATCH_UNREACHABLE_MINUTES: '1' });
+    expect('queues' in named).toBe(false);
+    expect(named).toMatchObject({ tests: { unreachableAfterMs: 60_000 } });
     expect(problemsOf(() => backendSettingsFrom({ ...ROOT, WATCH_UNREACHABLE_MINUTES: 'soon' }))).toContain('WATCH_UNREACHABLE_MINUTES is not a number of minutes: soon');
   });
 });

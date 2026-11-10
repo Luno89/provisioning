@@ -8,11 +8,11 @@ import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-remova
 import { accountRouter } from '../routes/account.js';
 import type { Devices } from '../routes/device.js';
 import { adminRouter } from '../routes/admin.js';
+import { QUEUES } from '../../platform/index.js';
 
 export interface AccountsWiringDeps {
   app: Mounts;
   role: RoleConfig;
-  poolQueue: string | undefined;
   db: Database;
   temporal: () => Client | Promise<Client>;
   hubPeople: HubPeople | undefined;
@@ -28,7 +28,7 @@ export function wireAccounts(deps: AccountsWiringDeps): void {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>) => principalOf(user, claimSettingsFrom(role));
   const removal = new AccountRemovalService({
     store: db,
-    workflows: temporalRemovalWorkflows(deps.temporal, deps.poolQueue || 'host-ops-queue'),
+    workflows: temporalRemovalWorkflows(deps.temporal, QUEUES.host),
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.instances.getInstances(),

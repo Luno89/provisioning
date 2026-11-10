@@ -12,7 +12,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
+import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 import { signUp } from './lib/sign-up.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -138,6 +138,7 @@ async function teardown(): Promise<void> {
   } catch { /* nothing joined */ }
   if (ownerId) forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
+  dropSuiteNamespace(ROOT);
   await vm?.destroy();
   await target?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
@@ -208,6 +209,7 @@ async function main(): Promise<void> {
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
   const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml',
     '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_SLOT_CPU=4', '-e', 'POOL_SLOT_STORAGE_GIB=100', '-e', 'POOL_TRIAL_DAYS=14'];
+  makeSuiteNamespace(ROOT);
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(),
     '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `APP_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,

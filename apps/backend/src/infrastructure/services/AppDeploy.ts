@@ -16,8 +16,9 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
+import { QUEUES } from '../../platform/index.js';
 
-export const CLUSTER_QUEUE = 'cluster-ops-queue';
+export const CLUSTER_QUEUE = QUEUES.cluster;
 
 export interface AppDeployDeps {
   db: Database;

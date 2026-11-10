@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Graph, Unit } from './graph.js';
 import type { Covered, Judged } from './join.js';
-import { against, breaches, counted, judging, layerBreaches, pruned } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, pruned, type Breach } from './rules.js';
 
 const unit = (id: string, file: string): Unit => ({ id, file, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[], through: Edge['through'], line: number): Edge => ({ from, to, through, site: { file: `apps/backend/src/x/${from}.ts`, line, column: 1, start: 0, end: 0 } });
@@ -155,5 +155,37 @@ describe('R5, the layers a service, route or activity is tested at', () => {
     expect(rulesOf(booted)).toEqual([]);
     const unrun = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: [], lowest: undefined, withCallerAt: undefined })), started);
     expect(rulesOf(unrun).filter((line) => !line.startsWith('R2'))).toEqual(['R1 apps/backend/src/x/main.ts:1', 'R3 apps/backend/src/x/wire.ts:2', 'R1 apps/backend/src/x/service.ts:3']);
+  });
+});
+
+describe('a breach whose callee moved', () => {
+  const key = (rule: string, from: string, to: string, through = 'call') => `${rule} ${from} -> ${to} (${through})`;
+  const breach = (rule: 'R1' | 'R2', from: string, to: string): Breach => ({ rule, key: key(rule, from, to), at: 'x.ts:1', why: 'no test runs both sides for real' });
+
+  it('carries its count to the callee\'s new file when the caller, rule, call and function name are the same, saying so', () => {
+    const baseline = { [key('R1', 'a.ts#run', 'old/deps.ts#failureOf')]: 2, [key('R1', 'a.ts#run', 'b.ts#other')]: 1 };
+    const found = [breach('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'), breach('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'), breach('R1', 'a.ts#run', 'b.ts#other')];
+    const { baseline: carried, moves } = movedIn(baseline, found);
+    expect(moves).toEqual([{ from: key('R1', 'a.ts#run', 'old/deps.ts#failureOf'), to: key('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'), count: 2 }]);
+    expect(carried).toEqual({ [key('R1', 'a.ts#run', 'pkg/failures.ts#failureOf')]: 2, [key('R1', 'a.ts#run', 'b.ts#other')]: 1 });
+    expect(against(found, carried).added).toEqual([]);
+  });
+
+  it('lets in nothing new: a third call after a move, another function, another caller or another rule is still new', () => {
+    const baseline = { [key('R1', 'a.ts#run', 'old/deps.ts#failureOf')]: 1 };
+    const found = [breach('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'), breach('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'), breach('R1', 'a.ts#run', 'pkg/failures.ts#somethingElse'), breach('R2', 'a.ts#run', 'pkg/failures.ts#failureOf'), breach('R1', 'c.ts#go', 'pkg/failures.ts#failureOf')];
+    const { baseline: carried } = movedIn(baseline, found);
+    expect(against(found, carried).added.map((added) => added.key).sort()).toEqual([
+      key('R1', 'a.ts#run', 'pkg/failures.ts#failureOf'),
+      key('R1', 'a.ts#run', 'pkg/failures.ts#somethingElse'),
+      key('R1', 'c.ts#go', 'pkg/failures.ts#failureOf'),
+      key('R2', 'a.ts#run', 'pkg/failures.ts#failureOf'),
+    ]);
+  });
+
+  it('moves nothing while the old breach is still there', () => {
+    const baseline = { [key('R1', 'a.ts#run', 'old/deps.ts#failureOf')]: 1 };
+    const found = [breach('R1', 'a.ts#run', 'old/deps.ts#failureOf'), breach('R1', 'a.ts#run', 'pkg/failures.ts#failureOf')];
+    expect(movedIn(baseline, found).moves).toEqual([]);
   });
 });

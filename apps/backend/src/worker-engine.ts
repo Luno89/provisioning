@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { QUEUES } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
   catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl,
@@ -123,7 +124,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data'), dependencies });
+  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data'), dependencies });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -263,7 +264,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       addressProblem: publicAddressProblem,
       crawlerReady: async (ownerId) => (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
-        await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });
+        await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: QUEUES.host, workflowId, args: [args], ...startedFor(args.ownerId) });
       },
       status: async (workflowId) => {
         try {
@@ -481,7 +482,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     handOver: (id) => clusterService.access.handOver(id),
     logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
-    taskQueue: 'cluster-ops-queue',
+    taskQueue: QUEUES.cluster,
   };
   return {
     ...engine,
@@ -569,7 +570,7 @@ async function main() {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  const queue = settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE;
+  const queue = QUEUES.engine;
   const { address } = settings.temporal;
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);
 

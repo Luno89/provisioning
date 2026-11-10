@@ -60,12 +60,6 @@ export interface ClusterSettings {
   rootKubeconfig: string | Off;
 }
 
-export interface QueueNames {
-  engine: string | undefined;
-  pool: string | undefined;
-  own: string | undefined;
-}
-
 export interface TestParameters {
   unreachableAfterMs: number;
   openRouterUrl: string;
@@ -86,7 +80,6 @@ export interface CommonSettings extends ConnectionSettings {
   lab: boolean;
   telemetry: TelemetryPlace;
   clusters: ClusterSettings;
-  queues: QueueNames;
   tests: TestParameters;
 }
 
@@ -341,11 +334,6 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
       here,
       serviceAccount: serviceAccountFrom(env, SERVICE_ACCOUNT_DIR),
       rootKubeconfig: rootKubeconfig ?? { off: role.role === 'root' ? 'POOL_KUBECONFIG is not set, so root reaches no cluster of its own' : 'only root reaches root\'s own cluster' },
-    },
-    queues: {
-      engine: env.TEMPORAL_ENGINE_TASK_QUEUE,
-      pool: env.POOL_TASK_QUEUE,
-      own: env.TEMPORAL_TASK_QUEUE,
     },
     tests: {
       unreachableAfterMs: read.take(() => unreachableAfterMs(env)) ?? 0,

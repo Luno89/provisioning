@@ -421,7 +421,7 @@ ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing 
 which writes them into the VM's `registries.yaml` before k3s is installed; `install.sh` and `pool-node.sh` add root's registry to a
 `registries.yaml` that already has mirrors rather than replacing it), so only the first run downloads them. Each VM suite (`instance-live`, `byo-live`, `routing-live`, `mesh-live`, `pool-live`) starts its root
 container with a database of its own (`MONGO_URI` naming `koala_<suite>_<stamp>`, dropped when the suite ends), its own setup code, a
-host worker of its own on a task queue of its own (`POOL_TASK_QUEUE`, so root's removals and pool work never land on the dev
+host worker of its own in a Temporal namespace of its own (`makeSuiteNamespace`, so root's removals and pool work never land on the dev
 worker and its database), and the image under a tag named for the suite; the owner is the first admin, signed up through the real
 setup-code sign-up (`tests/lib/suite-root.ts`). So the suites run at once: `npm run test:vm-live [suite…]` builds the image from HEAD
 once and runs them in rounds packed by `MemAvailable` (the VM memory each needs is the table in `tests/lib/vm-rounds.ts`), each suite's
@@ -783,8 +783,10 @@ A setting is one of four things:
 - **a test parameter**: `WATCH_UNREACHABLE_MINUTES` and `OPENROUTER_URL` (a stand-in OpenRouter), read by the reader into
   `settings.tests`, the product's own value when unset.
 
-Left as they were: the task-queue names (`TEMPORAL_TASK_QUEUE`, `TEMPORAL_ENGINE_TASK_QUEUE`, `POOL_TASK_QUEUE`, read into
-`settings.queues` raw, each caller keeping its fallback until "where work runs"), and decision 13's `IS_E2E`, `MONGO_TEST_URI` and
+Where work runs is no setting: every queue is named once in `platform/lib/work-places.ts` (`QUEUES`), with the places each role runs
+(`placesOf`: root only the host queue, an instance all four, the hub none) and the host activities each role's host worker serves
+(`HOST_ACTIVITIES`); `TEMPORAL_TASK_QUEUE`, `TEMPORAL_ENGINE_TASK_QUEUE` and `POOL_TASK_QUEUE` are gone (owner, 2026-11-10), a VM
+suite's root keeping its work apart in a Temporal namespace of its own. Left as they were: decision 13's `IS_E2E`, `MONGO_TEST_URI` and
 the dev setup code. The operator's own credentials (`operatorCredentialsFrom`: OVHcloud's keys and each DNS provider's, read
 into `settings.operator.env` by root's backend and host worker only) are the only cloud credentials a process takes from its
 environment; Hugging Face and GitHub tokens are not among them. **Adding a setting**: read it in the role's reader (required, off with a reason, or a test parameter, with a

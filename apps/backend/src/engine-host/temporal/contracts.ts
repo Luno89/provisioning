@@ -25,6 +25,7 @@ import type {
 } from '@koala/agent-engine/procedure';
 import type { Principal } from '../../platform/index.js';
 import type { SamplingConfig } from '@koala/harness-types';
+import { QUEUES } from '../../platform/lib/work-places.js';
 
 export interface RunTicket {
   runId: string;
@@ -202,14 +203,14 @@ export interface MergeRuntime {
   run(args: MergeArgs): Promise<Record<string, unknown>>;
 }
 
-export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
+export const DEFAULT_ENGINE_TASK_QUEUE = QUEUES.engine;
 
 export {
   RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, adoptionWorkflowId, groveRunId, groveRunWorkflowId, runStamp, treeOfGroveRun, workflowOfRun,
 } from '../../platform/lib/workflow-ids.js';
 
 
-export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
+export const DEFAULT_STREAM_TASK_QUEUE = QUEUES.stream;
 export const GROVE_CHANGED_PATCH = 'grove-changed';
 
 export const FAILURES_REPORTED_PATCH = 'failures-reported';

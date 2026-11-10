@@ -124,7 +124,6 @@ export interface ProjectsWiringDeps {
   db: Database;
   io: SocketServer;
   role: RoleConfig;
-  engineQueue: string | undefined;
   dataKey: SecretKey;
   core: ProjectsCore;
   gitea: GiteaService;
@@ -157,7 +156,7 @@ export interface ProjectsWiring {
 export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const { tenant, db, io, core, gitea, temporalBridge, evalHost } = deps;
   const { projectRepoService, channels, itemChats, treeHome } = core;
-  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
+  const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
 
   if (servesTenants(deps.role)) {
     void gitea.makeUsersPrivate()

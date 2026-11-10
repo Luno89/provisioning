@@ -203,7 +203,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
   }), image, 'backend']);
   const logs = () => { try { return execFileSync('sh', ['-c', `docker logs --tail 40 ${NAMES.root} 2>&1`], { encoding: 'utf8' }); } catch { return ''; } };
   await until('the root answering', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), logs);
-  const owner = await firstAdmin(rootUrl, { suite: 'hardening', database, mongoUri, setupCode, queue: stack.names.namespace, metricsPort: 0, env: [] });
+  const owner = await firstAdmin(rootUrl, { suite: 'hardening', database, mongoUri, setupCode, namespace: stack.names.namespace, metricsPort: 0, env: [] });
 
   let heard = 0;
   const listener = http.createServer((_req, res) => { heard += 1; res.end('{}'); });

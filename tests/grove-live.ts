@@ -30,7 +30,7 @@ const EXPECT_STOPPED = process.env.GROVE_LIVE_EXPECT_STOPPED === '1';
 const IN_PROJECT = process.env.GROVE_LIVE_PROJECT === '1';
 
 const BASE = process.env.GROVE_LIVE_URL ?? 'http://localhost:3001/api';
-const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+const queue = DEFAULT_ENGINE_TASK_QUEUE;
 const elapsed = (since: number) => `${Math.round((Date.now() - since) / 1000)}s`;
 
 async function main(): Promise<void> {

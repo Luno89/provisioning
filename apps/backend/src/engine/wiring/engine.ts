@@ -80,7 +80,6 @@ const POISONING_TELL_EVERY_MS = 30_000;
 export interface EngineCoreDeps {
   db: Database;
   role: RoleConfig;
-  engineQueue: string | undefined;
   temporalBridge: TemporalBridge;
   machines: Pick<MachineService, 'choiceProblem'>;
   checks: () => Pick<Level2Service, 'list'> | undefined;
@@ -116,7 +115,7 @@ const tellBench = (bench: { service?: BenchService }, ownerId: string): void => 
 
 export function engineCore(deps: EngineCoreDeps): EngineCore {
   const { db, temporalBridge } = deps;
-  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
+  const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
   const extensions = extensionServiceFor(db);
   const dependencyFollowers: { tools?: EngineToolService; servers?: McpServerService } = {};
   const workspaceDependencies = new WorkspaceDependencyService({
@@ -268,7 +267,6 @@ export interface EngineWiringDeps {
   tenant: Mounts;
   db: Database;
   io: SocketServer;
-  engineQueue: string | undefined;
   port: number;
   registry: RegistryHosts | { none: string };
   webTools: WebToolsPlace;
@@ -307,7 +305,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const attachable = keptFiles ? { attachable: (ownerId: string, fileId: string) => keptFiles.attachable(ownerId, fileId) } : {};
   const { tenant, db, io, role, core, temporalBridge, gitea, projectRepos } = deps;
   const { extensions, dependenciesOf, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, bench, agentsHolder, workspaceRepos, workspaceConclusions, conversationTurns } = core;
-  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
+  const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
   const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
   const ownedConversations = async (userId: string) => (await db.engine.getConversations()).filter((c) => c.ownerId === userId);
 

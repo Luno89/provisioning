@@ -19,6 +19,7 @@ import { collectorAnswers, reportCollectorTo, workerDependencies } from './platf
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
+import { QUEUES } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -51,7 +52,7 @@ async function main() {
   keepPayloadsIn(settings.mongo);
   giveHostActivities(settings, access);
   void dependencies.start();
-  const queue = settings.queues.own || 'host-ops-queue';
+  const queue = QUEUES.host;
   const { address } = settings.temporal;
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
 

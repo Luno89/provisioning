@@ -48,10 +48,11 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
+import { QUEUES } from '../../platform/index.js';
 
 const GRPC_NOT_FOUND = 5
 
-const CLUSTER_QUEUE = 'cluster-ops-queue'
+const CLUSTER_QUEUE = QUEUES.cluster
 const RECONCILE_INTERVAL = 30000
 
 const CONSOLIDATE_INTERVAL = 1_800_000
@@ -195,7 +196,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined; dependencies?: DependencyReporter | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -426,7 +427,7 @@ export class TemporalBridge {
     const workflowId = `adopt-plan-${proposalId}`
     await this.client.workflow.start(AdoptPlanWorkflow, {
       workflowId,
-      taskQueue: this.seams.engineQueue || DEFAULT_ENGINE_TASK_QUEUE,
+      taskQueue: DEFAULT_ENGINE_TASK_QUEUE,
       args: [{ ownerId, proposalId }],
       ...startedFor(ownerId),
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
@@ -956,7 +957,7 @@ export class TemporalBridge {
     const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { ownerId, url, ...limits } = args
     await this.client.workflow.start(executeIngestWorkflow, {
-      taskQueue: 'host-ops-queue',
+      taskQueue: QUEUES.host,
       workflowId,
       args: [{ ownerId, url, ...definedFields(limits) }],
       ...startedFor(args.ownerId),

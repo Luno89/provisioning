@@ -11,7 +11,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -121,6 +121,7 @@ async function teardown(): Promise<void> {
   } catch { /* nothing joined */ }
   if (ownerId) forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
+  dropSuiteNamespace(ROOT);
   await vm?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
 }
@@ -165,6 +166,7 @@ async function main(): Promise<void> {
 
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
+  makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
     ...devDataMounts(),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
