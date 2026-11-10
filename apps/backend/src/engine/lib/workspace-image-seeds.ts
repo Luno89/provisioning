@@ -115,7 +115,7 @@ export interface WorkspaceImageStore {
 }
 
 export async function seedWorkspaceImages(store: WorkspaceImageStore): Promise<number> {
-  const stored = await store.getWorkspaceImages().catch(() => [] as WorkspaceImageSpec[]);
+  const stored = await store.getWorkspaceImages();
   const shipped = new Map(stored.filter((i) => i.ownerId === undefined).map((i) => [i.id, i]));
 
   let seeded = 0;
