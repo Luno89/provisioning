@@ -24,7 +24,7 @@ import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sand
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
@@ -84,8 +84,6 @@ import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-dotenv.config({ quiet: true });
 
 const logger = createWorkerLogger('engine-worker');
 
@@ -546,8 +544,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   };
 }
 
-async function main() {
-  const settings = engineWorkerSettingsFrom(process.env);
+export function engineWorkerSetup(settings: EngineWorkerSettings) {
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-engine'));
   const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(telemetryAccess);
@@ -556,6 +553,33 @@ async function main() {
   reportCollectorTo(telemetry, dependencies);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId })));
   checkServices(dependencies, { gitea: settings.tenant.gitea.url, infisical: settings.tenant.infisical.url, minio: settings.tenant.minio, registryPush: settings.tenant.registry.push, webTools: settings.tenant.webTools });
+  const plaintext = temporalTlsProblem(settings.temporal);
+  if (plaintext) throw new Error(plaintext);
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
+  return { telemetry, dependencies };
+}
+
+export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
+  const activities = built ?? await buildActivities(settings, dependencies);
+  const connection = await connectTemporalWorker('koala-worker-engine', settings);
+  const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
+  const worker = await Worker.create({
+    ...WORKER_DEFAULTS,
+    connection,
+    namespace: settings.temporal.namespace,
+    ...(dataConverter ? { dataConverter } : {}),
+    taskQueue: QUEUES.engine,
+    workflowsPath: resolve(__dirname, 'workflows'),
+    interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
+    activities,
+  });
+  return { worker, activities };
+}
+
+async function main() {
+  dotenv.config({ quiet: true });
+  const settings = engineWorkerSettingsFrom(process.env);
   Runtime.install({
     logger,
     telemetryOptions: {
@@ -566,13 +590,9 @@ async function main() {
       },
     },
   });
-  const plaintext = temporalTlsProblem(settings.temporal);
-  if (plaintext) throw new Error(plaintext);
-  connectTemporalAs(settings);
-  keepPayloadsIn(settings.mongo);
-  const queue = QUEUES.engine;
+  const { telemetry, dependencies } = engineWorkerSetup(settings);
   const { address } = settings.temporal;
-  logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);
+  logger.info(`[EngineWorker] Starting — taskQueue=${QUEUES.engine}, address=${address}`);
 
   let activities: Awaited<ReturnType<typeof buildActivities>> | undefined;
   let current: Worker | undefined;
@@ -582,24 +602,11 @@ async function main() {
   const connecting = reopening();
   for (;;) {
     try {
-      activities ??= await buildActivities(settings, dependencies);
-      const connection = await connectTemporalWorker('koala-worker-engine', settings);
-      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-
-      const worker = await Worker.create({
-    ...WORKER_DEFAULTS,
-        connection,
-        namespace: settings.temporal.namespace,
-        ...(dataConverter ? { dataConverter } : {}),
-        taskQueue: queue,
-        workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities,
-      });
-      current = worker;
-
+      const created = await createEngineWorker(settings, dependencies, activities);
+      activities = created.activities;
+      current = created.worker;
       logger.info('[EngineWorker] Connected, polling for work');
-      await worker.run();
+      await created.worker.run();
       await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
       return;
     } catch (err) {
@@ -610,7 +617,9 @@ async function main() {
   }
 }
 
-main().then(() => {
+const startedAsProgram = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (startedAsProgram) main().then(() => {
   logger.info('[EngineWorker] Stopped');
   process.exit(0);
 }, (err) => {

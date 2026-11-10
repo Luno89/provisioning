@@ -1,3 +1,4 @@
+import { roleRuns } from './work-places.js';
 import type { TelemetryPlace } from './telemetry.js';
 import { roleFromEnv, type RoleConfig } from './platform-role.js';
 import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
@@ -492,6 +493,7 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   const read = new Reading(env);
   const role = read.take(() => roleFromEnv(env));
   const base = common(read, 'worker-host', role);
+  if (role && !roleRuns(role.role, 'host')) read.problems.push(`the host worker runs only on root and in an instance, and ROLE is ${role.role}`);
   const health = workerHealth(read, 'TEMPORAL_METRICS_PORT');
   const onRoot = role?.role === 'root';
   const publicUrl = onRoot ? urlSetting(read, 'PUBLIC_URL', 'it is root\'s own address, which its pool and dependency watch hand on') : undefined;
@@ -520,6 +522,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const read = new Reading(env);
   const role = read.take(() => roleFromEnv(env));
   const base = common(read, 'worker-cluster', role);
+  if (role && !roleRuns(role.role, 'cluster')) read.problems.push(`the cluster worker runs only in an instance, whose apps it deploys, and ROLE is ${role.role}`);
   const health = workerHealth(read, 'TEMPORAL_METRICS_PORT');
   const gitea = read.take(() => giteaSettingsFrom(env));
   const infisical = read.take(() => infisicalSettingsFrom(env));
@@ -549,7 +552,7 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
   const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the instance\'s own address, which its sign-in through root names');
   const instanceCredential = required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which its runs reach root with');
   const tenant = tenantServices(read);
-  if (role && role.role !== 'instance') read.problems.push(`the engine worker runs only in an instance, and ROLE is ${role.role}`);
+  if (role && !roleRuns(role.role, 'engine')) read.problems.push(`the engine worker runs only in an instance, and ROLE is ${role.role}`);
   if (!base || !health || !publicUrl || !instanceCredential || !tenant) return finish<EngineWorkerSettings>(read, 'the engine worker');
   return finish(read, 'the engine worker', {
     ...base,

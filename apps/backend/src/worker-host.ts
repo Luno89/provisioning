@@ -19,7 +19,7 @@ import { collectorAnswers, reportCollectorTo, workerDependencies } from './platf
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
-import { HOST_ACTIVITIES, QUEUES, roleRuns, type HostWorkerSettings } from './platform/index.js';
+import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -42,7 +42,6 @@ export function hostActivitiesFor(role: HostWorkerSettings['role']['role']): Par
 }
 
 export async function startHostWorker(settings: HostWorkerSettings) {
-  if (!roleRuns(settings.role.role, 'host')) throw new Error(`${settings.role.role} runs no host worker`);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-host'));
   const access = hostClusterAccess(settings);
   const telemetryProxy = sharedClusterProxy(access);

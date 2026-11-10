@@ -44,7 +44,7 @@ describe('the cluster worker, started the way its entry starts it', () => {
     await running;
   }, 60_000);
 
-  it('does not start on root, which runs no cluster worker', async () => {
-    await expect(startClusterWorker(clusterWorkerSettingsFrom(placeFor('root')))).rejects.toThrow(/^root runs no cluster worker/);
+  it('is refused by its settings on root, which runs no cluster worker', () => {
+    expect(() => clusterWorkerSettingsFrom(placeFor('root'))).toThrow(/the cluster worker runs only in an instance, whose apps it deploys, and ROLE is root/);
   });
 });
