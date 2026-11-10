@@ -105,7 +105,7 @@ export const startsSignInItself = (answer: unknown): boolean => (answer as { url
 export const claimsFor = (user: ClaimedUser, client: { kind: ClientKind; owner?: string | undefined }): Claim[] =>
   client.kind === 'instance' ? claimsOf(user, { role: 'instance', instanceOwnerId: client.owner }) : claimsOf(user, { role: 'hub' });
 
-export const CLAIM_ROLES: readonly Claim['role'][] = ['person', 'operator', 'instance-owner', 'shared'];
+export const CLAIM_ROLES: readonly Claim['role'][] = ['person', 'operator', 'instance-owner', 'shared', 'space-of'];
 
 export const claimsShaped = (value: unknown): value is Claim[] =>
   Array.isArray(value) && value.every((claim) => {
@@ -114,6 +114,7 @@ export const claimsShaped = (value: unknown): value is Claim[] =>
       const shared = claim as { project?: unknown; as?: unknown };
       return typeof shared.project === 'string' && (shared.as === 'owner' || shared.as === 'collaborator' || shared.as === 'client');
     }
+    if (role === 'space-of') return typeof (claim as { person?: unknown }).person === 'string';
     return role === 'person' || role === 'operator' || role === 'instance-owner';
   });
 

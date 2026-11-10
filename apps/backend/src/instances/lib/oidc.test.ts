@@ -24,6 +24,8 @@ describe('who root signs in where', () => {
   it('reads back only claims it could have issued', () => {
     expect(claimsShaped([{ role: 'person' }, { role: 'shared', project: 'p1', as: 'client' }])).toBe(true);
     expect(claimsShaped([{ role: 'root' }])).toBe(false);
+    expect(claimsShaped([{ role: 'person' }, { role: 'space-of', person: 'owner' }])).toBe(true);
+    expect(claimsShaped([{ role: 'space-of' }])).toBe(false);
     expect(claimsShaped([{ role: 'shared', project: 'p1', as: 'admin' }])).toBe(false);
     expect(claimsShaped('person')).toBe(false);
   });
