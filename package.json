@@ -20,6 +20,7 @@
     "test:all": "npm test && npm run test:synth:palworld",
     "test:alive": "bash scripts/alive.sh",
     "ship": "tsx tests/ship.ts",
+    "gate": "tsx tests/ship.ts --no-push --step",
     "release": "tsx tests/release.ts",
     "test:vm-live": "tsx tests/lib/vm-rounds.ts",
     "test:workflows": "bash scripts/workflows-local.sh",

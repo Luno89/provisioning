@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ignoredIn, leaksIn } from './gate-runs.js';
+import { codeCommitOf, ignoredIn, leaksIn, pushedGates, writeRecord } from './gate-runs.js';
+import { checkedThrough } from './gates.js';
 
 const repos: string[] = [];
 const run = (repo: string, ...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
@@ -59,5 +60,30 @@ describe('what Gitleaks finds in the commits a push adds', () => {
     expect(found).toMatch(/src\/config\.ts/);
     expect(found).not.toContain(value);
     expect(leaksIn(repo, `${before}~0..${before}`)).toBeUndefined();
+  });
+});
+
+describe('which commit a step\'s pass belongs to', () => {
+  const commit = (repo: string, file: string, content: string, message: string): string => {
+    mkdirSync(join(repo, file, '..'), { recursive: true });
+    writeFileSync(join(repo, file), content);
+    run(repo, 'add', '-A');
+    run(repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', message);
+    return run(repo, 'rev-parse', 'HEAD');
+  };
+
+  it('is the last commit that changed code, through any number of ledger-only commits on top, and never across a code change', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'gate-passes-'));
+    repos.push(repo);
+    run(repo, 'init', '-q');
+    const code = commit(repo, 'src/a.ts', 'one', 'code');
+    writeRecord(repo, { commit: code, checked: [{ name: 'lint', script: 'lint', minutes: 1 }] });
+    commit(repo, 'tests/last-passed.json', '{"a":1}', 'ledger');
+    const top = commit(repo, 'tests/test-failures.json', '{}', 'ledger again');
+    expect(codeCommitOf(repo, top)).toBe(code);
+    expect(checkedThrough(pushedGates(repo, top)).map((step) => step.script)).toEqual(['lint']);
+    const changed = commit(repo, 'src/a.ts', 'two', 'more code');
+    expect(codeCommitOf(repo, changed)).toBe(changed);
+    expect(checkedThrough(pushedGates(repo, changed))).toEqual([]);
   });
 });

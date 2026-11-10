@@ -25,11 +25,23 @@ export function writeRecord(repo: string, record: GateRecord): void {
   writeFileSync(join(gatesDir(repo), `${record.commit}.json`), `${JSON.stringify(record, null, 2)}\n`);
 }
 
+export function codeCommitOf(repo: string, commit: string): string {
+  let at = commit;
+  for (;;) {
+    let parent: string | undefined;
+    try { parent = git(repo, ['rev-parse', '--verify', '--quiet', `${at}^`]); } catch { parent = undefined; }
+    if (!parent) return at;
+    if (!onlyLedger(git(repo, ['diff', '--name-only', parent, at]).split('\n').filter(Boolean))) return at;
+    at = parent;
+  }
+}
+
 export function pushedGates(repo: string, commit: string): PushedGates {
+  const code = codeCommitOf(repo, commit);
+  if (code !== commit) return { record: readRecord(repo, commit), parent: readRecord(repo, code), onlyLedgerSinceParent: true };
   let parent: string | undefined;
   try { parent = git(repo, ['rev-parse', '--verify', '--quiet', `${commit}^`]); } catch { parent = undefined; }
-  const changed = parent ? git(repo, ['diff', '--name-only', parent, commit]).split('\n').filter(Boolean) : [];
-  return { record: readRecord(repo, commit), parent: parent ? readRecord(repo, parent) : undefined, onlyLedgerSinceParent: onlyLedger(changed) };
+  return { record: readRecord(repo, commit), parent: parent ? readRecord(repo, parent) : undefined, onlyLedgerSinceParent: false };
 }
 
 export function ignoredIn(repo: string, commit: string): string[] {
@@ -164,7 +176,7 @@ export function auditsOwed(repo: string): string | undefined {
   return auditRefusal(owedAudits(failuresIn(repo), (name) => git(repo, ['log', '-1', '--format=%cI', '--', auditFileOf(name)]).trim() || undefined));
 }
 
-export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>): StepPassed[] {
+export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>, onPass: (passed: StepPassed) => void = () => undefined): StepPassed[] {
   const owed = auditsOwed(repo);
   if (owed) throw new Error(owed);
   const passed: StepPassed[] = [];
@@ -193,7 +205,10 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     const moved = checkoutProblem(repo, commit);
     if (moved) throw new Error(`${moved} while ${step.name} ran, so what it tested is not this commit; run it again once the checkout is back`);
     console.log(`━━ ✓ ${step.name} in ${minutes} min`);
-    passed.push({ name: step.name, script: step.script, minutes });
+    const kept = { name: step.name, script: step.script, minutes };
+    passed.push(kept);
+    if (live) recordSampled();
+    onPass(kept);
   });
   recordSampled();
   return passed;

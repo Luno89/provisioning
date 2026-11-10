@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -195,5 +195,29 @@ describe('checking a release before tagging it', () => {
 
   it('gives every release step a memory size, so none is packed as free', () => {
     expect(RELEASE_STEPS.filter((step) => !step.memoryMB).map((step) => step.script)).toEqual([]);
+  });
+});
+
+describe('which ship steps a run takes', () => {
+  const steps = [{ name: 'unit', script: 'test:unit' }, { name: 'checks', script: 'test:checks-live' }, { name: 'coupling', script: 'test:coupling:live' }];
+  const passed = (script: string) => ({ name: script, script, minutes: 1 });
+
+  it('takes every step not passed yet for this commit, in order', () => {
+    expect(shipRun(steps, [passed('test:unit')], undefined)).toEqual({ steps: [steps[1], steps[2]] });
+    expect(shipRun(steps, steps.map((step) => passed(step.script)), undefined)).toEqual({ steps: [] });
+  });
+
+  it('runs one step named by its script with or without test:, again if it passed already', () => {
+    expect(shipRun(steps, [passed('test:checks-live')], 'checks-live')).toEqual({ steps: [steps[1]] });
+    expect(shipRun(steps, [], 'test:unit')).toEqual({ steps: [steps[0]] });
+  });
+
+  it('refuses a step it does not know, naming the ones it does', () => {
+    expect(shipRun(steps, [], 'nope')).toEqual({ refused: 'ship has no step nope; its steps are unit, checks-live, coupling:live' });
+  });
+
+  it('runs the coupling rules alone only once every step before them passed for this commit, since they judge what those gathered', () => {
+    expect(shipRun(steps, [passed('test:unit')], 'coupling:live')).toEqual({ refused: 'the coupling rules judge what every step before them gathered on this commit, and checks-live has not passed on it yet' });
+    expect(shipRun(steps, [passed('test:unit'), passed('test:checks-live')], 'coupling:live')).toEqual({ steps: [steps[2]] });
   });
 });

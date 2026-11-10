@@ -177,6 +177,20 @@ export function changedBesidesLedger(porcelain: string): string[] {
 export const checkedThrough = (gates: PushedGates): StepPassed[] =>
   [...(gates.record?.checked ?? []), ...(gates.onlyLedgerSinceParent ? gates.parent?.checked ?? [] : [])];
 
+export const shortName = (script: string): string => script.replace(/^test:/, '');
+
+export const shipRun = (steps: readonly GateStep[], checked: readonly StepPassed[], only: string | undefined): { steps: GateStep[] } | { refused: string } => {
+  if (only === undefined) return { steps: stillToRun(steps, checked) };
+  const at = steps.findIndex((step) => step.script === only || shortName(step.script) === only);
+  if (at < 0) return { refused: `ship has no step ${only}; its steps are ${steps.map((step) => shortName(step.script)).join(', ')}` };
+  const step = steps[at]!;
+  if (LAYER_STEPS.some((layer) => layer.script === step.script)) {
+    const missing = stillToRun(steps.slice(0, at), checked);
+    if (missing.length > 0) return { refused: `the coupling rules judge what every step before them gathered on this commit, and ${missing.map((left) => shortName(left.script)).join(', ')} ${missing.length === 1 ? 'has' : 'have'} not passed on it yet` };
+  }
+  return { steps: [step] };
+};
+
 export const stillToRun = (steps: readonly GateStep[], checked: readonly StepPassed[]): GateStep[] =>
   steps.filter((step) => !checked.some((passed) => passed.script === step.script));
 
