@@ -26,3 +26,11 @@ describe('seeding the shipped workspace images', () => {
     expect(current.saved).toEqual([odoo]);
   });
 });
+
+describe('a store that cannot be read', () => {
+  it('stops the seeding with why, saving nothing, rather than taking it as nothing stored', async () => {
+    let saved = 0;
+    await expect(seedWorkspaceImages({ getWorkspaceImages: async () => { throw new Error('mongo is not answering'); }, saveWorkspaceImage: async () => { saved += 1; } })).rejects.toThrow('mongo is not answering');
+    expect(saved).toBe(0);
+  });
+});

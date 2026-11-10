@@ -18,7 +18,7 @@ export async function seedEngineTools(
   store: EngineToolStore,
   options: SeedToolOptions = {},
 ): Promise<number> {
-  const stored = await store.getEngineTools().catch(() => [] as ToolDefinition[]);
+  const stored = await store.getEngineTools();
   const builtIn = new Map(
     stored.filter((row) => row.ownerId === undefined).map((row) => [row.name, row]),
   );
