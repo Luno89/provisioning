@@ -16,6 +16,7 @@ const stepAt = process.argv.indexOf('--step');
 const ONLY = stepAt >= 0 ? process.argv[stepAt + 1] : undefined;
 
 async function main(): Promise<void> {
+  if (stepAt >= 0 && (!ONLY || HOTFIXING)) throw new Error(`name one step to run: ${SHIP_STEPS.map((step) => shortName(step.script)).join(', ')}`);
   const branch = git(REPO, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch !== 'main') throw new Error(`ship runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
@@ -34,7 +35,6 @@ async function main(): Promise<void> {
   if (measuring) throw new Error(measuring);
   const drifting = HOTFIXING ? undefined : gateRefusal(gateOf((await currentDrift(REPO)).findings, ANSWERS));
   if (drifting) throw new Error(drifting);
-  if (stepAt >= 0 && (!ONLY || HOTFIXING)) throw new Error(`name one step to run: ${SHIP_STEPS.map((step) => shortName(step.script)).join(', ')}`);
   const owner = HOTFIXING ? undefined : (await devOwner()).id;
 
   const commit = git(REPO, ['rev-parse', 'HEAD']);
