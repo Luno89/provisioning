@@ -69,3 +69,7 @@ reason = "stream-json: pulled in by minio 8.0.7 (unused listing paths); no fixed
 [[IgnoredVulns]]
 id = "GHSA-mjw6-4jj6-33hc"
 reason = "stream-json: pulled in by minio 8.0.7 (unused listing paths); no fixed minio yet"
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+reason = "minimatch 9.0.5: bundled by cdktf (cdktf -> archiver -> archiver-utils -> glob 10), so no override reaches it, and cdktf 0.21.0 bundles the same; fixed only in minimatch 11.0.1. Never run: cdktf zips with archiver only for TerraformAsset and module assets, which Koala does not use, and only archiver-utils/file.js loads that glob, which archiver never calls (owner, 2026-11-09: \"1 sounds fine\"). Goes with cdktf"
