@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { ignore } from '@koala/engine-core/failures';
 import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 import { DeployAppActivity, type DeployAppArgs } from './activities/DeployAppActivity.js';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from './activities/CheckWorkloadActivity.js';
@@ -14,7 +14,7 @@ import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
-import { createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { type ClusterWorkerSettings, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
@@ -27,12 +27,9 @@ import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-dotenv.config({ quiet: true });
-
 const logger = createWorkerLogger('cluster-worker');
 
-async function main() {
-  const settings = clusterWorkerSettingsFrom(process.env);
+export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(access);
@@ -40,16 +37,6 @@ async function main() {
   const dependencies = workerDependencies(settings, settings.mongo);
   reportCollectorTo(telemetry, dependencies);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
-  Runtime.install({
-    logger,
-    telemetryOptions: {
-      metrics: {
-        prometheus: {
-          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
-        },
-      },
-    },
-  });
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
@@ -103,6 +90,23 @@ async function main() {
     }
   }
 
+  return { worker: worker!, steps, telemetry };
+}
+
+async function main() {
+  dotenv.config({ quiet: true });
+  const settings = clusterWorkerSettingsFrom(process.env);
+  Runtime.install({
+    logger,
+    telemetryOptions: {
+      metrics: {
+        prometheus: {
+          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+        },
+      },
+    },
+  });
+  const { worker, steps, telemetry } = await startClusterWorker(settings);
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
   ensureClusterMonitoring(steps, koalaClusterMonitoring(Boolean(settings.clusters.here.poolName), steps.access.own()))
     .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
@@ -112,7 +116,9 @@ async function main() {
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 
-main().then(() => {
+const startedAsProgram = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (startedAsProgram) main().then(() => {
   process.exit(0);
 }, (err: Error) => {
   logger.error(err instanceof SettingsError ? `[ClusterWorker] ${err.message}` : `[ClusterWorker] FATAL: ${err.stack || err.message}`);
