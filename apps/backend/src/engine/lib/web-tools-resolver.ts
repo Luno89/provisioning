@@ -56,29 +56,13 @@ async function baseUrlFor(
   }
 }
 
-export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Promise<WebTools> {
-  const settings = deps.settings ?? {};
-  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
-
-  const searxDep = liveDeployment(deployments, 'searxng', ownerId);
-  const crawlDep = liveDeployment(deployments, 'crawl4ai', ownerId);
-
-  const searxngUrl = (searxDep ? await baseUrlFor(deps, searxDep, 'searxng', 8080) : undefined)
-    || settings.searxngUrl || undefined;
-
-  const crawl4aiUrl = (crawlDep ? await baseUrlFor(deps, crawlDep, 'crawl4ai', 11235) : undefined)
-    || settings.crawl4aiUrl || undefined;
-
-  const crawl4aiToken = (crawlDep && crawl4aiUrl && crawlDep.crawl4aiApiToken)
-    || (!crawlDep ? settings.crawl4aiToken : undefined)
-    || undefined;
-
-  const watched = (dependency: 'searxng' | 'crawl4ai', fromSettings: boolean): typeof fetch | undefined =>
-    fromSettings && deps.dependencies && deps.baseFetch ? reportingFetch(deps.dependencies, dependency, deps.baseFetch) : undefined;
-  const searxngFetch = watched('searxng', !searxDep && Boolean(settings.searxngUrl));
-  const crawl4aiFetch = watched('crawl4ai', !crawlDep && Boolean(settings.crawl4aiUrl));
-
-  const tools = createWebTools({
+export async function resolveWebTools(deps: WebToolsDeps): Promise<WebTools> {
+  const { searxngUrl, crawl4aiUrl, crawl4aiToken } = deps.settings ?? {};
+  const watched = (dependency: 'searxng' | 'crawl4ai'): typeof fetch | undefined =>
+    deps.dependencies && deps.baseFetch ? reportingFetch(deps.dependencies, dependency, deps.baseFetch) : undefined;
+  const searxngFetch = searxngUrl ? watched('searxng') : undefined;
+  const crawl4aiFetch = crawl4aiUrl ? watched('crawl4ai') : undefined;
+  return createWebTools({
     ...(deps.baseFetch ? { fetchImpl: deps.baseFetch } : {}),
     ...(searxngFetch ? { searxngFetch } : {}),
     ...(crawl4aiFetch ? { crawl4aiFetch } : {}),
@@ -86,11 +70,6 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
     ...(searxngUrl ? { searxngUrl } : {}),
     ...(crawl4aiUrl && crawl4aiToken ? { crawl4aiUrl, crawl4aiToken } : {}),
   });
-
-  console.log(`[web-tools] search=${tools.sources.search} fetch=${tools.sources.fetch}`
-    + ` (deployments: searxng=${searxDep ? searxDep.name : 'none'}, crawl4ai=${crawlDep ? crawlDep.name : 'none'})`);
-
-  return tools;
 }
 
 export async function crawlEndpointWith(deps: WebToolsDeps, ownerId?: string): Promise<{ base: string; token: string } | undefined> {

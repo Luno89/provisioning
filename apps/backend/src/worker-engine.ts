@@ -98,10 +98,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' })), mesh: settings.mesh, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
-  const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies }).catch((err: Error) => {
-    console.warn(`[EngineWorker] the web tools could not be built, so runs on this worker go without them: ${err.message}`);
-    return undefined;
-  });
+  const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies });
 
   const giteaAt = tenant.gitea;
   const imageRegistry = tenant.registry;
