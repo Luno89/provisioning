@@ -8,7 +8,7 @@ import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { followEngineWorker } from './device-worker-follow.js';
-import { deviceQueue } from './engine-worker.js';
+import { deviceQueue, startDeviceWorker } from './engine-worker.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { IdleGate } from './idle-gate.js';
 import { LocalMcpServer } from './local-mcp.js';
@@ -43,7 +43,7 @@ describe('the machine agent following its Koala for its device worker', () => {
     const socket = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
     const gate = new IdleGate();
     const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
-    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, hostCluster(async () => undefined));
+    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker);
     expect(host).toBeDefined();
 
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
@@ -61,6 +61,6 @@ describe('the machine agent following its Koala for its device worker', () => {
     const gate = new IdleGate();
     const socket = connect('http://127.0.0.1:1', { autoConnect: false });
     const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
-    expect(followEngineWorker(socket, { rootDir } as never, 'http://127.0.0.1:1', { value: '' }, sessions, gate, hostCluster(async () => undefined))).toBeUndefined();
+    expect(followEngineWorker(socket, { rootDir } as never, 'http://127.0.0.1:1', { value: '' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker)).toBeUndefined();
   });
 });

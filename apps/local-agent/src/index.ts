@@ -177,7 +177,7 @@ function startWork(
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
   watchAgents(socket, config, sessions, gate);
-  worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate, machineCluster);
+  worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate, machineCluster, async (options) => (await import('./engine-worker.js')).startDeviceWorker(options));
 
   socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`));
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));

@@ -6,19 +6,19 @@ import { runMachineCluster, type ClusterHost } from './machine-cluster.js';
 import type { MachineConfig } from './machine-config.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 import type { IdleGate } from './idle-gate.js';
+import type { DeviceWorker, DeviceWorkerOptions } from './engine-worker.js';
 
 export interface WorkToken {
   value: string;
 }
 
-export function followEngineWorker(socket: Socket, config: MachineConfig, koalaUrl: string, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: ClusterHost): DeviceWorkerHost | undefined {
+export function followEngineWorker(socket: Socket, config: MachineConfig, koalaUrl: string, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: ClusterHost, startDeviceWorker: (options: DeviceWorkerOptions) => Promise<DeviceWorker>): DeviceWorkerHost | undefined {
   if (!config.deviceId) return undefined;
   const { deviceId } = config;
   const host = new DeviceWorkerHost(async (settings) => {
     const address = settings.temporal?.address;
     const namespace = settings.temporal?.namespace;
     if (!address) throw new Error('Koala named no Temporal for this machine to take work from');
-    const { startDeviceWorker } = await import('./engine-worker.js');
     return startDeviceWorker({
       rootDir: config.rootDir,
       deviceId,
