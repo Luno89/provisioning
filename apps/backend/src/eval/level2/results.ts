@@ -27,6 +27,7 @@ export interface ScenarioResult {
   tasks: { id: string; title: string; status: string; evidence?: string | undefined }[];
   durationMs: number;
   error?: string | undefined;
+  trace?: { traceId: string; spanId: string } | undefined;
   repeats?: number | undefined;
   passAt?: number | undefined;
   passedAttempts?: number | undefined;

@@ -1,4 +1,5 @@
 import { Context } from '@temporalio/activity';
+import { currentSpanId, currentTraceId } from '@koala/engine-core/telemetry';
 import { DROP_TYPE, dropBody } from '../files/index.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
@@ -222,7 +223,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
   const { store } = deps;
   const pollMs = deps.pollMs ?? 1_500;
 
-  return {
+  const activities: CheckRunActivities = {
     async CheckCreateSpaceActivity({ spaceId, checkRunId, person, scenario, trialPractice, promptOverride }) {
       if (await store.accounts.getUserById(spaceId)) return spaceId;
       const stamp = now();
@@ -1073,6 +1074,15 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         ...workspaces.map((namespace) => `the workspace ${namespace}`),
         ...(giteaUser ? ['its Gitea user'] : []),
       ];
+    },
+  };
+  return {
+    ...activities,
+    async CheckRunScenarioActivity(args) {
+      const traceId = currentTraceId();
+      const spanId = currentSpanId();
+      const ran = await activities.CheckRunScenarioActivity(args);
+      return traceId && spanId ? { ...ran, result: { ...ran.result, trace: { traceId, spanId } } } : ran;
     },
   };
 }

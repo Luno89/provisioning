@@ -1,3 +1,4 @@
+vi.mock('@koala/engine-core/telemetry', async (actual) => ({ ...(await actual<object>()), currentTraceId: () => 'trace-1', currentSpanId: () => 'span-1' }));
 import { MockActivityEnvironment } from '@temporalio/testing';
 import axios from 'axios';
 import { http, HttpResponse } from 'msw';
@@ -322,6 +323,11 @@ describe('a check run on its space', () => {
     signedInAs.length = 0;
     await perform(CHAT);
     expect(signedInAs[0]).toEqual({ id: 'space-1', email: expect.any(String) as unknown, space: { person: 'bo' } });
+  });
+
+  it('carries the trace and span it ran under, so where it failed can be read from the trace', async () => {
+    const { result } = await perform(CHAT);
+    expect(result.trace).toEqual({ traceId: 'trace-1', spanId: 'span-1' });
   });
 
   it('fails at once, saying so, when the space is gone', async () => {

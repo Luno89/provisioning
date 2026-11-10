@@ -2,13 +2,14 @@ import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
+import { whereItFailed } from './lib/where-it-failed.js';
 
 const BASE = process.env.CHECKS_LIVE_URL ?? `${devKoalaApi}/api`;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
 const TOGETHER = Math.max(1, Math.min(ONLY.length, Number(process.env.CHECKS_LIVE_TOGETHER ?? 1) || 1));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-interface Result { scenarioId: string; runId: string; passed: boolean; outcome: string; reason?: string; error?: string; checks: { what: string; passed: boolean; detail: string }[]; attempts?: { runId: string; passed: boolean }[] }
+interface Result { scenarioId: string; runId: string; trace?: { traceId: string; spanId: string }; passed: boolean; outcome: string; reason?: string; error?: string; checks: { what: string; passed: boolean; detail: string }[]; attempts?: { runId: string; passed: boolean }[] }
 
 async function main(): Promise<void> {
   const owner = await devOwner();
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
       if (result.attempts) console.log(`      attempts: ${result.attempts.map((attempt) => `${attempt.passed ? '✓' : '✗'} ${attempt.runId}`).join(', ')}`);
       if (result.error) console.log(`      error: ${result.error}`);
     }
+    for (const line of await whereItFailed(run.results.filter((result) => !result.passed))) console.log(line);
     const keptIn = process.env.KOALA_GATE_CHECKS;
     if (keptIn) {
       const opened = [];

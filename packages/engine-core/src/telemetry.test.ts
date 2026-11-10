@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { context, trace } from '@opentelemetry/api';
 import {
-  contextFromHeaders, currentTraceId, headerPayload, koalaMetrics, telemetryStarted, textOfHeader,
+  codeSite, contextFromHeaders, currentSpanId, currentTraceId, noteOnSpan, headerPayload, koalaMetrics, telemetryStarted, textOfHeader,
   traceActivities, traceWorkflowStarts, tracingHeaders, withSpan, type TelemetrySink, type TelemetrySignal,
 } from './telemetry.js';
 import { envSink, logOnce, otlpHttpSink, startTelemetry, type Telemetry } from './telemetry-sdk.js';
@@ -196,5 +196,42 @@ describe('Koala\'s telemetry', () => {
     expect(contextFromHeaders(undefined)).toBe(context.active());
     expect(trace.getSpan(contextFromHeaders({}))).toBeUndefined();
     expect(Object.keys(tracingHeaders(context.active()))).toEqual([]);
+  });
+});
+
+describe('where something failed, on its span', () => {
+  const stack = [
+    'Error: Cluster not found',
+    '    at Object.get (/app/node_modules/express/lib/router/route.js:12:3)',
+    '    at ClusterService.getById (/home/someone/Code/provisioning/apps/backend/src/infrastructure/services/ClusterService.ts:86:12)',
+    '    at /home/someone/Code/provisioning/apps/backend/src/infrastructure/routes/deployments.ts:58:49',
+  ].join('\n');
+
+  it('is the first frame in Koala\'s own code, as a path from the repository with its line, never the message', () => {
+    expect(codeSite(stack)).toEqual({ 'code.function': 'ClusterService.getById', 'code.filepath': 'apps/backend/src/infrastructure/services/ClusterService.ts', 'code.lineno': 86 });
+    expect(codeSite('    at /app/packages/engine-core/src/http.ts:4:1')).toEqual({ 'code.filepath': 'packages/engine-core/src/http.ts', 'code.lineno': 4 });
+    expect(codeSite('    at x (/app/node_modules/a/b.js:1:1)')).toBeUndefined();
+    expect(codeSite(undefined)).toBeUndefined();
+    expect(codeSite(stack, /\/services\//)).toEqual({ 'code.filepath': 'apps/backend/src/infrastructure/routes/deployments.ts', 'code.lineno': 58 });
+  });
+
+  it('a span that fails says where it threw, and a note lands on the span that is running', async () => {
+    const sink = collecting();
+    telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
+    let spanId: string | undefined;
+    await expect(withSpan('request', {}, async () => {
+      spanId = currentSpanId();
+      noteOnSpan('koala.refused', { 'koala.action': 'deploy-to', 'koala.resource': 'cluster' });
+      throw Object.assign(new Error('secret words'), { stack });
+    })).rejects.toThrow('secret words');
+    await settle(60);
+    await telemetry.flush();
+    const span = spansSent(sink.sent).find((sent) => sent.name === 'request') as unknown as { spanId: string; attributes: { key: string; value: Record<string, unknown> }[]; events: { name: string; attributes: { key: string; value: Record<string, unknown> }[] }[] };
+    expect(span.spanId).toBe(spanId);
+    const attrs = Object.fromEntries(span.attributes.map((attr) => [attr.key, Object.values(attr.value)[0]]));
+    expect(attrs).toMatchObject({ 'error.type': 'Error', 'code.function': 'ClusterService.getById', 'code.filepath': 'apps/backend/src/infrastructure/services/ClusterService.ts' });
+    expect(Number(attrs['code.lineno'])).toBe(86);
+    expect(JSON.stringify(span)).not.toContain('secret words');
+    expect(span.events.map((event) => event.name)).toEqual(['koala.refused']);
   });
 });

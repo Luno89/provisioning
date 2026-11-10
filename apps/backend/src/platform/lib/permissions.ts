@@ -1,5 +1,6 @@
 import type { PlatformRole } from './platform-role.js';
 import type { PlatformGrant } from './types.js';
+import { noteOnSpan } from '@koala/engine-core/telemetry';
 
 export type SharedRole = 'owner' | 'collaborator' | 'client';
 
@@ -209,10 +210,14 @@ export function ruleFor<K extends ResourceKind>(kind: K, action: Actions[K]): Ru
   return (PERMISSIONS[kind] as Record<string, Rule>)[action as string]!;
 }
 
+const DECIDING_CODE = /platform\/(lib\/permissions|middleware\/auth)\.ts$/;
+
 export function authorize<R extends Resource>(principal: Principal, action: Actions[R['kind']], resource: R): Decision {
   const rule = ruleFor(resource.kind, action);
   if (rule.who.some((who) => satisfies(principal, who, resource))) return { allowed: true };
-  return { allowed: false, status: rule.hidden ? 404 : 403, error: rule.said };
+  const status = rule.hidden ? 404 : 403;
+  noteOnSpan('koala.refused', { 'koala.action': String(action), 'koala.resource': resource.kind, 'koala.claims': [...new Set(principal.claims.map((claim) => claim.role))].join(','), 'koala.status': status }, DECIDING_CODE);
+  return { allowed: false, status, error: rule.said };
 }
 
 export const allowed = <R extends Resource>(principal: Principal, action: Actions[R['kind']], resource: R): boolean =>

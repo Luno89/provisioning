@@ -1,3 +1,4 @@
+vi.mock('@koala/engine-core/telemetry', async (actual) => ({ ...(await actual<object>()), failedHere: vi.fn() }));
 import type { NextFunction, Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
@@ -44,5 +45,16 @@ describe('what a route answers when it fails', () => {
     const passed = vi.fn<NextFunction>();
     asyncRoute(async () => { throw failure; })(mock<Request>(), answered(), passed as unknown as NextFunction);
     await vi.waitFor(() => expect(passed).toHaveBeenCalledWith(failure));
+  });
+});
+
+describe('a request that throws, on its span', () => {
+  it('says where it threw', async () => {
+    const { failedHere } = await import('@koala/engine-core/telemetry');
+    vi.mocked(failedHere).mockClear();
+    const err = new Error('it broke');
+    const res = { headersSent: false, status: vi.fn().mockReturnThis(), json: vi.fn() } as unknown as Parameters<typeof errorResponder>[2];
+    errorResponder(err, {} as Parameters<typeof errorResponder>[1], res, vi.fn());
+    expect(failedHere).toHaveBeenCalledWith(err);
   });
 });

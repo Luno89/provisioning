@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { noteOnSpan } from '@koala/engine-core/telemetry';
+
+vi.mock('@koala/engine-core/telemetry', async (actual) => ({ ...(await actual<object>()), noteOnSpan: vi.fn() }));
 import {
   PERMISSIONS, SHARED_ROLES, allowed, authorize, claimsOf, clusterResource, principalOf, sharedActionsOf, withSharedRole,
   type Principal, type Resource, type SharedAction, type SharedRole, sessionPermissions,
@@ -152,5 +155,20 @@ describe('what the session says a person may do', () => {
 
   it('gives nobody on the hub an operator\'s power, whatever role is stored', () => {
     expect(Object.values(sessionPermissions(on('hub', ['operator']), { holdsAccounts: false })).some(Boolean)).toBe(false);
+  });
+});
+
+describe('a refusal on the span that is running', () => {
+  it('notes the action, the resource kind and the principal\'s claim kinds, skipping the permission code itself, naming nobody', () => {
+    vi.mocked(noteOnSpan).mockClear();
+    expect(allowed(person('someone'), 'deploy-to', clusterResource({ id: 'c1', ownerId: 'owner' }))).toBe(false);
+    expect(noteOnSpan).toHaveBeenCalledWith('koala.refused', { 'koala.action': 'deploy-to', 'koala.resource': 'cluster', 'koala.claims': 'person', 'koala.status': 404 }, expect.any(RegExp));
+    const besides = vi.mocked(noteOnSpan).mock.calls[0]![2]!;
+    expect(besides.test('apps/backend/src/platform/lib/permissions.ts')).toBe(true);
+    expect(besides.test('apps/backend/src/infrastructure/services/ClusterService.ts')).toBe(false);
+    expect(JSON.stringify(vi.mocked(noteOnSpan).mock.calls)).not.toMatch(/someone|owner|c1/);
+    vi.mocked(noteOnSpan).mockClear();
+    expect(allowed(person('owner'), 'deploy-to', clusterResource({ id: 'c1', ownerId: 'owner' }))).toBe(true);
+    expect(noteOnSpan).not.toHaveBeenCalled();
   });
 });

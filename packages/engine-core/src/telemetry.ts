@@ -89,6 +89,34 @@ export const elapsedSeconds = (startedAt: number): number => (Date.now() - start
 
 export const errorType = (err: unknown): string => (err instanceof Error ? err.constructor.name : typeof err);
 
+const OWN_FRAME = /^\s*at (?:(.+?) \()?(?:.*?\/)?((?:apps|packages)\/(?!.*node_modules)[^:()]+):(\d+):\d+\)?$/;
+
+export function codeSite(stack: string | undefined, besides?: RegExp): Attributes | undefined {
+  for (const line of stack?.split('\n') ?? []) {
+    const at = OWN_FRAME.exec(line);
+    if (!at || (besides && besides.test(at[2]!))) continue;
+    const [, fn, filepath, lineno] = at;
+    return { ...(fn && fn !== 'Object.<anonymous>' ? { 'code.function': fn } : {}), 'code.filepath': filepath!, 'code.lineno': Number(lineno) };
+  }
+  return undefined;
+}
+
+export function failedOn(span: Span | undefined, err: unknown): void {
+  if (!span) return;
+  span.setStatus({ code: SpanStatusCode.ERROR });
+  span.setAttribute('error.type', errorType(err));
+  const site = codeSite(err instanceof Error ? err.stack : undefined);
+  if (site) span.setAttributes(site);
+}
+
+export const noteOnSpan = (name: string, attributes: Attributes, besides?: RegExp): void => {
+  trace.getSpan(context.active())?.addEvent(name, { ...attributes, ...(codeSite(new Error().stack?.split('\n').slice(2).join('\n'), besides) ?? {}) });
+};
+
+export const failedHere = (err: unknown): void => failedOn(trace.getSpan(context.active()), err);
+
+export const currentSpanId = (): string | undefined => trace.getSpan(context.active())?.spanContext().spanId;
+
 export async function withSpan<T>(name: string, attributes: Attributes, run: (span: Span) => Promise<T>, kind: SpanKind = SpanKind.INTERNAL): Promise<T> {
   const span = koalaTracer().startSpan(name, { kind, attributes });
   try {
@@ -96,8 +124,7 @@ export async function withSpan<T>(name: string, attributes: Attributes, run: (sp
     span.setStatus({ code: SpanStatusCode.OK });
     return value;
   } catch (err) {
-    span.setStatus({ code: SpanStatusCode.ERROR });
-    span.setAttribute('error.type', errorType(err));
+    failedOn(span, err);
     throw err;
   } finally {
     span.end();
