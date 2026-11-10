@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, takeNowLines, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { checksToRun, shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, takeNowLines, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -219,5 +219,22 @@ describe('which ship steps a run takes', () => {
   it('runs the coupling rules alone only once every step before them passed for this commit, since they judge what those gathered', () => {
     expect(shipRun(steps, [passed('test:unit')], 'coupling:live')).toEqual({ refused: 'the coupling rules judge what every step before them gathered on this commit, and checks-live has not passed on it yet' });
     expect(shipRun(steps, [passed('test:unit'), passed('test:checks-live')], 'coupling:live')).toEqual({ steps: [steps[2]] });
+  });
+});
+
+describe('which mechanics checks a run takes', () => {
+  const all = ['a', 'b', 'c'];
+
+  it('takes every check not passed yet on this commit, in their order', () => {
+    expect(checksToRun(all, ['b'], [])).toEqual({ checks: ['a', 'c'] });
+    expect(checksToRun(all, ['a', 'b', 'c'], [])).toEqual({ checks: [] });
+  });
+
+  it('runs the checks named, again if they passed already', () => {
+    expect(checksToRun(all, ['b'], ['b', 'c'])).toEqual({ checks: ['b', 'c'] });
+  });
+
+  it('refuses a check ship does not run, naming the ones it does', () => {
+    expect(checksToRun(all, [], ['d'])).toEqual({ refused: 'ship runs no check d; its checks are a, b, c' });
   });
 });

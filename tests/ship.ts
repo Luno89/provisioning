@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
+import { CHECKS_STEP, HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, checksToRun, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
 import { entriesOf, measuringProblem } from './coupling/live.js';
-import { e2eEnv } from './lib/e2e-env.js';
+import { e2eEnv, shipChecks } from './lib/e2e-env.js';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { devOwner } from './lib/dev-stack.js';
 import { ANSWERS } from './alignment/answers.js';
 import { currentDrift } from './alignment/drift-run.js';
@@ -14,6 +16,7 @@ const PUSH = !process.argv.includes('--no-push');
 const HOTFIXING = process.argv.includes(HOTFIX);
 const stepAt = process.argv.indexOf('--step');
 const ONLY = stepAt >= 0 ? process.argv[stepAt + 1] : undefined;
+const NAMED_CHECKS = stepAt >= 0 ? process.argv.slice(stepAt + 2).flatMap((arg) => arg.split(',')).filter(Boolean) : [];
 
 async function main(): Promise<void> {
   if (stepAt >= 0 && (!ONLY || HOTFIXING)) throw new Error(`name one step to run: ${SHIP_STEPS.map((step) => shortName(step.script)).join(', ')}`);
@@ -60,9 +63,37 @@ async function main(): Promise<void> {
     const code = codeCommitOf(REPO, commit);
     const codeRecord = readRecord(REPO, code) ?? { commit: code };
     let kept = [...passedBefore.filter((passed) => !run.steps.some((step) => step.script === passed.script))];
-    runSteps(REPO, commit, run.steps, e2eEnv(owner!), (passed) => {
-      kept = [...kept.filter((step) => step.script !== passed.script), passed];
-      writeRecord(REPO, { ...codeRecord, checked: kept });
+    const checksFile = join(REPO, 'tests', '.gate-checks.json');
+    const checksBefore = codeRecord.checks ?? [];
+    let checksKept = [...checksBefore];
+    const checksNow = checksToRun(shipChecks(), checksBefore, NAMED_CHECKS);
+    if ('refused' in checksNow) throw new Error(checksNow.refused);
+    if (NAMED_CHECKS.length > 0 && shortName(ONLY ?? '') !== shortName(CHECKS_STEP)) throw new Error(`only ${shortName(CHECKS_STEP)} takes checks to run`);
+    const checksStep = run.steps.find((step) => step.script === CHECKS_STEP);
+    if (checksStep && checksNow.checks.length === 0) {
+      console.log(`every mechanics check already passed on this commit: ${checksStep.name}`);
+      run.steps.splice(run.steps.indexOf(checksStep), 1);
+      kept = [...kept, { name: checksStep.name, script: CHECKS_STEP, minutes: 0 }];
+      writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
+    } else if (checksStep) {
+      console.log(`mechanics checks to run: ${checksNow.checks.length}, ${checksBefore.length} of ${shipChecks().length} passed on this commit already`);
+    }
+    const keepChecks = (): void => {
+      if (!existsSync(checksFile)) return;
+      const passed = JSON.parse(readFileSync(checksFile, 'utf8')) as string[];
+      rmSync(checksFile);
+      checksKept = [...new Set([...checksKept, ...passed])];
+      writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
+      console.log(`mechanics checks passed on this commit: ${checksKept.length} of ${shipChecks().length}`);
+    };
+    runSteps(REPO, commit, run.steps, e2eEnv(owner!), {
+      envFor: (step) => step.script === CHECKS_STEP ? { CHECKS_LIVE_SCENARIOS: checksNow.checks.join(','), KOALA_GATE_CHECKS: checksFile } : {},
+      onEnd: (step) => { if (step.script === CHECKS_STEP) keepChecks(); },
+      onPass: (passed) => {
+        if (passed.script === CHECKS_STEP && shipChecks().some((check) => !checksKept.includes(check))) return;
+        kept = [...kept.filter((step) => step.script !== passed.script), passed];
+        writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
+      },
     });
     const left = stillToRun(SHIP_STEPS, kept);
     if (left.length > 0) {
@@ -71,7 +102,7 @@ async function main(): Promise<void> {
       return;
     }
     const steps = SHIP_STEPS.map((step) => kept.find((passed) => passed.script === step.script)!);
-    writeRecord(REPO, { ...codeRecord, checked: kept, shipped: { at: new Date().toISOString(), steps } });
+    writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept, shipped: { at: new Date().toISOString(), steps } });
     console.log(`\n✓ ${commit.slice(0, 12)} shipped: ${steps.length} steps, ${run.steps.length} run now, in ${minutesSince(started)} min`);
   }
 

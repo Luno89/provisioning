@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
@@ -46,6 +47,17 @@ async function main(): Promise<void> {
       for (const check of result.checks) console.log(`      ${check.passed ? '✓' : '✗'} ${check.what} — ${check.detail.slice(0, 200)}`);
       if (result.attempts) console.log(`      attempts: ${result.attempts.map((attempt) => `${attempt.passed ? '✓' : '✗'} ${attempt.runId}`).join(', ')}`);
       if (result.error) console.log(`      error: ${result.error}`);
+    }
+    const keptIn = process.env.KOALA_GATE_CHECKS;
+    if (keptIn) {
+      const opened = [];
+      for (const result of run.results.filter((entry) => entry.passed && entry.runId)) {
+        const runIds = result.attempts ? result.attempts.map((attempt) => attempt.runId) : [result.runId];
+        let opens = true;
+        for (const runId of runIds) opens = opens && (((await http.get(`/engine/runs/${runId}/traces`)).data as { traces?: unknown[] }).traces?.length ?? 0) > 0;
+        if (opens) opened.push(result.scenarioId);
+      }
+      writeFileSync(keptIn, `${JSON.stringify(opened)}\n`);
     }
     assert.deepEqual(run.results.map((result) => result.scenarioId).sort(), [...ONLY].sort(), 'not every scenario has a result');
     assert.deepEqual(run.results.filter((result) => !result.runId).map((result) => `${result.scenarioId}: ${result.error}`), [], 'a scenario never got a real run');

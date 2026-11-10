@@ -57,6 +57,7 @@ export interface Passed { at: string; steps: StepPassed[]; hotfix?: true | undef
 export interface GateRecord {
   commit: string;
   checked?: StepPassed[] | undefined;
+  checks?: string[] | undefined;
   shipped?: Passed | undefined;
   released?: (Passed & { version: string; previous: string }) | undefined;
 }
@@ -172,6 +173,14 @@ export function changedBesidesLedger(porcelain: string): string[] {
 
 export const checkedThrough = (gates: PushedGates): StepPassed[] =>
   [...(gates.record?.checked ?? []), ...(gates.onlyLedgerSinceParent ? gates.parent?.checked ?? [] : [])];
+
+export const CHECKS_STEP = 'test:checks-live';
+
+export const checksToRun = (all: readonly string[], passed: readonly string[], named: readonly string[]): { checks: string[] } | { refused: string } => {
+  const unknown = named.filter((check) => !all.includes(check));
+  if (unknown.length > 0) return { refused: `ship runs no check ${unknown.join(', ')}; its checks are ${all.join(', ')}` };
+  return { checks: named.length > 0 ? all.filter((check) => named.includes(check)) : all.filter((check) => !passed.includes(check)) };
+};
 
 export const shortName = (script: string): string => script.replace(/^test:/, '');
 

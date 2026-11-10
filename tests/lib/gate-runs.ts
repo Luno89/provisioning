@@ -176,7 +176,13 @@ export function auditsOwed(repo: string): string | undefined {
   return auditRefusal(owedAudits(failuresIn(repo), (name) => git(repo, ['log', '-1', '--format=%cI', '--', auditFileOf(name)]).trim() || undefined));
 }
 
-export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>, onPass: (passed: StepPassed) => void = () => undefined): StepPassed[] {
+export interface StepHooks {
+  onPass?: (passed: StepPassed) => void;
+  envFor?: (step: GateStep) => Record<string, string>;
+  onEnd?: (step: GateStep) => void;
+}
+
+export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>, hooks: StepHooks = {}): StepPassed[] {
   const owed = auditsOwed(repo);
   if (owed) throw new Error(owed);
   const passed: StepPassed[] = [];
@@ -195,7 +201,8 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     const live = measured && /-live$/.test(step.script);
     if (!live) recordSampled();
     if (live) liveCoverage(repo, 'discard');
-    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
+    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
+    hooks.onEnd?.(step);
     if (live) {
       liveCoverage(repo, 'sample', liveLabelOf(step.script));
       sampled.push(liveLabelOf(step.script));
@@ -208,7 +215,7 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     const kept = { name: step.name, script: step.script, minutes };
     passed.push(kept);
     if (live) recordSampled();
-    onPass(kept);
+    hooks.onPass?.(kept);
   });
   recordSampled();
   return passed;
