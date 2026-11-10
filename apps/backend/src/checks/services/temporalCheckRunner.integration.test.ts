@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Worker } from '@temporalio/worker';
@@ -50,6 +51,7 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
     RemoveAccountRecordsActivity: async () => ({}),
   };
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(here, '../../workflows/index.ts')),

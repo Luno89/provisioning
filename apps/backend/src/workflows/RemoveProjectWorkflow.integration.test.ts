@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -30,6 +31,7 @@ describe('deleting a project through Temporal', () => {
     const seen: string[] = [];
     const clusterQueue = `remove-project-apps-${Math.random().toString(36).slice(2, 8)}`;
     const clusterWorker = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
       workflowBundle: await bundled(resolve(__dirname, 'DestroyAppWorkflow.ts')),
@@ -60,6 +62,7 @@ describe('deleting a project through Temporal', () => {
 
     const told: string[] = [];
     const streamWorker = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { told.push(ownerId); } },

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import axios from 'axios';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { infrastructureRouter } from './infrastructure.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -74,7 +74,7 @@ const listed = async (ownerId: string): Promise<RunningWorkflow[]> => {
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-  worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/waiting-run.fixture-workflow.ts')) });
+  worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/waiting-run.fixture-workflow.ts')) });
   working = worker.run();
   prom = await prometheusStandIn(OWN_SERIES);
   const start = (workflowId: string, waitsFor: string[], memo: Record<string, unknown>) =>

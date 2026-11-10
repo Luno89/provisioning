@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS, type ToolContract } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import type { WorkflowHandle } from '@temporalio/client';
@@ -384,6 +385,7 @@ export class GroveWorld {
 
     const taskQueue = `grove-test-${Math.random().toString(36).slice(2, 8)}`;
     const engineWorker = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace,
       taskQueue,
       workflowsPath: WORKFLOWS,
@@ -406,6 +408,7 @@ export class GroveWorld {
       },
     });
     const streamWorker = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {

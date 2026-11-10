@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -26,6 +27,7 @@ async function scenario(answers: BenchIdleOutcome[], drive: (signal: (idleMs: nu
   const asked: string[] = [];
   const timers = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'BenchIdleWorkflow.ts')) });
   const backend = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineBenchIdleActivity: async ({ ownerId }: { ownerId: string }) => { asked.push(ownerId); return answers.shift() ?? 'nothing'; } },

@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { testKeys } from '../platform/testing/keys.js';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -218,6 +219,7 @@ async function runWorkflow(
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
   const converted = dataConverter ? { dataConverter } : {};
   const engineWorker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')),
@@ -226,6 +228,7 @@ async function runWorkflow(
   });
   const streamWorker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
   const deviceWorker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue: 'device-desk',
     activities: { EngineToolActivity: acts.engine.EngineToolActivity, ...acts.device },

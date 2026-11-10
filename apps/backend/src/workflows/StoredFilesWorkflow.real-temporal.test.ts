@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -33,8 +33,8 @@ const begun = async (records: MemoryFilesStore, objects: MemoryObjectStore, id: 
 async function running<T>(activities: StoredFilesActivities, work: (queue: string) => Promise<T>): Promise<T> {
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = env.namespace ?? 'default';
-  const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
+  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   return workflows.runUntil(stream.runUntil(work(queue)));
 }
 

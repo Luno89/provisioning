@@ -7,8 +7,7 @@ import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { PlatformKeys } from '../../platform/index.js';
 import { connectTemporalWorker, type TemporalPlace } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
-import { classifiedFailures, heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
-import { traceActivities } from '@koala/engine-core/telemetry';
+import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 
 export interface SocketLike {
   to(room: string): { emit(event: string, ...args: unknown[]): unknown };
@@ -58,7 +57,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     connection,
     ...(dataConverter ? { dataConverter } : {}),
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
-    interceptors: { activity: [heartbeatWhileRunning(), traceActivities(), classifiedFailures()] },
+    interceptors: { activity: activityInterceptors() },
     namespace: options.connection.temporal.namespace,
     activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
   });

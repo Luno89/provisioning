@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -59,6 +60,7 @@ beforeAll(async () => {
 
 async function working<T>(work: Promise<T>): Promise<T> {
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE,
     workflowBundle: bundle,
     activities: {

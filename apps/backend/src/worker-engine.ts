@@ -76,9 +76,8 @@ import { bindChatWithItsFiles } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
-import { classifiedFailures, heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
+import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { ignore } from '@koala/engine-core/failures';
-import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
@@ -593,7 +592,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities(), classifiedFailures()], workflowModules: workflowInterceptorModules(settings.role) },
+        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
         activities,
       });
       current = worker;

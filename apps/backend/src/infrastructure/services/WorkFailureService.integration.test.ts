@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { resolve } from 'node:path';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -83,10 +84,12 @@ describe('a workflow that fails tells the backend itself', () => {
     const taskQueue = `failures-${Math.random().toString(36).slice(2, 8)}`;
     const reports: WorkflowFailedReport[] = [];
     const workflows = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue,
       workflowBundle: await bundled(resolve(__dirname, '../testing/failure.fixture-workflow.ts'), [resolve(__dirname, '../../workflows/failure-reports.ts')]),
     });
     const stream = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineWorkflowFailedActivity: createStreamActivities({ ...mock<StreamServices>(), workflowFailed: async (report) => { reports.push(report); await service.workflowFailed(report); } }).EngineWorkflowFailedActivity },
     });

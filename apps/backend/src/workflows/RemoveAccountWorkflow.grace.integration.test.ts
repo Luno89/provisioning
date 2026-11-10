@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -37,6 +38,7 @@ const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {},
 const withWorker = async (activities: AccountRemovalActivities, body: (workflows: ReturnType<typeof temporalRemovalWorkflows>) => Promise<void>) => {
   const taskQueue = `remove-account-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'RemoveAccountWorkflow.ts')),

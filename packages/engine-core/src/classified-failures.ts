@@ -1,7 +1,9 @@
 import { ApplicationFailure, TemporalFailure } from '@temporalio/common';
 import { failureOf } from './failures.js';
+import { heartbeatWhileRunning } from './liveness.js';
+import { traceActivities } from './telemetry.js';
 
-export const WAITING_RETRY = { initialInterval: '5s', backoffCoefficient: 2, maximumInterval: '1m' } as const;
+export { WAITING_RETRY } from './failures.js';
 
 interface Execute {
   execute<I>(input: I, next: (input: I) => Promise<unknown>): Promise<unknown>;
@@ -32,3 +34,5 @@ export function classifiedFailures() {
     },
   });
 }
+
+export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), classifiedFailures()];

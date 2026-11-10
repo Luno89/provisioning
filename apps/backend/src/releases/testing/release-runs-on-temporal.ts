@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { engineReleaseRuns } from '../../engine-host/release-runs.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
@@ -28,7 +28,7 @@ const WORKFLOWS = fileURLToPath(new URL('./awaiting-person.fixture-workflow.ts',
 export async function releaseRunsOnTemporal(): Promise<ReleaseRunsOnTemporal> {
   const env: TestWorkflowEnvironment = await temporalTestEnvironment();
   const taskQueue = `release-route-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(WORKFLOWS) });
+  const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(WORKFLOWS) });
   const working = worker.run();
   const started: StartedRelease[] = [];
   const runs = engineReleaseRuns({

@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import http2 from 'node:http2';
 import { resolve } from 'node:path';
@@ -86,6 +87,7 @@ const refusedWith = async (attempt: Promise<unknown>, said: RegExp) => {
 describe('a machine reaching Temporal through the gateway', () => {
   it('takes its own work, heartbeats and answers it, as if it spoke to Temporal itself', async () => {
     const machine = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: await asMachine('token-d1'),
       namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',
@@ -98,6 +100,7 @@ describe('a machine reaching Temporal through the gateway', () => {
 
   it('lets a machine read the large payloads of the tasks it was handed, and no other machine', async () => {
     const machine = await Worker.create({
+      interceptors: { activity: activityInterceptors() },
       ...WORKER_DEFAULTS, connection: await asMachine('token-d1'),
       namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',

@@ -17,8 +17,7 @@ import type { ClusterSteps } from './activities/cluster-steps.js';
 import { createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
-import { classifiedFailures, heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
-import { traceActivities } from '@koala/engine-core/telemetry';
+import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
@@ -84,7 +83,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities(), classifiedFailures()], workflowModules: workflowInterceptorModules(settings.role) },
+        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
         activities: {
           DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
           CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),

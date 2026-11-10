@@ -1,3 +1,4 @@
+import { activityInterceptors } from './classified-failures.js';
 import { randomBytes } from 'node:crypto';
 import { Client } from '@temporalio/client';
 import { temporal as proto } from '@temporalio/proto';
@@ -41,6 +42,7 @@ async function echoedThrough(blobs: BlobReach, value: unknown): Promise<{ result
   const taskQueue = queueFor('payloads');
   const workflowId = queueFor('echoed');
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     connection: env.nativeConnection,
     namespace: env.namespace ?? 'default',
     taskQueue,

@@ -1,4 +1,4 @@
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -22,7 +22,7 @@ afterAll(async () => {
 
 const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>) => {
   const taskQueue = `pool-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'index.ts')), activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
+  const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'index.ts')), activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
   return worker.runUntil(env.client.workflow.execute('PoolInstanceWorkflow', {
     workflowId: `pool-instance-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1'),
   }).then(() => 'done', (error: Error) => error));

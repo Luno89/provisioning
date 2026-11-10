@@ -16,8 +16,7 @@ import { giveHostActivities, hostClusterAccess } from './activities/host-setting
 import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorEndpoint, collectorSink } from './monitoring/index.js';
 import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
-import { classifiedFailures, heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
-import { traceActivities } from '@koala/engine-core/telemetry';
+import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 
@@ -69,7 +68,7 @@ async function main() {
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities(), classifiedFailures()], workflowModules: workflowInterceptorModules(settings.role) },
+        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
         activities: {
           PoolHostActivity,
           PoolVclusterActivity,

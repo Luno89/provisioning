@@ -3,7 +3,7 @@ import { Client, Connection } from '@temporalio/client';
 import { temporal } from '@temporalio/proto';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -35,7 +35,7 @@ describe('following work Koala started anywhere to its end', () => {
       return following;
     });
     const taskQueue = `follow-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: '', ...extra });
 
     await worker.runUntil(async () => {
@@ -64,7 +64,7 @@ describe('cancelling and reading work in Temporal', () => {
     const bridge = new TemporalBridge(await testDatabase());
     bridge.client = new Client({ connection, namespace });
     const taskQueue = `cancel-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {
       const done = await env.client.workflow.start('deploys', { taskQueue, workflowId: `done-${taskQueue}`, args: ['healthy'] });
@@ -107,7 +107,7 @@ describe('settling the work the bridge itself starts', () => {
     await db.infrastructure.saveDeployment(app('shop', { appType: 'gitapp', gitappProjectId: 'p1', gitappImageTag: 'reg/bo/shop:aaa' }));
 
     const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
-    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
+    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
       await bridge.destroyApp('gone');
       await bridge.resizeDisk('grown', { data: '20Gi' });

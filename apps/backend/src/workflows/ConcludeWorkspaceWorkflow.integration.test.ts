@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -24,6 +25,7 @@ afterAll(async () => {
 const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unknown>, body: (service: WorkspaceConclusionService) => Promise<void>) => {
   const taskQueue = `conclude-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts')),

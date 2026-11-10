@@ -115,3 +115,5 @@ export function failureOf(error: unknown): Failure {
   if (streamCutOff(error)) return temporary('the connection to it was cut off while it answered');
   return final(messageOf(error));
 }
+
+export const WAITING_RETRY = { initialInterval: '5s', backoffCoefficient: 2, maximumInterval: '1m' } as const;

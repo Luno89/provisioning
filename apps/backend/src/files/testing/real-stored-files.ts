@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { inject } from 'vitest';
@@ -34,8 +34,8 @@ export async function realStoredFiles(): Promise<RealStoredFiles> {
   const activities = createStoredFilesActivities({ records: db.files, objects, now: () => clock.now });
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = env.namespace ?? 'default';
-  const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
+  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   const running = Promise.all([workflows.run(), stream.run()]);
   const files = new StoredFiles({ records: db.files, objects, commits: temporalStoredFileCommits(async () => env.client.workflow, queue), room: roomOn(tmpdir()), now: () => clock.now });
   return {

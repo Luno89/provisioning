@@ -1,3 +1,4 @@
+import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -24,6 +25,7 @@ const run = async (poolInstanceId: string | undefined) => {
   const seen: string[] = [];
   const taskQueue = `root-removal-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
+    interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'RootAccountRemovalWorkflow.ts')),
