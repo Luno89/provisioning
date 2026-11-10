@@ -32,6 +32,7 @@
     "@temporalio/testing": "^1.23.0",
     "@types/node": "^20.0.0",
     "esbuild": "^0.28.2",
+    "socket.io": "^4.8.3",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9"
   }

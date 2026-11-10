@@ -1,4 +1,3 @@
-import { createMachineGit } from './machine-git.js';
 import { mkdir } from 'fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,10 +19,10 @@ import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.
 import { askOnTerminal } from './terminal-ask.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
-import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
+import { followEngineWorker, type WorkToken } from './device-worker-follow.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
-import { clusterOnConnect, hostCluster, runMachineCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
+import { clusterOnConnect, hostCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
 import { installKoala, ownValuesFile, placedFrom } from './koala-install.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { useDependencyHttp } from '@koala/engine-core/http';
@@ -63,36 +62,6 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
       void rediscover();
     });
   });
-}
-
-interface WorkToken {
-  value: string;
-}
-
-function followEngineWorker(socket: Socket, config: MachineConfig, koalaUrl: string, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate): DeviceWorkerHost | undefined {
-  if (!config.deviceId) return undefined;
-  const { deviceId } = config;
-  const host = new DeviceWorkerHost(async (settings) => {
-    const address = settings.temporal?.address;
-    const namespace = settings.temporal?.namespace;
-    if (!address) throw new Error('Koala named no Temporal for this machine to take work from');
-    const { startDeviceWorker } = await import('./engine-worker.js');
-    return startDeviceWorker({
-      rootDir: config.rootDir,
-      deviceId,
-      externalAgents: sessions,
-      git: createMachineGit({ rootDir: config.rootDir, backendUrl: koalaUrl, token: () => work.value }),
-      cluster: (op) => runMachineCluster(machineCluster, op),
-      address,
-      token: work.value,
-      payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
-      gate,
-      ...(namespace ? { namespace } : {}),
-      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${address}`),
-    });
-  });
-  socket.on('connect', () => { void host.connected(() => engineSettingsOver(socket)); });
-  return host;
 }
 
 const machineCluster = hostCluster(meshIp);
@@ -208,7 +177,7 @@ function startWork(
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
   watchAgents(socket, config, sessions, gate);
-  worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate);
+  worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate, machineCluster);
 
   socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`));
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));
