@@ -115,6 +115,12 @@ describe('reading workflows for the Temporal page', () => {
     await expect(instance.getWorkflowHistory('w1')).rejects.toThrow('deadline on the frontend');
   });
 
+  it('raises a failure to stop a workflow with its reason, so nothing removes what the workflow is still making', async () => {
+    const { workflow, ready } = bridge();
+    workflow.getHandle.mockReturnValue(mock<ReturnType<WorkflowClient['getHandle']>>({ terminate: vi.fn().mockRejectedValue(new Error('the frontend is unavailable')) }));
+    await expect(ready().terminateWorkflow('w1', 'User aborted deployment')).rejects.toThrow('the frontend is unavailable');
+  });
+
   it('describes a workflow, and answers a workflow Temporal does not have as missing', async () => {
     const { workflow, ready } = bridge();
     const found = mock<ReturnType<WorkflowClient['getHandle']>>();

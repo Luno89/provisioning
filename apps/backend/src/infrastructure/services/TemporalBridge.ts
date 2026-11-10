@@ -601,16 +601,9 @@ export class TemporalBridge {
     return 'cancelled';
   }
 
-  async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<boolean> {
-    try {
-      const handle = this.client.workflow.getHandle(wfId);
-      await handle.terminate(reason);
-      console.log(`[TemporalBridge] Terminated workflow ${wfId}: ${reason}`);
-      return true;
-    } catch (err) {
-      console.warn(`[TemporalBridge] Failed to terminate workflow ${wfId}: ${(err as Error).message}`);
-      return false;
-    }
+  async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<void> {
+    await this.client.workflow.getHandle(wfId).terminate(reason);
+    console.log(`[TemporalBridge] Terminated workflow ${wfId}: ${reason}`);
   }
 
   async deployApp(config: Record<string, unknown>, userId?: string): Promise<ResourceDeal> {
