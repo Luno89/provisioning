@@ -9,7 +9,7 @@ import { devOwner } from './lib/dev-stack.js';
 import { ANSWERS } from './alignment/answers.js';
 import { currentDrift } from './alignment/drift-run.js';
 import { gateOf, gateRefusal } from './alignment/gate.js';
-import { changedNow, codeCommitOf, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
+import { changedNow, codeCommitOf, restartMeasured, takeStartup, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -86,6 +86,16 @@ async function main(): Promise<void> {
       writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
       console.log(`mechanics checks passed on this commit: ${checksKept.length} of ${shipChecks().length}`);
     };
+    if (run.steps.some((step) => /-live$/.test(step.script))) {
+      await restartMeasured(REPO);
+      let said = '';
+      for (let problem = await devStackProblem(REPO); problem; problem = await devStackProblem(REPO)) {
+        if (problem !== said) console.log(`waiting for the dev stack to answer again: ${problem}`);
+        said = problem;
+        await new Promise((done) => setTimeout(done, 2_000));
+      }
+      takeStartup(REPO);
+    }
     runSteps(REPO, commit, run.steps, e2eEnv(owner!), {
       envFor: (step) => step.script === CHECKS_STEP ? { CHECKS_LIVE_SCENARIOS: checksNow.checks.join(','), KOALA_GATE_CHECKS: checksFile } : {},
       onEnd: (step) => { if (step.script === CHECKS_STEP) keepChecks(); },

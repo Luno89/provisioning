@@ -1,10 +1,10 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
 import { imageTagOf } from './release-lab.js';
-import { convert, liveProcesses, recordLive } from '../coupling/live.js';
+import { convert, entryFilesIn, liveProcesses, measured, recordLive, stillRestarting } from '../coupling/live.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, type Failures } from './audits.js';
 import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
 
@@ -161,6 +161,26 @@ export const minutesSince = (started: number): number => Math.round((Date.now() 
 
 const LIVE_SCRIPT = resolve(import.meta.dirname, '..', 'coupling', 'live.ts');
 const liveLabelOf = (script: string): string => `tests/${script.replace(/^test:/, '')}.ts`;
+
+export async function restartMeasured(repo: string): Promise<void> {
+  const before = measured();
+  const now = new Date();
+  for (const file of entryFilesIn(repo, before)) utimesSync(file, now, now);
+  console.log(`restarting the ${before.length} measured processes of the dev stack, so what they ran before this is not counted as their startup`);
+  let said = '';
+  for (;;) {
+    const left = stillRestarting(before, measured());
+    if (left.length === 0) break;
+    const line = `waiting for ${left.join(', ')} to start again`;
+    if (line !== said) console.log(line);
+    said = line;
+    await new Promise((done) => setTimeout(done, 2_000));
+  }
+}
+
+export function takeStartup(repo: string): void {
+  liveCoverage(repo, 'discard');
+}
 
 function liveCoverage(repo: string, ...args: string[]): void {
   const done = spawnSync('npx', ['tsx', LIVE_SCRIPT, ...args], { cwd: repo, stdio: 'inherit' });
