@@ -9,7 +9,8 @@ export type Claim =
   | { role: 'person' }
   | { role: 'operator' }
   | { role: 'instance-owner' }
-  | { role: 'shared'; project: string; as: SharedRole };
+  | { role: 'shared'; project: string; as: SharedRole }
+  | { role: 'space-of'; person: string };
 
 export interface Principal {
   kind: 'person';
@@ -22,10 +23,11 @@ export interface ClaimSettings {
   instanceOwnerId?: string | undefined;
 }
 
-export interface ClaimedUser { id: string; roles?: readonly PlatformGrant[] | undefined }
+export interface ClaimedUser { id: string; roles?: readonly PlatformGrant[] | undefined; space?: { person: string } | undefined }
 
 export function claimsOf(user: ClaimedUser, settings: ClaimSettings): Claim[] {
   const claims: Claim[] = [{ role: 'person' }];
+  if (user.space?.person) return [...claims, { role: 'space-of', person: user.space.person }];
   if (settings.role === 'instance') {
     if (settings.instanceOwnerId !== undefined && user.id === settings.instanceOwnerId) claims.push({ role: 'operator' }, { role: 'instance-owner' });
   } else if (settings.role === 'root' && (user.roles ?? []).includes('operator')) {
@@ -95,7 +97,7 @@ export type Resource =
   | { kind: 'record'; noun: string; ownerId?: string | undefined }
   | { kind: 'workflow'; owner?: string | undefined };
 
-type Who = 'nobody' | 'person' | 'operator' | 'instance-owner' | 'owner' | 'self' | { shared: readonly SharedRole[] };
+type Who = 'nobody' | 'person' | 'operator' | 'instance-owner' | 'owner' | 'owners-space' | 'self' | { shared: readonly SharedRole[] };
 
 interface Rule {
   who: readonly Who[];
@@ -126,8 +128,8 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     remove: { who: ['self', 'operator'], hidden: false, said: 'Only an admin can remove someone else\'s account' },
   },
   cluster: {
-    see: OWN('Cluster not found'),
-    'deploy-to': OWN('Cluster not found'),
+    see: { who: ['owner', 'owners-space'], hidden: true, said: 'Cluster not found' },
+    'deploy-to': { who: ['owner', 'owners-space'], hidden: true, said: 'Cluster not found' },
     'see-everything': OWN('Cluster not found'),
     change: OWN('Cluster not found'),
     delete: OWN('Cluster not found'),
@@ -192,6 +194,10 @@ function satisfies(principal: Principal, who: Who, resource: Resource): boolean 
   if (who === 'owner') {
     const owner = ownerOf(resource);
     return owner !== undefined && owner !== '' && owner === principal.id;
+  }
+  if (who === 'owners-space') {
+    const owner = ownerOf(resource);
+    return owner !== undefined && owner !== '' && principal.claims.some((claim) => claim.role === 'space-of' && claim.person === owner);
   }
   const project = resource.kind === 'shared-project' || resource.kind === 'project' ? resource.id : undefined;
   if (project === undefined) return false;

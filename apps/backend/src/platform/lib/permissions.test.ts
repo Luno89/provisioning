@@ -66,6 +66,17 @@ describe('the permissions table', () => {
     expect(clusterResource({ id: 'machine-desk', ownerId: 'owner' })).toEqual({ kind: 'cluster', id: 'machine-desk', ownerId: 'owner' });
   });
 
+  it('lets a check\'s space see and deploy to its own person\'s clusters only, and change or remove none', () => {
+    const space = principalOf({ id: 'space-1', space: { person: 'owner' }, roles: ['operator'] }, { role: 'instance', instanceOwnerId: 'space-1' });
+    expect(space.claims).toEqual([{ role: 'person' }, { role: 'space-of', person: 'owner' }]);
+    const theirs = clusterResource({ id: 'machine-desk', ownerId: 'owner' });
+    expect(allowed(space, 'see', theirs)).toBe(true);
+    expect(allowed(space, 'deploy-to', theirs)).toBe(true);
+    for (const action of ['see-everything', 'change', 'delete'] as const) expect(authorize(space, action, theirs), action).toMatchObject({ allowed: false, status: 404 });
+    for (const action of ['see', 'deploy-to'] as const) expect(authorize(space, action, clusterResource({ id: 'machine-other', ownerId: 'someone-else' })), action).toMatchObject({ allowed: false, status: 404 });
+    expect(allowed(space, 'see', clusterResource({ id: 'machine-nobody' }))).toBe(false);
+  });
+
   it('keeps every other record to its owner, hiding it from anyone else, operator included', () => {
     const owned: Resource[] = [
       clusterResource({ id: 'c', ownerId: 'someone' }),
