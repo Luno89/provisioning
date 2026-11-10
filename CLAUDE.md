@@ -1209,6 +1209,13 @@ Plan: `~/.claude/plans/testing-levels.md`.
   other gets a fresh space per attempt; the result keeps every attempt, and a space that leaks fails the check whatever
   `passAt` allows. Coverage (`checks/lib/check-coverage.ts`) and comparing two runs (`checks/lib/check-compare.ts`) count every attempt.
 - The space's runs are handed to the person before it goes, so every result still opens in the run view.
+- **A failed check says where it failed** (owner, 2026-11-09). A whole check is one trace in Tempo (the check runner's client
+  carries its activity's trace), and its result carries its span (`trace`). Every span that throws records its throw site
+  (`code.function`, `code.filepath`, `code.lineno`, `failedOn` in `@koala/engine-core/telemetry`), and every refusal in `authorize`
+  a `koala.refused` event: the action, the resource kind, the principal's claim kinds and the code that asked, never an id or
+  anything typed. `checks-live` reads the failed check's part of the trace (`tests/lib/where-it-failed.ts`, rules in
+  `failure-trace.ts`) and prints the path down to each request or step that failed, then the flows that code is on and its callers
+  (`npm run flows`, `npm run refs`).
 - **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`features/engine/components/Studio/Explorer.tsx`):
   items grouped by how they are used (agents: `engine/lib/agent-usage.ts` on the backend), each item's parts opening on the
   right like files. Built-in procedures open read-only; "Make my own copy to edit" saves a copy under the same id.

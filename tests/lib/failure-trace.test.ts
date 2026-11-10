@@ -72,3 +72,18 @@ describe('the developer tools on a throw site', () => {
     expect(callerLines(out)).toEqual(['apps/backend/src/infrastructure/routes/deployments.ts:58:49  const targetCluster = await clusterService.getById(']);
   });
 });
+
+describe('several failures under one check', () => {
+  it('prints the path they share once', () => {
+    const both = [...failuresUnder(spansOf(tempo), '00000000000000a1'), ...failuresUnder(spansOf(tempo), '00000000000000a1')];
+    const root = both[0]!.path[0]!;
+    const second = { path: [root, { ...both[0]!.path[1]!, name: 'GET /api/other' }], sites: [] };
+    expect(whereLines([both[0]!, second])).toEqual([
+      'koala-worker-engine: activity CheckRunScenarioActivity',
+      '  └ koala-backend: POST /api/deployments answered 404',
+      '      refused deploy-to on a cluster (claims: person) at ClusterService.getById (apps/backend/src/infrastructure/services/ClusterService.ts:86)',
+      '  └ koala-backend: GET /api/other answered 404',
+      '      refused deploy-to on a cluster (claims: person) at ClusterService.getById (apps/backend/src/infrastructure/services/ClusterService.ts:86)',
+    ]);
+  });
+});

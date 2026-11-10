@@ -80,7 +80,13 @@ const at = (site: CodeSite | undefined): string =>
   site ? `${site.function ? `${site.function} (` : ''}${site.filepath}${site.lineno ? `:${site.lineno}` : ''}${site.function ? ')' : ''}` : '';
 
 export function whereLines(failures: readonly Failure[]): string[] {
-  return failures.flatMap((failure) => failure.path.flatMap((span, depth) => {
+  let printed: TraceSpan[] = [];
+  return failures.flatMap((failure) => {
+    let shared = 0;
+    while (shared < failure.path.length - 1 && printed[shared] === failure.path[shared]) shared += 1;
+    printed = failure.path;
+    return failure.path.slice(shared).flatMap((span, offset) => {
+    const depth = shared + offset;
     const status = span.attributes['http.response.status_code'];
     const threw = span.attributes['error.type'];
     const site = siteOf(span.attributes);
@@ -91,7 +97,8 @@ export function whereLines(failures: readonly Failure[]): string[] {
         `${'    '.repeat(depth)}  refused ${event.attributes['koala.action']} on a ${event.attributes['koala.resource']}${event.attributes['koala.claims'] ? ` (claims: ${event.attributes['koala.claims']})` : ''}${siteOf(event.attributes) ? ` at ${at(siteOf(event.attributes))}` : ''}`)
       : [];
     return [head, ...refusals];
-  }));
+    });
+  });
 }
 
 export interface FlowSnapshot { flows: Record<string, { title?: string; files: { files: { file: string }[] } }> }
