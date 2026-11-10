@@ -24,13 +24,14 @@ import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
 import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
-import { QUEUES } from './platform/index.js';
+import { QUEUES, roleRuns } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const logger = createWorkerLogger('cluster-worker');
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
+  if (!roleRuns(settings.role.role, 'cluster')) throw new Error(`${settings.role.role} runs no cluster worker: its apps run on its machines' clusters, deployed from an instance`);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(access);

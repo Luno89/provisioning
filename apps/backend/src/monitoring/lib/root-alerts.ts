@@ -13,8 +13,6 @@ export const ROOT_SERVICES = ['caddy', 'mongo', 'postgres', 'temporal', 'headsca
 export const ROOT_PROCESSES = [
   { service: 'koala-backend', name: 'Root\'s backend' },
   { service: 'koala-worker-host', name: 'Root\'s host worker' },
-  { service: 'koala-worker-cluster', name: 'Root\'s cluster worker' },
-  { service: 'koala-worker-engine', name: 'Root\'s engine worker' },
 ] as const;
 
 const ROOT_DISK = 'node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}';

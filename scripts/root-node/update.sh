@@ -419,10 +419,9 @@ else
   die "Rolled back${PREVIOUS_TAG:+, instances stay on ${PREVIOUS_TAG}}. Check: journalctl -u ${SERVICE} -n 100"
 fi
 
-# Both workers must be up, not just the backend. `concurrently --kill-others` means one dying takes
-# the others with it, so a partial start shows up here rather than as activities that never run.
+# The host worker must be up, not just the backend, or root's work never runs.
 sleep 3
-for w in worker-host worker-cluster; do
+for w in worker-host; do
   pgrep -f "$w" >/dev/null || warn "${w} is not running — check journalctl -u ${SERVICE}-workers -u ${SERVICE}"
 done
 

@@ -143,7 +143,7 @@ PartOf=nowrinkles.service
 [Service]
 Type=simple
 WorkingDirectory=${REPO_DIR}
-ExecStart=/usr/bin/npx concurrently --kill-others "npm run start:worker -w apps/backend" "npm run start:worker:cluster -w apps/backend" "npm run start:worker:engine -w apps/backend"
+ExecStart=/usr/bin/npm run start:worker -w apps/backend
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production

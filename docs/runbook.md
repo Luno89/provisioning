@@ -94,7 +94,7 @@ Putting one back: write the line into `apps/backend/.env` as it was, `systemctl 
   `BACKUP_REPOSITORY` is set. See them: `systemctl list-timers 'koala-*'`, `journalctl -u koala-backup -n 50`.
 - **Releases**: `koala-release-watch.timer`, hourly once started, runs `scripts/root-node/release-watch.sh`: it finds
   GitHub's newest published release and, when newer than root's, runs `update.sh` with it.
-- **Root's services**: `nowrinkles.service` (the backend) and `nowrinkles-workers.service` (the workers).
+- **Root's services**: `nowrinkles.service` (the backend) and `nowrinkles-workers.service` (the host worker, which runs root's work: the pool, removals at root, the dependency watch).
   `journalctl -u nowrinkles -n 200`, `journalctl -u nowrinkles-workers -n 200`.
 - **Watching instances**: root probes every instance and emails its owner after 10 minutes unreachable (on the branch
   being merged; see section 6).
