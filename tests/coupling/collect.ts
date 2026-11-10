@@ -1,8 +1,9 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
+import { ranIn, type RawCoverage } from './live.js';
 import { shellRan } from './shell-trace.js';
 
 export interface Position { line: number; column: number }
@@ -34,17 +35,33 @@ function generatedAt(starts: number[], offset: number): Position {
 }
 
 export interface Collector {
+  childEnv: Record<string, string>;
   take(testFile: string): Promise<void>;
   sample(label: string, out: string): Promise<void>;
 }
 
-export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string }): Promise<Collector> {
+export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string; children?: string }): Promise<Collector> {
   const session = new Session();
   session.connect();
   await session.post('Profiler.enable');
   await session.post('Debugger.enable');
   await session.post('Profiler.startPreciseCoverage', { callCount: true, detailed: true });
   mkdirSync(options.dir, { recursive: true });
+  const { children } = options;
+  if (children) mkdirSync(children, { recursive: true });
+  const childEnv: Record<string, string> = children
+    ? { NODE_V8_COVERAGE: children, NODE_OPTIONS: `--enable-source-maps ${process.env.NODE_OPTIONS ?? ''}`.trim() }
+    : {};
+  const childrenRan = (files: Record<string, RanRange[]>): void => {
+    if (!children || !existsSync(children)) return;
+    for (const name of readdirSync(children).filter((entry) => entry.endsWith('.json'))) {
+      const path = join(children, name);
+      for (const [file, ranges] of Object.entries(ranIn(JSON.parse(readFileSync(path, 'utf8')) as RawCoverage, options.root))) {
+        if (options.keep(file)) files[file] = [...(files[file] ?? []), ...ranges];
+      }
+      rmSync(path, { force: true });
+    }
+  };
   const write = async (label: string, out: string): Promise<void> => {
     const { result } = await session.post('Profiler.takePreciseCoverage') as { result: V8Script[] };
     const files: Record<string, RanRange[]> = {};
@@ -75,6 +92,7 @@ export async function startCollecting(options: { dir: string; root: string; keep
         });
       }
     }
+    childrenRan(files);
     if (options.shellTrace) {
       Object.assign(files, shellRan(options.shellTrace, options.root));
       rmSync(options.shellTrace, { force: true });
@@ -83,6 +101,7 @@ export async function startCollecting(options: { dir: string; root: string; keep
     writeFileSync(join(options.dir, out), JSON.stringify(ran));
   };
   return {
+    childEnv,
     async take(testFile) {
       const label = relative(options.root, testFile);
       await write(label, `${label.replace(/[^A-Za-z0-9.-]+/g, '_')}.json`);
