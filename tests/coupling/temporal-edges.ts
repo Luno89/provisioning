@@ -1,3 +1,4 @@
+import { WORKFLOWS } from '../../apps/backend/src/platform/lib/work-places.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -12,31 +13,7 @@ export const WORKERS: Record<Queue, string> = {
   stream: 'engine-host/temporal/stream-worker.ts',
 };
 
-export const STARTED_ON: Record<string, Queue> = {
-  executeIngestWorkflow: 'host',
-  DependencyWatchWorkflow: 'host',
-  PoolInstanceWorkflow: 'host',
-  PoolTrialWorkflow: 'host',
-  PoolRemoveWorkflow: 'host',
-  PoolMoveWorkflow: 'host',
-  RootAccountRemovalWorkflow: 'host',
-  RootNodeWorkflow: 'host',
-  executeDeployAppWorkflow: 'cluster',
-  executeDestroyAppWorkflow: 'cluster',
-  executeResizeDiskWorkflow: 'cluster',
-  executeSyncConfigWorkflow: 'cluster',
-  executePipelineRunWorkflow: 'cluster',
-  AgentRunWorkflow: 'engine',
-  AdoptPlanWorkflow: 'engine',
-  ConversationConclusionWorkflow: 'engine',
-  BenchIdleWorkflow: 'engine',
-  ConcludeWorkspaceWorkflow: 'engine',
-  RemoveAccountWorkflow: 'engine',
-  RemoveProjectWorkflow: 'engine',
-  CheckRunWorkflow: 'engine',
-  StoredFilesWorkflow: 'engine',
-  StoredFilesSweepWorkflow: 'engine',
-};
+export const STARTED_ON: Record<string, Queue> = Object.fromEntries(Object.entries(WORKFLOWS).map(([name, { place }]) => [name, place]));
 
 export interface Proxy { file: string; call: ts.CallExpression; activities: string[]; queue: ProxyQueue }
 

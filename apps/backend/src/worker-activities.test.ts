@@ -7,6 +7,7 @@ import * as workflows from './workflows/index.js';
 import { BY_TYPE, HIDDEN_TYPES } from './infrastructure/lib/running.js';
 import { FAILURE_SHOWN_ON_RECORD } from './infrastructure/lib/work-failures.js';
 import { STARTED_ON, temporalWorld, WORKERS, type TemporalWorld } from '../../../tests/coupling/temporal-edges.js';
+import { HOST_ACTIVITIES, roleRuns, WORKFLOWS } from './platform/index.js';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const FRONTEND = resolve(SRC, '../../frontend/src');
@@ -48,6 +49,32 @@ describe('what each workflow calls is what its worker runs', () => {
           const on = proxy.queue === 'own' ? queue : proxy.queue;
           for (const activity of proxy.activities) {
             if (!world.registered[on].has(activity)) missing.push(`${name} (${file.slice(SRC.length + 1)}) calls ${activity} on the ${on} queue, whose worker does not run it`);
+          }
+        }
+      }
+    }
+    expect([...new Set(missing)]).toEqual([]);
+  });
+});
+
+describe('what each role starts is what that role\'s workers run', () => {
+  it('starts every workflow only in a role that runs the place it is started on', () => {
+    const wrong = Object.entries(WORKFLOWS).flatMap(([name, { place, roles }]) => roles.filter((role) => !roleRuns(role, place)).map((role) => `${name} is started on ${role}, which runs no ${place} worker`));
+    expect(wrong).toEqual([]);
+  });
+
+  it('has every activity a role\'s workflow calls registered by that role\'s worker of the queue it calls it on', () => {
+    const forRole = (role: 'root' | 'instance', queue: string, activity: string): boolean =>
+      world.registered[queue as keyof typeof world.registered].has(activity) && (queue !== 'host' || HOST_ACTIVITIES[role].includes(activity));
+    const missing: string[] = [];
+    for (const [name, { place, roles }] of Object.entries(WORKFLOWS)) {
+      for (const role of roles) {
+        if (role === 'hub') continue;
+        for (const file of world.reachable(name)) {
+          for (const proxy of world.proxies.get(file) ?? []) {
+            if (proxy.queue === 'device') continue;
+            const on = proxy.queue === 'own' ? place : proxy.queue;
+            for (const activity of proxy.activities) if (!forRole(role, on, activity)) missing.push(`${name}, started on ${role}, calls ${activity} on the ${on} queue, which ${role}'s worker does not run`);
           }
         }
       }

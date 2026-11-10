@@ -34,3 +34,34 @@ export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
     'CrawlBatchActivity', 'NextBatchActivity', 'SeedFrontierActivity', 'DiscardFrontierActivity', 'PurgeCorpusActivity', 'SearchCorpusActivity', 'NewIngestIdActivity',
   ],
 };
+
+type Started = { place: Place; roles: readonly PlatformRole[] };
+
+const onRoot = (place: Place): Started => ({ place, roles: ['root'] });
+const onInstance = (place: Place): Started => ({ place, roles: ['instance'] });
+
+export const WORKFLOWS: Record<string, Started> = {
+  DependencyWatchWorkflow: onRoot('host'),
+  PoolInstanceWorkflow: onRoot('host'),
+  PoolTrialWorkflow: onRoot('host'),
+  PoolRemoveWorkflow: onRoot('host'),
+  PoolMoveWorkflow: onRoot('host'),
+  RootAccountRemovalWorkflow: onRoot('host'),
+  executeIngestWorkflow: onInstance('host'),
+  RootNodeWorkflow: onInstance('host'),
+  executeDeployAppWorkflow: onInstance('cluster'),
+  executeDestroyAppWorkflow: onInstance('cluster'),
+  executeResizeDiskWorkflow: onInstance('cluster'),
+  executeSyncConfigWorkflow: onInstance('cluster'),
+  executePipelineRunWorkflow: onInstance('cluster'),
+  AgentRunWorkflow: onInstance('engine'),
+  AdoptPlanWorkflow: onInstance('engine'),
+  ConversationConclusionWorkflow: onInstance('engine'),
+  BenchIdleWorkflow: onInstance('engine'),
+  ConcludeWorkspaceWorkflow: onInstance('engine'),
+  RemoveAccountWorkflow: onInstance('engine'),
+  RemoveProjectWorkflow: onInstance('engine'),
+  CheckRunWorkflow: onInstance('engine'),
+  StoredFilesWorkflow: onInstance('engine'),
+  StoredFilesSweepWorkflow: onInstance('engine'),
+};
