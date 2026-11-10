@@ -8,11 +8,12 @@ import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { followEngineWorker } from './device-worker-follow.js';
-import { deviceQueue, startDeviceWorker } from './engine-worker.js';
+import { createDeviceActivities, deviceQueue, startDeviceWorker, type DeviceWorkerOptions } from './engine-worker.js';
+import { MockActivityEnvironment } from '@temporalio/testing';
 import { ExternalAgentSessions } from './external-agents.js';
 import { IdleGate } from './idle-gate.js';
 import { LocalMcpServer } from './local-mcp.js';
-import { hostCluster } from './machine-cluster.js';
+import { hostCluster, type ClusterHost } from './machine-cluster.js';
 
 let env: TestWorkflowEnvironment;
 let rootDir: string;
@@ -43,7 +44,9 @@ describe('the machine agent following its Koala for its device worker', () => {
     const socket = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
     const gate = new IdleGate();
     const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
-    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker);
+    const handed: DeviceWorkerOptions[] = [];
+    const noKoalaK3s: ClusterHost = { ...hostCluster(async () => undefined), exists: async () => false };
+    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
     expect(host).toBeDefined();
 
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
@@ -51,6 +54,10 @@ describe('the machine agent following its Koala for its device worker', () => {
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
     expect(asked).toEqual(['machine:payloads']);
+    const { MachineClusterActivity } = createDeviceActivities(handed[0]!);
+    const activity = new MockActivityEnvironment();
+    expect(await activity.run(MachineClusterActivity, { kind: 'stop' as const })).toEqual({ state: 'absent' });
+    await expect(activity.run(MachineClusterActivity, { kind: 'start' as const })).rejects.toThrow(/k3s is not installed on this machine/);
 
     await host!.stop();
     socket.close();
