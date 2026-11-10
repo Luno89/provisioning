@@ -324,10 +324,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
   });
 
-  const evalWeb = await buildWebTools(deps.webTools).catch((err: unknown) => {
-    console.warn(`[engine] checks run without web tools, which could not be resolved: ${(err as Error).message}`);
-    return undefined;
-  });
+  const evalWeb = await buildWebTools(deps.webTools);
   const evalHost = createEngineHost({
     dependencies: dependenciesOf,
     customizations: { drift: (...args) => deps.customizations.drift(...args), propose: (...args) => deps.customizations.propose(...args), exportItems: (...args) => deps.customizations.exportItems(...args) },

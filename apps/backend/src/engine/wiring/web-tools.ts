@@ -20,7 +20,7 @@ export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
   baseFetch: (input, init) => dependencyFetch(input, init),
 });
 
-export const buildWebTools = (place: WebToolsPlace, ownerId?: string): Promise<WebTools> => resolveWebTools(webToolsDeps(place), ownerId);
+export const buildWebTools = (place: WebToolsPlace): Promise<WebTools> => resolveWebTools(webToolsDeps(place));
 
 export const crawlEndpoint = (place: WebToolsPlace, ownerId?: string): Promise<{ base: string; token: string } | undefined> =>
   crawlEndpointWith(webToolsDeps(place), ownerId);
