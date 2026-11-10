@@ -189,3 +189,27 @@ describe('a breach whose callee moved', () => {
     expect(movedIn(baseline, found).moves).toEqual([]);
   });
 });
+
+describe('a breach whose caller was renamed or moved within its file', () => {
+  const key = (rule: string, from: string, to: string, through = 'call') => `${rule} ${from} -> ${to} (${through})`;
+  const breach = (rule: 'R1' | 'R2', from: string, to: string): Breach => ({ rule, key: key(rule, from, to), at: 'x.ts:1', why: 'no test runs both sides for real' });
+
+  it('carries its count when the caller has a new name in the same file and calls the same function', () => {
+    const baseline = { [key('R1', 'w.ts#main', 'd.ts#DependencyStates.failed')]: 1 };
+    const found = [breach('R1', 'w.ts#startWorker', 'd.ts#DependencyStates.failed')];
+    expect(movedIn(baseline, found).moves).toEqual([{ from: key('R1', 'w.ts#main', 'd.ts#DependencyStates.failed'), to: key('R1', 'w.ts#startWorker', 'd.ts#DependencyStates.failed'), count: 1 }]);
+  });
+
+  it('carries nothing for a caller in another file, or a call to another function', () => {
+    const baseline = { [key('R1', 'w.ts#main', 'd.ts#DependencyStates.failed')]: 1 };
+    expect(movedIn(baseline, [breach('R1', 'v.ts#main', 'd.ts#DependencyStates.failed')]).moves).toEqual([]);
+    expect(movedIn(baseline, [breach('R1', 'w.ts#startWorker', 'd.ts#DependencyStates.answered')]).moves).toEqual([]);
+  });
+
+  it('carries only as many as there were: a second call where one was is new', () => {
+    const baseline = { [key('R1', 's.ts#S.applyRootRules', 'a.ts#apply', 'interface')]: 1 };
+    const found = [breach('R1', 's.ts#S.applyOwnRules', 'a.ts#apply'), breach('R1', 's.ts#S.applyOwnRules', 'a.ts#apply')].map((entry) => ({ ...entry, key: key('R1', 's.ts#S.applyOwnRules', 'a.ts#apply', 'interface') }));
+    const { baseline: carried } = movedIn(baseline, found);
+    expect(against(found, carried).added).toHaveLength(1);
+  });
+});

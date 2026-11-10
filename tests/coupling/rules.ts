@@ -116,6 +116,8 @@ const partsOf = (key: string): KeyParts | undefined => {
   return at ? { rule: at[1]!, from: at[2]!, to: at[3]!.split(' | '), through: at[4]! } : undefined;
 };
 
+const fileOf = (unit: string): string => unit.slice(0, unit.indexOf('#'));
+
 const namesOf = (to: readonly string[]): string => to.map((unit) => unit.slice(unit.indexOf('#'))).sort().join(' | ');
 
 export interface Move { from: string; to: string; count: number }
@@ -133,8 +135,8 @@ export function movedIn(baseline: Baseline, found: readonly Breach[]): { baselin
     const from = gone.find((old) => {
       if (taken.has(old)) return false;
       const was = partsOf(old);
-      return was !== undefined && was.rule === parts.rule && was.from === parts.from && was.through === parts.through
-        && namesOf(was.to) === namesOf(parts.to) && was.to.join(' | ') !== parts.to.join(' | ');
+      return was !== undefined && was.rule === parts.rule && was.through === parts.through
+        && fileOf(was.from) === fileOf(parts.from) && namesOf(was.to) === namesOf(parts.to);
     });
     if (!from) continue;
     taken.add(from);
