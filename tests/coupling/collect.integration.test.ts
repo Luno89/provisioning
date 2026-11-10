@@ -19,9 +19,11 @@ describe('what a test runs, gathered', () => {
     });
     expect(said.trim()).toBe('host-ops-queue');
     await collector.take(join(ROOT, 'tests/coupling/collect.integration.test.ts'));
-    const written = readdirSync(dir).filter((name) => name.endsWith('.json'));
-    const ran = JSON.parse(readFileSync(join(dir, written[0]!), 'utf8')) as Ran;
-    const places = ran.files['apps/backend/src/platform/lib/work-places.ts'] ?? [];
+    const records = readdirSync(dir).filter((name) => name.endsWith('.json')).map((name) => JSON.parse(readFileSync(join(dir, name), 'utf8')) as Ran);
+    expect(records.map((record) => record.testFile)).toEqual(['tests/coupling/collect.integration.test.ts', 'tests/coupling/collect.integration.test.ts']);
+    const queueOfIn = (record: Ran | undefined) => record?.files['apps/backend/src/platform/lib/work-places.ts']?.find((range) => range.fn !== undefined && range.start.line === 12)?.count;
+    const child = records.find((record) => queueOfIn(record) === 1);
+    const places = child?.files['apps/backend/src/platform/lib/work-places.ts'] ?? [];
     const queueOf = places.find((range) => range.fn !== undefined && range.start.line === 12);
     expect(queueOf?.count).toBe(1);
     expect(places.find((range) => range.fn !== undefined && range.start.line === 20)?.count ?? 0).toBe(0);

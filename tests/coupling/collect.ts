@@ -52,15 +52,14 @@ export async function startCollecting(options: { dir: string; root: string; keep
   const childEnv: Record<string, string> = children
     ? { NODE_V8_COVERAGE: children, NODE_OPTIONS: `--enable-source-maps ${process.env.NODE_OPTIONS ?? ''}`.trim() }
     : {};
-  const childrenRan = (files: Record<string, RanRange[]>): void => {
+  const childrenRan = (label: string, out: string): void => {
     if (!children || !existsSync(children)) return;
-    for (const name of readdirSync(children).filter((entry) => entry.endsWith('.json'))) {
+    readdirSync(children).filter((entry) => entry.endsWith('.json')).sort().forEach((name, index) => {
       const path = join(children, name);
-      for (const [file, ranges] of Object.entries(ranIn(JSON.parse(readFileSync(path, 'utf8')) as RawCoverage, options.root))) {
-        if (options.keep(file)) files[file] = [...(files[file] ?? []), ...ranges];
-      }
+      const files = Object.fromEntries(Object.entries(ranIn(JSON.parse(readFileSync(path, 'utf8')) as RawCoverage, options.root)).filter(([file]) => options.keep(file)));
+      if (Object.keys(files).length > 0) writeFileSync(join(options.dir, out.replace(/\.json$/, `.child-${index}.json`)), JSON.stringify({ testFile: label, files } satisfies Ran));
       rmSync(path, { force: true });
-    }
+    });
   };
   const write = async (label: string, out: string): Promise<void> => {
     const { result } = await session.post('Profiler.takePreciseCoverage') as { result: V8Script[] };
@@ -92,13 +91,13 @@ export async function startCollecting(options: { dir: string; root: string; keep
         });
       }
     }
-    childrenRan(files);
     if (options.shellTrace) {
       Object.assign(files, shellRan(options.shellTrace, options.root));
       rmSync(options.shellTrace, { force: true });
     }
     const ran: Ran = { testFile: label, files };
     writeFileSync(join(options.dir, out), JSON.stringify(ran));
+    childrenRan(label, out);
   };
   return {
     childEnv,

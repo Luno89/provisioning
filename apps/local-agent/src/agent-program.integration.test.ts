@@ -42,7 +42,9 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     const koala = await listening();
     const root = await listening();
     const heard: Record<string, unknown> = {};
+    const toRoot: Array<{ emit(event: string, payload: unknown): void }> = [];
     root.io.of('/machine-account').on('connection', (socket) => {
+      toRoot.push(socket);
       heard.deviceToken = (socket.handshake.auth as { token?: string }).token;
       socket.emit('machine:koala', { url: koala.url, workToken: 'program-work-token' });
     });
@@ -84,6 +86,11 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     while (child.exitCode === null && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
     expect(heard).toMatchObject({ deviceToken: 'program-device-token', workToken: 'program-work-token', agents: { agents: [] } });
+
+    toRoot[0]!.emit('machine:koala', { url: koala.url, workToken: 'program-work-token-2' });
+    while (!said.join('').includes('took a new work token')) await new Promise((done) => setTimeout(done, 100));
+    for (const socket of koala.io.of('/agent').sockets.values()) socket.conn.close();
+    while (heard.workToken !== 'program-work-token-2') await new Promise((done) => setTimeout(done, 100));
 
     child.kill('SIGTERM');
     expect(await ended).toBe(0);
