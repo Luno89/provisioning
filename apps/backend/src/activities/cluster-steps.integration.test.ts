@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
+import { applyWatched, CannotRollOut } from './watched-apply.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
@@ -49,11 +50,13 @@ beforeAll(async () => {
     `import { App, TerraformStack } from ${JSON.stringify(cdktf)};`,
     `import { K8sProviderService } from ${JSON.stringify(path.join(CDKTF, 'lib', 'k8s-provider-service.ts'))};`,
     `import { Namespace } from ${JSON.stringify(path.join(CDKTF, '.gen', 'providers', 'kubernetes', 'namespace', 'index.ts'))};`,
+    `import { DeploymentV1 } from ${JSON.stringify(path.join(CDKTF, '.gen', 'providers', 'kubernetes', 'deployment-v1', 'index.ts'))};`,
     `import { keepState } from ${JSON.stringify(path.join(CDKTF, 'lib', 'state.ts'))};`,
     'const app = new App();',
     'const stack = new TerraformStack(app, `app-${process.env.CLUSTER_NAME}-${process.env.DEPLOYMENT_ID}`);',
     'K8sProviderService.fromEnv(stack);',
-    'new Namespace(stack, "ns", { metadata: { name: process.env.DEPLOYMENT_NAME!, labels: { app: process.env.APP_TYPE ?? "none" } } });',
+    'const ns = new Namespace(stack, "ns", { metadata: { name: process.env.DEPLOYMENT_NAME!, labels: { app: process.env.APP_TYPE ?? "none" } } });',
+    'if (process.env.STUCK_IMAGE) new DeploymentV1(stack, "stuck", { dependsOn: [ns], waitForRollout: true, metadata: { name: "stuck", namespace: process.env.DEPLOYMENT_NAME! }, spec: { selector: { matchLabels: { app: "stuck" } }, template: { metadata: { labels: { app: "stuck" } }, spec: { container: [{ name: "stuck", image: process.env.STUCK_IMAGE }] } } } });',
     'keepState(app, process.env);',
     'app.synth();',
     '',
@@ -95,6 +98,16 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     await DestroyAppActivity({ ...app, appType: 'audiobookshelf' }, steps);
     expect(await exists(KOALA, 'books-1a2b3c')).toBe(false);
   }, 300_000);
+
+  it('stops Terraform the moment what it applies can never roll out, saying why, rather than waiting on it', async () => {
+    const env = { CLUSTER_NAME: 'desk', DEPLOYMENT_ID: 'd9', DEPLOYMENT_NAME: 'stuck-9a8b7c', KUBECONFIG: await access.kubeconfigOf(DESK), STUCK_IMAGE: 'registry.invalid/koala/none:1' };
+    const told: string[] = [];
+    const failed = await applyWatched(steps, 'app-desk-d9', { env, logFile: path.join(root, 'stuck.log') }, { what: 'stuck', reach: DESK, namespaces: ['stuck-9a8b7c'], log: (line) => told.push(line) }, (ms) => new Promise((done) => { setTimeout(done, Math.min(ms, 300)); }))
+      .then(() => undefined, (err: unknown) => err);
+    expect(failed).toBeInstanceOf(CannotRollOut);
+    expect((failed as CannotRollOut).why).toMatch(/pull|image/i);
+    await access.kubectl(DESK, ['delete', 'namespace', 'stuck-9a8b7c', '--wait=false']);
+  }, 600_000);
 
   it('applies an app\'s stack with Terraform on another machine through the kubeconfig its workflow handed over', async () => {
     const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };
