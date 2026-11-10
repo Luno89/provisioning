@@ -161,7 +161,7 @@ export interface BackendSettings extends CommonSettings {
   appUrl: string;
   origins: OurOrigins;
   csp: CspMode;
-  trustProxy: number | false;
+  trustProxy: number | 'loopback';
   metricsToken: string | Off;
   mail: EmailWay;
   pod: PodPlace | undefined;
