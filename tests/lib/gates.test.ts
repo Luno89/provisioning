@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, takeNowLines, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -156,15 +156,15 @@ describe('known vulnerabilities before ship', () => {
     const { due, waiting } = judgeVulnerabilities([axios], () => '2026-10-28T08:00:00Z', now);
     expect(due).toEqual([]);
     expect(waitingLines(waiting)).toEqual(['axios@1.18.1: https://osv.dev/GHSA-aaaa, fixed in 1.18.3, which can be taken on 2026-11-11']);
-    expect(vulnerableRefusal(due)).toBeUndefined();
+    expect(takeNowLines(due)).toEqual([]);
   });
 
-  it('refuses to ship once the fix is two weeks old, when there is none, or when its date cannot be read', () => {
+  it('names what can be taken now and how, once the fix is two weeks old, when there is none, or when its date cannot be read, refusing nothing', () => {
     const aged = judgeVulnerabilities([axios], () => '2026-10-10T00:00:00Z', now);
     expect(aged.waiting).toEqual([]);
-    expect(vulnerableRefusal(aged.due)).toMatch(/axios@1\.18\.1: https:\/\/osv\.dev\/GHSA-aaaa \(fixed in 1\.18\.3, published 2026-10-10\)[\s\S]*deps:update -- <package>[\s\S]*osv-scanner\.toml/);
-    expect(vulnerableRefusal(judgeVulnerabilities([{ ...axios, fixed: [] }], () => undefined, now).due)).toMatch(/no fixed version yet/);
-    expect(vulnerableRefusal(judgeVulnerabilities([axios], () => undefined, now).due)).toMatch(/could not be read/);
+    expect(takeNowLines(aged.due)).toEqual(['axios@1.18.1: https://osv.dev/GHSA-aaaa (fixed in 1.18.3, published 2026-10-10): npm run deps:update -- axios']);
+    expect(takeNowLines(judgeVulnerabilities([{ ...axios, fixed: [] }], () => undefined, now).due)[0]).toMatch(/no fixed version yet/);
+    expect(takeNowLines(judgeVulnerabilities([axios], () => undefined, now).due)[0]).toMatch(/could not be read/);
   });
 });
 

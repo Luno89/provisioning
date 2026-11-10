@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, vulnerableRefusal, waitingLines } from './lib/gates.js';
+import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
 import { entriesOf, measuringProblem } from './coupling/live.js';
 import { e2eEnv } from './lib/e2e-env.js';
 import { devOwner } from './lib/dev-stack.js';
@@ -26,8 +26,7 @@ async function main(): Promise<void> {
   const leaks = leaksRefusal(leaksIn(REPO, 'origin/main..HEAD'));
   if (leaks) throw new Error(`main: ${leaks}`);
   const advisories = judgeVulnerabilities(vulnerabilitiesIn(REPO), npmPublishTimes(REPO), new Date());
-  const vulnerable = vulnerableRefusal(advisories.due);
-  if (vulnerable) throw new Error(`main: ${vulnerable}`);
+  for (const line of takeNowLines(advisories.due)) console.log(`to take now: ${line}`);
   for (const line of waitingLines(advisories.waiting)) console.log(`waiting: ${line}`);
   const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);

@@ -2337,8 +2337,8 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 - **`npm run ship`** (`tests/ship.ts`, with `MECHANICS_ADMIN` set) is how `main` is pushed. It runs on `main` in the
   checkout the dev stack runs from (it checks the backend on :3001 has its working directory there, and that nothing is
   uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
-  runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
-  can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
+  runs whose fix is due: production packages in `package-lock.json`; ship lists each one and refuses none (owner, 2026-11-09: "thats a guideline it shouldn't block anything"): a fix published
+  under 14 days ago is listed with the day it can be taken, one 14 days old or more as to take now with `npm run deps:update -- <package>`, which takes it (the newest version two weeks old in
   the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier gathering its coverage) and, after G2, the coupling rules over both tiers and what the live suites ran (R1-R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,

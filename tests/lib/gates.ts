@@ -120,17 +120,13 @@ export const productionVulnerabilities = (report: unknown): Vulnerability[] =>
       fixed: fixedVersionsOf(vulnerability, found.package.name),
     })));
 
-const dueLine = ({ vulnerability, fix, publishedAt }: JudgedVulnerability): string => {
-  const where = `  ${vulnerability.name}@${vulnerability.version}: https://osv.dev/${vulnerability.id}`;
-  if (!fix) return `${where} (no fixed version yet)`;
-  if (!publishedAt) return `${where} (fixed in ${fix}; its publish date could not be read)`;
-  return `${where} (fixed in ${fix}, published ${publishedAt.slice(0, 10)})`;
-};
-
-export const vulnerableRefusal = (due: readonly JudgedVulnerability[]): string | undefined =>
-  due.length
-    ? `osv-scanner finds a known vulnerability in what Koala runs, with its fix at least ${COOLING_OFF_DAYS} days old or none at all:\n${due.map(dueLine).join('\n')}\nTake the fix with \`npm run deps:update -- <package>\`, or, when no fixed version exists yet, add the id to osv-scanner.toml with why it stays.`
-    : undefined;
+export const takeNowLines = (due: readonly JudgedVulnerability[]): string[] =>
+  due.map(({ vulnerability, fix, publishedAt }) => {
+    const where = `${vulnerability.name}@${vulnerability.version}: https://osv.dev/${vulnerability.id}`;
+    if (!fix) return `${where} (no fixed version yet): add its id to osv-scanner.toml with why it stays`;
+    if (!publishedAt) return `${where} (fixed in ${fix}; its publish date could not be read): npm run deps:update -- ${vulnerability.name}`;
+    return `${where} (fixed in ${fix}, published ${publishedAt.slice(0, 10)}): npm run deps:update -- ${vulnerability.name}`;
+  });
 
 export const waitingLines = (waiting: readonly JudgedVulnerability[]): string[] =>
   waiting.map(({ vulnerability, fix, takeOn }) => `${vulnerability.name}@${vulnerability.version}: https://osv.dev/${vulnerability.id}, fixed in ${fix}, which can be taken on ${takeOn}`);
