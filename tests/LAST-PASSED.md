@@ -7,7 +7,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `app-sign-in-live` | 2026-11-10 01:35 | 2026-11-09 16:12 |
 | `browser-live` | 2026-11-10 01:22 | 2026-11-09 20:18 |
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
-| `checks-live` | 2026-11-10 01:53 | 2026-11-10 00:27 |
+| `checks-live` | 2026-11-10 04:42 | 2026-11-10 00:27 |
 | `files-live` | 2026-11-08 21:59 | 2026-11-08 00:36 |
 | `hardening-live` | 2026-11-05 17:33 | — |
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
