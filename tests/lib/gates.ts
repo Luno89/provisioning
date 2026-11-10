@@ -23,10 +23,12 @@ export const E2E_STEPS: GateStep[] = [
 ];
 
 export const LAYER_STEPS: GateStep[] = [
-  { name: 'the coupling rules, over both tiers and the live suites', script: 'test:coupling:live' },
+  { name: 'the coupling rules, over the unit and integration tiers', script: 'test:coupling' },
 ];
 
-export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E2E_STEPS, ...LAYER_STEPS];
+export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...LAYER_STEPS, ...E2E_STEPS];
+
+const GATHERING: readonly string[] = INTEGRATION_STEPS.map((step) => step.script);
 
 export const RELEASE_STEPS: GateStep[] = [
   { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },
@@ -190,8 +192,8 @@ export const shipRun = (steps: readonly GateStep[], checked: readonly StepPassed
   if (at < 0) return { refused: `ship has no step ${only}; its steps are ${steps.map((step) => shortName(step.script)).join(', ')}` };
   const step = steps[at]!;
   if (LAYER_STEPS.some((layer) => layer.script === step.script)) {
-    const missing = stillToRun(steps.slice(0, at), checked);
-    if (missing.length > 0) return { refused: `the coupling rules judge what every step before them gathered on this commit, and ${missing.map((left) => shortName(left.script)).join(', ')} ${missing.length === 1 ? 'has' : 'have'} not passed on it yet` };
+    const missing = stillToRun(steps.slice(0, at).filter((before) => GATHERING.includes(before.script)), checked);
+    if (missing.length > 0) return { refused: `the coupling rules judge what the unit and integration tiers gathered on this commit, and ${missing.map((left) => shortName(left.script)).join(', ')} ${missing.length === 1 ? 'has' : 'have'} not passed on it yet` };
   }
   return { steps: [step] };
 };

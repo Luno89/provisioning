@@ -44,7 +44,7 @@
     "test:integration": "npm run test:integration -w packages/context-engine -w packages/engine-core -w packages/agent-engine -w apps/frontend -w apps/backend -w apps/local-agent -w packages/cdktf-infra",
     "test:integration:coupled": "tsx tests/coupling/gather.ts",
     "test:e2e": "tsx tests/e2e.ts",
-    "test:coupling:live": "tsx tests/coupling/audit.ts --require in-process,live --prune",
+    "test:coupling": "tsx tests/coupling/audit.ts --require in-process --prune",
     "flows": "tsx tests/coupling/flows-cli.ts",
     "refs": "tsx tests/coupling/refs-cli.ts",
     "said": "tsx tests/alignment/said-cli.ts",

@@ -94,9 +94,8 @@ describe('the baseline', () => {
 
 describe('what each rule needs', () => {
   it('judges R4 from the graph alone and skips the rest, naming what is missing', () => {
-    expect(judging(new Set())).toEqual({ judged: ['R4'], skipped: [{ rule: 'R1', missing: ['in-process'] }, { rule: 'R2', missing: ['in-process'] }, { rule: 'R3', missing: ['in-process'] }, { rule: 'R5', missing: ['in-process', 'live'] }] });
-    expect(judging(new Set(['in-process'])).judged).toEqual(['R1', 'R2', 'R3', 'R4']);
-    expect(judging(new Set(['in-process', 'live'])).judged).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
+    expect(judging(new Set())).toEqual({ judged: ['R4'], skipped: [{ rule: 'R1', missing: ['in-process'] }, { rule: 'R2', missing: ['in-process'] }, { rule: 'R3', missing: ['in-process'] }, { rule: 'R5', missing: ['in-process'] }] });
+    expect(judging(new Set(['in-process'])).judged).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
   });
 
   it('holds only the rules it judged against the baseline, and prunes nothing else', () => {
@@ -137,7 +136,7 @@ describe('R5, the layers a service, route or activity is tested at', () => {
     ]);
   });
 
-  it('takes an edge from startup code as run for real when the live stack ran it, and nothing else', () => {
+  it('judges startup code as any other code: what the live stack ran counts for nothing, since its state differs from run to run', () => {
     const started: Graph = {
       units: {
         main: unit('main', 'apps/backend/src/worker-engine.ts'),
@@ -151,7 +150,9 @@ describe('R5, the layers a service, route or activity is tested at', () => {
     };
     const live = [by('live', true)];
     const found = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: live, lowest: 'live' as const, withCallerAt: 'live' as const })), started);
-    expect(rulesOf(found)).toEqual(['R1 apps/backend/src/x/service.ts:3']);
+    expect(rulesOf(found)).toEqual(['R1 apps/backend/src/x/main.ts:1', 'R3 apps/backend/src/x/wire.ts:2', 'R1 apps/backend/src/x/service.ts:3']);
+    const booted = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: [by('component', true)], lowest: 'component' as const, withCallerAt: 'component' as const })), started);
+    expect(rulesOf(booted)).toEqual([]);
     const unrun = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: [], lowest: undefined, withCallerAt: undefined })), started);
     expect(rulesOf(unrun).filter((line) => !line.startsWith('R2'))).toEqual(['R1 apps/backend/src/x/main.ts:1', 'R3 apps/backend/src/x/wire.ts:2', 'R1 apps/backend/src/x/service.ts:3']);
   });

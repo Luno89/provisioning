@@ -96,7 +96,7 @@ npm run dev:split    # the same stack as root and your instance: root at http://
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
 npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
-npm run gate -- <step> # one of ship's steps alone (unit, lint, integration:coupled, checks-live, coupling:live, …), its pass kept for this commit; ship then runs only what is left
+npm run gate -- <step> # one of ship's steps alone (unit, lint, integration:coupled, coupling, checks-live, …), its pass kept for this commit; ship then runs only what is left
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
@@ -104,7 +104,7 @@ npm run test:all     # test → test:synth:palworld
 npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
 npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, a Temporal dev server, sockets, git and sh on this machine, ~5.5 min
 npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
-npm run test:coupling:live # the coupling rules R1-R5 over both tiers and the live suites, against their baseline; ship's last step
+npm run test:coupling # the coupling rules R1-R5 over the unit and integration tiers, against their baseline; ship's fourth step
 npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tests/lib/gates.ts) against the running dev stack, with MECHANICS_ADMIN set
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose selectors have rotted (plans/testing-pyramid.md); in no gate
@@ -2304,38 +2304,29 @@ real. It works like Lighthouse, gather apart from audit:
 - **Audit** (`tests/coupling/audit.ts`, `--require in-process`) builds the graph, joins it with what was gathered, and writes
   `result.json`, `report.html` (breaches, areas and edges, filtered and sorted) and `summary.txt`. Each rule says what it needs
   and is skipped, saying so, without it:
-  - **R1**: an edge within a process is run for real only by live suites, or by none; an edge whose caller is startup code
-    (`apps/backend/src/index.ts`, `worker-*.ts`, an area's `wiring/`; `isStartupCode`) counts as run for real when the live stack
-    ran it (owner, 2026-11-03), since nothing below live starts a process;
+  - **R1**: an edge within a process is run for real by no test of the unit or integration tier; startup code (a process's main,
+    an area's `wiring/`) is judged like any other, covered once an integration test boots the process;
   - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
   - **R3**: an edge between processes is run only by live suites, or by none;
   - **R4**: a call with no implementation found, or one made through `any`; a call only tests give an implementation for is no breach, since production never makes it (owner, 2026-11-09: "I don't think we need to map the test code, just the implementation");
   - **R5**: a function in a backend service, route or activity is not run both by a unit test (its dependencies mocked) and by an
-    integration or live test (its real ones); pure logic belongs in `lib/`, which R5 does not hold. It needs the `live` artifact, so
-    it is judged by ship's last step, `npm run test:coupling:live`, after the live suites have run on a dev stack started with
-    `COUPLING_LIVE=1` (ship refuses to start on one that was not).
+    integration test (its real ones); pure logic belongs in `lib/`, which R5 does not hold.
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
-  Ship's last step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
-  baseline is committed on top with the live ledger (`LEDGER_FILES`). A run is judged with everything, live included, but only what
-  the unit and integration tiers cover lowers the baseline (owner, 2026-11-03): the live suites reach different paths from run to run
-  as the dev stack's state differs (a cached workspace image builds nothing), so an edge only they covered came back as new the next
-  time; the baseline was rebuilt that day on this rule, the old one having written off debt on live coverage. Run by hand without `--prune`, a gone breach fails too.
+  Ship's coupling step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
+  baseline is committed on top with the live ledger (`LEDGER_FILES`). **It is judged only from the unit and integration tiers**
+  (owner, 2026-11-10, "lets go with A"), which run on clean dependencies of their own every time: what the live suites ran on the
+  dev stack depended on its state (a cached workspace image builds nothing, an existing project makes none), so the same commit gave
+  different breaches from run to run, and a process's first sample counted whatever had been run on the stack before ship. The audit
+  uses only the artifacts `--require` names. Run by hand without `--prune`, a gone breach fails too.
   A breach that comes and goes between runs of the same code is a fault in the code, not noise (owner, 2026-11-02: flaky tests
   mean flaky code); it fails ship like any other until the race or timer behind it is gone (`~/.claude/plans/event-driven.md`).
-- **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
-  `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
-  new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
-  since Temporal's workers take `SIGUSR2` as an order to shut down). Koala's pods are measured the same way: dev applies the instance
-  chart with `dev.coverage` (only beside `dev.source`), which gives the backend and the three workers the hook, that folder at its own
-  path and `hostPID`, so the pids they record are this computer's, and starts them again; `convert` reads their `/app` as this checkout,
-  and ship refuses a stack that measures no process of theirs (`measuringProblem`). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
-  `discard` before, `sample tests/<suite>.ts` after, each suite's sample replacing its last; a process's first sample, which holds
-  everything it ran while starting, is kept as the `startup` run, a live one, for as long as that process runs, `convert` mapping each file back to TypeScript through the source maps the
-  coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes
-  nothing.
-- Ship gathers with `npm run test:integration:coupled` after the unit tier and lint, and judges once, last, with
-  `npm run test:coupling:live`, after the live suites; with coverage the suites took 253 s against 196 s without on 2026-11-01. Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
-  nothing covered), the live suites' and the VMs' coverage.
+- **The live suites' coverage is not judged.** `COUPLING_LIVE=1 npm run dev` still measures the dev stack (`tests/coupling/live.ts`,
+  `live-hook.mjs`, the chart's `dev.coverage`) for a look by hand (`npm run test:coupling -- --require in-process,live`), and ship
+  neither needs nor reads it. Measuring the live suites on a clean stack each ship, with the dependencies Koala did not write stood in
+  for, is planned (`~/.claude/plans/backend.md`, deferred).
+- Ship gathers with `npm run test:integration:coupled` after the unit tier and lint, and judges right after it with
+  `npm run test:coupling`, before the live suites. Not measured yet: workflow code (Temporal runs it from its own bundle, so
+  `backend/workflows` shows almost nothing covered), the live suites' and the VMs' coverage.
 
 ## Releases: every gate before what it protects
 

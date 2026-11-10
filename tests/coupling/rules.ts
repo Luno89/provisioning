@@ -5,7 +5,7 @@ import type { Judged, Level } from './join.js';
 export type Rule = 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
 export const RULES: readonly Rule[] = ['R1', 'R2', 'R3', 'R4', 'R5'];
 
-export const NEEDS: Record<Rule, readonly Artifact[]> = { R1: ['in-process'], R2: ['in-process'], R3: ['in-process'], R4: [], R5: ['in-process', 'live'] };
+export const NEEDS: Record<Rule, readonly Artifact[]> = { R1: ['in-process'], R2: ['in-process'], R3: ['in-process'], R4: [], R5: ['in-process'] };
 
 const LAYERED = /^apps\/backend\/src\/([a-z-]+\/(services|routes)\/|activities\/)/;
 const REAL: ReadonlySet<Level> = new Set(['component', 'contract', 'container', 'live', 'vm']);
@@ -48,10 +48,6 @@ const CROSS_PROCESS: ReadonlySet<Edge['through']> = new Set(['temporal', 'socket
 
 export const crossesProcess = (edge: Edge): boolean => CROSS_PROCESS.has(edge.through);
 
-const STARTUP_CODE = /^apps\/backend\/src\/((index|worker-[a-z]+)\.ts$|[a-z-]+\/wiring\/)/;
-
-export const isStartupCode = (file: string): boolean => STARTUP_CODE.test(file);
-
 export function breaches(judged: readonly Judged[], graph: Graph, rules: readonly Rule[] = RULES): Breach[] {
   const name = (id: string) => { const unit = graph.units[id]; return unit ? `${unit.file}#${unit.name}` : id; };
   const callers = new Map<string, number>();
@@ -67,8 +63,7 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
     }
     const crossing = crossesProcess(edge);
     const below = entry.covered.some((covered) => BELOW_LIVE.has(covered.level));
-    const startedLive = isStartupCode(graph.units[edge.from]?.file ?? '') && entry.covered.some((covered) => covered.level === 'live');
-    if (!below && !startedLive) {
+    if (!below) {
       const rule: Rule = crossing ? 'R3' : 'R1';
       const why = entry.covered.length > 0 ? `covered only at ${entry.lowest}` : 'no test runs both sides for real';
       found.push({ rule, key: `${rule} ${pair}`, at, why });

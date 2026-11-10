@@ -199,26 +199,26 @@ describe('checking a release before tagging it', () => {
 });
 
 describe('which ship steps a run takes', () => {
-  const steps = [{ name: 'unit', script: 'test:unit' }, { name: 'checks', script: 'test:checks-live' }, { name: 'coupling', script: 'test:coupling:live' }];
+  const steps = [{ name: 'unit', script: 'test:unit' }, { name: 'integration', script: 'test:integration:coupled' }, { name: 'coupling', script: 'test:coupling' }, { name: 'checks', script: 'test:checks-live' }];
   const passed = (script: string) => ({ name: script, script, minutes: 1 });
 
   it('takes every step not passed yet for this commit, in order', () => {
-    expect(shipRun(steps, [passed('test:unit')], undefined)).toEqual({ steps: [steps[1], steps[2]] });
+    expect(shipRun(steps, [passed('test:unit')], undefined)).toEqual({ steps: [steps[1], steps[2], steps[3]] });
     expect(shipRun(steps, steps.map((step) => passed(step.script)), undefined)).toEqual({ steps: [] });
   });
 
   it('runs one step named by its script with or without test:, again if it passed already', () => {
-    expect(shipRun(steps, [passed('test:checks-live')], 'checks-live')).toEqual({ steps: [steps[1]] });
+    expect(shipRun(steps, [passed('test:checks-live')], 'checks-live')).toEqual({ steps: [steps[3]] });
     expect(shipRun(steps, [], 'test:unit')).toEqual({ steps: [steps[0]] });
   });
 
   it('refuses a step it does not know, naming the ones it does', () => {
-    expect(shipRun(steps, [], 'nope')).toEqual({ refused: 'ship has no step nope; its steps are unit, checks-live, coupling:live' });
+    expect(shipRun(steps, [], 'nope')).toEqual({ refused: 'ship has no step nope; its steps are unit, integration:coupled, coupling, checks-live' });
   });
 
-  it('runs the coupling rules alone only once every step before them passed for this commit, since they judge what those gathered', () => {
-    expect(shipRun(steps, [passed('test:unit')], 'coupling:live')).toEqual({ refused: 'the coupling rules judge what every step before them gathered on this commit, and checks-live has not passed on it yet' });
-    expect(shipRun(steps, [passed('test:unit'), passed('test:checks-live')], 'coupling:live')).toEqual({ steps: [steps[2]] });
+  it('runs the coupling rules alone only once the steps that gather what they judge passed on this commit, the live suites not among them', () => {
+    expect(shipRun(steps, [passed('test:unit')], 'coupling')).toEqual({ refused: 'the coupling rules judge what the unit and integration tiers gathered on this commit, and integration:coupled has not passed on it yet' });
+    expect(shipRun(steps, [passed('test:unit'), passed('test:integration:coupled')], 'coupling')).toEqual({ steps: [steps[2]] });
   });
 });
 

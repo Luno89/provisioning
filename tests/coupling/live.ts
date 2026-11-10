@@ -12,20 +12,6 @@ export const POD_SOURCE = '/app';
 export const checkoutPathOf = (path: string, root: string): string =>
   path === POD_SOURCE || path.startsWith(`${POD_SOURCE}/`) ? join(root, path.slice(POD_SOURCE.length)) : path;
 
-export interface Measured { pid: number; entry: string }
-
-export function stillRestarting(before: readonly Measured[], now: readonly Measured[]): string[] {
-  const old = new Set(before.map((process) => process.pid));
-  const entries = [...new Set(before.map((process) => process.entry))];
-  return entries.filter((entry) => {
-    const wanted = before.filter((process) => process.entry === entry).length;
-    return now.filter((process) => process.entry === entry && !old.has(process.pid)).length < wanted;
-  });
-}
-
-export const entryFilesIn = (root: string, measured: readonly Measured[]): string[] =>
-  [...new Set(measured.map((process) => checkoutPathOf(process.entry, root)))];
-
 export const runsInPod = (entry: string): boolean => entry.startsWith(`${POD_SOURCE}/`);
 
 interface V8Range { startOffset: number; endOffset: number; count: number }
@@ -76,8 +62,6 @@ const isOurs = (dir: string, pid: number, read: CmdlineOf): boolean => {
 };
 
 export const entriesOf = (dir = LIVE, read: CmdlineOf = cmdlineOf): string[] => liveProcesses(dir, read).map((pid) => listedAs(dir, pid).entry);
-
-export const measured = (dir = LIVE, read: CmdlineOf = cmdlineOf): Measured[] => liveProcesses(dir, read).map((pid) => ({ pid, entry: listedAs(dir, pid).entry }));
 
 export function measuringProblem(entries: readonly string[]): string | undefined {
   if (entries.length === 0) return 'the dev stack is not measuring what the live suites run: stop it and start it with COUPLING_LIVE=1 npm run dev';

@@ -31,11 +31,13 @@ mkdirSync(options.out, { recursive: true });
 const source = sourceOf();
 const sources = { all: source, production: sourceOf(ROOT, 'production') };
 const gathered = gatheredIn(options.out);
-const usable = usableIn(gathered, sources);
+const gatheredUsable = usableIn(gathered, sources);
+const usable = options.require.length > 0 ? { ...gatheredUsable, artifacts: new Set([...gatheredUsable.artifacts].filter((artifact) => options.require.includes(artifact))) } : gatheredUsable;
+for (const artifact of gatheredUsable.artifacts) if (!usable.artifacts.has(artifact)) console.log(`not used: ${artifact}, which was not asked for`);
 const rules = judging(usable.artifacts);
 for (const problem of usable.problems) console.log(`not used: ${problem}`);
 for (const skipped of rules.skipped) console.log(`${skipped.rule} not judged: it needs ${skipped.missing.join(', ')}`);
-const unmet = options.require.filter((artifact) => !usable.artifacts.has(artifact));
+const unmet = options.require.filter((artifact) => !gatheredUsable.artifacts.has(artifact));
 if (unmet.length > 0) throw new Error(`required and not usable: ${unmet.join(', ')}`);
 
 const graphStarted = Date.now();

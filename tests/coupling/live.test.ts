@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkoutPathOf, entryFilesIn, stillRestarting, cmdlineOf, entriesOf, liveProcesses, measuringProblem, ranIn, resolvedArgs, sample, type CmdlineOf, type RawCoverage } from './live.js';
+import { checkoutPathOf, cmdlineOf, entriesOf, liveProcesses, measuringProblem, ranIn, resolvedArgs, sample, type CmdlineOf, type RawCoverage } from './live.js';
 
 const ENTRY = '/home/me/provisioning/apps/backend/src/worker-cluster.ts';
 let dir = '';
@@ -102,21 +102,5 @@ describe('what Koala\'s pods ran, counted as the checkout\'s own files', () => {
     expect(Object.keys(ran)).toEqual(['apps/backend/src/index.ts']);
     const range = { start: { line: 1, column: 1 }, end: { line: 1, column: 1 }, count: 1, fn: 'serve' };
     expect(ran['apps/backend/src/index.ts']).toEqual([range, range]);
-  });
-});
-
-describe('restarting what is measured', () => {
-  const before = [{ pid: 1, entry: '/app/apps/backend/src/index.ts' }, { pid: 2, entry: '/repo/apps/backend/src/index.ts' }, { pid: 3, entry: '/repo/apps/backend/src/index.ts' }, { pid: 4, entry: '/app/apps/backend/src/worker-engine.ts' }];
-
-  it('is done once every entry runs as many new processes as it did before', () => {
-    expect(stillRestarting(before, [{ pid: 5, entry: '/app/apps/backend/src/index.ts' }, { pid: 6, entry: '/repo/apps/backend/src/index.ts' }, { pid: 7, entry: '/repo/apps/backend/src/index.ts' }, { pid: 8, entry: '/app/apps/backend/src/worker-engine.ts' }])).toEqual([]);
-  });
-
-  it('names what has not come back, an old process still running counting as not restarted', () => {
-    expect(stillRestarting(before, [{ pid: 5, entry: '/app/apps/backend/src/index.ts' }, { pid: 3, entry: '/repo/apps/backend/src/index.ts' }, { pid: 6, entry: '/repo/apps/backend/src/index.ts' }])).toEqual(['/repo/apps/backend/src/index.ts', '/app/apps/backend/src/worker-engine.ts']);
-  });
-
-  it('touches each entry in this checkout, a pod\'s /app read as the checkout', () => {
-    expect(entryFilesIn('/repo', before)).toEqual(['/repo/apps/backend/src/index.ts', '/repo/apps/backend/src/worker-engine.ts']);
   });
 });

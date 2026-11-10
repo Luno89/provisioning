@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { CHECKS_STEP, HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, checksToRun, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
-import { entriesOf, measuringProblem } from './coupling/live.js';
 import { e2eEnv, shipChecks } from './lib/e2e-env.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +8,7 @@ import { devOwner } from './lib/dev-stack.js';
 import { ANSWERS } from './alignment/answers.js';
 import { currentDrift } from './alignment/drift-run.js';
 import { gateOf, gateRefusal } from './alignment/gate.js';
-import { changedNow, codeCommitOf, restartMeasured, takeStartup, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
+import { changedNow, codeCommitOf, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -33,8 +32,6 @@ async function main(): Promise<void> {
   for (const line of waitingLines(advisories.waiting)) console.log(`waiting: ${line}`);
   const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);
-  const measuring = HOTFIXING ? undefined : measuringProblem(entriesOf());
-  if (measuring) throw new Error(measuring);
   const drifting = HOTFIXING ? undefined : gateRefusal(gateOf((await currentDrift(REPO)).findings, ANSWERS));
   if (drifting) throw new Error(drifting);
   const owner = HOTFIXING ? undefined : (await devOwner()).id;
@@ -86,16 +83,6 @@ async function main(): Promise<void> {
       writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
       console.log(`mechanics checks passed on this commit: ${checksKept.length} of ${shipChecks().length}`);
     };
-    if (run.steps.some((step) => /-live$/.test(step.script))) {
-      await restartMeasured(REPO);
-      let said = '';
-      for (let problem = await devStackProblem(REPO); problem; problem = await devStackProblem(REPO)) {
-        if (problem !== said) console.log(`waiting for the dev stack to answer again: ${problem}`);
-        said = problem;
-        await new Promise((done) => setTimeout(done, 2_000));
-      }
-      takeStartup(REPO);
-    }
     runSteps(REPO, commit, run.steps, e2eEnv(owner!), {
       envFor: (step) => step.script === CHECKS_STEP ? { CHECKS_LIVE_SCENARIOS: checksNow.checks.join(','), KOALA_GATE_CHECKS: checksFile } : {},
       onEnd: (step) => { if (step.script === CHECKS_STEP) keepChecks(); },
