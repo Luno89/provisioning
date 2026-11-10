@@ -1750,9 +1750,9 @@ another kind stored before is refused by `ClusterAccess` as another kind of clus
 
 ## Worker architecture
 
-Two Temporal task queues partition operations:
-- `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`). Root's work: the pool (`Pool*Activity`), server orders (`ServerOrder*Activity`), removals at root, the dependency watch and the crawl. It makes no clusters.
-- `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, runs as a pod on the cluster Koala runs in, which it reaches with its service account as `ClusterAccess.own()`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
+Where work runs is named once, in `platform/lib/work-places.ts`: each queue (`QUEUES`), the places each role runs (`placesOf`: root the host queue alone, an instance the engine, stream, cluster and host queues, the hub none), and each workflow's place and the roles that start it (`WORKFLOWS`, checked against every worker's registrations by `worker-activities.test.ts`). Each worker's settings reader refuses a role that runs no such worker, its startup is a function its entry calls (`startHostWorker`, `startClusterWorker`, `engineWorkerSetup`/`createEngineWorker`), and an integration test starts each one that way. An instance alerts on each of its workers that stops reporting, as root does (`INSTANCE_ALERTS`). The queues:
+- `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`), serving its role's work only (`HOST_ACTIVITIES` in `platform/lib/work-places.ts`): on root the pool (`Pool*Activity`), removals at root and the dependency watch, the only worker root runs; on an instance server orders (`ServerOrder*Activity`) and the crawl. It makes no clusters.
+- `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, an instance's only, runs as a pod on the cluster Koala runs in, which it reaches with its service account as `ClusterAccess.own()`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
 
 The root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`,
 `worker-cluster`, `worker-host` or a setup step) with every workspace, kubectl, helm and terraform. Every process reaches a cluster
