@@ -97,7 +97,7 @@ export interface CheckRunStore {
 
 export interface CheckRunDeps {
   store: CheckRunStore;
-  api: (space: { id: string; email: string }) => AxiosInstance;
+  api: (space: { id: string; email: string; space?: { person: string } | undefined }) => AxiosInstance;
   seedFiles: (ownerId: string, repo: string, files: Record<string, string>) => Promise<void>;
   reported: (args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, says: string, answer: string) => Promise<boolean>;
   says?: ((args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, means: string, answer: string, index: number) => Promise<boolean>) | undefined;
@@ -328,7 +328,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const startedAt = Date.now();
       const space = await store.accounts.getUserById(spaceId);
       if (!space) return { result: failedResult(scenario, '', 'the check\'s space is gone', startedAt), runIds: [] };
-      const http = deps.api({ id: space.id, email: space.email });
+      const http = deps.api({ id: space.id, email: space.email, ...(space.space ? { space: { person: space.space.person } } : {}) });
       const context = activityContext();
       const stopIfCancelled = async (runId?: string) => {
         if (!context?.cancellationSignal.aborted) return;
@@ -380,7 +380,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const invited = await http.post(`/hub/projects/${hubProjectId}/invites`, { email: member.email, role }, { validateStatus: () => true });
           if (invited.status >= 300) return { result: failedResult(scenario, '', `the check's ${role} could not be invited: ${(invited.data as { error?: string }).error ?? invited.status}`, startedAt), runIds: [] };
           const token = new URL(String((invited.data as { link: string }).link).replace('/#/', '/')).searchParams.get('project') ?? '';
-          const as = deps.api({ id: member.id, email: member.email });
+          const as = deps.api({ id: member.id, email: member.email, ...(member.space ? { space: { person: member.space.person } } : {}) });
           const accepted = await as.post(`/hub/invitations/${encodeURIComponent(token)}/accept`, {}, { validateStatus: () => true });
           if (accepted.status >= 300) return { result: failedResult(scenario, '', `the check's ${role} could not join: ${(accepted.data as { error?: string }).error ?? accepted.status}`, startedAt), runIds: [] };
           members[role] = as;
