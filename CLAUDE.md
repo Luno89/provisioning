@@ -2341,7 +2341,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier gathering its coverage) and, after G2, the coupling rules over both tiers and what the live suites ran (R1-R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
-  telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass,
+  telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass but the two `NOT_ON_AN_INSTANCE` names with why (`tests/lib/e2e-env.ts`; owner, 2026-11-09),
   three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own); `test:checks-live` fails whenever a check it runs fails, by hand too (owner, 2026-11-06). After each step it checks the checkout
   is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
