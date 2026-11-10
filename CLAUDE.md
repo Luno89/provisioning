@@ -96,6 +96,7 @@ npm run dev:split    # the same stack as root and your instance: root at http://
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
 npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
+npm run gate -- <step> # one of ship's steps alone (unit, lint, integration:coupled, checks-live, coupling:live, …), its pass kept for this commit; ship then runs only what is left
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
@@ -2343,7 +2344,9 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass but the two `NOT_ON_AN_INSTANCE` names with why (`tests/lib/e2e-env.ts`; owner, 2026-11-09),
   three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own); `test:checks-live` fails whenever a check it runs fails, by hand too (owner, 2026-11-06). After each step it checks the checkout
-  is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
+  is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. Each step's pass is kept as it lands (`checked`), on the commit that last changed code, so ledger commits on top keep it;
+  `npm run gate -- <step>` runs one step alone and `npm run ship` runs only the steps not yet passed (`shipRun`), the coupling rules alone
+  only once every step before them passed on the commit. A pass is
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
   `-- --no-push` stops before the push.
 - **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
