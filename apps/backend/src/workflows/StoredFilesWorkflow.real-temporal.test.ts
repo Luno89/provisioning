@@ -66,7 +66,7 @@ describe('the stored files workflow on Temporal', () => {
       async StoredFilesCommitActivity(args) {
         attempts += 1;
         const plan = await real.StoredFilesCommitActivity(args);
-        if (attempts === 1) throw new Error('the worker died before it answered');
+        if (attempts === 1) throw Object.assign(new Error('the connection to Temporal was cut off before the worker answered'), { code: 'ECONNRESET' });
         return plan;
       },
       StoredFilesRemoveBytesActivity: async (args) => { removed.push(...args.objectIds); return real.StoredFilesRemoveBytesActivity(args); },
@@ -79,7 +79,7 @@ describe('the stored files workflow on Temporal', () => {
     expect([...objects.kept.keys()].sort()).toEqual(['new', 'old']);
     expect(await real.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 1 });
     expect([...objects.kept.keys()]).toEqual(['new']);
-  });
+  }, 30_000);
 
   it('commits exactly once when the worker dies after committing and before it could answer', async () => {
     const records = new MemoryFilesStore();
@@ -92,7 +92,7 @@ describe('the stored files workflow on Temporal', () => {
       async StoredFilesCommitActivity(args) {
         attempts += 1;
         const plan = await real.StoredFilesCommitActivity(args);
-        if (attempts === 1) throw new Error('the worker died before it answered');
+        if (attempts === 1) throw Object.assign(new Error('the connection to Temporal was cut off before the worker answered'), { code: 'ECONNRESET' });
         return plan;
       },
     };
@@ -101,7 +101,7 @@ describe('the stored files workflow on Temporal', () => {
     expect(plan).toMatchObject({ ok: true });
     expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version, record.state])).toEqual([['f1', 1, 'stored']]);
     expect([...objects.kept.keys()]).toEqual(['f1']);
-  });
+  }, 30_000);
 
   it('forgets a refused upload and its bytes, and removes files record first, then bytes', async () => {
     const records = new MemoryFilesStore();

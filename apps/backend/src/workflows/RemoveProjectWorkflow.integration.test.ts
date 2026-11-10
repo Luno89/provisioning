@@ -58,7 +58,7 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
     };
     const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RemoveProjectWorkflow.ts')), activities });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RemoveProjectWorkflow.ts')), activities });
 
     const told: string[] = [];
     const streamWorker = await Worker.create({

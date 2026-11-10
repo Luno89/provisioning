@@ -25,7 +25,7 @@ afterAll(async () => {
 async function scenario(answers: BenchIdleOutcome[], drive: (signal: (idleMs: number) => Promise<void>, asked: string[]) => Promise<void>) {
   const taskQueue = `bench-test-${Math.random().toString(36).slice(2, 8)}`;
   const asked: string[] = [];
-  const timers = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'BenchIdleWorkflow.ts')) });
+  const timers = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'BenchIdleWorkflow.ts')) });
   const backend = await Worker.create({
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',

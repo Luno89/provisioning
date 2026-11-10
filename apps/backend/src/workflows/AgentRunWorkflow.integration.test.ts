@@ -31,7 +31,7 @@ import { createMachineWorkspaces } from '../engine-host/sandboxes/machine-worksp
 import { createConversationWorkspaces, type ConversationWorkspaces } from '../engine-host/sandboxes/conversation-workspaces.js';
 import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
-import { BUILDER_TOOLS, contractsFor } from '@koala/agent-engine';
+import { BUILDER_TOOLS, contractsFor, ModelCallError } from '@koala/agent-engine';
 import { WORKSPACE_TOOLS } from '../engine-host/tools/workspace-tools-catalogue.js';
 import { extensionTools, seededAgents } from '../extensions/seeds.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
@@ -226,7 +226,7 @@ async function runWorkflow(
     activities: acts.engine,
     ...converted,
   });
-  const streamWorker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
+  const streamWorker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
   const deviceWorker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
@@ -1198,7 +1198,7 @@ describe('a remembered conversation, through the workflow', () => {
 describe('when the model call fails', () => {
   it('is retried by Temporal, because the node says it is idempotent', async () => {
     const acts = activities({
-      script: [new Error('Model stream error: Chat completion aborted.'), { content: 'second attempt got through' }],
+      script: [new ModelCallError('Model stream error: Chat completion aborted.', 500), { content: 'second attempt got through' }],
     });
 
     const result = await runWorkflow(
@@ -1210,7 +1210,7 @@ describe('when the model call fails', () => {
     expect(acts.seen.length).toBeGreaterThan(1);
     const saved = await acts.conversations.get('user-1', 'c-retried');
     expect(saved?.messages.at(-1)?.content).toBe('second attempt got through');
-  });
+  }, 30_000);
 });
 
 

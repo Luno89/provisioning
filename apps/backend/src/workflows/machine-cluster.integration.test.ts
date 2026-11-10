@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
+import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { createDeviceActivities } from '../../../local-agent/src/engine-worker.js';
 import { IdleGate } from '../../../local-agent/src/idle-gate.js';
 import { K3S_KUBECONFIG, K3S_MARKER, runMachineCluster, type ClusterHost } from '../../../local-agent/src/machine-cluster.js';
@@ -89,7 +89,7 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
   const namespace = env.namespace ?? 'default';
   const services: StreamServices = { registry: {} as never, endpoints: {} as never, bus: {} as never, machineClusters: clusters };
   const workflows = await Worker.create({
-    ...WORKER_DEFAULTS, connection, namespace, taskQueue: QUEUE,
+    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection, namespace, taskQueue: QUEUE,
     workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
     activities: {
       DeployAppActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'deploy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'deployed', msg: 'deployed', displayUrl: '' }; },
@@ -98,12 +98,12 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
     },
   });
   const stream = await Worker.create({
-    ...WORKER_DEFAULTS, connection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: createStreamActivities(services),
   });
   const device = await Worker.create({
     ...WORKER_DEFAULTS, connection, namespace, taskQueue: deviceQueue(DESK.id),
-    interceptors: { activity: [heartbeatWhileRunning()] },
+    interceptors: { activity: activityInterceptors() },
     activities: createDeviceActivities({ rootDir, deviceId: DESK.id, gate, cluster: (op) => runMachineCluster(host, op) }),
   });
   return workflows.runUntil(() => stream.runUntil(() => device.runUntil(work)));
