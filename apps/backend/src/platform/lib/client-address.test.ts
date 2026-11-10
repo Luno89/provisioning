@@ -6,7 +6,7 @@ describe('who the backend believes the visitor is', () => {
     expect(trustProxyFor({ NODE_ENV: 'production' })).toBe(1);
   });
 
-  it('on a dev box takes the connection\'s own address, since nothing stands in front of it', () => {
-    expect(trustProxyFor({})).toBe(false);
+  it('on a dev box takes the address Vite\'s proxy on this computer says, and nobody else\'s', () => {
+    expect(trustProxyFor({})).toBe('loopback');
   });
 });
