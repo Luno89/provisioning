@@ -1,5 +1,5 @@
 import { CancellationScope, defineSignal, executeChild, isCancellation, patched, proxyActivities, setHandler, uuid4, workflowInfo } from '@temporalio/workflow';
-import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import type { CheckProgressArgs, CheckRunActivities, CheckScenarioArgs } from '../activities/CheckRunActivities.js';
 import type { Scenario } from '../eval/level2/scenario.js';
@@ -15,7 +15,7 @@ import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
 const space = proxyActivities<Pick<CheckRunActivities, 'CheckCreateSpaceActivity' | 'CheckSpaceGoneActivity' | 'CheckNoticedActivity'>>({
-  retry: DESTROY_RETRY,
+  retry: ACTIVITY_RETRY,
   ...LIVE_ACTIVITY,
 });
 
@@ -25,7 +25,7 @@ const runs = proxyActivities<Pick<CheckRunActivities, 'CheckRunScenarioActivity'
 });
 
 const progress = proxyActivities<{ CheckProgressActivity(args: CheckProgressArgs): Promise<void> }>({
-  retry: DESTROY_RETRY,
+  retry: ACTIVITY_RETRY,
   ...LIVE_ACTIVITY,
 });
 

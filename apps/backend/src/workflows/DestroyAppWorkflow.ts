@@ -1,11 +1,11 @@
 import { proxyActivities } from '@temporalio/workflow';
 import type { DestroyAppArgs, DestroyAppResult } from '../activities/DestroyAppActivity.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
-import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { handedOver } from './handed-over.js';
 import { startMachineCluster, stopMachineClusterWhenIdle } from './machine-cluster.js';
 
-const { DestroyAppActivity } = proxyActivities<{ DestroyAppActivity: (args: DestroyAppArgs) => Promise<DestroyAppResult> }>({ retry: DESTROY_RETRY, ...LIVE_ACTIVITY });
+const { DestroyAppActivity } = proxyActivities<{ DestroyAppActivity: (args: DestroyAppArgs) => Promise<DestroyAppResult> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 
 export async function executeDestroyAppWorkflow(args: DestroyAppArgs) {
   const destroyed = await DestroyAppActivity(await handedOver(args, startMachineCluster));

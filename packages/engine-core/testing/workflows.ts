@@ -4,6 +4,7 @@ import { ActivityCancellationType, CancellationScope, condition, defineSignal, p
 export interface TestActivities {
   waitForStop(): Promise<string>;
   echo(value: unknown): Promise<unknown>;
+  fails(kind: string, until: number): Promise<number>;
 }
 
 export const stop = defineSignal('stop');
@@ -36,4 +37,12 @@ export async function silentFor(heartbeatTimeout: Duration): Promise<string> {
 export async function echoed(value: unknown): Promise<unknown> {
   const { echo } = proxyActivities<TestActivities>({ startToCloseTimeout: '30 days', retry: { maximumAttempts: 1 } });
   return echo(value);
+}
+
+export async function failingUntil(kind: string, until: number, interval: Duration): Promise<number> {
+  const { fails } = proxyActivities<TestActivities>({
+    startToCloseTimeout: '30 days',
+    retry: { initialInterval: interval, backoffCoefficient: 2, maximumInterval: interval },
+  });
+  return fails(kind, until);
 }

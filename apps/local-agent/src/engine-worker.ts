@@ -1,7 +1,7 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
-import { executeTool, heartbeatWhileRunning, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import { executeTool, classifiedFailures, heartbeatWhileRunning, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
@@ -141,7 +141,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<D
     connection,
     taskQueue,
     dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
-    interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
+    interceptors: { activity: [heartbeatWhileRunning(), traceActivities(), classifiedFailures()] },
     shutdownGraceTime: DRAIN_CEILING,
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),

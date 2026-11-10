@@ -1,5 +1,5 @@
 import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, startChild, workflowInfo } from '@temporalio/workflow';
-import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { ACTIVITY_STOP_GRACE_MS, DESTROYS_NAMED_ONCE_STARTED } from '../accounts/lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { PROJECT_FILES_PATCH, PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
@@ -10,7 +10,7 @@ import { ownerIn } from '../platform/lib/workflow-owner.js';
 import { ignore } from '@koala/engine-core/failures';
 
 const steps = proxyActivities<ProjectRemovalActivities>({
-  retry: DESTROY_RETRY,
+  retry: ACTIVITY_RETRY,
   ...LIVE_ACTIVITY,
 });
 

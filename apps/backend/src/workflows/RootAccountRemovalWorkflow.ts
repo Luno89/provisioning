@@ -1,13 +1,13 @@
 import { defineQuery, getExternalWorkflowHandle, proxyActivities, setHandler } from '@temporalio/workflow';
 import type { RootRemovalActivities } from '../activities/RootRemovalActivities.js';
 import type * as pool from '../activities/PoolActivities.js';
-import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../accounts/lib/account-removal.js';
 import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
 import { ignore } from '@koala/engine-core/failures';
 
-const steps = proxyActivities<RootRemovalActivities & Pick<typeof pool, 'PoolRemoveActivity'>>({ retry: DESTROY_RETRY, ...LIVE_ACTIVITY });
+const steps = proxyActivities<RootRemovalActivities & Pick<typeof pool, 'PoolRemoveActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 
 export const rootRemovalProgressQuery = defineQuery<RemovalStep[]>(REMOVAL_PROGRESS_QUERY);
 
