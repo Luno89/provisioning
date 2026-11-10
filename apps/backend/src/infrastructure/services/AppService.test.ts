@@ -69,7 +69,7 @@ describe('aborting an app', () => {
   it('stops the workflow that deploys it once a bridge is set, then removes its namespace and record', async () => {
     const { db, infra, apps, access } = setup(['wordpress']);
     const bridge = mock<Pick<TemporalBridge, 'terminateWorkflow'>>();
-    bridge.terminateWorkflow.mockResolvedValue(true);
+    bridge.terminateWorkflow.mockResolvedValue();
     apps.setTemporalBridge(bridge);
     infra.getLogPath.mockReturnValue('/tmp/abort.log');
     await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress', status: 'deploying', temporalWorkflowId: 'wf-1' }));
@@ -80,6 +80,18 @@ describe('aborting an app', () => {
       ['c1', ['delete', 'namespace', 'wordpress', '--ignore-not-found=true', '--wait=false']],
       ['c1', ['wait', '--for=delete', 'namespace/wordpress', '--timeout=720h']],
     ]);
+  });
+
+  it('keeps the app, saying why, and removes nothing when its deploy cannot be stopped', async () => {
+    const { db, infra, apps, access } = setup(['wordpress']);
+    const bridge = mock<Pick<TemporalBridge, 'terminateWorkflow'>>();
+    bridge.terminateWorkflow.mockRejectedValue(new Error('Temporal isn\'t answering since 23:10 UTC'));
+    apps.setTemporalBridge(bridge);
+    infra.getLogPath.mockReturnValue('/tmp/abort.log');
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress', status: 'deploying', temporalWorkflowId: 'wf-1' }));
+    await apps.abort('wp', 'bo');
+    await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'failed', healthReason: 'stopping it failed: Temporal isn\'t answering since 23:10 UTC' }));
+    expect(access.kubectl).not.toHaveBeenCalled();
   });
 
   it('says the deployment is not found when it is not the person\'s', async () => {
