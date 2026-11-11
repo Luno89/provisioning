@@ -123,7 +123,9 @@ describe('readying a machine\'s GPUs', () => {
       if (args[1] === 'pods') return JSON.stringify({ items: [{ metadata: { name: 'nvidia-device-plugin-daemonset-x' }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } }] });
       return none;
     });
-    await VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 2, machine: 'desk' }, { access }, async () => undefined);
+    const log = join(mkdtempSync(join(tmpdir(), 'koala-gpus-')), 'deploy.log');
+    await VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 2, machine: 'desk', logFile: log }, { access }, async () => undefined);
+    expect(readFileSync(log, 'utf8')).toContain('[gpus] desk advertises 2 NVIDIA GPUs to the scheduler');
     expect(applied[0]).toContain('nvidia-device-plugin-daemonset');
     expect(said.every((call) => call.reach === DESK)).toBe(true);
     expect(reads).toBe(3);

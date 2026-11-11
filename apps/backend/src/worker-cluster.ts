@@ -25,18 +25,19 @@ import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './moni
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
+import { HUGGING_FACE } from './infrastructure/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const logger = createWorkerLogger('cluster-worker');
 
-export const clusterActivities = (steps: ClusterSteps) => ({
+export const clusterActivities = (steps: ClusterSteps, huggingFace: string = HUGGING_FACE) => ({
       DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
       CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
       DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
       ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps, Context.current().cancellationSignal),
       SyncConfigActivity: (args: SyncConfigArgs) => SyncConfigActivity(args, steps, Context.current().cancellationSignal),
-      DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps),
+      DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps, huggingFace),
       VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
       RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
 });
@@ -83,7 +84,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities: clusterActivities(steps),
+        activities: clusterActivities(steps, settings.tests.huggingFaceUrl),
       });
       break;
     } catch (err) {

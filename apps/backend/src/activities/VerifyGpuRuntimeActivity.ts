@@ -1,5 +1,6 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ignore } from '@koala/engine-core/failures';
 import type { GpuVendor } from '@koala/engine-core';
@@ -25,9 +26,7 @@ export class GpusCannotRun extends Error {
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
-const pause = (ms: number) => new Promise<void>((done) => { setTimeout(done, ms); });
-
-export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs, steps: Pick<ClusterSteps, 'access'>, wait: (ms: number) => Promise<void> = pause): Promise<void> {
+export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs, steps: Pick<ClusterSteps, 'access'>, wait: (ms: number) => Promise<unknown> = setTimeout): Promise<void> {
   if (!args.count || args.count < 1) throw new GpusCannotRun('the deploy did not say how many GPUs it uses: deploy it again, saying 1 or more, or 0 for CPU only');
   if (!args.vendor) throw new GpusCannotRun('the deploy did not say which GPUs it uses: deploy it again, and Koala takes them from what the machine reports');
   const reach = handedReach(args);

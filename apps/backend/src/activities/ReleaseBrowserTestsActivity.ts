@@ -13,7 +13,7 @@ import {
 import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import { releaseCluster } from '../extensions/releases/slot-cluster.js';
 import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/index.js';
-import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
+import { namespacedOn, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
@@ -77,14 +77,7 @@ export function namespacedCluster(access: Pick<ClusterAccess, 'kubectl' | 'apply
       });
       return pulling;
     };
-    return {
-      kubectl: async (args) => access.kubectl(releaseCluster(target), ['-n', target.namespace, ...args]),
-      apply: async (manifest) => {
-        const clusterId = releaseCluster(target);
-        await pullAccess(clusterId);
-        await access.apply(clusterId, JSON.stringify(inNamespace(manifest, target.namespace)));
-      },
-    };
+    return namespacedOn(access, () => releaseCluster(target), target.namespace, (clusterId) => pullAccess(clusterId as string));
   };
 }
 

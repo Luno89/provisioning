@@ -3,7 +3,7 @@ import { Context } from '@temporalio/activity';
 import { ignore } from '@koala/engine-core/failures';
 import { ALREADY_HERE, HUGGING_FACE, MODEL_DOWNLOADS, modelDownloadJob, modelJobName, type Reach } from '../infrastructure/index.js';
 import { computeModelFolderName } from '../models/index.js';
-import { runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
+import { namespacedOn, runClusterJob } from './cluster-jobs.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 
@@ -37,10 +37,7 @@ export async function DownloadModelActivity(args: DownloadModelArgs, steps: Pick
   const name = modelJobName(folder);
   const said = `${args.modelRepo}${args.revision ? `@${args.revision}` : ''}`;
   const note = (line: string) => (args.logFile ? fsp.appendFile(args.logFile, `[model-download] ${line}\n`).catch(ignore('the log only shows progress, and the download goes on without it')) : Promise.resolve());
-  const cluster: NamespacedCluster = {
-    kubectl: (argv) => steps.access.kubectl(reach, ['-n', MODEL_DOWNLOADS, ...argv]),
-    apply: async (manifest) => { await steps.access.apply(reach, JSON.stringify(manifest)); },
-  };
+  const cluster = namespacedOn(steps.access, reach, MODEL_DOWNLOADS);
 
   await steps.access.apply(reach, JSON.stringify({ apiVersion: 'v1', kind: 'Namespace', metadata: { name: MODEL_DOWNLOADS } }));
   const tokenSecret = args.hfToken ? `${name}-token` : undefined;

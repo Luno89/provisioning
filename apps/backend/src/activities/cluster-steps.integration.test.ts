@@ -9,6 +9,7 @@ import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/ind
 import { applyWatched, CannotRollOut } from './watched-apply.js';
 import { VerifyGpuRuntimeActivity } from './VerifyGpuRuntimeActivity.js';
 import { DownloadModelActivity } from './DownloadModelActivity.js';
+import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from '../infrastructure/testing/hugging-face-stand-in.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
@@ -130,36 +131,13 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
 });
 
 describe('a model downloaded on the machine that runs it', () => {
-  const STAND_IN = 'python:3.12-slim';
-  const namespace = `hf-stand-in-${Math.random().toString(36).slice(2, 8)}`;
   const cache = `/var/lib/rancher/koala-test-models-${Math.random().toString(36).slice(2, 8)}`;
-  let endpoint = '';
+  let standIn: HuggingFaceStandIn;
 
-  const serving = [
-    'set -e',
-    'mkdir -p api/models/acme/tiny/tree api/models/acme/empty/tree api/models/acme/noconfig/tree acme/tiny/resolve/main acme/noconfig/resolve/main',
-    'echo \'[{"type":"file","path":"config.json","size":2},{"type":"file","path":"weights.bin","size":5}]\' > api/models/acme/tiny/tree/main',
-    'echo \'[]\' > api/models/acme/empty/tree/main',
-    'echo \'[{"type":"file","path":"README.md","size":3}]\' > api/models/acme/noconfig/tree/main',
-    'echo \'{}\' > acme/tiny/resolve/main/config.json',
-    'printf hello > acme/tiny/resolve/main/weights.bin',
-    'echo hi > acme/noconfig/resolve/main/README.md',
-    'exec python3 -m http.server 8080',
-  ].join('\n');
+  beforeAll(async () => { standIn = await startHuggingFaceStandIn(access, DESK); }, 600_000);
+  afterAll(async () => { await standIn.stop(); });
 
-  beforeAll(async () => {
-    await access.kubectl(DESK, ['create', 'namespace', namespace]);
-    await access.apply(DESK, JSON.stringify({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'hf', namespace, labels: { app: 'hf' } }, spec: { containers: [{ name: 'hf', image: STAND_IN, command: ['sh', '-c', `mkdir -p /srv && cd /srv && ${serving}`], ports: [{ containerPort: 8080 }], readinessProbe: { tcpSocket: { port: 8080 } } }] } }));
-    await access.apply(DESK, JSON.stringify({ apiVersion: 'v1', kind: 'Service', metadata: { name: 'hf', namespace }, spec: { selector: { app: 'hf' }, ports: [{ port: 8080 }] } }));
-    await access.kubectl(DESK, ['wait', '-n', namespace, '--for=condition=Ready', 'pod/hf', '--timeout=720h']);
-    endpoint = `http://hf.${namespace}.svc.cluster.local:8080`;
-  }, 600_000);
-
-  afterAll(async () => {
-    await access.kubectl(DESK, ['delete', 'namespace', namespace, '--wait=false', '--ignore-not-found']);
-  });
-
-  const download = (modelRepo: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN, modelRepo, cacheHostPath: cache }, { access }, endpoint, 500);
+  const download = (modelRepo: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache }, { access }, standIn.endpoint, 500);
 
   it('fetches the model\'s files into the machine\'s cache folder, and finds them there the next time', async () => {
     expect(await download('acme/tiny')).toEqual({ skipped: false, modelDir: `${cache}/acme-tiny` });
@@ -172,4 +150,3 @@ describe('a model downloaded on the machine that runs it', () => {
     await expect(download('acme/noconfig')).rejects.toThrow(/config\.json is missing after downloading acme\/noconfig@main/);
   }, 600_000);
 });
-

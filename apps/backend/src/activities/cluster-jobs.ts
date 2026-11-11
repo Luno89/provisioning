@@ -1,5 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
-import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne } from '../infrastructure/index.js';
+import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne, type ClusterAccess } from '../infrastructure/index.js';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
 export interface NamespacedCluster {
@@ -15,6 +15,20 @@ export interface JobWatch {
 
 export const inNamespace = (manifest: Record<string, unknown>, namespace: string): Record<string, unknown> =>
   ({ ...manifest, metadata: { ...(manifest.metadata as object), namespace } });
+
+type Target = Parameters<ClusterAccess['kubectl']>[0];
+
+export function namespacedOn(access: Pick<ClusterAccess, 'kubectl' | 'apply'>, target: Target | (() => Target), namespace: string, beforeApply: (target: Target) => Promise<void> = async () => undefined): NamespacedCluster {
+  const reached = (): Target => (typeof target === 'function' ? target() : target);
+  return {
+    kubectl: async (args) => access.kubectl(reached(), ['-n', namespace, ...args]),
+    apply: async (manifest) => {
+      const at = reached();
+      await beforeApply(at);
+      await access.apply(at, JSON.stringify(inNamespace(manifest, namespace)));
+    },
+  };
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

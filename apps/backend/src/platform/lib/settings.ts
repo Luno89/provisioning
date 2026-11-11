@@ -28,6 +28,7 @@ import { terraformStateFrom, type TerraformStateKind } from '../../infrastructur
 import { DNS_PROVIDERS } from '../../infrastructure/lib/dns-providers.js';
 import { scriptedModelBase } from '../../checks/lib/check-space.js';
 import { OPENROUTER_URL } from '../../models/lib/openrouter-connect.js';
+import { HUGGING_FACE } from '../../infrastructure/lib/model-download-job.js';
 
 export type Env = Settings;
 
@@ -64,6 +65,7 @@ export interface ClusterSettings {
 export interface TestParameters {
   unreachableAfterMs: number;
   openRouterUrl: string;
+  huggingFaceUrl: string;
 }
 
 export interface ConnectionSettings {
@@ -339,6 +341,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
     tests: {
       unreachableAfterMs: read.take(() => unreachableAfterMs(env)) ?? 0,
       openRouterUrl: settingIn(read.env, 'OPENROUTER_URL') ?? OPENROUTER_URL,
+      huggingFaceUrl: settingIn(read.env, 'HUGGING_FACE_URL') ?? HUGGING_FACE,
     },
   };
 }
