@@ -33,6 +33,22 @@ export function machineMirrorBehaviour(make: () => Promise<Database>): void {
       expect(machines.adopt).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps a machine root removed while its project or cluster cannot be deleted, and forgets it at the next sync once they can', async () => {
+      fromRoot = [desk];
+      const following = mirror();
+      await following.sync();
+      fromRoot = [];
+      machines.forget.mockRejectedValueOnce(new Error('the project could not be deleted'));
+      const said = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      await following.sync();
+      expect(await here()).toEqual([expect.objectContaining({ id: 'desk' })]);
+      expect(said).toHaveBeenCalledWith(expect.stringContaining('the project could not be deleted'));
+      said.mockRestore();
+      await following.sync();
+      expect(await here()).toEqual([]);
+      expect(machines.forget).toHaveBeenCalledTimes(2);
+    });
+
     it('drops what root no longer says, and forgets a machine root removed', async () => {
       fromRoot = [desk];
       await mirror().sync();

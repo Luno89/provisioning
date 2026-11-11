@@ -205,14 +205,13 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(projects.removeFor).toHaveBeenCalledWith('bo', 'mine');
     });
 
-    it('forgets a machine whose project or cluster cannot be deleted, saying so', async () => {
+    it('tells its caller when a machine\'s project or cluster cannot be deleted, rather than calling it forgotten', async () => {
+      const gone = { id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/x', createdAt: 'then' };
       projects.removeFor.mockRejectedValue(new Error('no project'));
-      const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      await service({ clusters: { forget: async () => { throw new Error('no cluster'); } } }).forget({ id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/x', createdAt: 'then' });
+      await expect(service().forget(gone)).rejects.toThrow('no project');
       expect(devices.drop).toHaveBeenCalledWith('mine');
-      expect(warned).toHaveBeenCalledWith(expect.stringContaining('no project'));
-      expect(warned).toHaveBeenCalledWith(expect.stringContaining('no cluster'));
-      warned.mockRestore();
+      projects.removeFor.mockResolvedValue(undefined);
+      await expect(service({ clusters: { forget: async () => { throw new Error('no cluster'); } } }).forget(gone)).rejects.toThrow('no cluster');
     });
   });
 }

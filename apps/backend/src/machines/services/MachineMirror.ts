@@ -25,6 +25,8 @@ export class MachineMirror {
     this.syncing = this.syncing.then(async () => {
       this.again = false;
       await this.once();
+    }).catch((err: Error) => {
+      console.error(`[machines] the machines root lists could not all be followed here, and are followed again at the next change: ${err.message}`);
     });
     return this.syncing;
   }
@@ -44,8 +46,8 @@ export class MachineMirror {
       await this.deps.machines.adopt(machine).catch((err: Error) => console.warn(`[machines] ${machine.name} came from root, but its project could not be made: ${err.message}`));
     }
     for (const gone of here.values()) {
-      await this.deps.store.deleteLocalAgentDevice(gone.id);
       await this.deps.machines.forget({ id: gone.id, ownerId: gone.ownerId, name: gone.name, rootDir: gone.rootDir, createdAt: gone.createdAt });
+      await this.deps.store.deleteLocalAgentDevice(gone.id);
     }
   }
 }
