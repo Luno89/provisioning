@@ -4,6 +4,7 @@ import { Bar, Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
 import { clusterCards, healthHash, useInfrastructure } from '../shared'
+import { gpuLines } from '../lib/cluster-gpus'
 
 export function ClustersSection() {
   const ctx = useShellContext()
@@ -44,6 +45,7 @@ export function ClustersSection() {
               {health ? <StateBadge state={health.state} /> : <span className="text-[11px] text-slate-400">{cluster.status}</span>}
             </div>
             {health && health.reasons.length > 0 && <p className="text-[11px] text-slate-400">{health.reasons.join('; ')}</p>}
+            {gpuLines(cluster).map((line) => <p key={line} className="text-[11px] text-slate-400">{line}</p>)}
             <Bar label="CPU" share={health?.numbers.cpuShare} />
             <Bar label="Memory" share={health?.numbers.memoryShare} />
             <Bar label="Disk" share={health?.numbers.diskShare} />

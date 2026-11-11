@@ -16,6 +16,16 @@ export interface Cluster {
   capacity?: { cpuCores: number; ramGb: number; gpuCount?: number; gpuVendor?: 'nvidia' | 'amd' }
   createdAt?: string
   meshIp?: string
+  gpus?: MachineGpu[]
+  gpuProblems?: string[]
+}
+
+export interface MachineGpu {
+  vendor: 'nvidia' | 'amd'
+  model: string
+  memoryMiB: number
+  count: number
+  runtime: boolean
 }
 
 export interface ClusterPod {

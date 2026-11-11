@@ -41,9 +41,9 @@ const backend = await startBackend(async ({ api, db }) => {
 })
 
 const owner = await backend.signIn()
-const GPU_MACHINE = { id: 'machine-gpu-desk', name: 'gpu-desk', provider: 'machine' as const, status: 'stopped' as const, ownerId: owner.id, machineId: 'gpu-desk', capacity: { cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' as const } }
+const GPU_MACHINE = { id: 'machine-gpu-desk', name: 'gpu-desk', provider: 'machine' as const, status: 'stopped' as const, ownerId: owner.id, machineId: 'gpu-desk', capacity: { cpuCores: 16, ramGb: 64 }, gpus: [{ vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] }
 await backend.db.infrastructure.saveCluster(GPU_MACHINE)
-await backend.db.infrastructure.saveCluster({ ...GPU_MACHINE, id: 'machine-laptop', name: 'laptop', machineId: 'laptop', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 0 } })
+await backend.db.infrastructure.saveCluster({ ...GPU_MACHINE, id: 'machine-laptop', name: 'laptop', machineId: 'laptop', capacity: { cpuCores: 8, ramGb: 32 }, gpus: [], gpuProblems: [] })
 await backend.db.infrastructure.saveCluster({ ...GPU_MACHINE, id: 'machine-not-mine', name: 'not-mine', machineId: 'not-mine', ownerId: 'someone-else' })
 
 const tabbyFromTheWizard = (clusterId: string) => {
@@ -99,7 +99,7 @@ describe('deploying an app, as the deploy wizard asks for it', () => {
   })
 
   it('refuses a request for more GPUs than the machine shows, in words the wizard shows', async () => {
-    await expect(deployApp(tabbyFromTheWizard('machine-laptop'))).rejects.toMatchObject({ response: { status: 400, data: { error: containing('requests 2 GPU(s) but no GPUs are visible') } } })
+    await expect(deployApp(tabbyFromTheWizard('machine-laptop'))).rejects.toMatchObject({ response: { status: 400, data: { error: containing('This app asks for 2 NVIDIA GPUs, and laptop shows none') } } })
   })
 
   it('answers 404 for a cluster that is someone else\'s or does not exist', async () => {

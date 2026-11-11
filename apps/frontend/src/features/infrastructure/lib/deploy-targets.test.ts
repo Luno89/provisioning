@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { deployableTo, reportsGpu, targetLabel } from './deploy-targets'
 
+const RTX = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }
+
 describe('where an app can be deployed', () => {
   it('is a healthy cluster, or a machine\'s own at rest, which the deploy starts', () => {
     expect(deployableTo({ status: 'healthy', provider: 'machine' })).toBe(true)
@@ -13,14 +15,12 @@ describe('where an app can be deployed', () => {
   it('names a machine as the person\'s own and says a stopped one starts for the deploy', () => {
     expect(targetLabel({ name: 'desk', provider: 'machine', status: 'stopped' })).toBe('desk (my machine, started when this deploys)')
     expect(targetLabel({ name: 'desk', provider: 'machine', status: 'healthy' })).toBe('desk (my machine)')
-    expect(targetLabel({ name: 'rig', provider: 'machine', status: 'healthy', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 2 } })).toBe('rig (my machine • GPU)')
-    expect(targetLabel({ name: 'gpu', provider: 'pool', status: 'healthy', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1 } })).toBe('gpu (pool • GPU)')
+    expect(targetLabel({ name: 'rig', provider: 'machine', status: 'stopped', gpus: [RTX] })).toBe('rig (my machine, started when this deploys • 2 × NVIDIA GeForce RTX 3090)')
   })
 
-  it('takes a GPU from what the cluster\'s nodes report, and none when they report none or nothing was read', () => {
-    expect(reportsGpu({ capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1 } })).toBe(true)
-    expect(reportsGpu({ capacity: { cpuCores: 8, ramGb: 32, gpuCount: 0 } })).toBe(false)
-    expect(reportsGpu({ capacity: { cpuCores: 8, ramGb: 32 } })).toBe(false)
+  it('takes a GPU from what the machine reports, before anything has readied it, and none when it reports none or has not said', () => {
+    expect(reportsGpu({ gpus: [RTX] })).toBe(true)
+    expect(reportsGpu({ gpus: [] })).toBe(false)
     expect(reportsGpu({})).toBe(false)
   })
 })

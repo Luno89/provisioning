@@ -110,7 +110,7 @@ export default function AppDeployWizard({
       const stillValidCluster = !selectedCluster || !gpuOnly || reportsGpu(selectedCluster);
       let nextClusterId = stillValidCluster ? prev.clusterId : '';
       if (gpuOnly && !nextClusterId) {
-        const gpuClusters = clusters.filter((c) => c.status === 'healthy' && reportsGpu(c));
+        const gpuClusters = clusters.filter((c) => deployableTo(c) && reportsGpu(c));
         if (gpuClusters.length === 1) nextClusterId = gpuClusters[0]!.id;
       }
       return {
@@ -202,10 +202,15 @@ export default function AppDeployWizard({
                   ))}
                 </select>
                 {currentUiDefaults.gpuOnly === true && (
-                  clusters.some((c) => c.status === 'healthy' && reportsGpu(c)) ? (
-                    <p className="text-[11px] text-amber-400/80 mt-2">Only clusters whose nodes report a GPU are shown — {wizardData.appType} needs one.</p>
+                  clusters.some((c) => deployableTo(c) && reportsGpu(c)) ? (
+                    <p className="text-[11px] text-amber-400/80 mt-2">Only machines that report a GPU are shown — {wizardData.appType} needs one.</p>
                   ) : (
-                    <p className="text-[11px] text-red-400/80 mt-2">None of your clusters reports a GPU yet — a machine's GPU shows here once its cluster passes it through.</p>
+                    <div className="text-[11px] text-red-400/80 mt-2 space-y-1">
+                      <p>None of your machines reports a GPU: a machine shows its GPUs here once its agent sees them, with nvidia-smi or the AMD kernel driver answering.</p>
+                      {clusters.filter((c) => (c.gpuProblems ?? []).length > 0).map((c) => (
+                        <p key={c.id}>{c.name}: {(c.gpuProblems ?? []).join('; ')}</p>
+                      ))}
+                    </div>
                   )
                 )}
               </div>
