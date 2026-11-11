@@ -16,7 +16,7 @@ import type { MachineService } from '../services/MachineService.js';
 import { MachineRunWatch, type RunLiveness } from '../services/MachineRunWatch.js';
 import { podLogTarget, PodLogTails, type ClusterService, type AppService } from '../../infrastructure/index.js';
 import type { MachineClusters } from '../services/MachineClusters.js';
-import { reportedClusterState } from '../lib/machine-clusters.js';
+import { reportedCluster } from '../lib/machine-clusters.js';
 
 const LOG_TAIL_LINES = 200;
 
@@ -108,9 +108,9 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     });
     socket.on('machine:runs', (report: unknown) => runWatch?.follow(device.id, device.ownerId, report, tellRunEnded));
     socket.on('machine:cluster', (report: unknown) => {
-      const state = reportedClusterState(report);
-      if (!state || !deps.machineClusters) return;
-      deps.machineClusters.reported(device, state).catch((err: Error) => console.warn(`[machines] ${device.id}: whether it has its own cluster could not be recorded: ${err.message}`));
+      const reported = reportedCluster(report);
+      if (!reported || !deps.machineClusters) return;
+      deps.machineClusters.reported(device, reported.state, reported.gpus).catch((err: Error) => console.warn(`[machines] ${device.id}: whether it has its own cluster could not be recorded: ${err.message}`));
     });
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));

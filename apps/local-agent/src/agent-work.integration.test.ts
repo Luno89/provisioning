@@ -24,9 +24,10 @@ afterAll(async () => {
 });
 
 const noKoalaK3s: ClusterHost = {
-  run: async () => { throw new Error('this computer runs no k3s of Koala\'s'); },
+  run: async (file) => { throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' }); },
   exists: async () => false,
   read: async () => { throw new Error('nothing to read'); },
+  list: async () => [],
   wanted: async () => undefined,
   isWanted: async () => false,
   holdKoala: async () => undefined,
@@ -72,7 +73,7 @@ describe('the machine agent starting its work for its Koala', () => {
       namespace: 'default', taskQueue: { name: deviceQueue('work-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));
-    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent' } });
+    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [], problems: [] } });
     expect(stops).toHaveLength(1);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   }, 120_000);

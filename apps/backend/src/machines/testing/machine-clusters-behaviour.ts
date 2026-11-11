@@ -27,6 +27,16 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
       expect((await db.infrastructure.getClusters()).filter((cluster) => cluster.provider === 'machine')).toHaveLength(1);
     });
 
+    it('keeps the GPUs the machine reports and the problems it had reading them, made or already there, and leaves them when a report says nothing of GPUs', async () => {
+      const rtx = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
+      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [] });
+      expect(await stored()).toMatchObject({ gpus: [rtx], gpuProblems: [] });
+      await clusters.reported(DESK, 'running', { gpus: [], problems: ['nvidia-smi is installed but does not answer'] });
+      expect(await stored()).toMatchObject({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] });
+      await clusters.reported(DESK, 'running');
+      expect(await stored()).toMatchObject({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] });
+    });
+
     it('is not recorded for a machine without k3s, and goes when k3s does, unless apps are still on it', async () => {
       await clusters.reported(DESK, 'absent');
       expect(await stored()).toBeUndefined();

@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ignore } from '@koala/engine-core/failures';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
+import type { GpuProbe } from './machine-gpus.js';
 
 export const K3S_BINARY = '/usr/local/bin/k3s';
 export const K3S_KUBECONFIG = '/etc/rancher/k3s/k3s.yaml';
@@ -12,10 +13,7 @@ export const K3S_KILLALL = '/usr/local/bin/k3s-killall.sh';
 export const K3S_UNINSTALL = '/usr/local/lib/koala/machine-uninstall.sh';
 export const K3S_MARKER = '/etc/koala/machine-k3s';
 
-export interface ClusterHost {
-  run(file: string, args: string[]): Promise<string>;
-  exists(path: string): Promise<boolean>;
-  read(path: string): Promise<string>;
+export interface ClusterHost extends GpuProbe {
   wanted(running: boolean): Promise<void>;
   isWanted(): Promise<boolean>;
   holdKoala(instanceId: string): Promise<void>;
@@ -37,6 +35,7 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt:
   run: async (file, args) => (await execute(file, args, { maxBuffer: 16 * 1024 * 1024 })).stdout,
   exists: (path) => access(path).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
   read: (path) => readFile(path, 'utf8'),
+  list: (dir) => readdir(dir),
   wanted: async (running) => {
     if (!running) return rm(wantedAt, { force: true });
     await mkdir(path.dirname(wantedAt), { recursive: true });

@@ -1,0 +1,59 @@
+import path from 'node:path';
+import { amdDiscreteCards, groupedGpus, NVIDIA_SMI_QUERY, nvidiaCards, VENDOR_RUNTIME, type GpuCard, type GpuReport, type GpuVendor } from '@koala/engine-core';
+
+export interface GpuProbe {
+  run(file: string, args: string[]): Promise<string>;
+  exists(path: string): Promise<boolean>;
+  read(path: string): Promise<string>;
+  list(dir: string): Promise<string[]>;
+}
+
+export const KFD_NODES = '/sys/class/kfd/kfd/topology/nodes';
+
+export const NVIDIA_RUNTIME_BINARIES = [
+  '/usr/local/nvidia/toolkit/nvidia-container-runtime',
+  '/usr/bin/nvidia-container-runtime',
+  '/usr/local/bin/nvidia-container-runtime',
+];
+
+type Read = { cards: GpuCard[] } | { problem: string };
+
+async function nvidiaOf(probe: GpuProbe): Promise<Read> {
+  try {
+    return { cards: nvidiaCards(await probe.run('nvidia-smi', NVIDIA_SMI_QUERY)) };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { cards: [] };
+    return { problem: `nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: ${(err as Error).message.split('\n')[0]}` };
+  }
+}
+
+async function amdOf(probe: GpuProbe): Promise<Read> {
+  if (!await probe.exists(KFD_NODES)) return { cards: [] };
+  let nodes: string[];
+  try {
+    nodes = await probe.list(KFD_NODES);
+  } catch (err) {
+    return { problem: `the AMD kernel driver is loaded but its GPU list cannot be read: ${(err as Error).message}` };
+  }
+  const read = await Promise.all(nodes.map((node) => probe.read(path.join(KFD_NODES, node, 'properties')).then((properties) => ({ properties }), () => ({ properties: '' }))));
+  return { cards: amdDiscreteCards(read) };
+}
+
+async function toolkitThere(probe: GpuProbe): Promise<boolean> {
+  for (const binary of NVIDIA_RUNTIME_BINARIES) if (await probe.exists(binary)) return true;
+  return false;
+}
+
+export async function machineGpus(probe: GpuProbe, handlers: readonly string[] | undefined): Promise<GpuReport> {
+  const reads = [await nvidiaOf(probe), await amdOf(probe)];
+  const problems = reads.flatMap((read) => ('problem' in read ? [read.problem] : []));
+  const cards = reads.flatMap((read) => ('cards' in read ? read.cards : []));
+  if (!cards.length) return { gpus: [], problems };
+  const toolkit = handlers ? false : await toolkitThere(probe);
+  const runtime = (vendor: GpuVendor): boolean => {
+    const wanted = VENDOR_RUNTIME[vendor];
+    if (!wanted) return true;
+    return handlers ? handlers.includes(wanted) : toolkit;
+  };
+  return { gpus: groupedGpus(cards, runtime), problems };
+}

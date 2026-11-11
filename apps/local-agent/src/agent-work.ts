@@ -20,6 +20,7 @@ import { SelfUpdate, type serviceManagerOf, type UpdateReport } from './self-upd
 import { discardBundle, placeOf, prepareBundle, swapBundle } from './agent-bundle.js';
 import type { DeviceWorker, DeviceWorkerOptions } from './engine-worker.js';
 import type { dockerAvailable } from './docker-cli.js';
+import { machineGpus } from './machine-gpus.js';
 
 export interface AgentPlace {
   agentDir: string;
@@ -110,8 +111,8 @@ export function startWork(
   sessionsMade(sessions);
   socket.on('connect', () => tellRuns(sessions.openRuns()));
   socket.on('connect', () => {
-    clusterOnConnect(place.cluster, say).then(
-      (state) => { if (socket.connected) socket.emit('machine:cluster', { state }); },
+    Promise.all([clusterOnConnect(place.cluster, say), machineGpus(place.cluster, undefined)]).then(
+      ([state, gpus]) => { if (socket.connected) socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems }); },
       (err: Error) => say(`whether this machine has its cluster could not be read: ${err.message}`),
     );
   });
