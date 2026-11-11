@@ -1,7 +1,7 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, closedAs, reopening, thrownFor, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
+  stopIfRunning, getTemporalClient, closedWith, reopening, thrownFor, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
   type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
@@ -147,6 +147,7 @@ async function updateDeploymentStatus(
   deployment: DeploymentMetadata,
   status: DeploymentMetadata['status'],
   storage: Record<string, string> | undefined = undefined,
+  failure: string | undefined = undefined,
 ): Promise<void> {
   const deployments = await db.infrastructure.getDeployments();
   const existing = deployments.find((d) => d.id === deploymentId);
@@ -154,12 +155,18 @@ async function updateDeploymentStatus(
     ...deployment,
     id: deploymentId,
     status,
+    ...(status === 'failed' && failure ? { failure } : {}),
     ...(storage !== undefined ? { storage } : {}),
     ...(existing?.temporalWorkflowId !== undefined ? { temporalWorkflowId: existing.temporalWorkflowId } : {}),
     ...(existing?.lastLogPath !== undefined ? { lastLogPath: existing.lastLogPath } : {}),
     ...(existing?.deploymentId !== undefined ? { deploymentId: existing.deploymentId } : {}),
     ...(existing?.ownerId !== undefined ? { ownerId: existing.ownerId } : {}),
   })
+  if (status === 'failed') return
+  const saved = (await db.infrastructure.getDeployments()).find((d) => d.id === deploymentId)
+  if (saved?.failure === undefined) return
+  const { failure: _cleared, ...rest } = saved
+  await db.infrastructure.saveDeployment(rest)
 }
 
 async function maybeSetDefaultModel(
@@ -326,8 +333,9 @@ export class TemporalBridge {
     const again = reopening()
     for (;;) {
       let closed: ClosedAs
+      let why: string | undefined
       try {
-        closed = await closedAs(this.client.workflow.getHandle(wfId))
+        ({ as: closed, why } = await closedWith(this.client.workflow.getHandle(wfId)))
       } catch (err) {
         this.seams.dependencies?.failed('temporal', err)
         console.warn(`[TemporalBridge] lost ${wfId} while following it (${(err as Error).message}); following it again in ${again.seconds} s`)
@@ -336,7 +344,7 @@ export class TemporalBridge {
       }
       if (closed === 'RUNNING') continue
       if (closed === 'NOT_FOUND') console.warn(`[TemporalBridge] ${action} ${wfId} of ${resourceId} is not in Temporal, so it is taken as failed`)
-      await this.settle(wfId, action, resourceId, resourceName, meta, closed === 'COMPLETED' || closed === 'TERMINATED' || closed === 'CANCELLED' ? closed : 'FAILED')
+      await this.settle(wfId, action, resourceId, resourceName, meta, closed === 'COMPLETED' || closed === 'TERMINATED' || closed === 'CANCELLED' ? closed : 'FAILED', why)
       return
     }
   }
@@ -348,7 +356,9 @@ export class TemporalBridge {
     resourceName: string,
     meta: TrackedDeployment | undefined,
     name: 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED',
+    why?: string,
   ): Promise<void> {
+    const failure = name === 'FAILED' ? (why ?? 'its workflow failed without saying why') : name === 'COMPLETED' ? undefined : `its workflow was ${name.toLowerCase()}`
     const deployment = (): TrackedDeployment => {
       if (!meta) throw new Error(`${action} ${wfId} of ${resourceId} is followed without its deployment`)
       return meta
@@ -361,9 +371,9 @@ export class TemporalBridge {
 
     if (action === 'app-deploy') {
       if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'COMPLETED') {
         const done = await applied()
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
@@ -374,7 +384,7 @@ export class TemporalBridge {
       if (this.io) this.io.emit('deployment-updated')
     } else if (action === 'app-destroy') {
       if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
         await this.db.infrastructure.deleteDeployment(resourceId)
       }
@@ -382,9 +392,9 @@ export class TemporalBridge {
     } else if (action === 'app-resize') {
       const newStorage = { ...meta?.storage, ...meta?.newStorage }
       if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'COMPLETED') {
         const done = await applied()
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
@@ -392,7 +402,7 @@ export class TemporalBridge {
       if (this.io) this.io.emit('deployment-updated')
     } else if (action === 'app-sync-config') {
       if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'COMPLETED') {
         const done = await applied()
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)

@@ -54,6 +54,10 @@ describe('following work Koala started anywhere to its end', () => {
 
     const statuses = Object.fromEntries((await db.infrastructure.getDeployments()).map((dep) => [dep.id, dep.status]));
     expect(statuses).toEqual({ shop: 'running', blog: 'failed', wiki: 'failed' });
+    const failures = Object.fromEntries((await db.infrastructure.getDeployments()).map((dep) => [dep.id, dep.failure]));
+    expect(failures.shop).toBeUndefined();
+    expect(failures.blog).toBe('the app did not come up');
+    expect(failures.wiki).toMatch(/not found|no longer has|never/i);
   }, 60_000);
 });
 

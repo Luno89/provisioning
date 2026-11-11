@@ -6,6 +6,7 @@ export interface Deployment {
   appType: string
   clusterId: string
   status: string
+  failure?: string
   healthReason?: string
   deployNotes?: string[]
   listing?: AppListing

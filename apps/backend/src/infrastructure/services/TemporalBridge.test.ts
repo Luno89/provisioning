@@ -247,6 +247,16 @@ describe('following work to its end', () => {
     expect(io.emit).toHaveBeenCalledWith('deployment-updated');
   });
 
+  it('keeps why an app failed on it, and clears it when a later deploy of it succeeds', async () => {
+    const { db, workflow, ready } = bridge();
+    await db.infrastructure.saveDeployment({ ...deploying, failure: 'the GPUs could not be readied' });
+    workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
+    await ready().follow('wf-1', 'app-deploy', 'd1', 'shop', deploying);
+    const stored = (await db.infrastructure.getDeployments()).find((entry) => entry.id === 'd1');
+    expect(stored?.status).toBe('running');
+    expect(stored).not.toHaveProperty('failure');
+  });
+
   it('takes a workflow Temporal does not have as failed', async () => {
     const { db, workflow, ready } = bridge();
     workflow.getHandle.mockReturnValue(closing(async () => { throw new WorkflowNotFoundError('not found', 'wf-1', undefined); }, 'COMPLETED') as never);

@@ -32,6 +32,7 @@ export interface ClusterMetadata {
 
 export interface DeploymentMetadata {
   id: string;
+  failure?: string | undefined;
   name: string;
   deploymentId?: string;
   clusterId: string;
