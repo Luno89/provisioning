@@ -3,21 +3,20 @@ import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAppImage } from './gate-runs.js';
-import { roundsOf } from './gates.js';
+import { RELEASE_STEPS, roundsOf } from './gates.js';
 
 export interface VmSuite {
   script: string;
   memoryMB: number;
 }
 
-export const VM_SUITES: readonly VmSuite[] = [
-  { script: 'pool-live', memoryMB: 28672 },
-  { script: 'restore-live', memoryMB: 24576 },
-  { script: 'mesh-live', memoryMB: 19456 },
-  { script: 'routing-live', memoryMB: 12288 },
-  { script: 'byo-live', memoryMB: 12288 },
-  { script: 'instance-live', memoryMB: 2048 },
-];
+const VM_SCRIPTS = ['pool-live', 'restore-live', 'mesh-live', 'routing-live', 'byo-live', 'instance-live'];
+
+export const VM_SUITES: readonly VmSuite[] = VM_SCRIPTS.map((script) => {
+  const step = RELEASE_STEPS.find((one) => one.script === `test:${script}`);
+  if (step?.memoryMB === undefined) throw new Error(`${script} is not a release step with its memory`);
+  return { script, memoryMB: step.memoryMB };
+});
 
 export const roundsFor = (suites: readonly VmSuite[], availableMB: number): VmSuite[][] => roundsOf(suites, availableMB);
 
