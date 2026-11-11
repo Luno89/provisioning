@@ -7,7 +7,7 @@ import {
 } from '../../projects/index.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from '../lib/client-import.js';
 import { buildPlanAt } from '../lib/build-plan.js';
-import { changedPaths, releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
+import { releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE, releaseTargetOf } from '../lib/odoo-release.js';
 import { managedSecretName } from '../lib/infisical-sync.js';
@@ -32,6 +32,7 @@ import { customizationsRouter } from '../routes/customizations.js';
 import { clientImportRouter } from '../routes/client-import.js';
 import { releasesRouter } from '../routes/releases.js';
 import type { Mounts } from '../../hub/index.js';
+import { changesIn } from '../services/repo-changes.js';
 
 export interface ReleasesWiringDeps {
   tenant: Mounts;
@@ -81,11 +82,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   };
   const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical, deps.database) });
 
-  const changedBetween = async (project: ProjectMetadata, since: string, commit: string): Promise<string[]> => {
-    if (!project.giteaOwner || !project.giteaRepo) throw new Error('the project has no repository');
-    const [before, after] = await Promise.all([gitea.fileHashes(project.giteaOwner, project.giteaRepo, since), gitea.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
-    return changedPaths(before, after);
-  };
+  const changedBetween = changesIn(gitea);
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
