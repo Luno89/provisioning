@@ -31,10 +31,10 @@ export type SourceScope = 'all' | 'production';
 
 const NOT_PRODUCTION = [':(exclude,glob)**/*.test.ts', ':(exclude,glob)**/*.test.tsx', ':(exclude,glob)**/*.test.mjs', ':(exclude,glob)**/testing/**'];
 
-export function sourceOf(root = ROOT, scope: SourceScope = 'all'): string {
+export function sourceOf(root = ROOT, scope: SourceScope = 'all', within: readonly string[] = SOURCE_PATHS): string {
   const hash = createHash('sha256');
-  const paths = scope === 'all' ? SOURCE_PATHS : [...SOURCE_PATHS, ...NOT_PRODUCTION];
-  hash.update(scope === 'all' ? git(root, ['rev-parse', ...SOURCE_PATHS.map((path) => `HEAD:${path}`)]) : git(root, ['ls-files', '-s', '--', ...paths]));
+  const paths = scope === 'all' ? within : [...within, ...NOT_PRODUCTION];
+  hash.update(scope === 'all' ? git(root, ['rev-parse', ...within.map((path) => `HEAD:${path}`)]) : git(root, ['ls-files', '-s', '--', ...paths]));
   hash.update(git(root, ['diff', 'HEAD', '--', ...paths]));
   for (const file of git(root, ['ls-files', '--others', '--exclude-standard', '--', ...paths]).split('\n').filter(Boolean)) {
     hash.update(file).update(readFileSync(join(root, file)));

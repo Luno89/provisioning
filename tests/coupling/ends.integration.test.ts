@@ -21,6 +21,7 @@ describe('every end of a channel between processes has the other end', () => {
     expect(graph.edges.filter((edge) => edge.through === 'socket').length).toBeGreaterThan(50);
     expect(graph.edges.filter((edge) => edge.through === 'http').length).toBeGreaterThan(350);
     expect(graph.edges.filter((edge) => edge.through === 'env').length).toBeGreaterThan(25);
+    expect(repoGraph(ROOT, sides)).toEqual(graph);
   }, 300_000);
 
   it('has no socket.io event with only one side, beyond those known', () => {
