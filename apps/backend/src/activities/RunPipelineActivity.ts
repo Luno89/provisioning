@@ -105,7 +105,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: clone
-          image: alpine/git:latest
+          image: alpine/git:2.52.0
           envFrom:
             - secretRef: { name: ${gitSecretName} }
           command: ["sh", "-c"]
@@ -115,7 +115,7 @@ spec:
             - { name: workspace, mountPath: /workspace }
       containers:
         - name: kaniko
-          image: gcr.io/kaniko-project/executor:latest
+          image: gcr.io/kaniko-project/executor:v1.24.0
           args:
             - "--context=${yamlDoubleQuoted(workspacePath(pipeline.config?.context))}"
             - "--dockerfile=${yamlDoubleQuoted(workspacePath(dockerfilePath))}"

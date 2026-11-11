@@ -1644,6 +1644,31 @@
           "pattern": "pgsty/minio:RELEASE\\.[0-9TZ-]+@sha256:([0-9a-f]{64})"
         }
       ]
+    },
+    {
+      "kind": "image",
+      "name": "alpine-git",
+      "version": "2.52.0",
+      "source": "docker.io/alpine/git:2.52.0",
+      "uses": [
+        {
+          "file": "apps/backend/src/activities/RunPipelineActivity.ts",
+          "pattern": "image: alpine/git:([0-9.]+)$"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "kaniko",
+      "version": "1.24.0",
+      "source": "gcr.io/kaniko-project/executor:v1.24.0",
+      "github": "GoogleContainerTools/kaniko",
+      "uses": [
+        {
+          "file": "apps/backend/src/activities/RunPipelineActivity.ts",
+          "pattern": "image: gcr.io/kaniko-project/executor:v([0-9.]+)$"
+        }
+      ]
     }
   ],
   "unpinned": []
