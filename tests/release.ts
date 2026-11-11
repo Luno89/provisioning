@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { checkedThrough, HOTFIX, HOTFIX_STEPS, nextVersion, RELEASE_SIGNERS, RELEASE_STEPS, roundsOf, shippedThrough, signingKeyProblem, stillToRun, tagMessage, type StepPassed } from './lib/gates.js';
 import { availableMemoryMB } from './lib/vm-rounds.js';
-import { buildAppImage, changedNow, commitLedger, devStackProblem, git, githubSlug, minutesSince, pushedGates, readIfThere, readRecord, releaseKey, runRounds, runSteps, signTag, tagSignatureProblem, updateRoot, verifyPublished, waitForRelease, writeRecord } from './lib/gate-runs.js';
+import { buildAppImage, changedNow, commitLedger, devStackProblem, git, githubSlug, minutesSince, reportSlower, pushedGates, readIfThere, readRecord, releaseKey, runRounds, runSteps, signTag, tagSignatureProblem, updateRoot, verifyPublished, waitForRelease, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
       const result = results.find((one) => one.step.script === step.script);
       console.log(`| ${step.name} | ${result ? (result.passed ? 'passed' : 'failed') : 'passed before'} | ${result?.minutes ?? '—'} |`);
     }
+    reportSlower(REPO, commit);
     return { checked, failed: results.filter((result) => !result.passed).map((result) => `${result.step.name} (${result.log})`) };
   };
 

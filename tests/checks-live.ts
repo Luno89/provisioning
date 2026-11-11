@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import axios from 'axios';
 import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
 import { whereItFailed } from './lib/where-it-failed.js';
+import { keepTimings, type Timed } from './lib/timings.js';
 
 const BASE = process.env.CHECKS_LIVE_URL ?? `${devKoalaApi}/api`;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
@@ -32,16 +33,36 @@ async function main(): Promise<void> {
     console.log('[2] it runs each scenario in a space of its own, through the API, to the end');
     type Run = { state: string; running?: string; finished: number; results: Result[]; error?: string };
     const runs = new Map<string, Run>();
+    const since = new Map<string, { scenario: string; at: number }>();
+    const timed: Timed[] = [];
+    const ended = (id: string, now: number) => {
+      const was = since.get(id);
+      if (was) timed.push({ at: new Date(now).toISOString(), commit: process.env.KOALA_GATE_COMMIT ?? '', kind: 'check', name: was.scenario, seconds: (now - was.at) / 1000 });
+      since.delete(id);
+    };
     let last = '';
     for (;;) {
-      await sleep(10_000);
-      for (const id of ids) runs.set(id, (await http.get(`/evals/level2/runs/${id}`)).data as Run);
+      await sleep(2_000);
+      for (const id of ids) {
+        const entry = (await http.get(`/evals/level2/runs/${id}`)).data as Run;
+        runs.set(id, entry);
+        const now = Date.now();
+        if (since.get(id)?.scenario !== entry.running) {
+          ended(id, now);
+          if (entry.running) since.set(id, { scenario: entry.running, at: now });
+        }
+      }
       const all = [...runs.values()];
       const now = `${all.every((entry) => entry.state !== 'running') ? 'done' : 'running'} ${all.reduce((total, entry) => total + entry.finished, 0)}/${ONLY.length}${all.some((entry) => entry.running) ? ` — ${all.flatMap((entry) => (entry.running ? [entry.running] : [])).join(', ')}` : ''}`;
       if (now !== last) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now}`); last = now; }
       if (all.every((entry) => entry.state !== 'running')) break;
     }
     for (const [id, entry] of runs) assert.equal(entry.state, 'done', `the run ${id} ended ${entry.state}: ${entry.error ?? ''}`);
+    const timingsFile = process.env.KOALA_GATE_TIMINGS;
+    if (timingsFile && process.env.KOALA_GATE_COMMIT) {
+      const passedIds = new Set(runs.size ? [...runs.values()].flatMap((entry) => entry.results).filter((result) => result.passed).map((result) => result.scenarioId) : []);
+      keepTimings(timingsFile, timed.filter((row) => passedIds.has(row.name)));
+    }
     const run = { results: [...runs.values()].flatMap((entry) => entry.results) };
     for (const result of run.results) {
       console.log(`\n    ${result.passed ? 'PASS' : 'FAIL'} ${result.scenarioId} (${result.outcome}${result.reason ? `: ${result.reason.slice(0, 160)}` : ''}) run ${result.runId}`);

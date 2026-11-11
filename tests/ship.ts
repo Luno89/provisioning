@@ -8,7 +8,7 @@ import { devOwner } from './lib/dev-stack.js';
 import { ANSWERS } from './alignment/answers.js';
 import { currentDrift } from './alignment/drift-run.js';
 import { gateOf, gateRefusal } from './alignment/gate.js';
-import { changedNow, codeCommitOf, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
+import { changedNow, codeCommitOf, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, reportSlower, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PUSH = !process.argv.includes('--no-push');
@@ -92,6 +92,7 @@ async function main(): Promise<void> {
         writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
       },
     });
+    reportSlower(REPO, commit);
     const left = stillToRun(SHIP_STEPS, kept);
     if (left.length > 0) {
       console.log(`\n✓ ${run.steps.map((step) => shortName(step.script)).join(', ')} passed on ${commit.slice(0, 12)} in ${minutesSince(started)} min; ship still needs ${left.map((step) => shortName(step.script)).join(', ')}`);

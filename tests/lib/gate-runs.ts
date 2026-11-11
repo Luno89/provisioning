@@ -6,6 +6,7 @@ import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type G
 import { imageTagOf } from './release-lab.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, type Failures } from './audits.js';
 import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
+import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -13,6 +14,20 @@ const gitOut = (repo: string, args: string[]): string =>
 export const git = (repo: string, args: string[]): string => gitOut(repo, args).trim();
 
 const gatesDir = (repo: string): string => join(resolve(repo, git(repo, ['rev-parse', '--git-common-dir'])), 'koala-gates');
+
+export function timingsFileOf(repo: string): string {
+  mkdirSync(gatesDir(repo), { recursive: true });
+  return join(gatesDir(repo), TIMINGS_FILE);
+}
+
+const timingEnv = (repo: string, commit: string): Record<string, string> => ({ KOALA_GATE_TIMINGS: timingsFileOf(repo), KOALA_GATE_COMMIT: commit });
+
+export function reportSlower(repo: string, commit: string): void {
+  const slower = slowerThanUsual(timingsIn(timingsFileOf(repo)), commit);
+  if (slower.length === 0) return;
+  console.log(`\nslower than usual on ${commit.slice(0, 12)} (a guide, not a gate):`);
+  for (const line of slower) console.log(`  ${line}`);
+}
 
 export function readRecord(repo: string, commit: string): GateRecord | undefined {
   const file = join(gatesDir(repo), `${commit}.json`);
@@ -181,13 +196,14 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
   steps.forEach((step, index) => {
     console.log(`\n━━ ${index + 1}/${steps.length} ${step.name} (npm run ${step.script})`);
     const started = Date.now();
-    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
+    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
     hooks.onEnd?.(step);
     const minutes = minutesSince(started);
     if (result.status !== 0) throw new Error(`${step.name} failed after ${minutes} min (npm run ${step.script})`);
     const moved = checkoutProblem(repo, commit);
     if (moved) throw new Error(`${moved} while ${step.name} ran, so what it tested is not this commit; run it again once the checkout is back`);
     console.log(`━━ ✓ ${step.name} in ${minutes} min`);
+    keepTimings(timingsFileOf(repo), [{ at: new Date().toISOString(), commit, kind: 'step', name: step.script, seconds: (Date.now() - started) / 1000 }]);
     const kept = { name: step.name, script: step.script, minutes };
     passed.push(kept);
     hooks.onPass?.(kept);
@@ -195,21 +211,21 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
   return passed;
 }
 
-export interface RoundResult { step: GateStep; passed: boolean; minutes: number; log: string }
+export interface RoundResult { step: GateStep; passed: boolean; minutes: number; seconds: number; log: string }
 
 const clock = () => new Date().toISOString().slice(11, 19);
 
-function runLogged(repo: string, step: GateStep, env: Record<string, string>, logFile: string): Promise<RoundResult> {
+function runLogged(repo: string, commit: string, step: GateStep, env: Record<string, string>, logFile: string): Promise<RoundResult> {
   return new Promise((done) => {
     const started = Date.now();
     const log = createWriteStream(logFile);
-    const child = spawn('npm', ['run', step.script, '--silent'], { cwd: repo, env: { ...process.env, ...env, KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('npm', ['run', step.script, '--silent'], { cwd: repo, env: { ...process.env, ...env, ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
     const write = (chunk: Buffer) => { for (const line of chunk.toString().split('\n')) if (line) log.write(`${clock()} ${line}\n`); };
     child.stdout.on('data', write);
     child.stderr.on('data', write);
     child.on('close', (code) => {
       log.end();
-      done({ step, passed: code === 0, minutes: minutesSince(started), log: logFile });
+      done({ step, passed: code === 0, minutes: minutesSince(started), seconds: (Date.now() - started) / 1000, log: logFile });
     });
   });
 }
@@ -222,9 +238,10 @@ export async function runRounds(repo: string, commit: string, rounds: readonly G
   const results: RoundResult[] = [];
   for (const [index, round] of rounds.entries()) {
     console.log(`\n━━ round ${index + 1}/${rounds.length}: ${round.map((step) => step.name).join(' · ')}`);
-    const finished = await Promise.all(round.map((step) => runLogged(repo, step, env, join(logs, `${step.script.replace(/[:/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`))));
+    const finished = await Promise.all(round.map((step) => runLogged(repo, commit, step, env, join(logs, `${step.script.replace(/[:/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`))));
     for (const result of finished) console.log(`━━ ${result.passed ? '✓' : '✗'} ${result.step.name} in ${result.minutes} min${result.passed ? '' : ` (${result.log})`}`);
     results.push(...finished);
+    keepTimings(timingsFileOf(repo), finished.filter((result) => result.passed).map((result) => ({ at: new Date().toISOString(), commit, kind: 'step' as const, name: result.step.script, seconds: result.seconds })));
     const moved = checkoutProblem(repo, commit);
     if (moved) throw new Error(`${moved} while round ${index + 1} ran, so what it tested is not this commit; run it again once the checkout is back`);
   }
