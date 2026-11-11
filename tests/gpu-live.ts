@@ -104,7 +104,7 @@ async function main(): Promise<void> {
       const running = await until(`${NAME} running`, async () => {
         const found = (await mine(api)).find((entry) => entry.id === id);
         if (!found) throw new Hopeless('the deployment is gone from the list');
-        if (found.status === 'failed') throw new Hopeless(`the app failed to deploy: ${JSON.stringify(found.reason ?? found.error ?? found)}`.slice(0, 600));
+        if (found.status === 'failed') throw new Hopeless(`the app failed to deploy: ${String(found.failure ?? 'and its record says no reason')}`);
         return found.status === 'running' ? found : undefined;
       });
       const imagesAfter = await vllmImages();

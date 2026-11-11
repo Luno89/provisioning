@@ -10,7 +10,7 @@ import { CheckWorkloadActivity, type CheckWorkloadArgs } from './activities/Chec
 import { DestroyAppActivity, type DestroyAppArgs } from './activities/DestroyAppActivity.js';
 import { ResizeDiskActivity, type ResizeDiskArgs } from './activities/ResizeDiskActivity.js';
 import { SyncConfigActivity, type SyncConfigArgs } from './activities/SyncConfigActivity.js';
-import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
+import { DownloadModelActivity, type DownloadModelArgs } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
@@ -29,6 +29,17 @@ import { QUEUES } from './platform/index.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const logger = createWorkerLogger('cluster-worker');
+
+export const clusterActivities = (steps: ClusterSteps) => ({
+      DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
+      CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
+      DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
+      ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps, Context.current().cancellationSignal),
+      SyncConfigActivity: (args: SyncConfigArgs) => SyncConfigActivity(args, steps, Context.current().cancellationSignal),
+      DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps),
+      VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
+      RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
+});
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
@@ -72,16 +83,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities: {
-          DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
-          CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
-          DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
-          ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps, Context.current().cancellationSignal),
-          SyncConfigActivity: (args: SyncConfigArgs) => SyncConfigActivity(args, steps, Context.current().cancellationSignal),
-          DownloadModelActivity,
-          VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
-          RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
-        },
+        activities: clusterActivities(steps),
       });
       break;
     } catch (err) {
