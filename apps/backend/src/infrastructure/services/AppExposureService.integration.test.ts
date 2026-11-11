@@ -4,17 +4,17 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
 import { encryptValue, nodeProcesses, nodeStreams, succeeded, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { adminEdge } from '../../instances/services/InstanceAddresses.js';
-import { TOOLS } from '../testing/real-k3s.js';
+import { startK3s, TOOLS } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
 import { ClusterAccess } from './ClusterAccess.js';
 
 const KEY = 'test-key' as never;
-const k3s = inject('k3s');
+const k3s = await startK3s();
 const REPO = resolve(import.meta.dirname, '../../../../..');
 const EDGE_IMAGE = 'caddy:2.10.2-alpine';
 const NAMESPACE = `shop-${randomUUID().slice(0, 6)}`;
@@ -86,7 +86,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (edgeName) await docker('rm', '-f', edgeName);
-});
+  await k3s.stop();
+}, 0);
 
 describe('an app exposed on this computer through the instance\'s real edge', () => {
   it('answers at <app>.localhost through the edge from the chart, reaching the app on the person\'s machine at its mesh address, and stops answering once taken away', async () => {

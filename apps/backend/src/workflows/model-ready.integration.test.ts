@@ -5,16 +5,17 @@ import { WorkflowFailedError } from '@temporalio/client';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
 import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from '../infrastructure/testing/hugging-face-stand-in.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { clusterActivities } from '../worker-cluster.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
 
-const k3s = inject('k3s');
+const k3s = await startK3s();
 const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });
 const DESK: Reach = startedMachine('machine-desk', k3s.admin);
 
@@ -29,7 +30,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await standIn.stop();
   await env.teardown();
-});
+  await k3s.stop();
+}, 0);
 
 const worker = async (taskQueue: string) => Worker.create({
   ...WORKER_DEFAULTS,
@@ -44,7 +46,7 @@ const worker = async (taskQueue: string) => Worker.create({
 describe('a model app\'s workflows with the cluster worker\'s own activities, on a real cluster', () => {
   it('ready a model by downloading it on the machine that runs it', async () => {
     const taskQueue = `model-ready-${Math.random().toString(36).slice(2, 8)}`;
-    const ready = await (await worker(taskQueue)).runUntil(env.client.workflow.execute('readiesModel', {
+    const ready = await (await worker(taskQueue)).runUntil(env.client.workflow.execute<typeof readiesModel>('readiesModel', {
       taskQueue, workflowId: `readies-${taskQueue}`,
       args: [{ appType: 'vllm', clusterId: DESK.clusterId, reach: DESK, vllmModel: 'acme/tiny', modelImage: STAND_IN_IMAGE, modelCacheHostPath: `/var/lib/rancher/koala-test-ready-${taskQueue}` }],
     }));

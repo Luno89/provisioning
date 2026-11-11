@@ -2,16 +2,26 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedMachine } from '../lib/cluster-places.js';
 import { TOOLS } from '../testing/real-k3s.js';
+import { testNamespaces } from '../testing/test-namespaces.js';
 import { ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
 
 const KEY = 'test-key' as never;
 
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const OWN = namespaces.name('koala-own');
+const FROM_A_WORKFLOW = namespaces.name('from-a-workflow');
+const PLAYGROUND = namespaces.name('cluster-access');
+
+beforeAll(async () => {
+  await (await door([], { clusters: undefined })).kubectl(startedMachine('machine-dev3', k3s.admin), ['create', 'namespace', PLAYGROUND]);
+});
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 
 const machine = (overrides: Partial<ClusterMetadata>): ClusterMetadata =>
   ({ name: overrides.id, provider: 'machine', status: 'healthy', ownerId: 'owner', createdAt: 't', ...overrides }) as ClusterMetadata;
@@ -35,15 +45,15 @@ async function door(records: ClusterMetadata[], overrides: Partial<ClusterAccess
 describe('ClusterAccess against a real k3s', () => {
   it('reaches the cluster Koala runs on with nothing but its service account, as a pod does', async () => {
     const access = await door([machine({ id: 'machine-dev1', machineId: 'dev1' })]);
-    await access.kubectl('machine-dev1', ['create', 'namespace', 'koala-own']);
-    expect(await access.kubectl('machine-dev1', ['get', 'namespace', 'koala-own', '-o', 'name'])).toBe('namespace/koala-own\n');
+    await access.kubectl('machine-dev1', ['create', 'namespace', OWN]);
+    expect(await access.kubectl('machine-dev1', ['get', 'namespace', OWN, '-o', 'name'])).toBe(`namespace/${OWN}\n`);
   });
 
   it('reaches another machine through the kubeconfig sealed on its record, kubectl and helm alike', async () => {
     const access = await door([machine({ id: 'machine-dev2', machineId: 'dev2', kubeconfigEnc: encryptValue(k3s.admin, KEY) })]);
     const reach = await access.reach('machine-dev2');
-    await access.kubectl(reach, ['create', 'configmap', 'shop', '-n', 'default', '--from-literal=a=b']);
-    expect(await access.kubectl(reach, ['get', 'configmap', 'shop', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
+    await access.kubectl(reach, ['create', 'configmap', 'shop', '-n', PLAYGROUND, '--from-literal=a=b']);
+    expect(await access.kubectl(reach, ['get', 'configmap', 'shop', '-n', PLAYGROUND, '-o', 'jsonpath={.data.a}'])).toBe('b');
     const quiet = `helm-own-${Math.random().toString(36).slice(2, 8)}`;
     expect(await access.helm(reach, ['list', '-n', quiet, '-o', 'json'])).toBe('[]\n');
   });
@@ -51,26 +61,26 @@ describe('ClusterAccess against a real k3s', () => {
   it('works a machine from the reach a workflow hands over, in a process holding no records and no key', async () => {
     const access = await door([], { clusters: undefined, dataKey: undefined });
     const reach = startedMachine('machine-dev3', k3s.admin);
-    await access.apply(reach, 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: from-a-workflow\n');
-    expect(await access.kubectl(reach, ['get', 'namespace', 'from-a-workflow', '-o', 'name'])).toBe('namespace/from-a-workflow\n');
+    await access.apply(reach, `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${FROM_A_WORKFLOW}\n`);
+    expect(await access.kubectl(reach, ['get', 'namespace', FROM_A_WORKFLOW, '-o', 'name'])).toBe(`namespace/${FROM_A_WORKFLOW}\n`);
   });
 
   it('applies the same new thing twice at once, the loser of the race applying again', async () => {
     const access = await door([], { clusters: undefined });
     const reach = startedMachine('machine-dev3', k3s.admin);
-    const manifest = 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: raced\n  namespace: default\ndata:\n  a: b\n';
+    const manifest = `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: raced\n  namespace: ${PLAYGROUND}\ndata:\n  a: b\n`;
     await Promise.all([access.apply(reach, manifest), access.apply(reach, manifest), access.apply(reach, manifest)]);
-    expect(await access.kubectl(reach, ['get', 'configmap', 'raced', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
+    expect(await access.kubectl(reach, ['get', 'configmap', 'raced', '-n', PLAYGROUND, '-o', 'jsonpath={.data.a}'])).toBe('b');
   });
 
   it('pipes a stream into a pod and follows what kubectl prints', async () => {
     const access = await door([], { clusters: undefined });
     const reach = startedMachine('machine-dev3', k3s.admin);
-    const manifest = ['apiVersion: v1\n', 'kind: ConfigMap\n', 'metadata:\n  name: piped\n  namespace: default\n', 'data:\n  data: streamed\n'];
+    const manifest = ['apiVersion: v1\n', 'kind: ConfigMap\n', `metadata:\n  name: piped\n  namespace: ${PLAYGROUND}\n`, 'data:\n  data: streamed\n'];
     const piped = await access.pipe(reach, ['apply', '-f', '-', '-o', 'name'], Readable.from(manifest));
     expect(piped).toBe('configmap/piped\n');
     let printed = '';
-    const followed = await access.follow(reach, ['get', 'configmap', 'piped', '-n', 'default', '-o', 'jsonpath={.data.data}'], (chunk) => { printed += chunk; });
+    const followed = await access.follow(reach, ['get', 'configmap', 'piped', '-n', PLAYGROUND, '-o', 'jsonpath={.data.data}'], (chunk) => { printed += chunk; });
     expect((await followed.ended).code).toBe(0);
     expect(printed).toBe('streamed');
   });
@@ -86,7 +96,7 @@ describe('ClusterAccess against a real k3s', () => {
     const output = new PassThrough();
     let written = '';
     output.on('data', (chunk: Buffer) => { written += chunk.toString(); });
-    const applied = await access.start(reach, ['apply', '-f', '-', '-o', 'name'], { input: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: started\n  namespace: default\n', output });
+    const applied = await access.start(reach, ['apply', '-f', '-', '-o', 'name'], { input: `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: started\n  namespace: ${PLAYGROUND}\n`, output });
     const ended = await applied.ended;
     expect(ended.code).toBe(0);
     expect(ended.stdout).toBe('');
@@ -102,14 +112,14 @@ describe('ClusterAccess against a real k3s', () => {
     const quiet = `helm-start-${Math.random().toString(36).slice(2, 8)}`;
     const listed = await (await access.startHelm(reach, ['list', '-n', quiet, '-o', 'json'])).ended;
     expect(listed).toMatchObject({ code: 0, stdout: '[]\n' });
-    const missing = await (await access.startHelm(reach, ['status', 'nowhere', '-n', 'default'])).ended;
+    const missing = await (await access.startHelm(reach, ['status', 'nowhere', '-n', PLAYGROUND])).ended;
     expect(missing.code).not.toBe(0);
     expect(missing.stderr).toContain('release: not found');
   });
 
   it('stops a kubectl it started that would run until stopped', async () => {
     const access = await door([], { clusters: undefined });
-    const watching = await access.start(startedMachine('machine-dev3', k3s.admin), ['get', 'configmaps', '-n', 'default', '-w']);
+    const watching = await access.start(startedMachine('machine-dev3', k3s.admin), ['get', 'configmaps', '-n', PLAYGROUND, '-w']);
     watching.stop();
     expect((await watching.ended).code).not.toBe(0);
   });

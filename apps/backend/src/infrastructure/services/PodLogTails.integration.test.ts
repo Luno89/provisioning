@@ -1,17 +1,21 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { TOOLS } from '../testing/real-k3s.js';
 import { ClusterAccess } from './ClusterAccess.js';
 import { PodLogTails } from './PodLogTails.js';
+import { testNamespaces } from '../testing/test-namespaces.js';
 
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const NAMESPACE = namespaces.name('shop');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 const KEY = 'pod-logs-key' as never;
 const CLUSTER = 'machine-logs';
-const NAMESPACE = 'shop-7c8d9e';
 
 let access: ClusterAccess;
 

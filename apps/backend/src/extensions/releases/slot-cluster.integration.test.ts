@@ -8,9 +8,15 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess } from '../../infrastructure/index.js';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
 import { createSlotCluster } from './slot-cluster.js';
+import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 const KEY = 'test-key' as never;
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const FIRST = namespaces.name('shop');
+const SECOND = namespaces.name('shop');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 const COMMIT = 'c'.repeat(40);
 const FILES: Record<string, string> = {
   'deploy/chart/Chart.yaml': 'apiVersion: v2\nname: shop\nversion: 0.1.0\n',
@@ -36,7 +42,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { await gitea.close(); });
 
-const target = { clusterId: 'machine-slots', clusterName: 'slots', provider: 'machine', namespace: 'shop-1', release: 'shop-1', owner: { ownerId: 'bo', projectId: 'p1' } };
+const target = { clusterId: 'machine-slots', clusterName: 'slots', provider: 'machine', namespace: FIRST, release: 'shop-1', owner: { ownerId: 'bo', projectId: 'p1' } };
 const registry = async () => ({ hosts: { push: 'r', pull: 'r' }, username: 'u', password: 'p' });
 
 describe('a release slot on a real cluster, reading its build\'s files through Gitea', () => {
@@ -49,9 +55,9 @@ describe('a release slot on a real cluster, reading its build\'s files through G
     expect(await cluster.state(target)).toEqual({ installed: false, live: 'a', tags: {} });
     await cluster.apply(target, source, ['--set', 'live=b', '--set', 'slots.b.tag=two']);
     expect(gitea.asked.every((line) => line.endsWith('token bot-token'))).toBe(true);
-    expect(await access.kubectl(target.clusterId, ['get', 'configmap', 'shop-1-odoo', '-n', 'shop-1', '-o', 'jsonpath={.data.live}'])).toBe('b');
-    expect(await access.kubectl(target.clusterId, ['get', 'namespace', 'shop-1', '-o', 'jsonpath={.metadata.labels.koala\\.dev/project}'])).toBe('p1');
-    expect(await access.kubectl(target.clusterId, ['get', 'serviceaccount', 'default', '-n', 'shop-1', '-o', 'jsonpath={.imagePullSecrets[0].name}'])).toBe('koala-registry-pull');
+    expect(await access.kubectl(target.clusterId, ['get', 'configmap', 'shop-1-odoo', '-n', FIRST, '-o', 'jsonpath={.data.live}'])).toBe('b');
+    expect(await access.kubectl(target.clusterId, ['get', 'namespace', FIRST, '-o', 'jsonpath={.metadata.labels.koala\\.dev/project}'])).toBe('p1');
+    expect(await access.kubectl(target.clusterId, ['get', 'serviceaccount', 'default', '-n', FIRST, '-o', 'jsonpath={.imagePullSecrets[0].name}'])).toBe('koala-registry-pull');
     expect(await cluster.state(target)).toEqual({ installed: true, live: 'b', tags: { a: undefined, b: 'two' } });
   });
 
@@ -64,11 +70,11 @@ describe('a release slot on a real cluster, reading its build\'s files through G
         await args.cluster.applyManifest(JSON.stringify({ apiVersion: 'v1', kind: 'Secret', metadata: { name: args.secretName, namespace: args.namespace }, stringData: { POSTGRES_PASSWORD: 'x' } }));
       },
     });
-    const put = { ...target, namespace: 'shop-2', release: 'shop-2' };
+    const put = { ...target, namespace: SECOND, release: 'shop-2' };
     await cluster.put(put, { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'step', namespace: 'elsewhere' }, data: { a: 'b' } });
-    expect(await access.kubectl(put.clusterId, ['get', 'configmap', 'step', '-n', 'shop-2', '-o', 'jsonpath={.data.a}'])).toBe('b');
+    expect(await access.kubectl(put.clusterId, ['get', 'configmap', 'step', '-n', SECOND, '-o', 'jsonpath={.data.a}'])).toBe('b');
     await cluster.vault(put, { projectId: 'p1', secret: 'shop-2-vault', keys: ['POSTGRES_PASSWORD'] } as never);
     await cluster.remove(put, 'configmap', 'step', true);
-    expect(await access.kubectl(put.clusterId, ['get', 'configmap', '-n', 'shop-2', '--field-selector', 'metadata.name=step', '-o', 'name'])).toBe('');
+    expect(await access.kubectl(put.clusterId, ['get', 'configmap', '-n', SECOND, '--field-selector', 'metadata.name=step', '-o', 'name'])).toBe('');
   });
 });

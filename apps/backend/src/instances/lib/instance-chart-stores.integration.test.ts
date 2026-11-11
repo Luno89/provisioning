@@ -2,14 +2,19 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 const REPO = resolve(import.meta.dirname, '../../../../..');
 const CHART = resolve(REPO, 'charts/instance');
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const STORES = namespaces.name('stores');
+const ADOPT = namespaces.name('adopt');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 
 interface Doc { kind: string; metadata: { name: string; labels?: Record<string, string> }; data?: Record<string, string> }
 
@@ -18,7 +23,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const folder = mkdtempSync(join(tmpdir(), 'koala-chart-stores-'));
     const kubeconfig = join(folder, 'admin.yaml');
     writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
-    const namespace = `stores-${randomUUID().slice(0, 6)}`;
+    const namespace = STORES;
     const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
     const rendered = (): Doc[] => parseAllDocuments(execFileSync(TOOLS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
@@ -51,14 +56,13 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     expect(again.MINIO_ROOT_PASSWORD).toBe(keysOf(first).MINIO_ROOT_PASSWORD);
     const volume = rendered().find((doc) => doc.kind === 'PersistentVolumeClaim') as Doc & { spec: { resources: { requests: { storage: string } } } };
     expect(volume.spec.resources.requests.storage).toBe('1Gi');
-    execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, 'delete', 'namespace', namespace, '--wait=false']);
   }, 600_000);
 
   it('renders the one-time hook that brings an older instance\'s Mongo and Postgres onto the shared volume only while their old StatefulSets are there', () => {
     const folder = mkdtempSync(join(tmpdir(), 'koala-chart-adopt-'));
     const kubeconfig = join(folder, 'admin.yaml');
     writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
-    const namespace = `adopt-${randomUUID().slice(0, 6)}`;
+    const namespace = ADOPT;
     const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
     const hook = () => parseAllDocuments(execFileSync(TOOLS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
@@ -80,6 +84,5 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const script = job!.spec!.template.spec.containers[0]!.args[0]!;
     expect(script).toContain('adopt luno-mongo /old/mongo mongo');
     expect(script).toContain('adopt luno-temporal-db /old/temporal-db temporal-db');
-    execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, 'delete', 'namespace', namespace, '--wait=false']);
   }, 600_000);
 });

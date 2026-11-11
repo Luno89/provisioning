@@ -1,17 +1,20 @@
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess, runnersByRecord } from '../../infrastructure/index.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { startK3s, TOOLS, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
 import { INSTANCE_ALERTS } from '../lib/root-alerts.js';
 import { MonitoringService, prometheusAt } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
 import { prometheusStandIn } from '../testing/prometheus-stand-in.js';
 
-const k3s = inject('k3s');
+let k3s: RealK3s;
+
+beforeAll(async () => { k3s = await startK3s(); }, 120_000);
+afterAll(async () => { await k3s.stop(); });
 const KEY = 'own-rules-key' as never;
 const RULE_TYPE = readFileSync(join(import.meta.dirname, '../testing/prometheusrules-crd-operator-0.93.1.json'), 'utf8');
 

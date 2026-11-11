@@ -1,21 +1,25 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess } from '../../infrastructure/index.js';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
 import { minioReachFrom } from './MinioArtifactStore.js';
+import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 const KEY = 'test-key' as never;
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const STORE = namespaces.name('store');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 
 describe('reaching a person\'s MinIO from Koala\'s own cluster', () => {
   it('finds it by its service name on Koala\'s own cluster, and at the mesh address and S3 node port on another machine, reading the real Service', async () => {
     const db = await testDatabase();
-    const namespace = `store-${randomUUID().slice(0, 6)}`;
+    const namespace = STORE;
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't', meshIp: '100.64.0.7', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
     const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-minio-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY, serviceAccount: k3s.account });
     await access.kubectl('machine-desk', ['create', 'namespace', namespace]);

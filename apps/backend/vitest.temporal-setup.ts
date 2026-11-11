@@ -1,21 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import type { TestProject } from 'vitest/node';
 import { OWNER_ATTRIBUTE } from './src/platform/lib/workflow-owner.js';
-import { TEST_NAMESPACES, testNamespace } from './src/workflows/temporal-test-env.js';
 
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
-  const names = Array.from({ length: TEST_NAMESPACES }, (_unused, index) => testNamespace(index + 1));
   const env = await TestWorkflowEnvironment.createLocal({
-    server: { searchAttributes: [OWNER_ATTRIBUTE], extraArgs: names.flatMap((name) => ['--namespace', name]) },
+    server: { searchAttributes: [OWNER_ATTRIBUTE] },
   });
-  const claims = mkdtempSync(join(tmpdir(), 'koala-temporal-namespaces-'));
   project.provide('temporalAddress', env.address);
-  project.provide('temporalClaims', claims);
   return async () => {
     await env.teardown();
-    rmSync(claims, { recursive: true, force: true });
   };
 }

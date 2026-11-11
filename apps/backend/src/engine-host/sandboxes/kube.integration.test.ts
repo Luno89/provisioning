@@ -85,8 +85,8 @@ describe('the sandbox runner against a real k3s', () => {
   }, 300_000);
 
   afterAll(async () => {
-    await run(['delete', 'namespace', namespace, '--wait=false']);
-  });
+    await run(['delete', 'namespace', namespace, '--wait=true']);
+  }, 0);
 
   it('runs a command in a pod, with its input, and answers what it printed and how it exited', async () => {
     const result = await run(exec('sh', '-c', 'cat; echo said >&2; exit 3'), 'given');

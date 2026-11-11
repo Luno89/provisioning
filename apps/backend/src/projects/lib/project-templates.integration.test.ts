@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -8,6 +8,7 @@ import { readWorkspaceFile, WORKSPACE_FILE } from '../../engine/lib/workspace-fi
 import { PLAYWRIGHT_VERSION } from '../../engine/lib/e2e.js';
 import { renderStarterFiles } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 function materialise(files: { path: string; content: string }[], name = 'probe') {
   const dir = mkdtempSync(join(tmpdir(), 'tmpl-'));
@@ -33,13 +34,28 @@ describe('the api-service skeleton', () => {
     expect(out).toMatch(/# fail 0/);
   });
 
-  it('listens on the port it is given, not a hardcoded one', () => {
+  it('listens on the port it is given, not a hardcoded one', async () => {
     const dir = materialise(NODE_SERVICE_FILES);
-    const out = execSync(
-      'PORT=45231 node src/server.js & sleep 1; curl --noproxy "*" -s -o /dev/null -w "%{http_code}" http://127.0.0.1:45231/health; kill %1',
-      { cwd: dir, shell: '/bin/bash' },
-    ).toString();
-    expect(out).toContain('200');
+    const port = await portToHandOn();
+    const server = spawn('node', ['src/server.js'], { cwd: dir, env: { ...process.env, PORT: String(port) } });
+    let said = '';
+    server.stdout.on('data', (chunk: Buffer) => { said += chunk.toString(); });
+    server.stderr.on('data', (chunk: Buffer) => { said += chunk.toString(); });
+    const ended = new Promise<never>((_done, fail) => server.once('exit', (code) => fail(new Error(`the server exited (${code}) before answering: ${said}`))));
+    const answered = (async () => {
+      for (;;) {
+        try {
+          return (await fetch(`http://127.0.0.1:${port}/health`)).status;
+        } catch {
+          await new Promise((done) => setTimeout(done, 100));
+        }
+      }
+    })();
+    try {
+      expect(await Promise.race([answered, ended])).toBe(200);
+    } finally {
+      server.kill();
+    }
   });
 
   it('ships a Dockerfile, because without one the pipeline has nothing to build', () => {

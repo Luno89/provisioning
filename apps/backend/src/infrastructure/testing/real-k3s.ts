@@ -56,7 +56,18 @@ export async function startK3s(processes: Processes = nodeProcesses): Promise<Re
       await stillRunning('making its default service account');
       await pause(250);
     }
+    const applied = async (): Promise<boolean> => {
+      const manifests = (await docker('exec', name, 'ls', '/var/lib/rancher/k3s/server/manifests')).split('\n').filter((file) => file.endsWith('.yaml'));
+      if (manifests.includes('traefik.yaml')) return false;
+      const events = (await outside('get', 'events', '-n', 'kube-system', '--field-selector', 'involvedObject.kind=Addon,reason=AppliedManifest', '-o', 'jsonpath={range .items[*]}{.involvedObject.name}{"\\n"}{end}')).stdout.split('\n');
+      return manifests.every((file) => events.includes(file.replace(/\.yaml$/, '')));
+    };
+    while (!(await applied())) {
+      await stillRunning('applying its own add-ons');
+      await pause(250);
+    }
     const inside = (...args: string[]): Promise<string> => succeeded(processes, { command: TOOLS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
+    await inside('wait', '--for=condition=Available', 'deployment', '--all', '-n', 'kube-system', '--timeout=720h');
     await inside('create', 'serviceaccount', 'koala', '-n', 'default');
     await inside('create', 'clusterrolebinding', 'koala', '--clusterrole=cluster-admin', '--serviceaccount=default:koala');
     const token = (await inside('create', 'token', 'koala', '-n', 'default', '--duration=1h')).trim();

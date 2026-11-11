@@ -1,7 +1,8 @@
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { Connection } from '@temporalio/client';
+import Long from 'long';
 import { inject } from 'vitest';
 import { OWNER_ATTRIBUTE } from '../platform/lib/workflow-owner.js';
 import { registerOwnerAttribute } from '../platform/lib/temporal-client.js';
@@ -9,29 +10,39 @@ import { registerOwnerAttribute } from '../platform/lib/temporal-client.js';
 declare module 'vitest' {
   export interface ProvidedContext {
     temporalAddress: string;
-    temporalClaims: string;
   }
 }
 
-export const TEST_NAMESPACES = 64;
-export const testNamespace = (index: number): string => `koala-test-${index}`;
-
-export function claimNamespaceFor(claims: string): string {
-  for (let index = 1; index <= TEST_NAMESPACES; index += 1) {
-    try {
-      mkdirSync(join(claims, String(index)));
-      return testNamespace(index);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    }
-  }
-  throw new Error(`every one of the ${TEST_NAMESPACES} Temporal test namespaces is taken; raise TEST_NAMESPACES`);
+export interface FreshNamespace {
+  namespace: string;
+  drop(): Promise<void>;
 }
 
-export function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
+export async function freshNamespace(address: string = inject('temporalAddress')): Promise<FreshNamespace> {
+  const connection = await Connection.connect({ address });
+  const namespace = `koala-test-${randomUUID()}`;
+  await connection.workflowService.registerNamespace({ namespace, workflowExecutionRetentionPeriod: { seconds: Long.fromNumber(86_400) } });
+  await registerOwnerAttribute(connection, namespace);
+  return {
+    namespace,
+    drop: async () => {
+      await connection.operatorService.deleteNamespace({ namespace });
+      await connection.close();
+    },
+  };
+}
+
+export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
   const address = inject('temporalAddress');
   if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE] } });
-  return TestWorkflowEnvironment.createFromExistingServer({ address, namespace: claimNamespaceFor(inject('temporalClaims')) });
+  const fresh = await freshNamespace(address);
+  const env = await TestWorkflowEnvironment.createFromExistingServer({ address, namespace: fresh.namespace });
+  const teardown = env.teardown.bind(env);
+  env.teardown = async () => {
+    await teardown();
+    await fresh.drop();
+  };
+  return env;
 }
 
 export async function timeSkippingTestEnvironment(): Promise<TestWorkflowEnvironment> {

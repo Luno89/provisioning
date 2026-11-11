@@ -31,7 +31,7 @@ const heartbeat = (detail: unknown): void => {
   }
 };
 
-export async function DownloadModelActivity(args: DownloadModelArgs, steps: Pick<ClusterSteps, 'access'>, endpoint: string = HUGGING_FACE, pollMs?: number): Promise<DownloadModelResult> {
+export async function DownloadModelActivity(args: DownloadModelArgs, steps: Pick<ClusterSteps, 'access'>, endpoint: string = HUGGING_FACE): Promise<DownloadModelResult> {
   const reach = handedReach(args);
   const folder = computeModelFolderName(args.modelRepo, args.revision);
   const name = modelJobName(folder);
@@ -44,7 +44,7 @@ export async function DownloadModelActivity(args: DownloadModelArgs, steps: Pick
   if (tokenSecret) await cluster.apply({ apiVersion: 'v1', kind: 'Secret', metadata: { name: tokenSecret, namespace: MODEL_DOWNLOADS }, type: 'Opaque', stringData: { HF_TOKEN: args.hfToken } });
   await note(`${said} is downloaded on the machine into ${args.cacheHostPath}/${folder}, by the job ${name} in ${MODEL_DOWNLOADS}`);
   try {
-    await runClusterJob(cluster, { name, namespace: MODEL_DOWNLOADS, manifest: modelDownloadJob({ name, image: args.image, repo: args.modelRepo, revision: args.revision, folder, cacheHostPath: args.cacheHostPath, endpoint, tokenSecret }) }, { beat: heartbeat, ...(pollMs ? { pollMs } : {}) });
+    await runClusterJob(cluster, { name, namespace: MODEL_DOWNLOADS, manifest: modelDownloadJob({ name, image: args.image, repo: args.modelRepo, revision: args.revision, folder, cacheHostPath: args.cacheHostPath, endpoint, tokenSecret }) }, { beat: heartbeat });
   } finally {
     if (tokenSecret) await cluster.kubectl(['delete', 'secret', tokenSecret, '--ignore-not-found']);
   }

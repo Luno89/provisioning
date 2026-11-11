@@ -1,21 +1,25 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess } from '../../infrastructure/index.js';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
 import { mcpReachFrom } from './McpReach.js';
+import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 const KEY = 'test-key' as never;
 const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const MCP = namespaces.name('mcp');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
 
 describe('reaching a person\'s MCP server through ClusterAccess', () => {
   it('finds it by its service name on Koala\'s own cluster, and at the mesh address and node port on another machine, reading the real Service', async () => {
     const db = await testDatabase();
-    const namespace = `mcp-${randomUUID().slice(0, 6)}`;
+    const namespace = MCP;
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't', meshIp: '100.64.0.7', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
     await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', machineId: 'nas', status: 'stopped', ownerId: 'bo', createdAt: 't' } as ClusterMetadata);
     const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-mcp-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY, serviceAccount: k3s.account });

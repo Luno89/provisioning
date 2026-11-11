@@ -9,7 +9,7 @@ import { databaseSettingsFrom } from '../lib/settings.js';
 import { devSplitPlan, type SplitPlace } from '../../instances/lib/dev-split.js';
 import { publicKeyPem } from '../../instances/lib/identity-token.js';
 import { hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
-import { claimNamespaceFor } from '../../workflows/temporal-test-env.js';
+import { freshNamespace } from '../../workflows/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';
@@ -106,6 +106,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const databases = { root: `${stamp}_root`, instance: `${stamp}_instance`, hub: `${stamp}_hub` };
   const mongoUri = inject('mongoUri');
   const mail = await smtpSink();
+  const temporalNamespace = await freshNamespace();
   const ports = { root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn() };
   const place: SplitPlace = {
     rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`, hubUrl: `http://localhost:${ports.hub}`,
@@ -119,13 +120,13 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
     hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
-    temporal: { address: inject('temporalAddress'), namespace: claimNamespaceFor(inject('temporalClaims')), ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
+    temporal: { address: inject('temporalAddress'), namespace: temporalNamespace.namespace, ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
   });
   const shared = {
     ...testKeyEnv(secret),
     ROOT_IDENTITY_KEY: identityKey,
     TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
-    TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
+    TEMPORAL_NAMESPACE: temporalNamespace.namespace,
     MAIL_SMTP_URL: mail.url,
     MAIL_FROM: `koala@${label}.test`,
     WATCH_UNREACHABLE_MINUTES: '1',
@@ -140,6 +141,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await mail.close();
     await gitea?.close();
     await headscale?.close();
+    await temporalNamespace.drop();
     const client = new MongoClient(mongoUri);
     await client.connect();
     for (const database of Object.values(databases)) await client.db(database).dropDatabase();

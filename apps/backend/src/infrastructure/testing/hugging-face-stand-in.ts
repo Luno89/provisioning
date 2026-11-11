@@ -25,8 +25,18 @@ export async function startHuggingFaceStandIn(access: Pick<ClusterAccess, 'kubec
   await access.apply(reach, JSON.stringify({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'hf', namespace, labels: { app: 'hf' } }, spec: { containers: [{ name: 'hf', image: STAND_IN_IMAGE, command: ['sh', '-c', `mkdir -p /srv && cd /srv && ${SERVING}`], ports: [{ containerPort: 8080 }], readinessProbe: { tcpSocket: { port: 8080 } } }] } }));
   await access.apply(reach, JSON.stringify({ apiVersion: 'v1', kind: 'Service', metadata: { name: 'hf', namespace }, spec: { selector: { app: 'hf' }, ports: [{ port: 8080 }] } }));
   await access.kubectl(reach, ['wait', '-n', namespace, '--for=condition=Ready', 'pod/hf', '--timeout=720h']);
+  const endpoint = `http://hf.${namespace}.svc.cluster.local:8080`;
+  const answersByName = `import urllib.request; urllib.request.urlopen(${JSON.stringify(`${endpoint}/api/models/acme/tiny/tree/main`)}).read()`;
+  for (;;) {
+    try {
+      await access.kubectl(reach, ['exec', '-n', namespace, 'hf', '--', 'python3', '-c', answersByName]);
+      break;
+    } catch {
+      await new Promise((done) => setTimeout(done, 500));
+    }
+  }
   return {
-    endpoint: `http://hf.${namespace}.svc.cluster.local:8080`,
+    endpoint,
     stop: async () => { await access.kubectl(reach, ['delete', 'namespace', namespace, '--wait=false', '--ignore-not-found']); },
   };
 }

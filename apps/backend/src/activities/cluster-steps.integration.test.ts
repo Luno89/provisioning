@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
 import { applyWatched, CannotRollOut } from './watched-apply.js';
@@ -13,7 +13,7 @@ import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -23,7 +23,7 @@ import { mongoTarget } from '../platform/lib/mongo-target.js';
 
 const REPO = path.resolve(import.meta.dirname, '../../../../');
 const CDKTF = path.join(REPO, 'packages', 'cdktf-infra');
-const k3s = inject('k3s');
+const k3s = await startK3s();
 
 const access = new ClusterAccess({
   here: { koalaMachineId: 'dev1', root: false },
@@ -67,7 +67,10 @@ beforeAll(async () => {
   steps = { access, infra: new InfrastructureService({ cdktfDir, stateDir: path.join(root, 'state'), runsDir, home: { kind: 'local', dir: path.join(root, 'state') } }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
 });
 
-afterAll(async () => { await rm(root, { recursive: true, force: true }); });
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+  await k3s.stop();
+}, 0);
 
 describe('cluster steps against a real k3s, through ClusterAccess', () => {
   it('reads a workload through the cluster it was handed, and says when the cluster refuses to make its pods', async () => {
@@ -107,7 +110,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     const told: string[] = [];
     const failed = await applyWatched(steps, 'app-desk-d9', { env, logFile: path.join(root, 'stuck.log') }, { what: 'stuck', reach: DESK, namespaces: ['stuck-9a8b7c'], log: (line) => told.push(line) }, (ms) => new Promise((done) => { setTimeout(done, Math.min(ms, 300)); }))
       .then(() => undefined, (err: unknown) => err);
-    expect(failed).toBeInstanceOf(CannotRollOut);
+    expect(failed, `the apply ended otherwise: ${String((failed as Error | undefined)?.message ?? failed)}`).toBeInstanceOf(CannotRollOut);
     expect((failed as CannotRollOut).why).toMatch(/pull|image/i);
     await access.kubectl(DESK, ['delete', 'namespace', 'stuck-9a8b7c', '--wait=false']);
   }, 600_000);
@@ -137,7 +140,7 @@ describe('a model downloaded on the machine that runs it', () => {
   beforeAll(async () => { standIn = await startHuggingFaceStandIn(access, DESK); }, 600_000);
   afterAll(async () => { await standIn.stop(); });
 
-  const download = (modelRepo: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache }, { access }, standIn.endpoint, 500);
+  const download = (modelRepo: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache }, { access }, standIn.endpoint);
 
   it('fetches the model\'s files into the machine\'s cache folder, and finds them there the next time', async () => {
     expect(await download('acme/tiny')).toEqual({ skipped: false, modelDir: `${cache}/acme-tiny` });
