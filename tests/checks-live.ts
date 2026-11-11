@@ -20,42 +20,35 @@ async function main(): Promise<void> {
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
 
   try {
-    const shares = Array.from({ length: TOGETHER }, (_, share) => ONLY.filter((_, index) => index % TOGETHER === share));
-    console.log(`[1] a Level 2 run of ${ONLY.length} scenarios starts on the check runner${TOGETHER > 1 ? `, as ${TOGETHER} runs side by side` : ''}`);
-    const ids: string[] = [];
-    for (const share of shares) {
-      const started = await http.post('/evals/level2/runs', { only: share });
+    console.log(`[1] ${ONLY.length} scenarios run on the check runner, each a run of its own${TOGETHER > 1 ? `, ${TOGETHER} at a time, the next starting as one ends` : ''}`);
+    type Run = { state: string; running?: string; finished: number; results: Result[]; error?: string };
+    const waiting = [...ONLY];
+    const live = new Map<string, { scenario: string; at: number }>();
+    const runs = new Map<string, Run>();
+    const timed: Timed[] = [];
+    const startNext = async () => {
+      const scenario = waiting.shift()!;
+      const started = await http.post('/evals/level2/runs', { only: [scenario] });
       assert.equal(started.status, 202, JSON.stringify(started.data));
-      ids.push((started.data as { id: string }).id);
-      console.log(`    run ${ids.at(-1)} (${share.length} scenarios)`);
-    }
+      const { id } = started.data as { id: string };
+      live.set(id, { scenario, at: Date.now() });
+      console.log(`    ${new Date().toISOString().slice(11, 19)} ${scenario} starts (run ${id})`);
+    };
 
     console.log('[2] it runs each scenario in a space of its own, through the API, to the end');
-    type Run = { state: string; running?: string; finished: number; results: Result[]; error?: string };
-    const runs = new Map<string, Run>();
-    const since = new Map<string, { scenario: string; at: number }>();
-    const timed: Timed[] = [];
-    const ended = (id: string, now: number) => {
-      const was = since.get(id);
-      if (was) timed.push({ at: new Date(now).toISOString(), commit: process.env.KOALA_GATE_COMMIT ?? '', kind: 'check', name: was.scenario, seconds: (now - was.at) / 1000 });
-      since.delete(id);
-    };
-    let last = '';
     for (;;) {
+      while (live.size < TOGETHER && waiting.length > 0) await startNext();
+      if (live.size === 0) break;
       await sleep(2_000);
-      for (const id of ids) {
+      for (const [id, { scenario, at }] of [...live]) {
         const entry = (await http.get(`/evals/level2/runs/${id}`)).data as Run;
+        if (entry.state === 'running') continue;
         runs.set(id, entry);
-        const now = Date.now();
-        if (since.get(id)?.scenario !== entry.running) {
-          ended(id, now);
-          if (entry.running) since.set(id, { scenario: entry.running, at: now });
-        }
+        live.delete(id);
+        const seconds = (Date.now() - at) / 1000;
+        timed.push({ at: new Date().toISOString(), commit: process.env.KOALA_GATE_COMMIT ?? '', kind: 'check', name: scenario, seconds });
+        console.log(`    ${new Date().toISOString().slice(11, 19)} ${scenario} ends ${entry.state} in ${Math.round(seconds)} s; ${runs.size}/${ONLY.length} done`);
       }
-      const all = [...runs.values()];
-      const now = `${all.every((entry) => entry.state !== 'running') ? 'done' : 'running'} ${all.reduce((total, entry) => total + entry.finished, 0)}/${ONLY.length}${all.some((entry) => entry.running) ? ` — ${all.flatMap((entry) => (entry.running ? [entry.running] : [])).join(', ')}` : ''}`;
-      if (now !== last) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now}`); last = now; }
-      if (all.every((entry) => entry.state !== 'running')) break;
     }
     for (const [id, entry] of runs) assert.equal(entry.state, 'done', `the run ${id} ended ${entry.state}: ${entry.error ?? ''}`);
     const timingsFile = process.env.KOALA_GATE_TIMINGS;
