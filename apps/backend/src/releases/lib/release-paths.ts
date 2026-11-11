@@ -44,3 +44,15 @@ export function releasePathsProblem(paths: unknown): string | null {
   }
   return null;
 }
+
+const BROWSER_TESTS = [globPattern('e2e/**'), globPattern('playwright.config.ts')];
+
+export const browserTestsOnly = (changed: readonly string[]): boolean =>
+  changed.length > 0 && changed.every((path) => BROWSER_TESTS.some((pattern) => pattern.test(path)));
+
+export const testsOnlyNote = (where: { ranOn: string } | { since: string } | { waiting: string; but: string }): string =>
+  'ranOn' in where
+    ? `only browser tests changed, and they ran on the waiting preview of ${where.ranOn.slice(0, 8)}`
+    : 'waiting' in where
+      ? `only browser tests changed; the waiting preview of ${where.waiting.slice(0, 8)} takes them, but ${where.but}: Run tests again on its card runs them`
+      : `only browser tests changed since ${where.since.slice(0, 8)}, and nothing waits in preview to run them on; they run with the next release`;

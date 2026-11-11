@@ -71,7 +71,7 @@ const FAILING = files({
   ].join('\n'),
 });
 
-interface BrowserTests { state: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
+interface BrowserTests { state: string; startedAt: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
 interface ReleaseFiles { against?: { releaseId: string; commit: string; state: string }; files: { path: string; status: string; added: number; removed: number; patch: string; inApp: boolean }[]; note?: string }
 interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
 interface RepoEntry { path: string; type: 'file' | 'dir' }
@@ -122,7 +122,7 @@ const vaultOf = (projectId: string, keys: string[], removeFirst: boolean): Promi
   return { ...removed, held };
 `);
 
-interface Release { id: string; state: string; commit: string; image: string; again?: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
+interface Release { id: string; state: string; commit: string; image: string; again?: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; testsFrom?: string; changes?: Changes }
 
 async function main(): Promise<void> {
   const owner = await devOwner();
@@ -289,10 +289,15 @@ async function main(): Promise<void> {
     assert.match(probeChange.patch, /^-\s+note = fields\.Char\(\)$/m);
     console.log(`    ${changedFiles.files.length} files since ${first.commit.slice(0, 8)}: the probe's diff drops its note line`);
 
-    console.log('[3c] a spec that cannot pass: the next preview shows the failure and what the browser saw, and still offers the cutover');
-    await commit(http, project.id, FAILING, 'Add a browser test that cannot pass');
-    const failing = await waitFor('the failing preview\'s browser tests', (all) => all.find((release) => release.id !== preview.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
-    assert.equal((await releases()).find((release) => release.id === preview.id)?.state, 'superseded');
+    console.log('[3c] a spec that cannot pass, pushed alone: the waiting preview runs it, with no new build released, and shows the failure and what the browser saw');
+    const pushedAt = new Date().toISOString();
+    const testsCommit = await commit(http, project.id, FAILING, 'Add a browser test that cannot pass');
+    const failing = await waitFor('the waiting preview\'s browser tests from the pushed commit', (all) => all.find((release) => release.id === preview.id && release.testsFrom === testsCommit && release.e2e && release.e2e.startedAt > pushedAt && release.e2e.state !== 'running'), 30);
+    const after = await releases();
+    assert.deepEqual(after.filter((release) => release.commit === testsCommit), [], 'a release was made for a push that changed only the browser tests');
+    assert.equal(failing.state, 'preview', 'the waiting preview was set aside for a push that changed only its tests');
+    const builds = (await http.get(`/projects/${projectId}/runs`)).data as { commitSha: string; releaseSkipped?: string }[];
+    assert.equal(builds.find((build) => build.commitSha === testsCommit)?.releaseSkipped, `only browser tests changed, and they ran on the waiting preview of ${preview.commit.slice(0, 8)}`);
     assert.equal(failing.e2e!.state, 'failed', JSON.stringify(failing.e2e));
     assert.equal(failing.e2e!.summary, '2 passed, 1 failed');
     const failed = failing.e2e!.tests!.find((test) => test.status === 'failed');

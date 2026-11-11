@@ -218,6 +218,14 @@ export function releasesStoreContract(make: () => Promise<ReleasesStore>): void 
       expect((await store.getOdooReleases('owner-1'))[0]?.toldAt).toBe('2026-10-03T00:00:00.000Z');
     });
 
+    it('names the commit a release\'s browser tests come from, changing only that and when it was updated', async () => {
+      const store = await make();
+      await store.saveOdooRelease(release('r1', { state: 'preview', updatedAt: '2026-10-02T00:00:00.000Z', e2e: { state: 'running', startedAt: '2026-10-02T00:00:00.000Z' } }));
+      expect(await store.setOdooReleaseTestsFrom('r1', 'three', '2026-10-03T00:00:00.000Z')).toBe(true);
+      expect((await store.getOdooReleases('owner-1'))[0]).toMatchObject({ testsFrom: 'three', updatedAt: '2026-10-03T00:00:00.000Z', state: 'preview', e2e: { state: 'running' } });
+      expect(await store.setOdooReleaseTestsFrom('never', 'three', '2026-10-03T00:00:00.000Z')).toBe(false);
+    });
+
     it('marks every release never told as told at its last update, and counts them', async () => {
       const store = await make();
       await store.saveOdooRelease(release('r1', { updatedAt: '2026-10-02T00:00:00.000Z', startedAt: '2026-10-01T00:00:00.000Z' }));

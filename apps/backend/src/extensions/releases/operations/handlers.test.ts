@@ -134,6 +134,13 @@ describe('the preview\'s browser tests', () => {
     expect(stateOf('r2')).toMatchObject({ state: 'preview', e2e: { state: 'passed' } });
   });
 
+  it('reads the tests at the commit the release names for them, when a push changed only its tests', async () => {
+    records = records.map((entry) => (entry.id === 'r2' ? { ...entry, testsFrom: 'three' } : entry));
+    await ops()['releases.browser-tests']!(request({ release: { ...input, slot: 'b' } }));
+    expect(tested.map((run) => run.source)).toEqual([{ owner: 'bo', repo: 'shop', commit: 'three' }]);
+    expect(tested.map((run) => run.image)).toEqual(['reg/shop:two']);
+  });
+
   it('records that they could not run on a worker without them, and goes on', async () => {
     expect(await ops(false)['releases.browser-tests']!(request({ release: { ...input, slot: 'b' } }))).toMatchObject({ exit: 'done' });
     expect(stateOf('r2')).toMatchObject({ state: 'preview', e2e: { state: 'unavailable', reason: 'browser tests are not set up on this worker' } });

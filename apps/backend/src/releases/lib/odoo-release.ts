@@ -39,6 +39,7 @@ export interface OdooRelease {
   previewHost?: string | undefined;
   reason?: string | undefined;
   e2e?: ReleaseE2E | undefined;
+  testsFrom?: string | undefined;
   changes?: ReleaseChanges | undefined;
   liveAt?: string | undefined;
   replacedBy?: string | undefined;

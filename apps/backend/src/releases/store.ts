@@ -17,6 +17,7 @@ export interface ReleasesStore extends AreaStore {
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
   saveOdooRelease(release: OdooRelease): Promise<void>;
   markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean>;
+  setOdooReleaseTestsFrom(id: string, commit: string, updatedAt: string): Promise<boolean>;
   markOdooReleasesTold(): Promise<number>;
 }
 
@@ -93,6 +94,11 @@ export class MongoReleasesStore implements ReleasesStore {
   async markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean> {
     const result = await this.odooReleases.updateOne({ _id: id, updatedAt }, { $set: { toldAt: updatedAt } });
     return result.modifiedCount === 1;
+  }
+
+  async setOdooReleaseTestsFrom(id: string, commit: string, updatedAt: string): Promise<boolean> {
+    const result = await this.odooReleases.updateOne({ _id: id }, { $set: { testsFrom: commit, updatedAt } });
+    return result.matchedCount === 1;
   }
 
   async markOdooReleasesTold(): Promise<number> {

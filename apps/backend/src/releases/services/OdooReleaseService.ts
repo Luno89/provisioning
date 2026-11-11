@@ -3,7 +3,7 @@ import { parseDiff, sortedForRelease, type ReleaseFile } from '../lib/file-chang
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/index.js';
 import { ODOO_DATABASE_PASSWORD, ODOO_PROJECT_APP, ODOO_RELEASE_SECRETS, chartDatabaseSecret, vaultDatabaseSecret, newReleaseName, type ReleaseVault, releaseNameOf, releasePlace, releaseTargetOf, rollBackTarget, untold, type OdooRelease, type ReleaseState } from '../lib/odoo-release.js';
-import type { ReleaseDecision } from '../lib/release-paths.js';
+import { browserTestsOnly, testsOnlyNote, type ReleaseDecision } from '../lib/release-paths.js';
 import { HELD_FOR_CLIENT, awaits, missingFrom, missingSentence, restorable, wrongVersionFrom, type ClientImport } from '../lib/client-import.js';
 import { vaultSecretName } from '../lib/infisical-sync.js';
 import type { TreeTypeSecret } from '../../projects/index.js';
@@ -18,6 +18,7 @@ export interface OdooReleaseStore {
     getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
     saveOdooRelease(release: OdooRelease): Promise<void>;
     markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean>;
+    setOdooReleaseTestsFrom(id: string, commit: string, updatedAt: string): Promise<boolean>;
     watchOdooReleases(on: (release: OdooRelease) => void): Watching;
     savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
@@ -53,6 +54,7 @@ export type ReleaseDecider = (project: ProjectMetadata, since: string, commit: s
 export interface OdooReleaseDeps {
   store: OdooReleaseStore;
   decide?: ReleaseDecider | undefined;
+  changed?: ((project: ProjectMetadata, since: string, commit: string) => Promise<string[]>) | undefined;
   secrets?: ReleaseSecrets | undefined;
   runs: ReleaseRuns;
   how?: ((project: ProjectMetadata) => Promise<ReleaseHow>) | undefined;
@@ -123,6 +125,13 @@ export class OdooReleaseService {
       return { skipped: HELD_FOR_CLIENT };
     }
 
+    const testsOnly = options.again ? undefined : await this.testsOnly(project, ownerId, run);
+    if (testsOnly && 'error' in testsOnly) return refuse(testsOnly.error);
+    if (testsOnly) {
+      await this.deps.store.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: testsOnly.note });
+      return { skipped: testsOnly.note };
+    }
+
     const since = this.deps.decide && !options.again ? (await this.deps.store.releases.getOdooReleases(ownerId, project.id))
       .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.commit : undefined;
@@ -170,6 +179,25 @@ export class OdooReleaseService {
     }
     void this.follow(ownerId, project.id);
     return release;
+  }
+
+  private async testsOnly(project: ProjectMetadata, ownerId: string, run: PipelineRunMetadata): Promise<{ note: string } | { error: string } | undefined> {
+    if (!this.deps.changed) return undefined;
+    const latest = (await this.deps.store.releases.getOdooReleases(ownerId, project.id))
+      .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+    if (!latest || latest.commit === run.commitSha) return undefined;
+    let changed: string[];
+    try {
+      changed = await this.deps.changed(project, latest.commit, run.commitSha);
+    } catch (err) {
+      return { error: `what changed since ${latest.commit.slice(0, 8)} could not be read, so the build is not released: ${(err as Error).message}` };
+    }
+    if (!browserTestsOnly(changed)) return undefined;
+    if (latest.state !== 'preview') return { note: testsOnlyNote({ since: latest.commit }) };
+    await this.deps.store.releases.setOdooReleaseTestsFrom(latest.id, run.commitSha, this.now());
+    const rerun = await this.retest(ownerId, latest.id);
+    return { note: 'status' in rerun ? testsOnlyNote({ waiting: latest.commit, but: rerun.error }) : testsOnlyNote({ ranOn: latest.commit }) };
   }
 
   private async startRelease(project: ProjectMetadata, cluster: ClusterMetadata, release: OdooRelease): Promise<{ ok: true } | { error: string }> {

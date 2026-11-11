@@ -76,6 +76,10 @@ export class MemoryReleasesStore implements ReleasesStore {
     });
   }
 
+  async setOdooReleaseTestsFrom(id: string, commit: string, updatedAt: string): Promise<boolean> {
+    return this.odooReleases.change(id, (release) => ({ ...release, testsFrom: commit, updatedAt }));
+  }
+
   async markOdooReleasesTold(): Promise<number> {
     let changed = 0;
     for (const release of this.odooReleases.all()) {

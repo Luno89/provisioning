@@ -172,7 +172,9 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
 
     async 'releases.browser-tests'(request) {
       const release = releaseOf(request);
-      const slot = release.slot ?? (await recordOf(release, release.build.releaseId))?.slot;
+      const record = await recordOf(release, release.build.releaseId);
+      const slot = release.slot ?? record?.slot;
+      const source = record?.testsFrom ? { ...release.build.source, commit: record.testsFrom } : release.build.source;
       const startedAt = now();
       if (!deps.browserTests || !slot) {
         const report: ReleaseE2E = { state: 'unavailable', reason: deps.browserTests ? 'the release has no slot to test' : 'browser tests are not set up on this worker', startedAt, finishedAt: startedAt };
@@ -180,7 +182,7 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         return { exit: 'done', outputs: { report } };
       }
       await mark(release, release.build.releaseId, { state: 'preview', e2e: { state: 'running', startedAt } });
-      const report = await deps.browserTests({ target: release.target, source: release.build.source, ownerId: release.ownerId, releaseId: release.build.releaseId, slot, image: release.build.image })
+      const report = await deps.browserTests({ target: release.target, source, ownerId: release.ownerId, releaseId: release.build.releaseId, slot, image: release.build.image })
         .catch((err: unknown): ReleaseE2E => ({ state: 'unavailable', reason: reasonOf(err), startedAt, finishedAt: now() }));
       await mark(release, release.build.releaseId, { state: 'preview', e2e: report });
       return { exit: 'done', outputs: { report } };

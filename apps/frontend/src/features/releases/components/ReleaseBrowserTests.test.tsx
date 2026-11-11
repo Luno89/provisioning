@@ -30,4 +30,13 @@ describe('a release\'s browser tests', () => {
     expect(shown.textContent).toContain('"Save manually" .o_form_button_save')
     expect(screen.getAllByTestId('page-at-failure')).toHaveLength(1)
   })
+
+  it('says which commit the tests came from when a push changed only the tests, and nothing when they are the build\'s own', () => {
+    const wrap = (shown: OdooRelease) => render(<QueryClientProvider client={new QueryClient()}><ReleaseBrowserTests projectId="p1" release={shown} /></QueryClientProvider>)
+    const { unmount } = wrap({ ...release, testsFrom: '9876543210fe' })
+    expect(screen.getByText('Tests from 98765432, build from abcdef12')).toBeTruthy()
+    unmount()
+    wrap(release)
+    expect(screen.queryByText(/^Tests from/)).toBeNull()
+  })
 })

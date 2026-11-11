@@ -81,15 +81,18 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   };
   const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical, deps.database) });
 
+  const changedBetween = async (project: ProjectMetadata, since: string, commit: string): Promise<string[]> => {
+    if (!project.giteaOwner || !project.giteaRepo) throw new Error('the project has no repository');
+    const [before, after] = await Promise.all([gitea.fileHashes(project.giteaOwner, project.giteaRepo, since), gitea.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
+    return changedPaths(before, after);
+  };
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;
     if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
     try {
-      const [before, after] = await Promise.all([gitea.fileHashes(project.giteaOwner, project.giteaRepo, since), gitea.fileHashes(project.giteaOwner, project.giteaRepo, commit)]);
-      return releaseDecision(changedPaths(before, after), releaseWhen, since);
+      return releaseDecision(await changedBetween(project, since, commit), releaseWhen, since);
     } catch (err) {
-      console.warn(`[releases] ${project.name}: what changed since ${since.slice(0, 8)} could not be read, so the build is released: ${(err as Error).message}`);
-      return { release: true };
+      return { release: false, reason: `what changed since ${since.slice(0, 8)} could not be read, so the build is not released: ${(err as Error).message}` };
     }
   };
   temporalBridge.decideRelease = decideRelease;
@@ -111,6 +114,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const odooReleases = new OdooReleaseService({
     store: db,
     decide: decideRelease,
+    changed: changedBetween,
     runs: engineReleaseRuns({ runs: deps.runs, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     chartAt: async (owner, repo, commit) => (await gitea.getRawFile(owner, repo, CHART_FILE, commit)) !== null,

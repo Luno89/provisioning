@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { changedPaths, globPattern, releaseDecision, releasePathsProblem } from './release-paths.js';
+import { browserTestsOnly, changedPaths, globPattern, releaseDecision, releasePathsProblem, testsOnlyNote } from './release-paths.js';
 
 describe('the paths an app is built from', () => {
   it('match a file, a folder at any depth, and a name pattern', () => {
@@ -41,5 +41,22 @@ describe('whether a build is released', () => {
     expect(releasePathsProblem(['/etc/passwd'])).toMatch(/must be relative/);
     expect(releasePathsProblem(['../x'])).toMatch(/must be relative/);
     expect(releasePathsProblem([''])).toMatch(/has to be a path/);
+  });
+});
+
+describe('a push that changes only the browser tests', () => {
+  it('is one whose every changed path is under e2e/ or is the Playwright config', () => {
+    expect(browserTestsOnly(['e2e/saves-a-contact.spec.ts'])).toBe(true);
+    expect(browserTestsOnly(['e2e/helpers/odoo.ts', 'playwright.config.ts'])).toBe(true);
+    expect(browserTestsOnly(['e2e/a.spec.ts', 'addons/shop/models/order.py'])).toBe(false);
+    expect(browserTestsOnly(['e2e.md'])).toBe(false);
+    expect(browserTestsOnly([])).toBe(false);
+  });
+
+  it('says on the build where its tests ran, or that they run with the next release', () => {
+    expect(testsOnlyNote({ ranOn: 'abcdef1234567' })).toBe('only browser tests changed, and they ran on the waiting preview of abcdef12');
+    expect(testsOnlyNote({ since: 'fedcba9876543' })).toBe('only browser tests changed since fedcba98, and nothing waits in preview to run them on; they run with the next release');
+    expect(testsOnlyNote({ waiting: 'abcdef1234567', but: 'its browser tests are still running, so it cannot be tested again yet' }))
+      .toBe('only browser tests changed; the waiting preview of abcdef12 takes them, but its browser tests are still running, so it cannot be tested again yet: Run tests again on its card runs them');
   });
 });

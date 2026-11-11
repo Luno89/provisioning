@@ -40,6 +40,7 @@ export function ReleaseBrowserTests({ projectId, release }: { projectId: string;
         <MonitorPlay size={11} className="text-slate-500" />
         <span className={`flex items-center gap-1 font-semibold ${headline.tone}`}><Icon state={e2e.state} /> {headline.text}</span>
         {e2e.summary && <span className="text-slate-400">{e2e.summary}</span>}
+        {release.testsFrom && <span className="text-slate-500">Tests from {release.testsFrom.slice(0, 8)}, build from {release.commit.slice(0, 8)}</span>}
         {release.state === 'preview' && e2e.state !== 'running' && (
           <button type="button" onClick={() => again.mutate()} disabled={again.isPending} className="ml-auto flex items-center gap-1 rounded border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-700 disabled:opacity-50">
             <RotateCw size={10} /> Run again

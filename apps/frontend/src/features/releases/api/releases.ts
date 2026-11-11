@@ -53,6 +53,7 @@ export interface OdooRelease {
   previewHost?: string
   reason?: string
   e2e?: ReleaseE2E
+  testsFrom?: string
   changes?: ReleaseChanges
   liveAt?: string
   again?: string

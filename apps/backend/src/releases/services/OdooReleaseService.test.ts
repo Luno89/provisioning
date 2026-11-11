@@ -231,6 +231,69 @@ describe('releasing a project\'s build', () => {
   });
 });
 
+describe('a push that changes only the browser tests', () => {
+  const svcWith = (changed: (since: string, commit: string) => Promise<string[]>) => new Stopped({
+    store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`,
+    changed: async (_project, since, commit) => changed(since, commit),
+  });
+  const onlyTests = async () => ['e2e/sees-the-field.spec.ts'];
+
+  it('runs the waiting preview\'s tests again with the new commit\'s specs, releasing nothing and setting nothing aside', async () => {
+    const svc = svcWith(onlyTests);
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'tests'));
+    await svc.release(project, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'preview', slot: 'b', e2e: { state: 'passed', summary: '1 passed', startedAt: 't0', finishedAt: 't1' } });
+    const note = 'only browser tests changed, and they ran on the waiting preview of abc';
+    expect(await svc.release(project, run('b2', 'tests'))).toEqual({ skipped: note });
+    expect(answered).toEqual(['p1: Run tests again']);
+    expect(stopped).toEqual([]);
+    expect(started).toHaveLength(1);
+    expect((await db.releases.getOdooReleases('bo')).map((entry) => [entry.id, entry.state, entry.testsFrom])).toEqual([['r1', 'preview', 'tests']]);
+    expect((await db.releases.getPipelineRuns()).find((entry) => entry.id === 'b2')?.releaseSkipped).toBe(note);
+  });
+
+  it('says on the build that the waiting preview takes the tests but cannot run them while its own still run, and keeps the commit for Run tests again', async () => {
+    const svc = svcWith(onlyTests);
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'tests'));
+    await svc.release(project, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'preview', slot: 'b', e2e: { state: 'running', startedAt: 't0' } });
+    expect(await svc.release(project, run('b2', 'tests'))).toEqual({ skipped: 'only browser tests changed; the waiting preview of abc takes them, but its browser tests are still running, so it cannot be tested again yet: Run tests again on its card runs them' });
+    expect(answered).toEqual([]);
+    expect((await db.releases.getOdooReleases('bo'))[0]).toMatchObject({ state: 'preview', testsFrom: 'tests', e2e: { state: 'running' } });
+  });
+
+  it('runs nothing when no preview waits, and says the tests run with the next release', async () => {
+    const svc = svcWith(onlyTests);
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'tests'));
+    await svc.release(project, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'live', slot: 'a' });
+    endRun();
+    expect(await svc.release(project, run('b2', 'tests'))).toEqual({ skipped: 'only browser tests changed since abc, and nothing waits in preview to run them on; they run with the next release' });
+    expect(answered).toEqual([]);
+    expect(started).toHaveLength(1);
+  });
+
+  it('releases as before when anything else changed too, and refuses with the reason when what changed cannot be read', async () => {
+    await db.releases.savePipelineRun(run('b1', 'abc'));
+    await db.releases.savePipelineRun(run('b2', 'more'));
+    await db.releases.savePipelineRun(run('b3', 'unread'));
+    const svc = svcWith(async (_since, commit) => {
+      if (commit === 'unread') throw new Error('Gitea answered 502');
+      return ['e2e/a.spec.ts', 'addons/shop/models/order.py'];
+    });
+    await svc.release(project, run('b1', 'abc'));
+    await engineMarks('r1', { state: 'live', slot: 'a' });
+    endRun();
+    expect(await svc.release(project, run('b2', 'more'))).toMatchObject({ state: 'preparing', commit: 'more' });
+    await engineMarks('r2', { state: 'preview', slot: 'b' });
+    expect(await svc.release(project, run('b3', 'unread'))).toEqual({ status: 409, error: 'what changed since more could not be read, so the build is not released: Gitea answered 502' });
+    expect((await db.releases.getPipelineRuns()).find((entry) => entry.id === 'b3')?.releaseRefused).toBe('what changed since more could not be read, so the build is not released: Gitea answered 502');
+  });
+});
+
 describe('one release at a time per project', () => {
   it('queues a build that arrives while one is being prepared, and starts the newest waiting one when that ends, setting older ones aside', async () => {
     const svc = service();
