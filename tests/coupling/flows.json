@@ -114,7 +114,7 @@
     ],
     "endings": [
       {
-        "title": "Studio \u2192 Models shows the default",
+        "title": "Studio → Models shows the default",
         "entries": [
           "apps/frontend/src/features/models/api.ts#getDefaultModel"
         ]
@@ -268,6 +268,33 @@
         "title": "The project and its trees are gone from the board",
         "entries": [
           "apps/frontend/src/features/projects/api/grove.ts#listTrees"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "odoo-push",
+    "title": "A push to an Odoo project's main builds and releases it, or reruns the waiting preview's tests",
+    "entries": [
+      "apps/backend/src/infrastructure/services/TemporalBridge.ts#TemporalBridge.runPipeline"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "cluster-command",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Releases shows the preview or its tests",
+        "entries": [
+          "apps/frontend/src/features/releases/api/releases.ts#listReleases"
+        ]
+      },
+      {
+        "title": "The builds list shows the push",
+        "entries": [
+          "apps/frontend/src/features/projects/api/projects.ts#listProjectRuns"
         ]
       }
     ]
