@@ -92,6 +92,7 @@
     "test:hardening-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hardening-live",
     "test:browser-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts browser-live",
     "test:app-sign-in-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts app-sign-in-live",
+    "test:gpu-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts gpu-live",
     "test:machine-container-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-container-live",
     "test:machine-story-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-story-live",
     "test:machine-odoo-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-odoo-live",

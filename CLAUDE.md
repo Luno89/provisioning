@@ -123,6 +123,7 @@ npm run test:account-hardening-live # its own root, instance and hub (split-stac
 npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
 npm run test:app-sign-in-live         # against the running dev stack, as its owner: a Hermes deploys on the cluster of the machine Koala runs on with a password Koala made for it, Terraform waiting on nothing and Koala judging the rollout → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it; in ship, ~2 min
+npm run test:gpu-live                 # against the running dev stack and this computer's GPUs: the machine Koala runs on reports its NVIDIA GPUs → a deploy asking for more than it has is refused with what to do → the owner's own models holding GPUs are stopped, kept → vLLM serving a small model on one GPU deploys through Koala, which readies the device plugin, the node advertises the GPUs and the model answers → it is destroyed and the owner's models started again; in ship
 npm run test:openrouter-connect-live # on its own root and instance (split-stack): signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours; in ship, ~2 min
 npm run test:hub-split-live         # on its own root, instance (with its engine worker) and hub (split-stack, the hub making repositories in the dev Gitea): a project on the owner's instance is shared to the hub under a group, the instance calling the hub with a service token → a client and a collaborator are invited, sign up on root with the emailed code and join through root's sign-in → the client's Ask Koala starts a run on the owner's instance holding the client's role, and its engine worker takes it → the client removed on the hub: the run's grant is revoked on the instance (removed-from-shared-project), the run ends and the hub's channel says so, the client reads nothing → taken back by its name, the hub's copy gone; ~2 min
 npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
@@ -2141,13 +2142,24 @@ answering (**Outside dependencies**). Start it with `docker compose -f docker-co
 
 ## GPU / vLLM support
 
-Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the matching device plugin DaemonSet (NVIDIA or AMD, `k8s/gpu-device-plugin/`) into the cluster → wait up to 60s for it to be ready → CDKTF applies the vLLM stack (`packages/cdktf-infra/constructs/vllm.ts`), exposing `nvidia.com/gpu` / `amd.com/gpu` to the K8s scheduler. Host-side driver/toolkit setup is `scripts/setup-gpu.sh` (auto-detects distro, idempotent).
+**A machine says what GPUs it has** (step 4 slice 1, `~/.claude/plans/step4-slice1-gpu.md`): its agent reads them with `nvidia-smi` and the
+AMD kernel driver's topology (`apps/local-agent/src/machine-gpus.ts`, parsing in `@koala/engine-core`'s `machine-gpus.ts`) and sends them with
+its cluster report (`machine:cluster`: `gpus`, each vendor, model, memory, count and whether the NVIDIA Container Toolkit is installed, and
+`problems`, such as a driver that does not answer, which is never taken for no GPU). The instance keeps both on the machine's cluster record
+(`gpus`, `gpuProblems`); the cluster's card shows them and Deploy an app offers GPU apps on the machines that report GPUs.
+**A deploy that asks for GPUs is decided by that report** (decision 7, `infrastructure/lib/cluster-gpus.ts`, in `AppDeploy` before anything
+is recorded): the count the request names (0 means CPU only; none named is refused, never guessed), the vendor it names or the machine's only
+one, and a refusal that says what to do (no GPU shown or its driver not answering, no toolkit, too few, the wrong vendor, two vendors and none
+named, not a machine). **Koala then readies them** (`VerifyGpuRuntimeActivity`, behind the `gpus-readied` patch): it applies the vendor's
+pinned device plugin (`k8s/gpu-device-plugin/`, in `dependencies.pins.json`) through `ClusterAccess` and waits, with no deadline, until the
+node advertises the GPUs asked, or fails with the fix when the plugin cannot run (a pod the runtime refuses, read from its events: install the
+toolkit, restart k3s). k3s makes the `nvidia` RuntimeClass itself. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s:
+the machine reports both, too many are refused, a vLLM serving a small model on one GPU deploys through Koala and answers; the owner's own
+models holding GPUs are scaled to zero for it and started again however it ends. Not yet: the join offering the toolkit, and capacity that
+cannot be read saying so.
 
 **GPU passthrough needs native k3s on the machine** (Linux). k3d's nested containerd cannot do real device passthrough at
-all, so a cluster made with k3d never gets a GPU. There is no GPU flag on a cluster: what a cluster can run is what its nodes
-report (`capacity.gpuCount`, which Deploy an app filters GPU apps by), and `/api/clusters/:id/gpu-status` reads the nodes, their
-device plugins and the pods holding GPUs. The device plugin the backend used to install at start on the old system cluster is
-gone; readying a machine's GPUs comes back with step 4 (plan `~/.claude/plans/gpu-agent.md`).
+all, so a cluster made with k3d never gets a GPU.
 
 Don't infer the runtime from the kubeconfig context: root's own k3s is still installed as `k3s-provisioning-lunorica`, its context
 named `k3d-provisioning-lunorica`, **even though it is native k3s**, and `systemctl is-active k3s` reports `inactive` because the

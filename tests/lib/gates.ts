@@ -19,6 +19,7 @@ export const E2E_STEPS: GateStep[] = [
   { name: 'a person in a browser: sign-in, a first model and a chat, Infrastructure, Settings, sign-out', script: 'test:browser-live' },
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'an app deploys on the machine Koala runs on, its sign-in shown only on asking, and is destroyed', script: 'test:app-sign-in-live' },
+  { name: 'the machine Koala runs on reports its GPUs, Koala readies them, a model deployed on one answers and too many are refused', script: 'test:gpu-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },
 ];
 
