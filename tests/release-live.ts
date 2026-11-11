@@ -142,7 +142,6 @@ const SANDBOX_PROCEDURE = (id: string) => ({ schema: 2, id, version: '1', name: 
 async function teardown(): Promise<void> {
   await instance?.destroy();
   await root?.destroy();
-  if (previousTag) try { run('docker', ['rmi', `${IMAGE_REPO}:${previousTag}`]); } catch { /* kept or gone */ }
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
