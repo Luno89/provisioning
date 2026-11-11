@@ -96,10 +96,10 @@ export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined
 
 export const APP_RESOURCE_NEEDS: Record<
   string,
-  { memory: string; label: string; gpuCountField?: string }
+  { memory: string; label: string }
 > = {
-  vllm: { memory: '6G', label: 'vLLM', gpuCountField: 'vllmGpuCount' },
-  tabbyapi: { memory: '6G', label: 'TabbyAPI', gpuCountField: 'tabbyGpuCount' },
+  vllm: { memory: '6G', label: 'vLLM' },
+  tabbyapi: { memory: '6G', label: 'TabbyAPI' },
 };
 
 export class CapacityError extends Error {
@@ -109,18 +109,7 @@ export class CapacityError extends Error {
   }
 }
 
-export function requestedGpuCount(appType: string, config: Record<string, unknown>): number {
-  const field = APP_RESOURCE_NEEDS[appType]?.gpuCountField;
-  if (!field) return 0;
-  const n = Number(config[field]);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-export function checkCapacity(
-  appType: string,
-  capacity: ClusterCapacity | undefined,
-  requestedGpus?: number,
-): string | undefined {
+export function checkCapacity(appType: string, capacity: ClusterCapacity | undefined): string | undefined {
   if (!capacity) return undefined;
 
   const need = APP_RESOURCE_NEEDS[appType];
@@ -130,16 +119,6 @@ export function checkCapacity(
     if (needBytes !== undefined && haveBytes > 0 && needBytes > haveBytes) {
       const needGb = Math.round((needBytes / 1024 ** 3) * 10) / 10;
       return `${need.label} needs about ${needGb} GiB of RAM but this cluster's largest node has ${capacity.ramGb} GiB allocatable. The pod would stay Pending forever. Use a larger machine, or lower the app's memory limit.`;
-    }
-  }
-
-  if (requestedGpus && requestedGpus > 0) {
-    const available = capacity.gpuCount ?? 0;
-    if (available === 0) {
-      return `This deployment requests ${requestedGpus} GPU(s) but no GPUs are visible to the scheduler on this cluster. k3d clusters can never expose a GPU; a self-managed node needs the device plugin installed.`;
-    }
-    if (requestedGpus > available) {
-      return `This deployment requests ${requestedGpus} GPU(s) but the largest node on this cluster has ${available}. A pod cannot span nodes, so it would stay Pending.`;
     }
   }
 

@@ -82,11 +82,8 @@ export interface AppEnvArgs {
 }
 
 export const VLLM_DEFAULT_MODEL = 'meta-llama/Llama-3.2-3B-Instruct';
-export const VLLM_DEFAULT_GPU_COUNT = 1;
-export const VLLM_DEFAULT_GPU_VENDOR: 'nvidia' | 'amd' = 'nvidia';
 
 export const TABBYAPI_DEFAULT_MODEL = 'turboderp/Qwen3.6-27B-exl3';
-export const TABBYAPI_DEFAULT_GPU_COUNT = 2;
 export const TABBYAPI_DEFAULT_CACHE_MODE: 'FP16' | 'Q8' | 'Q6' | 'Q4' = 'Q8';
 export const TABBYAPI_DEFAULT_MAX_SEQ_LEN = 32768;
 export const TABBYAPI_DEFAULT_REASONING = true;
@@ -175,8 +172,6 @@ export function resolveVllmDefaults(dep: DeploymentMetadata): DeploymentMetadata
   if (dep.appType !== 'vllm') return dep;
   return Object.assign({}, dep, {
     vllmModel: dep.vllmModel || VLLM_DEFAULT_MODEL,
-    vllmGpuCount: dep.vllmGpuCount !== undefined ? dep.vllmGpuCount : VLLM_DEFAULT_GPU_COUNT,
-    vllmGpuVendor: dep.vllmGpuVendor || VLLM_DEFAULT_GPU_VENDOR,
   });
 }
 
@@ -184,7 +179,6 @@ export function resolveTabbyDefaults(dep: DeploymentMetadata): DeploymentMetadat
   if (dep.appType !== 'tabbyapi') return dep;
   return Object.assign({}, dep, {
     tabbyModel: dep.tabbyModel || TABBYAPI_DEFAULT_MODEL,
-    tabbyGpuCount: dep.tabbyGpuCount !== undefined ? dep.tabbyGpuCount : TABBYAPI_DEFAULT_GPU_COUNT,
     tabbyCacheMode: dep.tabbyCacheMode || TABBYAPI_DEFAULT_CACHE_MODE,
     tabbyMaxSeqLen: dep.tabbyMaxSeqLen !== undefined ? dep.tabbyMaxSeqLen : TABBYAPI_DEFAULT_MAX_SEQ_LEN,
     tabbyReasoning: dep.tabbyReasoning !== undefined ? dep.tabbyReasoning : TABBYAPI_DEFAULT_REASONING,
@@ -222,8 +216,8 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     POSTGRES_IMAGE_REPO: a.dbRepo || '',
     POSTGRES_IMAGE_TAG: a.dbTag || '',
     VLLM_MODEL: a.vllmModel || '',
-    VLLM_GPU_COUNT: String(a.vllmGpuCount),
-    VLLM_GPU_VENDOR: a.vllmGpuVendor || 'nvidia',
+    ...(a.vllmGpuCount !== undefined ? { VLLM_GPU_COUNT: String(a.vllmGpuCount) } : {}),
+    VLLM_GPU_VENDOR: a.vllmGpuVendor ?? '',
     VLLM_CACHE_PVC: a.vllmCachePvc || '',
     VLLM_IMAGE_TAG: (a.webTag && a.webTag !== 'latest') ? a.webTag : 'v0.7.2',
     VLLM_DEVICE: a.vllmDevice,
@@ -239,7 +233,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_ENABLE_PREFIX_CACHING: a.vllmEnablePrefixCaching ? 'true' : 'false',
     TABBYAPI_MODEL: a.tabbyModel || '',
     TABBYAPI_REVISION: a.tabbyRevision || '',
-    TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount),
+    ...(a.tabbyGpuCount !== undefined ? { TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount) } : {}),
     TABBYAPI_MODEL_SIZE_BYTES: a.tabbyModelSizeBytes !== undefined ? String(a.tabbyModelSizeBytes) : '',
     TABBYAPI_CACHE_PVC: a.tabbyCachePvc || '',
     TABBYAPI_IMAGE_TAG: a.tabbyImageTag || 'latest',

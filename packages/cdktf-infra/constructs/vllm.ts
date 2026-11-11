@@ -39,8 +39,10 @@ export class VllmApp extends Construct {
 
     const namespaceName = config.namespace || "vllm";
     const modelName = config.model || "meta-llama/Llama-3.2-3B-Instruct";
-    const gpuCount = config.gpuCount !== undefined ? config.gpuCount : 1;
-    const gpuVendor = config.gpuVendor || 'nvidia';
+    if (config.gpuCount === undefined) throw new Error('vLLM needs to be told how many GPUs it uses, 0 for CPU only');
+    const gpuCount = config.gpuCount;
+    if (gpuCount > 0 && !config.gpuVendor) throw new Error(`vLLM on ${gpuCount} GPU${gpuCount === 1 ? '' : 's'} needs to be told their vendor`);
+    const gpuVendor = config.gpuVendor;
     const device = config.device || process.env.VLLM_DEVICE || process.env.VLLM_TARGET_DEVICE || (gpuCount > 0 ? (gpuVendor === 'amd' ? 'rocm' : 'cuda') : 'cpu');
     const hfToken = config.hfToken || "";
     const cacheHostPath = config.cachePvc

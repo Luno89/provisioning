@@ -8,7 +8,8 @@ import {
   decryptValue, type SecretKey, type Database, type ClusterMetadata, type CloudCredentials, type DeploymentMetadata,
   type PipelineRunMetadata, type ProjectMetadata, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
-import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
+import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
+import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
@@ -65,8 +66,7 @@ export function resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments:
 export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest, userId?: string): Promise<StartedDeploy> {
     if (userId) {
       const cluster = (await deps.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
-      const appType = config.appType || 'odoo'
-      const problem = checkCapacity(appType, cluster?.capacity, requestedGpuCount(appType, config))
+      const problem = config.appType ? checkCapacity(config.appType, cluster?.capacity) : undefined
       if (problem) throw new CapacityError(problem)
     }
 
@@ -78,6 +78,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     })
     if (!dep) {
       if (!config.name || !config.clusterId) throw new Error('a new app needs a name and a cluster to deploy to')
+      if (!config.appType) throw new CapacityError('a new app needs its type: say which app to deploy')
       const target = await deps.clusterById(config.clusterId)
       const id = config.id || randomUUID()
       dep = {
@@ -87,7 +88,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
         namespace: config.namespace || newAppNamespace(config.name, id),
         clusterId: target?.id ?? config.clusterId,
         strategy: config.strategy || 'helm',
-        appType: config.appType || 'odoo',
+        appType: config.appType,
         modules: config.modules || [],
         storage: config.storage || {},
         ...definedFields({
@@ -182,6 +183,15 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     }
 
   const targetCluster = await deps.clusterById(dep.clusterId)
+  if (!dep.appType) throw new CapacityError(`${dep.name} has no app type recorded, so it cannot be deployed again: remove it and deploy it anew`)
+  const gpus = gpuAskOf(dep.appType, dep as Record<string, unknown>)
+  if (gpus && 'problem' in gpus) throw new CapacityError(gpus.problem)
+  if (gpus) {
+    if (!targetCluster) throw new CapacityError(`This app asks for GPUs, and the cluster ${dep.clusterId} is not known here.`)
+    const decided = gpuDeployRefusal(targetCluster, gpus)
+    if ('refused' in decided) throw new CapacityError(decided.refused)
+    if (dep.appType === 'vllm') dep.vllmGpuVendor = decided.vendor
+  }
   const handed = await deps.handOver(dep.clusterId)
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
@@ -201,7 +211,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
         ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
         : {}),
       strategy: dep.strategy || 'helm',
-      appType: dep.appType || 'odoo',
+      appType: dep.appType,
       modules: dep.modules || [],
       odooRepo: (dep.webRepo as string) || '',
       odooTag: (dep.webTag as string) || '',

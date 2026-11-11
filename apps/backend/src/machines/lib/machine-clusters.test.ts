@@ -29,6 +29,6 @@ describe('what a machine reports about its cluster', () => {
   });
 
   it('keeps a few problems, each a line of words, and nothing else', () => {
-    expect(reportedCluster({ state: 'running', gpus: [], problems: ['a', 7, '', 'b'.repeat(600), ...Array(10).fill('c')] })?.gpus?.problems).toEqual(['a', 'b'.repeat(500), 'c', 'c', 'c', 'c', 'c', 'c']);
+    expect(reportedCluster({ state: 'running', gpus: [], problems: ['a', 7, '', 'b'.repeat(600), ...Array.from({ length: 10 }, () => 'c')] })?.gpus?.problems).toEqual(['a', 'b'.repeat(500), 'c', 'c', 'c', 'c', 'c', 'c']);
   });
 });

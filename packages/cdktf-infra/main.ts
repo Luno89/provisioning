@@ -47,6 +47,19 @@ import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
 import { K8sProviderService, kubeconfigFrom } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
 
+function gpuCountFrom(name: string): number {
+  const count = Number(process.env[name]);
+  if (process.env[name] === undefined || !Number.isInteger(count) || count < 0) throw new Error(`${name} must say how many GPUs the app uses, 0 for CPU only; it is ${JSON.stringify(process.env[name])}`);
+  return count;
+}
+
+function gpuVendorFrom(name: string): 'nvidia' | 'amd' | undefined {
+  const vendor = process.env[name];
+  if (vendor === undefined || vendor === '') return undefined;
+  if (vendor !== 'nvidia' && vendor !== 'amd') throw new Error(`${name} must be nvidia or amd; it is ${JSON.stringify(vendor)}`);
+  return vendor;
+}
+
 function initK8sProvider(scope: Construct): void {
   K8sProviderService.initialize(scope, { kubeconfigPath: kubeconfigFrom(process.env, "KUBECONFIG_PATH") });
 }
@@ -220,8 +233,8 @@ class AppStack extends TerraformStack {
         new VllmApp(this, "vllm-app", {
           namespace: deploymentName,
           model: process.env.VLLM_MODEL,
-          gpuCount: parseInt(process.env.VLLM_GPU_COUNT || '1'),
-          gpuVendor: process.env.VLLM_GPU_VENDOR as 'nvidia' | 'amd' || 'nvidia',
+          gpuCount: gpuCountFrom('VLLM_GPU_COUNT'),
+          gpuVendor: gpuVendorFrom('VLLM_GPU_VENDOR'),
           device: process.env.VLLM_DEVICE,
           hfToken: process.env.HF_TOKEN || undefined,
           cachePvc: process.env.VLLM_CACHE_PVC,
@@ -244,7 +257,7 @@ class AppStack extends TerraformStack {
           namespace: deploymentName,
           model: process.env.TABBYAPI_MODEL,
           revision: process.env.TABBYAPI_REVISION || undefined,
-          gpuCount: parseInt(process.env.TABBYAPI_GPU_COUNT || '1'),
+          gpuCount: gpuCountFrom('TABBYAPI_GPU_COUNT'),
           modelSizeBytes: process.env.TABBYAPI_MODEL_SIZE_BYTES ? parseInt(process.env.TABBYAPI_MODEL_SIZE_BYTES) : undefined,
           hfToken: process.env.HF_TOKEN || undefined,
           cachePvc: process.env.TABBYAPI_CACHE_PVC,

@@ -3,7 +3,6 @@ import {
   parseMemoryQuantity,
   parseCpuQuantity,
   capacityFromNodes,
-  requestedGpuCount,
   checkCapacity,
   type ClusterCapacity,
 } from './cluster-capacity.js';
@@ -111,62 +110,13 @@ describe('checkCapacity', () => {
 
   it('NEVER blocks when capacity is unknown', () => {
     expect(checkCapacity('vllm', undefined)).toBeUndefined();
-    expect(checkCapacity('vllm', undefined, 4)).toBeUndefined();
   });
 
   it('ignores app types with no recorded requirement', () => {
     expect(checkCapacity('audiobookshelf', small)).toBeUndefined();
   });
 
-  it('blocks a GPU request on a cluster with no GPUs', () => {
-    expect(checkCapacity('vllm', big, 1)).toBeUndefined();
-    expect(checkCapacity('openwebui', { cpuCores: 8, ramGb: 32 }, 1)).toMatch(/no GPUs are visible/);
-  });
 
-  it('blocks a request for more GPUs than any single node has', () => {
-    expect(checkCapacity('openwebui', big, 4)).toMatch(/largest node on this cluster has 2/);
-  });
 
-  it('compares GPU count to GPU count, never against RAM', () => {
-    expect(checkCapacity('vllm', big, 4)).toMatch(/GPU/);
-    expect(checkCapacity('vllm', big, 4)).not.toMatch(/GiB/);
-  });
 });
 
-describe('requestedGpuCount', () => {
-  const wizardPayload = {
-    name: 'Wordpress-E2E',
-    appType: 'wordpress',
-    tabbyGpuCount: '2',
-    vllmGpuCount: 1,
-  };
-
-  it('is zero for an app that does not use GPUs, whatever else is on the payload', () => {
-    expect(requestedGpuCount('wordpress', wizardPayload)).toBe(0);
-    expect(requestedGpuCount('odoo', wizardPayload)).toBe(0);
-    expect(requestedGpuCount('nextcloud', wizardPayload)).toBe(0);
-  });
-
-  it('reads only the field belonging to the app being deployed', () => {
-    expect(requestedGpuCount('tabbyapi', wizardPayload)).toBe(2);
-    expect(requestedGpuCount('vllm', wizardPayload)).toBe(1);
-  });
-
-  it('treats a missing, empty or unparseable count as none requested', () => {
-    expect(requestedGpuCount('tabbyapi', {})).toBe(0);
-    expect(requestedGpuCount('tabbyapi', { tabbyGpuCount: '' })).toBe(0);
-    expect(requestedGpuCount('tabbyapi', { tabbyGpuCount: 'two' })).toBe(0);
-  });
-
-  it('accepts the count as a string, which is what the wizard sends', () => {
-    expect(requestedGpuCount('vllm', { vllmGpuCount: '4' })).toBe(4);
-  });
-
-  it('lets a WordPress deploy through a GPU-less cluster', () => {
-    const noGpus = { cpuCores: 8, ramGb: 16, gpuCount: 0 };
-    expect(checkCapacity('wordpress', noGpus, requestedGpuCount('wordpress', wizardPayload)))
-      .toBeUndefined();
-    expect(checkCapacity('tabbyapi', noGpus, requestedGpuCount('tabbyapi', wizardPayload)))
-      .toMatch(/no GPUs are visible/);
-  });
-});

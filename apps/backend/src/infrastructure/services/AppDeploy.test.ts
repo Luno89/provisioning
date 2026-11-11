@@ -118,7 +118,7 @@ describe('starting a deploy', () => {
   it('does not check capacity for platform work started without a person', async () => {
     const small: ClusterMetadata = { ...CLUSTER, capacity: { cpuCores: 2, ramGb: 2 } };
     const { deps: d, workflow } = await deps(small);
-    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm' });
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 });
     expect(workflow.start).toHaveBeenCalledTimes(1);
   });
 
@@ -148,9 +148,9 @@ describe('starting a deploy', () => {
 
   it('gives a model on the cluster Koala runs in its cache folder on the host, and one on any other cluster none', async () => {
     const { deps: d, started } = await deps();
-    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyCachePvc: 'models' }, 'ann');
-    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmCachePvc: 'weights' }, 'ann');
-    await startAppDeploy(d, { name: 'elsewhere', clusterId: 'c1', appType: 'tabbyapi', tabbyCachePvc: 'models' }, 'ann');
+    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
+    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmCachePvc: 'weights' }, 'ann');
+    await startAppDeploy(d, { name: 'elsewhere', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
     expect(started().map((run) => run.args.modelCacheHostPath)).toEqual([expect.stringContaining('models'), expect.stringContaining('weights'), undefined]);
   });
 
@@ -160,10 +160,10 @@ describe('starting a deploy', () => {
     await db.accounts.saveUser({ id: 'bob', email: 'b@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
     process.env.HF_TOKEN = 'hf_from_the_environment';
     try {
-      await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann');
-      await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
-      await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm' }, 'bob');
-      await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm' });
+      await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann');
+      await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0 }, 'ann');
+      await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'bob');
+      await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 });
     } finally {
       delete process.env.HF_TOKEN;
     }
@@ -173,17 +173,42 @@ describe('starting a deploy', () => {
   it('keeps the token it was given rather than looking one up', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', KEY) } } } as never);
-    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmHfToken: '  hf_given  ' }, 'ann');
-    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyHfToken: 'hf_given_tabby' }, 'ann');
+    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmHfToken: '  hf_given  ' }, 'ann');
+    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyHfToken: 'hf_given_tabby' }, 'ann');
     expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_given_tabby']]);
   });
 
   it('refuses to deploy a model, saying why, when the saved token can no longer be read', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', 'a-key-since-rotated-away-from-this-koala') } } } as never);
-    await expect(startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann'))
+    await expect(startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann'))
       .rejects.toThrow('your huggingface hfToken was saved under a key this Koala no longer holds; enter it again under Cloud providers');
     expect(started()).toEqual([]);
+  });
+});
+
+describe('a deploy that asks for GPUs', () => {
+  const RTX = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
+  const desk: ClusterMetadata = { ...CLUSTER, gpus: [RTX], gpuProblems: [] };
+
+  it('goes ahead on the machine\'s GPUs, handing the workflow the vendor the machine reports and the count asked', async () => {
+    const { deps: d, started } = await deps(desk);
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 2 }, 'ann');
+    expect(started()[0]?.args).toMatchObject({ vllmGpuCount: 2, vllmGpuVendor: 'nvidia' });
+  });
+
+  it('is refused with the fix before anything is recorded or started: more GPUs than the machine has, or none said', async () => {
+    const { deps: d, db, workflow } = await deps(desk);
+    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 3 }, 'ann')).rejects.toThrow('This app asks for 3 NVIDIA GPUs, and shared has 2 NVIDIA GPUs. Ask for 2 or fewer.');
+    await expect(startAppDeploy(d, { name: 'tabby', clusterId: 'c1', appType: 'tabbyapi' }, 'ann')).rejects.toThrow('Say how many GPUs TabbyAPI uses: 1 or more, or 0 for CPU only.');
+    expect(workflow.start).not.toHaveBeenCalled();
+    expect((await db.infrastructure.getDeployments()).map((entry) => entry.status)).not.toContain('deploying');
+  });
+
+  it('refuses a new app that does not say which app it is', async () => {
+    const { deps: d, db } = await deps();
+    await expect(startAppDeploy(d, { name: 'shop', clusterId: 'c1' }, 'ann')).rejects.toThrow('a new app needs its type: say which app to deploy');
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
   });
 });
 

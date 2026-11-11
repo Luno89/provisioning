@@ -109,27 +109,41 @@ describe('checking a workload', () => {
   });
 });
 
-describe('making a GPU runtime ready', () => {
-  it('installs the device plugin and proves a pod schedules on its runtime, all on the cluster it was handed', async () => {
+describe('readying a machine\'s GPUs', () => {
+  const nodes = (gpus: number) => JSON.stringify({ items: [{ status: { allocatable: { cpu: '16', 'nvidia.com/gpu': String(gpus) } } }] });
+  const none = JSON.stringify({ items: [] });
+
+  it('applies the vendor\'s device plugin on the cluster it was handed and is ready once the node advertises what the app asks', async () => {
+    const applied: string[] = [];
+    access.apply.mockImplementation(async (target, manifest) => { said.push({ reach: target as Reach, args: ['apply'] }); applied.push(manifest); return ''; });
+    let reads = 0;
     access.kubectl.mockImplementation(async (target, args) => {
       said.push({ reach: target as Reach, args });
-      if (args[0] === 'get' && args[1] === 'pods') return JSON.stringify({ items: [{ status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] } }] });
-      if (args[0] === 'get' && args[1] === 'events') return JSON.stringify({ items: [] });
-      if (args[0] === 'get' && args[1] === 'pod') return JSON.stringify({ status: { phase: 'Running' } });
-      return '';
+      if (args[1] === 'nodes') return nodes((reads += 1) > 2 ? 2 : 0);
+      if (args[1] === 'pods') return JSON.stringify({ items: [{ metadata: { name: 'nvidia-device-plugin-daemonset-x' }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } }] });
+      return none;
     });
-    await VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia' }, { access });
+    await VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 2, machine: 'desk' }, { access }, async () => undefined);
+    expect(applied[0]).toContain('nvidia-device-plugin-daemonset');
     expect(said.every((call) => call.reach === DESK)).toBe(true);
-    expect(said.map((call) => call.args.slice(0, 2).join(' '))).toEqual(expect.arrayContaining(['apply -f', 'get daemonset', 'get runtimeclass', 'run ' + said.find((call) => call.args[0] === 'run')!.args[1], 'delete pod']));
-  }, 20_000);
+    expect(reads).toBe(3);
+  });
 
-  it('fails, saying so, when the runtime class is missing', async () => {
+  it('fails with what to do when the runtime refuses to make the plugin\'s pod', async () => {
+    access.apply.mockResolvedValue('');
     access.kubectl.mockImplementation(async (_target, args) => {
-      if (args[0] === 'get' && args[1] === 'runtimeclass') throw new Error('not found');
-      if (args[0] === 'get' && args[1] === 'pods') return JSON.stringify({ items: [{ status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] } }] });
-      return '';
+      if (args[1] === 'nodes') return nodes(0);
+      if (args[1] === 'events') return JSON.stringify({ items: [{ reason: 'FailedCreatePodSandBox', message: 'failed to get sandbox runtime: no runtime for "nvidia" is configured' }] });
+      if (args[1] === 'pods') return JSON.stringify({ items: [{ status: { phase: 'Pending' } }] });
+      return none;
     });
-    await expect(VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia' }, { access })).rejects.toThrow('GPU RuntimeClass "nvidia" is not installed on this cluster');
+    await expect(VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 1, machine: 'desk' }, { access }, async () => undefined))
+      .rejects.toThrow('the NVIDIA device plugin cannot run on desk: failed to get sandbox runtime: no runtime for "nvidia" is configured. Once the NVIDIA Container Toolkit is installed there, restart k3s on it so it takes the toolkit up.');
+  });
+
+  it('refuses a deploy that did not say how many GPUs it uses, touching nothing', async () => {
+    await expect(VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia' }, { access })).rejects.toThrow('did not say how many GPUs it uses');
+    expect(access.apply).not.toHaveBeenCalled();
   });
 });
 

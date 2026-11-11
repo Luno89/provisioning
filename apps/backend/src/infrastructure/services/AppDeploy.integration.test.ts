@@ -81,9 +81,9 @@ describe('a model\'s Hugging Face token', () => {
     const { deps: d, started } = await deps();
     await d.db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_saved', d.masterKey) } } });
     await d.db.accounts.saveUser({ id: 'bob', email: 'bob@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
-    await startAppDeploy(d, { name: 'given', clusterId: 'c1', appType: 'vllm', vllmHfToken: 'hf_given' }, 'ann');
-    await startAppDeploy(d, { name: 'saved', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
-    await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm' }, 'bob');
+    await startAppDeploy(d, { name: 'given', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmHfToken: 'hf_given' }, 'ann');
+    await startAppDeploy(d, { name: 'saved', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0 }, 'ann');
+    await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'bob');
 
     expect(started.map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_saved'], [undefined, undefined]]);
     const stored = Object.fromEntries((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, [dep.vllmHfToken, dep.tabbyHfToken]]));

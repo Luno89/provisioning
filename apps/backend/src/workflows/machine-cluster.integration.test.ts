@@ -34,6 +34,7 @@ class DeskHost implements ClusterHost {
   clock = Date.parse('2026-11-05T12:00:00Z');
   busyWhileStarting: string[] = [];
   constructor(private readonly gate: IdleGate) {}
+  async list(): Promise<string[]> { return []; }
   async run(file: string, args: string[]): Promise<string> {
     const line = [file, ...args].join(' ');
     if (line === 'sudo -n systemctl start k3s') {

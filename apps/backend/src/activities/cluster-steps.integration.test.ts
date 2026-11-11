@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
 import { applyWatched, CannotRollOut } from './watched-apply.js';
+import { VerifyGpuRuntimeActivity } from './VerifyGpuRuntimeActivity.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
@@ -108,6 +109,15 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     expect((failed as CannotRollOut).why).toMatch(/pull|image/i);
     await access.kubectl(DESK, ['delete', 'namespace', 'stuck-9a8b7c', '--wait=false']);
   }, 600_000);
+
+  it('applies the NVIDIA device plugin on a machine with no NVIDIA runtime, and fails with what to do rather than wait', async () => {
+    try {
+      await expect(VerifyGpuRuntimeActivity({ clusterId: DESK.clusterId, reach: DESK, vendor: 'nvidia', count: 1, machine: 'desk' }, steps, (ms) => new Promise((done) => { setTimeout(done, Math.min(ms, 500)); })))
+        .rejects.toThrow(/the NVIDIA device plugin cannot run on desk: .*nvidia.*restart k3s on it/s);
+    } finally {
+      await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
+    }
+  }, 300_000);
 
   it('applies an app\'s stack with Terraform on another machine through the kubeconfig its workflow handed over', async () => {
     const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };

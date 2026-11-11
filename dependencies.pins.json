@@ -1669,6 +1669,32 @@
           "pattern": "image: gcr.io/kaniko-project/executor:v([0-9.]+)$"
         }
       ]
+    },
+    {
+      "kind": "image",
+      "name": "nvidia-device-plugin",
+      "version": "0.20.1",
+      "source": "nvcr.io/nvidia/k8s-device-plugin:v0.20.1",
+      "github": "NVIDIA/k8s-device-plugin",
+      "uses": [
+        {
+          "file": "k8s/gpu-device-plugin/nvidia.yaml",
+          "pattern": "image: nvcr.io/nvidia/k8s-device-plugin:v([0-9.]+)@"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "amd-device-plugin",
+      "version": "1.31.0.10",
+      "source": "docker.io/rocm/k8s-device-plugin:1.31.0.10",
+      "github": "ROCm/k8s-device-plugin",
+      "uses": [
+        {
+          "file": "k8s/gpu-device-plugin/amd.yaml",
+          "pattern": "image: rocm/k8s-device-plugin:([0-9.]+)@"
+        }
+      ]
     }
   ],
   "unpinned": []

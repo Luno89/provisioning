@@ -1,4 +1,4 @@
-import { proxyActivities } from '@temporalio/workflow';
+import { patched, proxyActivities } from '@temporalio/workflow';
 import { handedOver } from './handed-over.js';
 import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActivity.js';
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
@@ -12,9 +12,17 @@ const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: Deploy
 const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
+export const GPUS_READIED_PATCH = 'gpus-readied';
+
 export async function executeDeployAppWorkflow(given: DeployAppArgs) {
   const args = await handedOver(given, startMachineCluster);
-  if (args.appType === 'tabbyapi' && (args.tabbyGpuCount === undefined || args.tabbyGpuCount > 0)) {
+  if (patched(GPUS_READIED_PATCH)) {
+    const gpuApp = args.appType === 'tabbyapi' || args.appType === 'vllm';
+    const count = args.appType === 'tabbyapi' ? args.tabbyGpuCount : args.vllmGpuCount;
+    if (gpuApp && count !== 0) {
+      await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, reach: args.reach, vendor: args.appType === 'tabbyapi' ? 'nvidia' : args.vllmGpuVendor, count, machine: args.clusterName, logFile: args.logFile });
+    }
+  } else if (args.appType === 'tabbyapi' && (args.tabbyGpuCount === undefined || args.tabbyGpuCount > 0)) {
     await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, reach: args.reach, vendor: 'nvidia' });
   } else if (
     args.appType === 'vllm'
