@@ -19,6 +19,8 @@ export interface AppEnvArgs {
   vllmModel?: string | undefined;
   vllmGpuCount: number;
   vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
+  modelPreDownloaded?: boolean | undefined;
+  modelImage?: string | undefined;
   vllmCachePvc?: string | undefined;
   vllmDevice: string;
   hfToken?: string | undefined;
@@ -36,7 +38,6 @@ export interface AppEnvArgs {
   tabbyGpuCount: number;
   tabbyModelSizeBytes?: number | undefined;
   tabbyCachePvc?: string | undefined;
-  tabbyImageTag?: string | undefined;
   tabbyCacheMode?: string | undefined;
   tabbyMaxSeqLen?: number | undefined;
   tabbyMaxBatchSize?: number | undefined;
@@ -219,7 +220,8 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     ...(a.vllmGpuCount !== undefined ? { VLLM_GPU_COUNT: String(a.vllmGpuCount) } : {}),
     VLLM_GPU_VENDOR: a.vllmGpuVendor ?? '',
     VLLM_CACHE_PVC: a.vllmCachePvc || '',
-    VLLM_IMAGE_TAG: (a.webTag && a.webTag !== 'latest') ? a.webTag : 'v0.7.2',
+    VLLM_MODEL_PREDOWNLOADED: a.modelPreDownloaded ? 'true' : 'false',
+    MODEL_IMAGE: a.modelImage ?? '',
     VLLM_DEVICE: a.vllmDevice,
     HF_TOKEN: a.hfToken || '',
     VLLM_MAX_MODEL_LEN: a.vllmMaxModelLen !== undefined ? String(a.vllmMaxModelLen) : '',
@@ -236,7 +238,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     ...(a.tabbyGpuCount !== undefined ? { TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount) } : {}),
     TABBYAPI_MODEL_SIZE_BYTES: a.tabbyModelSizeBytes !== undefined ? String(a.tabbyModelSizeBytes) : '',
     TABBYAPI_CACHE_PVC: a.tabbyCachePvc || '',
-    TABBYAPI_IMAGE_TAG: a.tabbyImageTag || 'latest',
     TABBYAPI_CACHE_MODE: a.tabbyCacheMode || '',
     TABBYAPI_MAX_SEQ_LEN: a.tabbyMaxSeqLen !== undefined ? String(a.tabbyMaxSeqLen) : '',
     TABBYAPI_MAX_BATCH_SIZE: a.tabbyMaxBatchSize !== undefined ? String(a.tabbyMaxBatchSize) : '',

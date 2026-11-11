@@ -23,7 +23,7 @@ afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("a GPU model server's pod", () => {
   it("shares the host's network and IPC on AMD, as ROCm needs, and may trace", () => {
-    const pod = podOf((scope) => new VllmApp(scope, "app", { gpuVendor: "amd", gpuCount: 1 }));
+    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai-rocm:v0.7.2", gpuVendor: "amd", gpuCount: 1 }));
     expect(pod.host_network).toBe(true);
     expect(pod.host_ipc).toBe(true);
     expect(pod.runtime_class_name).toBeUndefined();
@@ -32,14 +32,14 @@ describe("a GPU model server's pod", () => {
   });
 
   it("runs under the nvidia runtime class on NVIDIA and keeps its own network", () => {
-    const pod = podOf((scope) => new VllmApp(scope, "app", { gpuVendor: "nvidia", gpuCount: 2 }));
+    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.7.2", gpuVendor: "nvidia", gpuCount: 2 }));
     expect(pod.runtime_class_name).toBe("nvidia");
     expect(pod.host_network).toBeUndefined();
     expect(pod.container[0]?.resources.limits["nvidia.com/gpu"]).toBe("2");
   });
 
   it("checks TabbyAPI is alive only by its port accepting connections", () => {
-    const pod = podOf((scope) => new TabbyApiApp(scope, "app", { gpuCount: 1 }));
+    const pod = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1 }));
     expect(pod.runtime_class_name).toBe("nvidia");
     expect(pod.container[0]?.liveness_probe?.tcp_socket).toEqual([{ port: "5000" }]);
   });

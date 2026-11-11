@@ -146,12 +146,16 @@ describe('starting a deploy', () => {
     expect(started().map((run) => [run.args.odooRepo, run.args.odooTag])).toEqual([['bitnami/wordpress', '6'], ['bitnami/wordpress', '6'], ['bitnami/wordpress', '7']]);
   });
 
-  it('gives a model on the cluster Koala runs in its cache folder on the host, and one on any other cluster none', async () => {
+  it('gives every model app the cache folder on its machine and the image it runs, which its download runs in too', async () => {
     const { deps: d, started } = await deps();
-    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
-    await startAppDeploy({ ...d, ownClusterId: () => 'c1' }, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmCachePvc: 'weights' }, 'ann');
-    await startAppDeploy(d, { name: 'elsewhere', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
-    expect(started().map((run) => run.args.modelCacheHostPath)).toEqual([expect.stringContaining('models'), expect.stringContaining('weights'), undefined]);
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
+    await startAppDeploy(d, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmCachePvc: 'weights' }, 'ann');
+    await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
+    expect(started().map((run) => [run.args.modelCacheHostPath, run.args.modelImage])).toEqual([
+      ['/var/lib/rancher/models', 'ghcr.io/theroyallab/tabbyapi:latest'],
+      ['/var/lib/rancher/weights', 'vllm/vllm-openai:v0.7.2'],
+      [undefined, undefined],
+    ]);
   });
 
   it('gives a model the Hugging Face token the person stored, or none, and never one from the process\'s environment', async () => {

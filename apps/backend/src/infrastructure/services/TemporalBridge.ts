@@ -49,6 +49,8 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 import { QUEUES } from '../../platform/index.js';
+import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js'
+import { modelImageOf } from '../lib/model-images.js'
 
 const GRPC_NOT_FOUND = 5
 
@@ -742,6 +744,9 @@ export class TemporalBridge {
       namespace: dep.namespace,
       ...handed,
       clusterName: cluster?.name || 'unknown',
+      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
+      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
+      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
       webRepo: dep.webRepo,

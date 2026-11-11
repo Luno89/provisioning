@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
@@ -18,7 +17,8 @@ export interface VllmConfig {
   readonly hfToken?: string;
   readonly cachePvc?: string;
   readonly serviceType?: string;
-  readonly imageTag?: string;
+  readonly image: string;
+  readonly preDownloaded?: boolean;
   readonly shmSize?: string;
   readonly cpuLimit?: string;
   readonly memoryLimit?: string;
@@ -34,7 +34,7 @@ export interface VllmConfig {
 }
 
 export class VllmApp extends Construct {
-  constructor(scope: Construct, id: string, config: VllmConfig = {}) {
+  constructor(scope: Construct, id: string, config: VllmConfig) {
     super(scope, id);
 
     const namespaceName = config.namespace || "vllm";
@@ -50,8 +50,7 @@ export class VllmApp extends Construct {
       : "/var/lib/rancher/vllm-model-cache";
 
     const modelFolderName = modelName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const preDownloadedDir = `${cacheHostPath}/${modelFolderName}`;
-    const isPreDownloaded = fs.existsSync(`${preDownloadedDir}.complete`) && fs.existsSync(`${preDownloadedDir}/config.json`);
+    const isPreDownloaded = config.preDownloaded === true;
     const modelArg = isPreDownloaded ? `/root/.cache/huggingface/${modelFolderName}` : modelName;
 
     const shmSize = config.shmSize || "2Gi";
@@ -60,10 +59,7 @@ export class VllmApp extends Construct {
 
     const serviceType = config.serviceType || defaultServiceType();
 
-    const imageTag = config.imageTag && config.imageTag !== 'latest' ? config.imageTag : "v0.7.2";
-    const imageName = gpuVendor === 'amd'
-      ? `vllm/vllm-openai-rocm:${imageTag}`
-      : `vllm/vllm-openai:${imageTag}`;
+    const imageName = config.image;
 
     const gpuResourceKey = gpuVendor === 'amd' ? 'amd.com/gpu' : 'nvidia.com/gpu';
     const gpuResources = (gpuCount > 0 && device !== 'cpu') ? { [gpuResourceKey]: String(gpuCount) } : {};

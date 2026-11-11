@@ -1,15 +1,14 @@
 import { patched, proxyActivities } from '@temporalio/workflow';
 import { handedOver } from './handed-over.js';
 import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActivity.js';
-import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 import type { VerifyGpuRuntimeArgs } from '../activities/VerifyGpuRuntimeActivity.js';
 import { awaitWorkload } from './await-workload.js';
 import { startMachineCluster } from './machine-cluster.js';
+import { readyModel } from './ready-model.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
 const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
-const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
 export const GPUS_READIED_PATCH = 'gpus-readied';
@@ -32,23 +31,8 @@ export async function executeDeployAppWorkflow(given: DeployAppArgs) {
     await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, reach: args.reach, vendor: 'nvidia' });
   }
 
-  if (args.appType === 'tabbyapi' && args.modelCacheHostPath && args.tabbyModel) {
-    await DownloadModelActivity({
-      modelRepo: args.tabbyModel,
-      revision: args.tabbyRevision,
-      hfToken: args.tabbyHfToken,
-      cacheHostPath: args.modelCacheHostPath,
-      logFile: args.logFile,
-    });
-  } else if (args.appType === 'vllm' && args.modelCacheHostPath && args.vllmModel) {
-    await DownloadModelActivity({
-      modelRepo: args.vllmModel,
-      hfToken: args.vllmHfToken,
-      cacheHostPath: args.modelCacheHostPath,
-      logFile: args.logFile,
-    });
-  }
-  const result = await DeployAppActivity(args);
+  const modelPreDownloaded = await readyModel(args);
+  const result = await DeployAppActivity({ ...args, modelPreDownloaded });
   const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId, reach: args.reach, logFile: args.logFile });
   return { ...result, ...verdict };
 }

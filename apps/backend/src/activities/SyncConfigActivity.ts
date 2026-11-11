@@ -23,6 +23,9 @@ export interface SyncConfigArgs {
   dbTag?: string | undefined;
   storage?: Record<string, string> | undefined;
   logFile: string;
+  modelCacheHostPath?: string | undefined;
+  modelImage?: string | undefined;
+  modelPreDownloaded?: boolean | undefined;
   deploymentId?: string | undefined;
   vllmModel?: string | undefined;
   vllmGpuCount?: number | undefined;
@@ -89,6 +92,8 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const deploymentId = args.deploymentId || 'default';
 
   const env = buildAppEnv({
+    modelPreDownloaded: args.modelPreDownloaded === true,
+    modelImage: args.modelImage,
     hfToken: modelHfToken(args),
     physicalName,
     strategy: args.strategy,
@@ -119,7 +124,6 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     tabbyRevision: args.tabbyRevision,
     tabbyGpuCount: effectiveTabbyGpuCount,
     tabbyCachePvc: args.tabbyCachePvc,
-    tabbyImageTag: args.tabbyImageTag,
     tabbyCacheMode: args.tabbyCacheMode,
     tabbyMaxSeqLen: args.tabbyMaxSeqLen,
     tabbyMaxBatchSize: args.tabbyMaxBatchSize,

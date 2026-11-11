@@ -5,7 +5,6 @@ import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplat
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
-import { isValidImageTag } from "../lib/image-tag.js";
 import { defaultServiceType } from "../lib/service-type.js";
 
 export interface TabbyApiConfig {
@@ -20,7 +19,7 @@ export interface TabbyApiConfig {
   readonly hfToken?: string;
   readonly cachePvc?: string;
   readonly serviceType?: string;
-  readonly imageTag?: string;
+  readonly image: string;
   readonly shmSize?: string;
   readonly cpuLimit?: string;
   readonly memoryLimit?: string;
@@ -35,7 +34,7 @@ export interface TabbyApiConfig {
 }
 
 export class TabbyApiApp extends Construct {
-  constructor(scope: Construct, id: string, config: TabbyApiConfig = {}) {
+  constructor(scope: Construct, id: string, config: TabbyApiConfig) {
     super(scope, id);
 
     const namespaceName = config.namespace || "tabbyapi";
@@ -92,8 +91,7 @@ export class TabbyApiApp extends Construct {
 
     const serviceType = config.serviceType || defaultServiceType();
 
-    const imageTag = isValidImageTag(config.imageTag) ? config.imageTag : 'latest';
-    const imageName = `ghcr.io/theroyallab/tabbyapi:${imageTag}`;
+    const imageName = config.image;
 
     const gpuResources = gpuCount > 0 ? { 'nvidia.com/gpu': String(gpuCount) } : {};
 

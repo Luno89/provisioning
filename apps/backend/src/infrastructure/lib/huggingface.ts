@@ -1,15 +1,5 @@
 import { type JsonRecord, listAt, recordAt } from '../../platform/lib/json-shapes.js';
 import axios from 'axios';
-import fs from 'fs';
-import fsp from 'fs/promises';
-import path from 'path';
-import type { Readable } from 'stream';
-
-export interface HfFile {
-  path: string;
-  size: number;
-  url: string;
-}
 
 export interface HfModelSearchResult {
   id: string;
@@ -68,7 +58,13 @@ export async function getHfModelBranches(repo: string, token?: string): Promise<
   });
 }
 
-export async function getHfModelFiles(
+interface HfFile {
+  path: string;
+  size: number;
+  url: string;
+}
+
+async function getHfModelFiles(
   repo: string,
   revision: string | undefined,
   token?: string,
@@ -135,44 +131,3 @@ export function estimateKvCacheBytes(
   return 2 * numKvHeads * headDim * bytesPerElement * fullAttentionLayers * maxSeqLen;
 }
 
-export interface DownloadProgress {
-  downloadedBytes: number;
-  totalBytes: number;
-  currentFile: string;
-}
-
-export async function downloadHfFiles(
-  files: HfFile[],
-  destDir: string,
-  token?: string,
-  onProgress?: (progress: DownloadProgress) => void,
-): Promise<void> {
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-  let downloadedBytes = 0;
-  let lastReportAt = 0;
-  for (const file of files) {
-    const dest = path.join(destDir, file.path);
-    await fsp.mkdir(path.dirname(dest), { recursive: true });
-    const response = await axios.get<Readable>(file.url, { headers, responseType: 'stream' });
-    const body = response.data;
-    await new Promise<void>((resolve, reject) => {
-      const writer = fs.createWriteStream(dest);
-      if (onProgress) {
-        body.on('data', (chunk: Buffer) => {
-          downloadedBytes += chunk.length;
-          const now = Date.now();
-          if (now - lastReportAt >= 2000) {
-            lastReportAt = now;
-            onProgress({ downloadedBytes, totalBytes, currentFile: file.path });
-          }
-        });
-      }
-      body.pipe(writer);
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-      body.on('error', reject);
-    });
-  }
-  if (onProgress) onProgress({ downloadedBytes, totalBytes, currentFile: '' });
-}

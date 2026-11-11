@@ -53,6 +53,12 @@ function gpuCountFrom(name: string): number {
   return count;
 }
 
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} must name the image to run`);
+  return value;
+}
+
 function gpuVendorFrom(name: string): 'nvidia' | 'amd' | undefined {
   const vendor = process.env[name];
   if (vendor === undefined || vendor === '') return undefined;
@@ -238,7 +244,8 @@ class AppStack extends TerraformStack {
           device: process.env.VLLM_DEVICE,
           hfToken: process.env.HF_TOKEN || undefined,
           cachePvc: process.env.VLLM_CACHE_PVC,
-          imageTag: process.env.VLLM_IMAGE_TAG || process.env.WEB_IMAGE_TAG || 'v0.7.2',
+          image: requiredEnv('MODEL_IMAGE'),
+          preDownloaded: process.env.VLLM_MODEL_PREDOWNLOADED === 'true',
           shmSize: process.env.VLLM_SHM_SIZE,
           cpuLimit: process.env.VLLM_CPU_LIMIT,
           memoryLimit: process.env.VLLM_MEMORY_LIMIT,
@@ -261,7 +268,7 @@ class AppStack extends TerraformStack {
           modelSizeBytes: process.env.TABBYAPI_MODEL_SIZE_BYTES ? parseInt(process.env.TABBYAPI_MODEL_SIZE_BYTES) : undefined,
           hfToken: process.env.HF_TOKEN || undefined,
           cachePvc: process.env.TABBYAPI_CACHE_PVC,
-          imageTag: process.env.TABBYAPI_IMAGE_TAG || 'latest',
+          image: requiredEnv('MODEL_IMAGE'),
           shmSize: process.env.TABBYAPI_SHM_SIZE,
           cpuLimit: process.env.TABBYAPI_CPU_LIMIT,
           memoryLimit: process.env.TABBYAPI_MEMORY_LIMIT,

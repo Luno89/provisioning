@@ -10,6 +10,7 @@ import {
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
 import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
+import { modelImageOf } from '../lib/model-images.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
@@ -204,12 +205,9 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       namespace: dep.namespace,
       ...handed,
       clusterName: targetCluster?.name || 'unknown',
-      ...(dep.appType === 'tabbyapi' && dep.clusterId === deps.ownClusterId()
-        ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
-        : {}),
-      ...(dep.appType === 'vllm' && dep.clusterId === deps.ownClusterId()
-        ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
-        : {}),
+      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
+      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
+      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType,
       modules: dep.modules || [],

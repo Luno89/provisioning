@@ -25,8 +25,7 @@ export { egressReachProblem, validateLocalEgressRules } from './lib/egress-rules
 export { GITAPP_PULL_SECRET, gitappPullSecretArgs } from './lib/gitapp-pull.js';
 export { parseQuantity, planHostMemory } from './lib/host-memory-plan.js';
 export type { HostMemoryPlan } from './lib/host-memory-plan.js';
-export { downloadHfFiles, getHfModelFiles, getHfModelSize } from './lib/huggingface.js';
-export type { DownloadProgress } from './lib/huggingface.js';
+export { getHfModelSize } from './lib/huggingface.js';
 export { infisicalSettingsFrom } from './lib/infisical-settings.js';
 export type { InfisicalSettings } from './lib/infisical-settings.js';
 export { cleanKubeconfig } from './lib/kubeconfig-clean.js';
@@ -46,6 +45,8 @@ export { ovhSubsidiaryOf, vpsCatalogAdapters } from './lib/vps-catalog/adapters.
 export { serveHealth } from './lib/worker-health.js';
 export { assessWorkload } from './lib/workload-health.js';
 export type { WorkloadHealth, WorkloadStatus } from './lib/workload-health.js';
+export { ALREADY_HERE, HUGGING_FACE, MODEL_DOWNLOADS, modelDownloadJob, modelJobName } from './lib/model-download-job.js';
+export { modelImageOf } from './lib/model-images.js';
 export { advertisedGpus, GPU_PLUGINS, gpuAskOf, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './lib/cluster-gpus.js';
 export type { GpuAsk, GpuDecision } from './lib/cluster-gpus.js';
 export { bindingTypesRouter } from './routes/binding-types.js';

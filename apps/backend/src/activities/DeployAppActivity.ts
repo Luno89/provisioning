@@ -99,6 +99,8 @@ export interface DeployAppArgs {
   verdaccioStorage?: string | undefined;
   gitappEnv?: string | undefined;
   modelCacheHostPath?: string | undefined;
+  modelImage?: string | undefined;
+  modelPreDownloaded?: boolean | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -343,6 +345,8 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   const env = buildAppEnv({
     hfToken: modelHfToken(args),
+    modelPreDownloaded: args.modelPreDownloaded === true,
+    modelImage: args.modelImage,
     serviceType: appServiceType(placedOnPool(Boolean(access.here.poolName), reach)),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
@@ -375,7 +379,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     tabbyGpuCount: effectiveTabbyGpuCount,
     tabbyModelSizeBytes,
     tabbyCachePvc: args.tabbyCachePvc,
-    tabbyImageTag: args.tabbyImageTag,
     tabbyCacheMode: args.tabbyCacheMode,
     tabbyMaxSeqLen: args.tabbyMaxSeqLen,
     tabbyMaxBatchSize: args.tabbyMaxBatchSize,
