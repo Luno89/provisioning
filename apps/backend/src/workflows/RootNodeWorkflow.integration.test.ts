@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -13,7 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await clockSkippingEnvironment();
 }, 120_000);
 
 afterAll(async () => {

@@ -43,7 +43,7 @@ import type { DataConverter } from '@temporalio/common';
 import { buildDataConverter } from '../platform/lib/temporal-codec.js';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
@@ -78,7 +78,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await clockSkippingEnvironment();
 }, 120_000);
 
 afterAll(async () => {

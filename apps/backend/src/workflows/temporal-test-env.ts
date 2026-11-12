@@ -1,7 +1,7 @@
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
-import { Connection } from '@temporalio/client';
+import { Client, Connection } from '@temporalio/client';
 import Long from 'long';
 import { inject } from 'vitest';
 import { OWNER_ATTRIBUTE } from '../platform/lib/workflow-owner.js';
@@ -45,9 +45,15 @@ export async function realTemporalEnvironment(): Promise<TestWorkflowEnvironment
   return env;
 }
 
-export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
+export async function clockSkippingEnvironment(): Promise<TestWorkflowEnvironment> {
   const env = await TestWorkflowEnvironment.createTimeSkipping();
   await registerOwnerAttribute(env.connection, env.namespace ?? 'default');
+  return env;
+}
+
+export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
+  const env = await clockSkippingEnvironment();
+  Object.defineProperty(env, 'client', { value: new Client({ connection: env.connection, namespace: env.namespace ?? 'default' }) });
   return env;
 }
 
