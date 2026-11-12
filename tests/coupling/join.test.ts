@@ -89,3 +89,34 @@ describe('which functions a test ran', () => {
     expect(judged!.covered.map((entry) => entry.test)).toEqual(['component.test.ts']);
   });
 });
+
+describe('an edge inside a workflow, which Temporal starts by name', () => {
+  const STARTER = 'apps/backend/src/a/starter.ts';
+  const WORKFLOW = 'apps/backend/src/workflows/deploy.ts';
+  const ACTIVITY = 'apps/backend/src/activities/check.ts';
+  const started: Graph = {
+    units: {
+      starter: unit('starter', STARTER, 'startDeploy', 1),
+      workflow: unit('workflow', WORKFLOW, 'deployWorkflow', 1),
+      activity: unit('activity', ACTIVITY, 'CheckActivity', 1),
+    },
+    edges: [
+      { from: 'starter', site: site(STARTER, 5), to: ['workflow'], through: 'temporal' },
+      { from: 'workflow', site: site(WORKFLOW, 4), to: ['activity'], through: 'temporal' },
+    ],
+    unresolved: [],
+    unmatched: [], records: [],
+  };
+  const starterRan: Ran = { testFile: 'unit.test.ts', files: { [STARTER]: [ran(1, 1, 10, 'startDeploy')] } };
+  const workflowRan: Ran = { testFile: 'component.test.ts', files: { [WORKFLOW]: [ran(1, 1, 10, 'deployWorkflow')], [ACTIVITY]: [ran(1, 1, 10, 'CheckActivity')] } };
+
+  it('is tested with its caller once one test runs the workflow into the activity and another runs the starter where it starts the workflow', () => {
+    const [, intoActivity] = judge(started, [starterRan, workflowRan], levelOf);
+    expect(intoActivity).toMatchObject({ lowest: 'component', withCallerAt: 'component' });
+  });
+
+  it('is not, while no test runs the starter where it starts the workflow', () => {
+    const [, intoActivity] = judge(started, [workflowRan], levelOf);
+    expect(intoActivity).toMatchObject({ lowest: 'component', withCallerAt: undefined });
+  });
+});

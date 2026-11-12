@@ -79,8 +79,16 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
   });
 
   const coveredBy = graph.edges.map((): Covered[] => []);
+  const startSiteRanAt = new Map<number, Level[]>();
   for (const run of runs) {
     const ran = new Set<number>();
+    for (const file of Object.keys(run.files)) {
+      for (const index of bySiteFile.get(file) ?? []) {
+        const edge = graph.edges[index]!;
+        if (edge.through !== 'temporal' || !siteRan(run.files[file], { line: edge.site.line, column: edge.site.column })) continue;
+        startSiteRanAt.set(index, [...(startSiteRanAt.get(index) ?? []), levelOf(run.testFile)]);
+      }
+    }
     for (const file of Object.keys(run.files)) {
       for (const index of bySiteFile.get(file) ?? []) {
         const edge = graph.edges[index]!;
@@ -100,12 +108,20 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
   }
 
   const rank = (level: Level) => LEVELS.indexOf(level);
+  const startedApart = (edge: Edge, lowest: Level | undefined): Level | undefined => {
+    if (lowest === undefined) return undefined;
+    const callers = intoUnit.get(edge.from) ?? [];
+    if (callers.length === 0 || !callers.every((index) => graph.edges[index]!.through === 'temporal')) return undefined;
+    const started = callers.flatMap((index) => startSiteRanAt.get(index) ?? []).sort((a, b) => rank(a) - rank(b))[0];
+    if (started === undefined) return undefined;
+    return rank(started) > rank(lowest) ? started : lowest;
+  };
   return graph.edges.map((edge: Edge, index) => {
     const from = graph.units[edge.from];
     const crosses = from && edge.to.some((id) => graph.units[id] && areaOf(graph.units[id]!.file) !== areaOf(from.file)) ? 'area' : 'none';
     const covered = coveredBy[index]!;
     const lowest = covered.map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
-    const withCallerAt = covered.filter((entry) => entry.withCaller).map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
-    return { edge, crosses, covered, lowest, withCallerAt };
+    const together = covered.filter((entry) => entry.withCaller).map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
+    return { edge, crosses, covered, lowest, withCallerAt: together ?? startedApart(edge, lowest) };
   });
 }
