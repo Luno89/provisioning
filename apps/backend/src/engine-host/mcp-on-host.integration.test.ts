@@ -36,4 +36,22 @@ describe('the person\'s MCP servers, read from their records by the engine host'
     expect(answered.ok).toBe(false);
     expect(answered.content).toBe('the server has no address this platform can reach: its deployment is not running, or nothing routes to it');
   });
+
+  it('lists the person\'s servers with their state, and the known ones they have not added', async () => {
+    const { call } = await hostFor([]);
+    const listed = await call('list_mcp_servers', {});
+    expect(listed.ok).toBe(true);
+    expect(listed.content).toContain('gitea');
+    expect(listed.content).toContain('playwright');
+  });
+
+  it('puts a proposal to add a known server on a card in the conversation, once, kept with the person\'s records', async () => {
+    const { db, call } = await hostFor([]);
+    const proposed = await call('propose_mcp_server', { template: 'playwright', why: 'to check pages in a browser', agents: ['executor'] });
+    expect(proposed.ok, proposed.content).toBe(true);
+    expect((await call('propose_mcp_server', { template: 'playwright', why: 'to check pages in a browser', agents: ['executor'] })).content).toMatch(/^This is already waiting for the person on a card/);
+    const cards = (await db.engine.getActionProposals('bo')).filter((proposal) => proposal.kind === 'add_mcp_server');
+    expect(cards.map((card) => [card.conversationId, card.status])).toEqual([['c1', 'proposed']]);
+  });
 });
+

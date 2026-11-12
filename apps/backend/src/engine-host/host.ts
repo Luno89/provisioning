@@ -146,7 +146,7 @@ export interface EngineHostOptions {
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
   mcpHostedUrl?: ((ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>) => Promise<string | undefined>) | undefined;
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
-  projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
+  projects?: Omit<import('./tools/project-tools.js').ProjectToolStores, 'proposals'> | undefined;
   egressSecret?: string | undefined;
   corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
   checks?: import('./tools/check-tools.js').CheckAccess | undefined;
@@ -436,15 +436,15 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(mcpServers && stores.mcp ? { mcp: {
         catalogue: mcpServers.list,
         stores: stores.mcp,
-        ...(options.projects?.proposals ? { proposing: {
+        ...(stores.actions ? { proposing: {
           templates: () => MCP_SERVER_TEMPLATES,
           dependencies: dependenciesOf,
           agents: (ownerId: string) => registry.agents(ownerId),
-          proposals: options.projects.proposals,
+          proposals: stores.actions,
         } } : {}),
       } } : {}),
       ...(options.kube ? { kube: options.kube } : {}),
-      ...(options.projects ? { projects: options.projects } : {}),
+      ...(options.projects && stores.actions ? { projects: { ...options.projects, proposals: stores.actions } } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),
       ...(options.corpus ? { corpus: options.corpus } : {}),
       ...(stores.runs ? { runs: stores.runs } : {}),

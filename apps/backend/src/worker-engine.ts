@@ -301,7 +301,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
         const binding = bindings[0];
         return binding ? { name: binding.name, type: binding.type } : { problem: problems[0] ?? `cannot bind to "${service}"` };
       },
-      proposals: { list: (ownerId) => db.engine.getActionProposals(ownerId), save: (proposal) => db.engine.saveActionProposal(proposal) },
     },
     kube: {
       clusters: (ownerId) => clusterService.clustersOwnedBy(ownerId),
