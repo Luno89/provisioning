@@ -1,6 +1,6 @@
 import type { Artifact } from './artifacts.js';
 import type { Edge, Graph } from './graph.js';
-import type { Judged, Level } from './join.js';
+import type { Judged, Level, Near } from './join.js';
 
 export type Rule = 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
 export const RULES: readonly Rule[] = ['R1', 'R2', 'R3', 'R4', 'R5'];
@@ -39,7 +39,7 @@ export function judging(have: ReadonlySet<Artifact>): Judging {
 
 const ruleOf = (key: string): string => key.slice(0, key.indexOf(' '));
 
-export interface Breach { rule: Rule; key: string; at: string; why: string }
+export interface Breach { rule: Rule; key: string; at: string; why: string; near?: Near | undefined }
 
 export type Baseline = Record<string, number>;
 
@@ -67,12 +67,12 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
     if (!below) {
       const rule: Rule = crossing ? 'R3' : 'R1';
       const why = entry.covered.length > 0 ? `covered only at ${entry.lowest}` : 'no test runs both sides for real';
-      found.push({ rule, key: `${rule} ${pair}`, at, why });
+      found.push({ rule, key: `${rule} ${pair}`, at, why, ...(entry.near ? { near: entry.near } : {}) });
     }
     if (crossing || entry.crosses === 'area') {
       const entryPoint = (callers.get(edge.from) ?? 0) === 0;
       const withCaller = entryPoint ? entry.covered.length > 0 : entry.withCallerAt !== undefined;
-      if (!withCaller) found.push({ rule: 'R2', key: `R2 ${pair}`, at, why: entryPoint ? 'an entry point no test reaches' : 'never tested together with what calls it' });
+      if (!withCaller) found.push({ rule: 'R2', key: `R2 ${pair}`, at, why: entryPoint ? 'an entry point no test reaches' : 'never tested together with what calls it', ...(entry.near ? { near: entry.near } : {}) });
     }
   }
   for (const call of graph.unresolved) {
@@ -149,4 +149,31 @@ export function movedIn(baseline: Baseline, found: readonly Breach[]): { baselin
     moves.push({ from, to: key, count });
   }
   return { baseline: Object.fromEntries(Object.entries(carried).sort(([a], [b]) => a.localeCompare(b))), moves };
+}
+
+const SHOWN = 3;
+
+const listed = (tests: readonly string[]): string => (tests.length === 0 ? 'no test' : `${tests.slice(0, SHOWN).join(', ')}${tests.length > SHOWN ? ` and ${tests.length - SHOWN} more` : ''}`);
+
+export function nearLines(near: Near, rule: Rule): string[] {
+  return [
+    `  its caller ran in: ${listed(near.callerRan)}`,
+    `  its real target ran in: ${listed(near.targetRan)}`,
+    ...(near.standIn.length ? [`  a stand-in answered in its place in: ${listed(near.standIn)}`] : []),
+    ...(rule === 'R2' ? [`  what calls its caller ran in: ${listed(near.callersOfCallerRan)}`] : []),
+  ];
+}
+
+export function sameCallBefore(baseline: Baseline, found: readonly Breach[], added: readonly Breach[]): Array<{ key: string; was: string[] }> {
+  const now = counted(found);
+  const gone = Object.keys(baseline).filter((key) => now[key] === undefined);
+  return added.flatMap((breach) => {
+    const parts = partsOf(breach.key);
+    if (!parts) return [];
+    const was = gone.filter((old) => {
+      const before = partsOf(old);
+      return before !== undefined && before.rule === parts.rule && before.from === parts.from && before.through === parts.through;
+    });
+    return was.length ? [{ key: breach.key, was }] : [];
+  });
 }

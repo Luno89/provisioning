@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Graph, Unit } from './graph.js';
 import type { Covered, Judged } from './join.js';
-import { against, breaches, counted, judging, layerBreaches, movedIn, pruned, type Breach } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, pruned, sameCallBefore, type Breach } from './rules.js';
 
 const unit = (id: string, file: string): Unit => ({ id, file, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[], through: Edge['through'], line: number): Edge => ({ from, to, through, site: { file: `apps/backend/src/x/${from}.ts`, line, column: 1, start: 0, end: 0 } });
@@ -242,5 +242,28 @@ describe('a function in a service that does nothing a test could observe', () =>
       edges: [], unresolved: [], unmatched: [], records: [],
     };
     expect(layerBreaches(graph, new Map()).map((breach) => breach.key)).toEqual(['R5 apps/backend/src/x/services/Thing.ts#acts']);
+  });
+});
+
+describe('what a breach says about the tests that came close', () => {
+  it('names them under the breach, at most a few of each, and says when none did', () => {
+    expect(nearLines({ callerRan: ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'], targetRan: [], standIn: ['s.test.ts'], callersOfCallerRan: ['w.test.ts'] }, 'R1')).toEqual([
+      '  its caller ran in: a.test.ts, b.test.ts, c.test.ts and 1 more',
+      '  its real target ran in: no test',
+      '  a stand-in answered in its place in: s.test.ts',
+    ]);
+    expect(nearLines({ callerRan: ['a.test.ts'], targetRan: ['a.test.ts'], standIn: [], callersOfCallerRan: ['w.test.ts'] }, 'R2')).toEqual([
+      '  its caller ran in: a.test.ts',
+      '  its real target ran in: a.test.ts',
+      '  what calls its caller ran in: w.test.ts',
+    ]);
+  });
+});
+
+describe('a new breach at a call the baseline held under another target', () => {
+  it('is named beside the entry that disappeared at the same call, and carries nothing over', () => {
+    const before = { 'R1 a.ts#run -> old.ts#list | other.ts#list (interface)': 1, 'R1 a.ts#run -> keep.ts#x (call)': 1 };
+    const found: Breach[] = [{ rule: 'R1', key: 'R1 a.ts#run -> new.ts#list (interface)', at: 'a.ts:3', why: 'no test runs both sides for real' }];
+    expect(sameCallBefore(before, found, found)).toEqual([{ key: 'R1 a.ts#run -> new.ts#list (interface)', was: ['R1 a.ts#run -> old.ts#list | other.ts#list (interface)'] }]);
   });
 });

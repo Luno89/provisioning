@@ -6,7 +6,8 @@ export type Level = 'unit' | 'component' | 'contract' | 'container' | 'live' | '
 export const LEVELS: readonly Level[] = ['unit', 'component', 'contract', 'container', 'live', 'vm'];
 
 export interface Covered { test: string; level: Level; withCaller: boolean }
-export interface Judged { edge: Edge; crosses: 'area' | 'none'; covered: Covered[]; lowest?: Level | undefined; withCallerAt?: Level | undefined }
+export interface Near { callerRan: string[]; targetRan: string[]; standIn: string[]; callersOfCallerRan: string[] }
+export interface Judged { edge: Edge; crosses: 'area' | 'none'; covered: Covered[]; lowest?: Level | undefined; withCallerAt?: Level | undefined; near?: Near | undefined }
 
 const before = (a: Position, b: Position): boolean => a.line < b.line || (a.line === b.line && a.column <= b.column);
 const contains = (range: RanRange, at: Position): boolean => before(range.start, at) && before(at, range.end);
@@ -79,8 +80,14 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
   });
 
   const coveredBy = graph.edges.map((): Covered[] => []);
+  const unitsByFile = new Map<string, Unit[]>();
+  for (const unit of Object.values(graph.units)) unitsByFile.set(unit.file, [...(unitsByFile.get(unit.file) ?? []), unit]);
+  const ranIn = new Map<string, string[]>();
   const startSiteRanAt = new Map<number, Level[]>();
   for (const run of runs) {
+    for (const [file, ranges] of Object.entries(run.files)) {
+      for (const unit of unitsByFile.get(file) ?? []) if (unitRan(ranges, unit)) ranIn.set(unit.id, [...(ranIn.get(unit.id) ?? []), run.testFile]);
+    }
     const ran = new Set<number>();
     for (const file of Object.keys(run.files)) {
       for (const index of bySiteFile.get(file) ?? []) {
@@ -108,6 +115,13 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
   }
 
   const rank = (level: Level) => LEVELS.indexOf(level);
+  const testsThatRan = (ids: readonly string[]): string[] => [...new Set(ids.flatMap((id) => ranIn.get(id) ?? []))].sort();
+  const nearOf = (edge: Edge): Near => ({
+    callerRan: testsThatRan([edge.from]),
+    targetRan: testsThatRan(edge.to.filter((id) => !graph.units[id]?.inTest)),
+    standIn: testsThatRan(edge.to.filter((id) => graph.units[id]?.inTest)),
+    callersOfCallerRan: testsThatRan((intoUnit.get(edge.from) ?? []).map((index) => graph.edges[index]!.from)),
+  });
   const startedApart = (edge: Edge, lowest: Level | undefined): Level | undefined => {
     if (lowest === undefined) return undefined;
     const callers = intoUnit.get(edge.from) ?? [];
@@ -122,6 +136,7 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
     const covered = coveredBy[index]!;
     const lowest = covered.map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
     const together = covered.filter((entry) => entry.withCaller).map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
-    return { edge, crosses, covered, lowest, withCallerAt: together ?? startedApart(edge, lowest) };
+    const withCallerAt = together ?? startedApart(edge, lowest);
+    return { edge, crosses, covered, lowest, withCallerAt, ...(withCallerAt === undefined ? { near: nearOf(edge) } : {}) };
   });
 }

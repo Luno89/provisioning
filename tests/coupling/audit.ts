@@ -7,7 +7,7 @@ import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, layerBreaches, movedIn, pruned, RULES, type Baseline, type Breach } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, pruned, RULES, sameCallBefore, type Baseline, type Breach } from './rules.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
 
@@ -87,7 +87,13 @@ else if (held.kind === 'none') {
   console.log(`${BASELINE} does not exist: run once with --seed-baseline, every rule judged, to record today's breaches`);
   process.exitCode = 1;
 } else {
-  for (const breach of held.added) console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
+  const before = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline : {};
+  const sameCall = new Map(sameCallBefore(before, found, held.added).map((entry) => [entry.key, entry.was]));
+  for (const breach of held.added) {
+    console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
+    for (const line of breach.near ? nearLines(breach.near, breach.rule) : []) console.log(line);
+    for (const was of sameCall.get(breach.key) ?? []) console.log(`  the baseline held this call under another target, now gone from it: ${was}`);
+  }
   for (const entry of held.fixed) console.log(`fixed, prune it: ${entry.key} (${entry.was} -> ${entry.now})`);
   if (held.added.length > 0 || held.fixed.length > 0) process.exitCode = 1;
 }

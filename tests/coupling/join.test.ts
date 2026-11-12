@@ -120,3 +120,30 @@ describe('an edge inside a workflow, which Temporal starts by name', () => {
     expect(intoActivity).toMatchObject({ lowest: 'component', withCallerAt: undefined });
   });
 });
+
+describe('the tests that came close to a call no test runs for real', () => {
+  const STANDIN = 'apps/backend/src/b/callee.test-double.ts';
+  const near: Graph = {
+    units: {
+      caller: unit('caller', CALLER, 'caller', 1),
+      callee: unit('callee', CALLEE, 'callee', 1),
+      double: unit('double', STANDIN, 'double', 1, true),
+      above: unit('above', ENTRY, 'above', 1),
+    },
+    edges: [
+      { from: 'above', site: site(ENTRY, 3), to: ['caller'], through: 'call' },
+      { from: 'caller', site: site(CALLER, 5), to: ['callee', 'double'], through: 'interface' },
+    ],
+    unresolved: [], unmatched: [], records: [],
+  };
+  const runs: Ran[] = [
+    { testFile: 'unit.test.ts', files: { [CALLER]: [ran(1, 1, 10, 'caller')], [STANDIN]: [ran(1, 1, 10, 'double')] } },
+    { testFile: 'component.test.ts', files: { [CALLEE]: [ran(1, 1, 10, 'callee')] } },
+    { testFile: 'fake.test.ts', files: { [ENTRY]: [ran(1, 1, 10, 'above')] } },
+  ];
+
+  it('names the tests that ran its caller, its real target, a stand-in in its place, and what calls its caller', () => {
+    const [, call] = judge(near, runs, levelOf);
+    expect(call!.near).toEqual({ callerRan: ['unit.test.ts'], targetRan: ['component.test.ts'], standIn: ['unit.test.ts'], callersOfCallerRan: ['fake.test.ts'] });
+  });
+});
