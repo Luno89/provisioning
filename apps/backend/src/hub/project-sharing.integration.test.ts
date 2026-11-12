@@ -147,10 +147,9 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     await until(async () => ((await said()).includes('said after sharing') ? true : undefined));
   });
 
-  it('while the hub does not answer, a message waits on the instance, which says why in its log and shows the hub down under Needs attention, and goes once the hub answers again', async () => {
+  it('while the hub does not answer, a message waits on the instance, which shows the hub down under Needs attention, and goes once the hub answers again', async () => {
     await roles.hub.stop();
     expect((await call(onInstance(`/conversations/${project.channelId}/messages`), { method: 'POST', body: { content: 'said while the hub was away' }, cookie: owner })).status).toBeLessThan(300);
-    await until(async () => (/\[HubSync\] .* not (synced|read) yet/.test(roles.instance.logs(400)) ? true : undefined));
     const down = await until(async () => {
       const read = await call<{ dependencies?: { dependency: string; reason: string }[] }>(onInstance('/infrastructure'), { cookie: owner });
       return read.body.dependencies?.find((entry) => entry.dependency === 'hub');

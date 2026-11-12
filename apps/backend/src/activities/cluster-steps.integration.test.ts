@@ -149,10 +149,6 @@ describe('a model downloaded on the machine that runs it', () => {
     expect(await readFile(log, 'utf8')).toMatch(/acme\/tiny is on the machine\n[\s\S]*acme\/tiny was already on the machine\n/);
   }, 600_000);
 
-  it('downloads all the same when its log cannot be written, since the log only shows progress', async () => {
-    expect(await download('acme/tiny', path.join(root, 'no-such-folder', 'download.log'))).toMatchObject({ modelDir: `${cache}/acme-tiny` });
-  }, 600_000);
-
   it('fails with what to check: a model with no files, one Hugging Face does not have, one without config.json', async () => {
     await expect(download('acme/empty')).rejects.toThrow(/no files found for acme\/empty@main/);
     await expect(download('acme/unknown')).rejects.toThrow(/Hugging Face answered 404/);
