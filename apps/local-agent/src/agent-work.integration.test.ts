@@ -24,7 +24,10 @@ afterAll(async () => {
 });
 
 const noKoalaK3s: ClusterHost = {
-  run: async (file) => { throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' }); },
+  run: async (file) => {
+    if (file === 'nvidia-smi') return 'NVIDIA GeForce RTX 3090, 24576\n';
+    throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' });
+  },
   exists: async () => false,
   read: async () => { throw new Error('nothing to read'); },
   list: async () => [],
@@ -38,7 +41,7 @@ const noKoalaK3s: ClusterHost = {
 };
 
 describe('the machine agent starting its work for its Koala', () => {
-  it('connects to its Koala with its work token, reports its agents and its cluster, and starts its device worker, which polls the machine\'s queue', async () => {
+  it('connects to its Koala with its work token, reports its agents, its cluster and its GPUs, and starts its device worker, which polls the machine\'s queue', async () => {
     const http = createServer();
     const koala = new Server(http);
     const heard: Record<string, unknown> = {};
@@ -73,7 +76,7 @@ describe('the machine agent starting its work for its Koala', () => {
       namespace: 'default', taskQueue: { name: deviceQueue('work-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));
-    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [], problems: [] } });
+    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [] } });
     expect(stops).toHaveLength(1);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   }, 120_000);
