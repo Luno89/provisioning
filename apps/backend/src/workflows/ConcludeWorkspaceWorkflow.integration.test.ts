@@ -8,14 +8,14 @@ import { fileURLToPath } from 'url';
 import { ApplicationFailure } from '@temporalio/common';
 import type { ConcludeWorkspaceArgs } from '../engine-host/temporal/contracts.js';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError } from '../memory/services/WorkspaceConclusionService.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
 }, 120_000);
 
 afterAll(async () => {

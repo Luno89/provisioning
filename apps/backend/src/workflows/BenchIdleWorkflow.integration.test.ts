@@ -7,7 +7,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { BenchIdleWorkflow, benchActivitySignal } from './BenchIdleWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type BenchIdleOutcome } from '../engine-host/temporal/contracts.js';
-import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
@@ -15,7 +15,7 @@ const MINUTE = 60_000;
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await timeSkippingTestEnvironment();
+  env = await temporalTestEnvironment();
 }, 120_000);
 
 afterAll(async () => {

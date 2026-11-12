@@ -6,7 +6,7 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { until } from '../../platform/testing/three-roles.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import type { RunningWorkflow } from '../lib/running.js';
@@ -14,7 +14,7 @@ import { RunningService } from '../services/RunningService.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 
 let env: TestWorkflowEnvironment;
-beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
 afterAll(async () => { await env?.teardown(); });
 
 let h: Harness | undefined;

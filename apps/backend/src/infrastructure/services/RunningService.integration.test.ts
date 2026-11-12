@@ -4,7 +4,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import type { RunningWorkflow } from '../lib/running.js';
@@ -17,7 +17,7 @@ let env: TestWorkflowEnvironment;
 let client: Client;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   client = env.client;
 }, 120_000);
 

@@ -4,7 +4,7 @@ import { Worker } from '@temporalio/worker';
 import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { engineReleaseRuns } from '../../engine-host/release-runs.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { releaseRunWorkflowId } from '../lib/release-run.js';
 import type { ReleaseRuns } from '../services/OdooReleaseService.js';
 import { releaseAwaitingPerson } from './awaiting-person.fixture-workflow.js';
@@ -26,7 +26,7 @@ export interface ReleaseRunsOnTemporal {
 const WORKFLOWS = fileURLToPath(new URL('./awaiting-person.fixture-workflow.ts', import.meta.url));
 
 export async function releaseRunsOnTemporal(): Promise<ReleaseRunsOnTemporal> {
-  const env: TestWorkflowEnvironment = await temporalTestEnvironment();
+  const env: TestWorkflowEnvironment = await realTemporalEnvironment();
   const taskQueue = `release-route-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(WORKFLOWS) });
   const working = worker.run();

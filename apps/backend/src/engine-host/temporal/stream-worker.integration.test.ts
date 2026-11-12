@@ -1,7 +1,7 @@
 import { temporal } from '@temporalio/proto';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { keepPayloadsIn } from '../../platform/lib/db-interface.js';
 import { testDatabaseAt } from '../../platform/lib/test-database.js';
@@ -11,7 +11,7 @@ import { startStreamWorker } from './stream-worker.js';
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
   keepPayloadsIn({ uri, dbName, e2e: false });
 });

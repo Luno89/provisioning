@@ -32,7 +32,7 @@ export async function freshNamespace(address: string = inject('temporalAddress')
   };
 }
 
-export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
+export async function realTemporalEnvironment(): Promise<TestWorkflowEnvironment> {
   const address = inject('temporalAddress');
   if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE] } });
   const fresh = await freshNamespace(address);
@@ -45,7 +45,7 @@ export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment
   return env;
 }
 
-export async function timeSkippingTestEnvironment(): Promise<TestWorkflowEnvironment> {
+export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
   const env = await TestWorkflowEnvironment.createTimeSkipping();
   await registerOwnerAttribute(env.connection, env.namespace ?? 'default');
   return env;

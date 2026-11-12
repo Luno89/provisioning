@@ -9,7 +9,7 @@ import { testMinioEnv } from './files/testing/real-minio.js';
 import { testKeyEnv } from './platform/testing/keys.js';
 import { PLAINTEXT_TEMPORAL_CA, unreachedPlatformServices } from './platform/testing/platform-services.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
-import { temporalTestEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { QUEUES } from './platform/index.js';
 
 let env: TestWorkflowEnvironment;
@@ -18,7 +18,7 @@ const homeWas = process.env.HOME;
 let home = '';
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
   const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
   Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('instance-boot'), {

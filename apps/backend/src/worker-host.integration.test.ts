@@ -5,14 +5,14 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
-import { temporalTestEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { startHostWorker } from './worker-host.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
   mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
 });

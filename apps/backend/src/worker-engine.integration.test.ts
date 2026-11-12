@@ -6,14 +6,14 @@ import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { temporalTestEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
   mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
 });

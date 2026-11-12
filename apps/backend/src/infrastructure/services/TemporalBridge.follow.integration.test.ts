@@ -7,7 +7,7 @@ import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';
@@ -15,7 +15,7 @@ import { resolveVllmCacheHostPath } from '../../models/index.js';
 
 let env: TestWorkflowEnvironment;
 
-beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
 afterAll(async () => { await env?.teardown(); });
 
 describe('following work Koala started anywhere to its end', () => {

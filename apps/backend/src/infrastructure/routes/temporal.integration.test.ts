@@ -6,7 +6,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { PLATFORM_OWNER, startedFor } from '../../platform/lib/workflow-owner.js';
 import { anyOf, arrayWith } from '../../platform/lib/test-matchers.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { temporalRouter } from './temporal.js';
@@ -22,7 +22,7 @@ const startOwned = (workflowId: string, owner: string) =>
   env.client.workflow.start('executePipelineRunWorkflow', { taskQueue: 'nobody-works-this-queue', workflowId, ...startedFor(owner) });
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   await startOwned('run-mine', TEST_USER.id);
   await startOwned('run-theirs', 'someone-else');
   await startOwned('bench-idle-space-1', PLATFORM_OWNER);

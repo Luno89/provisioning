@@ -11,7 +11,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
 
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { RunningService } from '../services/RunningService.js';
@@ -73,7 +73,7 @@ const listed = async (ownerId: string): Promise<RunningWorkflow[]> => {
 };
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/waiting-run.fixture-workflow.ts')) });
   working = worker.run();
   prom = await prometheusStandIn(OWN_SERIES);
