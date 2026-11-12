@@ -18,8 +18,9 @@ const workspaceOfTest = (test: string): Workspace | undefined => (REPO_TESTS.tes
 
 const gathered = gatheredIn(OUT)['in-process'];
 const now = fileHashes(ROOT, HASHED_PATHS);
-if (!gathered?.complete || !gathered.files) {
-  console.log('no complete gather to start from, so everything is gathered');
+const failed = gathered ? Object.entries(gathered.timings).filter(([, timing]) => !timing.passed).map(([name]) => name) : [];
+if (!gathered?.complete || !gathered.files || failed.length > 0) {
+  console.log(failed.length > 0 ? `the last gather failed in ${failed.join(', ')}, so everything is gathered` : 'no complete gather to start from, so everything is gathered');
   if (run('npx', ['tsx', 'tests/coupling/gather.ts'])) audit(); else process.exitCode = 1;
 } else {
   const changed = changedBetween(gathered.files, now);

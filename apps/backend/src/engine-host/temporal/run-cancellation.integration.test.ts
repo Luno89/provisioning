@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { MachineRunWatch } from '../../machines/services/MachineRunWatch.js';
 import { runClosedVia, runLifeVia } from './run-cancellation.js';
@@ -20,7 +20,7 @@ const start = (runId: string, owner = 'owner-1') =>
   env.client.workflow.start('heldRun', { taskQueue: QUEUE, workflowId: runId, ...startedFor(owner) });
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowBundle: await bundled(resolve(__dirname, 'testing/run-cancellation.fixture-workflow.ts')) });
   running = worker.run();
   client = async () => env.client;
