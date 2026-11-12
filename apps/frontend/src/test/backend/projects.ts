@@ -64,6 +64,8 @@ import { engineReleaseRuns } from '../../../../backend/src/engine-host/release-r
 import { ODOO_RELEASE_ADAPTER } from '../../../../backend/src/extensions/odoo/release-adapter'
 import type { SlotCluster } from '../../../../backend/src/extensions/releases/slot-cluster'
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
+import { releaseDecider } from '../../../../backend/src/releases/services/release-decider'
+import { changesIn } from '../../../../backend/src/releases/services/repo-changes'
 
 export interface PaperWorkflow {
   workflowType: string
@@ -268,6 +270,7 @@ export function releasesOf(site: Site, side: ProjectsSide): ReleasesSide {
   const exposed: ReleasesSide['exposed'] = []
   const releases = new OdooReleaseService({
     store: db,
+    decide: releaseDecider({ trees: db.projects, changed: changesIn(gitea) }),
     runs: engineReleaseRuns({ runs: side.runs, client: () => side.temporal.client.workflow }),
     how,
     chartAt: (owner, repo, commit) => gitea.getRawFile(owner, repo, CHART_FILE, commit).then((found) => found !== null),
