@@ -68,4 +68,17 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }
   }, 600_000);
+
+  it('stop a change of a vLLM app\'s model that Hugging Face does not have before anything is applied, saying so', async () => {
+    const taskQueue = `model-sync-${Math.random().toString(36).slice(2, 8)}`;
+    const failed = await (await worker(taskQueue)).runUntil(env.client.workflow.execute('executeSyncConfigWorkflow', {
+      taskQueue, workflowId: `syncs-${taskQueue}`,
+      args: [{ name: 'llm', namespace: 'llm-1a2b3c', clusterId: DESK.clusterId, reach: DESK, clusterName: 'desk', strategy: 'native', appType: 'vllm', vllmModel: 'acme/unknown', vllmGpuCount: 0, modelImage: STAND_IN_IMAGE, modelCacheHostPath: `/var/lib/rancher/koala-test-sync-${taskQueue}`, deploymentId: 'd1', storage: {}, logFile: join(tmpdir(), `${taskQueue}.log`) }],
+    })).then(() => undefined, (err: unknown) => err);
+    expect(failed).toBeInstanceOf(WorkflowFailedError);
+    let at = failed as { message?: string; cause?: unknown };
+    while (at.cause) at = at.cause as { message?: string; cause?: unknown };
+    expect(at.message).toMatch(/Hugging Face answered 404/);
+    expect((await access.kubectl(DESK, ['get', 'namespace', 'llm-1a2b3c', '--ignore-not-found', '-o', 'name'])).trim()).toBe('');
+  }, 600_000);
 });
