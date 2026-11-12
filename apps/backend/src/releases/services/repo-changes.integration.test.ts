@@ -59,7 +59,7 @@ describe('what a push changed, read from the project\'s repository', () => {
     runs.closed.mockResolvedValue(undefined);
     runs.answer.mockImplementation(async (_projectId, choice) => { answered.push(choice); });
     let ids = 0;
-    const service = new OdooReleaseService({ store: db, runs, changed, chartAt: async () => true, newId: () => `r${(ids += 1)}` });
+    const service = new OdooReleaseService({ store: db, decide: releaseDecider({ trees: db.projects, changed }), runs, changed, chartAt: async () => true, newId: () => `r${(ids += 1)}` });
     const build = (id: string, commit: string) => ({ id, projectId: 'p1', commitSha: commit, imageTag: `reg/acme/shop:${commit.slice(0, 8)}`, status: 'succeeded' }) as PipelineRunMetadata;
     for (const [id, commit] of [['b1', first], ['b2', testsOnly], ['b3', more]] as const) await db.releases.savePipelineRun(build(id, commit));
 

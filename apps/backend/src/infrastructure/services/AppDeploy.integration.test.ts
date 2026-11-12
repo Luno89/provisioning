@@ -111,4 +111,14 @@ describe('a deploy asking for GPUs, decided by what the machine reported', () =>
     await startAppDeploy(d, { name: 'small', clusterId: DESK.id, appType: 'vllm', vllmGpuCount: 1 }, 'ann');
     expect(started.map((run) => [run.args.vllmGpuCount, run.args.vllmGpuVendor])).toEqual([[1, 'nvidia']]);
   });
+
+  it('refuses a GPU app on a cluster not known here, and an app recorded with no type deployed again, recording and starting nothing new', async () => {
+    const { deps: d, started } = await onDesk();
+    await expect(startAppDeploy(d, { name: 'lost', clusterId: 'machine-gone', appType: 'vllm', vllmGpuCount: 1 }, 'ann')).rejects.toThrow('This app asks for GPUs, and the cluster machine-gone is not known here.');
+    await d.db.infrastructure.saveDeployment({ id: 'untyped', name: 'old', clusterId: DESK.id, strategy: 'native', status: 'failed', ownerId: 'ann' });
+    await expect(startAppDeploy(d, { name: 'old', clusterId: DESK.id }, 'ann')).rejects.toThrow('old has no app type recorded, so it cannot be deployed again: remove it and deploy it anew');
+    expect(started).toEqual([]);
+    expect((await d.db.infrastructure.getDeployments()).map((dep) => dep.name)).toEqual(['old']);
+  });
 });
+

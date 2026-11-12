@@ -4,14 +4,17 @@ import { mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
+import { releaseDecider } from './release-decider.js';
+import { noRepositoryRead } from '../testing/no-repository.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 
 const made: OdooReleaseService[] = [];
+type Deps = ConstructorParameters<typeof OdooReleaseService>[0];
 class Stopped extends OdooReleaseService {
-  constructor(deps: ConstructorParameters<typeof OdooReleaseService>[0]) {
-    super(deps);
+  constructor(deps: Omit<Deps, 'decide'> & Partial<Pick<Deps, 'decide'>>) {
+    super({ decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }), ...deps });
     made.push(this);
   }
 }

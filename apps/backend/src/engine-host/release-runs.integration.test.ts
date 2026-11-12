@@ -10,6 +10,8 @@ import { releaseRunWorkflowId } from '../releases/lib/release-run.js';
 import { OdooReleaseService } from '../releases/services/OdooReleaseService.js';
 import { bundled, temporalTestEnvironment } from '../workflows/temporal-test-env.js';
 import { engineReleaseRuns } from './release-runs.js';
+import { releaseDecider } from '../releases/services/release-decider.js';
+import { noRepositoryRead } from '../releases/testing/no-repository.js';
 
 let env: TestWorkflowEnvironment;
 beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
@@ -47,7 +49,7 @@ describe('following a project\'s release run in Temporal', () => {
       runs: { start: async (request) => { await env.client.workflow.start('releaseStandIn', { taskQueue, workflowId: releaseRunWorkflowId(String(request.bound?.projectId)), ...startedFor(request.ownerId) }); return { runId: request.runId ?? '' } as never; } },
       client: () => env.client.workflow,
     });
-    const svc = new OdooReleaseService({ store: db, runs, chartAt: async () => true, newId: () => 'r1' });
+    const svc = new OdooReleaseService({ store: db, decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }), runs, chartAt: async () => true, newId: () => 'r1' });
     const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'testing/release.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {

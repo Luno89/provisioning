@@ -22,6 +22,8 @@ import { releaseHowOf } from '../lib/release-run.js';
 import { OdooReleaseService } from '../services/OdooReleaseService.js';
 import { releaseRunsOnTemporal, type ReleaseRunsOnTemporal } from '../testing/release-runs-on-temporal.js';
 import { releasesRouter } from './releases.js';
+import { releaseDecider } from '../services/release-decider.js';
+import { changesIn } from '../services/repo-changes.js';
 
 const KEY = 'releases-route-test-key' as never;
 const quiet = { validateStatus: () => true };
@@ -111,6 +113,7 @@ function harness(state: keyof typeof worlds) {
         });
         service = new OdooReleaseService({
           store: db,
+          decide: releaseDecider({ trees: db.projects, changed: changesIn(giteaService) }),
           runs: temporal.runs,
           how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
           chartAt: async (repoOwner, repo, commit) => (await giteaService.getRawFile(repoOwner, repo, 'deploy/chart/Chart.yaml', commit)) !== null,

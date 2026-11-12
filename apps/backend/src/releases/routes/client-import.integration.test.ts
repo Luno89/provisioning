@@ -16,6 +16,8 @@ import { ClientImportService } from '../services/ClientImportService.js';
 import { OdooReleaseService } from '../services/OdooReleaseService.js';
 import { releaseRunsOnTemporal, type ReleaseRunsOnTemporal } from '../testing/release-runs-on-temporal.js';
 import { clientImportRouter } from './client-import.js';
+import { releaseDecider } from '../services/release-decider.js';
+import { noRepositoryRead } from '../testing/no-repository.js';
 
 const NOW = '2026-10-10T09:00:00.000Z';
 const quiet = { validateStatus: () => true };
@@ -59,6 +61,7 @@ async function harness() {
       const clusters = new ClusterService(db, seam.access);
       releases = new OdooReleaseService({
         store: db,
+        decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }),
         runs: temporal.runs,
         how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
         chartAt: async () => true,

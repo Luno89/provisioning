@@ -133,11 +133,15 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     CERTIFICATES: 'internal',
     ...(options.extra ?? {}),
   };
-  const started: LoopbackRole[] = [];
+  const rootSide: LoopbackRole[] = [];
+  const hubSide: LoopbackRole[] = [];
+  const instanceSide: LoopbackRole[] = [];
   const gitea: TestGitea | undefined = options.gitea ? await startRealGitea() : undefined;
   const headscale = options.rootWorkers?.includes('host') ? await startHeadscaleStandIn() : undefined;
   const close = async () => {
-    await Promise.all(started.map((role) => role.close()));
+    for (const side of [instanceSide, hubSide, rootSide]) {
+      for (const role of [...side].reverse()) await role.close();
+    }
     await mail.close();
     await gitea?.close();
     await headscale?.close();
@@ -156,11 +160,11 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
     };
     const root = await startRole('root', rootEnv, ports.root);
-    started.push(root);
+    rootSide.push(root);
     const workers: Record<string, LoopbackRole> = {};
     for (const name of options.rootWorkers ?? []) {
       const worker = await startRole(`root-${name}`, { ...rootEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name] });
-      started.push(worker);
+      rootSide.push(worker);
       workers[`root-${name}`] = worker;
     }
     const emailOf = (who: string) => `${who}-${stamp}@three.test`.replace(/_/g, '-');
@@ -182,10 +186,11 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
       startRole('instance', instanceEnv, ports.instance, giteaFiles),
       startRole('hub', { ...plan.hubEnv, ...shared, ...giteaFor(place.hubUrl) }, ports.hub, giteaFiles),
     ]);
-    started.push(instance, hub);
+    instanceSide.push(instance);
+    hubSide.push(hub);
     for (const name of options.instanceWorkers ?? []) {
       const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name], ...giteaFiles });
-      started.push(worker);
+      instanceSide.push(worker);
       workers[`instance-${name}`] = worker;
     }
     const goes = async (query: string, to: string) => {

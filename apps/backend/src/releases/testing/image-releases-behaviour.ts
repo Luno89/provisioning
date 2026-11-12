@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ImageReleases, type ImageReleaseDeps } from '../services/ImageReleases.js';
+import { releaseDecider } from '../services/release-decider.js';
+import { noRepositoryRead } from './no-repository.js';
 import { deploymentForProject } from '../../projects/lib/project-status.js';
 import type { StartRunRequest } from '../../engine-host/registries/run-starter.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -17,6 +19,7 @@ async function setup(db: Database, over: Partial<ImageReleaseDeps> = {}, deploye
     deployedTag: async (of) => deploymentForProject(of, await db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop(),
     noteOnBuild: (note) => db.releases.savePipelineRunInfo(note),
     stamp: () => 's1',
+    decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }),
     ...over,
   });
   const stored = async () => (await db.releases.getPipelineRuns()).find((entry) => entry.id === 'b2')!;

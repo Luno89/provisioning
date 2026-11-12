@@ -53,7 +53,7 @@ export type ReleaseDecider = (project: ProjectMetadata, since: string, commit: s
 
 export interface OdooReleaseDeps {
   store: OdooReleaseStore;
-  decide?: ReleaseDecider | undefined;
+  decide: ReleaseDecider;
   changed?: ((project: ProjectMetadata, since: string, commit: string) => Promise<string[]>) | undefined;
   secrets?: ReleaseSecrets | undefined;
   runs: ReleaseRuns;
@@ -132,10 +132,10 @@ export class OdooReleaseService {
       return { skipped: testsOnly.note };
     }
 
-    const since = this.deps.decide && !options.again ? (await this.deps.store.releases.getOdooReleases(ownerId, project.id))
+    const since = !options.again ? (await this.deps.store.releases.getOdooReleases(ownerId, project.id))
       .filter((entry) => entry.state !== 'failed' && entry.state !== 'discarded' && entry.state !== 'queued')
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0]?.commit : undefined;
-    if (since && this.deps.decide) {
+    if (since) {
       const decision = await this.deps.decide(project, since, run.commitSha);
       if (!decision.release) {
         await this.deps.store.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason });

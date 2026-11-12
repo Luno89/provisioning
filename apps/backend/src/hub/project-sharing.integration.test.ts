@@ -147,6 +147,20 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     await until(async () => ((await said()).includes('said after sharing') ? true : undefined));
   });
 
+  it('while the hub does not answer, a message waits on the instance, which says why in its log and shows the hub down under Needs attention, and goes once the hub answers again', async () => {
+    await roles.hub.stop();
+    expect((await call(onInstance(`/conversations/${project.channelId}/messages`), { method: 'POST', body: { content: 'said while the hub was away' }, cookie: owner })).status).toBeLessThan(300);
+    await until(async () => (/\[HubSync\] .* not (synced|read) yet/.test(roles.instance.logs(400)) ? true : undefined));
+    const down = await until(async () => {
+      const read = await call<{ dependencies?: { dependency: string; reason: string }[] }>(onInstance('/infrastructure'), { cookie: owner });
+      return read.body.dependencies?.find((entry) => entry.dependency === 'hub');
+    });
+    expect(down.reason.length).toBeGreaterThan(0);
+    expect(await said()).not.toContain('said while the hub was away');
+    await roles.hub.start();
+    await until(async () => ((await said()).includes('said while the hub was away') ? true : undefined));
+  });
+
   it('the owner reads the hub\'s board: the channel is there and the owner\'s instance is online; the owner who shared it cannot leave it on the hub', async () => {
     const board = await until(async () => {
       const read = await call<Board>(onHub(`/projects/${hubId}/board`), { cookie: ownerHub });

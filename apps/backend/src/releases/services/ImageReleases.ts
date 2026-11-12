@@ -6,7 +6,7 @@ import type { StartRunRequest } from '../../engine-host/registries/run-starter.j
 export interface ImageReleaseDeps {
   runs: { start(request: StartRunRequest): Promise<unknown> };
   deployedTag: (project: ProjectMetadata) => Promise<string | undefined>;
-  decide?: ((project: ProjectMetadata, since: string, commit: string) => Promise<ReleaseDecision>) | undefined;
+  decide: (project: ProjectMetadata, since: string, commit: string) => Promise<ReleaseDecision>;
   ensureSecrets?: ((project: ProjectMetadata) => Promise<{ waiting: string[] }>) | undefined;
   noteOnBuild: (run: Partial<PipelineRunMetadata> & { id: string }) => Promise<unknown>;
   stamp?: (() => string) | undefined;
@@ -21,7 +21,7 @@ export class ImageReleases {
     if (!project.autoDeployOnBuild) return 'not-auto-deployed';
     if (!project.ownerId) return this.refuse(run, 'the project has no owner');
     const since = await this.deps.deployedTag(project);
-    if (since && this.deps.decide) {
+    if (since) {
       const decision = await this.deps.decide(project, since, run.commitSha);
       if (!decision.release) {
         await this.deps.noteOnBuild({ id: run.id, releaseSkipped: decision.reason });
