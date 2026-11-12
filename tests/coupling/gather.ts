@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, openSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commitOf, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
+import { commitOf, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
+import { fileHashes } from './impact.js';
 import { WORKSPACES, type Workspace } from './workspaces.js';
 
 interface Options { only: Workspace[]; out: string; cost: boolean }
@@ -26,6 +27,7 @@ const options = optionsFrom(process.argv.slice(2));
 const folder = join(options.out, 'in-process');
 const runs = runsOf(options.out, 'in-process');
 const source = sourceOf();
+const files = fileHashes(ROOT, HASHED_PATHS);
 const at = new Date().toISOString();
 rmSync(folder, { recursive: true, force: true });
 mkdirSync(runs, { recursive: true });
@@ -47,5 +49,6 @@ record(options.out, {
   workspaces: options.only.map((workspace) => workspace.name),
   complete: options.only.length === WORKSPACES.length,
   timings,
+  files,
 });
 if (Object.values(timings).some((timing) => !timing.passed)) process.exitCode = 1;

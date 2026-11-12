@@ -19,9 +19,12 @@ export interface Gathered {
   workspaces: string[];
   complete: boolean;
   timings: Record<string, Timing>;
+  files?: Record<string, string> | undefined;
 }
 
 const SOURCE_PATHS = ['apps', 'packages', 'scripts', 'charts'];
+
+export const HASHED_PATHS = ['apps', 'packages', 'scripts', 'charts', 'tests', 'package.json', 'dependencies.pins.json'];
 
 const git = (root: string, args: readonly string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
 
