@@ -2475,6 +2475,15 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   for the NodePort to answer from inside the edge's container, not for the Service to list its pod; `tests/audits/`). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
   only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores
   (`--maxWorkers=50%`): each file starts its own servers, and seven at once starve tests on eight.
+  **Each file works in a clean world of its own, enforced** (owner, 2026-11-11, "Per file, enforced"): a Temporal namespace registered
+  for the file and dropped after (`freshNamespace`, `temporalTestEnvironment`; there is no pool), its own database and bucket, and on the
+  shared k3s only namespaces it makes (`testNamespaces`, which removes them and waits for their volumes). A file that needs anything
+  cluster-wide or on the node (a CRD, kube-system, a hostPath, a platform namespace Koala looks for by name) starts a k3s of its own.
+  `vitest.k3s-check.ts` fails a file that leaves a cluster-wide object or kube-system workload the cluster did not start with, and the run
+  fails for any namespace or volume left (a global teardown's error does not fail Vitest, so it sets `process.exitCode`). `startK3s`
+  returns only once k3s's own add-ons are applied and kube-system is available. Every throwaway container is labelled with the process
+  that made it, and each integration run first removes those whose maker is gone (`sweepThrowaways`). A test waits on the condition it
+  needs, never `sleep` or a fixed port (`portToHandOn`).
 - **E2E** (`npm run test:e2e`, the live suites in `E2E_STEPS`; the VM suites in `RELEASE_STEPS`): real Koala processes, the dev stack
   or a VM, driven over HTTP as a person would.
 - Each workspace's `vitest.config.ts` builds its two projects with `tiers()` (`tests/tiers/projects.ts`); `npm run test:unit -w <ws>`
