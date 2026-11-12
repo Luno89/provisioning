@@ -26,12 +26,14 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
+      test: { name: 'unit', testTimeout: 0, hookTimeout: 0, include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,
       test: {
         name: 'integration',
+        testTimeout: 0,
+        hookTimeout: 0,
         include: integration,
         exclude,
         expect: { requireAssertions: true },

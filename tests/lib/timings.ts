@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 
-export type TimedKind = 'step' | 'check' | 'file';
+export type TimedKind = 'step' | 'check' | 'file' | 'test';
 
 export interface Timed {
   at: string;
@@ -12,7 +12,7 @@ export interface Timed {
 
 export const TIMINGS_FILE = 'timings.jsonl';
 
-export const SLOWER = { factor: 1.5, atLeastSeconds: 60, runs: 5 } as const;
+export const SLOWER = { factor: 1.5, atLeastSeconds: 60, atLeastSecondsForATest: 5, runs: 5 } as const;
 
 export function keepTimings(file: string, rows: readonly Timed[]): void {
   if (rows.length > 0) appendFileSync(file, rows.map((row) => `${JSON.stringify(row)}\n`).join(''));
@@ -44,9 +44,22 @@ export function slowerThanUsual(history: readonly Timed[], commit: string): stri
     const earlier = [...new Map((before.get(key) ?? []).map((row) => [row.commit, row])).values()].slice(-SLOWER.runs);
     if (earlier.length === 0) continue;
     const usual = median(earlier.map((row) => row.seconds));
-    if (now.seconds >= usual * SLOWER.factor && now.seconds - usual >= SLOWER.atLeastSeconds) {
+    if (now.seconds >= usual * SLOWER.factor && now.seconds - usual >= (now.kind === 'test' ? SLOWER.atLeastSecondsForATest : SLOWER.atLeastSeconds)) {
       slower.push(`${now.kind} ${now.name}: ${shown(now.seconds)}, usually ${shown(usual)} over its last ${earlier.length} run${earlier.length === 1 ? '' : 's'}`);
     }
   }
   return slower.sort();
+}
+
+export type Tier = 'unit' | 'integration';
+
+export const TEST_BUDGET: Record<Tier, number> = { unit: 1, integration: 30 };
+
+const TIER_NAME: Record<Tier, string> = { unit: 'a unit test', integration: 'an integration test' };
+
+const brief = (seconds: number): string => (seconds < 10 ? `${Number(seconds.toFixed(1))} s` : `${Math.round(seconds)} s`);
+
+export function overBudget(tests: readonly { name: string; tier: Tier; seconds: number }[]): string[] {
+  return tests.filter((test) => test.seconds > TEST_BUDGET[test.tier]).sort((a, b) => b.seconds - a.seconds)
+    .map((test) => `${test.name}: ${brief(test.seconds)}, over the ${TEST_BUDGET[test.tier]} s ${TIER_NAME[test.tier]} may take`);
 }
