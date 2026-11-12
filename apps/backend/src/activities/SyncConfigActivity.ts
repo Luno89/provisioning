@@ -1,7 +1,7 @@
 import {
   StorageAdapter, buildAppEnv, modelHfToken, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
-import { waitUntilRolledOut } from './cluster-jobs.js';
+import { namespacedOn, waitUntilRolledOut } from './cluster-jobs.js';
 import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
@@ -149,10 +149,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   await kubectl(['rollout', 'restart', 'deployment', '-n', namespace]);
 
   if (args.appType === 'openwebui') {
-    await waitUntilRolledOut({
-      kubectl: (kubectlArgs) => kubectl(['-n', namespace, ...kubectlArgs]),
-      apply: async () => undefined,
-    }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
+    await waitUntilRolledOut(namespacedOn(steps.access, reach, namespace), 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
     await pushOpenWebUiWebSearchConfig(kubectl, namespace, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),
       ...(args.webuiWebSearchEngine !== undefined ? { webSearchEngine: args.webuiWebSearchEngine } : {}),

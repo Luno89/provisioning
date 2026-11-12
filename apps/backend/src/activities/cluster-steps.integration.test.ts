@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -140,11 +140,17 @@ describe('a model downloaded on the machine that runs it', () => {
   beforeAll(async () => { standIn = await startHuggingFaceStandIn(access, DESK); }, 600_000);
   afterAll(async () => { await standIn.stop(); });
 
-  const download = (modelRepo: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache }, { access }, standIn.endpoint);
+  const download = (modelRepo: string, logFile?: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache, ...(logFile ? { logFile } : {}) }, { access }, standIn.endpoint);
 
-  it('fetches the model\'s files into the machine\'s cache folder, and finds them there the next time', async () => {
-    expect(await download('acme/tiny')).toEqual({ skipped: false, modelDir: `${cache}/acme-tiny` });
-    expect(await download('acme/tiny')).toEqual({ skipped: true, modelDir: `${cache}/acme-tiny` });
+  it('fetches the model\'s files into the machine\'s cache folder, and finds them there the next time, saying so in its log', async () => {
+    const log = path.join(root, 'download.log');
+    expect(await download('acme/tiny', log)).toEqual({ skipped: false, modelDir: `${cache}/acme-tiny` });
+    expect(await download('acme/tiny', log)).toEqual({ skipped: true, modelDir: `${cache}/acme-tiny` });
+    expect(await readFile(log, 'utf8')).toMatch(/acme\/tiny is on the machine\n[\s\S]*acme\/tiny was already on the machine\n/);
+  }, 600_000);
+
+  it('downloads all the same when its log cannot be written, since the log only shows progress', async () => {
+    expect(await download('acme/tiny', path.join(root, 'no-such-folder', 'download.log'))).toMatchObject({ modelDir: `${cache}/acme-tiny` });
   }, 600_000);
 
   it('fails with what to check: a model with no files, one Hugging Face does not have, one without config.json', async () => {

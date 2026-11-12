@@ -10,6 +10,7 @@ import type { PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/ty
 import { marked } from '../lib/release-run.js';
 import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
 import { changesIn } from './repo-changes.js';
+import { releaseDecider } from './release-decider.js';
 
 const OWNER = 'acme';
 let realGitea: RealGitea;
@@ -71,5 +72,30 @@ describe('what a push changed, read from the project\'s repository', () => {
 
     expect(await service.release(project, build('b3', more))).toMatchObject({ commit: more });
     await service.stop();
+  }, 120_000);
+});
+
+describe('whether a build is released, from what its tree type says the app is built from', () => {
+  it('releases when a file the app is built from changed, says why not when nothing it is built from did, and does not release when what changed cannot be read', async () => {
+    await gitea.createRepoForUser(OWNER, 'books');
+    await gitea.commitFiles(OWNER, 'books', [{ path: 'app/main.py', content: 'x = 1\n' }, { path: 'README.md', content: 'one\n' }], 'Start');
+    const first = await head('books');
+    await gitea.commitFiles(OWNER, 'books', [{ path: 'README.md', content: 'two\n' }], 'Words');
+    const words = await head('books');
+    await gitea.commitFiles(OWNER, 'books', [{ path: 'app/main.py', content: 'x = 2\n' }], 'Code');
+    const code = await head('books');
+
+    const db = await testDatabase();
+    await db.projects.saveTreeType({ id: 'books-app', ownerId: 'bo', label: 'Books', summary: 'a books app', language: 'python', produces: 'service', doneMeans: 'it runs', files: [], releaseWhen: ['app/**'] });
+    await db.projects.saveTree({ id: 't1', ownerId: 'bo', name: 'Books', type: 'books-app', projectIds: ['p2'], createdAt: 't' } as never);
+    const decide = releaseDecider({ trees: db.projects, changed: changesIn(gitea) });
+    const project = { id: 'p2', name: 'Books', ownerId: 'bo', giteaOwner: OWNER, giteaRepo: 'books' } as ProjectMetadata;
+
+    expect(await decide(project, first, words)).toEqual({ release: false, reason: `only README.md changed since ${first.slice(0, 8)}, none of which the app is built from` });
+    expect(await decide(project, words, code)).toEqual({ release: true });
+    const unread = await decide(project, 'f'.repeat(40), code);
+    expect(unread.release).toBe(false);
+    expect(unread.release ? '' : unread.reason).toMatch(/^what changed since ffffffff could not be read, so the build is not released: /);
+    expect(await decide({ ...project, id: 'no-tree' }, first, words)).toEqual({ release: true });
   }, 120_000);
 });

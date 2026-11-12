@@ -22,7 +22,6 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
     masterKey: KEY,
     clusterById: async (id) => (id === cluster.id ? cluster : undefined),
     handOver: (clusterId) => access.handOver(clusterId),
-    ownClusterId: () => 'machine-koala',
     logDir: '/tmp/logs',
   };
   return { deps: all, db, workflow, started, access };

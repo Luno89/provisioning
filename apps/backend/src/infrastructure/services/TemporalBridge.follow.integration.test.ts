@@ -11,6 +11,7 @@ import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-
 import { testClusterAccess } from '../testing/cluster-access.js';
 import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';
+import { resolveVllmCacheHostPath } from '../../models/index.js';
 
 let env: TestWorkflowEnvironment;
 
@@ -41,7 +42,7 @@ describe('following work Koala started anywhere to its end', () => {
     await worker.runUntil(async () => {
       await bridge.followWork();
       for (const [id, outcome] of [['shop', 'healthy'], ['blog', 'fails']] as const) {
-        await db.infrastructure.saveDeployment(app(id));
+        await db.infrastructure.saveDeployment(app(id, id === 'shop' ? { failure: 'an earlier attempt did not come up' } : {}));
         const workflowId = `deploy-${id}-${taskQueue}`;
         await env.client.workflow.start('deploys', { taskQueue, workflowId, args: [outcome] });
         await db.infrastructure.saveDeploymentInfo({ id, temporalWorkflowId: workflowId });
@@ -106,6 +107,8 @@ describe('settling the work the bridge itself starts', () => {
 
     await db.infrastructure.saveCluster({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     for (const id of ['gone', 'grown', 'synced']) await db.infrastructure.saveDeployment(app(id));
+    await db.infrastructure.saveDeployment(app('model', { appType: 'vllm', vllmModel: 'acme/tiny', vllmGpuCount: 1, vllmCachePvc: 'shared-models' }));
+    const startedSync = vi.spyOn(bridge.client.workflow, 'start');
     const project = { id: 'p1', name: 'Shop', ownerId: 'u1', giteaOwner: 'bo', giteaRepo: 'shop', autoDeployOnBuild: true, createdAt: 't' } as ProjectMetadata;
     await db.projects.saveProject(project);
     await db.infrastructure.saveDeployment(app('shop', { appType: 'gitapp', gitappProjectId: 'p1', gitappImageTag: 'reg/bo/shop:aaa' }));
@@ -116,6 +119,7 @@ describe('settling the work the bridge itself starts', () => {
       await bridge.destroyApp('gone');
       await bridge.resizeDisk('grown', { data: '20Gi' });
       await bridge.syncConfig('synced');
+      await bridge.syncConfig('model');
       const build = await bridge.runPipeline(project, 'b'.repeat(40), 'refs/heads/main');
       expect(build).toMatchObject({ event: 'pipeline-run' });
       await Promise.all(followings);
@@ -130,6 +134,9 @@ describe('settling the work the bridge itself starts', () => {
     const [run] = await db.releases.getPipelineRuns();
     expect(run).toMatchObject({ projectId: 'p1', status: 'succeeded', imageTag: 'reg/bo/shop:bbb', releaseSkipped: 'nothing the app is built from changed' });
     expect(decided).toEqual([`p1 aaa ${'b'.repeat(40)}`]);
+    const modelSync = startedSync.mock.calls.map(([, options]) => options.args?.[0] as Record<string, unknown>).find((args) => args.name === 'model');
+    expect(modelSync).toMatchObject({ appType: 'vllm', modelCacheHostPath: resolveVllmCacheHostPath('shared-models') });
+    expect(String(modelSync?.modelImage)).toContain('vllm/vllm-openai');
   }, 60_000);
 });
 

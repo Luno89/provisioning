@@ -42,7 +42,6 @@ describe('deploying a project\'s build', () => {
       masterKey: 'k',
       clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'machine', machineId: 'dev2' } as ClusterMetadata : undefined),
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
-      ownClusterId: () => undefined,
       logDir: '/tmp',
     };
   });

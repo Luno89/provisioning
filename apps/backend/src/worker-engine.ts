@@ -219,7 +219,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
             masterKey: keys.data,
             clusterById: (id) => clusterService.getByIdUnscoped(id),
             handOver: (id) => clusterService.access.handOver(id),
-            ownClusterId: () => clusterService.ownClusterId(),
             logDir: LOG_DIR,
           }, project, run);
           return { workflowId: started.workflowId };

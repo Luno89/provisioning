@@ -23,7 +23,6 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
       clusterById: async (id) => (id === CLUSTER.id ? CLUSTER : undefined),
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
-      ownClusterId: () => undefined,
     },
     started,
   };
@@ -88,5 +87,28 @@ describe('a model\'s Hugging Face token', () => {
     expect(started.map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_saved'], [undefined, undefined]]);
     const stored = Object.fromEntries((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, [dep.vllmHfToken, dep.tabbyHfToken]]));
     expect(stored).toEqual({ given: ['hf_given', undefined], saved: [undefined, 'hf_saved'], none: [undefined, undefined] });
+  });
+});
+
+describe('a deploy asking for GPUs, decided by what the machine reported', () => {
+  const DESK: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
+  const onDesk = async () => {
+    const made = await deps();
+    await made.deps.db.infrastructure.saveCluster(DESK);
+    return { ...made, deps: { ...made.deps, clusterById: async (id: string) => (id === DESK.id ? DESK : undefined) } };
+  };
+
+  it('refuses more GPUs than the machine has, and a model app that names no count, recording and starting nothing', async () => {
+    const { deps: d, started } = await onDesk();
+    await expect(startAppDeploy(d, { name: 'big', clusterId: DESK.id, appType: 'vllm', vllmGpuCount: 3 }, 'ann')).rejects.toThrow(/asks for 3 NVIDIA GPUs, and .* has 2 NVIDIA GPUs\. Ask for 2 or fewer\./);
+    await expect(startAppDeploy(d, { name: 'unsaid', clusterId: DESK.id, appType: 'vllm' }, 'ann')).rejects.toThrow(/GPU/);
+    expect(started).toEqual([]);
+    expect((await d.db.infrastructure.getDeployments()).map((dep) => dep.name)).toEqual([]);
+  });
+
+  it('takes one GPU on the machine, recording the vendor it reported', async () => {
+    const { deps: d, started } = await onDesk();
+    await startAppDeploy(d, { name: 'small', clusterId: DESK.id, appType: 'vllm', vllmGpuCount: 1 }, 'ann');
+    expect(started.map((run) => [run.args.vllmGpuCount, run.args.vllmGpuVendor])).toEqual([[1, 'nvidia']]);
   });
 });

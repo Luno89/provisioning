@@ -7,7 +7,6 @@ import {
 } from '../../projects/index.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from '../lib/client-import.js';
 import { buildPlanAt } from '../lib/build-plan.js';
-import { releaseDecision, type ReleaseDecision } from '../lib/release-paths.js';
 import { releaseHowOf } from '../lib/release-run.js';
 import { CHART_FILE, ODOO_RELEASE_SECRETS, OWN_SECRET_FILE, releaseTargetOf } from '../lib/odoo-release.js';
 import { managedSecretName } from '../lib/infisical-sync.js';
@@ -33,6 +32,7 @@ import { clientImportRouter } from '../routes/client-import.js';
 import { releasesRouter } from '../routes/releases.js';
 import type { Mounts } from '../../hub/index.js';
 import { changesIn } from '../services/repo-changes.js';
+import { releaseDecider } from '../services/release-decider.js';
 
 export interface ReleasesWiringDeps {
   tenant: Mounts;
@@ -83,15 +83,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical, deps.database) });
 
   const changedBetween = changesIn(gitea);
-  const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
-    const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;
-    if (!releaseWhen?.length || !project.giteaOwner || !project.giteaRepo) return { release: true };
-    try {
-      return releaseDecision(await changedBetween(project, since, commit), releaseWhen, since);
-    } catch (err) {
-      return { release: false, reason: `what changed since ${since.slice(0, 8)} could not be read, so the build is not released: ${(err as Error).message}` };
-    }
-  };
+  const decideRelease = releaseDecider({ trees: db.projects, changed: changedBetween });
   temporalBridge.decideRelease = decideRelease;
 
   const customizations = new CustomizationsService({

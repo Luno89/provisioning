@@ -28,7 +28,6 @@ export interface AppDeployDeps {
   masterKey: SecretKey;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
   handOver: (clusterId: string) => Promise<HandOver>;
-  ownClusterId: () => string | undefined;
   logDir: string;
 }
 

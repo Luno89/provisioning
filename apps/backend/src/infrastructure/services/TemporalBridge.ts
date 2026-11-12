@@ -630,7 +630,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: LOG_DIR }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

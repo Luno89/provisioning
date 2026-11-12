@@ -4,8 +4,9 @@ import type { AddressInfo } from 'node:net';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
+import { mock, type MockProxy } from 'vitest-mock-extended';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
+import { machineGpus, NVIDIA_RUNTIME_BINARIES } from '../../../../local-agent/src/machine-gpus.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -26,7 +27,7 @@ let io: SocketServer;
 let url = '';
 const clients: ClientSocket[] = [];
 
-const machineWith = (installed: boolean): ClusterHost => {
+const machineWith = (installed: boolean): MockProxy<ClusterHost> => {
   const host = mock<ClusterHost>();
   host.exists.mockImplementation(async (path) => installed && path === K3S_MARKER);
   host.isWanted.mockResolvedValue(false);
@@ -34,12 +35,24 @@ const machineWith = (installed: boolean): ClusterHost => {
   return host;
 };
 
-async function reports(host: ClusterHost): Promise<void> {
+async function reports(host: ClusterHost, withGpus = false): Promise<void> {
   const socket = connect(`${url}/agent`, { auth: { token: TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
   await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
-  socket.emit('machine:cluster', { state: await clusterOnConnect(host, () => undefined) });
+  const state = await clusterOnConnect(host, () => undefined);
+  if (!withGpus) {
+    socket.emit('machine:cluster', { state });
+    return;
+  }
+  const gpus = await machineGpus(host, undefined);
+  socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems });
 }
+
+const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
+  host.run.mockImplementation(async (file) => (file === 'nvidia-smi' ? 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n' : 'inactive\n'));
+  host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_RUNTIME_BINARIES[1]);
+  return host;
+};
 
 async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
   for (;;) {
@@ -84,6 +97,14 @@ describe('a machine telling Koala about its own cluster', () => {
   it('a machine whose k3s Koala installed shows its cluster, stopped, on its mesh address', async () => {
     await reports(machineWith(true));
     expect(await until(desk)).toMatchObject({ provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'owner-1', meshIp: '100.64.0.7' });
+  }, 30_000);
+
+  it('a machine reporting its GPUs again keeps them on its cluster, read by the agent\'s own reader from what nvidia-smi printed', async () => {
+    await reports(machineWith(true));
+    await until(desk);
+    await reports(withTwoNvidiaCards(machineWith(true)), true);
+    const reported = await until(async () => ((await desk())?.gpus ? desk() : undefined));
+    expect(reported).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] });
   }, 30_000);
 
   it('a machine whose k3s is gone takes its cluster with it once no app is on it', async () => {

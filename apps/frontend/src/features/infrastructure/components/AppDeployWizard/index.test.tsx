@@ -19,6 +19,17 @@ const catalogueFixture: CatalogueEntry[] = [
       strategies: ['helm', 'native'],
     },
   },
+  {
+    id: 'vllm',
+    deploysFromSpec: false,
+    uiDefaults: {
+      helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+      native: { webRepo: 'vllm/vllm-openai', webTag: 'latest', dbRepo: '', dbTag: '' },
+      hasDatabase: false,
+      strategies: ['native'],
+      gpuOnly: true,
+    },
+  },
 ];
 
 vi.mock('../../api/deployments', async (importOriginal) => ({
@@ -41,16 +52,16 @@ vi.mock('../../../models/api', async (importOriginal) => ({
 
 const clusters: Cluster[] = [
   { id: 'c1', name: 'dev', provider: 'machine', status: 'healthy' },
-  { id: 'gpu1', name: 'rig', provider: 'machine', status: 'healthy', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1, gpuVendor: 'nvidia' } },
+  { id: 'gpu1', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 1, runtime: true }] },
 ];
 
-const setup = () => {
+const setup = (given: Cluster[] = clusters) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
   const onDeploy = vi.fn();
   render(
     <QueryClientProvider client={qc}>
-      <AppDeployWizard clusters={clusters} deployments={[]} onClose={onClose} onDeploy={onDeploy} />
+      <AppDeployWizard clusters={given} deployments={[]} onClose={onClose} onDeploy={onDeploy} />
     </QueryClientProvider>,
   );
   return { onClose, onDeploy, user: userEvent.setup() };
@@ -141,5 +152,25 @@ describe('the model step for vLLM and TabbyAPI', () => {
     await user.click(screen.getByRole('button', { name: /^Next/ }));
 
     expect(useModelSearch).toHaveBeenLastCalledWith('jellyfin', '', false);
+  });
+});
+
+describe('the cluster step for an app that needs a GPU', () => {
+  const offered = (): string[] => Array.from((screen.getByLabelText(/target cluster/i) as HTMLSelectElement).options, (option: HTMLOptionElement) => option.value).filter(Boolean);
+
+  it('offers only the machines that report a GPU, and picks the one there is', async () => {
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText(/application type/i), 'vllm');
+    expect(offered()).toEqual(['gpu1']);
+    expect((screen.getByLabelText(/target cluster/i) as HTMLSelectElement).value).toBe('gpu1');
+    expect(screen.getByText(/Only machines that report a GPU are shown/)).toBeInTheDocument();
+  });
+
+  it('says none of the machines reports a GPU, with the problem a machine had reading its GPUs', async () => {
+    const { user } = setup([{ id: 'c1', name: 'dev', provider: 'machine', status: 'healthy', gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] }]);
+    await user.selectOptions(screen.getByLabelText(/application type/i), 'vllm');
+    expect(offered()).toEqual([]);
+    expect(screen.getByText(/None of your machines reports a GPU/)).toBeInTheDocument();
+    expect(screen.getByText('dev: nvidia-smi is installed but does not answer')).toBeInTheDocument();
   });
 });

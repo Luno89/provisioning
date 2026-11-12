@@ -7,7 +7,7 @@ import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type Sl
 import { clusterOfTarget } from '../../releases/lib/release-run.js';
 import type { ReleaseSource, ReleaseTarget, VaultReach } from '../../releases/index.js';
 import type { SecretSyncInfra } from '../../projects/index.js';
-import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
+import { inNamespace, namespacedOn, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { manifestList, registryPullManifests, type RegistryLogin, type RegistryLoginSource } from '../../instances/lib/registry-pull.js';
@@ -76,10 +76,7 @@ export function createSlotCluster(deps: { access: SlotClusterAccess; repo: () =>
   const { access } = deps;
   const beat = deps.beat ?? (() => {});
   const kubectl = async (target: ReleaseTarget, args: string[]) => access.kubectl(releaseCluster(target), ['-n', target.namespace, ...args]);
-  const namespaced = (target: ReleaseTarget): NamespacedCluster => ({
-    kubectl: (args) => kubectl(target, args),
-    apply: async (manifest) => { await access.apply(releaseCluster(target), JSON.stringify(inNamespace(manifest, target.namespace))); },
-  });
+  const namespaced = (target: ReleaseTarget): NamespacedCluster => namespacedOn(access, releaseCluster(target), target.namespace);
   const absentAsNothing = (err: unknown): string => {
     if (/NotFound|not found/i.test((err as Error).message)) return '';
     throw err;
