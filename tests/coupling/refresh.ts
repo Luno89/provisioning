@@ -1,19 +1,36 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { Setup } from '../tiers/projects.js';
 import { commitOf, gatheredIn, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
-import { changedBetween, fileHashes, testsToRerun } from './impact.js';
+import { changedBetween, changedLines, fileHashes, testsToRerun } from './impact.js';
 import { runsIn } from './report.js';
+import { providedIn, setupsFor } from './setups.js';
 import { workspaceOf, WORKSPACES, type Workspace } from './workspaces.js';
 
 const TEST_FILE = /\.test\.(ts|tsx|mjs)$/;
 const REPO_TESTS = /^tests\/(lib|coupling|alignment|tiers)\/[^/]+\.test\.ts$/;
+const INTEGRATION_TEST = /\.(integration|real-[^/.]+)\.test\.(ts|tsx|mjs)$/;
 const BACKEND = WORKSPACES.find((workspace) => workspace.name === 'backend')!;
 
 const run = (command: string, args: string[], cwd = ROOT, env: NodeJS.ProcessEnv = process.env): boolean =>
   spawnSync(command, args, { cwd, env, stdio: 'inherit' }).status === 0;
 const audit = (): void => { process.exitCode = run('npx', ['tsx', 'tests/coupling/audit.ts', '--require', 'in-process']) ? 0 : 1; };
 const recordName = (testFile: string): string => testFile.replace(/[^A-Za-z0-9.-]+/g, '_');
+const readIn = (file: string): string | undefined => { try { return readFileSync(join(ROOT, file), 'utf8'); } catch { return undefined; } };
+
+async function providersOf(workspace: Workspace): Promise<Map<string, string>> {
+  const table = join(ROOT, workspace.folder, 'vitest.setups.ts');
+  const providers = new Map<string, string>();
+  if (!existsSync(table)) return providers;
+  const { OPTIONAL_SETUPS } = await import(pathToFileURL(table).href) as { OPTIONAL_SETUPS: Record<string, Setup> };
+  for (const [name, setup] of Object.entries(OPTIONAL_SETUPS)) {
+    for (const key of providedIn(readFileSync(join(ROOT, workspace.folder, setup.globalSetup), 'utf8'))) providers.set(key, name);
+  }
+  return providers;
+}
+
 const workspaceOfTest = (test: string): Workspace | undefined => (REPO_TESTS.test(test) ? BACKEND : workspaceOf(test));
 
 const gathered = gatheredIn(OUT)['in-process'];
@@ -26,7 +43,8 @@ if (!gathered?.complete || !gathered.files || failed.length > 0) {
   const changed = changedBetween(gathered.files, now);
   const runsDir = runsOf(OUT, 'in-process');
   const tests = Object.keys(now).filter((file) => TEST_FILE.test(file) && workspaceOfTest(file) !== undefined);
-  const plan = testsToRerun(runsIn(runsDir), changed, tests);
+  const runs = runsIn(runsDir);
+  const plan = testsToRerun(runs, changedLines(ROOT, gathered.files, now, changed), tests);
   if (plan.full) {
     console.log(`${plan.because} changed, which every test may read, so everything is gathered`);
     if (run('npx', ['tsx', 'tests/coupling/gather.ts'])) audit(); else process.exitCode = 1;
@@ -43,7 +61,11 @@ if (!gathered?.complete || !gathered.files || failed.length > 0) {
       const mine = plan.tests.filter((test) => workspaceOfTest(test) === workspace);
       if (mine.length === 0) continue;
       const cwd = join(ROOT, workspace.folder);
-      const ok = run('npx', ['vitest', 'run', '--project', 'unit', '--project', 'integration', ...mine.map((test) => relative(cwd, join(ROOT, test)))], cwd, { ...process.env, COUPLING_COVERAGE: runsDir, TEMPORAL_DEBUG: '1' });
+      const integration = mine.filter((test) => INTEGRATION_TEST.test(test));
+      const setups = setupsFor(integration, runs, changed, { read: readIn, exists: (file) => existsSync(join(ROOT, file)), providers: await providersOf(workspace) });
+      const projects = [...(integration.length < mine.length ? ['unit'] : []), ...(integration.length > 0 ? ['integration'] : [])];
+      if (integration.length > 0) console.log(`${workspace.name}: ${mine.length} test files, starting ${setups.length > 0 ? setups.join(', ') : 'none'} of its optional setups`);
+      const ok = run('npx', ['vitest', 'run', ...projects.flatMap((project) => ['--project', project]), ...mine.map((test) => relative(cwd, join(ROOT, test)))], cwd, { ...process.env, COUPLING_COVERAGE: runsDir, TEMPORAL_DEBUG: '1', KOALA_SETUPS: setups.join(',') });
       passed &&= ok;
     }
     if (!passed) {

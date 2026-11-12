@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import { REPORTERS, tiers } from '../../tests/tiers/projects.js';
+import { OPTIONAL_SETUPS } from './vitest.setups.js';
 
 export default defineConfig({
   test: {
@@ -8,7 +9,7 @@ export default defineConfig({
     environment: 'node',
     projects: tiers({
       include: ['src/**/*.test.ts', '../../tests/lib/*.test.ts', '../../tests/coupling/*.test.ts', '../../tests/alignment/*.test.ts', '../../tests/tiers/*.test.ts'],
-      integration: { globalSetup: ['./vitest.global-setup.ts', './vitest.temporal-setup.ts', './vitest.k3s-setup.ts', './vitest.minio-setup.ts'], setupFiles: ['./vitest.setup.ts', './vitest.k3s-check.ts'] },
+      integration: { globalSetup: ['./vitest.global-setup.ts', './vitest.temporal-setup.ts'], optional: OPTIONAL_SETUPS, setupFiles: ['./vitest.setup.ts'] },
     }),
   },
 });
