@@ -234,3 +234,13 @@ describe('a call into code that does nothing a test could observe', () => {
     expect(rulesOf(breaches(untested, quiet)).filter((found) => found.startsWith('R1'))).toEqual(['R1 apps/backend/src/x/service.ts:2']);
   });
 });
+
+describe('a function in a service that does nothing a test could observe', () => {
+  it('is not asked for a unit and an integration test of its own', () => {
+    const graph: Graph = {
+      units: { warns: { ...unit('warns', 'apps/backend/src/x/services/Thing.ts'), noBehaviour: true }, acts: unit('acts', 'apps/backend/src/x/services/Thing.ts') },
+      edges: [], unresolved: [], unmatched: [], records: [],
+    };
+    expect(layerBreaches(graph, new Map()).map((breach) => breach.key)).toEqual(['R5 apps/backend/src/x/services/Thing.ts#acts']);
+  });
+});

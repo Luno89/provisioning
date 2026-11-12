@@ -13,7 +13,7 @@ const REAL: ReadonlySet<Level> = new Set(['component', 'contract', 'container', 
 export function layerBreaches(graph: Graph, levels: ReadonlyMap<string, ReadonlySet<Level>>): Breach[] {
   const found: Breach[] = [];
   for (const unit of Object.values(graph.units)) {
-    if (unit.inTest || unit.name === '(module)' || !LAYERED.test(unit.file)) continue;
+    if (unit.inTest || unit.noBehaviour || unit.name === '(module)' || !LAYERED.test(unit.file)) continue;
     const ran = levels.get(unit.id) ?? new Set<Level>();
     const unitTested = ran.has('unit');
     const real = [...ran].some((level) => REAL.has(level));
