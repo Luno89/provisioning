@@ -1,6 +1,7 @@
 import { relative } from 'node:path';
 import ts from 'typescript';
 import type { RecordAccess } from './record-access.js';
+import { NO_OP_FUNCTIONS, onlyLogs } from './no-behaviour.js';
 
 export interface Unit {
   id: string;
@@ -12,6 +13,7 @@ export interface Unit {
   end: number;
   ends?: { line: number; column: number } | undefined;
   inTest: boolean;
+  noBehaviour?: boolean | undefined;
 }
 
 export interface Site { file: string; line: number; column: number; start: number; end: number }
@@ -114,7 +116,9 @@ export function buildGraph(options: GraphOptions): Graph {
     const start = node.getStart(source);
     const { line, character } = source.getLineAndCharacterOfPosition(start);
     const last = source.getLineAndCharacterOfPosition(node.getEnd());
-    return { id: `${file}:${line + 1}:${character + 1}`, file, name: functionName(node), line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file) };
+    const name = functionName(node);
+    const noBehaviour = onlyLogs(node) || NO_OP_FUNCTIONS.some((known) => known.file === file && known.name === name);
+    return { id: `${file}:${line + 1}:${character + 1}`, file, name, line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file), ...(noBehaviour ? { noBehaviour } : {}) };
   };
   const kept = (unit: Unit): Unit => {
     units[unit.id] ??= unit;

@@ -218,3 +218,19 @@ describe('a breach whose caller was renamed or moved within its file', () => {
     expect(against(found, carried).added).toHaveLength(1);
   });
 });
+
+describe('a call into code that does nothing a test could observe', () => {
+  it('is not judged, whether its target only writes a log line or only declares a failure ignored', () => {
+    const quiet: Graph = {
+      units: {
+        service: unit('service', 'apps/backend/src/x/service.ts'),
+        log: { ...unit('log', 'apps/backend/src/x/wiring.ts'), noBehaviour: true },
+        store: unit('store', 'apps/backend/src/x/store.ts'),
+      },
+      edges: [edge('service', ['log'], 'interface', 1), edge('service', ['store'], 'interface', 2)],
+      unresolved: [], unmatched: [], records: [],
+    };
+    const untested = quiet.edges.map((entry): Judged => ({ edge: entry, crosses: 'area', covered: [] }));
+    expect(rulesOf(breaches(untested, quiet)).filter((found) => found.startsWith('R1'))).toEqual(['R1 apps/backend/src/x/service.ts:2']);
+  });
+});

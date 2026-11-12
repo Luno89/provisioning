@@ -56,6 +56,7 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
   for (const entry of judged) {
     const { edge } = entry;
     const at = `${edge.site.file}:${edge.site.line}`;
+    if (edge.to.length > 0 && edge.to.every((id) => graph.units[id]?.noBehaviour)) continue;
     const pair = `${name(edge.from)} -> ${edge.to.map(name).sort().join(' | ')} (${edge.through})`;
     if (edge.to.length === 0) {
       found.push({ rule: 'R4', key: `R4 ${pair}`, at, why: 'no implementation found for this call' });
