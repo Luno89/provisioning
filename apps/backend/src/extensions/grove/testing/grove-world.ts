@@ -46,6 +46,7 @@ import { GROVE_TOOLS } from '../tools/grove-tools-catalogue.js';
 import { seededAgents, seededProcedures } from '../../seeds.js';
 import { extensionRuntimes, operationHandlers } from '../../runtime.js';
 import type { HostOperationRun } from '../../types.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const WORKFLOWS = resolve(dirname(fileURLToPath(import.meta.url)), '../../../workflows');
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
@@ -432,7 +433,14 @@ export class GroveWorld {
         taskQueue,
         workflowId: runId,
       });
-      if (options.drive) await options.drive(handle, (kind) => callOf(kind).promise);
+      if (options.drive) {
+        const ended = handle.result().then(
+          (result) => { throw new Error(`the run ended before the call the test waits for was made: ${JSON.stringify(result).slice(0, 2000)}`); },
+          (err: unknown) => { throw new Error(`the run failed before the call the test waits for was made: ${(err as Error).message}`); },
+        );
+        ended.catch(ignore('the call the test waits for came first, so the run ending afterwards is not a failure of that wait'));
+        await options.drive(handle, (kind) => Promise.race([callOf(kind).promise, ended]));
+      }
       return handle.result();
     };
     const outcome = await engineWorker.runUntil(() => streamWorker.runUntil(startAgent));
