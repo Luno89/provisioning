@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import type { ServiceAccount } from '../lib/cluster-places.js';
+import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 export const K3S_TEST_IMAGE = 'rancher/k3s:v1.36.4-k3s1@sha256:edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657';
 
@@ -29,7 +30,7 @@ const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(do
 export async function startK3s(processes: Processes = nodeProcesses): Promise<RealK3s> {
   const name = `koala-k3s-test-${randomUUID().slice(0, 8)}`;
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
-  await docker('run', '-d', '--name', name, '--privileged', '-p', '127.0.0.1::6443', K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
+  await docker('run', '-d', '--name', name, ...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
   const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
   const stillRunning = async (what: string): Promise<void> => {
     if ((await docker('inspect', '-f', '{{.State.Running}}', name)).trim() === 'true') return;

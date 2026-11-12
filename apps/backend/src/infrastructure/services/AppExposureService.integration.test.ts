@@ -12,6 +12,7 @@ import { adminEdge } from '../../instances/services/InstanceAddresses.js';
 import { startK3s, TOOLS } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
 import { ClusterAccess } from './ClusterAccess.js';
+import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 const KEY = 'test-key' as never;
 const k3s = await startK3s();
@@ -71,7 +72,7 @@ beforeAll(async () => {
   chmodSync(sites, 0o777);
   writeFileSync(join(folder, 'Caddyfile'), chartEdgeCaddyfile());
   edgeName = `koala-edge-test-${randomUUID().slice(0, 8)}`;
-  await docker('run', '-d', '--name', edgeName, '-p', '127.0.0.1::2019', '-p', '127.0.0.1::8000',
+  await docker('run', '-d', '--name', edgeName, ...throwawayLabel(), '-p', '127.0.0.1::2019', '-p', '127.0.0.1::8000',
     '-v', `${join(folder, 'Caddyfile')}:/etc/edge/Caddyfile:ro`, '-v', `${sites}:/app/apps/backend/data/caddy/apps:ro`,
     EDGE_IMAGE, 'caddy', 'run', '--config', '/etc/edge/Caddyfile');
   const port = async (inside: string) => (await docker('port', edgeName, inside)).split('\n')[0]!.split(':').pop()!.trim();

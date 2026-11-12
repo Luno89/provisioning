@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
+import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 const run = promisify(execFile);
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -22,7 +23,7 @@ async function machine(nvidiaSmi: string, toolkit: boolean): Promise<unknown> {
   const name = `koala-gpu-read-${randomUUID().slice(0, 8)}`;
   const coverage = process.env.NODE_V8_COVERAGE;
   await run('docker', [
-    'run', '-d', '--name', name, '--user', `${process.getuid!()}:${process.getgid!()}`, '-v', `${REPO}:${REPO}:ro`,
+    'run', '-d', '--name', name, ...throwawayLabel(), '--user', `${process.getuid!()}:${process.getgid!()}`, '-v', `${REPO}:${REPO}:ro`,
     ...(coverage ? ['-v', `${coverage}:${coverage}`, '-e', `NODE_V8_COVERAGE=${coverage}`] : []),
     NODE_IMAGE, 'sleep', 'infinity',
   ]);

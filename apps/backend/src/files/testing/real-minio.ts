@@ -7,6 +7,7 @@ import { ignore } from '@koala/engine-core/failures';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import { STORED_FILES_BUCKET } from '../lib/stored-files.js';
 import type { MinioSettings } from '../services/ObjectStore.js';
+import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 const CHART_VALUES = resolve(import.meta.dirname, '../../../../../charts/instance/values.yaml');
 
@@ -33,7 +34,7 @@ export async function startMinio(processes: Processes = nodeProcesses, options: 
   const accessKey = 'koala-test';
   const secretKey = randomBytes(18).toString('hex');
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
-  await docker('run', '-d', '--name', name, '-p', `127.0.0.1:${options.port ?? ''}:9000`, '-e', `MINIO_ROOT_USER=${accessKey}`, '-e', `MINIO_ROOT_PASSWORD=${secretKey}`, '-e', 'MINIO_BROWSER=off', MINIO_TEST_IMAGE, 'server', '/data');
+  await docker('run', '-d', '--name', name, ...throwawayLabel(), '-p', `127.0.0.1:${options.port ?? ''}:9000`, '-e', `MINIO_ROOT_USER=${accessKey}`, '-e', `MINIO_ROOT_PASSWORD=${secretKey}`, '-e', 'MINIO_BROWSER=off', MINIO_TEST_IMAGE, 'server', '/data');
   const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
   const ready = async (port: number): Promise<void> => {
     for (;;) {

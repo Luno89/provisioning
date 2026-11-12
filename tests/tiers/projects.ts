@@ -9,6 +9,7 @@ export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timi
 const UNIT_GUARD = here('./unit-guard.ts');
 const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
+const THROWAWAYS = here('../../packages/engine-core/testing/throwaway-containers.ts');
 
 export interface Tiers {
   include: string[];
@@ -34,7 +35,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         include: integration,
         exclude,
         expect: { requireAssertions: true },
-        globalSetup: options.integration?.globalSetup ?? [],
+        globalSetup: [THROWAWAYS, ...(options.integration?.globalSetup ?? [])],
         ...(options.integration?.env ? { env: options.integration.env } : {}),
         ...(options.integration?.environment ? { environment: options.integration.environment } : {}),
         setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), COUPLING],

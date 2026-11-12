@@ -35,6 +35,10 @@
       "types": "./testing/ports.ts",
       "default": "./testing/ports.ts"
     },
+    "./testing/throwaway-containers": {
+      "types": "./testing/throwaway-containers.ts",
+      "default": "./testing/throwaway-containers.ts"
+    },
     "./http": {
       "types": "./src/http.ts",
       "default": "./src/http.ts"
