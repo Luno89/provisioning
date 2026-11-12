@@ -315,12 +315,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
         save: (request) => db.infrastructure.saveAccessRequest(request),
       },
     },
-    mcpServers: {
-      list: (ownerId) => db.engine.getMcpServers(ownerId),
-      get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
-      save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: clusterAccess, clusterById: (id) => clusterService.getByIdUnscoped(id) }).url, urlProblem: publicAddressProblem }),
-    },
+    mcpHostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: clusterAccess, clusterById: (id) => clusterService.getByIdUnscoped(id) }).url, urlProblem: publicAddressProblem }),
     ...(web ? { web } : {}),
     cluster: onKoala,
     registry: imageRegistry,

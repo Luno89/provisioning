@@ -330,12 +330,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       describe: (ownerId, treeId) => deps.treeModels().describe(ownerId, treeId),
       problem: (ownerId, treeId, agent, modelId) => deps.treeModels().problem(ownerId, treeId, agent, modelId),
     },
-    mcpServers: {
-      list: (ownerId) => db.engine.getMcpServers(ownerId),
-      get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
-      save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: deps.access, clusterById: async (id) => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id) }).url, urlProblem: publicAddressProblem }),
-    },
+    mcpHostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: deps.access, clusterById: async (id) => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id) }).url, urlProblem: publicAddressProblem }),
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
     writeRepoFile: (ownerId, repo, path, content, message, branch) => projectRepos.putDocument(ownerId, repo, path, content, message, branch),

@@ -94,6 +94,11 @@ export interface EngineHostStores {
   };
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
   mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
+  mcpServers?: {
+    list(ownerId: string): Promise<McpServerRecord[]>;
+    get(ownerId: string, id: string): Promise<McpServerRecord | undefined>;
+    save(server: McpServerRecord): Promise<void>;
+  } | undefined;
   egress?: import('./tools/egress-tools.js').EgressToolStores | undefined;
   runs?: import('./tools/run-tools.js').RunReader | undefined;
   proposals?: {
@@ -139,12 +144,7 @@ export interface EngineHostOptions {
   runEnded?: ((runId: string) => Promise<boolean>) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
-  mcpServers?: {
-    list(ownerId: string): Promise<McpServerRecord[]>;
-    get(ownerId: string, id: string): Promise<McpServerRecord | undefined>;
-    save(server: McpServerRecord): Promise<void>;
-    hostedUrl(ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>): Promise<string | undefined>;
-  } | undefined;
+  mcpHostedUrl?: ((ownerId: string, runs: Extract<ServerRuns, { where: 'hosted' }>) => Promise<string | undefined>) | undefined;
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
   egressSecret?: string | undefined;
@@ -241,6 +241,8 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.runEnded ? { ended: options.runEnded } : {}),
   });
 
+  const mcpServers = stores.mcpServers && options.mcpHostedUrl ? { ...stores.mcpServers, hostedUrl: options.mcpHostedUrl } : undefined;
+
   const images = createImageBuilder({
     run: kube,
     registry: options.registry,
@@ -286,7 +288,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     environments: runEnvironments,
     images,
     tools: (ownerId: string) => catalogue.list(ownerId),
-    ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
+    ...(mcpServers ? { servers: mcpServers.list } : {}),
     dependencies: dependenciesOf,
     machineBackend: createMachineBackend(),
     ...(stores.machines ? { workspaces: createMachineWorkspaces(stores.machines) } : {}),
@@ -382,10 +384,10 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         ...(workspaceWaits ? { parking: async (ownerId: string, treeId: string) => (await workspaceWaits(ownerId, treeId)).parking } : {}),
       },
     },
-    ...(options.mcpServers ? {
+    ...(mcpServers ? {
       mcp: { operations: {
-        servers: options.mcpServers,
-        hostedUrl: options.mcpServers.hostedUrl,
+        servers: mcpServers,
+        hostedUrl: mcpServers.hostedUrl,
         plan: async (runs: WorkspaceRuns, name: string, ownerId: string) => planServerImage(runs, name, WORKSPACE_BASES, await dependenciesOf(ownerId)),
         images,
         environments,
@@ -431,8 +433,8 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       extensions: toolHandlers(runtimes),
       ...(stores.grove.binding ? { binding: stores.grove.binding } : {}),
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
-      ...(options.mcpServers && stores.mcp ? { mcp: {
-        catalogue: options.mcpServers.list,
+      ...(mcpServers && stores.mcp ? { mcp: {
+        catalogue: mcpServers.list,
         stores: stores.mcp,
         ...(options.projects?.proposals ? { proposing: {
           templates: () => MCP_SERVER_TEMPLATES,
@@ -451,7 +453,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.models.list ? { models: async (ownerId: string) => modelNames(await options.models.list!(ownerId)) } : {}),
       knownTools: async (ownerId: string) => ({
         tools: await catalogue.names(ownerId),
-        servers: (options.mcpServers ? await options.mcpServers.list(ownerId) : []).map((server) => ({ name: server.name, tools: (server.captured?.tools ?? []).map((tool) => tool.name) })),
+        servers: (mcpServers ? await mcpServers.list(ownerId) : []).map((server) => ({ name: server.name, tools: (server.captured?.tools ?? []).map((tool) => tool.name) })),
       }),
       ...(options.checks ? { checks: options.checks } : {}),
       ...(options.runGrants ? { handover: { keep: options.runGrants.keepHandover } } : {}),
@@ -494,10 +496,10 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       },
   });
 
-  const serverTools = options.mcpServers ? createServerTools({
-    catalogue: options.mcpServers.list,
+  const serverTools = mcpServers ? createServerTools({
+    catalogue: mcpServers.list,
     enabled: async (ownerId, conversationId) => (stores.mcp ? stores.mcp.enabled(ownerId, conversationId) : []),
-    hosted: { call: hostedCaller(options.mcpServers.hostedUrl) },
+    hosted: { call: hostedCaller(mcpServers.hostedUrl) },
     workspace: createWorkspaceServers({ environments: { forRun: (request) => environments.forRun(request) } }),
   }) : undefined;
   const resources = stores.projectRecords && projectResolver({
@@ -537,7 +539,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images,
     personas: (ownerId?: string) => registry.agents(ownerId ?? ''),
     tools: (ownerId?: string) => stores.tools.list(ownerId),
-    ...(options.mcpServers ? { servers: options.mcpServers.list } : {}),
+    ...(mcpServers ? { servers: mcpServers.list } : {}),
     dependencies: dependenciesOf,
     ...(options.owners ? { owners: options.owners } : {}),
   });
@@ -622,6 +624,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       grants: (ownerId: string) => db.infrastructure.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.infrastructure.getEgressRequests(ownerId), save: (request) => db.infrastructure.saveEgressRequest(request) },
       trees: { list: () => db.projects.getTrees() },
+    },
+    mcpServers: {
+      list: (ownerId: string) => db.engine.getMcpServers(ownerId),
+      get: async (ownerId: string, id: string) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
+      save: (server: McpServerRecord) => db.engine.saveMcpServer(server),
     },
     mcp: {
       enabled: async (ownerId: string, conversationId: string) => (await db.engine.getConversation(ownerId, conversationId))?.mcpServers ?? [],

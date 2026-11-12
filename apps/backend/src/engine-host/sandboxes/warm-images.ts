@@ -95,7 +95,7 @@ export function createWorkspaceImages(options: WarmImagesOptions): WorkspaceImag
       const plan = planWorkspace(persona, await options.tools(ownerId), await serversOf(ownerId), undefined, await dependenciesOf(ownerId));
       if (!plan) return undefined;
 
-      const state = await options.images.standing(plan);
+      const state = await options.images.standing(plan).catch((err: Error): ImageStanding => ({ state: 'failed', reference: '', detail: err.message }));
       return sayWaiting({ agent: agentSlug, fingerprint: plan.fingerprint, ...state });
     },
 
