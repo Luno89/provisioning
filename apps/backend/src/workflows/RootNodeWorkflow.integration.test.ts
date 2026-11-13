@@ -86,7 +86,10 @@ describe('following a bought server until root runs on it', () => {
     const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RootNodeWorkflow.ts')), activities: activities({ undelivered: 1_000_000 }, done) });
     await worker.runUntil(async () => {
       const handle = await env.client.workflow.start('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') });
-      while (done.filter((step) => step === 'follow').length < 2) await new Promise((wait) => setTimeout(wait, 50));
+      const follows = async (count: number) => { while (done.filter((step) => step === 'follow').length < count) await new Promise((wait) => setTimeout(wait, 50)); };
+      await follows(1);
+      await env.sleep('1 minute');
+      await follows(2);
       await handle.cancel();
       await handle.result();
     });
