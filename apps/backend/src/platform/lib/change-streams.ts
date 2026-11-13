@@ -26,12 +26,6 @@ export function watchWrites<T extends Document>(
   }, reopenMs);
 }
 
-export function watchDeletes<T extends Document>(collection: () => Collection<T>, on: (id: string) => void, reopenMs = REOPEN_FIRST_MS): Watching {
-  return watchChanges(collection, [{ $match: { operationType: 'delete' } }], {}, (change) => {
-    if (change.operationType === 'delete') on(String((change.documentKey as { _id: unknown })._id));
-  }, reopenMs);
-}
-
 function watchChanges<T extends Document>(
   collection: () => Collection<T>,
   pipeline: Document[],

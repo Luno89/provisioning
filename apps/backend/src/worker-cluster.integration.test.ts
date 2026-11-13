@@ -7,6 +7,9 @@ import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { startClusterWorker } from './worker-cluster.js';
+import { runThenLetGo } from './platform/wiring/fences.js';
+import { mongoClientFor } from './platform/lib/collection.js';
+import { MongoPlatformStore } from './platform/store.js';
 import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
@@ -31,18 +34,29 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
 
 const EXPECTED = ['CheckWorkloadActivity', 'DeployAppActivity', 'DestroyAppActivity', 'DownloadModelActivity', 'ResizeDiskActivity', 'RunPipelineActivity', 'SyncConfigActivity', 'VerifyGpuRuntimeActivity'];
 
+const live = async () => {
+  const client = mongoClientFor(mongoUri);
+  try {
+    return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
+  } finally {
+    await client.close();
+  }
+};
+
 describe('the cluster worker, started the way its entry starts it', () => {
   it('on an instance polls the cluster queue with every cluster activity and the shared interceptors', async () => {
-    const { worker } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
-    const running = worker.run();
+    const { worker, fences } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
+    const running = runThenLetGo(worker, fences);
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
       namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.cluster }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
     expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect((await live()).map((process) => process.name)).toEqual(['worker-cluster']);
     worker.shutdown();
     await running;
+    expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
   }, 60_000);
 
   it('is refused by its settings on root, which runs no cluster worker', () => {

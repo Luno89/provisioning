@@ -15,13 +15,6 @@ describe('when a fence may go', () => {
 });
 
 describe('the fence a removal puts round an account or a project', () => {
-  it('lets work through again once a fence is dropped', async () => {
-    const fence = new Fence();
-    fence.close({ kind: 'owner', id: 'gone' });
-    fence.open({ kind: 'owner', id: 'gone' });
-    await expect(withWorkFor({ owner: 'gone' }, () => fence.guard(async () => 'kept'))).resolves.toBe('kept');
-  });
-
   it('refuses work for an account being removed, and lets every other account\'s work through', async () => {
     const fence = new Fence();
     fence.close({ kind: 'owner', id: 'leaving' });

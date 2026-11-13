@@ -58,6 +58,7 @@ import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookU
 import { seedAll } from './scripts/seed-all.js';
 import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
 import { holdFences } from './platform/wiring/fences.js';
+import { stopBackend } from './platform/wiring/shutdown.js';
 
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
 if (startsHere) dotenv.config({ quiet: true });
@@ -101,7 +102,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   db.reportReachTo(dependencies);
   dependencies.checkWith('mongo', () => db.ping());
   await db.init();
-  await holdFences('backend', db.platform);
+  const fences = await holdFences('backend', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   const { role } = settings;
   const claimSettings = claimSettingsFrom(role);
@@ -511,11 +512,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
-    dependencies.stop();
-    clusterProxyService.stopAll();
-    if (!place) process.exit(0);
-    drainThenStop({ place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) })
-      .then(() => process.exit(0), (err: Error) => { console.error(`[drain] ${err.message}`); process.exit(1); });
+    void stopBackend({
+      stopping: () => { dependencies.stop(); clusterProxyService.stopAll(); },
+      ...(place ? { drain: () => drainThenStop({ place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) }) } : {}),
+      fences,
+      exit: (code) => process.exit(code),
+    });
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

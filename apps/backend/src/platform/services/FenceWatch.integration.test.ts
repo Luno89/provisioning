@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
 import { Fence } from '../lib/fence.js';
 import { testDatabase } from '../lib/test-database.js';
 import { endAndDrop, FenceWatch } from './FenceWatch.js';
@@ -12,7 +13,7 @@ afterAll(async () => {
 const leaving = { kind: 'owner', id: 'leaving' } as const;
 
 describe('a fence kept until every process from before its removal ended has started again', () => {
-  it('stays while a process live when its removal ended still runs, and goes from the store and every process once each of them has started again', async () => {
+  it('stays while a process live when its removal ended still runs, goes from the store once each has started again, and is still refused by a process that held it', async () => {
     const db = await testDatabase();
     const run = async (id: string) => {
       const fence = new Fence();
@@ -36,7 +37,8 @@ describe('a fence kept until every process from before its removal ended has sta
 
     await host.watch.stop();
     const hostAgain = await run('host-2');
-    expect(await db.platform.fencesRaised()).toEqual([]);
-    await expect.poll(() => engineAgain.fence.holds(leaving) || hostAgain.fence.holds(leaving)).toBe(false);
+    expect(await db.platform.fencesRaised(), 'the fence is gone from the store, so no process starting later holds it').toEqual([]);
+    expect(hostAgain.fence.holds(leaving)).toBe(false);
+    await expect(withWorkFor({ owner: 'leaving' }, () => engineAgain.fence.guard(async () => 'kept')), 'a process that held it keeps refusing the account\'s work while it lives').rejects.toBeInstanceOf(WorkStopped);
   });
 });

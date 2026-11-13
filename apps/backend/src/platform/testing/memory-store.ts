@@ -124,8 +124,6 @@ export class MemoryPlatformStore implements PlatformStore {
     this.acks.delete(id);
   }
 
-  private readonly dropWatchers = new Set<(closing: Closing) => void>();
-
   async endFence(closing: Closing, liveWith: readonly string[]): Promise<void> {
     const id = fenceIdOf(closing);
     const fence = this.fences.get(id);
@@ -135,12 +133,7 @@ export class MemoryPlatformStore implements PlatformStore {
   async dropFence(closing: Closing): Promise<void> {
     const id = fenceIdOf(closing);
     this.acks.delete(id);
-    if (!this.fences.delete(id)) return;
-    for (const watcher of this.dropWatchers) queueMicrotask(() => watcher({ ...closing }));
-  }
-
-  watchFenceDrops(on: (closing: Closing) => void): Watching {
-    return this.watching(this.dropWatchers, on);
+    this.fences.delete(id);
   }
 
   async beatProcess(process: KoalaProcess, at: string): Promise<void> {

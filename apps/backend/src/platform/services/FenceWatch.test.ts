@@ -100,7 +100,7 @@ describe('dropping a fence once nothing from before its removal ended still runs
     expect(await store.fencesRaised()).toEqual([]);
   });
 
-  it('opens a fence it holds when it hears the fence was dropped', async () => {
+  it('keeps refusing a fence it held while it lives, even once the fence is dropped, since a step of its own from before may still run', async () => {
     const store = new MemoryPlatformStore();
     const fence = new Fence();
     const watch = new FenceWatch({ store, fence, process: { id: 'backend-1', name: 'backend' }, now: () => NOW });
@@ -108,7 +108,7 @@ describe('dropping a fence once nothing from before its removal ended still runs
     await watch.start();
     await store.dropFence(leaving);
     await new Promise((resolve) => setImmediate(resolve));
-    expect(fence.holds(leaving)).toBe(false);
+    expect(fence.holds(leaving)).toBe(true);
     await watch.stop();
   });
 });

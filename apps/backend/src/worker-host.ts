@@ -20,7 +20,7 @@ import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
-import { holdFencesIn } from './platform/wiring/fences.js';
+import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,7 +55,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  await holdFencesIn('worker-host', settings.mongo);
+  const fences = await holdFencesIn('worker-host', settings.mongo);
   giveHostActivities(settings, access);
   void dependencies.start();
   const queue = QUEUES.host;
@@ -86,7 +86,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
     }
   }
 
-  return { worker: worker!, telemetry };
+  return { worker: worker!, telemetry, fences };
 }
 
 async function main() {
@@ -102,10 +102,10 @@ async function main() {
       },
     },
   });
-  const { worker, telemetry } = await startHostWorker(settings);
+  const { worker, telemetry, fences } = await startHostWorker(settings);
   logger.info(`[HostWorker] ✅ Listening for ${settings.role.role}'s work on the host queue`);
   if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
-  await worker.run();
+  await runThenLetGo(worker, fences);
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 

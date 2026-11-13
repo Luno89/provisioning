@@ -4,7 +4,7 @@ import { watchingAll, type Watching } from '../lib/change-streams.js';
 import type { PlatformStore } from '../store.js';
 import { keepTrying } from '../lib/keep-trying.js';
 
-type FenceStore = Pick<PlatformStore, 'fencesRaised' | 'watchFences' | 'watchFenceDrops' | 'ackFence' | 'beatProcess' | 'forgetProcess' | 'processesSeenSince' | 'dropFence'>;
+type FenceStore = Pick<PlatformStore, 'fencesRaised' | 'watchFences' | 'ackFence' | 'beatProcess' | 'forgetProcess' | 'processesSeenSince' | 'dropFence'>;
 
 export interface FenceWatchDeps {
   store: FenceStore;
@@ -27,13 +27,10 @@ export class FenceWatch {
     await this.beat();
     this.beating = setInterval(() => { void this.beat().catch(ignore('a beat Mongo refuses is followed by the next one; a process stays live while any beat lands')); }, PROCESS_BEAT_MS);
     this.beating.unref();
-    this.watching = watchingAll([
-      this.deps.store.watchFences((fence) => { void this.hold(fence); }),
-      this.deps.store.watchFenceDrops((closing) => this.deps.fence.open(closing)),
-    ]);
+    await dropEndedFences({ store: this.deps.store, now: this.deps.now ?? Date.now });
+    this.watching = this.deps.store.watchFences((fence) => { void this.hold(fence); });
     await this.watching.ready;
     await Promise.all((await this.deps.store.fencesRaised()).map((fence) => this.hold(fence)));
-    await dropEndedFences({ store: this.deps.store, now: this.deps.now ?? Date.now });
   }
 
   private beat(): Promise<void> {

@@ -83,7 +83,7 @@ import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { withWorkFor } from '@koala/engine-core/work-for';
-import { holdFences } from './platform/wiring/fences.js';
+import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -94,7 +94,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
   db.reportReachTo(dependencies);
   await db.init();
-  await holdFences('worker-engine', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
@@ -540,7 +539,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   };
 }
 
-export function engineWorkerSetup(settings: EngineWorkerSettings) {
+export async function engineWorkerSetup(settings: EngineWorkerSettings) {
   logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-engine'));
   const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
@@ -554,7 +553,8 @@ export function engineWorkerSetup(settings: EngineWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  return { telemetry, dependencies };
+  const fences = await holdFencesIn('worker-engine', settings.mongo);
+  return { telemetry, dependencies, fences };
 }
 
 export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
@@ -587,7 +587,7 @@ async function main() {
       },
     },
   });
-  const { telemetry, dependencies } = engineWorkerSetup(settings);
+  const { telemetry, dependencies, fences } = await engineWorkerSetup(settings);
   const { address } = settings.temporal;
   logger.info(`[EngineWorker] Starting — taskQueue=${QUEUES.engine}, address=${address}`);
 
@@ -603,7 +603,7 @@ async function main() {
       activities = created.activities;
       current = created.worker;
       logger.info('[EngineWorker] Connected, polling for work');
-      await created.worker.run();
+      await runThenLetGo(created.worker, fences);
       await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
       return;
     } catch (err) {

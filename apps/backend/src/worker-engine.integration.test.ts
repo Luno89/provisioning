@@ -8,6 +8,9 @@ import { testDatabaseAt } from './platform/lib/test-database.js';
 import { testMinioEnv } from './files/testing/real-minio.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
+import { runThenLetGo } from './platform/wiring/fences.js';
+import { mongoClientFor } from './platform/lib/collection.js';
+import { MongoPlatformStore } from './platform/store.js';
 import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
@@ -37,12 +40,21 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
     }),
 });
 
+const live = async () => {
+  const client = mongoClientFor(mongoUri);
+  try {
+    return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
+  } finally {
+    await client.close();
+  }
+};
+
 describe('the engine worker, started the way its entry starts it', () => {
   it('on an instance builds its activities, polls the engine queue with them and the shared interceptors, and stops when told', async () => {
     const settings = engineWorkerSettingsFrom(placeFor('instance'));
-    const { dependencies } = engineWorkerSetup(settings);
+    const { dependencies, fences } = await engineWorkerSetup(settings);
     const { worker, activities } = await createEngineWorker(settings, dependencies);
-    const running = worker.run();
+    const running = runThenLetGo(worker, fences);
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
       namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.engine }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
@@ -51,8 +63,10 @@ describe('the engine worker, started the way its entry starts it', () => {
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
     expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect((await live()).map((process) => process.name)).toEqual(['worker-engine']);
     worker.shutdown();
     await running;
+    expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
   }, 120_000);
 
   it('is refused by its settings on root, which runs no engine worker', () => {

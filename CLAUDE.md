@@ -535,7 +535,8 @@ and every write a fenced owner's or project's work makes, to Mongo, MinIO, Infis
 own steps name nobody and are never fenced, whatever project they touch. A fence outlives its removal until every process
 live when the removal ended has started again or stopped (owner, 2026-11-13: "drop them after every process restarts"),
 so a step that hears it was stopped only later still writes nothing; that is decided as a process starts and as a
-removal ends. A start that works for a project names it, a workflow from the moment its project exists. Gitea goes first, so a late push is refused. It finds runs through the turn
+removal ends. Dropping takes it from the store only, so no process starting later loads it: a process keeps refusing every
+fence it held until it exits, and a clean stop takes it off the live list at once. A start that works for a project names it, a workflow from the moment its project exists. Gitea goes first, so a late push is refused. It finds runs through the turn
 logs, and each run's memory keeper by name (`memoryRunId`); the memory keeper never runs for a check's space.
 
 **Project deletion** (`RemoveProjectWorkflow`, the "Delete project" popup on a project's page, which lists what

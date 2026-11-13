@@ -26,7 +26,7 @@ import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies 
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
-import { holdFencesIn } from './platform/wiring/fences.js';
+import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,7 +56,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  await holdFencesIn('worker-cluster', settings.mongo);
+  const fences = await holdFencesIn('worker-cluster', settings.mongo);
   const dataKey = settings.keys.data;
   const steps: ClusterSteps = {
     access,
@@ -97,7 +97,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
     }
   }
 
-  return { worker: worker!, steps, telemetry };
+  return { worker: worker!, steps, telemetry, fences };
 }
 
 async function main() {
@@ -113,13 +113,13 @@ async function main() {
       },
     },
   });
-  const { worker, steps, telemetry } = await startClusterWorker(settings);
+  const { worker, steps, telemetry, fences } = await startClusterWorker(settings);
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
   ensureClusterMonitoring(steps, koalaClusterMonitoring(Boolean(settings.clusters.here.poolName), steps.access.own()))
     .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
     .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
-  await worker.run();
+  await runThenLetGo(worker, fences);
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 

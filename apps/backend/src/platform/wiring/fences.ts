@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ignore } from '@koala/engine-core/failures';
 import { hostname } from 'node:os';
 import { mongoClientFor } from '../lib/collection.js';
 import { theFence } from '../lib/fence.js';
@@ -19,4 +20,12 @@ export async function holdFences(name: FencedProcess, store: PlatformStore): Pro
 export function holdFencesIn(name: FencedProcess, mongo: MongoTarget): Promise<FenceWatch> {
   const client = mongoClientFor(mongo.uri);
   return holdFences(name, new MongoPlatformStore(() => client.db(mongo.dbName)));
+}
+
+export const letGoOfFences = (watch: Pick<FenceWatch, 'stop'>): Promise<void> =>
+  watch.stop().catch(ignore('a process stopping cleanly could not take itself off the live list; its beats stop now, so it stops counting as live once they lapse'));
+
+export async function runThenLetGo(worker: { run(): Promise<void> }, watch: FenceWatch): Promise<void> {
+  await worker.run();
+  await letGoOfFences(watch);
 }

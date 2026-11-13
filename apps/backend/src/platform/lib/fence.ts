@@ -53,10 +53,6 @@ export class Fence {
     this.closed.add(keyOf(closing));
   }
 
-  open(closing: Closing): void {
-    this.closed.delete(keyOf(closing));
-  }
-
   holds(closing: Closing): boolean {
     return this.closed.has(keyOf(closing));
   }
