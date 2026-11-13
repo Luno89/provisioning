@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { GroveWorld } from './testing/grove-world.js';
 import { cancelSignal } from '../../workflows/AgentRunWorkflow.js';
 
@@ -8,7 +8,7 @@ let env: TestWorkflowEnvironment;
 let grove: GroveWorld;
 
 beforeAll(async () => {
-  env = await temporalTestEnvironment();
+  env = await realTemporalEnvironment();
   grove = new GroveWorld(env);
 }, 120_000);
 
