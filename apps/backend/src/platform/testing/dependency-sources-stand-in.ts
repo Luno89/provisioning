@@ -11,6 +11,7 @@ export interface Advisories {
   found?: Record<string, string[]>;
   records?: Record<string, unknown>;
   answers?: Record<string, unknown>;
+  down?: string[];
 }
 
 export async function startDependencySourcesStandIn(advisories: Advisories = {}): Promise<DependencySourcesStandIn> {
@@ -20,6 +21,10 @@ export async function startDependencySourcesStandIn(advisories: Advisories = {})
     request.on('data', (chunk: Buffer) => { body += chunk.toString(); });
     request.on('end', () => {
       asked.push(`${request.method} ${request.url}`);
+      if (advisories.down?.some((prefix) => (request.url ?? '').startsWith(prefix))) {
+        response.writeHead(503, { 'content-type': 'application/json' }).end('{}');
+        return;
+      }
       if (request.method === 'POST' && request.url === '/osv/querybatch') {
         const { queries } = JSON.parse(body || '{}') as { queries?: { package: { name: string }; version: string }[] };
         const results = (queries ?? []).map((query) => {

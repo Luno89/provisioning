@@ -54,4 +54,38 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
     expect(mail.subjectOf(mail.received[0]!)).toBe('Koala\'s dependencies: 1 new advisory');
     expect(textOf(mail.received[0]!)).toContain('k3s@v1.36.4+k3s1: GO-k3s (critical); fixed in 1.36.5+k3s1, published 2026-10-25: update it now');
   });
+
+  it('tells a fix as due now, with no date, when npm and GitHub cannot say when it was published', async () => {
+    const down = await startDependencySourcesStandIn({
+      found: { 'seroval@1.6.7': ['GHSA-seroval'], 'github.com/k3s-io/k3s@1.36.4+k3s1': ['GO-k3s'] },
+      records: { 'GO-k3s': advisory, 'GHSA-seroval': { id: 'GHSA-seroval', summary: 'GHSA-seroval summary', database_specific: { severity: 'HIGH' }, affected: [{ package: { ecosystem: 'npm', name: 'seroval' }, ranges: [{ events: [{ introduced: '0' }, { fixed: '1.6.8' }] }] }] } },
+      down: ['/npm/', '/github/'],
+    });
+    try {
+      const fresh = await testDatabaseAt();
+      await fresh.db.accounts.saveUser({ id: 'operator-2', email: 'operator2@root.test', roles: ['operator'], createdAt: '2026-10-01T00:00:00Z' } as never);
+      const dataDir = testDataDir();
+      mkdirSync(join(dataDir, 'instance-charts'), { recursive: true });
+      const seroval = { 'bom-ref': 'koala:pkg:npm/seroval@1.6.7', name: 'seroval', version: '1.6.7', properties: [{ name: 'koala:kind', value: 'npm' }, { name: 'koala:in', value: 'koala' }] };
+      writeFileSync(join(dataDir, 'instance-charts', `${TAG}.sbom.json`), JSON.stringify({ components: [seroval, k3s] }));
+      const before = mail.received.length;
+      const settings = hostWorkerSettingsFrom({
+        NODE_ENV: 'development', ...testKeyEnv('dependency-watch-down'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: fresh.uri.replace(/\/[^/?]*(\?|$)/, `/${fresh.dbName}$1`),
+        TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: dataDir,
+        HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
+        MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: down.url,
+      });
+      giveHostActivities(settings, hostClusterAccess(settings));
+
+      expect(await DependencyWatchActivity()).toEqual({ findings: 2, due: 2 });
+
+      expect(down.asked).toEqual(expect.arrayContaining(['GET /npm/seroval', 'GET /github/repos/k3s-io/k3s/releases/tags/v1.36.5%2Bk3s1']));
+      const told = mail.received.slice(before);
+      expect(told.map((message) => message.to)).toEqual([['operator2@root.test']]);
+      expect(textOf(told[0]!)).toContain('seroval@1.6.7: GHSA-seroval (high); fixed in 1.6.8: update it now');
+      expect(textOf(told[0]!)).toContain('k3s@v1.36.4+k3s1: GO-k3s (critical); fixed in 1.36.5+k3s1: update it now');
+    } finally {
+      await down.close();
+    }
+  });
 });
