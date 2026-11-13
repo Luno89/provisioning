@@ -18,7 +18,7 @@ const FRONTEND = join(BACKEND, '../frontend/src');
 
 function routesFor(env: Record<string, string>): Promise<Route[]> {
   return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['tsx', '../../tests/coupling/print-routes.mts'], { cwd: BACKEND, env: { ...process.env, NODE_ENV: 'development', ...testMinioEnv(), ...unreachedPlatformServices(), ...env, PORT: '0', MACHINE_GATEWAY_PORT: '0', TEMPORAL_METRICS_PORT: '0', HEALTH_PORT: '0' } });
+    const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), '../../tests/coupling/print-routes.mts'], { cwd: BACKEND, env: { ...process.env, NODE_ENV: 'development', ...testMinioEnv(), ...unreachedPlatformServices(), ...env, PORT: '0', MACHINE_GATEWAY_PORT: '0', TEMPORAL_METRICS_PORT: '0', HEALTH_PORT: '0' } });
     let out = '';
     let said = '';
     child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
@@ -73,7 +73,7 @@ describe('every call the frontend makes is one some backend serves', () => {
   it('mounts exactly the routes the coupling graph reads from the code without running it', () => {
     const config = ts.getParsedCommandLineOfConfigFile(join(BACKEND, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
     if (!config) throw new Error('the backend tsconfig could not be read');
-    const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
+    const program = ts.createProgram(config.fileNames.filter((file) => !isTest(file)), { ...config.options, noEmit: true });
     const ends = httpChannels(program, []);
     const read = new Set<string>();
     for (const source of program.getSourceFiles()) {

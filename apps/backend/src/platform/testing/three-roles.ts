@@ -129,7 +129,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     TEMPORAL_NAMESPACE: temporalNamespace.namespace,
     MAIL_SMTP_URL: mail.url,
     MAIL_FROM: `koala@${label}.test`,
-    WATCH_UNREACHABLE_MINUTES: '1',
+    WATCH_UNREACHABLE_MINUTES: '0.1',
     CERTIFICATES: 'internal',
     ...(options.extra ?? {}),
   };

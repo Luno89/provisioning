@@ -155,7 +155,7 @@ describe('signing in across root, an instance and the hub, each its own process'
     expect((hubMe.body as { onHub?: boolean }).onHub).toBe(true);
   });
 
-  it('root emails the owner once its instance has been gone a minute and once it is back; root gone shows on the instance and clears', async () => {
+  it('root emails the owner once its instance has been gone past its threshold and once it is back; root gone shows on the instance and clears', async () => {
     onTestFailed(() => console.log(`mail: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ')}\n── root ──\n${root.logs(80)}\n── instance ──\n${instance.logs(40)}`));
     const rootDown = async () => {
       const answer = await call(`${instance.url}/api/infrastructure`, { cookie: session });
