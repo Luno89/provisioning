@@ -6,7 +6,7 @@ const bom = {
   components: [
     { 'bom-ref': 'koala:pkg:npm/seroval@1.6.9', name: 'seroval', version: '1.6.9', properties: [{ name: 'koala:kind', value: 'npm' }, { name: 'koala:in', value: 'koala' }] },
     { 'bom-ref': 'koala:pkg:npm/vite@8.0.16', name: 'vite', version: '8.0.16', properties: [{ name: 'koala:kind', value: 'npm' }, { name: 'koala:dev', value: 'true' }] },
-    { 'bom-ref': 'binary:pkg:generic/k3s@v1.36.4+k3s1', name: 'k3s', version: 'v1.36.4+k3s1', properties: [{ name: 'koala:kind', value: 'binary' }, { name: 'koala:osv-ecosystem', value: 'Go' }, { name: 'koala:osv-name', value: 'github.com/k3s-io/k3s' }, { name: 'koala:github', value: 'k3s-io/k3s' }] },
+    { 'bom-ref': 'binary:pkg:generic/k3s@v1.36.4+k3s1', name: 'k3s', version: 'v1.36.4+k3s1', properties: [{ name: 'koala:kind', value: 'binary' }, { name: 'koala:osv-ecosystem', value: 'Go' }, { name: 'koala:osv-name', value: 'github.com/k3s-io/k3s' }, { name: 'koala:github', value: 'k3s-io/k3s' }, { name: 'koala:released', value: '2026-08-21T15:27:13Z' }] },
     { 'bom-ref': 'image:pkg:docker/library/mongo@7', name: 'mongo', version: '7', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:floating', value: 'true' }] },
     { 'bom-ref': 'unpinned:tailscale', name: 'tailscale', properties: [{ name: 'koala:kind', value: 'unpinned' }] },
     { 'bom-ref': 'other', name: 'not ours' },
@@ -14,12 +14,14 @@ const bom = {
 };
 
 describe('reading a release\'s inventory', () => {
-  it('keeps each component Koala listed, and which of them OSV can be asked about', () => {
+  it('keeps each component Koala listed, when it was released, and which of them OSV can be asked about', () => {
     const components = inventoryComponents(bom);
     expect(components.map((component) => component.name)).toEqual(['seroval', 'vite', 'k3s', 'mongo', 'tailscale']);
     expect(components.filter(checkedByOsv).map((component) => component.name)).toEqual(['seroval', 'vite', 'k3s']);
     expect(components[1]).toMatchObject({ dev: true, ecosystem: 'npm', osvName: 'vite' });
     expect(osvVersion(components[2]!)).toBe('1.36.4+k3s1');
+    expect(components[2]!.released).toBe('2026-08-21T15:27:13Z');
+    expect(components[3]!.released).toBeUndefined();
     expect(inventoryComponents(undefined)).toEqual([]);
   });
 });

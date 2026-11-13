@@ -11,7 +11,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "nektos/act"
+      "github": "nektos/act",
+      "released": "2026-06-01T03:17:32Z"
     },
     {
       "kind": "binary",
@@ -28,7 +29,8 @@
       "osv": {
         "ecosystem": "Go",
         "name": "code.gitea.io/gitea"
-      }
+      },
+      "released": "2026-07-13T16:28:27Z"
     },
     {
       "kind": "binary",
@@ -41,7 +43,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "rhysd/actionlint"
+      "github": "rhysd/actionlint",
+      "released": "2026-03-30T17:47:17Z"
     },
     {
       "kind": "binary",
@@ -54,7 +57,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "gitleaks/gitleaks"
+      "github": "gitleaks/gitleaks",
+      "released": "2026-03-12T15:40:37Z"
     },
     {
       "kind": "binary",
@@ -67,7 +71,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "trufflesecurity/trufflehog"
+      "github": "trufflesecurity/trufflehog",
+      "released": "2026-10-08T13:52:09Z"
     },
     {
       "kind": "binary",
@@ -80,7 +85,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "opengrep/opengrep"
+      "github": "opengrep/opengrep",
+      "released": "2026-10-07T19:55:54Z"
     },
     {
       "kind": "binary",
@@ -93,7 +99,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "google/osv-scanner"
+      "github": "google/osv-scanner",
+      "released": "2026-09-14T01:44:58Z"
     },
     {
       "kind": "binary",
@@ -106,7 +113,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "aquasecurity/trivy"
+      "github": "aquasecurity/trivy",
+      "released": "2026-10-01T12:28:59Z"
     },
     {
       "kind": "binary",
@@ -119,7 +127,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "zizmorcore/zizmor"
+      "github": "zizmorcore/zizmor",
+      "released": "2026-09-09T05:12:56Z"
     },
     {
       "kind": "binary",
@@ -132,7 +141,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "kubescape/kubescape"
+      "github": "kubescape/kubescape",
+      "released": "2026-09-29T05:48:59Z"
     },
     {
       "kind": "binary",
@@ -145,7 +155,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "projectdiscovery/nuclei"
+      "github": "projectdiscovery/nuclei",
+      "released": "2026-08-08T12:20:01Z"
     },
     {
       "kind": "binary",
@@ -184,7 +195,8 @@
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "COSIGN_SHA256=([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-08-06T00:10:15Z"
     },
     {
       "kind": "binary",
@@ -197,7 +209,8 @@
       "usedIn": [
         "scripts/ci-tools.sh"
       ],
-      "github": "github/codeql-action"
+      "github": "github/codeql-action",
+      "released": "2026-10-06T19:24:52Z"
     },
     {
       "kind": "binary",
@@ -246,7 +259,8 @@
           "pattern": "KUBECTL_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2026-06-11T18:09:07Z"
     },
     {
       "kind": "binary",
@@ -331,7 +345,8 @@
           "pattern": "HELM_SHA256_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         }
-      ]
+      ],
+      "released": "2024-05-23T14:45:11Z"
     },
     {
       "kind": "binary",
@@ -376,7 +391,8 @@
           "pattern": "K3D_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2024-04-10T12:15:36Z"
     },
     {
       "kind": "binary",
@@ -425,7 +441,8 @@
           "pattern": "TERRAFORM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2024-06-26T15:49:10Z"
     },
     {
       "kind": "binary",
@@ -474,7 +491,8 @@
           "pattern": "KUBERNETES_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2025-07-21T17:20:20Z"
     },
     {
       "kind": "binary",
@@ -523,7 +541,8 @@
           "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2024-12-20T13:22:45Z"
     },
     {
       "kind": "binary",
@@ -568,7 +587,8 @@
           "pattern": "COMPOSE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2024-07-23T14:20:27Z"
     },
     {
       "kind": "binary",
@@ -660,7 +680,8 @@
       "sha256s": {
         "linux-amd64": "835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f",
         "linux-arm64": "c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb"
-      }
+      },
+      "released": "2026-08-21T15:27:13Z"
     },
     {
       "kind": "binary",
@@ -680,7 +701,8 @@
           "file": "scripts/root-node/gvisor.sh",
           "pattern": "SHA512=\"([0-9a-f]{128})\""
         }
-      ]
+      ],
+      "released": "2026-10-08T17:26:26Z"
     },
     {
       "kind": "binary",
@@ -693,7 +715,8 @@
           "file": "apps/backend/src/extensions/odoo/workspace-base.ts",
           "pattern": "NODE_VERSION = '(v[0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-09-23T16:53:01Z"
     },
     {
       "kind": "npm",
@@ -763,7 +786,8 @@
           "file": "docker-compose.caddy.yml",
           "pattern": "nowrinkles/caddy:([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2025-08-23T01:46:14Z"
     },
     {
       "kind": "image",
@@ -792,7 +816,8 @@
           "file": "docker-compose.headscale.yml",
           "pattern": "headscale/headscale:(v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-07-01T14:47:39Z"
     },
     {
       "kind": "image",
@@ -822,7 +847,8 @@
           "file": "docker-compose.otel.yml",
           "pattern": "opentelemetry-collector-contrib:([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-10-21T16:14:25Z"
     },
     {
       "kind": "image",
@@ -847,7 +873,8 @@
           "file": "docker-compose.exporters.yml",
           "pattern": "percona/mongodb_exporter:[0-9.]+@sha256:([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-10-17T11:13:42Z"
     },
     {
       "kind": "image",
@@ -872,7 +899,8 @@
           "file": "docker-compose.exporters.yml",
           "pattern": "prometheuscommunity/postgres-exporter:v[0-9.]+@sha256:([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-07-08T01:45:25Z"
     },
     {
       "kind": "image",
@@ -885,7 +913,8 @@
           "file": "docker-compose.mailpit.yml",
           "pattern": "axllent/mailpit:(v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2024-10-24T10:51:54Z"
     },
     {
       "kind": "image",
@@ -952,7 +981,8 @@
           "file": "charts/instance/values.yaml",
           "pattern": "temporalio/auto-setup:([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-02-04T18:13:10Z"
     },
     {
       "kind": "chart",
@@ -970,7 +1000,8 @@
           "file": "packages/cdktf-infra/constructs/prometheus.ts",
           "pattern": "version: \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-08-31T10:02:38Z"
     },
     {
       "kind": "chart",
@@ -984,7 +1015,8 @@
           "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
           "pattern": "chart: 'kube-prometheus-stack', version: '([0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-09-26T10:18:11Z"
     },
     {
       "kind": "chart",
@@ -998,7 +1030,8 @@
           "file": "packages/cdktf-infra/constructs/blackbox-exporter.ts",
           "pattern": "version: \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-08-31T09:55:04Z"
     },
     {
       "kind": "chart",
@@ -1012,7 +1045,8 @@
           "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
           "pattern": "chart: 'prometheus-blackbox-exporter', version: '([0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-09-24T20:04:52Z"
     },
     {
       "kind": "chart",
@@ -1025,7 +1059,8 @@
           "file": "packages/cdktf-infra/constructs/operator-crds.ts",
           "pattern": "OPERATOR_CRDS_VERSION = \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-09-24T23:47:29Z"
     },
     {
       "kind": "chart",
@@ -1038,7 +1073,8 @@
           "file": "packages/cdktf-infra/constructs/logging.ts",
           "pattern": "chart: \"loki\",\\s*version: \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-08-10T20:06:24Z"
     },
     {
       "kind": "chart",
@@ -1051,7 +1087,8 @@
           "file": "packages/cdktf-infra/constructs/logging.ts",
           "pattern": "chart: \"promtail\",\\s*version: \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2025-10-31T19:25:03Z"
     },
     {
       "kind": "chart",
@@ -1068,7 +1105,8 @@
           "file": "packages/cdktf-infra/constructs/traefik.ts",
           "pattern": "version: \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-08-27T13:52:48Z"
     },
     {
       "kind": "chart",
@@ -1081,7 +1119,8 @@
           "file": "packages/cdktf-infra/constructs/telemetry.ts",
           "pattern": "TEMPO_CHART_VERSION = \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-01-30T06:43:35Z"
     },
     {
       "kind": "chart",
@@ -1094,7 +1133,8 @@
           "file": "packages/cdktf-infra/constructs/telemetry.ts",
           "pattern": "COLLECTOR_CHART_VERSION = \"([0-9.]+)\""
         }
-      ]
+      ],
+      "released": "2026-10-22T17:36:04Z"
     },
     {
       "kind": "chart",
@@ -1111,20 +1151,22 @@
           "file": "apps/backend/src/instances/lib/pool.ts",
           "pattern": "VCLUSTER_CHART_VERSION = '([0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-09-23T10:32:45Z"
     },
     {
       "kind": "chart",
       "name": "secrets-operator",
       "version": "v0.11.10",
       "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
-      "github": "Infisical/infisical",
+      "github": "Infisical/kubernetes-operator",
       "uses": [
         {
           "file": "apps/backend/src/projects/services/ProjectSecretSync.ts",
           "pattern": "OPERATOR_VERSION = '(v[0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-09-23T22:42:02Z"
     },
     {
       "kind": "action",
@@ -1142,7 +1184,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "actions/checkout@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-07-16T19:43:47Z"
     },
     {
       "kind": "action",
@@ -1160,7 +1203,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "docker/setup\\-buildx\\-action@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2025-12-16T14:38:02Z"
     },
     {
       "kind": "action",
@@ -1178,7 +1222,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "docker/login\\-action@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-01-27T16:53:30Z"
     },
     {
       "kind": "action",
@@ -1196,7 +1241,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "docker/build\\-push\\-action@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-02-12T08:49:36Z"
     },
     {
       "kind": "action",
@@ -1214,7 +1260,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "actions/attest\\-build\\-provenance@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-01-26T17:50:21Z"
     },
     {
       "kind": "action",
@@ -1232,7 +1279,8 @@
           "file": ".github/workflows/release.yml",
           "pattern": "azure/setup\\-helm@[0-9a-f]{40} # (v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2025-08-19T20:52:26Z"
     },
     {
       "kind": "binary",
@@ -1297,7 +1345,8 @@
           "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         }
-      ]
+      ],
+      "released": "2026-10-07T19:04:11Z"
     },
     {
       "kind": "binary",
@@ -1318,7 +1367,8 @@
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "DOCKER_VERSION=([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-10-08T20:35:02Z"
     },
     {
       "kind": "binary",
@@ -1338,7 +1388,8 @@
           "file": "scripts/setup-root.sh",
           "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-10-13T17:06:39Z"
     },
     {
       "kind": "binary",
@@ -1383,7 +1434,8 @@
           "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
-      ]
+      ],
+      "released": "2026-10-09T09:45:04Z"
     },
     {
       "kind": "binary",
@@ -1416,20 +1468,21 @@
           "pattern": "RESTIC_SHA256_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         }
-      ]
+      ],
+      "released": "2026-07-05T07:52:50Z"
     },
     {
       "kind": "chart",
       "name": "gitea",
       "version": "12.7.0",
       "source": "https://dl.gitea.com/charts/",
-      "github": "go-gitea/helm-gitea",
       "uses": [
         {
           "file": "scripts/ensure-gitea.sh",
           "pattern": "GITEA_CHART=([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-07-19T16:29:15Z"
     },
     {
       "kind": "chart",
@@ -1442,7 +1495,8 @@
           "file": "scripts/ensure-infisical.sh",
           "pattern": "STANDALONE_CHART=([0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-10-22T00:54:10Z"
     },
     {
       "kind": "chart",
@@ -1450,13 +1504,14 @@
       "version": "v0.11.15",
       "where": "the management cluster's Infisical",
       "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
-      "github": "Infisical/infisical",
+      "github": "Infisical/kubernetes-operator",
       "uses": [
         {
           "file": "scripts/ensure-infisical.sh",
           "pattern": "OPERATOR_CHART=(v[0-9.]+)"
         }
-      ]
+      ],
+      "released": "2026-10-24T03:07:32Z"
     },
     {
       "kind": "binary",
@@ -1470,7 +1525,8 @@
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "CONTAINERD_PACKAGE=([0-9.]+-[0-9]+)"
         }
-      ]
+      ],
+      "released": "2026-09-24T23:30:44Z"
     },
     {
       "kind": "binary",
@@ -1484,7 +1540,8 @@
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "BUILDX_PACKAGE=([0-9.]+-[0-9]+)"
         }
-      ]
+      ],
+      "released": "2026-10-07T21:07:56Z"
     },
     {
       "kind": "binary",
@@ -1498,7 +1555,8 @@
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "COMPOSE_PACKAGE=([0-9.]+-[0-9]+)"
         }
-      ]
+      ],
+      "released": "2026-10-02T15:36:44Z"
     },
     {
       "kind": "go",
@@ -1514,7 +1572,8 @@
           "file": "docker/caddy/modules.txt",
           "pattern": "^github\\.com/caddy-dns/cloudflare@(\\S+)$"
         }
-      ]
+      ],
+      "released": "2026-03-23T19:12:44Z"
     },
     {
       "kind": "go",
@@ -1530,7 +1589,8 @@
           "file": "docker/caddy/modules.txt",
           "pattern": "^github\\.com/caddy-dns/porkbun@(\\S+)$"
         }
-      ]
+      ],
+      "released": "2025-05-09T19:38:22Z"
     },
     {
       "kind": "data",
@@ -1542,7 +1602,8 @@
       "github": "danielmiessler/SecLists",
       "usedIn": [
         "scripts/breached-passwords.mjs"
-      ]
+      ],
+      "released": "2026-09-08T07:54:54Z"
     },
     {
       "kind": "data",
@@ -1554,7 +1615,8 @@
       "github": "danielmiessler/SecLists",
       "usedIn": [
         "scripts/breached-passwords.mjs"
-      ]
+      ],
+      "released": "2026-09-08T07:54:54Z"
     },
     {
       "kind": "binary",
@@ -1595,7 +1657,8 @@
           "pattern": "NODE_SHA256_DARWIN_X64=([0-9a-f]{64})",
           "arch": "darwin-x64"
         }
-      ]
+      ],
+      "released": "2026-10-21T10:02:31Z"
     },
     {
       "kind": "image",
@@ -1615,7 +1678,8 @@
           "file": "apps/backend/src/infrastructure/testing/real-k3s.ts",
           "pattern": "rancher/k3s:v[0-9a-z.+-]+@sha256:([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-08-21T15:27:13Z"
     },
     {
       "kind": "image",
@@ -1643,7 +1707,8 @@
           "file": "charts/instance/values.yaml",
           "pattern": "pgsty/minio:RELEASE\\.[0-9TZ-]+@sha256:([0-9a-f]{64})"
         }
-      ]
+      ],
+      "released": "2026-03-14T09:39:57Z"
     },
     {
       "kind": "image",
@@ -1668,7 +1733,8 @@
           "file": "apps/backend/src/activities/RunPipelineActivity.ts",
           "pattern": "image: gcr.io/kaniko-project/executor:v([0-9.]+)$"
         }
-      ]
+      ],
+      "released": "2025-05-23T02:42:27Z"
     },
     {
       "kind": "image",
@@ -1681,7 +1747,8 @@
           "file": "k8s/gpu-device-plugin/nvidia.yaml",
           "pattern": "image: nvcr.io/nvidia/k8s-device-plugin:v([0-9.]+)@"
         }
-      ]
+      ],
+      "released": "2026-09-22T16:40:55Z"
     },
     {
       "kind": "image",
@@ -1694,7 +1761,8 @@
           "file": "k8s/gpu-device-plugin/amd.yaml",
           "pattern": "image: rocm/k8s-device-plugin:([0-9.]+)@"
         }
-      ]
+      ],
+      "released": "2026-04-06T20:25:08Z"
     }
   ],
   "unpinned": []

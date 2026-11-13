@@ -8,7 +8,7 @@ const fresh = await emptiedEachTime();
 const npm = (name: string, version: string, extra: { name: string; value: string }[] = []) =>
   ({ 'bom-ref': `koala:pkg:npm/${name}@${version}`, name, version, properties: [{ name: 'koala:kind', value: 'npm' }, { name: 'koala:in', value: 'koala' }, ...extra] });
 
-const k3s = { 'bom-ref': 'binary:pkg:generic/k3s@v1.36.4+k3s1', name: 'k3s', version: 'v1.36.4+k3s1', properties: [{ name: 'koala:kind', value: 'binary' }, { name: 'koala:osv-ecosystem', value: 'Go' }, { name: 'koala:osv-name', value: 'github.com/k3s-io/k3s' }, { name: 'koala:github', value: 'k3s-io/k3s' }] };
+const k3s = { 'bom-ref': 'binary:pkg:generic/k3s@v1.36.4+k3s1', name: 'k3s', version: 'v1.36.4+k3s1', properties: [{ name: 'koala:kind', value: 'binary' }, { name: 'koala:osv-ecosystem', value: 'Go' }, { name: 'koala:osv-name', value: 'github.com/k3s-io/k3s' }, { name: 'koala:github', value: 'k3s-io/k3s' }, { name: 'koala:released', value: '2026-09-01T00:00:00Z' }] };
 const mongo = { 'bom-ref': 'image:pkg:docker/library/mongo@7', name: 'mongo', version: '7', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:floating', value: 'true' }] };
 
 const inventories: Record<string, unknown> = {
@@ -45,7 +45,6 @@ function fakeFetch(asked: Asked[], seroval11At = '2026-10-18T00:00:00Z') {
     if (url === 'https://registry.npmjs.org/seroval') return ok({ time: { '1.6.8': '2026-09-29T00:00:00Z', '1.6.11': seroval11At } });
     if (url === 'https://registry.npmjs.org/@xmldom%2Fxmldom' || url === 'https://registry.npmjs.org/@xmldom/xmldom') return ok({ time: { '0.8.11': '2026-08-01T00:00:00Z' } });
     if (url.includes('/repos/k3s-io/k3s/releases/tags/v1.36.5%2Bk3s1')) return ok({ published_at: '2026-10-25T00:00:00Z' });
-    if (url.includes('/repos/k3s-io/k3s/releases/tags/v1.36.4%2Bk3s1')) return ok({ published_at: '2026-09-01T00:00:00Z' });
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
 }

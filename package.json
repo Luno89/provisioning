@@ -119,12 +119,13 @@
     "@types/node": "^26.0.1",
     "concurrently": "^8.2.0",
     "fast-check": "4.10.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "yaml": "^2.9.0"
   },
   "dependencies": {
     "axios": "^1.17.0",
-    "protobufjs": "^8.7.1",
-    "decode-uri-component": "file:./vendor/decode-uri-component"
+    "decode-uri-component": "file:./vendor/decode-uri-component",
+    "protobufjs": "^8.7.1"
   },
   "overrides": {
     "seroval": "1.6.11",

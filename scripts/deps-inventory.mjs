@@ -97,6 +97,7 @@ export function pinComponents(pins) {
         property('koala:source', component.source),
         ...(component.where ? [property('koala:where', component.where)] : []),
         ...(component.github ? [property('koala:github', component.github)] : []),
+        ...(component.released ? [property('koala:released', component.released)] : []),
         ...(component.osv ? [property('koala:osv-ecosystem', component.osv.ecosystem), property('koala:osv-name', component.osv.name)] : []),
         ...(component.commit ? [property('koala:commit', component.commit)] : []),
         ...(component.floating ? [property('koala:floating', true)] : []),

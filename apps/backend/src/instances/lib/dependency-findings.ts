@@ -76,7 +76,7 @@ export const componentOf = (component: InventoryComponent): FindingComponent => 
   ...(component.where ? { where: component.where } : {}),
 });
 
-const fixFor = (sighting: Sighting): string | undefined =>
+export const fixFor = (sighting: Sighting): string | undefined =>
   fixOf({ id: sighting.advisory.id, name: sighting.component.name, version: sighting.component.version.replace(/^v/, ''), fixed: sighting.advisory.fixed });
 
 export function judged(sighting: Sighting, publishedAt: (sighting: Sighting, fix: string) => string | undefined, now: Date, days = COOLING_OFF_DAYS): Pick<DependencyFinding, 'fix' | 'fixPublishedAt' | 'takeOn' | 'state'> {

@@ -11,6 +11,8 @@ interface Component {
   sha512?: string;
   sha256s?: Record<string, string>;
   ciTool?: boolean;
+  github?: string;
+  released?: string;
   uses?: Use[];
   shaUses?: Use[];
 }
@@ -56,6 +58,14 @@ describe('the pins file', () => {
       expect(ciToolLine(pins, tool.name)).toMatch(new RegExp(`^${tool.version.replace(/\./g, '\\.')}\\|${tool.sha256}\\|https://`));
     }
     expect(ciToolLine(pins, 'nothing-by-that-name')).toBeUndefined();
+  });
+
+  it('records when each component from GitHub or a chart repository was released, so nothing asks at runtime', () => {
+    const dated = pins.components.filter((component) => component.github || component.kind === 'chart');
+    expect(dated.length).toBeGreaterThan(0);
+    for (const component of dated) {
+      expect(component.released, `${component.name}@${component.version}`).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    }
   });
 
   it('tests against the k3s that machines run', () => {

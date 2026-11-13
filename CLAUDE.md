@@ -2362,7 +2362,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
   `-- --no-push` stops before the push.
 - **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
-  in `dependencies.pins.json` with its version, checksum and the files that name it; `scripts/ci-tools.sh` reads its tools from it
+  in `dependencies.pins.json` with its version, checksum and the files that name it, and one from GitHub or a chart repository with when it was released (`node scripts/pin-dates.mjs` fills it, from the tag or the repository's index), so the daily check asks nobody for it; `scripts/ci-tools.sh` reads its tools from it
   (`scripts/pin.mjs`), and `tests/lib/pins.test.ts` fails when a file names a version or checksum the pins file does not. Its
   `unpinned` list is empty: no `curl | sh` is left, and every installer checks a sha256 before it runs. `npm run deps:inventory`
   (`scripts/deps-inventory.mjs`, node only) writes a CycloneDX inventory: npm from the lockfile (development-only marked), the machine

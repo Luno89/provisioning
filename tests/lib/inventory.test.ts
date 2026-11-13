@@ -18,7 +18,7 @@ const lock = {
 
 const pins = {
   components: [
-    { kind: 'image', name: 'caddy', version: '2.10.2', source: 'docker.io/library/caddy:2.10.2-alpine', github: 'caddyserver/caddy', osv: { ecosystem: 'Go', name: 'github.com/caddyserver/caddy/v2' } },
+    { kind: 'image', name: 'caddy', version: '2.10.2', source: 'docker.io/library/caddy:2.10.2-alpine', github: 'caddyserver/caddy', released: '2025-08-23T01:46:14Z', osv: { ecosystem: 'Go', name: 'github.com/caddyserver/caddy/v2' } },
     { kind: 'image', name: 'headscale/headscale', version: 'v0.29.2', source: 'docker.io/headscale/headscale:v0.29.2' },
     { kind: 'action', name: 'actions/checkout', version: 'v4.4.0', commit: 'a'.repeat(40), source: 'https://github.com/actions/checkout' },
     { kind: 'binary', name: 'k3s', version: 'v1.36.4+k3s1', sha256: 'b'.repeat(64), source: 'https://example.invalid/k3s' },
@@ -52,10 +52,11 @@ describe('the inventory of a release', () => {
     expect(Object.keys(closure.packages).sort()).toEqual(['apps/agent/node_modules/ms', 'node_modules/ms', 'node_modules/worker', 'node_modules/worker/node_modules/proto']);
   });
 
-  it('gives each pinned component its kind, source, checksum and where OSV knows it, and lists what is unpinned', () => {
+  it('gives each pinned component its kind, source, checksum, when it was released and where OSV knows it, and lists what is unpinned', () => {
     const [caddy, headscale, checkout, k3s, tailscale] = pinComponents(pins);
     expect(caddy).toMatchObject({ type: 'container', purl: 'pkg:docker/library/caddy@2.10.2' });
-    expect(props(caddy)).toMatchObject({ 'koala:osv-ecosystem': 'Go', 'koala:osv-name': 'github.com/caddyserver/caddy/v2', 'koala:github': 'caddyserver/caddy' });
+    expect(props(caddy)).toMatchObject({ 'koala:osv-ecosystem': 'Go', 'koala:osv-name': 'github.com/caddyserver/caddy/v2', 'koala:github': 'caddyserver/caddy', 'koala:released': '2025-08-23T01:46:14Z' });
+    expect(props(headscale)['koala:released']).toBeUndefined();
     expect(headscale).toMatchObject({ purl: 'pkg:docker/headscale/headscale@v0.29.2' });
     expect(checkout).toMatchObject({ purl: 'pkg:github/actions/checkout@v4.4.0' });
     expect(props(checkout)['koala:commit']).toBe('a'.repeat(40));

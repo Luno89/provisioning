@@ -1,6 +1,6 @@
 import { advisoryFor, batches, checkedByOsv, idsFromBatch, inventoryComponents, OSV_API, queryKey, queryOf, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
 import {
-  componentOf, findingKey, fixingRelease, mergeFindings, runtimeFindings, tellingMessage,
+  componentOf, findingKey, fixFor, fixingRelease, mergeFindings, runtimeFindings, tellingMessage,
   type CheckedRelease, type DependencyCheck, type DependencyFinding, type ListedComponent, type Sighting,
 } from '../lib/dependency-findings.js';
 import type { InstanceRelease } from '../lib/instance-updates.js';
@@ -130,27 +130,32 @@ export class DependencyWatch {
       }
     });
 
+    const previous = await this.deps.store.getDependencyFindings();
+    const kept = new Map(previous.flatMap((finding) => (finding.fix && finding.fixPublishedAt ? [[`${finding.key}|${finding.fix}`, finding.fixPublishedAt] as const] : [])));
     const dates = new Map<string, string | undefined>();
     const dateKey = (component: InventoryComponent, fix: string) => `${component.ecosystem}|${component.osvName}|${fix}`;
     const npmTimes = new Map<string, Record<string, string> | undefined>();
-    for (const sighting of sightings.values()) {
+    for (const [key, sighting] of sightings) {
       const { source } = sighting;
-      for (const fix of sighting.advisory.fixed) {
-        const key = dateKey(source, fix);
-        if (dates.has(key)) continue;
-        if (source.ecosystem === 'npm') {
-          if (!npmTimes.has(source.name)) npmTimes.set(source.name, await this.npmTimes(source.name).catch((err: Error) => {
-            console.warn(`[dependencies] when ${source.name}'s versions were published could not be read, so its fixes stay undated until the next check: ${err.message}`);
-            return undefined;
-          }));
-          dates.set(key, npmTimes.get(source.name)?.[fix]);
-        } else {
-          dates.set(key, source.github ? await this.githubRelease(source.github, fix) : undefined);
-        }
+      const fix = fixFor(sighting);
+      if (!fix || dates.get(dateKey(source, fix))) continue;
+      const known = kept.get(`${key}|${fix}`);
+      if (known) {
+        dates.set(dateKey(source, fix), known);
+        continue;
+      }
+      if (dates.has(dateKey(source, fix))) continue;
+      if (source.ecosystem === 'npm') {
+        if (!npmTimes.has(source.name)) npmTimes.set(source.name, await this.npmTimes(source.name).catch((err: Error) => {
+          console.warn(`[dependencies] when ${source.name}'s versions were published could not be read, so its fixes stay undated until the next check: ${err.message}`);
+          return undefined;
+        }));
+        dates.set(dateKey(source, fix), npmTimes.get(source.name)?.[fix]);
+      } else {
+        dates.set(dateKey(source, fix), source.github ? await this.githubRelease(source.github, fix) : undefined);
       }
     }
     const sourceOf = new Map([...sightings.entries()].map(([key, sighting]) => [key, sighting.source]));
-    const previous = await this.deps.store.getDependencyFindings();
     const merged = mergeFindings(previous, [...sightings.values()], (sighting, fix) => {
       const source = sourceOf.get(findingKey(sighting.component, sighting.advisory.id));
       return source ? dates.get(dateKey(source, fix)) : undefined;
@@ -160,11 +165,6 @@ export class DependencyWatch {
     if (message) await this.deps.tell(message);
 
     const current = inventories.get(this.deps.currentRelease) ?? [];
-    const ages = new Map<string, string | undefined>();
-    for (const component of current) {
-      if (component.kind === 'npm' || !component.github || !component.version || ages.has(component.ref)) continue;
-      ages.set(component.ref, await this.githubRelease(component.github, component.version));
-    }
     const components: ListedComponent[] = current.map((component) => ({
       name: component.name,
       version: component.version,
@@ -173,7 +173,7 @@ export class DependencyWatch {
       ...(component.where ? { where: component.where } : {}),
       dev: component.dev,
       checked: checkedByOsv(component),
-      ...(ages.get(component.ref) ? { publishedAt: ages.get(component.ref) } : {}),
+      ...(component.released ? { publishedAt: component.released } : {}),
     }));
     const releases: CheckedRelease[] = watched.map((release) => ({
       release: release.release,
