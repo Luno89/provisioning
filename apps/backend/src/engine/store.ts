@@ -1,6 +1,7 @@
 import { sessionOf, type Tx } from '../platform/lib/transaction.js';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { type AreaStore, type Identified, fieldChanges, fromDoc } from '../platform/lib/collection.js';
+import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import type { AuthoredExtension } from './lib/authored-extensions.js';
 import type { AutoModeSettings } from './lib/auto-mode.js';
 import { type Collection, type Db, MongoBulkWriteError, MongoServerError } from 'mongodb';
@@ -108,6 +109,7 @@ export interface EngineStore extends AreaStore {
   getPoisoningSignal(ownerId: string, id: string): Promise<PoisoningSignal | undefined>;
   setPoisoningSignalState(ownerId: string, id: string, state: SignalState, because?: string | undefined): Promise<boolean>;
   getUntoldPoisoningSignals(): Promise<PoisoningSignal[]>;
+  watchPoisoningSignals(on: (signal: PoisoningSignal) => void): Watching;
   markPoisoningSignalTold(id: string, at: string): Promise<void>;
 }
 
@@ -325,6 +327,10 @@ export class MongoEngineStore implements EngineStore {
 
   async markPoisoningSignalTold(id: string, at: string): Promise<void> {
     await this.poisoningSignals.updateOne({ _id: id as never }, { $set: { toldAt: at } });
+  }
+
+  watchPoisoningSignals(on: (signal: PoisoningSignal) => void): Watching {
+    return watchWrites(() => this.poisoningSignals, { toldAt: { $exists: false } }, (doc) => on(fromDoc<PoisoningSignal>(doc)));
   }
 
   async saveRunEnded(ending: RunEnding): Promise<void> {

@@ -113,6 +113,22 @@ describe('DependencyStates', () => {
     made.stop();
   });
 
+  it('follows a dependency its open connection reports on, checking it neither at start nor again on a timer, down and back only as the connection says', async () => {
+    const rows: DependencyStateRow[] = [];
+    const made = new DependencyStates({ process: 'backend', described: ['mongo', 'root'], record: async (row) => { rows.push(row); }, now: () => new Date(Date.now()), log: quiet });
+    made.checkWith('mongo', async () => undefined);
+    made.toldByConnection('root');
+    await made.start();
+    expect(made.stateOf('root').state).toBe('answering');
+    made.wentDown('root', 'this instance\'s connection to it is closed', NOW.toISOString());
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(made.stateOf('root')).toEqual({ state: 'down', since: NOW.toISOString(), reason: 'this instance\'s connection to it is closed' });
+    made.answered('root');
+    expect(made.stateOf('root').state).toBe('answering');
+    expect(rows.filter((row) => row.dependency === 'root').map((row) => row.state)).toEqual(['answering', 'down', 'answering']);
+    made.stop();
+  });
+
   it('records a change of state only, never the database\'s own, and records what it could not once the database answers', async () => {
     let failing = true;
     const rows: DependencyStateRow[] = [];

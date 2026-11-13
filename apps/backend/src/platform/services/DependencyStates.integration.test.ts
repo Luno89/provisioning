@@ -103,3 +103,23 @@ describe('the database stopping and starting again', () => {
     }
   }, 120_000);
 });
+
+describe('a dependency reported on by its open connection', () => {
+  it('is recorded answering at start, down and back as the connection says, and never checked by a timer', async () => {
+    const records = await testDatabase();
+    const states = new DependencyStates({ process: 'backend', described: ['root'], record: (row) => records.platform.saveDependencyState(row), firstMs: 50, log: quiet });
+    states.toldByConnection('root');
+    try {
+      await states.start();
+      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'answering') ? true : undefined));
+      states.wentDown('root', 'this instance\'s connection to it is closed', new Date().toISOString());
+      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'down') ? true : undefined));
+      expect(states.stateOf('root')).toMatchObject({ state: 'down', reason: 'this instance\'s connection to it is closed' });
+      states.answered('root');
+      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'answering') ? true : undefined));
+      expect(states.stateOf('root').state).toBe('answering');
+    } finally {
+      states.stop();
+    }
+  });
+});

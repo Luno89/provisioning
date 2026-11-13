@@ -9,6 +9,11 @@ import { ApplicationFailure } from '@temporalio/common';
 import type { ConcludeWorkspaceArgs } from '../engine-host/temporal/contracts.js';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError } from '../memory/services/WorkspaceConclusionService.js';
 import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
+import { Client } from '@temporalio/client';
+import { workFor } from '@koala/engine-core/work-for';
+import { namesItsWork } from '../platform/lib/temporal-client.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import { createWorkspaceProjectActivities, type WorkspaceProjectStores } from '../activities/WorkspaceProjectActivity.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -22,19 +27,32 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unknown>, body: (service: WorkspaceConclusionService) => Promise<void>) => {
+const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unknown>, body: (service: WorkspaceConclusionService) => Promise<void>, stores?: WorkspaceProjectStores) => {
   const taskQueue = `conclude-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts')),
-    activities: { ConcludeWorkspaceActivity: activity },
+    workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts'), [resolve(__dirname, 'telemetry-interceptors.ts')]),
+    activities: { ConcludeWorkspaceActivity: activity, ...createWorkspaceProjectActivities(stores ?? await testDatabase()) },
   });
-  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => env.client.workflow, taskQueue, projectOf: async () => undefined })));
+  const naming = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => naming.workflow, taskQueue })));
 };
 
 describe('concluding a workspace through Temporal', () => {
+  it('concludes a tree that works for a project as that project\'s work from the workflow\'s first step, so deleting the project fences it', async () => {
+    const db = await testDatabase();
+    const at = '2026-11-13T10:00:00.000Z';
+    await db.projects.saveTree({ id: 't-shop', ownerId: 'u1', name: 'Shop', projectIds: ['p-shop'], createdAt: at, updatedAt: at } as never);
+    const seen: unknown[] = [];
+    await withWorker(async () => { seen.push(workFor()); return { saved: true, owner: 'koala-u1', repo: 'tree-t-shop', commit: 'c0ffee' }; }, async (service) => {
+      await service.conclude('u1', { kind: 'tree', id: 't-shop' });
+      await service.conclude('u1', { kind: 'conversation', id: 'c-none' });
+    }, db);
+    expect(seen).toEqual([{ owner: 'u1', project: 'p-shop' }, { owner: 'u1' }]);
+  }, 60_000);
+
   it('waits for the workspace to be saved and deleted, and answers with what was saved', async () => {
     const seen: ConcludeWorkspaceArgs[] = [];
     await withWorker(async (args) => { seen.push(args); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; }, async (service) => {

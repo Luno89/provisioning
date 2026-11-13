@@ -5,7 +5,7 @@ import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, keepTrying,
-  MailReputation, isOff, type BackendSettings, type Off, stillDown, type DependencyStates,
+  MailReputation, isOff, type BackendSettings, type Off, type DependencyStates,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
@@ -110,9 +110,7 @@ export class InstanceSide {
       dependency: dependencies,
     });
     this.rootPresence = presence;
-    dependencies.checkWith('root', async () => {
-      if (presence.view().down) throw stillDown(presence.downReason());
-    });
+    dependencies.toldByConnection('root');
     presence.start();
   }
 }

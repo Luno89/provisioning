@@ -14,6 +14,8 @@ import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-
 import { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import { MetricsService, TRACE_ID_HEADER } from '../services/MetricsService.js';
 import { carryingTrace, telemetrySettings } from './telemetry.js';
+import { testDatabase } from './test-database.js';
+import { createWorkspaceProjectActivities } from '../../activities/WorkspaceProjectActivity.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TREE = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
@@ -66,14 +68,14 @@ describe('one trace from the request through the workflow to the activity', () =
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, '../../workflows/ConcludeWorkspaceWorkflow.ts'), [resolve(__dirname, '../../workflows/telemetry-interceptors.ts')]),
       interceptors: { activity: [traceActivities()] },
-      activities: { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; } },
+      activities: { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
 
     const metrics = new MetricsService({ role: 'instance' });
     const app = express();
     app.use(metrics.middleware());
     app.post('/api/trees/:id/conclude', (req, res) => {
-      const service = new WorkspaceConclusionService({ workflows: async () => client.workflow, taskQueue, projectOf: async () => undefined });
+      const service = new WorkspaceConclusionService({ workflows: async () => client.workflow, taskQueue });
       service.conclude('u1', { kind: 'tree', id: String(req.params.id) }).then((saved) => res.json(saved), (err: Error) => res.status(500).json({ error: err.message }));
     });
     const server = http.createServer(app);

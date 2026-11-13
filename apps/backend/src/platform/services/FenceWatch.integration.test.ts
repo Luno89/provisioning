@@ -1,6 +1,6 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
-import { Fence } from '../lib/fence.js';
+import { Fence, PROCESS_BEAT_MS } from '../lib/fence.js';
 import { testDatabase } from '../lib/test-database.js';
 import { endAndDrop, FenceWatch } from './FenceWatch.js';
 
@@ -40,5 +40,24 @@ describe('a fence kept until every process from before its removal ended has sta
     expect(await db.platform.fencesRaised(), 'the fence is gone from the store, so no process starting later holds it').toEqual([]);
     expect(hostAgain.fence.holds(leaving)).toBe(false);
     await expect(withWorkFor({ owner: 'leaving' }, () => engineAgain.fence.guard(async () => 'kept')), 'a process that held it keeps refusing the account\'s work while it lives').rejects.toBeInstanceOf(WorkStopped);
+  });
+});
+
+describe('a process saying it is live, on Mongo', () => {
+  it('beats again every beat, so a removal keeps counting it live', async () => {
+    const db = await testDatabase();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      let now = Date.now();
+      const watch = new FenceWatch({ store: db.platform, fence: new Fence(), process: { id: 'beating-1', name: 'backend' }, now: () => now });
+      await watch.start();
+      started.push(watch);
+      const later = now + 120_000;
+      now = later;
+      await vi.advanceTimersByTimeAsync(PROCESS_BEAT_MS);
+      await expect.poll(() => db.platform.processesSeenSince(new Date(later - 1_000).toISOString())).toEqual([{ id: 'beating-1', name: 'backend' }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

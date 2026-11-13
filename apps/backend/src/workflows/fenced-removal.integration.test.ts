@@ -140,8 +140,8 @@ describe('an account being removed while a step of its run is still writing', ()
 
       await db.platform.beatProcess({ id: `other-${owner}`, name: 'worker-cluster' }, new Date().toISOString());
       const raised = fenceRaised('owner', owner);
-      const workflows = temporalRemovalWorkflows(() => env.client, queue);
-      await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId(owner), [{ ownerId: owner }], owner);
+      const workflows = temporalRemovalWorkflows<{ ownerId: string; keepRunsFor: string }>(() => env.client, queue);
+      await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId(owner), [{ ownerId: owner, keepRunsFor: 'keeper' }], owner);
       await raised;
       await expect.poll(() => db.platform.fenceAcks({ kind: 'owner', id: owner })).toHaveLength(1);
       expect(await workflows.state(removeAccountWorkflowId(owner))).toEqual({ state: 'running', done: [] });

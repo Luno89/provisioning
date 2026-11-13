@@ -1,4 +1,3 @@
-import { withWorkFor } from '@koala/engine-core/work-for';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { CONCLUDE_WORKSPACE_WORKFLOW, concludeWorkspaceId, type ConcludeWorkspaceArgs, type ConcludedWorkspace } from '../../engine-host/temporal/contracts.js';
 import type { SavedDocuments } from '../../engine-host/sandboxes/workspace-documents.js';
@@ -20,14 +19,13 @@ const causeOf = (err: unknown): string => {
 };
 
 export class WorkspaceConclusionService {
-  constructor(private readonly deps: { workflows: () => Promise<ConclusionWorkflows>; taskQueue: string; projectOf: (ownerId: string, workspace: ConcludedWorkspace) => Promise<string | undefined> }) {}
+  constructor(private readonly deps: { workflows: () => Promise<ConclusionWorkflows>; taskQueue: string }) {}
 
   async conclude(ownerId: string, workspace: ConcludedWorkspace): Promise<SavedDocuments> {
     const workflows = await this.deps.workflows();
     const workflowId = concludeWorkspaceId(workspace);
     try {
-      const project = await this.deps.projectOf(ownerId, workspace);
-      await withWorkFor({ project }, () => workflows.start(CONCLUDE_WORKSPACE_WORKFLOW, { workflowId, taskQueue: this.deps.taskQueue, args: [{ ownerId, workspace }], ...startedFor(ownerId) }));
+      await workflows.start(CONCLUDE_WORKSPACE_WORKFLOW, { workflowId, taskQueue: this.deps.taskQueue, args: [{ ownerId, workspace }], ...startedFor(ownerId) });
     } catch (err) {
       if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
     }

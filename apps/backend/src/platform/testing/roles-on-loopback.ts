@@ -73,6 +73,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     ROOT_IDENTITY_KEY: testIdentityKey(),
     ...minioEnv(),
     ...unreachedPlatformServices(),
+    ...(process.env.NODE_V8_COVERAGE ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE, NODE_OPTIONS: '--enable-source-maps' } : {}),
     ...env,
   };
   const start = async (): Promise<void> => {

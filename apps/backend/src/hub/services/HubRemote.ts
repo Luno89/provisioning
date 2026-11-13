@@ -37,19 +37,11 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
     private readonly reportsTo?: DependencyReporter | undefined,
   ) {}
 
-  private lineFailure: string | undefined;
-
-  lineProblem(): string | undefined {
-    return this.lineFailure;
-  }
-
   private lineFailed(reason: string): void {
-    this.lineFailure = reason;
     this.reportsTo?.failed('hub', stillDown(reason));
   }
 
   private lineOpened(): void {
-    this.lineFailure = undefined;
     this.reportsTo?.answered('hub');
   }
 

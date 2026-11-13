@@ -120,7 +120,7 @@ describe('the owner\'s instance and the hub, over one socket', () => {
       '[dependencies] backend: the hub isn\'t answering: the connection to it failed: Unauthorized',
       '[dependencies] backend: the hub answers again',
     ]);
-    expect(remote.lineProblem()).toBeUndefined();
+    expect(states.stateOf('hub').state).toBe('answering');
 
     connected = next<void>();
     for (const [, socket] of io.of('/hub-instances').sockets) socket.conn.close();

@@ -1,4 +1,5 @@
 import type { EngineStore } from '../store.js';
+import type { Watching } from '../../platform/index.js';
 import type { MemoryItem } from '../../memory/index.js';
 import {
   memoryFromHost, memoryFromRun, serious, tellingOf, worstFirst,
@@ -6,7 +7,7 @@ import {
 } from '../lib/poisoning.js';
 
 export interface PoisoningServiceDeps {
-  store: Pick<EngineStore, 'getPoisoningSignals' | 'getPoisoningSignal' | 'setPoisoningSignalState' | 'getUntoldPoisoningSignals' | 'markPoisoningSignalTold' | 'getRunReadsOfRuns'>;
+  store: Pick<EngineStore, 'getPoisoningSignals' | 'getPoisoningSignal' | 'setPoisoningSignalState' | 'getUntoldPoisoningSignals' | 'markPoisoningSignalTold' | 'watchPoisoningSignals' | 'getRunReadsOfRuns'>;
   memories: { list(ownerId: string): Promise<MemoryItem[]>; save(item: MemoryItem): Promise<void> };
   unseal(sealed: string): string;
   push?: ((ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>) | undefined;
@@ -88,6 +89,28 @@ export class PoisoningService {
     for (const memory of retiring) await this.deps.memories.save({ ...memory, invalidAt: at, updatedAt: at, text: `${memory.text}\n(${why})` });
     await this.deps.store.setPoisoningSignalState(ownerId, id, 'resolved');
     return { retired: retiring.length, signal: this.view({ ...signal, state: 'resolved' }) };
+  }
+
+  private telling: Promise<unknown> = Promise.resolve();
+
+  private tellInTurn(): Promise<unknown> {
+    this.telling = this.telling.then(() => this.tellSafely());
+    return this.telling;
+  }
+
+  private async tellSafely(): Promise<void> {
+    try {
+      await this.tellNew();
+    } catch (error) {
+      (this.deps.log ?? console.warn)(`[poisoning] could not tell what was found: ${(error as Error).message}`);
+    }
+  }
+
+  async follow(): Promise<Watching> {
+    const watching = this.deps.store.watchPoisoningSignals(() => { void this.tellInTurn(); });
+    await watching.ready;
+    await this.tellInTurn();
+    return watching;
   }
 
   async tellNew(): Promise<number> {

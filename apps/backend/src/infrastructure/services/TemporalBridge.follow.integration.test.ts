@@ -92,7 +92,7 @@ describe('cancelling and reading work in Temporal', () => {
 });
 
 describe('settling the work the bridge itself starts', () => {
-  it('destroys an app, resizes and syncs an app, and records a build, each settled from its workflow\'s end', async () => {
+  it('destroys an app, resizes and syncs an app, records a build and crawls, each settled from its workflow\'s end', async () => {
     const db = await testDatabase();
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
@@ -123,6 +123,9 @@ describe('settling the work the bridge itself starts', () => {
       await bridge.syncConfig('model');
       const build = await bridge.runPipeline(project, 'b'.repeat(40), 'refs/heads/main');
       expect(build).toMatchObject({ event: 'pipeline-run' });
+      const { workflowId } = await bridge.startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
+      await bridge.client!.workflow.getHandle(workflowId).result();
+      expect(await bridge.ingestStatus(workflowId)).toEqual({ state: 'completed', receipt: { pages: 1 } });
       await Promise.all(followings);
     }));
     await bridge.stop();

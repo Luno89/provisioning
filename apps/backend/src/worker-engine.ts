@@ -42,6 +42,7 @@ import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
+import { createWorkspaceProjectActivities } from './activities/WorkspaceProjectActivity.js';
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
 import { scriptedModelBase, httpCheckAccess } from './checks/index.js';
 import { labelValue } from './engine-host/sandboxes/workspace.js';
@@ -82,7 +83,8 @@ import { ignore } from '@koala/engine-core/failures';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
-import { withWorkFor } from '@koala/engine-core/work-for';
+import { temporalWorkflowStarter } from './engine-host/temporal/workflow-starter.js';
+import type { WorkflowStarter } from './engine-host/registries/run-starter.js';
 import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -348,17 +350,12 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     const device = (await db.machines.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
     return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
   };
+  let workflowStarter: WorkflowStarter | undefined;
   const runStarter = createRunStarter({
     principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
     grants: runGrants,
     registry,
-    workflows: () => ({
-      start: async (type, options) => {
-        const handle = await withWorkFor({ project: options.project }, () => temporal.workflow.start(type, { workflowId: options.workflowId, taskQueue: options.taskQueue, args: options.args, memo: options.memo, ...startedFor(options.owner) }));
-        return { workflowId: handle.workflowId };
-      },
-      signal: async (workflowId, name, payload) => { await temporal.workflow.getHandle(workflowId).signal(name, ...(payload === undefined ? [] : [payload])); },
-    }),
+    workflows: () => workflowStarter,
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: machineProblem,
@@ -468,6 +465,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   });
 
   const temporal = await getTemporalClient();
+  workflowStarter = temporalWorkflowStarter(temporal.workflow);
   const removalWorkflows = {
     stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
   };
@@ -499,6 +497,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       artifacts: instanceFiles.artifacts,
       files: instanceFiles.fileService,
     }),
+    ...createWorkspaceProjectActivities(db),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
       store: db,

@@ -93,31 +93,51 @@ export class ClusterAccess {
     }
   }
 
-  kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
-    return theFence().guard(async () => this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input)));
+  async kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
+    const leave = this.admitted();
+    try {
+      return await this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input));
+    } finally {
+      leave();
+    }
   }
 
-  helm(target: Target, args: readonly string[]): Promise<string> {
-    return theFence().guard(async () => this.ran(target, await this.run(target, this.deps.tools.helm, args)));
+  async helm(target: Target, args: readonly string[]): Promise<string> {
+    const leave = this.admitted();
+    try {
+      return await this.ran(target, await this.run(target, this.deps.tools.helm, args));
+    } finally {
+      leave();
+    }
   }
 
-  apply(target: Target, manifest: string): Promise<string> {
-    return theFence().guard(async () => {
+  async apply(target: Target, manifest: string): Promise<string> {
+    const leave = this.admitted();
+    try {
       const run = await this.run(target, this.deps.tools.kubectl, ['apply', '-f', '-'], manifest);
       const first = await this.deps.processes.run(run);
       if (first.code === 0) return first.stdout;
       if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
-      return this.ran(target, run);
-    });
+      return await this.ran(target, run);
+    } finally {
+      leave();
+    }
   }
 
-  pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
-    return theFence().guard(async () => {
+  async pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
+    const leave = this.admitted();
+    try {
       const run = await this.run(target, this.deps.tools.kubectl, args);
       const result = await this.deps.streams.pipe(run, input);
       if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
       return result.stdout;
-    });
+    } finally {
+      leave();
+    }
+  }
+
+  private admitted(): () => void {
+    return theFence().enter();
   }
 
   private async ran(target: Target, run: ProcessRun): Promise<string> {
@@ -132,16 +152,31 @@ export class ClusterAccess {
     if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `helm package of ${chartDir} exited ${result.code}`);
   }
 
-  start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    return theFence().guard(async () => this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io));
+  async start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    const leave = this.admitted();
+    try {
+      return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
+    } finally {
+      leave();
+    }
   }
 
-  startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    return theFence().guard(async () => this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io));
+  async startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    const leave = this.admitted();
+    try {
+      return this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io);
+    } finally {
+      leave();
+    }
   }
 
-  follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
-    return theFence().guard(async () => this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput));
+  async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
+    const leave = this.admitted();
+    try {
+      return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
+    } finally {
+      leave();
+    }
   }
 
   private async run(target: Target, command: string, args: readonly string[], input?: string): Promise<ProcessRun> {

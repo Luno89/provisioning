@@ -495,6 +495,17 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       expect(await store.getPoisoningSignal('owner-1', 's1')).toMatchObject({ state: 'resolved', dismissedBecause: 'a test page' });
     });
 
+    it('tells whoever listens of each signal as it is recorded', async () => {
+      const store = await make();
+      let heard!: (id: string) => void;
+      const recorded = new Promise<string>((resolve) => { heard = resolve; });
+      const watching = store.watchPoisoningSignals((found) => heard(found.id));
+      await watching.ready;
+      await store.savePoisoningSignal(signal('s1'));
+      expect(await recorded).toBe('s1');
+      await watching.close();
+    });
+
     it('lists every signal nobody was told of yet, oldest first, until it is marked told', async () => {
       const store = await make();
       await store.savePoisoningSignal(signal('s2', { at: at(2), ownerId: 'owner-2' }));

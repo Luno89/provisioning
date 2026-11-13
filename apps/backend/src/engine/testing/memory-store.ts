@@ -4,6 +4,7 @@ import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, Gran
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { FrontierClaim, FrontierUrl } from '../../platform/index.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
+import type { Watching } from '../../platform/lib/change-streams.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
 import { withoutUnkeptAttachments } from '../lib/attachments.js';
 import type { AutoModeSettings } from '../lib/auto-mode.js';
@@ -225,10 +226,18 @@ export class MemoryEngineStore implements EngineStore {
     return this.runReads.keyed().filter(([, reads]) => reads.runs.some((run) => runIds.includes(run))).map(([key, reads]) => readsOut(key, reads));
   }
 
+  private readonly signalWatchers = new Set<(signal: PoisoningSignal) => void>();
+
   async savePoisoningSignal(signal: PoisoningSignal): Promise<boolean> {
     if (this.poisoningSignals.has(signal.id)) return false;
     this.poisoningSignals.put(signal.id, signal);
+    for (const watcher of this.signalWatchers) queueMicrotask(() => watcher(copied(signal)));
     return true;
+  }
+
+  watchPoisoningSignals(on: (signal: PoisoningSignal) => void): Watching {
+    this.signalWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.signalWatchers.delete(on); } };
   }
 
   async getPoisoningSignals(ownerId: string, filter: { state?: SignalState | undefined; runIds?: readonly string[] | undefined } = {}): Promise<PoisoningSignal[]> {

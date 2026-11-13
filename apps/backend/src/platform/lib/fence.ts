@@ -63,16 +63,26 @@ export class Fence {
     return undefined;
   }
 
-  async guard<T>(write: () => Promise<T>): Promise<T> {
+  enter(): () => void {
     const work = workFor();
     const stopped = this.stopped(work);
     if (stopped) throw new WorkStopped(stopped);
     const keys = keysOf(work);
     for (const key of keys) this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
+    let left = false;
+    return () => {
+      if (left) return;
+      left = true;
+      for (const key of keys) this.finished(key);
+    };
+  }
+
+  async guard<T>(write: () => Promise<T>): Promise<T> {
+    const leave = this.enter();
     try {
       return await write();
     } finally {
-      for (const key of keys) this.finished(key);
+      leave();
     }
   }
 

@@ -36,6 +36,21 @@ describe('the fence a removal puts round an account or a project', () => {
     await expect(unnamedWork(() => fence.guard(async () => 'kept'))).resolves.toBe('kept');
   });
 
+  it('admits work by hand as guard does: refusing a fenced owner, and counting the work as in flight until it is let go', async () => {
+    const fence = new Fence();
+    const leave = withWorkFor({ owner: 'leaving' }, () => fence.enter());
+    fence.close({ kind: 'owner', id: 'leaving' });
+    expect(() => withWorkFor({ owner: 'leaving' }, () => fence.enter())).toThrow(WorkStopped);
+    let quiet = false;
+    const waiting = fence.quiet({ kind: 'owner', id: 'leaving' }).then(() => { quiet = true; });
+    await Promise.resolve();
+    expect(quiet).toBe(false);
+    leave();
+    leave();
+    await waiting;
+    expect(quiet).toBe(true);
+  });
+
   it('is quiet for an account only once every piece of its work that got past the fence before it closed has finished', async () => {
     const fence = new Fence();
     let finish!: () => void;

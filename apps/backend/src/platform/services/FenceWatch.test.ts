@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { MemoryPlatformStore } from '../testing/memory-store.js';
-import { Fence } from '../lib/fence.js';
+import { Fence, PROCESS_BEAT_MS } from '../lib/fence.js';
 import { endAndDrop, FenceWatch, fenceHeldEverywhere } from './FenceWatch.js';
 
 const leaving = { kind: 'owner', id: 'leaving' } as const;
@@ -67,6 +67,27 @@ describe('a removal waiting until every process holds its fence', () => {
     const store = new MemoryPlatformStore();
     await store.raiseFence(leaving, '2026-11-13T10:00:00.000Z');
     expect(await fenceHeldEverywhere({ store, now: () => NOW }, leaving)).toEqual([]);
+  });
+});
+
+describe('a process saying it is live', () => {
+  it('beats again every beat while it runs, and stops beating once stopped', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const store = new MemoryPlatformStore();
+      let now = NOW;
+      const watch = new FenceWatch({ store, fence: new Fence(), process: { id: 'engine-1', name: 'worker-engine' }, now: () => now });
+      await watch.start();
+      now = NOW + 60_000;
+      await vi.advanceTimersByTimeAsync(PROCESS_BEAT_MS);
+      expect(await store.processesSeenSince(new Date(NOW + 30_000).toISOString())).toEqual([{ id: 'engine-1', name: 'worker-engine' }]);
+      await watch.stop();
+      now = NOW + 120_000;
+      await vi.advanceTimersByTimeAsync(PROCESS_BEAT_MS);
+      expect(await store.processesSeenSince(new Date(NOW).toISOString())).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -11,7 +11,7 @@ const TSX = resolve(import.meta.dirname, '..', '..', 'node_modules', '.bin', 'ts
 let place = '';
 let watcher: ChildProcess | undefined;
 afterEach(() => {
-  watcher?.kill('SIGKILL');
+  if (watcher?.pid) process.kill(-watcher.pid, 'SIGKILL');
   watcher = undefined;
   if (place) rmSync(place, { recursive: true, force: true });
 });
@@ -35,6 +35,7 @@ describe('the hook in a process run as Koala\'s pods run theirs, under tsx watch
     mkdirSync(join(live, 'raw'), { recursive: true });
     watcher = spawn(TSX, ['watch', 'src/index.ts'], {
       cwd: app,
+      detached: true,
       stdio: 'ignore',
       env: { ...process.env, COUPLING_LIVE_DIR: live, NODE_V8_COVERAGE: join(live, 'raw'), NODE_OPTIONS: `--enable-source-maps --import ${HOOK}` },
     });

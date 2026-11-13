@@ -79,4 +79,15 @@ describe('the findings a person sees and acts on', () => {
     expect(mail).toHaveBeenCalledWith('owner', expect.objectContaining({ subject: 'Koala: A run copied its own canary out' }));
     expect(JSON.stringify(mail.mock.calls)).not.toContain('the secret line');
   });
+
+  it('tells what was found before it started at once, and each finding recorded after as it comes, never twice', async () => {
+    const { db, poisoning, push } = await service();
+    await db.engine.savePoisoningSignal(signal({ id: 'before', kind: 'canary', severity: 'certain' }));
+    const following = await poisoning.follow();
+    expect(push.mock.calls.map((call) => (call as unknown[])[1])).toEqual([expect.objectContaining({ tag: 'poisoning-before' })]);
+    await db.engine.savePoisoningSignal(signal({ id: 'after', kind: 'canary', severity: 'certain' }));
+    await expect.poll(() => push.mock.calls.length).toBe(2);
+    expect((push.mock.calls[1] as unknown[])[1]).toEqual(expect.objectContaining({ tag: 'poisoning-after' }));
+    await following.close();
+  });
 });

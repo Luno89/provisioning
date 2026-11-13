@@ -435,6 +435,10 @@ export class TemporalBridge {
     }
   }
 
+  private forProject<T>(projectId: string | undefined, start: () => Promise<T>): Promise<T> {
+    return withWorkFor({ project: projectId }, start)
+  }
+
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `adopt-plan-${proposalId}`
@@ -653,7 +657,7 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeDestroyAppWorkflow, {
+    await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeDestroyAppWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -702,7 +706,7 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeResizeDiskWorkflow, {
+    await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeResizeDiskWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -829,7 +833,7 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeSyncConfigWorkflow, {
+    await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeSyncConfigWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -947,7 +951,7 @@ export class TemporalBridge {
     })
     await this.db.projects.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
 
-    await withWorkFor({ project: project.id }, () => this.client!.workflow.start(executePipelineRunWorkflow, {
+    await this.forProject(project.id, () => this.client!.workflow.start(executePipelineRunWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
@@ -972,7 +976,7 @@ export class TemporalBridge {
   }): Promise<{ workflowId: string }> {
     const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { ownerId, url, ...limits } = args
-    await withWorkFor({ project: args.projectId }, () => this.client!.workflow.start(executeIngestWorkflow, {
+    await this.forProject(args.projectId, () => this.client!.workflow.start(executeIngestWorkflow, {
       taskQueue: QUEUES.host,
       workflowId,
       args: [{ ownerId, url, ...definedFields(limits) }],

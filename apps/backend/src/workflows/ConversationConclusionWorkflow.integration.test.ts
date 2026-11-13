@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
 import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import { createWorkspaceProjectActivities } from '../activities/WorkspaceProjectActivity.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
@@ -32,7 +34,7 @@ describe('a conversation\'s countdown to concluding', () => {
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
-      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
+      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
     const backend = await Worker.create({
       interceptors: { activity: activityInterceptors() },
@@ -75,7 +77,7 @@ describe('a conversation\'s countdown to concluding', () => {
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
-      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
+      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
     const backend = await Worker.create({
       interceptors: { activity: activityInterceptors() },

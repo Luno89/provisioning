@@ -22,6 +22,7 @@ export class DependencyStates implements DependencyReporter {
   private readonly described: ReadonlySet<DependencyId>;
   private readonly states = new Map<DependencyId, DependencyState>();
   private readonly checks = new Map<DependencyId, DependencyCheck>();
+  private readonly told = new Set<DependencyId>();
   private readonly timers = new Map<DependencyId, ReturnType<typeof setTimeout>>();
   private readonly backoff = new Map<DependencyId, Reopening>();
   private readonly unwritten = new Map<DependencyId, DependencyStateRow>();
@@ -47,10 +48,16 @@ export class DependencyStates implements DependencyReporter {
     if (this.stateOf(dependency).state === 'down') this.schedule(dependency);
   }
 
+  toldByConnection(dependency: DependencyId): void {
+    if (!this.described.has(dependency)) return;
+    this.told.add(dependency);
+  }
+
   start(): Promise<void> {
-    const unchecked = [...this.described].filter((dependency) => !this.checks.has(dependency));
+    const unchecked = [...this.described].filter((dependency) => !this.checks.has(dependency) && !this.told.has(dependency));
     if (unchecked.length) throw new Error(`${this.deps.process} uses ${unchecked.join(', ')} and was given no way to check ${unchecked.length === 1 ? 'it' : 'them'}`);
-    return Promise.all([...this.described].map((dependency) => this.firstCheck(dependency))).then(() => undefined);
+    for (const dependency of this.told) if (!this.written.has(dependency)) this.write(dependency);
+    return Promise.all([...this.described].filter((dependency) => this.checks.has(dependency)).map((dependency) => this.firstCheck(dependency))).then(() => undefined);
   }
 
   stop(): void {

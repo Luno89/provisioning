@@ -21,7 +21,7 @@ import type { RegistryHosts } from '../../instances/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { mcpReachFrom } from '../services/McpReach.js';
 import {
-  primaryProjectId, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
+  treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
   type GiteaService, type ProjectRepoService, treeTypesRouter,
 } from '../../projects/index.js';
 import { type ClusterAccess, type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
@@ -35,7 +35,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, conversationConclusionTimer, memoriesRouter } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -55,7 +55,7 @@ import { createWorkspaceRepoResolver } from '../../engine-host/sandboxes/workspa
 import type { KoalasCluster } from '../../engine-host/sandboxes/kube.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandboxes/prune-images.js';
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
-import { BENCH_IDLE_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
+import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { buildWebTools, type WebToolsPlace } from './web-tools.js';
 import type { Mounts } from '../../hub/index.js';
@@ -74,9 +74,8 @@ import { askingPush, type PushMessage } from '../../monitoring/index.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from '../routes/poisoning.js';
 import type { MachineClusterRecords } from '../../engine-host/temporal/activities.js';
-import { withWorkFor } from '@koala/engine-core/work-for';
+import { temporalWorkflowStarter } from '../../engine-host/temporal/workflow-starter.js';
 
-const POISONING_TELL_EVERY_MS = 30_000;
 
 export interface EngineCoreDeps {
   db: Database;
@@ -183,24 +182,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     grants: runGrants,
     principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(deps.role)),
     turns: conversationTurns,
-    workflows: () => (temporalBridge.isReady()
-      ? {
-        start: async (type, options) => {
-          const handle = await withWorkFor({ project: options.project }, () => temporalBridge.client.workflow.start(type, {
-            workflowId: options.workflowId,
-            taskQueue: options.taskQueue,
-            args: options.args,
-            memo: options.memo,
-            ...startedFor(options.owner),
-          }));
-          return { workflowId: handle.workflowId };
-        },
-        signal: async (workflowId, name, payload) => {
-          await temporalBridge.client.workflow.getHandle(workflowId)
-            .signal(name, ...(payload === undefined ? [] : [payload]));
-        },
-      }
-      : undefined),
+    workflows: () => (temporalBridge.isReady() ? temporalWorkflowStarter(temporalBridge.client.workflow) : undefined),
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: (ownerId, choice) => deps.machines.choiceProblem(ownerId, choice),
@@ -214,20 +196,21 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const workspaceConclusions = new WorkspaceConclusionService({
     workflows: async () => (await getTemporalClient()).workflow,
     taskQueue: engineQueue,
-    projectOf: async (ownerId, workspace) => {
-      if (workspace.kind === 'conversation') return (await db.engine.getConversation(ownerId, workspace.id))?.projectId;
-      const tree = (await db.projects.getTrees()).find((entry) => entry.id === workspace.id && entry.ownerId === ownerId);
-      return tree ? primaryProjectId(tree) : undefined;
-    },
   });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
     start: async (request) => { await engineRuns.start(request); },
-    timer: conversationConclusionTimer({
-      workflows: async () => (await getTemporalClient()).workflow,
-      taskQueue: engineQueue,
-      projectOf: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.projectId,
-    }),
+    timer: async ({ ownerId, conversationId, signal, quietMs }) => {
+      const workflows = (await getTemporalClient()).workflow;
+      const where = {
+        workflowId: conversationConclusionId(conversationId),
+        taskQueue: engineQueue,
+        args: [{ ownerId, conversationId }],
+        ...startedFor(ownerId),
+      };
+      if (signal === 'turnEnded') await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [{ quietMs: quietMs ?? 0 }] });
+      else await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [] });
+    },
     concludeAfterMinutes: async (ownerId, agentSlug) => (await engineRegistry.agent(ownerId, agentSlug))?.concludeAfterMinutes,
     remembersFor: async (ownerId: string) => {
       const user = await db.accounts.getUserById(ownerId);
@@ -587,10 +570,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     ...(deps.mail ? { mail: (ownerId: string, message: { subject: string; text: string }) => deps.mail!.toOwner(ownerId, message) } : {}),
   });
   tenant.use('/api/poisoning', poisoningRouter({ poisoning }));
-  if (servesTenants(role)) {
-    const telling = setInterval(() => { void poisoning.tellNew().catch((error: Error) => console.warn(`[poisoning] could not tell what was found: ${error.message}`)); }, POISONING_TELL_EVERY_MS);
-    telling.unref();
-  }
+  if (servesTenants(role)) void poisoning.follow().catch((error: Error) => console.warn(`[poisoning] could not follow what is found, so it is told when the backend next starts: ${error.message}`));
 
   const treeTypeDescriptions = new TreeTypeDescriptions({
     dependencies: dependenciesOf,

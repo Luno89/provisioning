@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, drainThenStop, inClusterSlices, runOnce,
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -514,7 +514,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     stopping = true;
     void stopBackend({
       stopping: () => { dependencies.stop(); clusterProxyService.stopAll(); },
-      ...(place ? { drain: () => drainThenStop({ place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) }) } : {}),
+      drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) },
       fences,
       exit: (code) => process.exit(code),
     });

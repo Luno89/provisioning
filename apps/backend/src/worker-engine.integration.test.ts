@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
+import type { MongoDB } from './platform/lib/mongo-db.js';
+import { MockActivityEnvironment } from '@temporalio/testing';
 import { testMinioEnv } from './files/testing/real-minio.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
@@ -15,10 +17,12 @@ import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
+let db: MongoDB;
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-  const { uri, dbName } = await testDatabaseAt();
+  const { uri, dbName, db: opened } = await testDatabaseAt();
+  db = opened;
   mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
 });
 afterAll(async () => { await env.teardown(); });
@@ -63,6 +67,11 @@ describe('the engine worker, started the way its entry starts it', () => {
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
     expect(worker.options.interceptors.activity).toHaveLength(4);
+    const at = '2026-11-13T10:00:00.000Z';
+    await db.projects.saveTree({ id: 'tree-shop', ownerId: 'owner-1', name: 'Shop', projectIds: ['project-shop'], createdAt: at, updatedAt: at } as never);
+    await db.projects.savePlanProposal({ id: 'plan-shop', ownerId: 'owner-1', conversationId: 'c1', status: 'adopting', plan: { treeId: 'tree-shop', planDoc: '', branches: [] }, createdAt: at, updatedAt: at } as never);
+    const adoption = activities as unknown as { PlanAdoptProjectActivity(args: { ownerId: string; proposalId: string }): Promise<string | null> };
+    expect(await new MockActivityEnvironment().run(adoption.PlanAdoptProjectActivity, { ownerId: 'owner-1', proposalId: 'plan-shop' }), 'adopting a plan into a tree works for the tree\'s project').toBe('project-shop');
     expect((await live()).map((process) => process.name)).toEqual(['worker-engine']);
     worker.shutdown();
     await running;
