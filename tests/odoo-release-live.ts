@@ -111,7 +111,7 @@ const vaultOf = (projectId: string, keys: string[], removeFirst: boolean): Promi
   const { loadKeys } = await import('/app/apps/backend/src/platform/lib/keys.ts');
   const { InfisicalService } = await import('/app/apps/backend/src/infrastructure/services/InfisicalService.ts');
   const { infisicalSettingsFrom } = await import('/app/apps/backend/src/infrastructure/lib/infisical-settings.ts');
-  const vault = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env));
+  const vault = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env), process.env.DATA_DIR ?? (() => { throw new Error('DATA_DIR is not set in the backend pod'); })());
   const projectId = ${JSON.stringify(projectId)};
   const removed = ${removeFirst} ? await vault.removeProject(projectId) : {};
   const held = {};

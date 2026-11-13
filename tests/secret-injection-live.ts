@@ -34,7 +34,7 @@ const inVault = (step: string): Promise<null> => devInKoala<null>(`
   const { loadKeys } = await import('/app/apps/backend/src/platform/lib/keys.ts');
   const { InfisicalService } = await import('/app/apps/backend/src/infrastructure/services/InfisicalService.ts');
   const { infisicalSettingsFrom } = await import('/app/apps/backend/src/infrastructure/lib/infisical-settings.ts');
-  const vault = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env));
+  const vault = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env), process.env.DATA_DIR ?? (() => { throw new Error('DATA_DIR is not set in the backend pod'); })());
   ${step}
   return null;
 `);
