@@ -51,11 +51,11 @@ describe('which tests ran the lines that changed', () => {
   const tests = [calls.testFile, loads.testFile];
 
   it('reruns only a test that called the function a changed line is in', () => {
-    expect(testsToRerun([calls, loads], new Map([[file, new Set([4])]]), tests)).toEqual({ full: false, tests: [calls.testFile] });
+    expect(testsToRerun([calls, loads], new Map([[file, { changed: new Set([4]), insertedAfter: [] }]]), tests)).toEqual({ full: false, tests: [calls.testFile] });
   });
 
   it('reruns nobody for a change inside a function no test called', () => {
-    expect(testsToRerun([calls, loads], new Map([[file, new Set([12])]]), tests)).toEqual({ full: false, tests: [] });
+    expect(testsToRerun([calls, loads], new Map([[file, { changed: new Set([12]), insertedAfter: [] }]]), tests)).toEqual({ full: false, tests: [] });
   });
 
   it('takes the innermost function, so a change in a callback never called reruns nothing', () => {
@@ -70,13 +70,21 @@ describe('which tests ran the lines that changed', () => {
     expect(ranLine(wired, 12)).toBe(true);
   });
 
+  it('takes lines inserted as run only where the lines on both sides of them ran', () => {
+    const tried = { testFile: 'apps/backend/src/a/tried.test.ts', files: { [file]: [MODULE, fn('used', 3, 9, 2), { start: { line: 6, column: 18 }, end: { line: 8, column: 4 }, count: 0 }] } };
+    expect(testsToRerun([tried], new Map([[file, { changed: new Set<number>(), insertedAfter: [6] }]]), [tried.testFile])).toEqual({ full: false, tests: [] });
+    expect(testsToRerun([tried], new Map([[file, { changed: new Set<number>(), insertedAfter: [4] }]]), [tried.testFile])).toEqual({ full: false, tests: [tried.testFile] });
+  });
+
   it('reruns every test that loaded the file for a change outside any function', () => {
-    expect(testsToRerun([calls, loads], new Map([[file, new Set([1])]]), tests)).toEqual({ full: false, tests: tests.slice().sort() });
+    expect(testsToRerun([calls, loads], new Map([[file, { changed: new Set([1]), insertedAfter: [] }]]), tests)).toEqual({ full: false, tests: tests.slice().sort() });
   });
 });
 
 describe('the lines a diff changes, as numbered before it', () => {
   it('takes changed and removed lines, and both neighbours of an insertion', () => {
-    expect([...hunkLines('@@ -3,2 +3,3 @@\n-a\n@@ -10 +11 @@\n@@ -20,0 +22,4 @@\n')].sort((a, b) => a - b)).toEqual([3, 4, 10, 20, 21]);
+    const lines = hunkLines('@@ -3,2 +3,3 @@\n-a\n@@ -10 +11 @@\n@@ -20,0 +22,4 @@\n');
+    expect([...lines.changed].sort((a, b) => a - b)).toEqual([3, 4, 10]);
+    expect(lines.insertedAfter).toEqual([20]);
   });
 });

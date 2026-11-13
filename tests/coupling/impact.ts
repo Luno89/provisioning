@@ -9,7 +9,9 @@ const SEEN_BY_EVERY_TEST = [/(^|\/)vitest\.[^/]*\.ts$/, /(^|\/)vitest\.config\.t
 
 export type Rerun = { full: true; because: string } | { full: false; tests: string[] };
 
-export type ChangedLines = ReadonlyMap<string, ReadonlySet<number> | 'whole'>;
+export interface Lines { changed: ReadonlySet<number>; insertedAfter: readonly number[] }
+
+export type ChangedLines = ReadonlyMap<string, Lines | 'whole'>;
 
 export function changedBetween(before: Readonly<Record<string, string>>, now: Readonly<Record<string, string>>): Set<string> {
   const changed = new Set<string>();
@@ -30,8 +32,10 @@ export function ranLine(ranges: readonly RanRange[], line: number): boolean {
   return inner ? inner.count > 0 : true;
 }
 
-const ranAny = (ranges: readonly RanRange[], lines: ReadonlySet<number> | 'whole'): boolean =>
-  lines === 'whole' || [...lines].some((line) => ranLine(ranges, line));
+const ranAny = (ranges: readonly RanRange[], lines: Lines | 'whole'): boolean =>
+  lines === 'whole'
+  || [...lines.changed].some((line) => ranLine(ranges, line))
+  || lines.insertedAfter.some((line) => ranLine(ranges, line) && ranLine(ranges, line + 1));
 
 export function testsToRerun(runs: readonly Ran[], changed: ChangedLines, tests: readonly string[]): Rerun {
   const unseen = [...changed.keys()].find((file) => !UNREAD.test(file) && (!CODE.test(file) || SEEN_BY_EVERY_TEST.some((pattern) => pattern.test(file))));
@@ -66,23 +70,22 @@ export function fileHashes(root: string, paths: readonly string[]): Record<strin
   return hashes;
 }
 
-export function hunkLines(diff: string): Set<number> {
-  const lines = new Set<number>();
+export function hunkLines(diff: string): Lines {
+  const changed = new Set<number>();
+  const insertedAfter: number[] = [];
   for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/gm)) {
     const start = Number(match[1]);
     const count = match[2] === undefined ? 1 : Number(match[2]);
-    if (count === 0) {
-      lines.add(start);
-      lines.add(start + 1);
-    } else for (let line = start; line < start + count; line += 1) lines.add(line);
+    if (count === 0) insertedAfter.push(start);
+    else for (let line = start; line < start + count; line += 1) changed.add(line);
   }
-  return lines;
+  return { changed, insertedAfter };
 }
 
 const blobKnown = (root: string, blob: string): boolean => spawnSync('git', ['cat-file', '-e', `${blob}^{blob}`], { cwd: root }).status === 0;
 
-export function changedLines(root: string, before: Readonly<Record<string, string>>, now: Readonly<Record<string, string>>, changed: ReadonlySet<string>): Map<string, ReadonlySet<number> | 'whole'> {
-  const lines = new Map<string, ReadonlySet<number> | 'whole'>();
+export function changedLines(root: string, before: Readonly<Record<string, string>>, now: Readonly<Record<string, string>>, changed: ReadonlySet<string>): Map<string, Lines | 'whole'> {
+  const lines = new Map<string, Lines | 'whole'>();
   for (const file of changed) {
     const was = before[file];
     const is = now[file];
