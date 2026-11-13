@@ -46,10 +46,10 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
     it('lists only the person\'s own machines, with whether each is connected, and never a token', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'mine', lastSeenAt: '2026-10-30T11:00:00Z', os: 'Linux', agentsAt: '2026-10-30T11:00:00Z' }));
       await db.machines.saveLocalAgentDevice(device({ id: 'theirs', ownerId: 'cy' }));
-      devices.status.mockImplementation((id) => (id === 'mine' ? { online: true, connectedAt: '2026-10-30T10:00:00Z', containerMode: true } : { online: false }));
+      devices.status.mockImplementation((id) => (id === 'mine' ? { online: true, connectedAt: '2026-10-30T10:00:00Z' } : { online: false }));
       const listed = await service().list('bo');
       expect(listed).toHaveLength(1);
-      expect(listed[0]).toMatchObject({ id: 'mine', online: true, connectedAt: '2026-10-30T10:00:00Z', containerMode: true, os: 'Linux', lastSeenAt: '2026-10-30T11:00:00Z', tokenExpired: false, agents: [], manualAgents: [] });
+      expect(listed[0]).toMatchObject({ id: 'mine', online: true, connectedAt: '2026-10-30T10:00:00Z', os: 'Linux', lastSeenAt: '2026-10-30T11:00:00Z', tokenExpired: false, agents: [], manualAgents: [] });
       expect(JSON.stringify(listed)).not.toContain('tokenHash');
     });
 

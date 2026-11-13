@@ -299,31 +299,3 @@ export function describeLocalMachineSandbox(egress: readonly LocalEgressRule[] =
   ].join('\n');
 }
 
-/**
- * For a device actually running its leaves in a Docker container — real facts this time, unlike
- * `describeLocalMachineSandbox`. Network reachability here is genuinely enforced by a local proxy
- * (`apps/local-agent/src/egress-proxy.ts`), not advisory, so this says so plainly.
- */
-export function describeLocalContainerSandbox(
-  spec: { cpu?: string; memory?: string; egress?: readonly LocalEgressRule[] } = {},
-): string {
-  const allowed = hostedEgressList(spec.egress ?? []);
-  const network = allowed.length
-    ? `Outbound network is ENFORCED, not advisory: only ${allowed.join(', ')} is reachable. Anything `
-      + 'else is refused at the network level, not just discouraged.'
-    : 'There is NO outbound network at all — no proxy destinations were configured for this project.';
-
-  return [
-    'YOUR EXECUTION ENVIRONMENT',
-    '',
-    `You run shell commands in a real Docker container, bind-mounted to the actual project`,
-    'directory on the machine it runs on — not a throwaway copy. Facts that will cost you an attempt',
-    'if ignored:',
-    '',
-    `- ${WORKSPACE_MOUNT} is the real project directory. Files you write there appear on the owner's`,
-    '  disk immediately, and persist after you finish — this is not destroyed like a K8s sandbox is.',
-    '- The rest of the filesystem is read-only. You are a non-root user. There is no sudo.',
-    `- You have ${spec.cpu ?? DEFAULT_WORKSPACE_CPU} CPUs and ${spec.memory ?? DEFAULT_WORKSPACE_MEMORY} of memory. Builds that exceed this get killed.`,
-    `- ${network}`,
-  ].join('\n');
-}

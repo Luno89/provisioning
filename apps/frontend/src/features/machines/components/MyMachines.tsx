@@ -10,7 +10,7 @@ import ConfirmDelete from '../../../shared/components/ConfirmDelete';
 import { useCopy } from '../../../shared/lib/use-copy';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Loader2, Copy, Check, X, Trash2, Circle, Terminal, ShieldCheck, ShieldAlert,
+  Loader2, Copy, Check, X, Trash2, Circle, Terminal, ShieldAlert,
 } from 'lucide-react';
 
 export default function MyMachines() {
@@ -103,21 +103,12 @@ export default function MyMachines() {
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm text-slate-200 truncate">{d.name}</span>
                     {d.online && (
-                      d.containerMode ? (
-                        <span
-                          className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
-                          title="Leaves run in an isolated Docker container, with enforced network egress"
-                        >
-                          <ShieldCheck size={10} /> isolated
-                        </span>
-                      ) : (
-                        <span
-                          className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
-                          title="No Docker on this machine — leaves run directly on the host with no isolation"
-                        >
-                          <ShieldAlert size={10} /> raw access
-                        </span>
-                      )
+                      <span
+                        className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
+                        title="Koala's commands on this machine run directly on the host, with no isolation"
+                      >
+                        <ShieldAlert size={10} /> raw access
+                      </span>
                     )}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5 truncate">

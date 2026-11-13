@@ -61,7 +61,6 @@ describe('the machine agent starting its work for its Koala', () => {
       agentDir: rootDir,
       ownBundle: 'bundle-sha',
       service: undefined,
-      dockerAvailable: async () => ({ ok: false, reason: 'this test runs no Docker' }),
       cluster: noKoalaK3s,
       discovery: () => ({ which: async () => undefined, exists: async () => false, probe: async () => { throw new Error('nothing to probe'); } }),
       startDeviceWorker,

@@ -18,7 +18,7 @@ export interface MachineAccountSide {
 }
 
 export interface MachineDevices {
-  status(deviceId: string): { online: boolean; connectedAt?: string | undefined; containerMode?: boolean | undefined };
+  status(deviceId: string): { online: boolean; connectedAt?: string | undefined };
   tell(deviceId: string, event: string): boolean;
   ask<T>(deviceId: string, ownerId: string, event: string, payload: unknown): Promise<T>;
   drop(deviceId: string): void;
@@ -49,7 +49,6 @@ export interface MachineView {
   online: boolean;
   tokenExpired: boolean;
   connectedAt?: string | undefined;
-  containerMode?: boolean | undefined;
   agents: MachineAgent[];
   agentsAt?: string | undefined;
   manualAgents: ManualMachineAgent[];
@@ -86,7 +85,6 @@ export class MachineService {
       online: status.online,
       tokenExpired: tokenExpired(device, this.now()),
       ...(status.connectedAt ? { connectedAt: status.connectedAt } : {}),
-      ...(status.containerMode !== undefined ? { containerMode: status.containerMode } : {}),
       agents: device.agents ?? [],
       ...(device.agentsAt ? { agentsAt: device.agentsAt } : {}),
       manualAgents: device.manualAgents ?? [],

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildWorkspaceManifests, workspaceNamespace, WORKSPACE_POD, MAX_WORKSPACE_SECONDS, describeSandbox,
-  describeLocalMachineSandbox, describeLocalContainerSandbox,
+  describeLocalMachineSandbox,
 } from './workspace-spec.js';
 import { packageAccess, imageForLanguage, isWorkspaceLanguage } from './workspace-image-catalogue.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
@@ -189,35 +189,6 @@ describe('describeLocalMachineSandbox', () => {
     const text = describeLocalMachineSandbox([{ host: 'registry.npmjs.org', ports: [443] }]);
     expect(text).toContain('registry.npmjs.org');
     expect(text).toMatch(/hint.*not an enforced boundary/i);
-  });
-});
-
-describe('describeLocalContainerSandbox', () => {
-  it('never claims raw-host facts — there is real isolation here, unlike describeLocalMachineSandbox', () => {
-    const text = describeLocalContainerSandbox();
-    expect(text).not.toMatch(/NO isolation/);
-    expect(text).toMatch(/read-only/i);
-  });
-
-  it('says the project directory is real and persists, unlike the K8s sandbox', () => {
-    const text = describeLocalContainerSandbox();
-    expect(text).toMatch(/real project directory/i);
-    expect(text).toMatch(/persist/i);
-  });
-
-  it('reports the actual resource limits, defaulting sensibly', () => {
-    expect(describeLocalContainerSandbox({ cpu: '4', memory: '8Gi' })).toContain('4 CPUs and 8Gi');
-  });
-
-  it('says outbound network is enforced when hosts are allowlisted', () => {
-    const text = describeLocalContainerSandbox({ egress: [{ host: 'registry.npmjs.org' }] });
-    expect(text).toMatch(/ENFORCED, not advisory/);
-    expect(text).toContain('registry.npmjs.org');
-  });
-
-  it('says there is no network at all when nothing is allowlisted', () => {
-    const text = describeLocalContainerSandbox();
-    expect(text).toMatch(/NO outbound network/);
   });
 });
 

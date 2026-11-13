@@ -1,14 +1,13 @@
 import type { Socket } from 'socket.io';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 import { deviceTokenHash, hashesEqual, viaOf, withLifetime, type TokenVia } from './device-tokens.js';
-import type { LocalAgentDeviceMetadata, LocalEgressRule } from '../../platform/index.js';
+import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 
 interface DeviceConnection {
   socket: Socket;
   ownerId: string;
   rootDir: string;
   connectedAt: number;
-  containerMode: boolean;
 }
 
 const devices = new Map<string, DeviceConnection>();
@@ -84,19 +83,18 @@ export function registerDevice(
   ownerId: string,
   rootDir: string,
   socket: Socket,
-  containerMode = false,
 ): void {
-  devices.set(deviceId, { socket, ownerId, rootDir, connectedAt: Date.now(), containerMode });
+  devices.set(deviceId, { socket, ownerId, rootDir, connectedAt: Date.now() });
 }
 
 export function unregisterDevice(deviceId: string, socket: Socket): void {
   if (devices.get(deviceId)?.socket === socket) devices.delete(deviceId);
 }
 
-export function localAgentStatus(deviceId: string): { online: boolean; connectedAt?: string; containerMode?: boolean } {
+export function localAgentStatus(deviceId: string): { online: boolean; connectedAt?: string } {
   const conn = devices.get(deviceId);
   return conn
-    ? { online: true, connectedAt: new Date(conn.connectedAt).toISOString(), containerMode: conn.containerMode }
+    ? { online: true, connectedAt: new Date(conn.connectedAt).toISOString() }
     : { online: false };
 }
 
@@ -194,28 +192,4 @@ export async function listDirOnDevice(deviceId: string, ownerId: string, dirPath
 export async function deleteFileOnDevice(deviceId: string, ownerId: string, filePath: string): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
   answered(await ask<Record<string, never> | { error: string } | undefined>(deviceId, conn, 'sandbox:deleteFile', { path: filePath }) ?? {});
-}
-
-export interface CreateContainerRequest {
-  leafId: string;
-  image: string;
-  cpu?: string;
-  memory?: string;
-  egress?: LocalEgressRule[];
-}
-
-export async function createContainerOnDevice(
-  deviceId: string,
-  ownerId: string,
-  request: CreateContainerRequest,
-): Promise<{ containerMode: boolean; error?: string }> {
-  const conn = connectionFor(deviceId, ownerId);
-  return ask<{ containerMode: boolean; error?: string } | undefined>(deviceId, conn, 'sandbox:createContainer', request)
-    .then((response) => response ?? { containerMode: false })
-    .catch((err: Error) => ({ containerMode: false, error: err.message }));
-}
-
-export async function destroyContainerOnDevice(deviceId: string, ownerId: string, leafId: string): Promise<void> {
-  const conn = connectionFor(deviceId, ownerId);
-  await ask<unknown>(deviceId, conn, 'sandbox:destroyContainer', { leafId });
 }

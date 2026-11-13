@@ -57,7 +57,7 @@ export function machinesOf({ db, origin }: Site): Machines {
       } as unknown as Socket
       const device = (await db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId)
       if (!device) throw new Error(`no machine ${deviceId} to connect`)
-      registerDevice(device.id, device.ownerId, device.rootDir, socket, false)
+      registerDevice(device.id, device.ownerId, device.rootDir, socket)
     },
   }
 }

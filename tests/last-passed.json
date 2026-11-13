@@ -50,9 +50,6 @@
     "failed": "2026-11-09T16:12:42.834Z",
     "passed": "2026-11-12T16:29:55.001Z"
   },
-  "machine-container-live": {
-    "passed": "2026-10-27T22:45:28.370Z"
-  },
   "machine-chat-live": {
     "passed": "2026-10-28T02:48:34.732Z"
   },

@@ -47,13 +47,13 @@ describe('the v1 steps, traced through this repository from the screen the perso
     expect(traced('I2').starts).toEqual([]);
   });
 
-  it('reports the code still keeping what the decisions remove as known work, and adding a machine as one path with two doors', () => {
+  it('finds none of what the decisions remove left in the code, and adding a machine as one path', () => {
     const sourceOf = (file: string): string | undefined => {
       const path = join(ROOT, file);
       return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
     };
     const found = driftOf({ flows: V1_FLOWS, decisions: DECISIONS, traces, sourceOf, plans: [], said: [] });
-    expect(found.find((finding) => finding.id === 'decided-not-done:Docker')?.steps).toEqual(expect.arrayContaining(['F2']));
+    expect(found.some((finding) => finding.id === 'decided-not-done:Docker')).toBe(false);
     expect(found.some((finding) => finding.id === 'decided-not-done:k3d')).toBe(false);
     expect(found.some((finding) => finding.id === 'two-paths:Add a machine')).toBe(false);
   });

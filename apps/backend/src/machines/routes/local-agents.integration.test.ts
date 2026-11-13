@@ -74,7 +74,7 @@ const connect = (id: string, answers: Record<string, unknown> = {}): FakeDevice 
       return true;
     },
   } as unknown as Socket;
-  registerDevice(id, TEST_USER.id, '/x', socket, false);
+  registerDevice(id, TEST_USER.id, '/x', socket);
   return { socket, emitted, disconnected: () => disconnected };
 };
 

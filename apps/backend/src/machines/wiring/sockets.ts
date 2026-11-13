@@ -97,8 +97,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     const { device } = machine;
     const tellRunEnded = (runId: string) => { if (socket.connected) socket.emit('machine:run-ended', { runId }); };
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
-    const containerMode = auth?.containerMode === true;
-    registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
+    registerDevice(device.id, device.ownerId, device.rootDir, socket);
     deps.machines.seen(device.id).catch((err: Error) => console.warn(`[machines] ${device.id}: when it was last seen could not be recorded: ${err.message}`));
     deps.machines.recordAgentBundle(device.id, auth).catch((err: Error) => console.warn(`[machines] ${device.id}: which agent it runs could not be recorded: ${err.message}`));
     deps.machines.currentBundle().then((sha256) => { if (sha256 && socket.connected) socket.emit('machine:bundle', { sha256 }); }, (err: Error) => console.warn(`[machines] ${device.id}: the agent it should run could not be named: ${err.message}`));

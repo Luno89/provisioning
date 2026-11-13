@@ -2,7 +2,6 @@ import { mkdir } from 'fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dockerAvailable } from './docker-driver.js';
 import { configFile, loadMachineConfig } from './machine-config.js';
 import { linkToRoot } from './root-link.js';
 import { systemDeps } from './agent-discovery.js';
@@ -49,7 +48,6 @@ const thisComputer = (service: ReturnType<typeof serviceManagerOf>): AgentPlace 
   agentDir: AGENT_DIR,
   ownBundle: OWN_BUNDLE,
   service,
-  dockerAvailable,
   cluster: machineCluster,
   discovery: (rootDir) => systemDeps(rootDir, probeAcp),
   startDeviceWorker: async (options) => (await import('./engine-worker.js')).startDeviceWorker(options),

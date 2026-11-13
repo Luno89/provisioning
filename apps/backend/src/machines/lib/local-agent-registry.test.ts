@@ -4,7 +4,7 @@ import { encryptValue } from '../../platform/lib/crypto.js';
 import type { LocalAgentDeviceMetadata } from '../../platform/lib/types.js';
 import {
   findDeviceByToken, registerDevice, unregisterDevice, localAgentStatus,
-  execOnDevice, readFileOnDevice, writeFileOnDevice, createContainerOnDevice, destroyContainerOnDevice,
+  execOnDevice, readFileOnDevice, writeFileOnDevice,
   listDirOnDevice, deleteFileOnDevice,
 } from './local-agent-registry.js';
 
@@ -201,47 +201,3 @@ describe('listDirOnDevice / deleteFileOnDevice', () => {
   });
 });
 
-describe('createContainerOnDevice / destroyContainerOnDevice', () => {
-  it('sends the request and returns the acked containerMode', async () => {
-    const socket = fakeSocket((event, payload, ack) => {
-      expect(event).toBe('sandbox:createContainer');
-      expect(payload).toEqual({ leafId: 'leaf-1', image: 'ubi9/nodejs-22' });
-      ack({ containerMode: true });
-    });
-    registerDevice('dev-create', 'owner-1', '/root', socket);
-
-    const result = await createContainerOnDevice('dev-create', 'owner-1', { leafId: 'leaf-1', image: 'ubi9/nodejs-22' });
-    expect(result).toEqual({ containerMode: true });
-  });
-
-  it('resolves containerMode: false instead of throwing when the device goes away', async () => {
-    const socket = fakeSocket((_event, _payload, _ack, disconnect) => { disconnect(); });
-    registerDevice('dev-create-timeout', 'owner-1', '/root', socket);
-
-    const result = await createContainerOnDevice('dev-create-timeout', 'owner-1', { leafId: 'leaf-1', image: 'x' });
-    expect(result.containerMode).toBe(false);
-    expect(result.error).toBeTruthy();
-  });
-
-  it('passes through a reported error alongside containerMode: false', async () => {
-    const socket = fakeSocket((_event, _payload, ack) => {
-      ack({ containerMode: false, error: 'Docker is not running' });
-    });
-    registerDevice('dev-create-err', 'owner-1', '/root', socket);
-
-    const result = await createContainerOnDevice('dev-create-err', 'owner-1', { leafId: 'leaf-1', image: 'x' });
-    expect(result).toEqual({ containerMode: false, error: 'Docker is not running' });
-  });
-
-  it('destroy sends the leafId and resolves once acked', async () => {
-    let sent: unknown;
-    const socket = fakeSocket((event, payload, ack) => {
-      sent = { event, payload };
-      ack();
-    });
-    registerDevice('dev-destroy', 'owner-1', '/root', socket);
-
-    await destroyContainerOnDevice('dev-destroy', 'owner-1', 'leaf-1');
-    expect(sent).toEqual({ event: 'sandbox:destroyContainer', payload: { leafId: 'leaf-1' } });
-  });
-});

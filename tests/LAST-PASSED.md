@@ -14,7 +14,6 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
 | `instance-live` | 2026-11-02 21:03 | 2026-11-02 20:55 |
 | `machine-chat-live` | 2026-10-28 02:48 | — |
-| `machine-container-live` | 2026-10-27 22:45 | — |
 | `machine-live` | 2026-11-04 07:41 | 2026-11-04 07:38 |
 | `machine-probe-live` | 2026-11-04 05:28 | 2026-11-04 05:25 |
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |

@@ -54,7 +54,6 @@ export interface LocalAgentDevice {
   tokenExpired?: boolean
   online: boolean
   connectedAt?: string
-  containerMode?: boolean
   agents: MachineAgent[]
   agentsAt?: string
   manualAgents: ManualMachineAgent[]

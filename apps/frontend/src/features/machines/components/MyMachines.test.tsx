@@ -123,19 +123,9 @@ describe('My Machines', () => {
     expect(screen.getByText(/last seen/i)).toBeDefined();
   });
 
-  it('badges an online device running in a Docker container as isolated', async () => {
+  it('badges an online device as raw access, since Koala\'s commands there run on the host', async () => {
     renderPanel([
-      machine({ containerMode: true }),
-    ]);
-
-    await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
-    expect(screen.getByText(/isolated/i)).toBeDefined();
-    expect(screen.queryByText(/raw access/i)).toBeNull();
-  });
-
-  it('badges an online device with no Docker as raw access', async () => {
-    renderPanel([
-      machine({ containerMode: false }),
+      machine(),
     ]);
 
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());

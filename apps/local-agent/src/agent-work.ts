@@ -3,9 +3,6 @@ import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
-import {
-  createContainer, destroyContainer, execInContainer, readFileInContainer, writeFileInContainer, type EgressRule,
-} from './docker-driver.js';
 import type { MachineConfig } from './machine-config.js';
 import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, type DiscoveryDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
 import { installAgent } from './agent-install.js';
@@ -15,18 +12,16 @@ import type { DeviceWorkerHost } from './device-worker-host.js';
 import { followEngineWorker, type WorkToken } from './device-worker-follow.js';
 import { clusterOnConnect, type ClusterHost } from './machine-cluster.js';
 import { socketSink } from './telemetry-sink.js';
-import { IdleGate, holding, type Release } from './idle-gate.js';
+import { IdleGate, holding } from './idle-gate.js';
 import { SelfUpdate, type serviceManagerOf, type UpdateReport } from './self-update.js';
 import { discardBundle, placeOf, prepareBundle, swapBundle } from './agent-bundle.js';
 import type { DeviceWorker, DeviceWorkerOptions } from './engine-worker.js';
-import type { dockerAvailable } from './docker-cli.js';
 import { machineGpus } from './machine-gpus.js';
 
 export interface AgentPlace {
   agentDir: string;
   ownBundle: string | undefined;
   service: ReturnType<typeof serviceManagerOf>;
-  dockerAvailable: typeof dockerAvailable;
   cluster: ClusterHost;
   discovery(rootDir: string): DiscoveryDeps;
   startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker>;
@@ -36,7 +31,6 @@ export interface AgentPlace {
 
 const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
-const activeContainers = new Map<string, Release>();
 
 const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
   socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
@@ -79,14 +73,7 @@ export function startWork(
   const { rootDir } = config;
   const work: WorkToken = { value: firstToken };
   const gate = new IdleGate();
-  const socket = io(`${koalaUrl}/agent`, { auth: { token: work.value, containerMode: false, bundle: place.ownBundle ?? '' }, reconnection: true });
-  let containerMode = false;
-  void place.dockerAvailable().then((docker) => {
-    containerMode = docker.ok;
-    socket.auth = { ...(socket.auth as Record<string, unknown>), containerMode };
-    if (docker.ok) say('Docker detected — leaves will run in isolated containers.');
-    else console.warn(`[koala-local-agent] ${docker.reason} Falling back to running leaves directly on this host.`);
-  });
+  const socket = io(`${koalaUrl}/agent`, { auth: { token: work.value, bundle: place.ownBundle ?? '' }, reconnection: true });
   const bundlePlace = placeOf(place.agentDir);
   let worker: DeviceWorkerHost | undefined;
   const updates = new SelfUpdate({
@@ -126,53 +113,18 @@ export function startWork(
   watchAgents(place, socket, config, sessions, gate);
   worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate, place.cluster, place.startDeviceWorker);
 
-  socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`));
+  socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}`));
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));
   socket.on('connect_error', (err: Error) => {
     console.error(`[koala-local-agent] its Koala refused or could not be reached: ${err.message}`);
     if (/work token/.test(err.message)) askKoala();
   });
 
-  socket.on('sandbox:createContainer', (
-    request: { leafId: string; image: string; cpu?: string; memory?: string; egress?: EgressRule[] },
-    ack: (result: { containerMode: boolean; error?: string }) => void,
-  ) => {
-    if (!containerMode) return ack({ containerMode: false });
-    const creating = gate.hold(`a container for ${request.leafId}`);
-    createContainer({ ...request, rootDir })
-      .then(() => {
-        activeContainers.get(request.leafId)?.();
-        activeContainers.set(request.leafId, creating);
-        ack({ containerMode: true });
-      })
-      .catch((err: Error) => {
-        creating();
-        console.warn(`[koala-local-agent] ${request.leafId}: container create failed (${err.message}) — falling back to raw host exec for this leaf`);
-        ack({ containerMode: false, error: err.message });
-      });
-  });
-
-  socket.on('sandbox:destroyContainer', (
-    { leafId }: { leafId: string },
-    ack: () => void,
-  ) => {
-    const release = activeContainers.get(leafId);
-    if (!release) return ack();
-    activeContainers.delete(leafId);
-    destroyContainer(leafId).catch((err: Error) => {
-      console.warn(`[koala-local-agent] ${leafId}: container cleanup failed: ${err.message}`);
-    }).finally(() => {
-      release();
-      ack();
-    });
-  });
-
   socket.on('sandbox:exec', (
-    { leafId, command, cwd, maxOutputChars, timeoutMs }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number; timeoutMs?: number },
+    { command, cwd, maxOutputChars, timeoutMs }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number; timeoutMs?: number },
     ack: (result: ExecResult) => void,
   ) => {
     void holding(gate, 'a command', () => {
-      if (activeContainers.has(leafId)) return execInContainer(leafId, command, timeoutMs, cwd, maxOutputChars);
       const options: { timeoutMs?: number | undefined; subPath?: string | undefined; maxOutputChars?: number | undefined } = {
         ...(timeoutMs ? { timeoutMs } : {}),
       };
@@ -183,32 +135,18 @@ export function startWork(
   });
 
   socket.on('sandbox:readFile', (
-    { leafId, path: relativePath }: { leafId: string; path: string },
+    { path: relativePath }: { leafId: string; path: string },
     ack: (result: { content: string } | { error: string }) => void,
   ) => {
-    if (activeContainers.has(leafId)) {
-      readFileInContainer(leafId, relativePath).then(
-        (content) => ack({ content }),
-        (err: Error) => ack({ error: err.message }),
-      );
-    } else {
-      void readLocalFile(rootDir, relativePath).then(ack);
-    }
+    void readLocalFile(rootDir, relativePath).then(ack);
   });
 
   socket.on('sandbox:writeFile', (
-    { leafId, path: relativePath, content, encoding }: { leafId: string; path: string; content: string; encoding?: 'base64' },
+    { path: relativePath, content, encoding }: { leafId: string; path: string; content: string; encoding?: 'base64' },
     ack: (result?: { error: string }) => void,
   ) => {
     const bytes = Buffer.from(content, encoding === 'base64' ? 'base64' : 'utf8');
-    if (activeContainers.has(leafId)) {
-      writeFileInContainer(leafId, relativePath, bytes).then(
-        () => ack(),
-        (err: Error) => ack({ error: err.message }),
-      );
-    } else {
-      void writeLocalFile(rootDir, relativePath, bytes).then(ack);
-    }
+    void writeLocalFile(rootDir, relativePath, bytes).then(ack);
   });
 
   socket.on('sandbox:listDir', (
