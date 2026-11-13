@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 import ts from 'typescript';
 import type { RecordAccess } from './record-access.js';
@@ -103,84 +104,178 @@ const declaringMember = (node: ts.Declaration | undefined): ts.Declaration | und
   return isMember(at) ? at as ts.Declaration : node;
 };
 
-export function buildGraph(options: GraphOptions): Graph {
-  const units: Record<string, Unit> = {};
-  const edges: Edge[] = [];
-  const unresolved: Unresolved[] = [];
-  const records: RecordTouch[] = [];
-  const at = (file: string) => relative(options.root, file);
+export const hashText = (text: string): string => createHash('sha1').update(text).digest('hex');
 
-  const unitAt = (node: ts.Node): Unit => {
-    const source = node.getSourceFile();
-    const file = at(source.fileName);
-    const start = node.getStart(source);
-    const { line, character } = source.getLineAndCharacterOfPosition(start);
-    const last = source.getLineAndCharacterOfPosition(node.getEnd());
-    const name = functionName(node);
-    const noBehaviour = onlyLogs(node) || NO_OP_FUNCTIONS.some((known) => known.file === file && known.name === name);
-    return { id: `${file}:${line + 1}:${character + 1}`, file, name, line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file), ...(noBehaviour ? { noBehaviour } : {}) };
-  };
-  const kept = (unit: Unit): Unit => {
-    units[unit.id] ??= unit;
-    return units[unit.id]!;
-  };
-  const unitOf = (node: ts.Node): Unit => kept(unitAt(node));
+type End = { kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string };
+export type Registration = [member: string, body: string, found: Unit | 'member'];
+export interface Lookup { units: string[]; outside: boolean }
 
-  const moduleUnit = (source: ts.SourceFile): Unit => {
-    const file = at(source.fileName);
-    const id = `${file}:module`;
-    units[id] ??= { id, file, name: '(module)', line: 1, column: 1, start: 0, end: source.getEnd(), inTest: isTest(file) };
-    return units[id];
-  };
+export interface ProjectPart {
+  tsconfig: string;
+  roots: string[];
+  files: Record<string, string>;
+  registrations: Registration[];
+  outside: string[];
+  units: Record<string, Unit>;
+  edges: Edge[];
+  unresolved: Unresolved[];
+  records: RecordTouch[];
+  ends: End[];
+  lookups: Record<string, Lookup>;
+}
 
-  const enclosing = (node: ts.Node): Unit => {
-    for (let parent: ts.Node | undefined = node.parent; parent; parent = parent.parent) if (FUNCTION_KINDS.has(parent.kind)) return unitOf(parent);
-    return moduleUnit(node.getSourceFile());
-  };
+export interface Reuse {
+  hashOf: (file: string) => string | undefined;
+  parts: readonly (ProjectPart | undefined)[];
+}
 
-  const siteOf = (node: ts.Node): Site => {
-    const source = node.getSourceFile();
-    const start = node.getStart(source);
-    const { line, character } = source.getLineAndCharacterOfPosition(start);
-    return { file: at(source.fileName), line: line + 1, column: character + 1, start, end: node.getEnd() };
-  };
+type Implementations = Map<string, Map<string, Unit | 'member'>>;
 
-  const keyOf = (node: ts.Node): string => `${at(node.getSourceFile().fileName)}:${node.getStart(node.getSourceFile())}`;
-  const implementations = new Map<string, Map<string, Unit | 'member'>>();
-  const implementedOutside = new Set<string>();
-  const implement = (member: ts.Node, body: ts.Node) => {
-    if (!ownCode(body.getSourceFile().fileName)) {
-      implementedOutside.add(keyOf(member));
-      return;
-    }
-    const known = implementations.get(keyOf(member)) ?? new Map<string, Unit | 'member'>();
-    known.set(keyOf(body), isMember(body) || ts.isFunctionTypeNode(body) ? 'member' : unitAt(body));
-    implementations.set(keyOf(member), known);
-  };
-  const implementationsByKey = (key: string, seen: Set<string>): Unit[] => {
+const register = (implementations: Implementations, outside: Set<string>, entry: Registration | string): void => {
+  if (typeof entry === 'string') {
+    outside.add(entry);
+    return;
+  }
+  const [member, body, found] = entry;
+  const known = implementations.get(member) ?? new Map<string, Unit | 'member'>();
+  known.set(body, found);
+  implementations.set(member, known);
+};
+
+const resolving = (implementations: Implementations, outside: ReadonlySet<string>) => {
+  const byKey = (key: string, seen: Set<string>): Unit[] => {
     if (seen.has(key)) return [];
     seen.add(key);
     return [...(implementations.get(key) ?? new Map<string, Unit | 'member'>()).entries()]
-      .flatMap(([body, found]) => (found === 'member' ? implementationsByKey(body, seen) : [kept(found)]));
+      .flatMap(([body, found]) => (found === 'member' ? byKey(body, seen) : [found]));
   };
-  const implementationsOf = (member: ts.Node): Unit[] => implementationsByKey(keyOf(member), new Set<string>());
   const outsideByKey = (key: string, seen: Set<string>): boolean => {
     if (seen.has(key)) return false;
     seen.add(key);
-    if (implementedOutside.has(key)) return true;
+    if (outside.has(key)) return true;
     return [...(implementations.get(key) ?? new Map<string, Unit | 'member'>()).entries()].some(([body, found]) => found === 'member' && outsideByKey(body, seen));
   };
-  const implementedElsewhere = (member: ts.Node): boolean => outsideByKey(keyOf(member), new Set<string>());
+  return {
+    units: (key: string): Unit[] => byKey(key, new Set<string>()),
+    outside: (key: string): boolean => outsideByKey(key, new Set<string>()),
+    lookup: (key: string): Lookup => ({ units: byKey(key, new Set<string>()).map((unit) => unit.id), outside: outsideByKey(key, new Set<string>()) }),
+  };
+};
 
-  const seenSites = new Set<string>();
-  const ends: Array<{ kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string }> = [];
+const sameLookup = (a: Lookup, b: Lookup): boolean => a.outside === b.outside && a.units.length === b.units.length && a.units.every((id, index) => id === b.units[index]);
 
-  for (const project of options.projects) {
-    const config = ts.getParsedCommandLineOfConfigFile(project.tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
-    if (!config) throw new Error(`${project.tsconfig} could not be read`);
+const configOf = (tsconfig: string): ts.ParsedCommandLine => {
+  const config = ts.getParsedCommandLineOfConfigFile(tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
+  if (!config) throw new Error(`${tsconfig} could not be read`);
+  return config;
+};
+
+function stillHolds(part: ProjectPart | undefined, project: Project, reuse: Reuse, root: string, implementations: Implementations, outside: Set<string>): part is ProjectPart {
+  if (!part || part.tsconfig !== relative(root, project.tsconfig)) return false;
+  if (Object.entries(part.files).some(([file, hash]) => reuse.hashOf(file) !== hash)) return false;
+  const roots = new Set(part.roots);
+  if (configOf(project.tsconfig).fileNames.some((file) => !roots.has(relative(root, file)))) return false;
+  const trial: Implementations = new Map([...implementations].map(([member, bodies]) => [member, new Map(bodies)]));
+  const trialOutside = new Set(outside);
+  for (const entry of part.registrations) register(trial, trialOutside, entry);
+  for (const key of part.outside) trialOutside.add(key);
+  const resolve = resolving(trial, trialOutside);
+  return Object.entries(part.lookups).every(([key, was]) => sameLookup(resolve.lookup(key), was));
+}
+
+export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: ProjectPart[]; reused: number } {
+  const at = (file: string) => relative(options.root, file);
+  const implementations: Implementations = new Map();
+  const implementedOutside = new Set<string>();
+  const parts: ProjectPart[] = [];
+  let reused = 0;
+
+  options.projects.forEach((project, index) => {
+    const cached = reuse?.parts[index];
+    if (reuse && stillHolds(cached, project, reuse, options.root, implementations, implementedOutside)) {
+      for (const entry of cached.registrations) register(implementations, implementedOutside, entry);
+      for (const key of cached.outside) implementedOutside.add(key);
+      parts.push(cached);
+      reused += 1;
+      return;
+    }
+    parts.push(analyse(project));
+  });
+  return { parts, reused };
+
+  function analyse(project: Project): ProjectPart {
+    const units: Record<string, Unit> = {};
+    const edges: Edge[] = [];
+    const unresolved: Unresolved[] = [];
+    const records: RecordTouch[] = [];
+    const ends: End[] = [];
+    const registrations: Registration[] = [];
+    const outside: string[] = [];
+    const lookups: Record<string, Lookup> = {};
+
+    const unitAt = (node: ts.Node): Unit => {
+      const source = node.getSourceFile();
+      const file = at(source.fileName);
+      const start = node.getStart(source);
+      const { line, character } = source.getLineAndCharacterOfPosition(start);
+      const last = source.getLineAndCharacterOfPosition(node.getEnd());
+      const name = functionName(node);
+      const noBehaviour = onlyLogs(node) || NO_OP_FUNCTIONS.some((known) => known.file === file && known.name === name);
+      return { id: `${file}:${line + 1}:${character + 1}`, file, name, line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file), ...(noBehaviour ? { noBehaviour } : {}) };
+    };
+    const kept = (unit: Unit): Unit => {
+      units[unit.id] ??= unit;
+      return units[unit.id]!;
+    };
+    const unitOf = (node: ts.Node): Unit => kept(unitAt(node));
+
+    const moduleUnit = (source: ts.SourceFile): Unit => {
+      const file = at(source.fileName);
+      const id = `${file}:module`;
+      units[id] ??= { id, file, name: '(module)', line: 1, column: 1, start: 0, end: source.getEnd(), inTest: isTest(file) };
+      return units[id];
+    };
+
+    const enclosing = (node: ts.Node): Unit => {
+      for (let parent: ts.Node | undefined = node.parent; parent; parent = parent.parent) if (FUNCTION_KINDS.has(parent.kind)) return unitOf(parent);
+      return moduleUnit(node.getSourceFile());
+    };
+
+    const siteOf = (node: ts.Node): Site => {
+      const source = node.getSourceFile();
+      const start = node.getStart(source);
+      const { line, character } = source.getLineAndCharacterOfPosition(start);
+      return { file: at(source.fileName), line: line + 1, column: character + 1, start, end: node.getEnd() };
+    };
+
+    const keyOf = (node: ts.Node): string => `${at(node.getSourceFile().fileName)}:${node.getStart(node.getSourceFile())}`;
+    const implement = (member: ts.Node, body: ts.Node) => {
+      if (!ownCode(body.getSourceFile().fileName)) {
+        outside.push(keyOf(member));
+        implementedOutside.add(keyOf(member));
+        return;
+      }
+      const entry: Registration = [keyOf(member), keyOf(body), isMember(body) || ts.isFunctionTypeNode(body) ? 'member' : unitAt(body)];
+      registrations.push(entry);
+      register(implementations, implementedOutside, entry);
+    };
+    const resolve = resolving(implementations, implementedOutside);
+    const looked = (member: ts.Node): string => {
+      const key = keyOf(member);
+      lookups[key] ??= resolve.lookup(key);
+      return key;
+    };
+    const implementationsOf = (member: ts.Node): Unit[] => resolve.units(looked(member)).map(kept);
+    const implementedElsewhere = (member: ts.Node): boolean => resolve.outside(looked(member));
+
+    const seenSites = new Set<string>();
+
+    const config = configOf(project.tsconfig);
     const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
     const checker = program.getTypeChecker();
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
+    const roots = config.fileNames.map(at);
+    const files = Object.fromEntries(sources.map((source) => [at(source.fileName), hashText(source.text)]));
     const crossing = project.crossing?.(program);
     const channels = project.channels?.(program);
     const readers = project.readers?.(program);
@@ -441,7 +536,18 @@ export function buildGraph(options: GraphOptions): Graph {
       };
       visit(source);
     }
+
+    return { tsconfig: at(project.tsconfig), roots, files, registrations, outside, units, edges, unresolved, records, ends, lookups };
   }
+}
+
+export function assemble(options: GraphOptions, parts: readonly ProjectPart[]): Graph {
+  const units: Record<string, Unit> = {};
+  for (const part of parts) for (const [id, unit] of Object.entries(part.units)) units[id] ??= unit;
+  const edges: Edge[] = parts.flatMap((part) => part.edges);
+  const unresolved = parts.flatMap((part) => part.unresolved);
+  const records = parts.flatMap((part) => part.records);
+  const ends: End[] = parts.flatMap((part) => part.ends);
   for (const extra of options.extraEnds ?? []) {
     const id = `${extra.unit.file}:${extra.unit.line}:1`;
     units[id] ??= { id, file: extra.unit.file, name: extra.unit.name, line: extra.unit.line, column: 1, start: 0, end: 0, inTest: false };
@@ -459,4 +565,8 @@ export function buildGraph(options: GraphOptions): Graph {
     edges.push({ from: end.from, site: end.site, to, through: end.kind });
   }
   return { units, edges, unresolved, unmatched, records };
+}
+
+export function buildGraph(options: GraphOptions): Graph {
+  return assemble(options, buildParts(options).parts);
 }

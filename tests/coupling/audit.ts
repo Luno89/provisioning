@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
 import { judge, unitLevels } from './join.js';
-import { repoGraph } from './repo-graph.js';
+import { builtGraph } from './repo-graph.js';
 import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
@@ -41,7 +41,8 @@ const unmet = options.require.filter((artifact) => !gatheredUsable.artifacts.has
 if (unmet.length > 0) throw new Error(`required and not usable: ${unmet.join(', ')}`);
 
 const graphStarted = Date.now();
-const graph = repoGraph(ROOT);
+const built = builtGraph(ROOT);
+const graph = built.graph;
 const graphSeconds = seconds(graphStarted);
 const joinStarted = Date.now();
 const runs = [...(usable.artifacts.has('in-process') ? runsIn(runsOf(options.out, 'in-process')) : []), ...(usable.artifacts.has('live') ? runsIn(runsOf(options.out, 'live')) : [])];
@@ -81,7 +82,7 @@ writeFileSync(join(options.out, 'result.json'), JSON.stringify(result));
 writeFileSync(join(options.out, 'report.html'), renderPage(result));
 writeFileSync(join(options.out, 'summary.txt'), `${summary(judged, graph)}\n`);
 
-console.log(`graph ${graphSeconds}s, join ${joinSeconds}s; ${rules.judged.join(', ')} judged; ${found.length} breaches`);
+console.log(`graph ${graphSeconds}s${built.reused ? ` (${built.reused.workspaces} of ${built.reused.of} workspaces reused)` : ''}, join ${joinSeconds}s; ${rules.judged.join(', ')} judged; ${found.length} breaches`);
 if (held.kind === 'seeded') console.log(`baseline written: ${held.count} breaches`);
 else if (held.kind === 'none') {
   console.log(`${BASELINE} does not exist: run once with --seed-baseline, every rule judged, to record today's breaches`);

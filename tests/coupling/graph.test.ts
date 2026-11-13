@@ -1,8 +1,8 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildGraph, isTest, type Graph } from './graph.js';
+import { assemble, buildGraph, buildParts, hashText, isTest, type Graph, type GraphOptions, type ProjectPart } from './graph.js';
 import { areaOf } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, 'fixture');
@@ -210,5 +210,48 @@ describe('calls between workspaces linked as npm links them', () => {
     });
     const called = graph.edges.find((edge) => edge.site.file === 'packages/runner/src/run.ts' && edge.through === 'interface');
     expect(called && named(graph, called.to)).toEqual(['apps/app/src/handlers.ts#greet']);
+  });
+});
+
+describe('a graph built again reuses each workspace nothing it read has changed for', () => {
+  const root = mkdtempSync(join(tmpdir(), 'graph-reuse-'));
+  cpSync(join(import.meta.dirname, 'fixture-graph-workspaces'), root, { recursive: true });
+  mkdirSync(join(root, 'apps/app/node_modules/@fixture'), { recursive: true });
+  symlinkSync('../../../../packages/runner', join(root, 'apps/app/node_modules/@fixture/runner'));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  const options: GraphOptions = {
+    projects: [
+      { tsconfig: join(root, 'apps/app/tsconfig.json'), owns: (file) => file.startsWith('apps/') },
+      { tsconfig: join(root, 'packages/runner/tsconfig.json'), owns: (file) => file.startsWith('packages/') },
+    ],
+    root, calledFrom: () => true,
+  };
+  const hashOf = (file: string): string => hashText(readFileSync(join(root, file), 'utf8'));
+  const again = (before: ProjectPart[]) => {
+    const reusing = buildParts(options, { hashOf, parts: before });
+    return { reused: reusing.reused, graph: JSON.parse(JSON.stringify(assemble(options, reusing.parts))) as Graph, fresh: JSON.parse(JSON.stringify(buildGraph(options))) as Graph, parts: reusing.parts };
+  };
+  const handlers = join(root, 'apps/app/src/handlers.ts');
+
+  it('reuses every workspace when nothing changed, giving the graph a fresh build gives', () => {
+    const { reused, graph, fresh } = again(buildParts(options).parts);
+    expect(reused).toBe(2);
+    expect(graph).toEqual(fresh);
+  });
+
+  it('builds again only the workspace whose file changed, when the others look up the same implementations', () => {
+    const before = buildParts(options).parts;
+    appendFileSync(handlers, '\nexport const unrelated = (): number => 1;\n');
+    const { reused, graph, fresh } = again(before);
+    expect(reused).toBe(1);
+    expect(graph).toEqual(fresh);
+  });
+
+  it('builds again a workspace whose interface call now reaches an implementation that moved', () => {
+    const before = buildParts(options).parts;
+    writeFileSync(handlers, `\n\n${readFileSync(handlers, 'utf8')}`);
+    const { reused, graph, fresh } = again(before);
+    expect(reused).toBe(0);
+    expect(graph).toEqual(fresh);
   });
 });
