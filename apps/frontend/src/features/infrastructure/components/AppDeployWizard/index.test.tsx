@@ -205,3 +205,40 @@ describe('every field the wizard shows', () => {
     }
   });
 });
+
+describe('the GPUs a model server is offered', () => {
+  const options = (label: RegExp): string[] => Array.from((screen.getByLabelText(label) as HTMLSelectElement).options, (option: HTMLOptionElement) => option.value)
+
+  async function walkToGpus(user: ReturnType<typeof userEvent.setup>, appType: string) {
+    await user.selectOptions(screen.getByLabelText(/application type/i), appType);
+    for (let step = 0; step < 3; step++) await user.click(screen.getByRole('button', { name: /^Next/ }));
+  }
+
+  it('offers vLLM the vendors and counts the chosen machine reports, and CPU only as 0, and sends what was chosen', async () => {
+    const { user, onDeploy } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] }]);
+    await walkToGpus(user, 'vllm');
+    expect(options(/^GPU Vendor/)).toEqual(['nvidia']);
+    expect(options(/^GPU Count/)).toEqual(['1', '2', '0']);
+    await user.type(screen.getByLabelText(/^HuggingFace Model ID/), 'Qwen/Qwen2.5-0.5B-Instruct');
+    await user.selectOptions(screen.getByLabelText(/^GPU Count/), '2');
+    await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.click(screen.getByRole('button', { name: /Initiate Deployment/ }));
+    const payload = onDeploy.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toMatchObject({ appType: 'vllm', clusterId: 'rig', vllmGpuCount: 2, vllmGpuVendor: 'nvidia', vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct' });
+    expect(payload).not.toHaveProperty('odooTag');
+  });
+
+  it('offers only CPU only, saying why, when the machine cannot pass its GPUs to a pod', async () => {
+    const { user } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: false }] }]);
+    await walkToGpus(user, 'vllm');
+    expect(options(/^GPU Count/)).toEqual(['0']);
+    expect(screen.getByText(/rig has 2 NVIDIA GPUs, and k3s on it has no NVIDIA container runtime to pass them to a pod/)).toBeInTheDocument();
+  });
+
+  it('offers TabbyAPI the NVIDIA GPUs the machine reports, and no CPU only, which it has not', async () => {
+    const { user } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 1, runtime: true }] }]);
+    await walkToGpus(user, 'tabbyapi');
+    expect(options(/^GPU Count/)).toEqual(['1']);
+    expect((screen.getByLabelText(/^GPU Count/) as HTMLSelectElement).value).toBe('1');
+  });
+});
