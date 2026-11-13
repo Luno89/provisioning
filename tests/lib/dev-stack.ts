@@ -76,8 +76,14 @@ export interface DevOwner {
   cookie: string;
 }
 
+export const devRootPage = `http://${DEV.rootHost}.localhost:${DEV.rootWebPort}`;
+export const devKoalaPage = `http://${DEV.instanceName}.localhost:${DEV.instanceWebPort}`;
+
+export const devOwnerSignIn = (): { email: string; password: string } =>
+  JSON.parse(readFileSync(devFile('apps/backend/data/dev/owner.json'), 'utf8')) as { email: string; password: string };
+
 export async function devOwner(): Promise<DevOwner> {
-  const saved = JSON.parse(readFileSync(devFile('apps/backend/data/dev/owner.json'), 'utf8')) as { email: string; password: string };
+  const saved = devOwnerSignIn();
   const rootIn = await fetchSide(devRootApi)('/api/auth/login', { method: 'POST', body: saved });
   assert.equal(rootIn.status, 200, `dev's owner could not sign in at root: ${rootIn.status} ${rootIn.body.slice(0, 200)}`);
   const rootCookie = sessionFrom(rootIn.setCookies);

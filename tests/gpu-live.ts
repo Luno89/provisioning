@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
+import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
 
 const NAME = `gpu-${Date.now().toString(36)}`;
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
   assert.ok(machine, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
   const clusterId = `machine-${machine}`;
-  const stopped: { namespace: string; name: string; replicas: number }[] = [];
+  const stopped: StoppedModel[] = [];
   let id: string | undefined;
   let forward: ChildProcess | undefined;
 
@@ -84,16 +85,8 @@ async function main(): Promise<void> {
     });
 
     await stage('the owner\'s own models holding GPUs on this machine are stopped for the test, their records kept', async () => {
-      const models = (await mine(api)).filter((entry) => entry.clusterId === clusterId && (entry.appType === 'vllm' || entry.appType === 'tabbyapi') && entry.status === 'running' && ((entry.vllmGpuCount ?? entry.tabbyGpuCount ?? 0) > 0));
-      for (const model of models) {
-        const namespace = model.namespace ?? model.name;
-        const workloads = JSON.parse(await devKubectl(namespace, 'get', 'deployments', '-o', 'json')) as { items: { metadata: { name: string }; spec: { replicas: number } }[] };
-        for (const workload of workloads.items.filter((entry) => entry.spec.replicas > 0)) {
-          await devKubectl(namespace, 'scale', 'deployment', workload.metadata.name, '--replicas=0');
-          stopped.push({ namespace, name: workload.metadata.name, replicas: workload.spec.replicas });
-        }
-      }
-      console.log(stopped.length ? `    stopped ${stopped.map((entry) => `${entry.namespace}/${entry.name} (${entry.replicas})`).join(', ')}` : '    none of the owner\'s models holds a GPU here, so none is stopped');
+      stopped.push(...await stopOwnersModels(api, clusterId));
+      console.log(stopped.length ? `    stopped ${describeStopped(stopped)}` : '    none of the owner\'s models holds a GPU here, so none is stopped');
     });
 
     const imagesBefore = await vllmImages();
@@ -148,8 +141,8 @@ async function main(): Promise<void> {
     }
     if (stopped.length) {
       await stage('the owner\'s models are started again as they were', async () => {
-        for (const entry of stopped) await devKubectl(entry.namespace, 'scale', 'deployment', entry.name, `--replicas=${entry.replicas}`);
-        console.log(`    started ${stopped.map((entry) => `${entry.namespace}/${entry.name} (${entry.replicas})`).join(', ')}`);
+        await startOwnersModels(stopped);
+        console.log(`    started ${describeStopped(stopped)}`);
       });
     }
   }
