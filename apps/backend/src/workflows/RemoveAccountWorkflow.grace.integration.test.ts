@@ -24,6 +24,7 @@ afterAll(async () => {
 
 const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountFenceActivity: async () => { seen.push('fence'); return ['engine-1']; },
+  RemoveAccountFenceEndActivity: async () => { seen.push('fence ended'); return []; },
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
@@ -57,7 +58,7 @@ describe('removing an account that still had something running', () => {
       await handle.result();
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes)).toBe(false);
     });
-    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'keep for bo', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'keep for bo', 'apps', 'workspaces', 'secrets', 'mesh', 'records', 'fence ended']);
   });
 
   it('keeps no runs unless asked', async () => {
@@ -66,6 +67,6 @@ describe('removing an account that still had something running', () => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('grace-cy'), [{ ownerId: 'grace-cy' }], 'grace-cy');
       await env.client.workflow.getHandle(removeAccountWorkflowId('grace-cy')).result();
     });
-    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records', 'fence ended']);
   });
 });

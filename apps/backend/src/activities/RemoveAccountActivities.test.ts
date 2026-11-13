@@ -82,6 +82,16 @@ describe('the steps that remove an account', () => {
     expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'owner', id: 'bo' }, at: '2026-11-13T10:00:00.000Z', confirmed: true }]);
   });
 
+  it('ends the account\'s fence with the processes live as it ends, so it goes once each of them has started again', async () => {
+    await db.platform.raiseFence({ kind: 'owner', id: 'bo' }, '2026-11-13T09:00:00.000Z');
+    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
+    expect(await new MockActivityEnvironment().run(steps().RemoveAccountFenceEndActivity, { ownerId: 'bo' })).toEqual([]);
+    expect((await db.platform.fencesRaised())[0]?.endedWith).toEqual(['engine-1']);
+    await db.platform.forgetProcess('engine-1');
+    expect(await new MockActivityEnvironment().run(steps().RemoveAccountFenceEndActivity, { ownerId: 'bo' })).toEqual([{ kind: 'owner', id: 'bo' }]);
+    expect(await db.platform.fencesRaised()).toEqual([]);
+  });
+
   it('keeps the mark a removal asked from Settings already set', async () => {
     await db.accounts.saveUser({ ...(await db.accounts.getUserById('bo'))!, removal: { startedAt: 'earlier', requestedBy: 'bo' } });
     await new MockActivityEnvironment().run(steps().RemoveAccountFenceActivity, { ownerId: 'bo' });

@@ -72,6 +72,23 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
       expect(await store.fenceAcks(leaving)).toEqual([]);
     });
 
+    it('keeps which processes were live when a fence\'s removal ended, and forgets a dropped fence and every word given for it, telling whoever listens', async () => {
+      const store = await make();
+      await store.raiseFence(leaving, '2026-11-13T10:00:00.000Z');
+      await store.ackFence(leaving, 'engine-1', '2026-11-13T10:00:01.000Z');
+      await store.endFence(leaving, ['engine-1', 'backend-1']);
+      expect(await store.fencesRaised()).toEqual([{ closing: leaving, at: '2026-11-13T10:00:00.000Z', confirmed: false, endedWith: ['engine-1', 'backend-1'] }]);
+      let heard!: (closing: unknown) => void;
+      const dropped = new Promise((resolve) => { heard = resolve; });
+      const watching = store.watchFenceDrops((closing) => heard(closing));
+      await watching.ready;
+      await store.dropFence(leaving);
+      expect(await dropped).toEqual(leaving);
+      await watching.close();
+      expect(await store.fencesRaised()).toEqual([]);
+      expect(await store.fenceAcks(leaving)).toEqual([]);
+    });
+
     it('knows the processes that beat since a moment, the last beat counting, and forgets one that stopped', async () => {
       const store = await make();
       await store.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T10:00:00.000Z');

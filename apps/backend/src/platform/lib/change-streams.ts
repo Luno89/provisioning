@@ -1,4 +1,4 @@
-import type { ChangeStream, Collection, Document } from 'mongodb';
+import type { ChangeStream, ChangeStreamDocument, ChangeStreamOptions, Collection, Document } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
 import { REOPEN_FIRST_MS, reopening } from '@koala/engine-core/reopening';
 
@@ -21,6 +21,24 @@ export function watchWrites<T extends Document>(
   on: (doc: T) => void,
   reopenMs = REOPEN_FIRST_MS,
 ): Watching {
+  return watchChanges(collection, [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, ...Object.fromEntries(Object.entries(matching).map(([field, condition]): [string, unknown] => [`fullDocument.${field}`, condition])) } }], { fullDocument: 'updateLookup' }, (change) => {
+    if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
+  }, reopenMs);
+}
+
+export function watchDeletes<T extends Document>(collection: () => Collection<T>, on: (id: string) => void, reopenMs = REOPEN_FIRST_MS): Watching {
+  return watchChanges(collection, [{ $match: { operationType: 'delete' } }], {}, (change) => {
+    if (change.operationType === 'delete') on(String((change.documentKey as { _id: unknown })._id));
+  }, reopenMs);
+}
+
+function watchChanges<T extends Document>(
+  collection: () => Collection<T>,
+  pipeline: Document[],
+  options: ChangeStreamOptions,
+  on: (change: ChangeStreamDocument<T>) => void,
+  reopenMs: number,
+): Watching {
   let stream: ChangeStream<T> | undefined;
   let closed = false;
   let after: unknown;
@@ -41,19 +59,13 @@ export function watchWrites<T extends Document>(
   function open(): void {
     if (closed) return;
     try {
-      const fullDocument = Object.fromEntries(Object.entries(matching).map(([field, condition]): [string, unknown] => [`fullDocument.${field}`, condition]));
-      stream = collection().watch<T>(
-        [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, ...fullDocument } }],
-        { fullDocument: 'updateLookup', ...(after ? { startAfter: after } : {}) },
-      );
+      stream = collection().watch<T>(pipeline, { ...options, ...(after ? { startAfter: after } : {}) });
     } catch (err) {
       reopen(err);
       return;
     }
     stream.on('resumeTokenChanged', (token: unknown) => { after = token; again.reset(); opened(); });
-    stream.on('change', (change) => {
-      if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
-    });
+    stream.on('change', (change) => on(change));
     stream.on('error', reopen);
   }
 

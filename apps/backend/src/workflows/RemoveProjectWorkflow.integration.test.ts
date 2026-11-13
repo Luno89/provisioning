@@ -46,6 +46,7 @@ describe('deleting a project through Temporal', () => {
     const atSecrets = new Promise<void>((done) => { reached = done; });
     const activities: ProjectRemovalActivities = {
       RemoveProjectFenceActivity: async () => { seen.push('fence'); return []; },
+      RemoveProjectFenceEndActivity: async () => { seen.push('fence ended'); return []; },
       RemoveProjectWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
       RemoveProjectAppsActivity: async () => {
         seen.push('apps');
@@ -79,7 +80,7 @@ describe('deleting a project through Temporal', () => {
         stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 2, records: { projects: 1 },
       });
     })));
-    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'files', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'files', 'records', 'fence ended']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);

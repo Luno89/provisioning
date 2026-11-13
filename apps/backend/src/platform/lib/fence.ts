@@ -9,6 +9,7 @@ export interface RaisedFence {
   closing: Closing;
   at: string;
   confirmed: boolean;
+  endedWith?: string[] | undefined;
 }
 
 export interface KoalaProcess {
@@ -32,6 +33,9 @@ export function closingOf(fenceId: string): Closing | undefined {
   return (kind === 'owner' || kind === 'project') && id ? { kind, id } : undefined;
 }
 
+export const droppableFences = (fences: readonly RaisedFence[], live: readonly string[]): Closing[] =>
+  fences.filter((fence) => fence.endedWith !== undefined && !fence.endedWith.some((id) => live.includes(id))).map((fence) => fence.closing);
+
 export const stillWaitingOn = (live: readonly KoalaProcess[], acked: readonly string[]): KoalaProcess[] =>
   live.filter((process) => !acked.includes(process.id));
 
@@ -47,6 +51,10 @@ export class Fence {
 
   close(closing: Closing): void {
     this.closed.add(keyOf(closing));
+  }
+
+  open(closing: Closing): void {
+    this.closed.delete(keyOf(closing));
   }
 
   holds(closing: Closing): boolean {

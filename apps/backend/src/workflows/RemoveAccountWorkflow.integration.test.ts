@@ -28,6 +28,7 @@ afterAll(async () => {
 
 const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountFenceActivity: async () => { seen.push('fence'); return []; },
+  RemoveAccountFenceEndActivity: async () => { seen.push('fence ended'); return []; },
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
@@ -62,7 +63,7 @@ describe('removing an account through Temporal', () => {
       });
       expect(await workflows.state(removeAccountWorkflowId('bo'))).toEqual({ state: 'finished' });
     });
-    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records', 'fence ended']);
   }, 60_000);
 
   it('says how far it has got while it runs', async () => {

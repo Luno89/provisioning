@@ -62,6 +62,7 @@ export async function RemoveAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
   }
   const records = await steps.RemoveAccountRecordsActivity(args);
   done.push('records');
+  if (fenced) await steps.RemoveAccountFenceEndActivity(args);
 
   return { stoppedWorkflows, apps: apps.length, secrets, meshDevices: mesh.devices, repositories, records };
 }

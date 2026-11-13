@@ -69,6 +69,7 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   if (patched(PROJECT_FILES_PATCH)) done.push('files');
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');
+  if (fenced) await steps.RemoveProjectFenceEndActivity(args);
   const owner = ownerIn(workflowInfo().typedSearchAttributes);
   if (owner && patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(ignore('the browser reads its trees again when it next looks; this only tells it sooner'));
 

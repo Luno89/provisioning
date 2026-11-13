@@ -1,10 +1,10 @@
 import { ignore } from '@koala/engine-core/failures';
-import { PROCESS_BEAT_MS, liveSince, stillWaitingOn, type Closing, type Fence, type KoalaProcess, type RaisedFence } from '../lib/fence.js';
+import { PROCESS_BEAT_MS, droppableFences, liveSince, stillWaitingOn, type Closing, type Fence, type KoalaProcess, type RaisedFence } from '../lib/fence.js';
 import { watchingAll, type Watching } from '../lib/change-streams.js';
 import type { PlatformStore } from '../store.js';
 import { keepTrying } from '../lib/keep-trying.js';
 
-type FenceStore = Pick<PlatformStore, 'fencesRaised' | 'watchFences' | 'ackFence' | 'beatProcess' | 'forgetProcess'>;
+type FenceStore = Pick<PlatformStore, 'fencesRaised' | 'watchFences' | 'watchFenceDrops' | 'ackFence' | 'beatProcess' | 'forgetProcess' | 'processesSeenSince' | 'dropFence'>;
 
 export interface FenceWatchDeps {
   store: FenceStore;
@@ -27,9 +27,13 @@ export class FenceWatch {
     await this.beat();
     this.beating = setInterval(() => { void this.beat().catch(ignore('a beat Mongo refuses is followed by the next one; a process stays live while any beat lands')); }, PROCESS_BEAT_MS);
     this.beating.unref();
-    this.watching = this.deps.store.watchFences((fence) => { void this.hold(fence); });
+    this.watching = watchingAll([
+      this.deps.store.watchFences((fence) => { void this.hold(fence); }),
+      this.deps.store.watchFenceDrops((closing) => this.deps.fence.open(closing)),
+    ]);
     await this.watching.ready;
     await Promise.all((await this.deps.store.fencesRaised()).map((fence) => this.hold(fence)));
+    await dropEndedFences({ store: this.deps.store, now: this.deps.now ?? Date.now });
   }
 
   private beat(): Promise<void> {
@@ -78,4 +82,19 @@ export async function fenceHeldEverywhere(deps: { store: HeldStore; now?: () => 
   } finally {
     await watching.close();
   }
+}
+
+type DropStore = Pick<PlatformStore, 'fencesRaised' | 'processesSeenSince' | 'dropFence'>;
+
+export async function dropEndedFences(deps: { store: DropStore; now: () => number }): Promise<Closing[]> {
+  const live = (await deps.store.processesSeenSince(liveSince(deps.now()))).map((process) => process.id);
+  const going = droppableFences(await deps.store.fencesRaised(), live);
+  for (const closing of going) await deps.store.dropFence(closing);
+  return going;
+}
+
+export async function endAndDrop(deps: { store: DropStore & Pick<PlatformStore, 'endFence'>; now?: () => number }, closing: Closing): Promise<Closing[]> {
+  const now = deps.now ?? Date.now;
+  await deps.store.endFence(closing, (await deps.store.processesSeenSince(liveSince(now()))).map((process) => process.id));
+  return dropEndedFences({ store: deps.store, now });
 }

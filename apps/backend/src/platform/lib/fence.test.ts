@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { WorkStopped, unnamedWork, withWorkFor } from '@koala/engine-core/work-for';
-import { Fence } from './fence.js';
+import { droppableFences, Fence } from './fence.js';
+
+describe('when a fence may go', () => {
+  const ended = (id: string, endedWith: string[] | undefined) => ({ closing: { kind: 'owner' as const, id }, at: 't', confirmed: true, ...(endedWith ? { endedWith } : {}) });
+
+  it('goes once its removal has ended and no process live at that moment still runs, each having started again or stopped', () => {
+    expect(droppableFences([ended('a', ['engine-1', 'backend-1'])], ['engine-2', 'backend-2'])).toEqual([{ kind: 'owner', id: 'a' }]);
+  });
+
+  it('stays while any process live when its removal ended still runs, and while its removal has not ended', () => {
+    expect(droppableFences([ended('a', ['engine-1', 'backend-1']), ended('b', undefined)], ['engine-1', 'backend-2'])).toEqual([]);
+  });
+});
 
 describe('the fence a removal puts round an account or a project', () => {
+  it('lets work through again once a fence is dropped', async () => {
+    const fence = new Fence();
+    fence.close({ kind: 'owner', id: 'gone' });
+    fence.open({ kind: 'owner', id: 'gone' });
+    await expect(withWorkFor({ owner: 'gone' }, () => fence.guard(async () => 'kept'))).resolves.toBe('kept');
+  });
+
   it('refuses work for an account being removed, and lets every other account\'s work through', async () => {
     const fence = new Fence();
     fence.close({ kind: 'owner', id: 'leaving' });

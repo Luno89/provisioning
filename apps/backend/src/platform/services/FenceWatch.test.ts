@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { MemoryPlatformStore } from '../testing/memory-store.js';
 import { Fence } from '../lib/fence.js';
-import { FenceWatch, fenceHeldEverywhere } from './FenceWatch.js';
+import { endAndDrop, FenceWatch, fenceHeldEverywhere } from './FenceWatch.js';
 
 const leaving = { kind: 'owner', id: 'leaving' } as const;
 const NOW = Date.parse('2026-11-13T10:00:00.000Z');
@@ -67,5 +67,48 @@ describe('a removal waiting until every process holds its fence', () => {
     const store = new MemoryPlatformStore();
     await store.raiseFence(leaving, '2026-11-13T10:00:00.000Z');
     expect(await fenceHeldEverywhere({ store, now: () => NOW }, leaving)).toEqual([]);
+  });
+});
+
+describe('dropping a fence once nothing from before its removal ended still runs', () => {
+  it('keeps a fence whose removal ends while a process live then still runs, and drops it when that process has started again', async () => {
+    const store = new MemoryPlatformStore();
+    await store.raiseFence(leaving, '2026-11-13T09:00:00.000Z');
+    await store.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:50.000Z');
+    expect(await endAndDrop({ store, now: () => NOW }, leaving)).toEqual([]);
+    expect(await store.fencesRaised()).toEqual([{ closing: leaving, at: '2026-11-13T09:00:00.000Z', confirmed: false, endedWith: ['engine-1'] }]);
+
+    await store.forgetProcess('engine-1');
+    const fence = new Fence();
+    const restarted = new FenceWatch({ store, fence, process: { id: 'engine-2', name: 'worker-engine' }, now: () => NOW });
+    await restarted.start();
+    expect(await store.fencesRaised()).toEqual([]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fence.holds(leaving)).toBe(false);
+    await restarted.stop();
+  });
+
+  it('drops a fence at once when its removal ends with no process left from before, and lets every process holding it go', async () => {
+    const store = new MemoryPlatformStore();
+    const fence = new Fence();
+    const watch = new FenceWatch({ store, fence, process: { id: 'backend-1', name: 'backend' }, now: () => NOW });
+    await store.raiseFence(leaving, '2026-11-13T09:00:00.000Z');
+    await watch.start();
+    expect(fence.holds(leaving)).toBe(true);
+    await watch.stop();
+    expect(await endAndDrop({ store, now: () => NOW }, leaving)).toEqual([leaving]);
+    expect(await store.fencesRaised()).toEqual([]);
+  });
+
+  it('opens a fence it holds when it hears the fence was dropped', async () => {
+    const store = new MemoryPlatformStore();
+    const fence = new Fence();
+    const watch = new FenceWatch({ store, fence, process: { id: 'backend-1', name: 'backend' }, now: () => NOW });
+    await store.raiseFence(leaving, '2026-11-13T09:00:00.000Z');
+    await watch.start();
+    await store.dropFence(leaving);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fence.holds(leaving)).toBe(false);
+    await watch.stop();
   });
 });

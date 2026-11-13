@@ -1,6 +1,6 @@
 import { Context } from '@temporalio/activity';
 import {
-  type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
+  type Closing, type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs, type HandOver } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, projectWorkflowIds, loadProjectScope } from '../projects/index.js';
@@ -8,7 +8,7 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { Conversation } from '../engine/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
-import { raiseAndHold, type FenceRecords } from './fence-steps.js';
+import { endFenceOf, raiseAndHold, type FenceRecords } from './fence-steps.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 
 export interface RemoveProjectArgs {
@@ -87,6 +87,7 @@ export interface ProjectRemovalDeps {
 
 export interface ProjectRemovalActivities {
   RemoveProjectFenceActivity(args: RemoveProjectArgs): Promise<string[]>;
+  RemoveProjectFenceEndActivity(args: RemoveProjectArgs): Promise<Closing[]>;
   RemoveProjectWorkflowsActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectAppsActivity(args: RemoveProjectArgs): Promise<AppToDestroy[]>;
   RemoveProjectAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
@@ -118,6 +119,10 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       const project = (await store.projects.getProjects()).find((entry) => entry.id === projectId);
       if (project && !project.removal) await store.projects.saveProjectInfo({ id: projectId, removal: { startedAt: new Date(now()).toISOString(), requestedBy: project.ownerId ?? projectId } });
       return raiseAndHold(store.platform, { kind: 'project', id: projectId }, now);
+    },
+
+    async RemoveProjectFenceEndActivity({ projectId }) {
+      return endFenceOf(store.platform, { kind: 'project', id: projectId }, now);
     },
 
     async RemoveProjectWorkflowsActivity({ projectId }) {

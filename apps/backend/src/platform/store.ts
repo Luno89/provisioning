@@ -2,7 +2,7 @@ import type { AreaStore } from './lib/collection.js';
 import type { Db } from 'mongodb';
 import type { MigrationRecord } from './lib/migrations.js';
 import type { EndedSession } from './lib/ended-sessions.js';
-import { watchWrites, type Watching } from './lib/change-streams.js';
+import { watchDeletes, watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
 import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
 import { closingOf, fenceIdOf, type Closing, type KoalaProcess, type RaisedFence } from './lib/fence.js';
@@ -25,6 +25,9 @@ export interface PlatformStore extends AreaStore {
   fenceAcks(closing: Closing): Promise<string[]>;
   watchFenceAcks(on: (ack: { closing: Closing; process: string }) => void): Watching;
   confirmFence(closing: Closing): Promise<void>;
+  endFence(closing: Closing, liveWith: readonly string[]): Promise<void>;
+  dropFence(closing: Closing): Promise<void>;
+  watchFenceDrops(on: (closing: Closing) => void): Watching;
   beatProcess(process: KoalaProcess, at: string): Promise<void>;
   forgetProcess(id: string): Promise<void>;
   processesSeenSince(at: string): Promise<KoalaProcess[]>;
@@ -37,6 +40,7 @@ const raisedFenceFrom = (doc: Record<string, unknown>): RaisedFence => ({
   closing: { kind: doc.kind === 'project' ? 'project' : 'owner', id: String(doc.id) },
   at: String(doc.at),
   confirmed: doc.confirmed === true,
+  ...(Array.isArray(doc.endedWith) ? { endedWith: doc.endedWith.map(String) } : {}),
 });
 
 export function dependencyStateFrom(doc: Record<string, unknown>): DependencyStateRow | undefined {
@@ -118,6 +122,22 @@ export class MongoPlatformStore implements PlatformStore {
   async confirmFence(closing: Closing): Promise<void> {
     await this.fences.updateOne({ _id: fenceIdOf(closing) as never }, { $set: { confirmed: true } });
     await this.fenceAckRows.deleteMany({ fence: fenceIdOf(closing) });
+  }
+
+  async endFence(closing: Closing, liveWith: readonly string[]): Promise<void> {
+    await this.fences.updateOne({ _id: fenceIdOf(closing) as never }, { $set: { endedWith: [...liveWith] } });
+  }
+
+  async dropFence(closing: Closing): Promise<void> {
+    await this.fenceAckRows.deleteMany({ fence: fenceIdOf(closing) });
+    await this.fences.deleteOne({ _id: fenceIdOf(closing) as never });
+  }
+
+  watchFenceDrops(on: (closing: Closing) => void): Watching {
+    return watchDeletes(() => this.fences, (id) => {
+      const closing = closingOf(id);
+      if (closing) on(closing);
+    });
   }
 
   async beatProcess(process: KoalaProcess, at: string): Promise<void> {

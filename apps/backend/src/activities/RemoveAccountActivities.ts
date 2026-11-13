@@ -2,8 +2,8 @@ import { Context } from '@temporalio/activity';
 import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
-import { type DeploymentMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts } from '../platform/index.js';
-import { raiseAndHold, type FenceRecords } from './fence-steps.js';
+import { type Closing, type DeploymentMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts } from '../platform/index.js';
+import { endFenceOf, raiseAndHold, type FenceRecords } from './fence-steps.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
 
 export interface RemoveAccountArgs {
@@ -53,6 +53,7 @@ export const removalMeshFor = (role: RoleConfig, headscale: () => RemovalMesh): 
 
 export interface AccountRemovalActivities {
   RemoveAccountFenceActivity(args: RemoveAccountArgs): Promise<string[]>;
+  RemoveAccountFenceEndActivity(args: RemoveAccountArgs): Promise<Closing[]>;
   RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountKeepRunsActivity(args: { ownerId: string; keepRunsFor: string }): Promise<number>;
   RemoveAccountAppsActivity(args: RemoveAccountArgs): Promise<AppToDestroy[]>;
@@ -83,6 +84,10 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
       const user = await deps.store.accounts.getUserById(ownerId);
       if (user && !user.removal) await deps.store.accounts.saveUser({ ...user, removal: { startedAt: at, requestedBy: keepRunsFor ?? ownerId } });
       return raiseAndHold(deps.store.platform, { kind: 'owner', id: ownerId }, now);
+    },
+
+    async RemoveAccountFenceEndActivity({ ownerId }) {
+      return endFenceOf(deps.store.platform, { kind: 'owner', id: ownerId }, now);
     },
 
     async RemoveAccountWorkflowsActivity({ ownerId }) {

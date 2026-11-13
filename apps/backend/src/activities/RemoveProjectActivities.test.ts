@@ -65,6 +65,12 @@ beforeEach(async () => {
 });
 
 describe('the steps that delete a project', () => {
+  it('ends the project\'s fence with the processes live as it ends, and drops it at once when none is left from before', async () => {
+    await db.platform.raiseFence({ kind: 'project', id: 'p1' }, '2026-11-13T09:00:00.000Z');
+    expect(await new MockActivityEnvironment().run(steps().RemoveProjectFenceEndActivity, { projectId: 'p1' })).toEqual([{ kind: 'project', id: 'p1' }]);
+    expect(await db.platform.fencesRaised()).toEqual([]);
+  });
+
   it('marks the project as being deleted, raises its fence, and goes on only once every live process holds it', async () => {
     await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
     let finished = false;

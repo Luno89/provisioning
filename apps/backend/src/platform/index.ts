@@ -107,7 +107,7 @@ export { BaseService } from './services/BaseService.js';
 export { DependencyStates } from './services/DependencyStates.js';
 export type { DependencyCheck, DependencyStatesDeps } from './services/DependencyStates.js';
 export { drainThenStop, inClusterSlices } from './services/drain.js';
-export { fenceHeldEverywhere } from './services/FenceWatch.js';
+export { endAndDrop, fenceHeldEverywhere } from './services/FenceWatch.js';
 export { MailError, MailService } from './services/MailService.js';
 export { answerOf, MailReputation, reachPort25 } from './services/MailReputation.js';
 export type { MailReputationView } from './services/MailReputation.js';

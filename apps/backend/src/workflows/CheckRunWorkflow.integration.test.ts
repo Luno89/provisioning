@@ -41,6 +41,7 @@ function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], le
   };
   const removal: AccountRemovalActivities = {
     RemoveAccountFenceActivity: async ({ ownerId }) => { log.push(`fence ${ownerId.startsWith('space-') ? 'space' : ownerId}`); return []; },
+    RemoveAccountFenceEndActivity: async () => [],
     RemoveAccountWorkflowsActivity: async () => { log.push('stop'); return 0; },
     RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { log.push(`keep for ${keepRunsFor}`); return 0; },
     RemoveAccountAppsActivity: async () => [],
