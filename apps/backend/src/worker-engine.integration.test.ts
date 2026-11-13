@@ -50,7 +50,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
-    expect(worker.options.interceptors.activity).toHaveLength(3);
+    expect(worker.options.interceptors.activity).toHaveLength(4);
     worker.shutdown();
     await running;
   }, 120_000);

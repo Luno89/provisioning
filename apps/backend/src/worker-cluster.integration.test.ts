@@ -40,7 +40,7 @@ describe('the cluster worker, started the way its entry starts it', () => {
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
-    expect(worker.options.interceptors.activity).toHaveLength(3);
+    expect(worker.options.interceptors.activity).toHaveLength(4);
     worker.shutdown();
     await running;
   }, 60_000);
