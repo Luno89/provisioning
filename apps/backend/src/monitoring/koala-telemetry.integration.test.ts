@@ -73,15 +73,19 @@ describe('Koala reports its own telemetry to the collector it is pointed at', ()
       const inTrace = collector.spans().filter((span) => span.traceId === traceId);
       const names = inTrace.map((span) => span.name);
       const engineActivity = inTrace.some((span) => span.name.startsWith('activity ') && span.service === 'koala-worker-engine');
-      return wanted.every((name) => names.includes(name)) && engineActivity ? inTrace : undefined;
+      const ids = new Set(inTrace.map((span) => span.spanId));
+      const whole = inTrace.every((span) => !span.parentSpanId || ids.has(span.parentSpanId));
+      return wanted.every((name) => names.includes(name)) && engineActivity && whole ? inTrace : undefined;
     });
     const named = (name: string): OtlpSpan => spans.find((span) => span.name === name)!;
     expect(named('POST /api/evals/level2/runs').service).toBe('koala-backend');
     expect(named('POST /api/evals/level2/runs').parentSpanId).toBeUndefined();
     expect(named('workflow.start CheckRunWorkflow').service).toBe('koala-backend');
     expect(named('model.call').attributes).toMatchObject({ 'koala.model.name': 'scripted', 'koala.model.outcome': 'ok', 'koala.model.finish_reason': 'stop', 'koala.model.tool_calls': 0 });
-    const ids = new Set(spans.map((span) => span.spanId));
-    expect(spans.filter((span) => span.parentSpanId && !ids.has(span.parentSpanId)).map((span) => span.name)).toEqual([]);
+    const parentOf = (span: OtlpSpan): OtlpSpan | undefined => spans.find((one) => one.spanId === span.parentSpanId);
+    const runner = parentOf(named('POST /api/engine/runs'));
+    expect(runner?.service).toBe('koala-worker-engine');
+    expect(runner?.name).toMatch(/^activity /);
   }, 300_000);
 
   it('the metrics arrive by their names, each labelled with the process that reported it', async () => {

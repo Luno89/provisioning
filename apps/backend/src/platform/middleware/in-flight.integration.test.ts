@@ -50,10 +50,17 @@ describe('the cap on one address\'s open requests, on a real server', () => {
     expect(await ask('/now', '8.8.8.8').answer).toBe(200);
   });
 
-  it('learns how fast the server answers from each response it lets through', async () => {
+  it('learns how fast the server answers from each response it lets through, and from nothing else', async () => {
     const limits = new InFlightLimits();
+    const timed = vi.spyOn(limits, 'answered');
     const { ask } = await serve(limits);
     for (let at = 0; at < 40; at += 1) expect(await ask('/now', '8.8.8.8').answer).toBe(200);
-    expect(limits.cap).toBeGreaterThan(IN_FLIGHT.initial);
+    expect(await ask('/now').answer).toBe(200);
+    const seconds = timed.mock.calls.map(([taken]) => taken);
+    expect(seconds).toHaveLength(40);
+    for (const taken of seconds) expect(taken).toBeGreaterThan(0);
+    const fromTheSameAnswers = new InFlightLimits();
+    for (const taken of seconds) fromTheSameAnswers.answered(taken);
+    expect(limits.cap).toBe(fromTheSameAnswers.cap);
   });
 });
