@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import type { ServiceAccount } from '../lib/cluster-places.js';
 import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { ensureImageCaches, IMAGE_CACHES, imageCacheContainer } from './image-caches.js';
 
 export const K3S_TEST_IMAGE = 'rancher/k3s:v1.36.4-k3s1@sha256:edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657';
 
@@ -27,10 +28,24 @@ export interface RealK3s {
 
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
+async function mirrorsThroughCaches(processes: Processes): Promise<string> {
+  await ensureImageCaches();
+  const lines = ['mirrors:'];
+  for (const cache of IMAGE_CACHES) {
+    const address = (await succeeded(processes, { command: 'docker', args: ['inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', imageCacheContainer(cache.registry)] })).trim();
+    if (!address) throw new Error(`the image cache for ${cache.registry} has no address on Docker's network`);
+    lines.push(`  "${cache.registry}":`, '    endpoint:', `      - "http://${address}:5000"`);
+  }
+  const file = join(mkdtempSync(join(tmpdir(), 'koala-k3s-registries-')), 'registries.yaml');
+  writeFileSync(file, `${lines.join('\n')}\n`);
+  return file;
+}
+
 export async function startK3s(processes: Processes = nodeProcesses): Promise<RealK3s> {
   const name = `koala-k3s-test-${randomUUID().slice(0, 8)}`;
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
-  await docker('run', '-d', '--name', name, ...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
+  const registries = await mirrorsThroughCaches(processes);
+  await docker('run', '-d', '--name', name, ...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', '-v', `${registries}:/etc/rancher/k3s/registries.yaml:ro`, K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
   const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
   const stillRunning = async (what: string): Promise<void> => {
     if ((await docker('inspect', '-f', '{{.State.Running}}', name)).trim() === 'true') return;
