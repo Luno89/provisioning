@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
+const TSX = import.meta.resolve('tsx');
 const homes: string[] = [];
 
 afterAll(async () => {
@@ -41,7 +41,7 @@ async function stopsAt(entry: string, env: Record<string, string>): Promise<{ co
   const home = await mkdtemp(join(tmpdir(), 'koala-settings-boot-'));
   homes.push(home);
   return new Promise((done, failed) => {
-    const child = spawn(TSX, [join(BACKEND, entry)], { cwd: home, env: { PATH: process.env.PATH ?? '', HOME: home, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, ['--import', TSX, join(BACKEND, entry)], { cwd: home, env: { PATH: process.env.PATH ?? '', HOME: home, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let said = '';
     child.stdout.on('data', (chunk: Buffer) => { said += chunk.toString('utf8'); });
     child.stderr.on('data', (chunk: Buffer) => { said += chunk.toString('utf8'); });

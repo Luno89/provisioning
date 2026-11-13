@@ -86,7 +86,7 @@ async function ensureProxyContainer(): Promise<void> {
         '-e', `CONTROL_PORT=${CONTROL_PORT}`,
         '-e', `CONTROL_TOKEN=${controlToken}`,
         'node:20-alpine',
-        'node_modules/.bin/tsx', scriptPath,
+        'node', '--import', 'tsx', scriptPath,
       ]);
       if (started.exitCode !== 0) {
         throw new Error(`Could not start the local egress proxy: ${started.stderr || started.stdout}`);

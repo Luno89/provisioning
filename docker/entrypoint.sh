@@ -39,15 +39,15 @@ if [ "${DEV_WATCH:-}" = true ]; then
   esac
 fi
 case "${1:-backend}" in
-  backend) exec npx tsx src/index.ts ;;
-  worker-engine) exec npx tsx src/worker-engine.ts ;;
-  worker-cluster) exec npx tsx src/worker-cluster.ts ;;
-  worker-host) exec npx tsx src/worker-host.ts ;;
-  seed) exec npx tsx src/scripts/seed-all.ts ;;
+  backend) exec node --import tsx src/index.ts ;;
+  worker-engine) exec node --import tsx src/worker-engine.ts ;;
+  worker-cluster) exec node --import tsx src/worker-cluster.ts ;;
+  worker-host) exec node --import tsx src/worker-host.ts ;;
+  seed) exec node --import tsx src/scripts/seed-all.ts ;;
   platform-services) exec bash /app/scripts/instance/platform-services.sh ;;
-  move-data) exec npx tsx src/scripts/move-import.ts data ;;
-  move-restore) exec npx tsx src/scripts/move-import.ts restore ;;
-  self-upgrade) exec npx tsx src/scripts/self-upgrade.ts ;;
-  temporal-keys) exec npx tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;
+  move-data) exec node --import tsx src/scripts/move-import.ts data ;;
+  move-restore) exec node --import tsx src/scripts/move-import.ts restore ;;
+  self-upgrade) exec node --import tsx src/scripts/self-upgrade.ts ;;
+  temporal-keys) exec node --import tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;
   *) exec "$@" ;;
 esac

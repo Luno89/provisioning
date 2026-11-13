@@ -10,7 +10,7 @@ import { unreachedPlatformServices } from './platform-services.js';
 import { testIdentityKey, testKeyEnv } from './keys.js';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
+const TSX = import.meta.resolve('tsx');
 
 export interface LoopbackProcess {
   name: string;
@@ -75,7 +75,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     ...env,
   };
   const start = async (): Promise<void> => {
-    child = spawn(TSX, [join(BACKEND, entry)], { cwd: home, env: settings, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(process.execPath, ['--import', TSX, join(BACKEND, entry)], { cwd: home, env: settings, stdio: ['ignore', 'pipe', 'pipe'] });
     const keep = (chunk: Buffer) => { lines.push(...chunk.toString('utf8').split('\n').filter(Boolean)); if (lines.length > 2000) lines.splice(0, lines.length - 2000); };
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
