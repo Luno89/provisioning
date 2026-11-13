@@ -3,8 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseAllDocuments } from 'yaml';
+import { renderChart } from '../../../../../tests/coupling/chart-trace.js';
 import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
-import { backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom } from '../../platform/lib/settings.js';
+import { podPlaceFrom } from '../../platform/lib/drain.js';
+import { loadKey } from '../../platform/lib/keys.js';
+import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, selfUpgradeSettingsFrom } from '../../platform/lib/settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
@@ -66,7 +69,7 @@ const isDoc = (value: unknown): value is Doc =>
   typeof value === 'object' && value !== null && 'kind' in value && typeof value.kind === 'string' && 'metadata' in value && typeof value.metadata === 'object';
 
 function render(extra: string[] = [], kubeVersion = '1.31.0'): Doc[] {
-  const out = execFileSync(HELM, ['template', 'luno', CHART, '--namespace', 'nowrinkles', '--kube-version', kubeVersion, ...[...required, ...extra].flatMap((value) => ['--set', value])], { encoding: 'utf8' });
+  const out = renderChart('luno', CHART, ['--namespace', 'nowrinkles', '--kube-version', kubeVersion, ...[...required, ...extra].flatMap((value) => ['--set', value])]);
   return parseAllDocuments(out).map((doc) => {
     const json: unknown = doc.toJSON();
     return json;
@@ -418,6 +421,39 @@ describe('the instance chart', () => {
       const env = envOf(process);
       if (process === 'backend') expect(ports).toEqual(expect.arrayContaining([{ name: 'http', containerPort: Number(env.PORT) }, { name: 'machine-gateway', containerPort: Number(env.MACHINE_GATEWAY_PORT) }]));
       else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'wf-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
+    }
+  });
+
+  it('gives the self-upgrade, every setup step, the move and Temporal\'s key server what each one\'s reader requires, as the step sees it', () => {
+    const fieldValues: Record<string, string> = { 'metadata.namespace': 'nowrinkles', 'status.podIP': '10.42.0.9' };
+    const environment = (docs: Doc[], pod: PodSpec, name: string): Record<string, string> => {
+      const container = [...(pod.initContainers ?? []), ...pod.containers].find((each) => each.name === name);
+      if (!container) throw new Error(`no container ${name}`);
+      const secret = (secretName: string): Record<string, string> => {
+        const doc = find(docs, 'Secret', secretName) as Doc & { stringData?: Record<string, string> };
+        return { ...Object.fromEntries(Object.entries(doc.data ?? {}).map(([key, value]) => [key, Buffer.from(value, 'base64').toString('utf8')])), ...(doc.stringData ?? {}) };
+      };
+      const env: Record<string, string> = { KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443' };
+      for (const from of (container.envFrom ?? []) as Array<{ configMapRef?: { name: string }; secretRef?: { name: string } }>) {
+        Object.assign(env, from.configMapRef ? find(docs, 'ConfigMap', from.configMapRef.name).data : secret(from.secretRef!.name));
+      }
+      for (const entry of (container.env ?? []) as Array<{ name: string; value?: string; valueFrom?: { secretKeyRef?: { name: string; key: string }; fieldRef?: { fieldPath: string } } }>) {
+        const value = entry.value ?? (entry.valueFrom?.secretKeyRef ? secret(entry.valueFrom.secretKeyRef.name)[entry.valueFrom.secretKeyRef.key] : fieldValues[entry.valueFrom?.fieldRef?.fieldPath ?? '']);
+        if (value !== undefined) env[entry.name] = value.replace(/\$\(([A-Z_]+)\)/g, (_, inner: string) => env[inner] ?? '');
+      }
+      return env;
+    };
+    const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
+    const fresh = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`]);
+    const upgrade = selfUpgradeSettingsFrom(environment(fresh, podOf(find(fresh, 'CronJob', 'luno-self-upgrade')), 'self-upgrade'));
+    expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles' } });
+    expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
+    expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed')), 'seed')).mongo).toBeDefined();
+    expect(loadKey(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-temporal')), 'temporal-jwks'), 'temporal')).toBeDefined();
+    expect(podPlaceFrom(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-backend')), 'backend'))).toEqual({ ip: '10.42.0.9', namespace: 'nowrinkles' });
+    const moving = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`, 'move.enabled=true']);
+    for (const step of ['move-data', 'move-restore']) {
+      expect(moveImportSettingsFrom(environment(moving, podOf(find(moving, 'Job', `luno-${step}`)), step))).toMatchObject({ rootUrl: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes' } });
     }
   });
 

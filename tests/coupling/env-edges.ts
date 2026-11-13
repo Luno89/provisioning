@@ -6,6 +6,7 @@ import { parseAllDocuments } from 'yaml';
 import type { ChannelEnd, ExtraEnd } from './graph.js';
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]+$/;
+const OWN_IMAGE = /(^|\/)nowrinkles\/app[:@]/;
 const HELM = join(import.meta.dirname, '..', '..', 'bin', 'helm');
 const REQUIRED = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'instance.credential=c', 'publicUrl=https://luno.example.com', 'storage.total=1Gi'];
 
@@ -27,31 +28,37 @@ function containersIn(value: unknown): Container[] {
   return [...own, ...Object.entries(record).filter(([key]) => key !== 'containers' && key !== 'initContainers').flatMap(([, inner]) => containersIn(inner))];
 }
 
-export function chartEnv(root: string, chart = 'charts/instance', variants: readonly string[][] = CHART_VARIANTS, ownImage = /(^|\/)nowrinkles\/app[:@]/): ExtraEnd[] {
+export function chartEnvSites(rendered: string, root: string, chart: string, ownImage = OWN_IMAGE): Map<string, { file: string; line: number }> {
   const found = new Map<string, { file: string; line: number }>();
   const lineOf = (file: string, name: string): number => {
     const lines = readFileSync(join(root, file), 'utf8').split('\n');
     const at = lines.findIndex((line) => new RegExp(`^\\s*(- name: |name: )?${name}(:|\\s*$)`).test(line));
     return at >= 0 ? at + 1 : 1;
   };
+  for (const block of rendered.split(/^---$/m)) {
+    const source = /^# Source: [^/]+\/(.+)$/m.exec(block)?.[1];
+    if (!source) continue;
+    const file = `${chart}/${source}`;
+    for (const document of parseAllDocuments(block)) {
+      const item = document.toJS() as Rendered | null;
+      if (!item) continue;
+      const ours = containersIn(item.spec).filter((container) => ownImage.test(container.image ?? ''));
+      const expanded = new Set(ours.flatMap((container) => (container.env ?? []).flatMap((entry) => [...String(entry.value ?? '').matchAll(/\$\(([A-Z0-9_]+)\)/g)].map((match) => match[1]!))));
+      const names = [
+        ...(item.kind === 'ConfigMap' && item.metadata?.name?.endsWith('-env') ? Object.keys(item.data ?? {}) : []),
+        ...ours.flatMap((container) => (container.env ?? []).map((entry) => entry.name ?? '')),
+      ].filter((name) => ENV_NAME.test(name) && !expanded.has(name));
+      for (const name of names) if (!found.has(name)) found.set(name, { file, line: lineOf(file, name) });
+    }
+  }
+  return found;
+}
+
+export function chartEnv(root: string, chart = 'charts/instance', variants: readonly string[][] = CHART_VARIANTS, ownImage = OWN_IMAGE): ExtraEnd[] {
+  const found = new Map<string, { file: string; line: number }>();
   for (const variant of variants) {
     const out = execFileSync(HELM, ['template', 'coupling', join(root, chart), ...variant.flatMap((value) => ['--set', value])], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    for (const block of out.split(/^---$/m)) {
-      const source = /^# Source: [^/]+\/(.+)$/m.exec(block)?.[1];
-      if (!source) continue;
-      const file = `${chart}/${source}`;
-      for (const document of parseAllDocuments(block)) {
-        const item = document.toJS() as Rendered | null;
-        if (!item) continue;
-        const ours = containersIn(item.spec).filter((container) => ownImage.test(container.image ?? ''));
-        const expanded = new Set(ours.flatMap((container) => (container.env ?? []).flatMap((entry) => [...String(entry.value ?? '').matchAll(/\$\(([A-Z0-9_]+)\)/g)].map((match) => match[1]!))));
-        const names = [
-          ...(item.kind === 'ConfigMap' && item.metadata?.name?.endsWith('-env') ? Object.keys(item.data ?? {}) : []),
-          ...ours.flatMap((container) => (container.env ?? []).map((entry) => entry.name ?? '')),
-        ].filter((name) => ENV_NAME.test(name) && !expanded.has(name));
-        for (const name of names) if (!found.has(name)) found.set(name, { file, line: lineOf(file, name) });
-      }
-    }
+    for (const [name, at] of chartEnvSites(out, root, chart, ownImage)) if (!found.has(name)) found.set(name, at);
   }
   return [...found].map(([name, at]) => ({ unit: { file: at.file, line: at.line, name: 'chart' }, kind: 'env', name, side: 'sends' }));
 }

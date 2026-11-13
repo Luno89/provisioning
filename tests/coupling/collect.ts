@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { ranIn, type RawCoverage } from './live.js';
+import { chartRan } from './chart-trace.js';
 import { shellRan } from './shell-trace.js';
 
 export interface Position { line: number; column: number }
@@ -40,7 +41,7 @@ export interface Collector {
   sample(label: string, out: string): Promise<void>;
 }
 
-export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string; children?: string }): Promise<Collector> {
+export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string; chartTrace?: string; children?: string }): Promise<Collector> {
   const session = new Session();
   session.connect();
   await session.post('Profiler.enable');
@@ -94,6 +95,10 @@ export async function startCollecting(options: { dir: string; root: string; keep
     if (options.shellTrace) {
       Object.assign(files, shellRan(options.shellTrace, options.root));
       rmSync(options.shellTrace, { force: true });
+    }
+    if (options.chartTrace) {
+      for (const [file, ranges] of Object.entries(chartRan(options.chartTrace))) (files[file] ??= []).push(...ranges);
+      rmSync(options.chartTrace, { force: true });
     }
     const ran: Ran = { testFile: label, files };
     writeFileSync(join(options.dir, out), JSON.stringify(ran));
