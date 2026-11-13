@@ -238,6 +238,27 @@ describe('tool runtime', () => {
     expect(outcome.digest).toContain('not valid JSON');
   });
 
+  it('refuses arguments that are not a JSON object before any check or the watch reads them, telling the model what to send', async () => {
+    const watch = { beforeCall: vi.fn(async () => undefined), afterCall: vi.fn(async () => undefined) };
+    const callProblem = vi.fn(async () => undefined);
+    const { backend, driver } = sandbox();
+    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(driver), watch, grants: { callProblem } });
+    for (const given of ['{not json', 'null', '[1,2]', '"npm test"', '42']) {
+      const outcome = await tools.run(args({ arguments: given }));
+      expect(outcome).toMatchObject({ ok: false, digest: matching(/arguments for "run_command" must be one JSON object/) });
+    }
+    const kept = await tools.run(args({ ticket: { ...args().ticket, keptTo: 'p1' }, name: 'save_memory', arguments: '["scope","global"]' }));
+    expect(kept).toMatchObject({ ok: false, digest: matching(/must be one JSON object/) });
+    expect(watch.beforeCall).not.toHaveBeenCalled();
+    expect(callProblem).not.toHaveBeenCalled();
+    expect(backend.exec).not.toHaveBeenCalled();
+  });
+
+  it('takes no arguments at all as an empty object', async () => {
+    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(sandbox().driver), handlers: { get_project_url: async () => ({ ok: true, digest: 'here' }) } });
+    expect(await tools.run(args({ name: 'get_project_url', arguments: '' }))).toMatchObject({ ok: true, digest: 'here' });
+  });
+
   it('turns a missing required argument into a readable refusal', async () => {
     const { driver } = sandbox();
     const outcome = await runtime(driver).run(args({ arguments: '{}' }));

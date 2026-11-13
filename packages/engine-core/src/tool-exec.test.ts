@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { environmentHandlers, executeTool } from './tool-exec.js';
 import type { ToolContract } from './tools.js';
 
@@ -86,6 +86,16 @@ describe('a peer refusing a call', () => {
     const outcome = await executeTool({ ...base, name: 'fetch_web_page', handlers: { fetch_web_page: refused } });
 
     expect(outcome).toMatchObject({ ok: false, declined: true, digest: 'HTTP 403: this site refused the fetch' });
+  });
+
+  it('hands a handler only a JSON object, refusing anything else with what to send', async () => {
+    const handler = vi.fn(async () => ({ ok: true, digest: 'fetched' }));
+    for (const given of ['null', '[1]', '"https://example.com"', '7', '{nope']) {
+      const outcome = await executeTool({ ...base, arguments: given, name: 'fetch_web_page', handlers: { fetch_web_page: handler } });
+      expect(outcome.ok).toBe(false);
+      expect(outcome.digest).toMatch(/arguments for "fetch_web_page" must be one JSON object/);
+    }
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('leaves an ordinary failure unmarked', async () => {

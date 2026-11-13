@@ -155,6 +155,20 @@ export interface ExecuteToolInput {
 
 export const refuse = (why: string): ToolOutcome => ({ ok: false, digest: why, content: why });
 
+export function toolArgumentsOf(name: string, text: string): { args: Record<string, unknown> } | { problem: string } {
+  if (!text.trim()) return { args: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    return { problem: `The arguments for "${name}" must be one JSON object, and these were not valid JSON (${(err as Error).message}). Call it again with its arguments as a JSON object.` };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { problem: `The arguments for "${name}" must be one JSON object, and these were ${parsed === null ? 'null' : Array.isArray(parsed) ? 'an array' : `a ${typeof parsed}`}. Call it again with its arguments as a JSON object.` };
+  }
+  return { args: parsed as Record<string, unknown> };
+}
+
 export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome> {
   const handlers = { ...environmentHandlers, ...(input.handlers ?? {}) };
   const digestChars = input.digestChars ?? DEFAULT_DIGEST_CHARS;
@@ -177,14 +191,9 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
   const handler = handlers[input.name] ?? commandHandlerFor(tools.find((tool) => tool.name === input.name));
   if (!handler) return refuse(`"${input.name}" has no implementation here`);
 
-  let parsed: Record<string, unknown> = {};
-  if (input.arguments.trim()) {
-    try {
-      parsed = JSON.parse(input.arguments) as Record<string, unknown>;
-    } catch {
-      return refuse(`the arguments for "${input.name}" were not valid JSON`);
-    }
-  }
+  const read = toolArgumentsOf(input.name, input.arguments);
+  if ('problem' in read) return refuse(read.problem);
+  const parsed = read.args;
 
   try {
     const outcome = await handler({

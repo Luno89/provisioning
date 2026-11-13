@@ -1,4 +1,4 @@
-import { executeTool, refuse, type EnvironmentDriver, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
+import { executeTool, refuse, toolArgumentsOf, type EnvironmentDriver, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunTicket, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
@@ -32,15 +32,6 @@ export interface ToolRuntimeOptions {
   watch?: Pick<PoisoningWatch, 'beforeCall' | 'afterCall'> | undefined;
 }
 
-const argumentsOf = (text: string): Record<string, unknown> => {
-  try {
-    const parsed: unknown = JSON.parse(text || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-};
-
 export function shownToTheModel(outcome: ToolOutcome): { outcome: ToolOutcome; removed: number } {
   const content = outcome.content === undefined ? undefined : withoutHidden(outcome.content);
   const digest = withoutHidden(outcome.digest);
@@ -63,10 +54,13 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
     async run(args: ToolCallArgs, attempt = 1, signal?: AbortSignal): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return placed(refuse(`There is no agent called "${args.ticket.agentSlug}".`), args);
+      const read = toolArgumentsOf(args.name, args.arguments);
+      if ('problem' in read) return placed(refuse(read.problem), args);
+      const parsed = read.args;
       const mcp = isMcpToolName(args.name);
-      await options.watch?.beforeCall(args, argumentsOf(args.arguments), mcp);
+      await options.watch?.beforeCall(args, parsed, mcp);
       if (args.ticket.keptTo) {
-        const problem = keptToProblem(args.name, argumentsOf(args.arguments));
+        const problem = keptToProblem(args.name, parsed);
         if (problem) return placed(refuse(problem), args);
       }
 
@@ -79,7 +73,6 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ? await options.serverTools.forRun({ ticket: args.ticket, environment: args.environment, held: agent.servers ?? [], ceiling: agent.maxEffect })
         : undefined;
       const catalogue = [...registered, ...(served?.tools ?? [])];
-      const parsed = argumentsOf(args.arguments);
       const scope = {
         ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),
         ...(args.environment?.workspace && treeOfWorkspace(args.environment.workspace.runId) ? { treeId: treeOfWorkspace(args.environment.workspace.runId) } : {}),
