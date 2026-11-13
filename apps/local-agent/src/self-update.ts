@@ -121,10 +121,7 @@ export class SelfUpdate {
       return false;
     }
     for (;;) {
-      if (!(await this.untilIdle(bundle))) {
-        await this.deps.discard().catch(ignore('the next update empties the unused folder before it unpacks into it'));
-        return false;
-      }
+      if (!(await this.untilIdle(bundle))) return false;
       await this.deps.quiesce();
       if (this.deps.gate.idle) break;
       await this.deps.resume();

@@ -7,7 +7,13 @@ export interface DependencySourcesStandIn {
   close(): Promise<void>;
 }
 
-export async function startDependencySourcesStandIn(): Promise<DependencySourcesStandIn> {
+export interface Advisories {
+  found?: Record<string, string[]>;
+  records?: Record<string, unknown>;
+  answers?: Record<string, unknown>;
+}
+
+export async function startDependencySourcesStandIn(advisories: Advisories = {}): Promise<DependencySourcesStandIn> {
   const asked: string[] = [];
   const server = createServer((request, response) => {
     let body = '';
@@ -15,8 +21,18 @@ export async function startDependencySourcesStandIn(): Promise<DependencySources
     request.on('end', () => {
       asked.push(`${request.method} ${request.url}`);
       if (request.method === 'POST' && request.url === '/osv/querybatch') {
-        const { queries } = JSON.parse(body || '{}') as { queries?: unknown[] };
-        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ results: (queries ?? []).map(() => ({})) }));
+        const { queries } = JSON.parse(body || '{}') as { queries?: { package: { name: string }; version: string }[] };
+        const results = (queries ?? []).map((query) => {
+          const ids = advisories.found?.[`${query.package.name}@${query.version}`] ?? [];
+          return ids.length ? { vulns: ids.map((id) => ({ id })) } : {};
+        });
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ results }));
+        return;
+      }
+      const vuln = /^\/osv\/vulns\/(.+)$/.exec(request.url ?? '')?.[1];
+      const answer = vuln ? advisories.records?.[decodeURIComponent(vuln)] : advisories.answers?.[request.url ?? ''];
+      if (answer !== undefined) {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answer));
         return;
       }
       response.writeHead(404, { 'content-type': 'application/json' }).end('{}');
