@@ -66,6 +66,7 @@ export class SelfUpdate {
   private working: string | undefined;
   private wanted: string | undefined;
   private last: UpdateReport | undefined;
+  private nudge: (() => void) | undefined;
   private readonly told = new Set<string>();
 
   constructor(private readonly deps: SelfUpdateDeps) {}
@@ -84,7 +85,8 @@ export class SelfUpdate {
       return Promise.resolve();
     }
     if (this.working) {
-      if (this.last) this.deps.report(this.last);
+      if (this.working !== bundle && this.nudge) this.nudge();
+      else if (this.last) this.deps.report(this.last);
       return Promise.resolve();
     }
     return this.follow();
@@ -105,7 +107,7 @@ export class SelfUpdate {
   }
 
   private async attempt(bundle: string): Promise<boolean> {
-    await this.untilIdle(bundle);
+    if (!(await this.untilIdle(bundle))) return false;
     this.say({ state: 'updating', bundle });
     this.deps.log(`updating this machine's agent to ${bundle.slice(0, 12)} while nothing runs on it`);
     try {
@@ -119,7 +121,10 @@ export class SelfUpdate {
       return false;
     }
     for (;;) {
-      await this.untilIdle(bundle);
+      if (!(await this.untilIdle(bundle))) {
+        await this.deps.discard().catch(ignore('the next update empties the unused folder before it unpacks into it'));
+        return false;
+      }
       await this.deps.quiesce();
       if (this.deps.gate.idle) break;
       await this.deps.resume();
@@ -137,11 +142,13 @@ export class SelfUpdate {
     return true;
   }
 
-  private async untilIdle(bundle: string): Promise<void> {
-    while (!this.deps.gate.idle) {
+  private async untilIdle(bundle: string): Promise<boolean> {
+    while (!this.deps.gate.idle && this.wanted === bundle) {
       this.say({ state: 'waiting', bundle, busyWith: this.deps.gate.busyWith() });
-      await this.deps.gate.whenIdle();
+      await Promise.race([this.deps.gate.whenIdle(), new Promise<void>((wake) => { this.nudge = wake; })]);
+      this.nudge = undefined;
     }
+    return this.wanted === bundle;
   }
 
   private failed(bundle: string, reason: string): void {

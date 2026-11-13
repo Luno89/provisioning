@@ -202,6 +202,22 @@ describe('an agent Koala names a newer bundle to', () => {
     expect(h.steps).toEqual(['prepare b', 'discard', 'prepare c', 'quiesce', 'swap while idle', 'restart c']);
   });
 
+  it('waits for the newest bundle when Koala names another while it waits to be idle, saying at once what holds it', async () => {
+    const h = harness();
+    const release = h.gate.hold('a session of claude');
+    const done = h.updates.named({ sha256: B });
+    await settle();
+    await h.updates.named({ sha256: C });
+    await settle();
+    expect(h.reports.at(-1)).toEqual({ state: 'waiting', bundle: C, busyWith: ['a session of claude'] });
+    release();
+    await settle();
+    expect(h.steps).toEqual(['prepare c']);
+    h.prepared.shift()!();
+    await done;
+    expect(h.steps).toEqual(['prepare c', 'quiesce', 'swap while idle', 'restart c']);
+  });
+
   it('tells Koala again where it is when named the same bundle while waiting', async () => {
     const h = harness();
     h.gate.hold('a command');
