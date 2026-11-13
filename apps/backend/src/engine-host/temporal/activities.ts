@@ -226,6 +226,7 @@ export interface EngineActivities extends StreamActivities {
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
   ConcludeWorkspaceActivity(args: ConcludeWorkspaceArgs): Promise<SavedDocuments>;
+  PlanAdoptProjectActivity(args: AdoptPlanArgs): Promise<string | null>;
   PlanAdoptStopActivity(args: AdoptPlanArgs): Promise<string[]>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
@@ -333,6 +334,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       if (!services.conversationWorkspaces) return { saved: false, why: 'this server keeps no conversation workspaces' };
       const agentSlug = (await services.conversationAgent?.(ownerId, workspace.id)) ?? DEFAULT_CHAT_AGENT;
       return services.conversationWorkspaces.conclude({ conversationId: workspace.id, ownerId, agentSlug });
+    },
+
+    async PlanAdoptProjectActivity(args) {
+      return (await adoption().project(args.ownerId, args.proposalId)) ?? null;
     },
 
     async PlanAdoptStopActivity(args) {

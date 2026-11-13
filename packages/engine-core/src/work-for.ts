@@ -1,19 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Payload } from '@temporalio/common';
-import { headerPayload, textOfHeader } from './telemetry.js';
-import { WORK_HEADER } from './work-header.js';
+import { WORK_HEADER, namedOnly, workOfPayload, workPayload, type WorkNamed } from './work-header.js';
 
 export { WORK_HEADER } from './work-header.js';
 
-export interface WorkFor {
-  owner?: string | undefined;
-  project?: string | undefined;
-}
+export type WorkFor = WorkNamed;
 
 const UNNAMED = 'unnamed' as const;
 const held = new AsyncLocalStorage<WorkFor | typeof UNNAMED>();
 
-const named = (work: WorkFor): WorkFor => Object.fromEntries(Object.entries(work).filter(([, value]) => typeof value === 'string' && value)) as WorkFor;
+const named = namedOnly;
 
 export function workFor(): WorkFor | undefined {
   const current = held.getStore();
@@ -22,20 +18,17 @@ export function workFor(): WorkFor | undefined {
 
 export const workIsUnnamed = (): boolean => held.getStore() === UNNAMED;
 
-export const withWorkFor = <T>(work: WorkFor, run: () => T): T => held.run({ ...workFor(), ...named(work) }, run);
+export function withWorkFor<T>(work: WorkFor, run: () => T): T {
+  if (workIsUnnamed()) return run();
+  const merged = { ...workFor(), ...named(work) };
+  return Object.keys(merged).length > 0 ? held.run(merged, run) : run();
+}
 
 export const unnamedWork = <T>(run: () => T): T => held.run(UNNAMED, run);
 
-export const workHeader = (work: WorkFor): Payload => headerPayload(JSON.stringify(named(work)));
+export const workHeader = (work: WorkFor): Payload => workPayload(work);
 
-export function workFromHeaders(headers: Record<string, Payload> | undefined): WorkFor | undefined {
-  const text = textOfHeader(headers?.[WORK_HEADER]);
-  if (!text) return undefined;
-  const parsed = JSON.parse(text) as unknown;
-  if (!parsed || typeof parsed !== 'object') return undefined;
-  const work = named(parsed as WorkFor);
-  return Object.keys(work).length > 0 ? work : undefined;
-}
+export const workFromHeaders = (headers: Record<string, Payload> | undefined): WorkFor | undefined => workOfPayload(headers?.[WORK_HEADER]);
 
 interface Execute {
   execute<I extends { headers: Record<string, Payload> }, R>(input: I, next: (input: I) => Promise<R>): Promise<R>;

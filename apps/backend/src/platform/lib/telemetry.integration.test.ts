@@ -73,7 +73,7 @@ describe('one trace from the request through the workflow to the activity', () =
     const app = express();
     app.use(metrics.middleware());
     app.post('/api/trees/:id/conclude', (req, res) => {
-      const service = new WorkspaceConclusionService({ workflows: async () => client.workflow, taskQueue });
+      const service = new WorkspaceConclusionService({ workflows: async () => client.workflow, taskQueue, projectOf: async () => undefined });
       service.conclude('u1', { kind: 'tree', id: String(req.params.id) }).then((saved) => res.json(saved), (err: Error) => res.status(500).json({ error: err.message }));
     });
     const server = http.createServer(app);

@@ -26,6 +26,15 @@ describe('whose work this is, carried with each piece of work', () => {
     expect(seen).toEqual({ owner: 'u1', project: 'p1' });
   });
 
+  it('names nothing when given nothing to name, leaving the work it is in as it was', async () => {
+    expect(await withWorkFor({ project: undefined }, async () => workFor())).toBeUndefined();
+    expect(await unnamedWork(() => withWorkFor({ project: undefined }, async () => workIsUnnamed()))).toBe(true);
+  });
+
+  it('keeps a removal\'s own steps unnamed whatever project they come to touch, so its own deletions are never fenced', async () => {
+    expect(await unnamedWork(() => withWorkFor({ project: 'p1' }, async () => ({ work: workFor(), unnamed: workIsUnnamed() })))).toEqual({ work: undefined, unnamed: true });
+  });
+
   it('runs a removal\'s own start as unnamed work, whatever work it is called from', async () => {
     const seen = await withWorkFor({ owner: 'u1' }, () => unnamedWork(async () => ({ work: workFor(), unnamed: workIsUnnamed() })));
     expect(seen).toEqual({ work: undefined, unnamed: true });

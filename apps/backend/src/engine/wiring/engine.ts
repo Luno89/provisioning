@@ -21,7 +21,7 @@ import type { RegistryHosts } from '../../instances/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { mcpReachFrom } from '../services/McpReach.js';
 import {
-  treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
+  primaryProjectId, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
   type GiteaService, type ProjectRepoService, treeTypesRouter,
 } from '../../projects/index.js';
 import { type ClusterAccess, type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
@@ -35,7 +35,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, conversationConclusionTimer, memoriesRouter } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -55,7 +55,7 @@ import { createWorkspaceRepoResolver } from '../../engine-host/sandboxes/workspa
 import type { KoalasCluster } from '../../engine-host/sandboxes/kube.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandboxes/prune-images.js';
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
-import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
+import { BENCH_IDLE_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { buildWebTools, type WebToolsPlace } from './web-tools.js';
 import type { Mounts } from '../../hub/index.js';
@@ -214,21 +214,20 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const workspaceConclusions = new WorkspaceConclusionService({
     workflows: async () => (await getTemporalClient()).workflow,
     taskQueue: engineQueue,
+    projectOf: async (ownerId, workspace) => {
+      if (workspace.kind === 'conversation') return (await db.engine.getConversation(ownerId, workspace.id))?.projectId;
+      const tree = (await db.projects.getTrees()).find((entry) => entry.id === workspace.id && entry.ownerId === ownerId);
+      return tree ? primaryProjectId(tree) : undefined;
+    },
   });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
     start: async (request) => { await engineRuns.start(request); },
-    timer: async ({ ownerId, conversationId, signal, quietMs }) => {
-      const workflows = (await getTemporalClient()).workflow;
-      const where = {
-        workflowId: conversationConclusionId(conversationId),
-        taskQueue: engineQueue,
-        args: [{ ownerId, conversationId }],
-        ...startedFor(ownerId),
-      };
-      if (signal === 'turnEnded') await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [{ quietMs: quietMs ?? 0 }] });
-      else await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [] });
-    },
+    timer: conversationConclusionTimer({
+      workflows: async () => (await getTemporalClient()).workflow,
+      taskQueue: engineQueue,
+      projectOf: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.projectId,
+    }),
     concludeAfterMinutes: async (ownerId, agentSlug) => (await engineRegistry.agent(ownerId, agentSlug))?.concludeAfterMinutes,
     remembersFor: async (ownerId: string) => {
       const user = await db.accounts.getUserById(ownerId);

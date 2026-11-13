@@ -25,6 +25,10 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
 import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { Client } from '@temporalio/client';
+import { workFor } from '@koala/engine-core/work-for';
+import { namesItsWork } from '../platform/lib/temporal-client.js';
+import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -213,19 +217,21 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
   return { needsAsked, told, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
-async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
+async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never, workSeen?: [string, unknown][]): Promise<AdoptPlanResult> {
   const taskQueue = `adopt-test-${Math.random().toString(36).slice(2, 8)}`;
+  const seeing = <A extends unknown[], R>(name: string, step: (...args: A) => Promise<R>) => async (...args: A): Promise<R> => { workSeen?.push([name, workFor()]); return step(...args); };
   const worker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowBundle: await bundled(resolve(__dirname)),
+    workflowBundle: await bundled(resolve(__dirname), [resolve(__dirname, 'telemetry-interceptors.ts')]),
     activities: {
-      PlanAdoptStopActivity: w.activities.PlanAdoptStopActivity,
-      PlanAdoptRecordsActivity: w.activities.PlanAdoptRecordsActivity,
-      PlanAdoptDocumentsActivity: w.activities.PlanAdoptDocumentsActivity,
-      PlanAdoptSettleActivity: w.activities.PlanAdoptSettleActivity,
-      GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => (growing ? growing() : {
+      PlanAdoptProjectActivity: seeing('project', w.activities.PlanAdoptProjectActivity),
+      PlanAdoptStopActivity: seeing('stop', w.activities.PlanAdoptStopActivity),
+      PlanAdoptRecordsActivity: seeing('records', w.activities.PlanAdoptRecordsActivity),
+      PlanAdoptDocumentsActivity: seeing('documents', w.activities.PlanAdoptDocumentsActivity),
+      PlanAdoptSettleActivity: seeing('settle', w.activities.PlanAdoptSettleActivity),
+      GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => (workSeen?.push(['grow', workFor()]), growing ? growing() : {
         ticket: { runId: `grove-run-${treeId}`, depth: 0, ownerId, agentSlug: 'grove', trigger: 'user' as const },
         procedure: seededProcedures().find((procedure) => procedure.id === 'grove-run')!,
         inputs: { treeId, message: 'Grow the tree.' },
@@ -238,10 +244,12 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { w.told.push(ownerId); } },
   });
-  return streamWorker.runUntil(worker.runUntil(() => env.client.workflow.execute(AdoptPlanWorkflow, {
+  const naming = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+  return streamWorker.runUntil(worker.runUntil(() => naming.workflow.execute(AdoptPlanWorkflow, {
     args: [{ ownerId: 'user-1', proposalId }],
     taskQueue,
     workflowId: `adopt-${Math.random().toString(36).slice(2, 8)}`,
+    ...startedFor('user-1'),
   })));
 }
 
@@ -341,6 +349,34 @@ describe('AdoptPlanWorkflow', () => {
     const w = world([{ ...base, plan: { ...base.plan!, tree: { ...base.plan!.tree!, release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } } } as never], { homes: true });
     await adopt(w);
     expect(w.chosen).toEqual([{ ownerId: 'user-1', projectId: 'project-plan-p1-tree', choices: { release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } }]);
+  }, 60_000);
+
+  it('works for the project a plan is adopted into from its first step, so deleting the project fences everything it still does', async () => {
+    const w = world([proposal({ projectId: 'project-9' })], { homes: true });
+    const seen: [string, unknown][] = [];
+    await adopt(w, 'p1', undefined, seen);
+    expect(seen).toEqual([
+      ['project', { owner: 'user-1' }],
+      ['stop', { owner: 'user-1', project: 'project-9' }],
+      ['records', { owner: 'user-1', project: 'project-9' }],
+      ['documents', { owner: 'user-1', project: 'project-9' }],
+      ['settle', { owner: 'user-1', project: 'project-9' }],
+      ['grow', { owner: 'user-1', project: 'project-9' }],
+    ]);
+  }, 60_000);
+
+  it('works for the project its tree is given from the moment the tree has one, when adopting it made the project', async () => {
+    const w = world([proposal()], { homes: true });
+    const seen: [string, unknown][] = [];
+    await adopt(w, 'p1', undefined, seen);
+    expect(seen).toEqual([
+      ['project', { owner: 'user-1' }],
+      ['stop', { owner: 'user-1' }],
+      ['records', { owner: 'user-1' }],
+      ['documents', { owner: 'user-1', project: 'project-plan-p1-tree' }],
+      ['settle', { owner: 'user-1', project: 'project-plan-p1-tree' }],
+      ['grow', { owner: 'user-1', project: 'project-plan-p1-tree' }],
+    ]);
   }, 60_000);
 
   it('keeps the project a new tree was planned into', async () => {

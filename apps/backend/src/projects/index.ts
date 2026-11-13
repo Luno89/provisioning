@@ -18,6 +18,7 @@ export type { ReleaseWays } from './lib/tree-type-description.js';
 export { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';
 export { dependencyNamespaceFrom, groveAgentOf, ownNamespacesFrom, renderStarterFiles, resolveTreeType, seedTreeTypes, stampTreeVersions, TREE_TYPE_SEEDS, treeExtrasFrom, treeLanguageFrom, treeTypeChoices, treeTypeOfProject, validateTreeType, versionVars } from './lib/tree-types.js';
 export type { TreeTypeSecret, TreeTypeSpec } from './lib/tree-types.js';
+export { primaryProjectId } from './lib/trees.js';
 export type { Tree } from './lib/trees.js';
 export { secretRequestsRouter } from './routes/secret-requests.js';
 export { treeTypesRouter } from './routes/tree-types.js';

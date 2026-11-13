@@ -31,7 +31,7 @@ const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unk
     workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts')),
     activities: { ConcludeWorkspaceActivity: activity },
   });
-  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => env.client.workflow, taskQueue })));
+  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => env.client.workflow, taskQueue, projectOf: async () => undefined })));
 };
 
 describe('concluding a workspace through Temporal', () => {

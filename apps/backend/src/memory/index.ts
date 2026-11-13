@@ -9,4 +9,5 @@ export { MemoryKeeperService } from './services/MemoryKeeperService.js';
 export type { KeeperState } from './services/MemoryKeeperService.js';
 export { PracticeService } from './services/PracticeService.js';
 export { WorkspaceConclusionService } from './services/WorkspaceConclusionService.js';
+export { conversationConclusionTimer } from './services/conversation-timer.js';
 export type { MemoryStore } from './store.js';

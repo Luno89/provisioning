@@ -12,8 +12,8 @@ import type { ObjectStore } from './ObjectStore.js';
 export type StoredOutcome<T> = { ok: true; value: T } | FilesRefusal;
 
 export interface StoredFileCommits {
-  commit(ownerId: string, commits: readonly StoredFileCommit[], options: { replace: boolean }): Promise<CommitPlan>;
-  remove(ownerId: string, files: readonly Pick<StoredFileRecord, 'id' | 'objectId'>[]): Promise<void>;
+  commit(ownerId: string, commits: readonly StoredFileCommit[], options: { replace: boolean; scope?: StoredScope | undefined }): Promise<CommitPlan>;
+  remove(ownerId: string, files: readonly Pick<StoredFileRecord, 'id' | 'objectId'>[], scope?: StoredScope | undefined): Promise<void>;
 }
 
 export type StoredFileRecords = Pick<FilesStore,
@@ -170,13 +170,13 @@ export class Folder {
     if (!cleaned.ok) return refused(400, cleaned.why);
     const going = (await this.records()).filter((record) => isUnder(record.path, cleaned.path));
     if (going.length === 0) return refused(404, `${cleaned.path} is not here`);
-    await this.deps.commits.remove(this.ownerId, going);
+    await this.deps.commits.remove(this.ownerId, going, this.scope);
     return { ok: true, value: { path: cleaned.path, removed: going.length } };
   }
 
   async removeAll(): Promise<number> {
     const going = await this.records();
-    if (going.length > 0) await this.deps.commits.remove(this.ownerId, going);
+    if (going.length > 0) await this.deps.commits.remove(this.ownerId, going, this.scope);
     return going.length;
   }
 }
@@ -235,13 +235,13 @@ export class UploadBatch {
   async keep(): Promise<StoredOutcome<StoredFileRecord[]>> {
     if (this.commits.length === 0) return refused(400, 'nothing was uploaded');
     if (this.commits.length < this.begun.length) throw new Error('a file of this upload is still arriving, so the upload cannot be kept yet');
-    const committed: CommitPlan = await this.deps.commits.commit(this.ownerId, this.commits, { replace: this.options.replace });
+    const committed: CommitPlan = await this.deps.commits.commit(this.ownerId, this.commits, { replace: this.options.replace, scope: this.scope });
     if (!committed.ok) return committed;
     return { ok: true, value: committed.stored };
   }
 
   async abandon(): Promise<void> {
-    if (this.begun.length > 0) await this.deps.commits.remove(this.ownerId, this.begun);
+    if (this.begun.length > 0) await this.deps.commits.remove(this.ownerId, this.begun, this.scope);
   }
 
   private touching(id: string): Transform {

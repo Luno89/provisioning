@@ -39,12 +39,14 @@ export interface PlanAdoptionOptions {
 
 export interface AdoptedRecords {
   adopted: AdoptedPlan;
+  projectId?: string | undefined;
   treeName: string;
   kind: 'tree' | 'leaf' | 'change';
   grow?: boolean | undefined;
 }
 
 export interface PlanAdoption {
+  project(ownerId: string, proposalId: string): Promise<string | undefined>;
   stop(ownerId: string, proposalId: string): Promise<string[]>;
   records(ownerId: string, proposalId: string): Promise<AdoptedRecords>;
   documents(ownerId: string, proposalId: string, records: AdoptedRecords): Promise<string>;
@@ -99,7 +101,20 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
     return { treeId, leaves, tasks };
   };
 
+  const treeProject = async (ownerId: string, treeId: string): Promise<string | undefined> => {
+    const tree = (await options.stores.trees.list()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
+    return tree ? primaryProjectId(tree) : undefined;
+  };
+
   return {
+    async project(ownerId, proposalId) {
+      const proposal = await proposalOf(ownerId, proposalId);
+      if (proposal.change) return treeProject(ownerId, proposal.change.treeId);
+      if (proposal.leafPlan) return treeProject(ownerId, proposal.leafPlan.treeId);
+      if (proposal.plan?.treeId) return treeProject(ownerId, proposal.plan.treeId);
+      return proposal.projectId ?? proposal.plan?.tree?.joins?.projectId;
+    },
+
     async stop(ownerId, proposalId) {
       const proposal = await proposalOf(ownerId, proposalId);
       if (!proposal.change) return [];
@@ -127,6 +142,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         for (const leaf of applied.leaves) await options.stores.leaves.save(leaf);
         return {
           adopted: { treeId: tree.id, branchIds: change.add ? [change.add.branchId] : [], leafIds: applied.leafIds, taskIds: applied.taskIds },
+          ...(projectId ? { projectId } : {}),
           treeName: tree.name,
           kind: 'change',
           grow: applied.grow,
@@ -174,7 +190,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
           replans: (leaf.replans ?? 0) + (leafPlan.mode === 'replan' ? 1 : 0),
         });
 
-        return { adopted: { treeId: tree.id, branchIds: [], leafIds: { [leaf.id]: leaf.id }, taskIds }, treeName: tree.name, kind: 'leaf' };
+        return { adopted: { treeId: tree.id, branchIds: [], leafIds: { [leaf.id]: leaf.id }, taskIds }, ...(projectId ? { projectId } : {}), treeName: tree.name, kind: 'leaf' };
       }
 
       const plan = proposal.plan;
@@ -265,7 +281,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         }
       }
 
-      return { adopted: { treeId: tree.id, branchIds, leafIds, taskIds }, treeName: tree.name, kind: 'tree' };
+      return { adopted: { treeId: tree.id, branchIds, leafIds, taskIds }, ...(projectId ? { projectId } : {}), treeName: tree.name, kind: 'tree' };
     },
 
     async documents(ownerId, proposalId, { adopted, treeName }) {

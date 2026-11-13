@@ -1,3 +1,4 @@
+import { withWorkFor } from '@koala/engine-core/work-for'
 import path from 'path';
 import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
@@ -289,12 +290,12 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       lastLogPath: absoluteLogPath,
     })
 
-    await deps.client().workflow.start(executeDeployAppWorkflow, {
+    await withWorkFor({ project: dep.gitappProjectId }, () => deps.client().workflow.start(executeDeployAppWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
       ...startedFor(dep.ownerId ?? userId ?? PLATFORM_OWNER),
-    })
+    }))
 
     await deps.db.infrastructure.saveDeploymentInfo({ id: dep.id || dep.name, temporalWorkflowId: wfId })
 

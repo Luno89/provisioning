@@ -1,3 +1,4 @@
+import { workFor } from '@koala/engine-core/work-for';
 import { ApplicationFailure, WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
@@ -20,10 +21,18 @@ beforeEach(() => {
   workflows.start.mockResolvedValue(undefined);
   workflows.getHandle.mockReturnValue(handle);
   handle.result.mockResolvedValue(saved);
-  service = new WorkspaceConclusionService({ workflows: async () => workflows, taskQueue: 'engine-queue' });
+  service = new WorkspaceConclusionService({ workflows: async () => workflows, taskQueue: 'engine-queue', projectOf: async (_ownerId, workspace) => (workspace.id === 't1' ? 'p1' : undefined) });
 });
 
 describe('concluding a workspace', () => {
+  it('concludes a workspace whose tree or chat works for a project as work for that project, so deleting the project fences it', async () => {
+    const seen: unknown[] = [];
+    workflows.start.mockImplementation(async () => { seen.push(workFor()); });
+    await service.conclude('u1', { kind: 'tree', id: 't1' });
+    await service.conclude('u1', { kind: 'conversation', id: 'c1' });
+    expect(seen).toEqual([{ project: 'p1' }, undefined]);
+  });
+
   it('starts the conclusion for its owner on the engine queue, waits for it and answers with what was saved', async () => {
     expect(await service.conclude('u1', { kind: 'tree', id: 't1' })).toEqual(saved);
     expect(workflows.start).toHaveBeenCalledWith(CONCLUDE_WORKSPACE_WORKFLOW, {

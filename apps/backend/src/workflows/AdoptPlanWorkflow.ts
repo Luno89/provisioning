@@ -8,8 +8,12 @@ import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWo
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ignore } from '@koala/engine-core/failures';
+import { nameProject } from './telemetry-interceptors.js';
 
-const { PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
+const ADOPTION_NAMES_PROJECT = 'adoption-names-project';
+
+const { PlanAdoptProjectActivity, PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
+  PlanAdoptProjectActivity(args: AdoptPlanArgs): Promise<string | null>;
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
   PlanAdoptStopActivity(args: AdoptPlanArgs): Promise<string[]>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
@@ -33,8 +37,11 @@ const reasonOf = (err: unknown): string => {
 
 export async function AdoptPlanWorkflow(args: AdoptPlanArgs): Promise<AdoptPlanResult> {
   try {
+    const naming = patched(ADOPTION_NAMES_PROJECT);
+    if (naming) nameProject((await PlanAdoptProjectActivity(args)) ?? undefined);
     await PlanAdoptStopActivity(args);
     const records = await PlanAdoptRecordsActivity(args);
+    if (naming) nameProject(records.projectId);
     const commit = await PlanAdoptDocumentsActivity({ ...args, records });
     const adopted: AdoptedPlan = { ...records.adopted, commit };
     await PlanAdoptSettleActivity({ ...args, status: 'adopted', adopted });

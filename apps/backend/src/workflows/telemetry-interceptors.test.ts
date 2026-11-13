@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Headers } from '@temporalio/common';
-import { interceptors, traceHeadersOf, withTrace } from './telemetry-interceptors.js';
+import { workOfPayload, workPayload } from '@koala/engine-core/work-header';
+import { interceptors, nameProject, traceHeadersOf, withTrace } from './telemetry-interceptors.js';
 
 const payload = (text: string) => ({ metadata: { encoding: new TextEncoder().encode('json/plain') }, data: new TextEncoder().encode(JSON.stringify(text)) });
 const traceparent = payload('00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01');
@@ -39,6 +40,19 @@ describe('the trace a workflow was started under follows its activities and chil
     void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 2 } as never, next as never);
     await outbound![0]!.continueAsNew!({ args: [], headers: {}, options: {} } as never, next as never);
     expect(scheduled).toEqual([{ traceparent, 'koala-work': work }, { traceparent, 'koala-work': work }, { traceparent, 'koala-work': work }]);
+  });
+
+  it('names a project the workflow comes to work for, keeping its owner, on everything it schedules from then on', async () => {
+    const { inbound, outbound } = interceptors();
+    const scheduled: Headers[] = [];
+    const next = async <I extends { headers: Headers }>(input: I) => { scheduled.push(input.headers); return input; };
+    await inbound![0]!.execute!({ args: [], headers: { traceparent, 'koala-work': workPayload({ owner: 'u1' }) } } as never, (async () => undefined) as never);
+    await outbound![0]!.scheduleActivity!({ activityType: 'Before', args: [], headers: {}, options: {}, seq: 1 } as never, next as never);
+    nameProject('p1');
+    await outbound![0]!.scheduleActivity!({ activityType: 'After', args: [], headers: {}, options: {}, seq: 2 } as never, next as never);
+    void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 3 } as never, next as never);
+    expect(scheduled.map((headers) => workOfPayload(headers['koala-work']))).toEqual([{ owner: 'u1' }, { owner: 'u1', project: 'p1' }, { owner: 'u1', project: 'p1' }]);
+    expect(scheduled[2]!.traceparent).toEqual(traceparent);
   });
 
   it('is a fresh carrier for each workflow run', async () => {

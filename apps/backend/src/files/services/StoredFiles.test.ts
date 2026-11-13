@@ -15,9 +15,10 @@ const file = (id: string, path: string, extra: Partial<StoredFileRecord> = {}): 
 });
 const folder = (id: string, path: string): StoredFileRecord => file(id, path, { kind: 'folder', size: 0, contentType: 'inode/directory' });
 
-const removing = (commits: MockProxy<StoredFileCommits>): string[][] => {
-  expect(commits.remove).toHaveBeenCalledWith('u1', expect.anything());
-  return commits.remove.mock.calls[0]![1].map((going) => [going.id, going.objectId]);
+const removing = (commits: MockProxy<StoredFileCommits>, scope: StoredScope | null = PROJECT): string[][] => {
+  const [ownerId, going, removedFrom] = commits.remove.mock.calls[0]!;
+  expect([ownerId, removedFrom]).toEqual(['u1', scope ?? undefined]);
+  return going.map((one) => [one.id, one.objectId]);
 };
 
 const drained = async (stream: Readable): Promise<string> => {
@@ -111,7 +112,7 @@ describe('the stored files service', () => {
       store.storedFilesOwnedBy.calledWith('u1').mockResolvedValue([file('a', 'a.txt', { objectId: 'a2' }), file('b', 'x.png', { scope: { kind: 'run', id: 'r1' } })]);
       expect(await service.removeOwned('u1')).toBe(2);
       expect(commits.remove).toHaveBeenCalledOnce();
-      expect(removing(commits)).toEqual([['a', 'a2'], ['b', 'b']]);
+      expect(removing(commits, null)).toEqual([['a', 'a2'], ['b', 'b']]);
     });
 
     it('starts no removal for someone who keeps nothing', async () => {
@@ -232,7 +233,7 @@ describe('a folder of stored files', () => {
       expect(await sent).toBe('hello');
       expect(objects.put).toHaveBeenCalledWith('id-1', expect.anything(), 5, 'text/plain');
       expect(objects.stat).toHaveBeenCalledWith('id-1');
-      expect(commits.commit).toHaveBeenCalledWith('u1', [{ id: 'id-1', size: 5 }], { replace: false });
+      expect(commits.commit).toHaveBeenCalledWith('u1', [{ id: 'id-1', size: 5 }], { replace: false, scope: PROJECT });
       expect(store.beginStoredFile.mock.invocationCallOrder[0]!).toBeLessThan(objects.put.mock.invocationCallOrder[0]!);
     });
 
@@ -242,7 +243,7 @@ describe('a folder of stored files', () => {
       commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
       await place.upload('a', Readable.from(['x']), undefined, 'text/plain', { replace: true });
       expect(objects.put).toHaveBeenCalledWith('id-1', expect.anything(), undefined, 'text/plain');
-      expect(commits.commit).toHaveBeenCalledWith('u1', [{ id: 'id-1', size: 9 }], { replace: true });
+      expect(commits.commit).toHaveBeenCalledWith('u1', [{ id: 'id-1', size: 9 }], { replace: true, scope: PROJECT });
     });
 
     it('keeps when the file expires only when one is given', async () => {
@@ -388,7 +389,7 @@ describe('a folder of stored files', () => {
       expect(batch.replace).toBe(false);
       for (const path of ['a', 'b/c', 'd']) expect((await batch.add(path, Readable.from(['x']), 1, 'text/plain')).ok).toBe(true);
       expect(await batch.keep()).toEqual({ ok: true, value: kept });
-      expect(commits.commit).toHaveBeenCalledExactlyOnceWith('u1', [{ id: 'id-1', size: 1 }, { id: 'id-2', size: 1 }, { id: 'id-3', size: 1 }], { replace: false });
+      expect(commits.commit).toHaveBeenCalledExactlyOnceWith('u1', [{ id: 'id-1', size: 1 }, { id: 'id-2', size: 1 }, { id: 'id-3', size: 1 }], { replace: false, scope: PROJECT });
       expect(store.beginStoredFile.mock.calls.map(([record]) => [record.id, record.path, record.state])).toEqual([['id-1', 'a', 'uploading'], ['id-2', 'b/c', 'uploading'], ['id-3', 'd', 'uploading']]);
     });
 

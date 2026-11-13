@@ -1,3 +1,4 @@
+import { workFor } from '@koala/engine-core/work-for';
 import type { WorkflowClient } from '@temporalio/client';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
@@ -248,6 +249,15 @@ describe('deployProjectBuild', () => {
     const [promoted] = await db.releases.getPipelineRuns();
     expect(promoted).toMatchObject({ id: 'run-1', deploymentId: deployment.id });
     expect(promoted?.promotedAt).toBeTruthy();
+  });
+
+  it('deploys a project\'s app as work for that project, so deleting the project fences what the deploy still does', async () => {
+    const { deps: d, db, workflow } = await deps();
+    await db.releases.savePipelineRunInfo(run);
+    let during: unknown;
+    workflow.start.mockImplementation((async () => { during = workFor(); return undefined; }) as never);
+    await deployProjectBuild(d, project, run);
+    expect(during).toEqual({ project: 'p1' });
   });
 
   it('refuses a run with no image and a project with no cluster', async () => {

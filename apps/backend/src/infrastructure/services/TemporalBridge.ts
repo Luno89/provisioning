@@ -653,12 +653,12 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await this.client.workflow.start(executeDestroyAppWorkflow, {
+    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeDestroyAppWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
-    })
+    }))
 
     void this.follow(wfId, 'app-destroy', dep.id, dep.name, dep)
     await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
@@ -702,12 +702,12 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await this.client.workflow.start(executeResizeDiskWorkflow, {
+    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeResizeDiskWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
-    })
+    }))
 
     void this.follow(wfId, 'app-resize', dep.id, dep.name, { ...dep, newStorage: storage })
     await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
@@ -829,12 +829,12 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await this.client.workflow.start(executeSyncConfigWorkflow, {
+    await withWorkFor({ project: dep.gitappProjectId }, () => this.client!.workflow.start(executeSyncConfigWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
-    })
+    }))
 
     void this.follow(wfId, 'app-sync-config', dep.id, dep.name, dep)
     await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
@@ -972,12 +972,12 @@ export class TemporalBridge {
   }): Promise<{ workflowId: string }> {
     const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { ownerId, url, ...limits } = args
-    await this.client.workflow.start(executeIngestWorkflow, {
+    await withWorkFor({ project: args.projectId }, () => this.client!.workflow.start(executeIngestWorkflow, {
       taskQueue: QUEUES.host,
       workflowId,
       args: [{ ownerId, url, ...definedFields(limits) }],
       ...startedFor(args.ownerId),
-    })
+    }))
     return { workflowId }
   }
 

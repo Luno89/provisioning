@@ -455,6 +455,28 @@ describe('the work the bridge starts on an app\'s cluster is handed how to reach
     expect(access.reach).not.toHaveBeenCalled();
   });
 
+  it('starts the removal, resize and settings sync of a project\'s app as work for that project, and of any other app for no project', async () => {
+    const { db, ready, workflow } = starting();
+    const seen: unknown[] = [];
+    workflow.start.mockImplementation((async () => { seen.push(workFor()); return mock(); }) as never);
+    await db.infrastructure.saveDeploymentInfo({ ...app, gitappProjectId: 'p1' });
+    await ready().resizeDisk('shop', { data: '20Gi' });
+    await ready().syncConfig('shop');
+    await ready().destroyApp('shop');
+    await db.infrastructure.saveDeploymentInfo({ ...app, id: 'blog', name: 'blog' });
+    await ready().destroyApp('blog');
+    expect(seen).toEqual([{ project: 'p1' }, { project: 'p1' }, { project: 'p1' }, undefined]);
+  });
+
+  it('starts a crawl kept to a project as work for that project', async () => {
+    const { ready, workflow } = starting();
+    const seen: unknown[] = [];
+    workflow.start.mockImplementation((async () => { seen.push(workFor()); return mock(); }) as never);
+    await ready().startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
+    await ready().startIngest({ ownerId: 'u1', url: 'https://example.com' });
+    expect(seen).toEqual([{ project: 'p1' }, undefined]);
+  });
+
   it('hands them the reach when the cluster needs no starting', async () => {
     const { db, ready, workflow, access } = starting();
     access.handOver.mockResolvedValue({ clusterId: 'machine-desk', reach: DESK });
