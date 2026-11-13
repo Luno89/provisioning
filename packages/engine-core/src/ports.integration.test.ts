@@ -17,6 +17,11 @@ describe('a port to hand to another process', () => {
     }
   });
 
+  it('stays below the ports Kubernetes gives Services, which a node answers on its loopback with no socket listening, so no probe can see them taken', () => {
+    const KUBERNETES_NODE_PORTS = { first: 30000, last: 32767 };
+    expect(HANDED_PORTS.last).toBeLessThan(KUBERNETES_NODE_PORTS.first);
+  });
+
   it('passes over a port something already listens on', async () => {
     const taken = await portToHandOn();
     const holder = createServer();

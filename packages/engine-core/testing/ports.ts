@@ -3,7 +3,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export const HANDED_PORTS = { first: 20000, last: 32767 } as const;
+export const HANDED_PORTS = { first: 20000, last: 29999 } as const;
 
 const claims = join(tmpdir(), 'koala-ports');
 const span = HANDED_PORTS.last - HANDED_PORTS.first + 1;
