@@ -1,7 +1,7 @@
 /**
  * ── DUPLICATED, KNOWINGLY ── `SignalView` in apps/backend/src/engine/lib/poisoning.ts is the authority.
  */
-export type SignalKind = 'private-out' | 'unvouched-host' | 'canary' | 'memory-from-outside' | 'hidden-in-repo'
+export type SignalKind = 'private-out' | 'unvouched-host' | 'canary' | 'memory-from-outside' | 'hidden-in-repo' | 'unchecked'
 export type SignalSeverity = 'certain' | 'high' | 'medium' | 'low'
 export type SignalState = 'open' | 'dismissed' | 'resolved'
 

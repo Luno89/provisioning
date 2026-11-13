@@ -5,7 +5,7 @@ import type { ToolOutcome } from '@koala/engine-core';
 import type { ToolCallArgs } from '../temporal/contracts.js';
 import type { EngineStore, SourceClass } from '../../engine/index.js';
 import {
-  SEVERITY_OF, findingsOf, hiddenInRepo, readsOf, rememberedOf, runReadBy, signalId,
+  SEVERITY_OF, findingsOf, hiddenInRepo, readsOf, rememberedOf, runReadBy, signalId, uncheckedOf, type UncheckedStage,
   type CallFinding, type PoisoningSignal, type ReadElsewhere, type RunReads,
 } from '../../engine/lib/poisoning.js';
 
@@ -54,6 +54,15 @@ export class PoisoningWatch {
     if (await this.deps.store.savePoisoningSignal(signal)) koalaMetrics().poisoningSignals.add(1, { kind: finding.kind, severity });
   }
 
+  private async unchecked(args: ToolCallArgs, stage: UncheckedStage, err: Error): Promise<void> {
+    const finding = uncheckedOf(stage, args.name, err.message);
+    try {
+      await this.record(args, finding);
+    } catch (unrecorded) {
+      (this.deps.log ?? console.warn)(`[poisoning] ${finding.said}, and that could not be recorded either: ${(unrecorded as Error).message}`);
+    }
+  }
+
   async beforeCall(args: ToolCallArgs, parsed: Readonly<Record<string, unknown>>, mcp: boolean): Promise<void> {
     try {
       const reads = await this.reads(args);
@@ -74,7 +83,7 @@ export class PoisoningWatch {
       });
       for (const finding of findings) await this.record(args, finding);
     } catch (err) {
-      (this.deps.log ?? console.warn)(`[poisoning] could not check ${args.name} in ${args.ticket.runId}: ${(err as Error).message}`);
+      await this.unchecked(args, 'check', err as Error);
     }
   }
 
@@ -87,7 +96,7 @@ export class PoisoningWatch {
       const hidden = hiddenInRepo(args.name, source, hiddenRemoved, parsed);
       if (hidden) await this.record(args, hidden);
     } catch (err) {
-      (this.deps.log ?? console.warn)(`[poisoning] could not keep what ${args.name} read in ${args.ticket.runId}: ${(err as Error).message}`);
+      await this.unchecked(args, 'keep', err as Error);
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fingerprintsOf, findingsOf, hiddenInRepo, hostsIn, outboundOf, readsOf, sharedSpan, worstFirst, type CallReads } from './poisoning.js';
+import { fingerprintsOf, findingsOf, hiddenInRepo, hostsIn, outboundOf, readsOf, sharedSpan, signalId, uncheckedOf, worstFirst, type CallReads } from './poisoning.js';
 
 const KEY = 'run-key';
 const LOG = 'started worker 3\nDATABASE_URL=postgres://app:Sup3rSecretPassw0rd@db.internal:5432/app\nlistening on 8080';
@@ -93,5 +93,18 @@ describe('the four checks', () => {
   it('lists the worst first', () => {
     const at = '2026-10-29T00:00:00Z';
     expect(worstFirst([{ severity: 'low', at }, { severity: 'certain', at }, { severity: 'high', at }]).map((one) => one.severity)).toEqual(['certain', 'high', 'low']);
+  });
+});
+
+describe('a call the watch could not check', () => {
+  it('is a finding of its own that says which call and why', () => {
+    expect(uncheckedOf('check', 'fetch_web_page', 'the database is not answering')).toEqual({ kind: 'unchecked', stage: 'check', said: 'could not check fetch_web_page for poisoning: the database is not answering' });
+    expect(uncheckedOf('keep', 'read_stored_file', 'boom')).toEqual({ kind: 'unchecked', stage: 'keep', said: 'could not keep what read_stored_file read, so later calls in this run are checked without it: boom' });
+  });
+
+  it('is one signal per run family and stage, whatever tool failed, so a failing watch is not noisy', () => {
+    expect(signalId('grant-1', uncheckedOf('check', 'fetch_web_page', 'a'), 'fetch_web_page')).toBe(signalId('grant-1', uncheckedOf('check', 'store_file', 'b'), 'store_file'));
+    expect(signalId('grant-1', uncheckedOf('check', 'x', 'a'), 'x')).not.toBe(signalId('grant-1', uncheckedOf('keep', 'x', 'a'), 'x'));
+    expect(signalId('grant-1', uncheckedOf('check', 'x', 'a'), 'x')).not.toBe(signalId('grant-2', uncheckedOf('check', 'x', 'a'), 'x'));
   });
 });

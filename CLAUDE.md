@@ -1131,11 +1131,12 @@ Plan: `~/.claude/plans/poisoning-detection.md` (owner, 2026-10-28: notice it, ne
   Each run family (keyed by its grant) keeps keyed fingerprints of what it read in `runReads`, private and outside apart, the hosts
   logs, stored files and MCP output named, and the runs it read with `read_run` (`PoisoningWatch` in `engine-host/tools/poisoning-watch.ts`,
   rules in `engine/lib/poisoning.ts`). No text is kept.
-- **Five findings** (`poisoningSignals`): `canary` (a run's canary, `canaryFor` in agent-engine, told in Describe Environment, in any
+- **Six findings** (`poisoningSignals`): `canary` (a run's canary, `canaryFor` in agent-engine, told in Describe Environment, in any
   call), `private-out` (31+ characters the run read from logs, files, the repository, cluster state or private records in a fetch's URL,
   an ingest or an MCP call's arguments, unless the person wrote them), `unvouched-host` (a fetch to a host only logs, files or MCP output
   named), `memory-from-outside` (a memory, practice or tool note quoting outside text this run, or a run the keeper read, saw) and
-  `hidden-in-repo`. Each is recorded once per run family; the match is sealed with `DATA_KEY`.
+  `hidden-in-repo`, and `unchecked`: the watch could not check a call, or keep what one read (owner, 2026-11-13: the call goes on and the
+  person sees it, never a log line alone; once per run family and stage). Each is recorded once per run family; the match is sealed with `DATA_KEY`.
 - **The person**: open findings lead Infrastructure, Needs attention (`signals` on `GET /api/infrastructure`) and show on their run;
   Retire what it left, Retire everything from <host> (memories by `provenance.sources`) or Dismiss (`/api/poisoning`, `PoisoningService`).
   Canary and private-out are pushed and emailed once (`tellNew`). Every memory, practice and tool note keeps its sources, shown and

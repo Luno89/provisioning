@@ -1,8 +1,8 @@
-export type SignalKind = 'private-out' | 'unvouched-host' | 'canary' | 'memory-from-outside' | 'hidden-in-repo';
+export type SignalKind = 'private-out' | 'unvouched-host' | 'canary' | 'memory-from-outside' | 'hidden-in-repo' | 'unchecked';
 export type SignalSeverity = 'certain' | 'high' | 'medium' | 'low';
 export type SignalState = 'open' | 'dismissed' | 'resolved';
 
-export const SIGNAL_KINDS: readonly SignalKind[] = ['canary', 'private-out', 'memory-from-outside', 'unvouched-host', 'hidden-in-repo'];
+export const SIGNAL_KINDS: readonly SignalKind[] = ['canary', 'private-out', 'memory-from-outside', 'unvouched-host', 'hidden-in-repo', 'unchecked'];
 
 export const KIND_TITLES: Readonly<Record<SignalKind, string>> = {
   canary: 'A run copied its own canary out',
@@ -10,4 +10,5 @@ export const KIND_TITLES: Readonly<Record<SignalKind, string>> = {
   'memory-from-outside': 'A memory quotes outside text',
   'unvouched-host': 'A call went to a host only outside text named',
   'hidden-in-repo': 'Hidden characters in repository text',
+  unchecked: 'A call could not be checked for poisoning',
 };

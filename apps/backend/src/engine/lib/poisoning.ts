@@ -11,6 +11,7 @@ export const SEVERITY_OF: Readonly<Record<SignalKind, SignalSeverity>> = {
   'memory-from-outside': 'medium',
   'unvouched-host': 'low',
   'hidden-in-repo': 'low',
+  unchecked: 'medium',
 };
 
 const RANK: Readonly<Record<SignalSeverity, number>> = { certain: 0, high: 1, medium: 2, low: 3 };
@@ -130,7 +131,18 @@ export interface CallFinding {
   matched?: string | undefined;
   host?: string | undefined;
   path?: string | undefined;
+  stage?: UncheckedStage | undefined;
 }
+
+export type UncheckedStage = 'check' | 'keep';
+
+export const uncheckedOf = (stage: UncheckedStage, tool: string, reason: string): CallFinding => ({
+  kind: 'unchecked',
+  stage,
+  said: stage === 'check'
+    ? `could not check ${tool} for poisoning: ${reason}`
+    : `could not keep what ${tool} read, so later calls in this run are checked without it: ${reason}`,
+});
 
 export interface CallReads {
   key: string;
@@ -237,8 +249,8 @@ export interface PoisoningSignal {
   dismissedBecause?: string | undefined;
 }
 
-export const signalId = (readsKey: string, finding: Pick<CallFinding, 'kind' | 'host' | 'path'>, tool: string): string =>
-  createHmac('sha256', 'koala-signal').update([readsKey, finding.kind, tool, finding.host ?? '', finding.path ?? ''].join('\u0000')).digest('hex').slice(0, 24);
+export const signalId = (readsKey: string, finding: Pick<CallFinding, 'kind' | 'host' | 'path' | 'stage'>, tool: string): string =>
+  createHmac('sha256', 'koala-signal').update([readsKey, finding.kind, finding.kind === 'unchecked' ? `stage:${finding.stage ?? ''}` : tool, finding.host ?? '', finding.path ?? ''].join('\u0000')).digest('hex').slice(0, 24);
 
 export function sourcesFrom(own: RunReads | undefined, read: readonly RunReads[]): { classes: string[]; hosts: string[]; runs: string[] } | undefined {
   if (!own) return undefined;

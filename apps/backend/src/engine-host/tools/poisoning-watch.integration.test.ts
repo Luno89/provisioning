@@ -76,4 +76,15 @@ describe('watching a run for poisoning', () => {
     await watch.afterCall(call('read_file', { path: 'src/a.ts' }), { path: 'src/a.ts' }, 'repo', { ok: true, digest: 'x', content: 'x' }, 7);
     expect(await db.engine.getPoisoningSignals('owner')).toMatchObject([{ kind: 'hidden-in-repo', severity: 'low', path: 'src/a.ts' }]);
   });
+
+  it('keeps one open signal on the run when it cannot check calls, however many it misses, and never stops the call', async () => {
+    const db = await testDatabase();
+    const watch = new PoisoningWatch({ store: db.engine, personText: async () => { throw new Error('the conversation could not be read'); }, seal: (text) => text, now: () => '2026-11-13T10:00:00.000Z', log: () => undefined });
+    for (const tool of ['fetch_web_page', 'store_file', 'fetch_web_page']) {
+      await expect(watch.beforeCall(call(tool, { url: 'https://docs.example' }), { url: 'https://docs.example' }, false)).resolves.toBeUndefined();
+    }
+    expect(await db.engine.getPoisoningSignals('owner', { state: 'open' })).toMatchObject([
+      { kind: 'unchecked', severity: 'medium', runId: 'run-1', conversationId: 'c1', tool: 'fetch_web_page', said: 'could not check fetch_web_page for poisoning: the conversation could not be read' },
+    ]);
+  });
 });
