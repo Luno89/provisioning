@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GiteaService } from './GiteaService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 interface GiteaInternals {
   apiFetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
 function serviceWithApiFetch(handler: (path: string) => Promise<Response>) {
-  const service = new GiteaService('master-key', { url: 'http://gitea.test' });
+  const service = new GiteaService('master-key', { url: 'http://gitea.test' }, { dataDir: testDataDir() });
   vi.spyOn(service as unknown as GiteaInternals, 'apiFetch').mockImplementation((path) => handler(path));
   return service;
 }

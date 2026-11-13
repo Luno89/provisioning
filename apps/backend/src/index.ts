@@ -126,11 +126,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const tenants = servesTenants(role);
   const engineTaskQueue = QUEUES.engine;
   const tenantServices = settings.tenant;
-  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: path.join(__dirname, '../data'), dependencies }) : undefined;
+  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
-  const infraService = new InfrastructureService(terraformPlacesFor(settings.terraform));
+  const infraService = new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir));
   const builderService = new BuilderService(db, infraService);
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
   const koalasCluster = (): string => clusterAccess.own().clusterId;
@@ -154,8 +154,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   telemetry.exportTo(telemetrySink);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: clusterProxyService, koalasCluster })));
   const gitea = tenantServices?.gitea ?? settings.hubGitea;
-  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { registryPullHost: tenantServices?.registryPullHost, reportsTo: dependencies });
-  const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` }, dependencies);
+  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { dataDir: settings.dataDir, registryPullHost: tenantServices?.registryPullHost, reportsTo: dependencies });
+  const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` }, settings.dataDir, dependencies);
   checkServices(dependencies, {
     gitea: gitea?.url,
     infisical: tenantServices?.infisical.url,
@@ -165,11 +165,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
-  const headscaleService = new HeadscaleService(keys.data, settings.mesh);
+  const headscaleService = new HeadscaleService(keys.data, settings.mesh, settings.dataDir);
   const machineTemporalAddress = settings.instance?.machineTemporalAddress;
   const machineTemporal = typeof machineTemporalAddress === 'string' ? { address: machineTemporalAddress, namespace: settings.temporal.namespace } : undefined;
   if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
-  const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
+  const machineBundle = newMachineBundle(path.join(__dirname, '../../..'), settings.dataDir);
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
   const { accounts: machineAccounts, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
@@ -180,7 +180,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, settings.endpointRules);
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, { dependencies });
+  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
@@ -291,7 +291,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
-    role, pool: Boolean(settings.clusters.here.poolName), moved: settings.instance?.move, app, dataDir: path.join(__dirname, '../data'), mongo: settings.mongo, access: clusterService.access,
+    role, pool: Boolean(settings.clusters.here.poolName), moved: settings.instance?.move, app, dataDir: settings.dataDir, mongo: settings.mongo, access: clusterService.access,
     running: async () => (runningNow ? runningNow() : 'unknown'),
     claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
   });
@@ -342,7 +342,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const instancesWiring = await wireInstances({
     role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
-    repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, access: clusterService.access,
+    repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
     instanceArrived,
   });

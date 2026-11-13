@@ -48,9 +48,9 @@ function settings(): PoolSettings {
 }
 
 async function rootCaddies(): Promise<string[]> {
-  const { mesh, keys } = hostSettings();
+  const { mesh, keys, dataDir } = hostSettings();
   if ('off' in mesh) throw ApplicationFailure.nonRetryable(mesh.off, 'NoMesh');
-  const found = await new HeadscaleService(keys.data, mesh).taggedAddresses(PLATFORM_TAG);
+  const found = await new HeadscaleService(keys.data, mesh, dataDir).taggedAddresses(PLATFORM_TAG);
   if (found.length === 0) throw ApplicationFailure.retryable(`no ${PLATFORM_TAG} node is on the mesh, so the pool's proxy could not tell root's Caddy from anyone else`, 'NoPlatformNode');
   return found;
 }

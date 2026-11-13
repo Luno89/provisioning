@@ -7,7 +7,7 @@ export class MachineBundle {
 
   constructor(
     private readonly repoRoot: string,
-    private readonly outDir: string = path.join(repoRoot, 'apps/backend/data/machine-agent'),
+    private readonly outDir: string,
     private readonly processes: Processes = nodeProcesses,
   ) {}
 

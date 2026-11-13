@@ -77,6 +77,7 @@ export interface ConnectionSettings {
 export interface CommonSettings extends ConnectionSettings {
   koalaProcess: KoalaProcess;
   role: RoleConfig;
+  dataDir: string;
   production: boolean;
   underTest: boolean;
   e2e: boolean;
@@ -231,6 +232,16 @@ function required(read: Reading, name: string, why: string): string | undefined 
   return value;
 }
 
+function folderSetting(read: Reading, name: string, why: string): string | undefined {
+  const value = required(read, name, why);
+  if (value === undefined) return undefined;
+  if (value.startsWith('/')) return value.replace(/(.)\/+$/, '$1');
+  read.problems.push(`${name} is not an absolute path: ${value}`);
+  return undefined;
+}
+
+const dataDirFrom = (read: Reading): string | undefined => folderSetting(read, 'DATA_DIR', 'it is the folder this process keeps its files in');
+
 function urlSetting(read: Reading, name: string, why: string): string | undefined {
   const value = required(read, name, why);
   return value === undefined ? undefined : read.take(() => wholeUrl(name, value));
@@ -311,15 +322,17 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
   const address = hostPortSetting(read, 'TEMPORAL_CONNECTION_ADDRESS', 'it is where Temporal answers this process');
   const namespace = required(read, 'TEMPORAL_NAMESPACE', 'it is the Temporal namespace this install works in');
   const caPath = required(read, 'TEMPORAL_TLS_CA', 'it is the file holding the certificate authority Temporal\'s certificate is signed by');
+  const dataDir = dataDirFrom(read);
   const pool = env.POOL?.trim();
   if (pool !== undefined && pool !== '' && pool !== 'true') read.problems.push(`POOL is "${pool}"; it is "true" on a trial instance on Koala's servers and unset anywhere else`);
   const here = hereFrom(env, role?.role === 'root');
   if (role?.role === 'instance' && pool === 'true' && !here.poolName) read.problems.push('INSTANCE_NAME is not set: a trial instance on Koala\'s servers is named by it');
   const rootKubeconfig = role?.role === 'root' ? settingIn(read.env, 'POOL_KUBECONFIG') : undefined;
-  if (!role || !keys || !mongo || !address || !namespace || !caPath) return undefined;
+  if (!role || !keys || !mongo || !address || !namespace || !caPath || !dataDir) return undefined;
   return {
     koalaProcess,
     role,
+    dataDir,
     production,
     underTest: env.NODE_ENV === 'test',
     e2e: env.IS_E2E === 'true',
@@ -618,6 +631,7 @@ export interface MoveImportSettings extends PodStepSettings {
   registryPullHost: string;
   terraform: TerraformStateKind;
   podNamespace: string;
+  dataDir: string;
 }
 
 export function moveImportSettingsFrom(env: Env): MoveImportSettings {
@@ -630,9 +644,10 @@ export function moveImportSettingsFrom(env: Env): MoveImportSettings {
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const terraform = terraformFrom(read);
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where Terraform keeps its state');
+  const dataDir = dataDirFrom(read);
   const instance = step?.role.instance;
-  return finish(read, 'the move', step && instance && credential && mongo && dataKey && gitea && registryPullHost && terraform && podNamespace
-    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey, gitea, registryPullHost, terraform, podNamespace }
+  return finish(read, 'the move', step && instance && credential && mongo && dataKey && gitea && registryPullHost && terraform && podNamespace && dataDir
+    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey, gitea, registryPullHost, terraform, podNamespace, dataDir }
     : undefined);
 }
 

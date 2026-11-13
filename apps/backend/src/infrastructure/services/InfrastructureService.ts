@@ -15,8 +15,6 @@ const __dirname = path.dirname(__filename);
 
 const PROJECT_ROOT = path.resolve(__dirname, '../../../../../');
 const CDKTF_DIR = path.join(PROJECT_ROOT, 'packages/cdktf-infra');
-export const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
-const STATE_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/terraform');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const MIRROR_DIR = path.join(BIN_DIR, 'terraform-providers');
 
@@ -32,6 +30,7 @@ export interface ExecuteOptions {
 export interface TerraformPlaces {
   cdktfDir: string;
   stateDir: string;
+  logDir: string;
   home: TerraformStateHome | { off: string };
   mirrorDir?: string | undefined;
   runsDir?: string | undefined;
@@ -89,15 +88,17 @@ function terraformQuietly(args: string[], cwd: string, extra: Record<string, str
   });
 }
 
-export const terraformPlacesFor = (state: TerraformStateKind | { off: string }): TerraformPlaces =>
-  ({ cdktfDir: CDKTF_DIR, stateDir: STATE_DIR, home: 'off' in state ? state : stateHomeIn(state, STATE_DIR) });
+export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, dataDir: string): TerraformPlaces => {
+  const stateDir = path.join(dataDir, 'terraform');
+  return { cdktfDir: CDKTF_DIR, stateDir, logDir: path.join(dataDir, 'logs'), home: 'off' in state ? state : stateHomeIn(state, stateDir) };
+};
 
 export class InfrastructureService {
 
   constructor(private readonly terraform: TerraformPlaces) {}
 
   getLogPath(logId: string) {
-    return path.join(LOG_DIR, `${logId}-${Date.now()}.log`);
+    return path.join(this.terraform.logDir, `${logId}-${Date.now()}.log`);
   }
 
   async deploy(stackName: string, options: ExecuteOptions = {}) {
@@ -163,7 +164,7 @@ export class InfrastructureService {
     const env = commandEnv(options.env);
     const logFile = options.logFile || this.getLogPath(logId);
     const cwd = options.env?.CD_DIR || this.terraform.cdktfDir;
-    await fs.mkdir(LOG_DIR, { recursive: true });
+    await fs.mkdir(this.terraform.logDir, { recursive: true });
 
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
 

@@ -42,6 +42,7 @@ export function hostActivitiesFor(role: HostWorkerSettings['role']['role']): Par
 }
 
 export async function startHostWorker(settings: HostWorkerSettings) {
+  logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-host'));
   const access = hostClusterAccess(settings);
   const telemetryProxy = sharedClusterProxy(access);

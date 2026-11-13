@@ -25,10 +25,13 @@ vi.mock('axios', () => ({
 
 import path from 'path';
 import { InfisicalService } from './InfisicalService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
+
+const dataDir = testDataDir();
 
 const MASTER_KEY = 'test-jwt-secret-key-that-is-at-least-32-chars-long';
-const IDENTITY_FILE = path.join(process.cwd(), 'data', '.infisical-machine-identity');
-const SHARED_AUTH_SECRET_FILE = path.join(process.cwd(), 'data', '.infisical-auth-secret');
+const IDENTITY_FILE = path.join(dataDir, '.infisical-machine-identity');
+const SHARED_AUTH_SECRET_FILE = path.join(dataDir, '.infisical-auth-secret');
 const unreachable = () => Promise.reject(Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' }));
 const status = (code: number) => Promise.reject(Object.assign(new Error(`status ${code}`), { response: { status: code } }));
 
@@ -41,13 +44,13 @@ describe('InfisicalService', () => {
     files.clear();
     files.set(IDENTITY_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
     for (const fn of [post, get, patch, del]) fn.mockReset();
-    service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false });
+    service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir);
   });
 
   it('tells its dependency state how Infisical answered: a 503 as down, a 404 as an answer, and a lost connection as down', async () => {
     const said: string[] = [];
     const reporter = { failed: (_dependency: string, err: unknown) => { said.push(`failed: ${(err as Error).message}`); return err; }, answered: () => { said.push('answered'); } };
-    const watched = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, reporter as never);
+    const watched = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir, reporter as never);
     post.mockImplementationOnce(() => status(503));
     await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow(/^Infisical answered 503 to POST/);
     post.mockImplementationOnce(() => status(404));
@@ -67,7 +70,7 @@ describe('InfisicalService', () => {
   });
 
   it('refuses every call with the reason it was given where it reaches no Infisical, asking nothing', async () => {
-    const none = new InfisicalService(MASTER_KEY, { none: 'the hub keeps no project\'s secrets, so it reaches no Infisical' });
+    const none = new InfisicalService(MASTER_KEY, { none: 'the hub keeps no project\'s secrets, so it reaches no Infisical' }, dataDir);
     await expect(none.resolveBaseUrl()).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
     await expect(none.setSecret('p1', 'STRIPE_KEY', 'v')).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
     expect(post).not.toHaveBeenCalled();
@@ -233,7 +236,7 @@ describe('InfisicalService', () => {
     listed = [];
     expect(await service.workspaceIdFor('p1')).toBe('ws2');
 
-    const fresh = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false });
+    const fresh = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir);
     listed = [{ id: 'ws1', name: 'provisioning-p1' }];
     expect(await fresh.workspaceIdFor('p1')).toBe('ws1');
     listed = [];

@@ -75,6 +75,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     TEMPORAL_CONNECTION_ADDRESS: DEV_TEMPORAL_ADDRESS,
     TEMPORAL_NAMESPACE: namespace,
     TERRAFORM_STATE: 'local',
+    DATA_DIR: '/app/apps/backend/data',
     MACHINE_GATEWAY_PORT: String(gatewayPort),
     MACHINE_TEMPORAL_ADDRESS: `localhost:${gatewayPort}`,
     ...unreachedPlatformServices(url),

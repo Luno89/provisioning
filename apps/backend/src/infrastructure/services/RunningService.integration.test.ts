@@ -10,6 +10,7 @@ import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.j
 import type { RunningWorkflow } from '../lib/running.js';
 import { RunningService } from './RunningService.js';
 import { TemporalBridge } from './TemporalBridge.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const fresh = await emptiedEachTime();
 
@@ -51,7 +52,7 @@ describe('what runs, for the person, against Temporal and the stored settings', 
     db = await fresh();
     timers = [];
     done.length = 0;
-    const bridge = new TemporalBridge(db);
+    const bridge = new TemporalBridge(db, testDataDir());
     Object.assign(bridge, { client });
     const bench = new BenchService({
       store: db,

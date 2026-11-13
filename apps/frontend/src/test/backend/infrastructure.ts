@@ -9,6 +9,7 @@ import { TemporalBridge } from '../../../../backend/src/infrastructure/services/
 import type { InfrastructureService } from '../../../../backend/src/infrastructure/services/InfrastructureService'
 import { MonitoringService } from '../../../../backend/src/monitoring/services/MonitoringService'
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
+import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
 
 export interface Infrastructure {
   host: InfrastructureService
@@ -25,7 +26,7 @@ export async function infrastructureOf({ db }: Site, koalaMachineId?: string, in
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY, koalaMachineId }), { instanceOwnerId })
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
   const temporal = recordedTemporal()
-  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
   await bridge.start()
   const reach = (what: string) => async (): Promise<never> => { throw new Error(`${what} reaches a cluster, which the integration tier never does`) }
   const monitoring = new MonitoringService({

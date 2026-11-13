@@ -19,8 +19,11 @@ vi.mock('axios', () => ({
 
 import path from 'path';
 import { InfisicalService } from '../../infrastructure/services/InfisicalService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
-const IDENTITY_FILE = path.join(process.cwd(), 'data', '.infisical-machine-identity');
+const dataDir = testDataDir();
+
+const IDENTITY_FILE = path.join(dataDir, '.infisical-machine-identity');
 
 /**
  * Regression for real bugs found live: /api/v1/auth/login 404s on this Infisical version, and
@@ -46,7 +49,7 @@ describe('InfisicalService auth + workspace resolution', () => {
     post.mockReset();
     get.mockReset();
     patch.mockReset();
-    service = new InfisicalService(masterKey, { url: 'http://vault:8080', production: false });
+    service = new InfisicalService(masterKey, { url: 'http://vault:8080', production: false }, dataDir);
   });
 
   it('provisions a permanent machine identity on first use and persists it', async () => {
@@ -63,7 +66,7 @@ describe('InfisicalService auth + workspace resolution', () => {
     expect(post).toHaveBeenCalledTimes(4);
 
     post.mockResolvedValueOnce({ data: { accessToken: 'atok2' } });
-    const fresh = new InfisicalService(masterKey, { url: 'http://vault:8080', production: false });
+    const fresh = new InfisicalService(masterKey, { url: 'http://vault:8080', production: false }, dataDir);
     const token = await fresh.authenticate();
     expect(token).toBe('atok2');
     expect(post).toHaveBeenCalledTimes(5); // one more call: universal-auth login, no re-provisioning

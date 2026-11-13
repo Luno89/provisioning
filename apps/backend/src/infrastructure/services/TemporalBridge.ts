@@ -23,7 +23,6 @@ import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const LOG_DIR = path.resolve(__dirname, '../../../data/logs');
 import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../../engine-host/temporal/contracts.js'
 
 export type GroveRunStatus =
@@ -202,6 +201,7 @@ export class TemporalBridge {
 
   constructor(
     db: Database,
+    private readonly logDir: string,
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
@@ -630,7 +630,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: LOG_DIR }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: this.logDir }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
@@ -641,7 +641,7 @@ export class TemporalBridge {
     const cluster = await this.getClusterById(dep.clusterId)
     const wfId = destroyAppWorkflowId(dep, Date.now(), Math.random().toString(36).slice(2, 8))
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
-    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const absoluteLogPath = path.join(this.logDir, logFileName)
 
     const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath, await this.clusterAccess().handOver(dep.clusterId))
 
@@ -677,7 +677,7 @@ export class TemporalBridge {
     const handed = await this.clusterAccess().handOver(dep.clusterId)
     const wfId = `resize-disk-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-E5.log`
-    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const absoluteLogPath = path.join(this.logDir, logFileName)
 
     const activityArgs = {
       name: dep.name,
@@ -737,7 +737,7 @@ export class TemporalBridge {
     const handed = await this.clusterAccess().handOver(dep.clusterId)
     const wfId = `sync-config-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-G7.log`
-    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const absoluteLogPath = path.join(this.logDir, logFileName)
 
     const activityArgs = {
       name: dep.name,
@@ -922,7 +922,7 @@ export class TemporalBridge {
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const wfId = `pipeline-run-${project.giteaRepo}-${runId}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
-    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const absoluteLogPath = path.join(this.logDir, logFileName)
 
     const activityArgs = {
       projectId: project.id,

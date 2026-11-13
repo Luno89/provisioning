@@ -31,12 +31,6 @@ describe('the machine agent bundle', () => {
     expect(processes.run).toHaveBeenCalledWith(building('/out', '/repo'));
   });
 
-  it('puts the bundle under the agent\'s dist folder when told no other', async () => {
-    processes.run.mockResolvedValue(printed('/x.tgz'));
-    await new MachineBundle('/repo', undefined, processes).path();
-    expect(processes.run).toHaveBeenCalledWith(building('/repo/apps/backend/data/machine-agent', '/repo'));
-  });
-
   it('reads its checksum from beside the tarball', async () => {
     const tarball = path.join(dir, 'machine-agent.tgz');
     await writeFile(`${tarball}.sha256`, `${'ab'.repeat(32)}  machine-agent.tgz\n`);

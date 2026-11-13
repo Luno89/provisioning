@@ -92,7 +92,10 @@ main() {
   [ -f "$BACKEND_ENV" ] || die "${BACKEND_ENV} is missing; bootstrap.sh makes it"
 
   bash scripts/root-node/cdktf-bindings.sh "$REPO_DIR" || die "the CDKTF bindings the cluster's monitoring needs could not be generated"
-  ROOT_KUBECONFIG="$ADMIN_KUBECONFIG" npx tsx scripts/ensure-cluster-stack.ts || die "the system cluster's monitoring and telemetry could not be applied; see above"
+  local data_dir
+  data_dir="$(grep -E '^DATA_DIR=' "$BACKEND_ENV" | cut -d= -f2- || true)"
+  [ -n "$data_dir" ] || die "DATA_DIR is not set in ${BACKEND_ENV}; root-settings.sh sets it"
+  DATA_DIR="$data_dir" ROOT_KUBECONFIG="$ADMIN_KUBECONFIG" npx tsx scripts/ensure-cluster-stack.ts || die "the system cluster's monitoring and telemetry could not be applied; see above"
 
   local otel_ip
   otel_ip="$(collector_address)" || exit 1

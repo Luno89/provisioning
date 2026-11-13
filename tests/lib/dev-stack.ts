@@ -21,6 +21,7 @@ export const DEV_RELEASE = 'instance';
 export const devRootApi = `http://localhost:${DEV.rootApiPort}`;
 export const devKoalaApi = `http://127.0.0.1:${DEV.instanceNodePort}`;
 export const devGiteaUrl = devGiteaOnThisComputer;
+export const devDataDir = new URL('../../apps/backend/data', import.meta.url).pathname;
 
 const kubectl = (...args: string[]): string =>
   execFileSync('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, ...args], { encoding: 'utf8' }).trim();

@@ -12,6 +12,7 @@ import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.j
 import type { RunningWorkflow } from '../lib/running.js';
 import { RunningService } from '../services/RunningService.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
@@ -24,7 +25,7 @@ const quiet = { validateStatus: () => true };
 const notThisWork = (what: string) => async (): Promise<never> => { throw new Error(`${what} is not what this route test cancels`); };
 
 const runningOver = (db: Database): RunningService => {
-  const bridge = new TemporalBridge(db);
+  const bridge = new TemporalBridge(db, testDataDir());
   Object.assign(bridge, { client: env.client });
   return new RunningService({
     workflows: {

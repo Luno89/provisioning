@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { devKoalasCluster, devGiteaUrl } from './lib/dev-stack.js';
+import { devKoalasCluster, devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
 import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 7200 })}` } });
-  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl }, { dataDir: devDataDir });
 
   console.log(`[1/4] the planner proposes (${elapsed(started)})`);
   const stamp = Date.now().toString(36);

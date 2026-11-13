@@ -65,7 +65,7 @@ async function standUp(home: 'local' | 'kubernetes'): Promise<Stand> {
     '',
   ].join('\n'));
   const places = {
-    cdktfDir, stateDir, runsDir, mirrorDir: path.join(root, 'no-mirror'),
+    cdktfDir, stateDir, logDir: path.join(root, 'data', 'logs'), runsDir, mirrorDir: path.join(root, 'no-mirror'),
     home: home === 'local' ? { kind: 'local' as const, dir: stateDir } : { kind: 'kubernetes' as const, namespace: 'koala', dir: stateDir },
   };
   return { root, places, cluster, capture };

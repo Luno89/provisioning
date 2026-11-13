@@ -13,6 +13,7 @@ export interface ModelServicePlace {
   infra: InfrastructureService;
   mesh: MeshSettings | Off;
   endpointRules: EndpointRules;
+  dataDir: string;
 }
 
 export function createModelService(place: ModelServicePlace): ModelService {
@@ -22,5 +23,5 @@ export function createModelService(place: ModelServicePlace): ModelService {
   const clusters = new ClusterService(db, access, { instanceOwnerId: role.instance?.ownerId });
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = sharedClusterProxy(access);
-  return new ModelService(db, apps, clusters, proxy, new HeadscaleService(dataKey, place.mesh), dataKey, place.endpointRules);
+  return new ModelService(db, apps, clusters, proxy, new HeadscaleService(dataKey, place.mesh, place.dataDir), dataKey, place.endpointRules);
 }

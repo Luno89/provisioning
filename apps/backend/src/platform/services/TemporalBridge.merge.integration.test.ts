@@ -5,6 +5,7 @@ import { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js'
 import { PALWORLD_SCHEMA } from '../../infrastructure/lib/palworld-settings.js';
 import { resolveAppSettings } from '../../infrastructure/lib/app-settings-schema.js';
 import type { DeploymentMetadata } from '../lib/types.js';
+import { testDataDir } from '../testing/data-dir.js';
 
 describe('TemporalBridge.updateConfigAndSync map merging', () => {
   let db: MongoDB;
@@ -26,7 +27,7 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
       ownerId: 'user-1',
     } as DeploymentMetadata);
 
-    bridge = new TemporalBridge(db);
+    bridge = new TemporalBridge(db, testDataDir());
     vi.spyOn(bridge, 'syncConfig').mockResolvedValue({ id: 'wf', event: 'app-sync-config' });
   });
 

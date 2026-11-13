@@ -17,7 +17,6 @@ const detailOf = async (res: Response): Promise<string> =>
 
 const NAMESPACE = 'gitea';
 const ADMIN_USERNAME = 'provisioning-bot';
-const DEFAULT_DATA_DIR = path.join(process.cwd(), 'data');
 const USERS_PAGE = 50;
 const TOKEN_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
@@ -51,13 +50,13 @@ export class GiteaService {
   constructor(
     private readonly masterKey: SecretKey,
     private readonly at: GiteaAt,
-    options: { processes?: Processes | undefined; dataDir?: string | undefined; registryPullHost?: string | undefined; reportsTo?: DependencyReporter | undefined } = {},
+    options: { dataDir: string; processes?: Processes | undefined; registryPullHost?: string | undefined; reportsTo?: DependencyReporter | undefined },
   ) {
     const asked: typeof fetch = (input, init) => fetch(input, init);
     this.http = options.reportsTo ? reportingFetch(options.reportsTo, 'gitea', asked) : asked;
     this.registryPullHost = options.registryPullHost;
     this.processes = options.processes ?? nodeProcesses;
-    this.dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+    this.dataDir = options.dataDir;
   }
 
   private dataFile(name: string): string {

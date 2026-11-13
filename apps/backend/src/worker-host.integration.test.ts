@@ -7,6 +7,7 @@ import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { startHostWorker } from './worker-host.js';
+import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
@@ -22,7 +23,7 @@ const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.expo
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   NODE_ENV: 'development', ...testKeyEnv(`host-${role}`), ROLE: role, MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt',
+  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: testDataDir(),
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0',
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey(), PUBLIC_URL: 'http://127.0.0.1:1', INSTANCE_IMAGE_TAG: 'test' }

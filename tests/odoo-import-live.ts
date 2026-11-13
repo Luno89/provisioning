@@ -13,7 +13,7 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { devGiteaUrl } from './lib/dev-stack.js';
+import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { ODOO_ADDONS_FILES } from '../apps/backend/src/projects/lib/project-templates.js';
 import { renderStarterFiles, versionVars } from '../apps/backend/src/projects/lib/tree-types.js';
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http: AxiosInstance = axios.create({ baseURL: BASE, proxy: false, timeout: 0, maxBodyLength: Infinity, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
-  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl }, { dataDir: devDataDir });
   const kubectl = async (namespace: string, ...args: string[]) => (await run(KUBECTL, ['-n', namespace, ...args], { env, maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
   const psql = (made: Made, sql: string) => kubectl(made.place.namespace, 'exec', `${made.place.release}-postgres-0`, '--', 'psql', '-U', 'odoo', '-d', 'odoo_a', '-tAc', sql);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'odoo-import-live-'));

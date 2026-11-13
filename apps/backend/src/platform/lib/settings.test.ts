@@ -18,6 +18,7 @@ const CONNECTION = {
   TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233',
   TEMPORAL_NAMESPACE: 'default',
   TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt',
+  DATA_DIR: '/app/apps/backend/data',
 };
 
 const BACKEND = { ...CONNECTION, PORT: '3001', PUBLIC_URL: 'https://luno.koala.app/', APP_URL: 'https://luno.koala.app' };
@@ -55,7 +56,7 @@ const problemsOf = (read: () => unknown): string[] => {
 describe('the settings a backend reads once, at start', () => {
   it('takes root\'s, with every feature it was not given off and saying why', () => {
     const settings = backendSettingsFrom(ROOT);
-    expect(settings).toMatchObject({ koalaProcess: 'backend', port: 3001, publicUrl: 'https://luno.koala.app', production: false, temporal: { address: '127.0.0.1:7233', namespace: 'default', caPath: '/etc/koala/temporal-tls/ca.crt' }, terraform: { kind: 'local' } });
+    expect(settings).toMatchObject({ koalaProcess: 'backend', port: 3001, publicUrl: 'https://luno.koala.app', production: false, temporal: { address: '127.0.0.1:7233', namespace: 'default', caPath: '/etc/koala/temporal-tls/ca.crt' }, terraform: { kind: 'local' }, dataDir: '/app/apps/backend/data' });
     expect(settings.root).toMatchObject({ imageTag: 'a1b2c3d4e5f6', registry: '100.64.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') }, pool: { off: ANY_TEXT } });
     expect(settings.mesh).toEqual({ off: 'MESH_LOGIN_SERVER is not set, so machines and instances join no mesh' });
     expect(settings.metricsToken).toEqual({ off: 'METRICS_TOKEN is not set, so /api/metrics serves nothing' });
@@ -69,10 +70,11 @@ describe('the settings a backend reads once, at start', () => {
 
   it('stops naming every setting root lacks or holds malformed, all at once', () => {
     const problems = problemsOf(() => backendSettingsFrom({ ROLE: 'root', ...testKeyEnv('settings'), ROOT_IDENTITY_KEY: CONNECTION.ROOT_IDENTITY_KEY, PORT: 'eighty', TEMPORAL_CONNECTION_ADDRESS: 'http://localhost:7233' }));
-    for (const name of ['MONGO_URI', 'TEMPORAL_NAMESPACE', 'TEMPORAL_TLS_CA', 'PUBLIC_URL', 'APP_URL', 'TERRAFORM_STATE', 'INSTANCE_IMAGE_TAG', 'INSTANCE_REGISTRY']) {
+    for (const name of ['MONGO_URI', 'TEMPORAL_NAMESPACE', 'TEMPORAL_TLS_CA', 'DATA_DIR', 'PUBLIC_URL', 'APP_URL', 'TERRAFORM_STATE', 'INSTANCE_IMAGE_TAG', 'INSTANCE_REGISTRY']) {
       expect(problems.some((problem) => problem.includes(name)), name).toBe(true);
     }
     expect(problems).toContain('PORT is not a port: eighty');
+    expect(problemsOf(() => backendSettingsFrom({ ...ROOT, DATA_DIR: 'data' }))).toContain('DATA_DIR is not an absolute path: data');
     expect(problems).toContain('TEMPORAL_CONNECTION_ADDRESS is not a host and port: http://localhost:7233');
     expect(() => backendSettingsFrom({})).toThrow(/the backend cannot start; its settings are not right:\n {2}- ROLE is not set/);
   });
@@ -167,7 +169,7 @@ describe('the settings of a step run in an instance\'s pod', () => {
   });
 
   it('gives the move its root, Mongo, Gitea and namespace, and refuses one without its namespace', () => {
-    expect(moveImportSettingsFrom({ ...INSTANCE, POD_NAMESPACE: 'nowrinkles' })).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred', podNamespace: 'nowrinkles', registryPullHost: '127.0.0.1:31737' });
+    expect(moveImportSettingsFrom({ ...INSTANCE, POD_NAMESPACE: 'nowrinkles' })).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred', podNamespace: 'nowrinkles', registryPullHost: '127.0.0.1:31737', dataDir: '/app/apps/backend/data' });
     expect(problemsOf(() => moveImportSettingsFrom(INSTANCE))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, where Terraform keeps its state');
   });
 });

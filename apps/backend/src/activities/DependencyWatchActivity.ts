@@ -1,12 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ApplicationFailure } from '@temporalio/common';
 import { claimSettingsFrom, createDatabase, MailService, operatorsAmong, publicFetch } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import { DependencyWatch, inventoryFileFor } from '../instances/index.js';
-
-const CHARTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../data/instance-charts');
 
 export async function DependencyWatchActivity(): Promise<{ findings: number; due: number }> {
   const settings = hostSettings();
@@ -21,7 +18,7 @@ export async function DependencyWatchActivity(): Promise<{ findings: number; due
     const watch = new DependencyWatch({
       store: db.instances,
       inventoryOf: async (tag) => {
-        const file = inventoryFileFor(CHARTS_DIR, tag);
+        const file = inventoryFileFor(path.join(settings.dataDir, 'instance-charts'), tag);
         if (!file) return undefined;
         try {
           return JSON.parse(await readFile(file, 'utf8')) as unknown;

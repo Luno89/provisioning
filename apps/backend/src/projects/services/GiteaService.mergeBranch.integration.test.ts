@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GiteaService } from './GiteaService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let root: string;
 let remote: string;
@@ -22,7 +23,7 @@ function commit(branch: string, file: string, content: string): string {
 }
 
 function service(pulls: { listed?: unknown[][]; created?: Response } = {}): GiteaService {
-  const gitea = new GiteaService('master-key' as never, { url: `file://${root}` });
+  const gitea = new GiteaService('master-key' as never, { url: `file://${root}` }, { dataDir: testDataDir() });
   const internals = gitea as unknown as { getToken(): Promise<string> };
   vi.spyOn(internals, 'getToken').mockResolvedValue('bot-token');
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {

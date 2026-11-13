@@ -67,6 +67,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
   const settings: NodeJS.ProcessEnv = {
     PATH: `${join(home, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: home,
+    DATA_DIR: join(home, 'data'),
     NODE_ENV: 'development',
     ...testKeyEnv(`${name}-loopback-test`),
     ROOT_IDENTITY_KEY: testIdentityKey(),

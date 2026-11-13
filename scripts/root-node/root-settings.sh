@@ -16,6 +16,7 @@ ensure_root_settings() {
   ensure_root_setting "$file" TEMPORAL_CONNECTION_ADDRESS 127.0.0.1:7233
   ensure_root_setting "$file" TEMPORAL_NAMESPACE default
   ensure_root_setting "$file" TEMPORAL_TLS_CA "${repo}/apps/backend/data/temporal-tls/ca.crt"
+  ensure_root_setting "$file" DATA_DIR "${repo}/apps/backend/data"
   ensure_root_setting "$file" TERRAFORM_STATE local
   ensure_root_setting "$file" HEADSCALE_URL http://127.0.0.1:8080
   ensure_root_setting "$file" HEALTH_PORT 0

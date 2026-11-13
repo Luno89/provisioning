@@ -8,6 +8,7 @@ import { TOOLS } from '../testing/real-k3s.js';
 import { ClusterAccess } from './ClusterAccess.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const KEY = 'test-key' as never;
 const k3s = inject('k3s');
@@ -28,7 +29,7 @@ describe('checking each app on a real cluster', () => {
     await db.infrastructure.saveDeploymentInfo(app('here', HERE));
     await db.infrastructure.saveDeploymentInfo(app('gone', 'gone-4d5e6f'));
 
-    await new TemporalBridge(db, undefined, KEY, { access } as never).checkApps();
+    await new TemporalBridge(db, testDataDir(), undefined, KEY, { access } as never).checkApps();
 
     const byId = Object.fromEntries((await db.infrastructure.getDeployments()).map((dep) => [dep.id, [dep.status, dep.healthReason]]));
     expect(byId).toEqual({ here: ['running', undefined], gone: ['unhealthy', 'its namespace gone-4d5e6f is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] });

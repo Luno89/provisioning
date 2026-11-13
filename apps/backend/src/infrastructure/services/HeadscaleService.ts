@@ -8,8 +8,6 @@ import { encryptValue, decryptValue, type SecretKey } from '../../platform/index
 const execFileAsync = promisify(execFile);
 
 const CONTAINER_NAME = 'provisioning-headscale';
-const DATA_DIR = path.join(process.cwd(), 'data');
-const API_KEY_FILE = path.join(DATA_DIR, '.headscale-api-key');
 
 export interface MeshDevice {
   id: string;
@@ -26,6 +24,7 @@ export class HeadscaleService {
   constructor(
     private readonly masterKey: SecretKey,
     private readonly mesh: { headscaleUrl: string; headscaleApiKey?: string | undefined } | { off: string },
+    private readonly dataDir: string,
   ) {}
 
   private get baseUrl(): string {
@@ -43,7 +42,7 @@ export class HeadscaleService {
     if (this.givenApiKey?.trim()) return (this.apiKeyCache = this.givenApiKey.trim());
 
     try {
-      const encrypted = await fs.readFile(API_KEY_FILE, 'utf8');
+      const encrypted = await fs.readFile(path.join(this.dataDir, '.headscale-api-key'), 'utf8');
       const candidate = decryptValue(encrypted.trim(), this.masterKey);
       const res = await fetch(`${this.baseUrl}/api/v1/apikey`, {
         headers: { Authorization: `Bearer ${candidate}` },
@@ -63,8 +62,8 @@ export class HeadscaleService {
     if (!key) throw new Error('"headscale apikeys create" returned no key — is the container running?');
     this.apiKeyCache = key;
 
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(API_KEY_FILE, encryptValue(key, this.masterKey), { mode: 0o600 });
+    await fs.mkdir(this.dataDir, { recursive: true });
+    await fs.writeFile(path.join(this.dataDir, '.headscale-api-key'), encryptValue(key, this.masterKey), { mode: 0o600 });
 
     return key;
   }

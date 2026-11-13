@@ -2,6 +2,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { vi } from 'vitest';
 import { GiteaService } from '../services/GiteaService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 export interface GiteaStandIn {
   gitea(): GiteaService;
@@ -34,7 +35,7 @@ export async function giteaStandIn(repo: { owner: string; name: string; commit: 
   return {
     asked,
     gitea() {
-      const service = new GiteaService('master-key' as never, { url: baseUrl });
+      const service = new GiteaService('master-key' as never, { url: baseUrl }, { dataDir: testDataDir() });
       const internals = service as unknown as { getToken(): Promise<string> };
       vi.spyOn(internals, 'getToken').mockResolvedValue('bot-token');
       return service;

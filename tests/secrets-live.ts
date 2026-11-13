@@ -11,6 +11,7 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
 import { infisicalSettingsFrom } from '../apps/backend/src/infrastructure/lib/infisical-settings.js';
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
+import { devDataDir } from './lib/dev-stack.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
 
   const key = `LIVE_CHECK_${Date.now().toString(36).toUpperCase()}`;
   const value = `live-sentinel-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-  const infisical = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env));
+  const infisical = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env), devDataDir);
 
   const conversationId = (await http.post('/conversations', { projectId: project.id })).data.id as string;
   console.log(`project ${project.name} (${project.id}), conversation ${conversationId}, key ${key}`);

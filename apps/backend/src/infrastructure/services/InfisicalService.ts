@@ -8,10 +8,6 @@ import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisic
 import { infisicalAdminPassword } from '../lib/infisical-admin.js';
 import { ignore } from '@koala/engine-core/failures';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const IDENTITY_FILE = path.join(DATA_DIR, '.infisical-machine-identity');
-const SHARED_AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
-const ADMIN_PASSWORD_FILE = path.join(DATA_DIR, '.infisical-admin-password');
 
 export interface InfisicalSecretRecord {
   key: string;
@@ -50,6 +46,7 @@ export class InfisicalService {
   constructor(
     private readonly masterKey: SecretKey,
     private readonly at: InfisicalAt,
+    private readonly dataDir: string,
     private readonly reportsTo?: DependencyReporter | undefined,
   ) {}
 
@@ -82,22 +79,22 @@ export class InfisicalService {
 
   async getAdminCredentials(): Promise<{ username: string; password: string }> {
     if ('none' in this.at) throw new Error(this.at.none);
-    const stored = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8').catch(ignore('with no stored password infisicalAdminPassword gives the development one, and refuses in production'));
-    return { username: 'admin', password: infisicalAdminPassword(stored, this.at.production, ADMIN_PASSWORD_FILE) };
+    const stored = await fs.readFile(path.join(this.dataDir, '.infisical-admin-password'), 'utf8').catch(ignore('with no stored password infisicalAdminPassword gives the development one, and refuses in production'));
+    return { username: 'admin', password: infisicalAdminPassword(stored, this.at.production, path.join(this.dataDir, '.infisical-admin-password')) };
   }
 
   private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
-    const own = await readIdentity(IDENTITY_FILE);
+    const own = await readIdentity(path.join(this.dataDir, '.infisical-machine-identity'));
     if (own) return own;
-    const shared = await readIdentity(SHARED_AUTH_SECRET_FILE);
+    const shared = await readIdentity(path.join(this.dataDir, '.infisical-auth-secret'));
     if (shared) await this.saveAuthCreds(shared);
     return shared;
   }
 
   private async saveAuthCreds(creds: { clientId: string; clientSecret: string; orgId: string }): Promise<void> {
     try {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      await fs.writeFile(IDENTITY_FILE, JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
+      await fs.mkdir(this.dataDir, { recursive: true });
+      await fs.writeFile(path.join(this.dataDir, '.infisical-machine-identity'), JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
       console.warn(`[InfisicalService] could not persist auth credentials: ${messageOf(err)}`);
     }

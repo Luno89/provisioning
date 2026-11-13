@@ -7,6 +7,7 @@ import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { startClusterWorker } from './worker-cluster.js';
+import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
@@ -22,7 +23,7 @@ const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.expo
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   NODE_ENV: 'development', ...testKeyEnv(`cluster-${role}`), ROLE: role, MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt',
+  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: testDataDir(),
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', TERRAFORM_STATE: 'local', REGISTRY_PULL_HOST: '127.0.0.1:1',
   GITEA_URL: 'http://127.0.0.1:1', GITEA_REACHES_KOALA_AT: 'http://127.0.0.1:1', INFISICAL_URL: 'http://127.0.0.1:1',
   ...(role === 'root' ? { ROOT_IDENTITY_KEY: testIdentityKey() } : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey }),

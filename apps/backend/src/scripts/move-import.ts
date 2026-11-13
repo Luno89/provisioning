@@ -16,7 +16,6 @@ import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '../../data');
 const HELPER = 'move-gitea-data';
 
 let read: MoveImportSettings | undefined;
@@ -195,9 +194,9 @@ async function restoreTerraformState(): Promise<void> {
 async function restoreApps(): Promise<void> {
   const cluster = ownCluster();
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService(terraformPlacesFor(settings().terraform)) }, koalaClusterMonitoring(Boolean(settings().clusters.here.poolName), cluster.own()));
+  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService(terraformPlacesFor(settings().terraform, settings().dataDir)) }, koalaClusterMonitoring(Boolean(settings().clusters.here.poolName), cluster.own()));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
-  const pullHost = await new GiteaService(settings().dataKey, settings().gitea, { registryPullHost: settings().registryPullHost }).getRegistryHost();
+  const pullHost = await new GiteaService(settings().dataKey, settings().gitea, { dataDir: settings().dataDir, registryPullHost: settings().registryPullHost }).getRegistryHost();
   for (const entry of manifest.namespaces) {
     console.log(`▶ ${entry.namespace}: ${entry.objects.length} objects, ${entry.volumes.length} volumes`);
     await applyJson([{ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: entry.labels } }], false);
@@ -214,7 +213,7 @@ async function main(): Promise<void> {
   const step = process.argv[2];
   read = moveImportSettingsFrom(process.env);
   if (step === 'data') {
-    await run(['tar', 'xzf', '-', '--touch', '--no-same-owner', '-C', DATA_DIR], await part('data'));
+    await run(['tar', 'xzf', '-', '--touch', '--no-same-owner', '-C', settings().dataDir], await part('data'));
     return;
   }
   if (step === 'restore') {

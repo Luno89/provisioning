@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { GiteaConflictError, GiteaService } from './GiteaService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const root = mkdtempSync(path.join(tmpdir(), 'gitea-drop-'));
 const remote = path.join(root, 'koala-u1', 'shop.git');
@@ -21,7 +22,7 @@ interface GiteaInternals {
 }
 
 function service(): GiteaService {
-  const gitea = new GiteaService('master-key', { url: `file://${root}` });
+  const gitea = new GiteaService('master-key', { url: `file://${root}` }, { dataDir: testDataDir() });
   const internals = gitea as unknown as GiteaInternals;
   vi.spyOn(internals, 'getToken').mockResolvedValue('admin');
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ full_name: 'Ada', email: 'ada@example.com' }), { status: 200 })));

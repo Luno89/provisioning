@@ -772,7 +772,7 @@ the one place a child process inherits the OS's environment (`childEnv`, `inheri
 A setting is one of four things:
 - **required**: the process stops at start naming it (what the role needs and nothing can stand in for: the five platform keys
   and root's `ROOT_IDENTITY_KEY` in every mode (**Platform keys**), `MONGO_URI`,
-  `TEMPORAL_CONNECTION_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TLS_CA`, `PORT`, `PUBLIC_URL`, `APP_URL`, `TERRAFORM_STATE`, root's
+  `TEMPORAL_CONNECTION_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TLS_CA`, `DATA_DIR` (the folder the process keeps its files in; nothing finds it from where its code or working directory is), `PORT`, `PUBLIC_URL`, `APP_URL`, `TERRAFORM_STATE`, root's
   `INSTANCE_IMAGE_TAG` and `INSTANCE_REGISTRY`, an instance's services and `INSTANCE_CREDENTIAL`, a worker's `HEALTH_PORT` and
   Temporal metrics port, `HUB_DATABASE`, …). Listen ports are required and set once in the chart, the same value for the process
   and its `containerPort`; 0 means any free port, or for `HEALTH_PORT` no health endpoint.

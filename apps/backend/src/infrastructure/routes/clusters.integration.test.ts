@@ -15,6 +15,7 @@ import { ClusterProxyService } from '../services/ClusterProxyService.js';
 import { InfisicalService } from '../services/InfisicalService.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const ANY_STATUS = { validateStatus: () => true };
 const KEY = 'test-secret';
@@ -116,8 +117,8 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
         clusterService,
         clusterProxyService,
         access: clusterService.access,
-        giteaService: new GiteaService(KEY, { none: 'these routes are tested without a Gitea' }),
-        infisicalService: new InfisicalService(KEY, { none: 'these routes are tested without an Infisical' }),
+        giteaService: new GiteaService(KEY, { none: 'these routes are tested without a Gitea' }, { dataDir: testDataDir() }),
+        infisicalService: new InfisicalService(KEY, { none: 'these routes are tested without an Infisical' }, testDataDir()),
       });
     },
   });

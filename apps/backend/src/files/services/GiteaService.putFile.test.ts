@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GiteaConflictError, GiteaService } from '../../projects/services/GiteaService.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
 function serviceAnswering(answer: (call: Call) => Response) {
-  const service = new GiteaService('master-key', { url: 'http://gitea.test' });
+  const service = new GiteaService('master-key', { url: 'http://gitea.test' }, { dataDir: testDataDir() });
   vi.spyOn(service as unknown as { readAdminPassword(): Promise<string> }, 'readAdminPassword').mockResolvedValue('pw');
   const calls: Call[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

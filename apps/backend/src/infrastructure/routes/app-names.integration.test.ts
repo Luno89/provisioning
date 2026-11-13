@@ -13,6 +13,7 @@ import { testClusterAccess } from '../testing/cluster-access.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { Database } from '../../platform/lib/db-interface.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const KEY = 'app-names-test-key-that-is-at-least-32-characters' as never;
 const ANN = { id: 'ann', email: 'ann@app-names.test' };
@@ -34,7 +35,7 @@ beforeAll(async () => {
   const infra = mock<InfrastructureService>();
   for (const person of [ANN, BOB]) await db.infrastructure.saveCluster({ id: `machine-${person.id}`, name: person.id, provider: 'machine', machineId: person.id, status: 'stopped', ownerId: person.id });
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: KEY }));
-  const bridge = new TemporalBridge(db, undefined, KEY, clusters);
+  const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, clusters);
   Object.assign(bridge, { client: env.client });
   h = await mountRouter({
     prefix: '/api/deployments',

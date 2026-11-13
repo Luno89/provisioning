@@ -20,6 +20,7 @@ import type { WorkFailure as BackendWorkFailure } from '../../../../../backend/s
 import type { ClusterContents as BackendClusterContents } from '../../../../../backend/src/infrastructure/services/ClusterContentsService'
 import type { AppHealthView as BackendAppHealth, ClusterHealthView as BackendClusterHealth, HistoryState as BackendHistoryState, KoalaView as BackendKoalaView, Overview as BackendMonitoringOverview } from '../../../../../backend/src/monitoring/services/MonitoringService'
 import { anyOf, arrayWith, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
+import { testDataDir } from '../../../../../backend/src/platform/testing/data-dir'
 
 let infra: Infrastructure | undefined
 
@@ -27,7 +28,7 @@ const backend = await startBackend(async (site) => {
   const { db } = site
   infra = await infrastructureOf(site)
   const monitoring = infra.monitoring
-  const unreachable = new TemporalBridge(db, undefined, DATA_KEY)
+  const unreachable = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY)
   const running = new RunningService(outsideThisTier<ConstructorParameters<typeof RunningService>[0]>('what runs', {
     workflows: { list: async () => undefined, waiting: async () => undefined, cancel: (workflowId) => unreachable.cancelWorkflow(workflowId) },
   }))

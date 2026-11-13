@@ -38,6 +38,7 @@ export interface DevRootInput {
   hubCredentialHash: string;
   rootPublicKeys: string;
   temporalCa: string;
+  dataDir: string;
 }
 
 export interface DevRootPlan {
@@ -48,10 +49,11 @@ export interface DevRootPlan {
   hubEnv: Record<string, string>;
 }
 
-const devTemporal = (input: Pick<DevRootInput, 'temporalCa'>): Record<string, string> => ({
+const devTemporal = (input: Pick<DevRootInput, 'temporalCa' | 'dataDir'>): Record<string, string> => ({
   TEMPORAL_CONNECTION_ADDRESS: DEV.temporal,
   TEMPORAL_NAMESPACE: DEV.temporalNamespace,
   TEMPORAL_TLS_CA: input.temporalCa,
+  DATA_DIR: input.dataDir,
 });
 
 export function devRootPlan(input: DevRootInput): DevRootPlan {

@@ -43,6 +43,7 @@ export const clusterActivities = (steps: ClusterSteps, huggingFace: string = HUG
 });
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
+  logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(access);
@@ -57,9 +58,9 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const dataKey = settings.keys.data;
   const steps: ClusterSteps = {
     access,
-    infra: new InfrastructureService(terraformPlacesFor(settings.terraform)),
-    gitea: new GiteaService(dataKey, settings.gitea, { registryPullHost: settings.registryPullHost, reportsTo: dependencies }),
-    infisical: new InfisicalService(dataKey, settings.infisical, dependencies),
+    infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir)),
+    gitea: new GiteaService(dataKey, settings.gitea, { dataDir: settings.dataDir, registryPullHost: settings.registryPullHost, reportsTo: dependencies }),
+    infisical: new InfisicalService(dataKey, settings.infisical, settings.dataDir, dependencies),
     database: { mongo: settings.mongo, dataKey },
     machineMetricsUrl: settings.machineMetricsUrl,
   };

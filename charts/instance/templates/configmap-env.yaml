@@ -20,6 +20,7 @@ data:
   TEMPORAL_CONNECTION_ADDRESS: {{ include "instance.name" . }}-temporal:7233
   TEMPORAL_NAMESPACE: {{ required "temporal.namespace is required" .Values.temporal.namespace | quote }}
   TEMPORAL_TLS_CA: /etc/koala/temporal-tls/ca.crt
+  DATA_DIR: /app/apps/backend/data
   MINIO_ENDPOINT: {{ include "instance.name" . }}-minio:9000
   MINIO_BUCKET: {{ .Values.minio.bucket | quote }}
   {{- if .Values.mesh.loginServer }}

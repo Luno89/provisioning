@@ -10,6 +10,7 @@ import { buildPlanAt } from '../../releases/lib/build-plan.js';
 import type { ClusterAccess } from './ClusterAccess.js';
 import type { ClusterService } from './ClusterService.js';
 import { connectToTemporal, TemporalBridge, type TemporalConnect } from './TemporalBridge.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const KEY = 'temporal-bridge-test-key';
 const SHA = '8c646f4f20f5fb217793c11ebbab0779f7d26757';
@@ -22,7 +23,7 @@ function bridge(options: { io?: SocketServer; clusterService?: ClusterService } 
   const workflow = mock<WorkflowClient>();
   const client = mock<Client>({ workflow });
   const connect = vi.fn<TemporalConnect>(async () => client);
-  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, { connect });
+  const instance = new TemporalBridge(db, testDataDir(), options.io, KEY, options.clusterService, { connect });
   return { db, workflow, client, connect, instance, ready: () => { instance.client = client; return instance; } };
 }
 

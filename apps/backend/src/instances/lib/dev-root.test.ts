@@ -8,7 +8,7 @@ import { backendSettingsFrom, hostWorkerSettingsFrom } from '../../platform/lib/
 const saying = (text: string): unknown => expect.stringContaining(text);
 const ANY_TEXT: unknown = expect.any(String);
 
-const input = { mongoUri: 'mongodb://localhost:27017/provisioning?replicaSet=rs0', setupCode: 'setup', hubCredential: 'hub-secret', hubCredentialHash: 'hash', rootPublicKeys: 'PEM', temporalCa: '/repo/apps/backend/data/temporal-tls/ca.crt' };
+const input = { mongoUri: 'mongodb://localhost:27017/provisioning?replicaSet=rs0', setupCode: 'setup', hubCredential: 'hub-secret', hubCredentialHash: 'hash', rootPublicKeys: 'PEM', temporalCa: '/repo/apps/backend/data/temporal-tls/ca.crt', dataDir: '/repo/apps/backend/data' };
 
 describe('dev, run as production runs on this computer', () => {
   it('runs root as root, on its own database, with this computer\'s mesh and registry, and the hub beside it', () => {

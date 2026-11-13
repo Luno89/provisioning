@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
@@ -120,7 +123,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
     hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
-    temporal: { address: inject('temporalAddress'), namespace: temporalNamespace.namespace, ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
+    temporal: { address: inject('temporalAddress'), namespace: temporalNamespace.namespace, ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE, dataDir: rootData,
   });
   const shared = {
     ...testKeyEnv(secret),
@@ -146,16 +149,22 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await gitea?.close();
     await headscale?.close();
     await temporalNamespace.drop();
+    await rm(rootData, { recursive: true, force: true });
+    await rm(instanceData, { recursive: true, force: true });
+    await rm(hubData, { recursive: true, force: true });
     const client = new MongoClient(mongoUri);
     await client.connect();
     for (const database of Object.values(databases)) await client.db(database).dropDatabase();
     await client.close();
   };
   const giteaFor = (url: string) => (gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: url } : {});
-  const giteaFiles = gitea ? { files: { 'data/.gitea-admin-password': gitea.adminPassword } } : {};
+  const rootData = await mkdtemp(join(tmpdir(), `koala-${label}-root-data-`));
+  const instanceData = await mkdtemp(join(tmpdir(), `koala-${label}-instance-data-`));
+  const hubData = await mkdtemp(join(tmpdir(), `koala-${label}-hub-data-`));
+  for (const folder of gitea ? [instanceData, hubData] : []) await writeFile(join(folder, '.gitea-admin-password'), gitea!.adminPassword, { mode: 0o600 });
   try {
     const rootEnv = {
-      ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode,
+      ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData,
       ...(headscale ? { MESH_LOGIN_SERVER: headscale.url, HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
     };
@@ -181,15 +190,15 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
-    const instanceEnv = { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
+    const instanceEnv = { ...plan.instanceEnv, ...shared, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
     const [instance, hub] = await Promise.all([
-      startRole('instance', instanceEnv, ports.instance, giteaFiles),
-      startRole('hub', { ...plan.hubEnv, ...shared, ...giteaFor(place.hubUrl) }, ports.hub, giteaFiles),
+      startRole('instance', instanceEnv, ports.instance),
+      startRole('hub', { ...plan.hubEnv, ...shared, DATA_DIR: hubData, ...giteaFor(place.hubUrl) }, ports.hub),
     ]);
     instanceSide.push(instance);
     hubSide.push(hub);
     for (const name of options.instanceWorkers ?? []) {
-      const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name], ...giteaFiles });
+      const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name] });
       instanceSide.push(worker);
       workers[`instance-${name}`] = worker;
     }

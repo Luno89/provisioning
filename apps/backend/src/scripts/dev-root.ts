@@ -21,6 +21,7 @@ async function main(): Promise<void> {
     hubCredentialHash: hashCredential(hubCredential),
     rootPublicKeys: publicKeyPem(roleFromEnv({ ...process.env, ROLE: 'root' }).signing!.publicKey),
     temporalCa: resolve(here, '../../data/temporal-tls/ca.crt'),
+    dataDir: resolve(here, '../../data'),
   });
   await mkdir(OUT, { recursive: true });
   await writeFile(resolve(OUT, 'root.env'), envFileText(plan.rootEnv), { mode: 0o600 });

@@ -28,9 +28,9 @@ export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string
 }
 
 export async function RootRemovalMeshActivity({ ownerId }: { ownerId: string }): Promise<{ devices: number; user: boolean }> {
-  const { mesh, keys } = hostSettings();
+  const { mesh, keys, dataDir } = hostSettings();
   if ('off' in mesh) throw ApplicationFailure.nonRetryable(mesh.off, 'NoMesh');
-  return new HeadscaleService(keys.data, mesh).removeUser(ownerId);
+  return new HeadscaleService(keys.data, mesh, dataDir).removeUser(ownerId);
 }
 
 export async function RootRemovalRecordsActivity({ ownerId }: { ownerId: string }): Promise<Record<string, number>> {

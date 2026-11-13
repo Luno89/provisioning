@@ -10,6 +10,7 @@ import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { temporalRouter } from './temporal.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const quiet = { validateStatus: () => true };
 const { EventType } = temporal.api.enums.v1;
@@ -42,7 +43,7 @@ beforeEach(() => {
 const queriesOf = (spy: MockInstance<Client['workflow']['list']>): (string | undefined)[] => spy.mock.calls.map(([options]) => options?.query);
 
 const bridgeOn = (db: Database, client: Client | undefined): TemporalBridge => {
-  const bridge = new TemporalBridge(db);
+  const bridge = new TemporalBridge(db, testDataDir());
   if (client) Object.assign(bridge, { client });
   return bridge;
 };

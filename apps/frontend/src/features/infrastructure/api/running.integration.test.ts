@@ -14,11 +14,12 @@ import { MemoryKeeperService } from '../../../../../backend/src/memory/services/
 import type { RunningItem as BackendRunningItem } from '../../../../../backend/src/infrastructure/lib/running'
 import { anyOf } from '../../../../../backend/src/platform/lib/test-matchers'
 import type { TemporalReach, WorkflowSummary as BackendWorkflowSummary } from '../../../../../backend/src/infrastructure/services/TemporalBridge'
+import { testDataDir } from '../../../../../backend/src/platform/testing/data-dir'
 
 const idleTimers: { ownerId: string; idleMs: number }[] = []
 
 const backend = await startBackend(({ api, db }) => {
-  const unreachable = new TemporalBridge(db, undefined, DATA_KEY)
+  const unreachable = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY)
   const bench = new BenchService(outsideThisTier<BenchDeps>('the bench', {
     store: db,
     idleTimer: async (ownerId, idleMs) => { idleTimers.push({ ownerId, idleMs }) },

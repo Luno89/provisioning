@@ -21,7 +21,7 @@ import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/setting
 import { groveRunWorkflowId } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { CATCH_ALL_TREE_TYPE } from '../apps/backend/src/projects/lib/tree-type-seeds.js';
 import { projectIdForTree } from '../apps/backend/src/projects/lib/tree-home.js';
-import { devGiteaUrl } from './lib/dev-stack.js';
+import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
   assert.equal(leaf?.state ?? leaf?.status, 'succeeded', `the story ended ${JSON.stringify(leaf)}`);
 
   step(`label.txt is on main, as the machine wrote it`);
-  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl }, { dataDir: devDataDir });
   const account = await db.projects.getGiteaAccount(owner);
   const tree = (await db.projects.getTrees()).find((entry) => entry.id === treeId);
   const projects = await db.projects.getProjects();

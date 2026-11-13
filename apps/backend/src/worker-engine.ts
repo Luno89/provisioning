@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
-  LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor,
+  InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor,
   ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
@@ -94,14 +94,14 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
-  const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' })), mesh: settings.mesh, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
+  const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
   const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies });
 
   const giteaAt = tenant.gitea;
   const imageRegistry = tenant.registry;
-  const gitea = new GiteaService(keys.data, giteaAt, { registryPullHost: tenant.registryPullHost, reportsTo: dependencies });
-  const infisical = new InfisicalService(keys.data, tenant.infisical, dependencies);
+  const gitea = new GiteaService(keys.data, giteaAt, { dataDir: settings.dataDir, registryPullHost: tenant.registryPullHost, reportsTo: dependencies });
+  const infisical = new InfisicalService(keys.data, tenant.infisical, settings.dataDir, dependencies);
   const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here) });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
@@ -122,7 +122,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data'), dependencies });
+  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: settings.dataDir, dependencies });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -219,7 +219,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
             masterKey: keys.data,
             clusterById: (id) => clusterService.getByIdUnscoped(id),
             handOver: (id) => clusterService.access.handOver(id),
-            logDir: LOG_DIR,
+            logDir: path.join(settings.dataDir, 'logs'),
           }, project, run);
           return { workflowId: started.workflowId };
         },
@@ -472,7 +472,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const appTeardown: AppTeardown = {
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     handOver: (id) => clusterService.access.handOver(id),
-    logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
+    logFile: () => path.join(settings.dataDir, 'logs', `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
     taskQueue: QUEUES.cluster,
   };
   return {
@@ -483,7 +483,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       workflows: removalWorkflows,
       kube: sandboxKube,
       repositories: gitea,
-      mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, settings.mesh)),
+      mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, settings.mesh, settings.dataDir)),
       secrets: infisical,
       files: instanceFiles.storedFiles,
     }),
@@ -538,6 +538,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
 }
 
 export function engineWorkerSetup(settings: EngineWorkerSettings) {
+  logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-engine'));
   const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(telemetryAccess);

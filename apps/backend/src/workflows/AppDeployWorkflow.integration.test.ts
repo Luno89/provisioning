@@ -23,6 +23,7 @@ import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { mongoTarget } from '../platform/lib/mongo-target.js';
+import { testDataDir } from '../platform/testing/data-dir.js';
 
 const k3s = inject('k3s');
 const QUEUE = `app-deploy-k3s-${Math.random().toString(36).slice(2, 8)}`;
@@ -34,7 +35,7 @@ const access = new ClusterAccess({
   tools: TOOLS,
   serviceAccount: k3s.account,
 });
-const steps: ClusterSteps = { access, infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' })), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
+const steps: ClusterSteps = { access, infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' }, testDataDir())), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }, { dataDir: testDataDir() }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }, testDataDir()), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
 const KOALA = access.own();
 const LOG = join(mkdtempSync(join(tmpdir(), 'koala-app-deploy-wf-log-')), 'app.log');
 const deployed: Array<{ clusterId: string; reach: unknown }> = [];

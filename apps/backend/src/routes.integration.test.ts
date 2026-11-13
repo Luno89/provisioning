@@ -30,6 +30,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
       INSTANCE_IMAGE_TAG: TEST_RELEASE.imageTag, INSTANCE_REGISTRY: TEST_RELEASE.registry,
     });
     home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
+    process.env.DATA_DIR = join(home, 'data');
     process.chdir(home);
     process.env.HOME = home;
     const { bootstrap } = await import('./index.js');

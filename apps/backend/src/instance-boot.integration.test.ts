@@ -11,6 +11,7 @@ import { PLAINTEXT_TEMPORAL_CA, unreachedPlatformServices } from './platform/tes
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
 import { QUEUES } from './platform/index.js';
+import { testDataDir } from './platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 const from = process.cwd();
@@ -25,7 +26,7 @@ beforeAll(async () => {
     ROLE: 'instance', INSTANCE_ID: 'inst-boot', INSTANCE_OWNER_ID: 'owner-boot', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred',
     PORT: '0', MACHINE_GATEWAY_PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', APP_URL: 'http://127.0.0.1:1', TERRAFORM_STATE: 'local',
     MONGO_URI: uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`),
-    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: PLAINTEXT_TEMPORAL_CA,
+    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: PLAINTEXT_TEMPORAL_CA, DATA_DIR: testDataDir(),
   });
   home = await mkdtemp(join(tmpdir(), 'koala-instance-boot-'));
   process.chdir(home);

@@ -12,6 +12,7 @@ import { testClusterAccess } from '../testing/cluster-access.js';
 import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { resolveVllmCacheHostPath } from '../../models/index.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 
@@ -23,7 +24,7 @@ describe('following work Koala started anywhere to its end', () => {
     const db = await testDatabase();
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
-    const bridge = new TemporalBridge(db);
+    const bridge = new TemporalBridge(db, testDataDir());
     bridge.client = new Client({ connection, namespace });
     const followings: Promise<void>[] = [];
     let allFollowed!: () => void;
@@ -66,7 +67,7 @@ describe('cancelling and reading work in Temporal', () => {
   it('cancels a workflow that runs, says one that finished or never ran is not running, and reads a workflow\'s history', async () => {
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
-    const bridge = new TemporalBridge(await testDatabase());
+    const bridge = new TemporalBridge(await testDatabase(), testDataDir());
     bridge.client = new Client({ connection, namespace });
     const taskQueue = `cancel-${Math.random().toString(36).slice(2, 8)}`;
     const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
@@ -96,7 +97,7 @@ describe('settling the work the bridge itself starts', () => {
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-follow-key' as never;
-    const bridge = new TemporalBridge(db, undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
+    const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
     bridge.client = new Client({ connection, namespace });
     const decided: string[] = [];
     bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };

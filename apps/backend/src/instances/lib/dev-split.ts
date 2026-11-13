@@ -41,6 +41,7 @@ export const devSplitPlace = (name: string): SplitPlace => ({
 });
 
 export interface DevSplitInput {
+  dataDir: string;
   name: string;
   owner: UserMetadata;
   instanceId: string;
@@ -82,7 +83,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
   const place = input.place ?? devSplitPlace(input.name);
   const { rootUrl, instanceUrl, hubUrl } = place;
   const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
-  const temporal = { TEMPORAL_CONNECTION_ADDRESS: input.temporal.address, TEMPORAL_NAMESPACE: input.temporal.namespace, TEMPORAL_TLS_CA: input.temporal.ca };
+  const temporal = { TEMPORAL_CONNECTION_ADDRESS: input.temporal.address, TEMPORAL_NAMESPACE: input.temporal.namespace, TEMPORAL_TLS_CA: input.temporal.ca, DATA_DIR: input.dataDir };
 
   return {
     rootUrl,

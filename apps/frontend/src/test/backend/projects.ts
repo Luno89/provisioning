@@ -66,6 +66,7 @@ import type { SlotCluster } from '../../../../backend/src/extensions/releases/sl
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
 import { releaseDecider } from '../../../../backend/src/releases/services/release-decider'
 import { changesIn } from '../../../../backend/src/releases/services/repo-changes'
+import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
 
 export interface PaperWorkflow {
   workflowType: string
@@ -148,7 +149,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   const machines = machinesOf(site)
   const temporal = temporalOnPaper()
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY }))
-  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
   await bridge.start()
   const gitea = outsideThisTier<GiteaService>('Gitea')
   const extensions = extensionServiceFor(db)

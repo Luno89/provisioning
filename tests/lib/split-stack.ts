@@ -209,7 +209,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       instanceId: instanceIdFor(owner.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
       hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
       mongoUri, now: new Date().toISOString(), place,
-      temporal: { address: DEV_TEMPORAL_ADDRESS, namespace: names.namespace, ca: CONTAINER_TEMPORAL_CA }, release: { imageTag: 'split', registry: DEV.registry },
+      temporal: { address: DEV_TEMPORAL_ADDRESS, namespace: names.namespace, ca: CONTAINER_TEMPORAL_CA }, release: { imageTag: 'split', registry: DEV.registry }, dataDir: '/app/apps/backend/data',
     });
 
     const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };

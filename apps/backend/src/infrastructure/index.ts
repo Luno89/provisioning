@@ -75,7 +75,7 @@ export { GitModuleService } from './services/GitModuleService.js';
 export { HeadscaleService } from './services/HeadscaleService.js';
 export { InfisicalService } from './services/InfisicalService.js';
 export type { InfisicalAt } from './services/InfisicalService.js';
-export { InfrastructureService, LOG_DIR, terraformPlacesFor } from './services/InfrastructureService.js';
+export { InfrastructureService, terraformPlacesFor } from './services/InfrastructureService.js';
 export type { ExecuteOptions, TerraformPlaces } from './services/InfrastructureService.js';
 export { RegistryService } from './services/RegistryService.js';
 export { ServerOrderProblem, ServerOrderService } from './services/ServerOrderService.js';

@@ -37,7 +37,7 @@ export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
     suite, database, mongoUri, setupCode, namespace, metricsPort,
     env: [
       '-e', 'ROLE=root', '-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', 'CERTIFICATES=internal',
-      '-e', `TEMPORAL_CONNECTION_ADDRESS=${DEV_TEMPORAL_ADDRESS}`, '-e', `TEMPORAL_NAMESPACE=${namespace}`, '-e', 'TERRAFORM_STATE=local', '-e', `HEADSCALE_URL=${DEV_HEADSCALE}`,
+      '-e', `TEMPORAL_CONNECTION_ADDRESS=${DEV_TEMPORAL_ADDRESS}`, '-e', `TEMPORAL_NAMESPACE=${namespace}`, '-e', 'TERRAFORM_STATE=local', '-e', 'DATA_DIR=/app/apps/backend/data', '-e', `HEADSCALE_URL=${DEV_HEADSCALE}`,
     ],
   };
 }

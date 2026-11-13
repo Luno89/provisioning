@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs/promises';
 import { GiteaService } from './GiteaService.js';
 import { encryptValue } from '../../platform/lib/crypto.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const KEY = 'test-master-key-for-unit-tests-only';
 const BASE = 'http://10.0.0.130:31737';
@@ -15,7 +16,7 @@ interface GiteaInternals {
 const internalsOf = (gitea: GiteaService): GiteaInternals => gitea as unknown as GiteaInternals;
 
 function service() {
-  const gitea = new GiteaService(KEY, { url: BASE });
+  const gitea = new GiteaService(KEY, { url: BASE }, { dataDir: testDataDir() });
   vi.spyOn(internalsOf(gitea), 'readAdminPassword').mockResolvedValue('admin-pass');
   return gitea;
 }

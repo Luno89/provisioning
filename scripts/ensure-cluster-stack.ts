@@ -7,7 +7,9 @@ import { koalaClusterMonitoring } from '../apps/backend/src/monitoring/lib/clust
 async function main(): Promise<void> {
   const rootKubeconfig = process.env.ROOT_KUBECONFIG?.trim();
   if (!rootKubeconfig) throw new Error('ROOT_KUBECONFIG names no kubeconfig for root\'s own cluster; root-telemetry.sh passes the admin kubeconfig k3s wrote');
-  const infra = new InfrastructureService(terraformPlacesFor({ kind: 'local' }));
+  const dataDir = process.env.DATA_DIR?.trim();
+  if (!dataDir) throw new Error('DATA_DIR names no data folder for root; root-telemetry.sh passes the one root\'s settings name');
+  const infra = new InfrastructureService(terraformPlacesFor({ kind: 'local' }, dataDir));
   const access = clusterAccessFrom({ here: { root: true }, serviceAccount: undefined, rootKubeconfig }, { role: 'root' });
   const reach = access.own();
   const logFile = infra.getLogPath(`cluster-stack-${reach.clusterId}`);

@@ -5,6 +5,7 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const fresh = await emptiedEachTime();
 
@@ -16,7 +17,7 @@ describe('a push to a project', () => {
 
   beforeEach(async () => {
     db = await fresh();
-    bridge = new TemporalBridge(db);
+    bridge = new TemporalBridge(db, testDataDir());
   });
 
   it('records no build when the commit has nothing to build', async () => {

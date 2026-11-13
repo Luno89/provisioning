@@ -36,7 +36,7 @@ export interface MachinesWiringDeps {
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined; payloadBlobs: PayloadBlobs } | undefined;
 }
 
-export const machineBundle = (repoRoot: string): MachineBundle => new MachineBundle(repoRoot);
+export const machineBundle = (repoRoot: string, dataDir: string): MachineBundle => new MachineBundle(repoRoot, path.join(dataDir, 'machine-agent'));
 
 export const deviceByWorkToken = (db: Pick<Database, 'machines'>, trust: WorkTokenTrust | undefined, now: () => Date = () => new Date()) =>
   async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => {
