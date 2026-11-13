@@ -13,6 +13,7 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const FRONTEND = resolve(SRC, '../../frontend/src');
 
 let world: TemporalWorld;
+let program: ts.Program;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -27,7 +28,7 @@ beforeAll(() => {
   const config = ts.getParsedCommandLineOfConfigFile(configPath, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
   if (!config) throw new Error('the backend tsconfig could not be read');
   const workflowFiles = readdirSync(join(SRC, 'workflows')).filter((entry) => entry.endsWith('.ts') && !entry.endsWith('.test.ts')).map((entry) => join(SRC, 'workflows', entry));
-  const program = ts.createProgram([...workflowFiles, ...Object.values(WORKERS).map((file) => join(SRC, file))], { ...config.options, noEmit: true });
+  program = ts.createProgram([...workflowFiles, ...Object.values(WORKERS).map((file) => join(SRC, file))], { ...config.options, noEmit: true });
   world = temporalWorld(program, SRC);
 }, 300_000);
 
@@ -54,6 +55,39 @@ describe('what each workflow calls is what its worker runs', () => {
       }
     }
     expect([...new Set(missing)]).toEqual([]);
+  });
+
+  it('registers each activity as a function taking no more than what the workflow calling it passes', () => {
+    const checker = program.getTypeChecker();
+    const required = (node: ts.Node): number | undefined => {
+      const value = ts.isPropertyAssignment(node) ? node.initializer : ts.isShorthandPropertyAssignment(node) ? node.name : node;
+      const signature = checker.getTypeAtLocation(value).getCallSignatures()[0];
+      if (!signature) return undefined;
+      return signature.getParameters().filter((parameter) => {
+        const declaration = parameter.valueDeclaration;
+        return !(declaration && ts.isParameter(declaration) && (declaration.questionToken || declaration.initializer || declaration.dotDotDotToken));
+      }).length;
+    };
+    const wrong: string[] = [];
+    for (const [name, queue] of Object.entries(STARTED_ON)) {
+      for (const file of world.reachable(name)) {
+        for (const proxy of world.proxies.get(file) ?? []) {
+          if (proxy.queue === 'device') continue;
+          const on = proxy.queue === 'own' ? queue : proxy.queue;
+          const proxied = checker.getTypeAtLocation(proxy.call);
+          for (const activity of proxy.activities) {
+            const member = proxied.getProperty(activity);
+            const given = member ? checker.getTypeOfSymbolAtLocation(member, proxy.call).getCallSignatures()[0]?.getParameters().length : undefined;
+            if (given === undefined) continue;
+            for (const node of world.registered[on].get(activity) ?? []) {
+              const needs = required(node);
+              if (needs !== undefined && needs > given) wrong.push(`${activity} on the ${on} worker needs ${needs} arguments, and ${name} passes it ${given}`);
+            }
+          }
+        }
+      }
+    }
+    expect([...new Set(wrong)].sort()).toEqual([]);
   });
 });
 
