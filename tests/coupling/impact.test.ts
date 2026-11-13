@@ -63,6 +63,13 @@ describe('which tests ran the lines that changed', () => {
     expect(ranLine(calls.files[file]!, 7)).toBe(true);
   });
 
+  it('takes a line inside a block that never ran, such as a function V8 counts only as its parent\'s block, as not run', () => {
+    const wired = [MODULE, fn('make', 3, 12, 1), { start: { line: 4, column: 20 }, end: { line: 11, column: 2 }, count: 0 }];
+    expect(ranLine(wired, 7)).toBe(false);
+    expect(ranLine(wired, 4)).toBe(true);
+    expect(ranLine(wired, 12)).toBe(true);
+  });
+
   it('reruns every test that loaded the file for a change outside any function', () => {
     expect(testsToRerun([calls, loads], new Map([[file, new Set([1])]]), tests)).toEqual({ full: false, tests: tests.slice().sort() });
   });

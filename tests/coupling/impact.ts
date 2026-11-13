@@ -21,6 +21,7 @@ export function changedBetween(before: Readonly<Record<string, string>>, now: Re
 const isModule = (range: RanRange): boolean => range.fn === '' && range.start.line === 1 && range.start.column === 1;
 
 export function ranLine(ranges: readonly RanRange[], line: number): boolean {
+  if (ranges.some((range) => range.fn === undefined && range.count === 0 && range.start.line < line && range.end.line > line)) return false;
   let inner: RanRange | undefined;
   for (const range of ranges) {
     if (range.fn === undefined || isModule(range) || range.start.line > line || range.end.line < line) continue;
