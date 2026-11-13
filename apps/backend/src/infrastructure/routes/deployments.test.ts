@@ -6,6 +6,7 @@ import type { ClusterMetadata, DeploymentMetadata, Principal } from '../../platf
 import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
+import { DeployRequestProblem } from '../lib/deploy-request.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -96,6 +97,15 @@ describe('deploying', () => {
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(400);
     expect(answer.data).toEqual({ error: 'vLLM needs about 6 GiB of RAM but this cluster has 2 GiB' });
+  });
+
+  it('answers 400 with the reason when the request itself is refused', async () => {
+    const { clusterService, temporalBridge, call } = setup();
+    clusterService.getById.mockResolvedValue({ id: 'c1' } as ClusterMetadata);
+    temporalBridge.deployApp.mockRejectedValue(new DeployRequestProblem('a model server takes no pgTag: its GPUs, vendor, Hugging Face token and image each have their own field'));
+    const answer = await call('', 'POST', asked);
+    expect(answer.status).toBe(400);
+    expect(answer.data).toEqual({ error: 'a model server takes no pgTag: its GPUs, vendor, Hugging Face token and image each have their own field' });
   });
 
   it('answers 503 when Temporal genuinely is unavailable', async () => {

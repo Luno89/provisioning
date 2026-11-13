@@ -8,6 +8,7 @@ import { useDebounce } from '../../../../shared/lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../../lib/wizard-defaults';
+import { deployPayloadOf } from '../../lib/deploy-payload';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
@@ -36,7 +37,7 @@ export default function AppDeployWizard({
   const debouncedTabbyModel = useDebounce(wizardData.tabbyModel);
   const debouncedTabbyRevision = useDebounce(wizardData.tabbyRevision);
   const debouncedTabbyMaxSeqLen = useDebounce(wizardData.tabbyMaxSeqLen);
-  const debouncedVllmModel = useDebounce(wizardData.odooRepo);
+  const debouncedVllmModel = useDebounce(wizardData.vllmModel);
   const debouncedVllmMaxModelLen = useDebounce(wizardData.vllmMaxModelLen);
 
   const {
@@ -55,7 +56,7 @@ export default function AppDeployWizard({
     repo: debouncedVllmModel,
     maxSeqLen: debouncedVllmMaxModelLen,
     cacheMode: 'FP16',
-    gpuCount: wizardData.odooTag && wizardData.odooTag !== '0' ? wizardData.odooTag : '1',
+    gpuCount: wizardData.vllmGpuCount !== '0' ? wizardData.vllmGpuCount : '1',
   }, wizardStep === 4 && wizardData.appType === 'vllm');
 
   const {
@@ -295,13 +296,13 @@ export default function AppDeployWizard({
                 </p>
               </div>
               {renderModelSearchPicker(
-                wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo,
-                (id) => setWizardData(wizardData.appType === 'tabbyapi' ? {...wizardData, tabbyModel: id, tabbyRevision: ''} : {...wizardData, odooRepo: id}),
+                wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.vllmModel,
+                (id) => setWizardData(wizardData.appType === 'tabbyapi' ? {...wizardData, tabbyModel: id, tabbyRevision: ''} : {...wizardData, vllmModel: id}),
                 wizardData.appType === 'tabbyapi' ? 'e.g. qwen, llama, gemma... (filters the exl3 collection)' : undefined,
               )}
-              {(wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo) && (
+              {(wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.vllmModel) && (
                 <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-xs text-blue-300 flex items-center gap-2">
-                  <Check size={14} /> Selected: <span className="font-mono">{wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo}</span>
+                  <Check size={14} /> Selected: <span className="font-mono">{wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.vllmModel}</span>
                 </div>
               )}
               {wizardData.appType === 'tabbyapi' && wizardData.tabbyModel && (
@@ -328,15 +329,15 @@ export default function AppDeployWizard({
           {wizardStep === 4 && wizardData.appType === 'vllm' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.odooTag === '0' ? '0' : wizardData.odooTag || '1'} onChange={e => setWizardData({...wizardData, odooTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
+              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.vllmModel} onChange={e => setWizardData({...wizardData, vllmModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
+              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.vllmGpuCount} onChange={e => setWizardData({...wizardData, vllmGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
                 {loadingVllmModelSize && (
                   <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
                 )}
                 {!loadingVllmModelSize && vllmModelSize?.totalBytes && (
                   <div className="text-[11px] text-blue-400 mt-2 space-y-1">
                     <p>~{(vllmModelSize.totalBytes / 1e9).toFixed(1)} GB download ({vllmModelSize.fileCount} files)</p>
-                    {vllmModelSize.weightBytesPerGpu !== undefined && vllmModelSize.kvCacheBytesPerGpu !== undefined && wizardData.odooTag !== '0' && (
+                    {vllmModelSize.weightBytesPerGpu !== undefined && vllmModelSize.kvCacheBytesPerGpu !== undefined && wizardData.vllmGpuCount !== '0' && (
                       <p className={vllmModelSize.weightBytesPerGpu + vllmModelSize.kvCacheBytesPerGpu > 20e9 ? 'text-amber-400/90' : ''}>
                         Est. VRAM per GPU at {parseInt(wizardData.vllmMaxModelLen || '0').toLocaleString() || 'default'} tokens: ~{((vllmModelSize.weightBytesPerGpu + vllmModelSize.kvCacheBytesPerGpu) / 1e9).toFixed(1)} GB
                         {' '}(weights ~{(vllmModelSize.weightBytesPerGpu / 1e9).toFixed(1)}GB + KV cache ~{(vllmModelSize.kvCacheBytesPerGpu / 1e9).toFixed(1)}GB, fp16 assumed) — rough estimate, check this fits your GPU's VRAM.
@@ -348,7 +349,7 @@ export default function AppDeployWizard({
                   <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID) — deployment will still work.</p>
                 )}
               </div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select value={wizardData.pgRepo || 'nvidia'} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
+              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select value={wizardData.vllmGpuVendor} onChange={e => setWizardData({...wizardData, vllmGpuVendor: e.target.value as 'nvidia' | 'amd'})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
@@ -358,7 +359,7 @@ export default function AppDeployWizard({
                     </span>
                   )}
                 </div>
-                <input type="password" value={wizardData.pgTag || ''} onChange={e => setWizardData({...wizardData, pgTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
+                <input type="password" value={wizardData.vllmHfToken} onChange={e => setWizardData({...wizardData, vllmHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
                 <p className="text-[11px] text-slate-500 mt-1">
                   {hasHfAccount
                     ? "Saved token from Cloud Accounts will automatically be used if left blank. Enter a value above only to override."
@@ -677,7 +678,7 @@ export default function AppDeployWizard({
                 ) : (
                   <>
                     <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
-                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
+                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : wizardData.appType === 'vllm' ? `${wizardData.vllmModel} (${wizardData.vllmGpuCount === '0' ? 'CPU only' : `${wizardData.vllmGpuCount} GPU`})` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
                     {currentUiDefaults.hasDatabase && (
                       <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
                     )}
@@ -687,7 +688,7 @@ export default function AppDeployWizard({
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; onDeploy(payload as WizardData); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(wizardData) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

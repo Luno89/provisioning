@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, at, type Database, type DeploymentMetadata, listAt, principalFrom } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
+import { DeployRequestProblem } from '../lib/deploy-request.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
 import { withoutDeploymentSecrets } from '../lib/deployment-secrets.js';
@@ -66,7 +67,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
         state: 'running',
       });
     } catch (err) {
-      if (err instanceof CapacityError) {
+      if (err instanceof CapacityError || err instanceof DeployRequestProblem) {
         return res.status(400).json({ error: err.message });
       }
       res.status(503).json({ error: `Temporal app deploy unavailable: ${(err as Error).message}` });

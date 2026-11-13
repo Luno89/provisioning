@@ -124,7 +124,13 @@ function valueOf(key: string, kind: Kind, value: unknown): unknown {
   throw new DeployRequestProblem(`${key} should be ${wanted}, not ${JSON.stringify(value)}`);
 }
 
+const NOT_A_MODEL_SERVERS = ['odooRepo', 'odooTag', 'pgRepo', 'pgTag', 'dbRepo', 'dbTag'] as const;
+
 export function deployRequestOf(fields: Record<string, unknown>): DeployRequest {
+  if (fields.appType === 'vllm' || fields.appType === 'tabbyapi') {
+    const sent = NOT_A_MODEL_SERVERS.find((key) => fields[key] !== undefined && fields[key] !== null && fields[key] !== '');
+    if (sent) throw new DeployRequestProblem(`a model server takes no ${sent}: its GPUs, vendor, Hugging Face token and image each have their own field`);
+  }
   const request: Record<string, unknown> = {};
   for (const [key, kind] of Object.entries(KINDS) as [keyof DeployRequest, Kind][]) {
     const value = valueOf(key, kind, fields[key]);

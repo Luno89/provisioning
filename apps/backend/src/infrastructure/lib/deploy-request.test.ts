@@ -21,6 +21,19 @@ describe('a deploy request read from what was sent', () => {
   });
 });
 
+describe('a model server\'s request', () => {
+  it('takes its GPUs, vendor, token and image only in their own fields, refusing another app\'s image and database fields', () => {
+    for (const appType of ['vllm', 'tabbyapi']) {
+      for (const field of ['odooRepo', 'odooTag', 'pgRepo', 'pgTag', 'dbRepo', 'dbTag']) {
+        expect(() => deployRequestOf({ appType, [field]: 'hf_secret' })).toThrow(new RegExp(`a model server takes no ${field}`));
+      }
+    }
+    expect(deployRequestOf({ appType: 'vllm', vllmGpuCount: 1, vllmGpuVendor: 'amd', vllmHfToken: 'hf_secret' }))
+      .toEqual({ appType: 'vllm', vllmGpuCount: 1, vllmGpuVendor: 'amd', vllmHfToken: 'hf_secret' });
+    expect(deployRequestOf({ appType: 'odoo', odooTag: '18.0', pgTag: '16.4' })).toEqual({ appType: 'odoo', odooTag: '18.0', pgTag: '16.4' });
+  });
+});
+
 describe('definedFields', () => {
   it('leaves out what is undefined and keeps every other value', () => {
     expect(definedFields({ a: 'x', b: undefined, c: 0, d: '' })).toEqual({ a: 'x', c: 0, d: '' });

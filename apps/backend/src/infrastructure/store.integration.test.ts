@@ -57,6 +57,14 @@ describe('the deployments store keeps secrets sealed at rest', () => {
     expect((await store.getDeployments()).find((d) => d.id === 'd2')).toMatchObject({ nextcloudAdminPassword: 'admin-pw', searxngSecretKey: 'sx' });
   });
 
+  it('keeps a model server\'s Hugging Face token nowhere in the record but sealed', async () => {
+    await store.saveDeployment(deployment('d3', { appType: 'vllm', vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmGpuCount: 1, vllmHfToken: 'hf_plain_token' }));
+    await store.saveDeployment(deployment('d4', { appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-exl3', tabbyGpuCount: 1, tabbyHfToken: 'hf_plain_token' }));
+
+    for (const id of ['d3', 'd4']) expect(JSON.stringify(await raw(id))).not.toContain('hf_plain_token');
+    expect((await store.getDeployments()).filter((d) => d.id === 'd3' || d.id === 'd4').map((d) => d.vllmHfToken ?? d.tabbyHfToken)).toEqual(['hf_plain_token', 'hf_plain_token']);
+  });
+
   it('reads a record stored plain before sealing, and seals it once', async () => {
     await db.collection('deployments').insertOne({ _id: 'old' as never, name: 'old', clusterId: 'c1', strategy: 'helm', status: 'running', minioRootPassword: 'from-before' });
 
