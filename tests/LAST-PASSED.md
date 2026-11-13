@@ -7,7 +7,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `app-sign-in-live` | 2026-11-13 12:27 | 2026-11-09 16:12 |
 | `browser-live` | 2026-11-13 12:25 | 2026-11-09 20:18 |
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
-| `checks-live` | 2026-11-12 16:52 | 2026-11-10 05:13 |
+| `checks-live` | 2026-11-13 12:55 | 2026-11-10 05:13 |
 | `files-live` | 2026-11-08 21:59 | 2026-11-08 00:36 |
 | `gpu-live` | 2026-11-13 12:29 | 2026-11-11 17:56 |
 | `hardening-live` | 2026-11-05 17:33 | — |
@@ -19,7 +19,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-11-05 19:41 | 2026-11-05 18:44 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
-| `odoo-release-live` | 2026-11-12 16:28 | 2026-11-09 21:05 |
+| `odoo-release-live` | 2026-11-12 16:28 | 2026-11-13 12:33 |
 | `pool-live` | 2026-11-02 05:52 | 2026-10-31 20:44 |
 | `release-live` | 2026-11-02 06:54 | 2026-11-01 23:08 |
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
