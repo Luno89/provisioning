@@ -27,7 +27,8 @@ let files: ReturnType<typeof mock<Files>>;
 const done = (over: Partial<KubeResult> = {}): KubeResult => ({ stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0, ...over });
 
 const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities => createAccountRemovalActivities({
-  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure },
+  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure, platform: db.platform },
+  now: () => Date.parse('2026-11-13T10:00:00.000Z'),
   workflows,
   kube,
   repositories,
@@ -68,6 +69,25 @@ beforeEach(async () => {
 });
 
 describe('the steps that remove an account', () => {
+  it('marks the account closing as a check\'s space never was, raises its fence, and goes on only once every live process holds it', async () => {
+    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
+    let finished = false;
+    const fenced = new MockActivityEnvironment().run(steps().RemoveAccountFenceActivity, { ownerId: 'bo', keepRunsFor: 'ana' }).then(() => { finished = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await db.accounts.getUserById('bo'))?.removal).toEqual({ startedAt: '2026-11-13T10:00:00.000Z', requestedBy: 'ana' });
+    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'owner', id: 'bo' }, at: '2026-11-13T10:00:00.000Z', confirmed: false }]);
+    expect(finished).toBe(false);
+    await db.platform.ackFence({ kind: 'owner', id: 'bo' }, 'engine-1', '2026-11-13T10:00:01.000Z');
+    await fenced;
+    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'owner', id: 'bo' }, at: '2026-11-13T10:00:00.000Z', confirmed: true }]);
+  });
+
+  it('keeps the mark a removal asked from Settings already set', async () => {
+    await db.accounts.saveUser({ ...(await db.accounts.getUserById('bo'))!, removal: { startedAt: 'earlier', requestedBy: 'bo' } });
+    await new MockActivityEnvironment().run(steps().RemoveAccountFenceActivity, { ownerId: 'bo' });
+    expect((await db.accounts.getUserById('bo'))?.removal).toEqual({ startedAt: 'earlier', requestedBy: 'bo' });
+  });
+
   it('stops every workflow it could have running, including the turn still live in a conversation', async () => {
     const stopped = await steps().RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
 

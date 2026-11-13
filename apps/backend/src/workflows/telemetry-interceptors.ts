@@ -3,11 +3,14 @@ import type {
   ActivityInput, ContinueAsNewInput, LocalActivityInput, Next, StartChildWorkflowExecutionInput, WorkflowExecuteInput,
   WorkflowInboundCallsInterceptor, WorkflowInterceptors, WorkflowOutboundCallsInterceptor,
 } from '@temporalio/workflow';
+import { WORK_HEADER } from '@koala/engine-core/work-header';
+
 
 export const TRACE_HEADERS = ['traceparent', 'tracestate'] as const;
+const CARRIED_HEADERS: readonly string[] = [...TRACE_HEADERS, WORK_HEADER];
 
 export const traceHeadersOf = (headers: Headers | undefined): Headers =>
-  Object.fromEntries(TRACE_HEADERS.filter((name) => headers?.[name]).map((name) => [name, headers![name]!]));
+  Object.fromEntries(CARRIED_HEADERS.filter((name) => headers?.[name]).map((name) => [name, headers![name]!]));
 
 export const withTrace = (headers: Headers | undefined, trace: Headers): Headers => ({ ...(headers ?? {}), ...trace });
 

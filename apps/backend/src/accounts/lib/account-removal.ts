@@ -9,11 +9,12 @@ export const REMOVE_ACCOUNT_WORKFLOW = 'RemoveAccountWorkflow';
 export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 
 export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance';
-export const REMOVAL_STEPS: readonly RemovalStep[] = ['workflows', 'workspaces', 'secrets', 'mesh', 'repositories', 'records'];
+export const REMOVAL_STEPS: readonly RemovalStep[] = ['workflows', 'repositories', 'workspaces', 'secrets', 'mesh', 'records'];
 export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
 export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'mesh', 'records'];
 
-export const ACTIVITY_STOP_GRACE_MS = 30_000;
+export const FENCED_REMOVAL = 'fenced-removal';
+export const UNFENCED_STOP_GRACE_MS = 30_000;
 export const DESTROYS_NAMED_ONCE_STARTED = 'destroys-named-once-started';
 
 export interface RemovalRequest {
@@ -110,7 +111,7 @@ export const ACCOUNT_DATA = {
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks'],
+  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'fenceAcks', 'fences', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountIds {

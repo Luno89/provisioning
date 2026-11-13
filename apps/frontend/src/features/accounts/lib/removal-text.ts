@@ -11,7 +11,7 @@ const STEP_NAMES: Record<RemovalStep, string> = {
   instance: 'removing its instance',
 }
 
-const ORDER: RemovalStep[] = ['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']
+const ORDER: RemovalStep[] = ['workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']
 
 export function removalText(state: RemovalState, steps: readonly RemovalStep[] = ORDER): string {
   if (state.state === 'none') return 'Waiting to start'

@@ -22,6 +22,8 @@ import { clientOptionsFor } from './collection.js';
 import { ensureReplicaSet } from './replica-set.js';
 import type { DependencyReporter } from './dependencies.js';
 import { reportMongoReach } from './mongo-reach.js';
+import { fencedDb } from './fenced-db.js';
+import { theFence } from './fence.js';
 
 export { databaseOf, mongoTarget } from './mongo-target.js';
 
@@ -73,7 +75,7 @@ export class MongoDB implements Database {
     for (const reporter of this.reporters) reportMongoReach(this.client, reporter);
     await this.client.connect();
     await ensureReplicaSet(this.client);
-    this.db = this.client.db(dbName);
+    this.db = fencedDb(this.client.db(dbName), theFence());
 
     if (isE2E) {
       await this.db.dropDatabase();

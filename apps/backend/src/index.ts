@@ -57,6 +57,7 @@ import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookU
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
+import { holdFences } from './platform/wiring/fences.js';
 
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
 if (startsHere) dotenv.config({ quiet: true });
@@ -100,6 +101,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   db.reportReachTo(dependencies);
   dependencies.checkWith('mongo', () => db.ping());
   await db.init();
+  await holdFences('backend', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   const { role } = settings;
   const claimSettings = claimSettingsFrom(role);

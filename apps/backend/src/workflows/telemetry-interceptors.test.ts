@@ -29,6 +29,18 @@ describe('the trace a workflow was started under follows its activities and chil
     expect(scheduled.slice(1)).toEqual([{ other, traceparent }, { traceparent }, { traceparent }, { traceparent }]);
   });
 
+  it('carries whose work it is beside the trace, so an activity, a child and the next run of the workflow are fenced as it is', async () => {
+    const work = payload(JSON.stringify({ owner: 'u1', project: 'p1' }));
+    const { inbound, outbound } = interceptors();
+    const scheduled: Headers[] = [];
+    const next = async <I extends { headers: Headers }>(input: I) => { scheduled.push(input.headers); return input; };
+    await inbound![0]!.execute!({ args: [], headers: { traceparent, 'koala-work': work, other } } as never, (async () => undefined) as never);
+    await outbound![0]!.scheduleActivity!({ activityType: 'A', args: [], headers: {}, options: {}, seq: 1 } as never, next as never);
+    void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 2 } as never, next as never);
+    await outbound![0]!.continueAsNew!({ args: [], headers: {}, options: {} } as never, next as never);
+    expect(scheduled).toEqual([{ traceparent, 'koala-work': work }, { traceparent, 'koala-work': work }, { traceparent, 'koala-work': work }]);
+  });
+
   it('is a fresh carrier for each workflow run', async () => {
     const first = interceptors();
     const second = interceptors();

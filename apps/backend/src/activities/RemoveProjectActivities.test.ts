@@ -32,6 +32,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
   },
+  now: () => Date.parse('2026-11-13T10:00:00.000Z'),
   ...over,
 });
 
@@ -64,6 +65,18 @@ beforeEach(async () => {
 });
 
 describe('the steps that delete a project', () => {
+  it('marks the project as being deleted, raises its fence, and goes on only once every live process holds it', async () => {
+    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
+    let finished = false;
+    const fenced = new MockActivityEnvironment().run(steps().RemoveProjectFenceActivity, { projectId: 'p1' }).then(() => { finished = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: '2026-11-13T10:00:00.000Z', requestedBy: 'bo' });
+    expect(finished).toBe(false);
+    await db.platform.ackFence({ kind: 'project', id: 'p1' }, 'engine-1', '2026-11-13T10:00:01.000Z');
+    await fenced;
+    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'project', id: 'p1' }, at: '2026-11-13T10:00:00.000Z', confirmed: true }]);
+  });
+
   it('stops its running builds and its trees\' runs, and no other project\'s, heartbeating as it goes', async () => {
     const env = new MockActivityEnvironment();
     let beats = 0;

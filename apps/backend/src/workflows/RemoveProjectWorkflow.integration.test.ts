@@ -27,7 +27,7 @@ afterAll(async () => {
 });
 
 describe('deleting a project through Temporal', () => {
-  it('stops its runs, destroys its app on the cluster worker, then deletes its workspaces, secrets, repositories, files and records, saying how far it has got', async () => {
+  it('fences the project, stops its runs and deletes its repositories, destroys its app on the cluster worker, then deletes its workspaces, secrets, files and records, saying how far it has got', async () => {
     const seen: string[] = [];
     const clusterQueue = `remove-project-apps-${Math.random().toString(36).slice(2, 8)}`;
     const clusterWorker = await Worker.create({
@@ -45,6 +45,7 @@ describe('deleting a project through Temporal', () => {
     let reached: () => void = () => undefined;
     const atSecrets = new Promise<void>((done) => { reached = done; });
     const activities: ProjectRemovalActivities = {
+      RemoveProjectFenceActivity: async () => { seen.push('fence'); return []; },
       RemoveProjectWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
       RemoveProjectAppsActivity: async () => {
         seen.push('apps');
@@ -72,13 +73,13 @@ describe('deleting a project through Temporal', () => {
       const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
       await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId('p1'), [{ projectId: 'p1' }], 'bo');
       await atSecrets;
-      expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces'] });
+      expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'repositories', 'apps', 'workspaces'] });
       release();
       expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
         stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 2, records: { projects: 1 },
       });
     })));
-    expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'files', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'files', 'records']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);

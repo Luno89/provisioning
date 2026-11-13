@@ -4,6 +4,7 @@ import type { Client } from '@temporalio/client';
 import { ignore } from '@koala/engine-core/failures';
 import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/index.js';
+import { unnamedWork } from '@koala/engine-core/work-for';
 import {
   REMOVAL_PROGRESS_QUERY,
   REMOVE_ACCOUNT_WORKFLOW,
@@ -182,7 +183,7 @@ export class AccountRemovalService {
     const startedAt = this.now();
     await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt, requestedBy: request.requestedBy } });
     await this.deps.revocations?.revoked({ personId: request.ownerId, because: 'account-removed', at: startedAt });
-    await this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
+    await unnamedWork(() => this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId));
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 

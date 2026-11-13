@@ -20,8 +20,8 @@ describe('what the delete-project popup says', () => {
   })
 
   it('says which step it is on, or why it stopped', () => {
-    expect(projectRemovalProgress({ state: 'running', done: ['workflows'] })).toBe('Removing its apps from their clusters (2 of 7)')
-    expect(projectRemovalProgress({ state: 'running', done: ['workflows', 'apps'] })).toBe('Deleting its workspaces (3 of 7)')
+    expect(projectRemovalProgress({ state: 'running', done: ['workflows'] })).toBe('Deleting its repositories (2 of 7)')
+    expect(projectRemovalProgress({ state: 'running', done: ['workflows', 'repositories', 'apps'] })).toBe('Deleting its workspaces (4 of 7)')
     expect(projectRemovalProgress({ state: 'failed', reason: 'Gitea is down' })).toBe('Stopped: Gitea is down')
     expect(projectRemovalProgress({ state: 'finished' })).toBe('Deleted')
   })

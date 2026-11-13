@@ -8,6 +8,7 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { Conversation } from '../engine/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
+import { raiseAndHold, type FenceRecords } from './fence-steps.js';
 import { conversationRepoName, conversationWorkspaceRunId, treeRepoName, treeWorkspaceRunId } from '../engine-host/sandboxes/workspace-repos.js';
 
 export interface RemoveProjectArgs {
@@ -15,8 +16,10 @@ export interface RemoveProjectArgs {
 }
 
 export interface ProjectRemovalStore {
+  platform: FenceRecords;
   projects: {
     getProjects(): Promise<ProjectMetadata[]>;
+    saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
     getTrees(): Promise<Tree[]>;
     saveTree(tree: Tree): Promise<void>;
     getBranches(): Promise<Branch[]>;
@@ -79,9 +82,11 @@ export interface ProjectRemovalDeps {
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
   artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
   files: { removeProjectFiles(ownerId: string, projectId: string): Promise<number> };
+  now?: () => number;
 }
 
 export interface ProjectRemovalActivities {
+  RemoveProjectFenceActivity(args: RemoveProjectArgs): Promise<string[]>;
   RemoveProjectWorkflowsActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectAppsActivity(args: RemoveProjectArgs): Promise<AppToDestroy[]>;
   RemoveProjectAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
@@ -106,8 +111,15 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
   const { store } = deps;
 
   const scopeOf = (projectId: string) => loadProjectScope(store, projectId);
+  const now = deps.now ?? Date.now;
 
   return {
+    async RemoveProjectFenceActivity({ projectId }) {
+      const project = (await store.projects.getProjects()).find((entry) => entry.id === projectId);
+      if (project && !project.removal) await store.projects.saveProjectInfo({ id: projectId, removal: { startedAt: new Date(now()).toISOString(), requestedBy: project.ownerId ?? projectId } });
+      return raiseAndHold(store.platform, { kind: 'project', id: projectId }, now);
+    },
+
     async RemoveProjectWorkflowsActivity({ projectId }) {
       const found = await scopeOf(projectId);
       if (!found) return 0;

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
+import { decryptValue, nodeProcesses, nodeStreams, theFence, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
 import { machineToStart, ownReach, placeOf, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
@@ -93,27 +93,31 @@ export class ClusterAccess {
     }
   }
 
-  async kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
-    return this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input));
+  kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
+    return theFence().guard(async () => this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input)));
   }
 
-  async helm(target: Target, args: readonly string[]): Promise<string> {
-    return this.ran(target, await this.run(target, this.deps.tools.helm, args));
+  helm(target: Target, args: readonly string[]): Promise<string> {
+    return theFence().guard(async () => this.ran(target, await this.run(target, this.deps.tools.helm, args)));
   }
 
-  async apply(target: Target, manifest: string): Promise<string> {
-    const run = await this.run(target, this.deps.tools.kubectl, ['apply', '-f', '-'], manifest);
-    const first = await this.deps.processes.run(run);
-    if (first.code === 0) return first.stdout;
-    if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
-    return this.ran(target, run);
+  apply(target: Target, manifest: string): Promise<string> {
+    return theFence().guard(async () => {
+      const run = await this.run(target, this.deps.tools.kubectl, ['apply', '-f', '-'], manifest);
+      const first = await this.deps.processes.run(run);
+      if (first.code === 0) return first.stdout;
+      if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
+      return this.ran(target, run);
+    });
   }
 
-  async pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
-    const run = await this.run(target, this.deps.tools.kubectl, args);
-    const result = await this.deps.streams.pipe(run, input);
-    if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
-    return result.stdout;
+  pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
+    return theFence().guard(async () => {
+      const run = await this.run(target, this.deps.tools.kubectl, args);
+      const result = await this.deps.streams.pipe(run, input);
+      if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
+      return result.stdout;
+    });
   }
 
   private async ran(target: Target, run: ProcessRun): Promise<string> {
@@ -128,16 +132,16 @@ export class ClusterAccess {
     if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `helm package of ${chartDir} exited ${result.code}`);
   }
 
-  async start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
+  start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    return theFence().guard(async () => this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io));
   }
 
-  async startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    return this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io);
+  startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    return theFence().guard(async () => this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io));
   }
 
-  async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
-    return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
+  follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
+    return theFence().guard(async () => this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput));
   }
 
   private async run(target: Target, command: string, args: readonly string[], input?: string): Promise<ProcessRun> {

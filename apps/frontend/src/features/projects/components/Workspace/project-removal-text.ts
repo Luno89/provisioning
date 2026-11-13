@@ -2,10 +2,10 @@ import type { ProjectRemovalPreview, ProjectRemovalState, ProjectRemovalStep } f
 
 const STEPS: { step: ProjectRemovalStep; doing: string }[] = [
   { step: 'workflows', doing: 'Stopping its runs and builds' },
+  { step: 'repositories', doing: 'Deleting its repositories' },
   { step: 'apps', doing: 'Removing its apps from their clusters' },
   { step: 'workspaces', doing: 'Deleting its workspaces' },
   { step: 'secrets', doing: 'Deleting its secrets' },
-  { step: 'repositories', doing: 'Deleting its repositories' },
   { step: 'files', doing: 'Deleting its files' },
   { step: 'records', doing: 'Deleting its trees, conversations and records' },
 ]

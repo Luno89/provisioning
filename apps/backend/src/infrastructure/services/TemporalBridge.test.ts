@@ -1,3 +1,4 @@
+import { workFor } from '@koala/engine-core/work-for';
 import { WorkflowNotFoundError, type Client, type WorkflowClient, type WorkflowExecutionDescription, type WorkflowExecutionInfo, type WorkflowHandle } from '@temporalio/client';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -184,6 +185,14 @@ describe('a push to a project', () => {
     const started = startedWith(workflow);
     expect(started).toMatchObject({ workflowId: deal.id, taskQueue: 'cluster-ops-queue', args: [{ projectId: 'proj-1', giteaOwner: 'acme', giteaRepo: 'notes', commitSha: SHA, ref: 'refs/heads/main', runId: run?.id }], typedSearchAttributes: startedFor('u1').typedSearchAttributes });
     expect(io.emit).toHaveBeenCalledWith('pipeline-run-updated');
+  });
+
+  it('starts the build as work for its project, so deleting the project fences what the build still does', async () => {
+    const { ready, workflow } = bridge();
+    let during: unknown;
+    workflow.start.mockImplementation((async () => { during = workFor(); return mock(); }) as never);
+    await ready().runPipeline(project, SHA, 'main');
+    expect(during).toEqual({ project: 'proj-1' });
   });
 
   it('marks the project\'s last build queued', async () => {

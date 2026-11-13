@@ -10,6 +10,7 @@ import {
 } from '../lib/project-removal.js';
 import type { ProjectRemovalStore } from '../../activities/RemoveProjectActivities.js';
 import type { AccountRemovalWorkflows, RemovalWorkflowState } from '../../accounts/index.js';
+import { unnamedWork } from '@koala/engine-core/work-for';
 
 export type ProjectRemovalState = RemovalWorkflowState<ProjectRemovalStep>;
 
@@ -67,7 +68,7 @@ export class ProjectRemovalService {
     if (current.state === 'running') return { ok: true, state: current };
     if (this.deps.hub && await this.deps.hub.shared(projectId)) await this.deps.hub.takeBack(ownerId, projectId);
     await this.deps.store.projects.saveProject({ ...loaded.project, removal: { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId } });
-    await this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId);
+    await unnamedWork(() => this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId));
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 }

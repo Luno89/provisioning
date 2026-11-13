@@ -46,6 +46,14 @@
     "./reopening": {
       "types": "./src/reopening.ts",
       "default": "./src/reopening.ts"
+    },
+    "./work-for": {
+      "types": "./src/work-for.ts",
+      "default": "./src/work-for.ts"
+    },
+    "./work-header": {
+      "types": "./src/work-header.ts",
+      "default": "./src/work-header.ts"
     }
   },
   "dependencies": {

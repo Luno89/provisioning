@@ -5,28 +5,29 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { ACTIVITY_STOP_GRACE_MS, REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
+import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
-import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-  env = await clockSkippingEnvironment();
+  env = await realTemporalEnvironment();
 }, 120_000);
 
 afterAll(async () => {
   await env?.teardown();
 });
 
-const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}, named: string[] = []): AccountRemovalActivities => ({
+const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
+  RemoveAccountFenceActivity: async () => { seen.push('fence'); return ['engine-1']; },
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
-  RemoveAccountAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
+  RemoveAccountAppStartedActivity: async () => undefined,
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },
@@ -47,31 +48,24 @@ const withWorker = async (activities: AccountRemovalActivities, body: (workflows
   await worker.runUntil(() => body(temporalRemovalWorkflows(() => env.client, taskQueue)));
 };
 
-
 describe('removing an account that still had something running', () => {
-  it('waits for the activities of what it stopped to wind down, then hands the runs over, before anything is deleted', async () => {
+  it('waits on no timer: it fences the account first, then stops its runs, deletes its repositories and hands its runs over, before anything else is deleted', async () => {
     const seen: string[] = [];
     await withWorker(fakeSteps(seen, { RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 2; } }), async (workflows) => {
-      const started = Date.now();
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('space-1'), [{ ownerId: 'space-1', keepRunsFor: 'bo' }], 'space-1');
       const handle = env.client.workflow.getHandle(removeAccountWorkflowId('space-1'));
       await handle.result();
-      const history = await handle.fetchHistory();
-      const timers = (history.events ?? []).filter((event) => event.timerStartedEventAttributes);
-      expect(timers.map((event) => Number(event.timerStartedEventAttributes!.startToFireTimeout!.seconds))).toEqual([ACTIVITY_STOP_GRACE_MS / 1000]);
-      expect(Date.now() - started).toBeLessThan(ACTIVITY_STOP_GRACE_MS);
-    });
-    expect(seen).toEqual(['workflows', 'keep for bo', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
-  });
-
-  it('does not wait when nothing was running, and keeps no runs unless asked', async () => {
-    const seen: string[] = [];
-    await withWorker(fakeSteps(seen, { RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; } }), async (workflows) => {
-      await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('grace-cy'), [{ ownerId: 'grace-cy' }], 'grace-cy');
-      const handle = env.client.workflow.getHandle(removeAccountWorkflowId('grace-cy'));
-      await handle.result();
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes)).toBe(false);
     });
-    expect(seen).toEqual(['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'keep for bo', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
+  });
+
+  it('keeps no runs unless asked', async () => {
+    const seen: string[] = [];
+    await withWorker(fakeSteps(seen), async (workflows) => {
+      await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('grace-cy'), [{ ownerId: 'grace-cy' }], 'grace-cy');
+      await env.client.workflow.getHandle(removeAccountWorkflowId('grace-cy')).result();
+    });
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
   });
 });

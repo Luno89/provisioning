@@ -27,6 +27,7 @@ afterAll(async () => {
 });
 
 const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
+  RemoveAccountFenceActivity: async () => { seen.push('fence'); return []; },
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
@@ -52,7 +53,7 @@ const withWorker = async (activities: AccountRemovalActivities, body: (workflows
 };
 
 describe('removing an account through Temporal', () => {
-  it('stops its workflows, then destroys its apps and deletes its workspaces, secrets, mesh, repositories and records, in that order', async () => {
+  it('fences the account, stops its workflows and deletes its repositories, then destroys its apps and deletes its workspaces, secrets, mesh and records, in that order', async () => {
     const seen: string[] = [];
     await withWorker(fakeSteps(seen), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('bo'), [{ ownerId: 'bo' }], 'bo');
@@ -61,7 +62,7 @@ describe('removing an account through Temporal', () => {
       });
       expect(await workflows.state(removeAccountWorkflowId('bo'))).toEqual({ state: 'finished' });
     });
-    expect(seen).toEqual(['workflows', 'apps', 'workspaces', 'secrets', 'mesh', 'repositories', 'records']);
+    expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']);
   }, 60_000);
 
   it('says how far it has got while it runs', async () => {
@@ -72,7 +73,7 @@ describe('removing an account through Temporal', () => {
     await withWorker(fakeSteps([], { RemoveAccountMeshActivity: async () => { reached(); await held; return { devices: 0, user: false }; } }), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('cy'), [{ ownerId: 'cy' }], 'cy');
       await atMesh;
-      expect(await workflows.state(removeAccountWorkflowId('cy'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] });
+      expect(await workflows.state(removeAccountWorkflowId('cy'))).toEqual({ state: 'running', done: ['workflows', 'repositories', 'apps', 'workspaces', 'secrets'] });
       release();
       await env.client.workflow.getHandle(removeAccountWorkflowId('cy')).result();
     });
@@ -86,7 +87,7 @@ describe('removing an account through Temporal', () => {
     });
   }, 60_000);
 
-  it('destroys each of its apps on the cluster worker before it deletes anything else', async () => {
+  it('destroys each of its apps on the cluster worker before it deletes its workspaces and records', async () => {
     const seen: string[] = [];
     const clusterQueue = `remove-account-apps-${Math.random().toString(36).slice(2, 8)}`;
     const destroyed: string[] = [];
@@ -110,7 +111,7 @@ describe('removing an account through Temporal', () => {
     }));
     expect(destroyed).toEqual(['shop in shop-1a2b3c']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
-    expect(seen.slice(0, 4)).toEqual(['workflows', 'apps', 'destroyed', 'workspaces']);
+    expect(seen.slice(0, 6)).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroyed', 'workspaces']);
   }, 60_000);
 
   it('knows nothing of an account that was never being removed', async () => {

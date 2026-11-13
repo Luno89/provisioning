@@ -526,11 +526,15 @@ terminating: a cancelled agent run still runs its own ending — it ends `interr
 back. Only one that has not closed within `STOP_WAIT_MS` of being cancelled is terminated. Terminating skips all of
 that, so a task the run was working on would stay `running` forever.
 
-A closed workflow does not stop an activity already in flight (engine activities are abandoned on cancel), so when
-removal stopped anything it waits
-`ACTIVITY_STOP_GRACE_MS` (a few node heartbeats — an activity hears it was stopped on its next one) before it hands
-runs over (`keepRunsFor`, what the check runner uses) and deletes records. It finds runs through the turn logs, and
-each run's memory keeper by name (`memoryRunId`); the memory keeper never runs for a check's space.
+A closed workflow does not stop an activity already in flight (engine activities are abandoned on cancel), so removal
+and project deletion **fence** what they remove before they stop anything (owner, 2026-11-13: "C sounds right", "with the
+confirmation step"): they mark it closing, raise its fence, and go on only once every live Koala process has said it holds
+the fence and nothing that got past it is still writing; no timer is waited on. Every piece of work carries whose it is
+(its owner, and its project where it has one) from the start that named it to every activity and workflow it leads to,
+and every write a fenced owner's or project's work makes, to Mongo, MinIO, Infisical or a cluster, is refused. Removal's
+own steps name nobody and are never fenced, and a fence is kept after the removal ends, so a step that hears it was
+stopped only later still writes nothing. Gitea goes first, so a late push is refused. It finds runs through the turn
+logs, and each run's memory keeper by name (`memoryRunId`); the memory keeper never runs for a check's space.
 
 **Project deletion** (`RemoveProjectWorkflow`, the "Delete project" popup on a project's page, which lists what
 goes before anything does) deletes the trees whose home is the project, with their leaves, conversations, workspaces

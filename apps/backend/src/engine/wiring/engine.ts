@@ -74,6 +74,7 @@ import { askingPush, type PushMessage } from '../../monitoring/index.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from '../routes/poisoning.js';
 import type { MachineClusterRecords } from '../../engine-host/temporal/activities.js';
+import { withWorkFor } from '@koala/engine-core/work-for';
 
 const POISONING_TELL_EVERY_MS = 30_000;
 
@@ -185,13 +186,13 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     workflows: () => (temporalBridge.isReady()
       ? {
         start: async (type, options) => {
-          const handle = await temporalBridge.client.workflow.start(type, {
+          const handle = await withWorkFor({ project: options.project }, () => temporalBridge.client.workflow.start(type, {
             workflowId: options.workflowId,
             taskQueue: options.taskQueue,
             args: options.args,
             memo: options.memo,
             ...startedFor(options.owner),
-          });
+          }));
           return { workflowId: handle.workflowId };
         },
         signal: async (workflowId, name, payload) => {

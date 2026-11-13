@@ -1,4 +1,4 @@
-import { listAt, numberAt, reportStatus, textAt, thrownFor, type DependencyReporter } from '../../platform/index.js';
+import { listAt, numberAt, reportStatus, textAt, theFence, thrownFor, type DependencyReporter } from '../../platform/index.js';
 import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -224,14 +224,16 @@ export class InfisicalService {
     return id;
   }
 
-  private async inWorkspace<T>(projectId: string, call: (workspaceId: string) => Promise<T>): Promise<T> {
-    try {
-      return await call(await this.ensureWorkspace(projectId));
-    } catch (err) {
-      if (!workspaceGone(err)) throw err;
-      this.workspaceCache.delete(projectId);
-      return call(await this.ensureWorkspace(projectId));
-    }
+  private inWorkspace<T>(projectId: string, call: (workspaceId: string) => Promise<T>): Promise<T> {
+    return theFence().guard(async () => {
+      try {
+        return await call(await this.ensureWorkspace(projectId));
+      } catch (err) {
+        if (!workspaceGone(err)) throw err;
+        this.workspaceCache.delete(projectId);
+        return call(await this.ensureWorkspace(projectId));
+      }
+    });
   }
 
   async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
@@ -334,7 +336,11 @@ export class InfisicalService {
     });
   }
 
-  async createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }> {
+  createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }> {
+    return theFence().guard(() => this.newProjectReader(projectId));
+  }
+
+  private async newProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }> {
     await this.ensureWorkspace(projectId);
     const reader = await this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };

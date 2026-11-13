@@ -2,6 +2,8 @@ import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Client } from 'minio';
+import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
+import { theFence } from '../../platform/index.js';
 import { minioObjectStore, ObjectMissing, type MinioSettings } from './ObjectStore.js';
 
 const SETTINGS: MinioSettings = { endPoint: 'luno-minio', port: 9000, useSSL: false, accessKey: 'k', secretKey: 's', bucket: 'koala' };
@@ -82,5 +84,18 @@ describe('the instance\'s MinIO as the store of stored files\' bytes', () => {
     for await (const id of minioObjectStore(SETTINGS, client).ids()) ids.push(id);
     expect(ids).toEqual(['a', 'c']);
     expect(client.listObjectsV2).toHaveBeenCalledWith('koala', 'files/', true);
+  });
+
+  it('keeps and removes no bytes for an account being removed, and still serves them', async () => {
+    theFence().close({ kind: 'owner', id: 'leaving-files' });
+    const client = clientWith(true);
+    client.getObject.mockResolvedValue(Readable.from([Buffer.from('x')]) as never);
+    const store = minioObjectStore(SETTINGS, client);
+    const leaving = <T>(run: () => Promise<T>) => withWorkFor({ owner: 'leaving-files' }, run);
+    await expect(leaving(() => store.put('f1', Readable.from([Buffer.from('x')]), 1, 'text/plain'))).rejects.toBeInstanceOf(WorkStopped);
+    await expect(leaving(() => store.remove('f1'))).rejects.toBeInstanceOf(WorkStopped);
+    expect(client.putObject).not.toHaveBeenCalled();
+    expect(client.removeObject).not.toHaveBeenCalled();
+    await expect(leaving(() => store.get('f1'))).resolves.toBeDefined();
   });
 });

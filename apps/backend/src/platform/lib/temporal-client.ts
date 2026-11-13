@@ -1,6 +1,8 @@
 import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
 import protos from '@temporalio/proto'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
+import { WORK_HEADER, workFor, workHeader, workIsUnnamed } from '@koala/engine-core/work-for'
+import type { Payload } from '@temporalio/common'
 import { buildDataConverter } from './temporal-codec.js'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
@@ -71,6 +73,20 @@ export const requireOwner: WorkflowClientInterceptor = {
   },
 }
 
+function withItsWork<T extends { headers: Record<string, Payload>; options: { typedSearchAttributes?: Parameters<typeof ownerIn>[0] } }>(input: T): T {
+  if (workIsUnnamed()) return input
+  const owner = ownerIn(input.options.typedSearchAttributes)
+  const project = workFor()?.project
+  if (!owner && !project) return input
+  return { ...input, headers: { ...input.headers, [WORK_HEADER]: workHeader({ owner, project }) } }
+}
+
+export const namesItsWork: WorkflowClientInterceptor = {
+  start: (input, next) => next(withItsWork(input)),
+  startWithDetails: (input, next) => next(withItsWork(input)),
+  signalWithStart: (input, next) => next(withItsWork(input)),
+}
+
 export async function registerOwnerAttribute(connection: Connection, namespace: string, adminKey?: string): Promise<void> {
   const add = () => connection.operatorService.addSearchAttributes({
     namespace,
@@ -100,7 +116,7 @@ export async function getTemporalClient(): Promise<Client> {
   shared = new Client({
     connection,
     namespace: temporal.namespace,
-    interceptors: { workflow: [requireOwner, traceWorkflowStarts()] },
+    interceptors: { workflow: [namesItsWork, requireOwner, traceWorkflowStarts()] },
     ...(dataConverter ? { dataConverter } : {}),
   })
   return shared

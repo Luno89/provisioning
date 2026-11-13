@@ -71,11 +71,3 @@ describe('the records an account leaves', () => {
     expect([...used].filter((name) => !classified.has(name)).sort()).toEqual([]);
   });
 });
-
-describe('how long removal waits after stopping a run', () => {
-  it('outlasts at least two heartbeats, the most an engine activity takes to hear it was stopped and stop writing', async () => {
-    const { ACTIVITY_STOP_GRACE_MS } = await import('./account-removal.js');
-    const { NODE_HEARTBEAT_MS } = await import('../../engine-host/temporal/activities.js');
-    expect(ACTIVITY_STOP_GRACE_MS).toBeGreaterThanOrEqual(2 * NODE_HEARTBEAT_MS);
-  });
-});

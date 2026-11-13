@@ -82,6 +82,8 @@ import { ignore } from '@koala/engine-core/failures';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
+import { withWorkFor } from '@koala/engine-core/work-for';
+import { holdFences } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +94,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
   db.reportReachTo(dependencies);
   await db.init();
+  await holdFences('worker-engine', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
@@ -352,7 +355,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     registry,
     workflows: () => ({
       start: async (type, options) => {
-        const handle = await temporal.workflow.start(type, { workflowId: options.workflowId, taskQueue: options.taskQueue, args: options.args, memo: options.memo, ...startedFor(options.owner) });
+        const handle = await withWorkFor({ project: options.project }, () => temporal.workflow.start(type, { workflowId: options.workflowId, taskQueue: options.taskQueue, args: options.args, memo: options.memo, ...startedFor(options.owner) }));
         return { workflowId: handle.workflowId };
       },
       signal: async (workflowId, name, payload) => { await temporal.workflow.getHandle(workflowId).signal(name, ...(payload === undefined ? [] : [payload])); },

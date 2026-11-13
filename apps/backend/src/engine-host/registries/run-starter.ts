@@ -19,6 +19,7 @@ export interface WorkflowStarter {
       taskQueue: string;
       args: unknown[];
       owner: string;
+      project?: string | undefined;
       memo: Record<string, unknown>;
     },
   ): Promise<{ workflowId: string }>;
@@ -198,6 +199,7 @@ export function createRunStarter(options: RunStarterOptions) {
           taskQueue: queue,
           args: [input],
           owner: request.ownerId,
+          project: request.actingFor?.projectId ?? request.keptTo ?? request.projectId ?? request.bound?.projectId ?? bound?.projectId,
           memo: {
             [RUN_ID_MEMO]: runId,
             [RUN_AGENT_MEMO]: request.agentSlug,

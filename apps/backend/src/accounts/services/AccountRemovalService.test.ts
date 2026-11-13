@@ -1,3 +1,4 @@
+import { withWorkFor, workIsUnnamed } from '@koala/engine-core/work-for';
 import type { Client } from '@temporalio/client';
 import { describe, expect, it } from 'vitest';
 import { mock, mockDeep } from 'vitest-mock-extended';
@@ -78,6 +79,14 @@ describe('removing an account', () => {
     expect((await db.accounts.getUserById('bob'))?.removal).toEqual({ startedAt: 'now', requestedBy: 'bob' });
     expect(revoked).toEqual([{ personId: 'bob', because: 'account-removed', at: 'now' }]);
     expect(workflows.start).toHaveBeenCalledWith(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('bob'), [{ ownerId: 'bob' }], 'bob');
+  });
+
+  it('starts the removal as work for nobody, so the fence it raises round the account never stops its own steps', async () => {
+    const { workflows, service } = await set();
+    let unnamed: boolean | undefined;
+    workflows.start.mockImplementation(async () => { unnamed = workIsUnnamed(); });
+    await withWorkFor({ owner: 'bob' }, () => service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob));
+    expect(unnamed).toBe(true);
   });
 
   it('starts root\'s own removal where it is told to', async () => {

@@ -2,6 +2,7 @@ import { ApplicationFailure, TemporalFailure } from '@temporalio/common';
 import { failureOf } from './failures.js';
 import { heartbeatWhileRunning } from './liveness.js';
 import { traceActivities } from './telemetry.js';
+import { carryWorkFor } from './work-for.js';
 
 export { WAITING_RETRY } from './failures.js';
 
@@ -35,4 +36,4 @@ export function classifiedFailures() {
   });
 }
 
-export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), classifiedFailures()];
+export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), carryWorkFor(), classifiedFailures()];

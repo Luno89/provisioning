@@ -26,6 +26,7 @@ import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies 
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
+import { holdFencesIn } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +56,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
+  await holdFencesIn('worker-cluster', settings.mongo);
   const dataKey = settings.keys.data;
   const steps: ClusterSteps = {
     access,

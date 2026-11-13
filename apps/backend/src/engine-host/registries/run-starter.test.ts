@@ -82,6 +82,20 @@ describe('an account being removed', () => {
   });
 });
 
+describe('a run that works for a project', () => {
+  it('names the project it works for when it starts, so deleting the project fences what the run still does', async () => {
+    const start = vi.fn(async (_type: string, _options: { project?: string | undefined }) => ({ workflowId: 'x' }));
+    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), binding: async () => ({ projectId: 'p3', treeId: 't3' }) });
+
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', projectId: 'p1', bound: { treeId: 't1' } });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'release', bound: { projectId: 'p2' } });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c3' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' });
+
+    expect(start.mock.calls.map(([, options]) => options.project)).toEqual(['p1', 'p2', 'p3', undefined]);
+  });
+});
+
 describe('a run whose workflow is kept for one run at a time', () => {
   it('starts under the workflow its run id belongs to, remembers the run id, its agent, conversation and what it is about, and is reached through that workflow', async () => {
     const start = vi.fn(async (_type: string, options: { workflowId: string }) => ({ workflowId: options.workflowId }));

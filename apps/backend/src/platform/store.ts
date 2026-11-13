@@ -5,6 +5,7 @@ import type { EndedSession } from './lib/ended-sessions.js';
 import { watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
 import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
+import { closingOf, fenceIdOf, type Closing, type KoalaProcess, type RaisedFence } from './lib/fence.js';
 
 export interface PlatformStore extends AreaStore {
   hasMigration(name: string): Promise<boolean>;
@@ -17,9 +18,26 @@ export interface PlatformStore extends AreaStore {
   clearAttempts(key: string): Promise<void>;
   saveDependencyState(row: DependencyStateRow): Promise<void>;
   dependencyStates(): Promise<DependencyStateRow[]>;
+  raiseFence(closing: Closing, at: string): Promise<void>;
+  fencesRaised(): Promise<RaisedFence[]>;
+  watchFences(on: (fence: RaisedFence) => void): Watching;
+  ackFence(closing: Closing, process: string, at: string): Promise<void>;
+  fenceAcks(closing: Closing): Promise<string[]>;
+  watchFenceAcks(on: (ack: { closing: Closing; process: string }) => void): Watching;
+  confirmFence(closing: Closing): Promise<void>;
+  beatProcess(process: KoalaProcess, at: string): Promise<void>;
+  forgetProcess(id: string): Promise<void>;
+  processesSeenSince(at: string): Promise<KoalaProcess[]>;
+  watchProcesses(on: () => void): Watching;
 }
 
 const PROCESSES: readonly string[] = ['backend', 'worker-host', 'worker-cluster', 'worker-engine'];
+
+const raisedFenceFrom = (doc: Record<string, unknown>): RaisedFence => ({
+  closing: { kind: doc.kind === 'project' ? 'project' : 'owner', id: String(doc.id) },
+  at: String(doc.at),
+  confirmed: doc.confirmed === true,
+});
 
 export function dependencyStateFrom(doc: Record<string, unknown>): DependencyStateRow | undefined {
   const { process, dependency, state, since, reason, at } = doc;
@@ -50,10 +68,72 @@ export class MongoPlatformStore implements PlatformStore {
     return this.db().collection('signInAttempts');
   }
 
+  private get fences() {
+    return this.db().collection('fences');
+  }
+
+  private get fenceAckRows() {
+    return this.db().collection('fenceAcks');
+  }
+
+  private get processes() {
+    return this.db().collection('koalaProcesses');
+  }
+
   async ensureIndexes(): Promise<void> {
     await this.endedSessions.createIndex({ until: 1 }, { expireAfterSeconds: 0 });
     await this.endedSessions.createIndex({ at: 1 });
     await this.signInAttempts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.fenceAckRows.createIndex({ fence: 1 });
+    await this.processes.createIndex({ beatAt: 1 });
+  }
+
+  async raiseFence(closing: Closing, at: string): Promise<void> {
+    await this.fences.updateOne({ _id: fenceIdOf(closing) as never }, { $setOnInsert: { kind: closing.kind, id: closing.id, at, confirmed: false } }, { upsert: true });
+  }
+
+  async fencesRaised(): Promise<RaisedFence[]> {
+    return (await this.fences.find({}).toArray()).map(raisedFenceFrom);
+  }
+
+  watchFences(on: (fence: RaisedFence) => void): Watching {
+    return watchWrites(() => this.fences, {}, (doc) => on(raisedFenceFrom(doc)));
+  }
+
+  async ackFence(closing: Closing, process: string, at: string): Promise<void> {
+    await this.fenceAckRows.updateOne({ _id: `${fenceIdOf(closing)}|${process}` as never }, { $set: { fence: fenceIdOf(closing), process, at } }, { upsert: true });
+  }
+
+  async fenceAcks(closing: Closing): Promise<string[]> {
+    return (await this.fenceAckRows.find({ fence: fenceIdOf(closing) }).toArray()).map((doc) => String(doc.process));
+  }
+
+  watchFenceAcks(on: (ack: { closing: Closing; process: string }) => void): Watching {
+    return watchWrites(() => this.fenceAckRows, {}, (doc) => {
+      const closing = closingOf(String(doc.fence));
+      if (closing) on({ closing, process: String(doc.process) });
+    });
+  }
+
+  async confirmFence(closing: Closing): Promise<void> {
+    await this.fences.updateOne({ _id: fenceIdOf(closing) as never }, { $set: { confirmed: true } });
+    await this.fenceAckRows.deleteMany({ fence: fenceIdOf(closing) });
+  }
+
+  async beatProcess(process: KoalaProcess, at: string): Promise<void> {
+    await this.processes.updateOne({ _id: process.id as never }, { $set: { name: process.name, beatAt: new Date(at) } }, { upsert: true });
+  }
+
+  async forgetProcess(id: string): Promise<void> {
+    await this.processes.deleteOne({ _id: id as never });
+  }
+
+  async processesSeenSince(at: string): Promise<KoalaProcess[]> {
+    return (await this.processes.find({ beatAt: { $gte: new Date(at) } }).toArray()).map((doc) => ({ id: String(doc._id), name: String(doc.name) }));
+  }
+
+  watchProcesses(on: () => void): Watching {
+    return watchWrites(() => this.processes, {}, () => on());
   }
 
   async hasMigration(name: string): Promise<boolean> {

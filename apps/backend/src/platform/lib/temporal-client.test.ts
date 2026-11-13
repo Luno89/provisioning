@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { onceOwnerMapped, ownerNotYetMapped, requireOwner, resolveOwnersWith } from './temporal-client.js';
+import { unnamedWork, withWorkFor, workFromHeaders } from '@koala/engine-core/work-for';
+import { namesItsWork, onceOwnerMapped, ownerNotYetMapped, requireOwner, resolveOwnersWith } from './temporal-client.js';
 import { UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js';
 
 const input = (owned: boolean) => ({
@@ -31,6 +32,28 @@ describe('every workflow the platform starts says whose it is', () => {
     } finally {
       resolveOwnersWith(undefined);
     }
+  });
+});
+
+describe('every workflow the platform starts says whose work it is, so a removal can fence it', () => {
+  const headersOf = async (start: () => Promise<unknown>, next: ReturnType<typeof vi.fn>) => {
+    await start();
+    return workFromHeaders((next.mock.calls[0]![0] as { headers: Record<string, never> }).headers);
+  };
+
+  it('names the owner the start names, before a check space is taken for its person', async () => {
+    const next = vi.fn(async () => 'started');
+    expect(await headersOf(() => namesItsWork.start!(input(true), next as never), next)).toEqual({ owner: 'bo' });
+  });
+
+  it('carries the project of the work it is started from, beside the owner the start names', async () => {
+    const next = vi.fn(async () => 'started');
+    expect(await headersOf(() => withWorkFor({ owner: 'someone', project: 'p1' }, () => namesItsWork.start!(input(true), next as never)), next)).toEqual({ owner: 'bo', project: 'p1' });
+  });
+
+  it('names nothing for a start made by a removal\'s own step, whose work must never be fenced', async () => {
+    const next = vi.fn(async () => 'started');
+    expect(await headersOf(() => unnamedWork(() => namesItsWork.start!(input(true), next as never)), next)).toBeUndefined();
   });
 });
 

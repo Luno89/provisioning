@@ -1,6 +1,6 @@
 import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, startChild, workflowInfo } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
-import { ACTIVITY_STOP_GRACE_MS, DESTROYS_NAMED_ONCE_STARTED } from '../accounts/lib/account-removal.js';
+import { DESTROYS_NAMED_ONCE_STARTED, FENCED_REMOVAL, UNFENCED_STOP_GRACE_MS } from '../accounts/lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { PROJECT_FILES_PATCH, PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
@@ -36,9 +36,16 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   const done: ProjectRemovalStep[] = [];
   setHandler(projectRemovalProgressQuery, () => [...done]);
 
+  const fenced = patched(FENCED_REMOVAL);
+  if (fenced) await steps.RemoveProjectFenceActivity(args);
   const stoppedWorkflows = await steps.RemoveProjectWorkflowsActivity(args);
-  if (stoppedWorkflows > 0) await sleep(ACTIVITY_STOP_GRACE_MS);
+  if (!fenced && stoppedWorkflows > 0) await sleep(UNFENCED_STOP_GRACE_MS);
   done.push('workflows');
+  let repositories: string[] = [];
+  if (fenced) {
+    repositories = await steps.RemoveProjectRepositoriesActivity(args);
+    done.push('repositories');
+  }
   const apps = await steps.RemoveProjectAppsActivity(args);
   for (const app of apps) {
     if (patched(DESTROYS_NAMED_ONCE_STARTED)) {
@@ -54,8 +61,10 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   done.push('workspaces');
   const secrets = await steps.RemoveProjectSecretsActivity(args);
   done.push('secrets');
-  const repositories = await steps.RemoveProjectRepositoriesActivity(args);
-  done.push('repositories');
+  if (!fenced) {
+    repositories = await steps.RemoveProjectRepositoriesActivity(args);
+    done.push('repositories');
+  }
   const files = patched(PROJECT_FILES_PATCH) ? await steps.RemoveProjectFilesActivity(args) : 0;
   if (patched(PROJECT_FILES_PATCH)) done.push('files');
   const records = await steps.RemoveProjectRecordsActivity(args);

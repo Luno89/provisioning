@@ -2,7 +2,8 @@ import { Context } from '@temporalio/activity';
 import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
-import { type DeploymentMetadata, type RoleConfig, CLI_CEILING, holdsAccounts } from '../platform/index.js';
+import { type DeploymentMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts } from '../platform/index.js';
+import { raiseAndHold, type FenceRecords } from './fence-steps.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
 
 export interface RemoveAccountArgs {
@@ -12,7 +13,10 @@ export interface RemoveAccountArgs {
 
 export interface AccountRemovalDeps {
   store: {
+    platform: FenceRecords;
     accounts: {
+      getUserById(id: string): Promise<UserMetadata | undefined>;
+      saveUser(user: UserMetadata): Promise<void>;
       accountIds(ownerId: string): Promise<AccountIds>;
       removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
     };
@@ -37,6 +41,7 @@ export interface AccountRemovalDeps {
   mesh: { removeUser(ownerId: string): Promise<{ devices: number; user: boolean }> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
   files: { removeOwned(ownerId: string): Promise<number> };
+  now?: () => number;
 }
 
 export type RemovalMesh = AccountRemovalDeps['mesh'];
@@ -47,6 +52,7 @@ export const removalMeshFor = (role: RoleConfig, headscale: () => RemovalMesh): 
   holdsAccounts(role) ? headscale() : NO_MESH_HERE;
 
 export interface AccountRemovalActivities {
+  RemoveAccountFenceActivity(args: RemoveAccountArgs): Promise<string[]>;
   RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountKeepRunsActivity(args: { ownerId: string; keepRunsFor: string }): Promise<number>;
   RemoveAccountAppsActivity(args: RemoveAccountArgs): Promise<AppToDestroy[]>;
@@ -70,7 +76,15 @@ const heartbeat = () => {
 };
 
 export function createAccountRemovalActivities(deps: AccountRemovalDeps): AccountRemovalActivities {
+  const now = deps.now ?? Date.now;
   return {
+    async RemoveAccountFenceActivity({ ownerId, keepRunsFor }) {
+      const at = new Date(now()).toISOString();
+      const user = await deps.store.accounts.getUserById(ownerId);
+      if (user && !user.removal) await deps.store.accounts.saveUser({ ...user, removal: { startedAt: at, requestedBy: keepRunsFor ?? ownerId } });
+      return raiseAndHold(deps.store.platform, { kind: 'owner', id: ownerId }, now);
+    },
+
     async RemoveAccountWorkflowsActivity({ ownerId }) {
       const ids = ownedWorkflowIds(ownerId, await deps.store.accounts.accountIds(ownerId));
       let stopped = 0;

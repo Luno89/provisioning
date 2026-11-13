@@ -1,7 +1,7 @@
 import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, startChild } from '@temporalio/workflow';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
-import { ACTIVITY_STOP_GRACE_MS, DESTROYS_NAMED_ONCE_STARTED, REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../accounts/lib/account-removal.js';
+import { DESTROYS_NAMED_ONCE_STARTED, FENCED_REMOVAL, REMOVAL_PROGRESS_QUERY, UNFENCED_STOP_GRACE_MS, type RemovalStep } from '../accounts/lib/account-removal.js';
 import type { AccountRemovalActivities, RemoveAccountArgs } from '../activities/RemoveAccountActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
@@ -25,10 +25,20 @@ export async function RemoveAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
   const done: RemovalStep[] = [];
   setHandler(removalProgressQuery, () => [...done]);
 
+  const fenced = patched(FENCED_REMOVAL);
+  if (fenced) await steps.RemoveAccountFenceActivity(args);
   const stoppedWorkflows = await steps.RemoveAccountWorkflowsActivity(args);
-  if (stoppedWorkflows > 0) await sleep(ACTIVITY_STOP_GRACE_MS);
-  if (args.keepRunsFor) await steps.RemoveAccountKeepRunsActivity({ ownerId: args.ownerId, keepRunsFor: args.keepRunsFor });
-  done.push('workflows');
+  if (!fenced && stoppedWorkflows > 0) await sleep(UNFENCED_STOP_GRACE_MS);
+  let repositories = false;
+  if (fenced) {
+    done.push('workflows');
+    repositories = await steps.RemoveAccountRepositoriesActivity(args);
+    done.push('repositories');
+    if (args.keepRunsFor) await steps.RemoveAccountKeepRunsActivity({ ownerId: args.ownerId, keepRunsFor: args.keepRunsFor });
+  } else {
+    if (args.keepRunsFor) await steps.RemoveAccountKeepRunsActivity({ ownerId: args.ownerId, keepRunsFor: args.keepRunsFor });
+    done.push('workflows');
+  }
   const apps = await steps.RemoveAccountAppsActivity(args);
   for (const app of apps) {
     if (patched(DESTROYS_NAMED_ONCE_STARTED)) {
@@ -46,8 +56,10 @@ export async function RemoveAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
   done.push('secrets');
   const mesh = await steps.RemoveAccountMeshActivity(args);
   done.push('mesh');
-  const repositories = await steps.RemoveAccountRepositoriesActivity(args);
-  done.push('repositories');
+  if (!fenced) {
+    repositories = await steps.RemoveAccountRepositoriesActivity(args);
+    done.push('repositories');
+  }
   const records = await steps.RemoveAccountRecordsActivity(args);
   done.push('records');
 

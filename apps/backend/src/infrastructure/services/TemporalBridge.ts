@@ -1,3 +1,4 @@
+import { withWorkFor } from '@koala/engine-core/work-for'
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
@@ -946,12 +947,12 @@ export class TemporalBridge {
     })
     await this.db.projects.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
 
-    await this.client.workflow.start(executePipelineRunWorkflow, {
+    await withWorkFor({ project: project.id }, () => this.client!.workflow.start(executePipelineRunWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
       ...startedFor(project.ownerId ?? PLATFORM_OWNER),
-    })
+    }))
 
     void this.follow(wfId, 'pipeline-run', runId, project.giteaRepo)
     await this.db.releases.savePipelineRunInfo({ id: runId, temporalWorkflowId: wfId })
