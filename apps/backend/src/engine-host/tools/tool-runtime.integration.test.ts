@@ -7,6 +7,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { PoisoningWatch } from './poisoning-watch.js';
 import { createToolRuntime } from './tool-runtime.js';
+import { createEngineActivities, type EngineServices } from '../temporal/activities.js';
 import type { ToolCallArgs } from '../temporal/contracts.js';
 
 const CATALOGUE: ToolContract[] = [{ name: 'store_file', description: 'Keep a file', binding: 'platform' }];
@@ -24,7 +25,7 @@ const call = (argumentsText: string): ToolCallArgs => ({
 });
 
 describe('a tool call whose arguments are not one JSON object, with the real poisoning watch on Mongo', () => {
-  it('is refused before the watch or the tool sees it, so a canary hidden in it is neither stored nor taken as a clean call', async () => {
+  it('is refused by the engine\'s tool step before the watch or the tool sees it, so a canary hidden in it is neither stored nor taken as a clean call', async () => {
     const db = await testDatabase();
     const watch = new PoisoningWatch({ store: db.engine, personText: async () => '', seal: (text) => `sealed:${text.length}`, now: () => '2026-11-13T10:00:00.000Z', log: () => undefined });
     const store_file = vi.fn(async () => ({ ok: true, digest: 'kept' }));
@@ -35,13 +36,15 @@ describe('a tool call whose arguments are not one JSON object, with the real poi
     });
     const canary = canaryFor('grant-1');
 
-    const refused = await tools.run(call(JSON.stringify(['a.txt', `ref ${canary}`])));
+    const services: Pick<EngineServices, 'tools'> = { tools };
+    const { EngineToolActivity } = createEngineActivities(services as EngineServices);
+    const refused = await EngineToolActivity(call(JSON.stringify(['a.txt', `ref ${canary}`])));
 
     expect(refused).toMatchObject({ ok: false, digest: matching(/arguments for "store_file" must be one JSON object, and these were an array/) });
     expect(store_file).not.toHaveBeenCalled();
     expect(await db.engine.getPoisoningSignals('owner')).toEqual([]);
 
-    const kept = await tools.run(call(JSON.stringify({ path: 'a.txt', content: `ref ${canary}` })));
+    const kept = await EngineToolActivity(call(JSON.stringify({ path: 'a.txt', content: `ref ${canary}` })));
 
     expect(kept).toMatchObject({ ok: true, digest: 'kept' });
     expect((await db.engine.getPoisoningSignals('owner')).map((signal) => signal.kind)).toEqual(['canary']);
