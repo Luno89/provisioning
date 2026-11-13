@@ -1763,6 +1763,47 @@
         }
       ],
       "released": "2026-04-06T20:25:08Z"
+    },
+    {
+      "kind": "image",
+      "name": "vllm/vllm-openai",
+      "version": "v0.7.2",
+      "sha256": "65009b48651a8bc216ab57ed64d7c3d0b0ee8cec77674ccdbcb5f0e8362793a1",
+      "source": "docker.io/vllm/vllm-openai:v0.7.2",
+      "github": "vllm-project/vllm",
+      "uses": [
+        {
+          "file": "apps/backend/src/infrastructure/lib/model-images.ts",
+          "pattern": "VLLM_IMAGE = 'vllm/vllm-openai:(v[0-9.]+)@"
+        },
+        {
+          "file": "apps/backend/src/infrastructure/lib/model-images.ts",
+          "pattern": "VLLM_VERSION = '(v[0-9.]+)'"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "apps/backend/src/infrastructure/lib/model-images.ts",
+          "pattern": "vllm/vllm-openai:v[0-9.]+@sha256:([0-9a-f]{64})"
+        }
+      ],
+      "released": "2025-02-06T07:23:50Z"
+    },
+    {
+      "kind": "image",
+      "name": "theroyallab/tabbyapi",
+      "version": "latest-2026-11-10",
+      "sha256": "6c21534292cc4d1393ab3e39e843f7949d01ddadeea051984db09367e328d1d7",
+      "source": "ghcr.io/theroyallab/tabbyapi@sha256:6c21534292cc4d1393ab3e39e843f7949d01ddadeea051984db09367e328d1d7",
+      "github": "theroyallab/tabbyAPI",
+      "commit": "a32a82e255d9ffe1b6e805cb37527a1f53d9a62f",
+      "shaUses": [
+        {
+          "file": "apps/backend/src/infrastructure/lib/model-images.ts",
+          "pattern": "tabbyapi@sha256:([0-9a-f]{64})"
+        }
+      ],
+      "released": "2026-11-10T23:16:09Z"
     }
   ],
   "unpinned": []
