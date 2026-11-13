@@ -9,6 +9,7 @@ import { credentialKeys, listProviders } from '../../api/credentials';
 import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../../lib/wizard-defaults';
 import { deployPayloadOf } from '../../lib/deploy-payload';
+import { errorMessage } from '../../../../api/client';
 import { chosenGpus, gpuChoicesOf, type GpuChoices, type GpuVendor } from '../../lib/gpu-choices';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
@@ -25,6 +26,9 @@ export interface AppDeployWizardProps {
   onDeploy: (data: WizardData) => void;
   preset?: Partial<WizardData> | undefined;
 }
+
+const sizeUnread = (failure: unknown): string =>
+  `Koala could not read this model's size from Hugging Face: ${errorMessage(failure)}. How much it downloads and how much GPU memory it needs are not known; check the model ID.`;
 
 export default function AppDeployWizard({
   clusters, deployments, onClose, onDeploy, preset,
@@ -48,7 +52,7 @@ export default function AppDeployWizard({
   const debouncedVllmMaxModelLen = useDebounce(wizardData.vllmMaxModelLen);
 
   const {
-    data: tabbyModelSize, isFetching: loadingTabbyModelSize, isError: tabbyModelSizeError,
+    data: tabbyModelSize, isFetching: loadingTabbyModelSize, isError: tabbyModelSizeError, error: tabbyModelSizeFailure,
   } = useHfModelSize({
     repo: debouncedTabbyModel,
     revision: debouncedTabbyRevision,
@@ -58,7 +62,7 @@ export default function AppDeployWizard({
   }, wizardStep === 4 && wizardData.appType === 'tabbyapi');
 
   const {
-    data: vllmModelSize, isFetching: loadingVllmModelSize, isError: vllmModelSizeError,
+    data: vllmModelSize, isFetching: loadingVllmModelSize, isError: vllmModelSizeError, error: vllmModelSizeFailure,
   } = useHfModelSize({
     repo: debouncedVllmModel,
     maxSeqLen: debouncedVllmMaxModelLen,
@@ -354,7 +358,7 @@ export default function AppDeployWizard({
                   </div>
                 )}
                 {!loadingVllmModelSize && vllmModelSizeError && (
-                  <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID) — deployment will still work.</p>
+                  <p className="text-[11px] text-amber-400/90 mt-2" role="alert">{sizeUnread(vllmModelSizeFailure)}</p>
                 )}
               </div>
               {vllmChoices.vendors.length > 0 && <div><label htmlFor="wizard-gpu-vendor" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select id="wizard-gpu-vendor" value={chosen.vllmGpuVendor} onChange={e => setWizardData({...wizardData, vllmGpuVendor: e.target.value as GpuVendor})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">{vllmChoices.vendors.map((choice) => <option key={choice.vendor} value={choice.vendor}>{choice.label}</option>)}</select></div>}
@@ -469,7 +473,7 @@ export default function AppDeployWizard({
                   </div>
                 )}
                 {!loadingTabbyModelSize && tabbyModelSizeError && (
-                  <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID/revision) — deployment will still work, sizing falls back to an estimate.</p>
+                  <p className="text-[11px] text-amber-400/90 mt-2" role="alert">{sizeUnread(tabbyModelSizeFailure)}</p>
                 )}
               </div>
               <div><label htmlFor="wizard-gpu-count-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select id="wizard-gpu-count-2" value={chosen.tabbyGpuCount} onChange={e => setWizardData({...wizardData, tabbyGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">{(tabbyChoices.vendors[0]?.counts ?? []).map((count) => <option key={count} value={count}>{count} GPU{count === '1' ? '' : 's'}</option>)}</select>

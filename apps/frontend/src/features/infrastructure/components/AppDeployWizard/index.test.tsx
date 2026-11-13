@@ -242,3 +242,14 @@ describe('the GPUs a model server is offered', () => {
     expect((screen.getByLabelText(/^GPU Count/) as HTMLSelectElement).value).toBe('1');
   });
 });
+
+describe('a model whose size cannot be read', () => {
+  it.each(['vllm', 'tabbyapi'])('says so as a problem, with the reason, and never that deploying will work anyway (%s)', async (appType) => {
+    vi.mocked(modelsApi.useHfModelSize).mockReturnValue({ data: undefined, isFetching: false, isError: true, error: new Error('Hugging Face answered 404 for Qwen/Nope') } as unknown as ReturnType<typeof modelsApi.useHfModelSize>);
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText(/application type/i), appType);
+    for (let step = 0; step < 3; step++) await user.click(screen.getByRole('button', { name: /^Next/ }));
+    expect(screen.getByText('Koala could not read this model\'s size from Hugging Face: Hugging Face answered 404 for Qwen/Nope. How much it downloads and how much GPU memory it needs are not known; check the model ID.')).toBeInTheDocument();
+    expect(screen.queryByText(/will still work/)).toBeNull();
+  });
+});
