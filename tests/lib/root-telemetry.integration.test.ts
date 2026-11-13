@@ -60,7 +60,7 @@ function freshRoot(): Root {
   const composeEnv = join(repo, '.env');
   const backendEnv = join(repo, 'apps/backend/.env');
   writeFileSync(composeEnv, 'MONGO_ROOT_PASSWORD=rootpassword0123456789abcdef\nPLATFORM_BIND=127.0.0.1\n', { mode: 0o600 });
-  writeFileSync(backendEnv, 'NODE_ENV=production\n', { mode: 0o600 });
+  writeFileSync(backendEnv, `NODE_ENV=production\nDATA_DIR=${join(repo, 'apps/backend/data')}\n`, { mode: 0o600 });
   return { repo, stubs, metrics: join(scratch('root-telemetry-metrics-'), 'metrics'), composeEnv, backendEnv };
 }
 
