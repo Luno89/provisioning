@@ -13,6 +13,7 @@ const LOCAL_PORT = 19124;
 const ASKED = 'In one short sentence, what are you?';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
+const literally = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 interface Deployment { id: string; name: string; clusterId: string; namespace?: string; status: string; failure?: string }
 interface Gpu { vendor: string; model: string; count: number; runtime: boolean }
@@ -99,20 +100,22 @@ async function main(): Promise<void> {
     console.log(`  on ${devKoalaPage}, signed in as the instance's owner`);
     nothingWentWrong(watching, 'signing in');
 
-    step('My Machines shows this computer online, and its cluster card shows its two NVIDIA GPUs, usable (the join itself is machine-live\'s, on a VM)');
+    step('My Machines shows this computer online with its two NVIDIA GPUs, usable, as does its cluster card (the join itself is machine-live\'s, on a VM)');
     const device = ((await api.get('/api/mesh/local-agents')).data as Device[]).find((entry) => entry.id === machineId);
     assert.ok(device, `this computer, ${machineId}, is not among the owner's machines`);
     await page.goto(`${devKoalaPage}/#/mesh`);
     const row = page.locator('div.rounded-2xl', { hasText: device.name }).first();
     await expect(row).toBeVisible();
-    await expect(row.getByText('raw access')).toBeVisible();
+    await expect(row.getByText('online', { exact: true })).toBeVisible();
+    await expect(row.getByText(/^GPUs: 2 × .+ GiB each$/)).toBeVisible();
+    await expect(row.getByText(/not usable yet|could not be read/)).toHaveCount(0);
     const cluster = ((await api.get('/api/clusters')).data as Cluster[]).find((entry) => entry.id === clusterId);
     assert.ok(cluster, `${clusterId} is not among the owner's clusters`);
     await page.goto(`${devKoalaPage}/#/infrastructure`);
     const card = page.getByTestId('cluster-card').filter({ hasText: cluster.name });
     await expect(card.getByText(/^GPUs: 2 × .+ GiB each$/)).toBeVisible({ timeout: 60_000 });
     await expect(card.getByText(/not usable yet|could not be read/)).toHaveCount(0);
-    console.log(`  ${device.name} online; ${await card.getByText(/^GPUs:/).innerText()}`);
+    console.log(`  ${device.name} online; ${await row.getByText(/^GPUs:/).innerText()}, on My Machines and its cluster card`);
     nothingWentWrong(watching, 'My Machines and the cluster card');
 
     step('the owner\'s own models holding GPUs here are stopped for the test, their records kept');
@@ -128,7 +131,7 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: /Native K8s/ }).click();
     await page.getByRole('button', { name: /^Next/ }).click();
     await page.getByLabel('Search Hugging Face Models').fill(MODEL);
-    await page.getByRole('button', { name: new RegExp(`${MODEL.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} ·`) }).click();
+    await page.getByRole('button', { name: new RegExp(`${literally(MODEL)} ·`) }).click();
     await page.getByRole('button', { name: /^Next/ }).click();
     await expect(page.getByLabel('HuggingFace Model ID')).toHaveValue(MODEL);
     await page.getByLabel('GPU Count').selectOption('1');
@@ -172,11 +175,10 @@ async function main(): Promise<void> {
     step('Studio → Models offers the running model by itself, and the owner makes it the default');
     await page.goto(`${devKoalaPage}/#/studio/models`);
     await page.getByLabel('Filter models').first().fill(MODEL);
-    const choices = page.getByRole('button', { name: new RegExp(`\\[vLLM\\] ${MODEL.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`) });
-    await expect(choices.first()).toBeVisible({ timeout: 60_000 });
-    assert.equal(await choices.count(), 1, `the owner has ${await choices.count()} vLLM models serving ${MODEL}, so the picker cannot tell this one apart`);
-    await choices.first().click();
-    await expect(page.getByText(/^Currently:/)).toContainText(MODEL);
+    const choice = page.getByRole('button', { name: new RegExp(`^${literally(`${MODEL} · ${NAME}`)}`) });
+    await expect(choice).toBeVisible({ timeout: 60_000 });
+    await choice.click();
+    await expect(page.getByText(/^Currently:/)).toContainText(`${MODEL} · ${NAME}`);
     const chosen = ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
     assert.equal(chosen, deploymentId, `the default is ${chosen}, not the model just deployed`);
     console.log(`  the default is ${NAME}'s model`);

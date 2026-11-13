@@ -69,7 +69,7 @@ describe('tiers', () => {
 
   it('shows a lone local model as one row naming its engine and cluster', async () => {
     setup();
-    expect(await screen.findByText('turboderp/Qwen3.8-27B-exl3')).toBeInTheDocument();
+    expect(await screen.findByText('turboderp/Qwen3.8-27B-exl3 · Tabbyapi-Production')).toBeInTheDocument();
     // The cluster name arrives from its own query, so it lands a tick after the model.
     expect(await screen.findByText('TabbyAPI · koala · 32k')).toBeInTheDocument();
     // No group to expand for a single model.
@@ -144,7 +144,7 @@ describe('prices', () => {
 
   it('shows no price for a local model, which is not billed per token', async () => {
     setup();
-    await screen.findByText('turboderp/Qwen3.8-27B-exl3');
+    await screen.findByText('turboderp/Qwen3.8-27B-exl3 · Tabbyapi-Production');
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 });

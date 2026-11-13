@@ -9,5 +9,10 @@ import type { ModelProvider } from '../api'
 export function modelOptionLabel(m: ModelProvider): string {
   const source = m.sourceLabel
     ?? (m.source === 'deployment' ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM') : 'Custom')
-  return `[${source}] ${m.model || m.name}`
+  return `[${source}] ${deployedModelName(m)}`
+}
+
+export function deployedModelName(m: Pick<ModelProvider, 'source' | 'model' | 'name'>): string {
+  if (m.source === 'deployment' && m.model && m.name) return `${m.model} · ${m.name}`
+  return m.model || m.name
 }

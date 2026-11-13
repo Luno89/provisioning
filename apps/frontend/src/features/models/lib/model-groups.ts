@@ -1,4 +1,5 @@
 import type { ModelProvider } from '../api'
+import { deployedModelName } from './model-label'
 
 export interface ModelVendorGroup {
   key: string
@@ -192,5 +193,5 @@ export function groupModels(
 export function modelRowLabel(m: ModelProvider, underVendor = false): string {
   const vendor = underVendor ? vendorOf(m) : undefined
   if (vendor && m.model.startsWith(`${vendor}/`)) return m.model.slice(vendor.length + 1)
-  return m.model || m.name
+  return deployedModelName(m)
 }

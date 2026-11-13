@@ -137,6 +137,11 @@ describe('tierModels', () => {
 })
 
 describe('modelRowLabel', () => {
+  it('names a deployed model with the deployment that serves it, so two deployments of one model differ', () => {
+    const deployed = (name: string) => ({ id: name, name, source: 'deployment', kind: 'vllm', model: 'Qwen/Qwen2.5-0.5B-Instruct' }) as ModelProvider
+    expect([modelRowLabel(deployed('qwen-a')), modelRowLabel(deployed('qwen-b'))]).toEqual(['Qwen/Qwen2.5-0.5B-Instruct · qwen-a', 'Qwen/Qwen2.5-0.5B-Instruct · qwen-b'])
+  })
+
   it('drops the vendor only when the row sits under it', () => {
     expect(modelRowLabel(gateway('anthropic/opus'), true)).toBe('opus')
     expect(modelRowLabel(gateway('anthropic/opus'), false)).toBe('anthropic/opus')
