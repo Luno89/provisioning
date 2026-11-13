@@ -21,6 +21,7 @@ import { DependencyWatch, type WatchView as BackendDependencies } from '../../..
 import { MailReputation, type MailReputationView as BackendMailView } from '../../../../../backend/src/platform/services/MailReputation'
 import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-role'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
+import { DEPENDENCY_SOURCES } from '../../../../../backend/src/platform/lib/osv'
 
 const DOMAIN = 'people.koala.test'
 const poolWork: string[] = []
@@ -56,6 +57,7 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
       inventoryOf: async () => undefined,
       currentRelease: 'dev',
       fetchImpl: (() => { throw new Error('OSV is on the internet, outside this tier') }) as typeof fetch,
+      sources: DEPENDENCY_SOURCES,
       tell: async () => undefined,
       rootUrl: origin,
     }),

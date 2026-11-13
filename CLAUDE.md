@@ -781,8 +781,9 @@ A setting is one of four things:
   `MACHINE_TEMPORAL_ADDRESS`, `MACHINE_METRICS_URL`, `INSTANCE_MACHINE_ID`: an instance on no machine has no cluster of its own).
   Half of a feature (one of Twilio's three, Caddy's settings without the rest) is a problem, never off.
 - **a constant** in code, for what no install changes (the Kaniko image, the machine gateway's bind host `MACHINE_GATEWAY_HOST`).
-- **a test parameter**: `WATCH_UNREACHABLE_MINUTES` and `OPENROUTER_URL` (a stand-in OpenRouter), read by the reader into
-  `settings.tests`, the product's own value when unset.
+- **a test parameter**: `WATCH_UNREACHABLE_MINUTES`, `OPENROUTER_URL` (a stand-in OpenRouter), `HUGGING_FACE_URL` and
+  `DEPENDENCY_SOURCES` (one address standing in for OSV, npm and GitHub, so the integration tier never reaches them), read by the
+  reader into `settings.tests`, the product's own value when unset.
 
 Where work runs is no setting: every queue is named once in `platform/lib/work-places.ts` (`QUEUES`), with the places each role runs
 (`placesOf`: root only the host queue, an instance all four, the hub none) and the host activities each role's host worker serves

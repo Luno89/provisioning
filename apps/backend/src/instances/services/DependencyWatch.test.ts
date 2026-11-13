@@ -37,7 +37,7 @@ const registry = [
     const body = request.method === 'POST' ? await request.text() : undefined;
     asked.push({ url, ...(body !== undefined ? { body } : {}) });
     const ok = (answer: unknown) => HttpResponse.json(answer as never);
-    if (url.endsWith('/v1/querybatch')) {
+    if (url.endsWith('/querybatch')) {
       if (osvStatus !== 200) return new HttpResponse('{}', { status: osvStatus });
       const { queries } = JSON.parse(body ?? '{}') as { queries: { package: { name: string }; version: string }[] };
       return ok({ results: queries.map((query) => ({
@@ -46,10 +46,10 @@ const registry = [
             : query.package.name === '@xmldom/xmldom' ? [{ id: 'GHSA-xmldom' }] : [],
       })) });
     }
-    const vuln = /\/v1\/vulns\/(.+)$/.exec(url)?.[1];
+    const vuln = /\/vulns\/(.+)$/.exec(url)?.[1];
     if (vuln) return ok(ADVISORIES[decodeURIComponent(vuln)]);
-    if (url === 'https://registry.npmjs.org/seroval') return ok({ time: { '1.6.8': '2026-09-29T00:00:00Z', '1.6.11': seroval11At } });
-    if (url === 'https://registry.npmjs.org/@xmldom%2Fxmldom') return ok({ time: { '0.8.11': '2026-08-01T00:00:00Z' } });
+    if (url === 'https://registry.npmjs.org/seroval' || url === 'http://sources.test/npm/seroval') return ok({ time: { '1.6.8': '2026-09-29T00:00:00Z', '1.6.11': seroval11At } });
+    if (url === 'https://registry.npmjs.org/@xmldom%2Fxmldom' || url === 'http://sources.test/npm/@xmldom%2Fxmldom') return ok({ time: { '0.8.11': '2026-08-01T00:00:00Z' } });
     if (url.includes('/repos/k3s-io/k3s/releases/tags/v1.36.5%2Bk3s1')) return ok({ published_at: '2026-10-25T00:00:00Z' });
     return new HttpResponse('{}', { status: 404 });
   }),
@@ -76,6 +76,7 @@ const watch = (at: string) => new DependencyWatch({
   inventoryOf: async (tag) => inventories[tag],
   currentRelease: 'bbbbbbbbbbbb',
   fetchImpl: fetch,
+  sources: { osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com' },
   tell: async (message) => { told.push(message); },
   rootUrl: 'https://app.example.com',
   now: () => new Date(at),
@@ -110,6 +111,22 @@ describe('root\'s daily check of what its running releases are made of', () => {
     const { findings } = await watch('2026-10-30T12:00:00Z').check();
     expect(findings.map((finding) => [finding.component.name, finding.fixPublishedAt])).toEqual([['seroval', '2026-09-29T00:00:00Z'], ['k3s', '2026-10-25T00:00:00Z']]);
     expect(asked.filter((entry) => entry.url.startsWith('https://registry.npmjs.org/') || entry.url.startsWith('https://api.github.com/'))).toEqual([]);
+  });
+
+  it('asks OSV, npm and GitHub at the addresses it is given, and nowhere else', async () => {
+    const elsewhere = new DependencyWatch({
+      store: db.instances,
+      inventoryOf: async (tag) => inventories[tag],
+      currentRelease: 'bbbbbbbbbbbb',
+      fetchImpl: fetch,
+      sources: { osv: 'http://sources.test/osv', npm: 'http://sources.test/npm', github: 'http://sources.test/github' },
+      tell: async () => undefined,
+      rootUrl: 'https://app.example.com',
+      now: () => new Date('2026-10-29T12:00:00Z'),
+    });
+    await elsewhere.check();
+    expect(asked.map((entry) => new URL(entry.url).host)).toEqual(asked.map(() => 'sources.test'));
+    expect(asked.map((entry) => new URL(entry.url).pathname)).toEqual(expect.arrayContaining(['/osv/querybatch', '/osv/vulns/GHSA-seroval', '/npm/seroval', '/github/repos/k3s-io/k3s/releases/tags/v1.36.5%2Bk3s1']));
   });
 
   it('tells the operator a new advisory once, and again only when its fix comes due', async () => {

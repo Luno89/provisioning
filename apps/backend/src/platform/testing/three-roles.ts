@@ -18,6 +18,7 @@ import { startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';
 import { startRealGitea } from '../../projects/testing/real-gitea.js';
 import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
+import { startDependencySourcesStandIn } from './dependency-sources-stand-in.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { PLAINTEXT_TEMPORAL_CA, TEST_RELEASE } from './platform-services.js';
 
@@ -141,6 +142,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const instanceSide: LoopbackRole[] = [];
   const gitea: TestGitea | undefined = options.gitea ? await startRealGitea() : undefined;
   const headscale = options.rootWorkers?.includes('host') ? await startHeadscaleStandIn() : undefined;
+  const dependencySources = await startDependencySourcesStandIn();
   const close = async () => {
     for (const side of [instanceSide, hubSide, rootSide]) {
       for (const role of [...side].reverse()) await role.close();
@@ -148,6 +150,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await mail.close();
     await gitea?.close();
     await headscale?.close();
+    await dependencySources.close();
     await temporalNamespace.drop();
     await rm(rootData, { recursive: true, force: true });
     await rm(instanceData, { recursive: true, force: true });
@@ -164,7 +167,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   for (const folder of gitea ? [instanceData, hubData] : []) await writeFile(join(folder, '.gitea-admin-password'), gitea!.adminPassword, { mode: 0o600 });
   try {
     const rootEnv = {
-      ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData,
+      ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData, DEPENDENCY_SOURCES: dependencySources.url,
       ...(headscale ? { MESH_LOGIN_SERVER: headscale.url, HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
     };

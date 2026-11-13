@@ -2,6 +2,19 @@ import { osvVersion, type InventoryComponent } from './sbom.js';
 
 export const OSV_API = 'https://api.osv.dev/v1';
 
+export interface DependencySources {
+  osv: string;
+  npm: string;
+  github: string;
+}
+
+export const DEPENDENCY_SOURCES: DependencySources = { osv: OSV_API, npm: 'https://registry.npmjs.org', github: 'https://api.github.com' };
+
+export const dependencySourcesAt = (base: string): DependencySources => {
+  const at = base.replace(/\/+$/, '');
+  return { osv: `${at}/osv`, npm: `${at}/npm`, github: `${at}/github` };
+};
+
 export const OSV_BATCH = 1000;
 
 export type Severity = 'critical' | 'high' | 'moderate' | 'low';

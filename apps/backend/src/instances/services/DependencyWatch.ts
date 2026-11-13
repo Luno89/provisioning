@@ -1,4 +1,4 @@
-import { advisoryFor, batches, checkedByOsv, idsFromBatch, inventoryComponents, OSV_API, queryKey, queryOf, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
+import { advisoryFor, batches, checkedByOsv, idsFromBatch, inventoryComponents, queryKey, queryOf, type DependencySources, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
 import {
   componentOf, findingKey, fixFor, fixingRelease, mergeFindings, runtimeFindings, tellingMessage,
   type CheckedRelease, type DependencyCheck, type DependencyFinding, type ListedComponent, type Sighting,
@@ -11,6 +11,7 @@ export interface DependencyWatchDeps {
   inventoryOf: (imageTag: string) => Promise<unknown | undefined>;
   currentRelease: string;
   fetchImpl: typeof fetch;
+  sources: DependencySources;
   tell: (message: { subject: string; text: string }) => Promise<void>;
   rootUrl: string;
   now?: () => Date;
@@ -62,20 +63,20 @@ export class DependencyWatch {
   private async advisoryIds(queries: readonly OsvQuery[]): Promise<string[][]> {
     const ids: string[][] = [];
     for (const batch of batches(queries)) {
-      const answer = await this.json(`${OSV_API}/querybatch`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: batch }) });
+      const answer = await this.json(`${this.deps.sources.osv}/querybatch`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ queries: batch }) });
       ids.push(...idsFromBatch(answer, batch.length));
     }
     return ids;
   }
 
   private async npmTimes(name: string): Promise<Record<string, string> | undefined> {
-    const doc = await this.json(`https://registry.npmjs.org/${npmPath(name)}`) as { time?: Record<string, string> } | undefined;
+    const doc = await this.json(`${this.deps.sources.npm}/${npmPath(name)}`) as { time?: Record<string, string> } | undefined;
     return doc?.time;
   }
 
   private async githubRelease(repo: string, version: string): Promise<string | undefined> {
     for (const tag of version.startsWith('v') ? [version] : [`v${version}`, version]) {
-      const found = await this.json(`https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`).catch((err: Error) => {
+      const found = await this.json(`${this.deps.sources.github}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`).catch((err: Error) => {
         console.warn(`[dependencies] when ${repo} released ${tag} could not be read, so it stays unknown until the next check: ${err.message}`);
         return undefined;
       }) as { published_at?: string } | undefined;
@@ -109,7 +110,7 @@ export class DependencyWatch {
     const ids = await this.advisoryIds(asked.map((entry) => entry.query));
 
     const records = new Map<string, unknown>();
-    for (const id of new Set(ids.flat())) records.set(id, await this.json(`${OSV_API}/vulns/${encodeURIComponent(id)}`));
+    for (const id of new Set(ids.flat())) records.set(id, await this.json(`${this.deps.sources.osv}/vulns/${encodeURIComponent(id)}`));
 
     const instancesOf = new Map(watched.map((release) => [release.release, release.instances]));
     const labelOfRelease = new Map(watched.map((release) => [release.release, release.label]));

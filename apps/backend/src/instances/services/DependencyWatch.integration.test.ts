@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { DependencyWatch } from './DependencyWatch.js';
+import { DEPENDENCY_SOURCES } from '../../platform/lib/osv.js';
 
 const fresh = await emptiedEachTime();
 
@@ -65,6 +66,7 @@ const watch = (asked: Asked[], at: string, seroval11At?: string) => new Dependen
   inventoryOf: async (tag) => inventories[tag],
   currentRelease: 'bbbbbbbbbbbb',
   fetchImpl: fakeFetch(asked, seroval11At),
+  sources: DEPENDENCY_SOURCES,
   tell: async (message) => { told.push(message); },
   rootUrl: 'https://app.example.com',
   now: () => new Date(at),

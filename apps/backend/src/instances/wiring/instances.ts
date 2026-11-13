@@ -4,7 +4,7 @@ import type express from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
-  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
+  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, keepTrying,
   MailReputation, isOff, type BackendSettings, type Off, stillDown, type DependencyStates,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
@@ -261,7 +261,8 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       }
     },
     currentRelease: root.imageTag,
-    fetchImpl: publicFetch,
+    fetchImpl: fetch,
+    sources: settings.tests.dependencySources,
     tell: async (message) => {
       for (const operator of operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role))) {
         await deps.mail.toOwner(operator.id, message).catch((error: Error) => console.warn(`[dependencies] could not email ${operator.id} "${message.subject}": ${error.message}`));

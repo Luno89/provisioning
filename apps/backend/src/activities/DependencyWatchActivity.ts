@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure } from '@temporalio/common';
-import { claimSettingsFrom, createDatabase, MailService, operatorsAmong, publicFetch } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, MailService, operatorsAmong } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import { DependencyWatch, inventoryFileFor } from '../instances/index.js';
 
@@ -27,7 +27,8 @@ export async function DependencyWatchActivity(): Promise<{ findings: number; due
         }
       },
       currentRelease: imageTag,
-      fetchImpl: publicFetch,
+      fetchImpl: fetch,
+      sources: settings.tests.dependencySources,
       tell: async (message) => {
         const operators = operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role));
         for (const operator of operators) {

@@ -29,6 +29,7 @@ import { DNS_PROVIDERS } from '../../infrastructure/lib/dns-providers.js';
 import { scriptedModelBase } from '../../checks/lib/check-space.js';
 import { OPENROUTER_URL } from '../../models/lib/openrouter-connect.js';
 import { HUGGING_FACE } from '../../infrastructure/lib/model-download-job.js';
+import { DEPENDENCY_SOURCES, dependencySourcesAt, type DependencySources } from './osv.js';
 
 export type Env = Settings;
 
@@ -66,6 +67,7 @@ export interface TestParameters {
   unreachableAfterMs: number;
   openRouterUrl: string;
   huggingFaceUrl: string;
+  dependencySources: DependencySources;
 }
 
 export interface ConnectionSettings {
@@ -240,6 +242,12 @@ function folderSetting(read: Reading, name: string, why: string): string | undef
   return undefined;
 }
 
+function dependencySourcesFrom(read: Reading): DependencySources {
+  const base = settingIn(read.env, 'DEPENDENCY_SOURCES');
+  if (base === undefined) return DEPENDENCY_SOURCES;
+  return read.take(() => dependencySourcesAt(wholeUrl('DEPENDENCY_SOURCES', base))) ?? DEPENDENCY_SOURCES;
+}
+
 const dataDirFrom = (read: Reading): string | undefined => folderSetting(read, 'DATA_DIR', 'it is the folder this process keeps its files in');
 
 function urlSetting(read: Reading, name: string, why: string): string | undefined {
@@ -355,6 +363,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
       unreachableAfterMs: read.take(() => unreachableAfterMs(env)) ?? 0,
       openRouterUrl: settingIn(read.env, 'OPENROUTER_URL') ?? OPENROUTER_URL,
       huggingFaceUrl: settingIn(read.env, 'HUGGING_FACE_URL') ?? HUGGING_FACE,
+      dependencySources: dependencySourcesFrom(read),
     },
   };
 }
