@@ -6,6 +6,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { deployProjectBuild, resolveOpenaiApiBaseUrl, startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
+import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../lib/model-images.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
 const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy' };
@@ -151,8 +152,8 @@ describe('starting a deploy', () => {
     await startAppDeploy(d, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmCachePvc: 'weights' }, 'ann');
     await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
     expect(started().map((run) => [run.args.modelCacheHostPath, run.args.modelImage])).toEqual([
-      ['/var/lib/rancher/models', 'ghcr.io/theroyallab/tabbyapi:latest'],
-      ['/var/lib/rancher/weights', 'vllm/vllm-openai:v0.7.2'],
+      ['/var/lib/rancher/models', TABBYAPI_IMAGE],
+      ['/var/lib/rancher/weights', VLLM_IMAGE],
       [undefined, undefined],
     ]);
   });
