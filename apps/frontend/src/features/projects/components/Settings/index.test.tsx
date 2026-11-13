@@ -65,7 +65,7 @@ describe('a tree\'s settings', () => {
     expect(screen.getByText('Start from a client\'s database')).toBeInTheDocument()
     expect(screen.getByText('Delete the tree')).toBeInTheDocument()
     expect(screen.getByText('Delete the project')).toBeInTheDocument()
-    expect(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B')).toBeInTheDocument()
+    expect(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B · Tabby')).toBeInTheDocument()
     expect(await screen.findByLabelText("How this project's builds are released")).toBeInTheDocument()
   })
 

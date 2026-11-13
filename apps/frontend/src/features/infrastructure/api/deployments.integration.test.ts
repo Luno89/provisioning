@@ -3,6 +3,7 @@ import { Server } from 'socket.io'
 import { type CatalogueEntry, deployApp, listAppCatalogue, listDeployments } from './deployments'
 import { getAppSchema, type AppSettingsSchema } from './app-schemas'
 import { EMPTY_WIZARD_DATA } from '../lib/wizard-defaults'
+import { deployPayloadOf } from '../lib/deploy-payload'
 import { startBackend } from '../../../test/backend/site'
 import { DATA_KEY } from '../../../test/backend/machines'
 import { outsideThisTier, recordedTemporal } from '../../../test/backend/outside'
@@ -47,21 +48,7 @@ await backend.db.infrastructure.saveCluster(GPU_MACHINE)
 await backend.db.infrastructure.saveCluster({ ...GPU_MACHINE, id: 'machine-laptop', name: 'laptop', machineId: 'laptop', capacity: { cpuCores: 8, ramGb: 32 }, gpus: [], gpuProblems: [] })
 await backend.db.infrastructure.saveCluster({ ...GPU_MACHINE, id: 'machine-not-mine', name: 'not-mine', machineId: 'not-mine', ownerId: 'someone-else' })
 
-const tabbyFromTheWizard = (clusterId: string) => {
-  const wizardData = { ...EMPTY_WIZARD_DATA, name: 'qwen', clusterId, appType: 'tabbyapi' }
-  return {
-    ...wizardData,
-    tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1,
-    tabbyRevision: wizardData.tabbyRevision || undefined,
-    tabbyHfToken: wizardData.tabbyHfToken || undefined,
-    tabbyCacheMode: wizardData.tabbyCacheMode || undefined,
-    tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined,
-    tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined,
-    tabbyToolFormat: wizardData.tabbyToolFormat || undefined,
-    appType: 'tabbyapi',
-    strategy: 'native',
-  }
-}
+const tabbyFromTheWizard = (clusterId: string) => deployPayloadOf({ ...EMPTY_WIZARD_DATA, name: 'qwen', clusterId, appType: 'tabbyapi' })
 
 interface DeployAccepted { message: string; deploymentName: string; id: string; workflowId: string; state: string }
 

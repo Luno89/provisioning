@@ -63,7 +63,7 @@ describe('the models a tree works with', () => {
     vi.mocked(groveApi.setTreeModel).mockResolvedValue([executor, { ...judge, chosen: { modelId: 'vllm' } }, planner])
     renderIt()
 
-    expect(await screen.findAllByText('Its own: [TabbyAPI] Qwen3.8-27B')).toHaveLength(2)
+    expect(await screen.findAllByText('Its own: [TabbyAPI] Qwen3.8-27B · Tabbyapi-Production')).toHaveLength(2)
     expect(screen.getByText('Always runs on its machine (set in the Studio)')).toBeInTheDocument()
     expect(screen.getAllByText('Change')).toHaveLength(2)
 
@@ -81,7 +81,7 @@ describe('the models a tree works with', () => {
 
     expect(await screen.findByText(/old is no longer among your models/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('Change'))
-    fireEvent.click(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B'))
+    fireEvent.click(await screen.findByText('Its own: [TabbyAPI] Qwen3.8-27B · Tabbyapi-Production'))
     await waitFor(() => expect(groveApi.setTreeModel).toHaveBeenCalledWith('t1', 'executor', null))
   })
 
