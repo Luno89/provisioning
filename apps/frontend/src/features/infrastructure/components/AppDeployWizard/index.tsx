@@ -146,8 +146,8 @@ export default function AppDeployWizard({
 
   const renderModelSearchPicker = (selectedModel: string, onSelect: (id: string) => void, placeholder = 'e.g. llama, mistral, qwen...') => (
     <div>
-      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Hugging Face Models</label>
-      <input
+      <label htmlFor="wizard-search-hugging-face-models" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Hugging Face Models</label>
+      <input id="wizard-search-hugging-face-models"
         value={modelSearchQuery}
         onChange={e => setModelSearchQuery(e.target.value)}
         className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm mb-2"
@@ -329,8 +329,8 @@ export default function AppDeployWizard({
           {wizardStep === 4 && wizardData.appType === 'vllm' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.vllmModel} onChange={e => setWizardData({...wizardData, vllmModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.vllmGpuCount} onChange={e => setWizardData({...wizardData, vllmGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
+              <div><label htmlFor="wizard-huggingface-model-id" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input id="wizard-huggingface-model-id" value={wizardData.vllmModel} onChange={e => setWizardData({...wizardData, vllmModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
+              <div><label htmlFor="wizard-gpu-count" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select id="wizard-gpu-count" value={wizardData.vllmGpuCount} onChange={e => setWizardData({...wizardData, vllmGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
                 {loadingVllmModelSize && (
                   <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
                 )}
@@ -349,17 +349,17 @@ export default function AppDeployWizard({
                   <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID) — deployment will still work.</p>
                 )}
               </div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select value={wizardData.vllmGpuVendor} onChange={e => setWizardData({...wizardData, vllmGpuVendor: e.target.value as 'nvidia' | 'amd'})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
+              <div><label htmlFor="wizard-gpu-vendor" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select id="wizard-gpu-vendor" value={wizardData.vllmGpuVendor} onChange={e => setWizardData({...wizardData, vllmGpuVendor: e.target.value as 'nvidia' | 'amd'})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
+                  <label htmlFor="wizard-hugging-face-access-token-hf-token" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
                   {hasHfAccount && (
                     <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded flex items-center gap-1">
                       ✓ Account Token Saved
                     </span>
                   )}
                 </div>
-                <input type="password" value={wizardData.vllmHfToken} onChange={e => setWizardData({...wizardData, vllmHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
+                <input id="wizard-hugging-face-access-token-hf-token" type="password" value={wizardData.vllmHfToken} onChange={e => setWizardData({...wizardData, vllmHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
                 <p className="text-[11px] text-slate-500 mt-1">
                   {hasHfAccount
                     ? "Saved token from Cloud Accounts will automatically be used if left blank. Enter a value above only to override."
@@ -373,26 +373,26 @@ export default function AppDeployWizard({
                 {showVllmAdvanced && (
                   <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Model Length (--max-model-len)</label>
-                      <input type="number" value={wizardData.vllmMaxModelLen} onChange={e => setWizardData({...wizardData, vllmMaxModelLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
+                      <label htmlFor="wizard-max-model-length-max-model-len" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Model Length (--max-model-len)</label>
+                      <input id="wizard-max-model-length-max-model-len" type="number" value={wizardData.vllmMaxModelLen} onChange={e => setWizardData({...wizardData, vllmMaxModelLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
                       <p className="text-[11px] text-slate-500 mt-1">Lower this if you see a KV-cache-too-small error at startup.</p>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Memory Utilization (--gpu-memory-utilization)</label>
-                      <input type="number" step="0.05" min="0" max="1" value={wizardData.vllmGpuMemUtil} onChange={e => setWizardData({...wizardData, vllmGpuMemUtil: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 0.9 (leave blank for vLLM default)" />
+                      <label htmlFor="wizard-gpu-memory-utilization-gpu-memory-utilization" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Memory Utilization (--gpu-memory-utilization)</label>
+                      <input id="wizard-gpu-memory-utilization-gpu-memory-utilization" type="number" step="0.05" min="0" max="1" value={wizardData.vllmGpuMemUtil} onChange={e => setWizardData({...wizardData, vllmGpuMemUtil: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 0.9 (leave blank for vLLM default)" />
                       <p className="text-[11px] text-slate-500 mt-1">Fraction of GPU VRAM vLLM is allowed to reserve for weights + KV cache.</p>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Served Model Name</label>
-                      <input value={wizardData.vllmServedModelName} onChange={e => setWizardData({...wizardData, vllmServedModelName: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Alias exposed via the API — defaults to the model ID" />
+                      <label htmlFor="wizard-served-model-name" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Served Model Name</label>
+                      <input id="wizard-served-model-name" value={wizardData.vllmServedModelName} onChange={e => setWizardData({...wizardData, vllmServedModelName: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Alias exposed via the API — defaults to the model ID" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Sequences (--max-num-seqs)</label>
-                      <input type="number" value={wizardData.vllmMaxNumSeqs} onChange={e => setWizardData({...wizardData, vllmMaxNumSeqs: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 256 (leave blank for vLLM default)" />
+                      <label htmlFor="wizard-max-concurrent-sequences-max-num-seqs" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Sequences (--max-num-seqs)</label>
+                      <input id="wizard-max-concurrent-sequences-max-num-seqs" type="number" value={wizardData.vllmMaxNumSeqs} onChange={e => setWizardData({...wizardData, vllmMaxNumSeqs: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 256 (leave blank for vLLM default)" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data Type (--dtype)</label>
-                      <select value={wizardData.vllmDtype} onChange={e => setWizardData({...wizardData, vllmDtype: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                      <label htmlFor="wizard-data-type-dtype" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data Type (--dtype)</label>
+                      <select id="wizard-data-type-dtype" value={wizardData.vllmDtype} onChange={e => setWizardData({...wizardData, vllmDtype: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                         <option value="">Auto (model default)</option>
                         <option value="half">half / float16</option>
                         <option value="bfloat16">bfloat16</option>
@@ -411,8 +411,8 @@ export default function AppDeployWizard({
                       </div>
                       {wizardData.vllmToolCallingEnabled && (
                         <div>
-                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
-                          <select value={wizardData.vllmToolCallParser} onChange={e => setWizardData({...wizardData, vllmToolCallParser: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                          <label htmlFor="wizard-tool-call-parser" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
+                          <select id="wizard-tool-call-parser" value={wizardData.vllmToolCallParser} onChange={e => setWizardData({...wizardData, vllmToolCallParser: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                             <option value="">Select a parser matching your model...</option>
                             <option value="llama3_json">llama3_json — Llama 3.x</option>
                             <option value="mistral">mistral — Mistral / Mixtral</option>
@@ -430,8 +430,8 @@ export default function AppDeployWizard({
                       )}
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Arguments</label>
-                      <textarea value={wizardData.vllmExtraArgs} onChange={e => setWizardData({...wizardData, vllmExtraArgs: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Any other vllm serve flags" />
+                      <label htmlFor="wizard-additional-arguments" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Arguments</label>
+                      <textarea id="wizard-additional-arguments" value={wizardData.vllmExtraArgs} onChange={e => setWizardData({...wizardData, vllmExtraArgs: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Any other vllm serve flags" />
                       <p className="text-[11px] text-slate-500 mt-1">Free-form flags appended to the `vllm serve` command as-is.</p>
                     </div>
                   </div>
@@ -442,10 +442,10 @@ export default function AppDeployWizard({
           {wizardStep === 4 && wizardData.appType === 'tabbyapi' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.tabbyModel} onChange={e => setWizardData({...wizardData, tabbyModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-exl2" /></div>
+              <div><label htmlFor="wizard-huggingface-model-id-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input id="wizard-huggingface-model-id-2" value={wizardData.tabbyModel} onChange={e => setWizardData({...wizardData, tabbyModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-exl2" /></div>
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Revision / Branch (optional)</label>
-                <input value={wizardData.tabbyRevision} onChange={e => setWizardData({...wizardData, tabbyRevision: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 6.0bpw — EXL2/EXL3 quants are usually split across repo branches" />
+                <label htmlFor="wizard-revision-branch-optional" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Revision / Branch (optional)</label>
+                <input id="wizard-revision-branch-optional" value={wizardData.tabbyRevision} onChange={e => setWizardData({...wizardData, tabbyRevision: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 6.0bpw — EXL2/EXL3 quants are usually split across repo branches" />
                 {loadingTabbyModelSize && (
                   <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
                 )}
@@ -464,19 +464,19 @@ export default function AppDeployWizard({
                   <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID/revision) — deployment will still work, sizing falls back to an estimate.</p>
                 )}
               </div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.tabbyGpuCount} onChange={e => setWizardData({...wizardData, tabbyGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option></select>
+              <div><label htmlFor="wizard-gpu-count-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select id="wizard-gpu-count-2" value={wizardData.tabbyGpuCount} onChange={e => setWizardData({...wizardData, tabbyGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option></select>
                 <p className="text-[11px] text-slate-500 mt-1">TabbyAPI's exllamav3 backend is NVIDIA CUDA-only — there's no CPU or ROCm mode.</p>
               </div>
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
+                  <label htmlFor="wizard-hugging-face-access-token-hf-token-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
                   {hasHfAccount && (
                     <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded flex items-center gap-1">
                       ✓ Account Token Saved
                     </span>
                   )}
                 </div>
-                <input type="password" value={wizardData.tabbyHfToken} onChange={e => setWizardData({...wizardData, tabbyHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
+                <input id="wizard-hugging-face-access-token-hf-token-2" type="password" value={wizardData.tabbyHfToken} onChange={e => setWizardData({...wizardData, tabbyHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
                 <p className="text-[11px] text-slate-500 mt-1">
                   {hasHfAccount
                     ? "Saved token from Cloud Accounts will automatically be used if left blank. Enter a value above only to override."
@@ -490,8 +490,8 @@ export default function AppDeployWizard({
                 {showTabbyAdvanced && (
                   <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cache Mode</label>
-                      <select value={wizardData.tabbyCacheMode} onChange={e => setWizardData({...wizardData, tabbyCacheMode: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                      <label htmlFor="wizard-cache-mode" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cache Mode</label>
+                      <select id="wizard-cache-mode" value={wizardData.tabbyCacheMode} onChange={e => setWizardData({...wizardData, tabbyCacheMode: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                         <option value="">FP16 (default)</option>
                         <option value="Q8">Q8 — saves VRAM, minor quality loss</option>
                         <option value="Q6">Q6</option>
@@ -500,19 +500,19 @@ export default function AppDeployWizard({
                       <p className="text-[11px] text-slate-500 mt-1">Quantizes the KV cache. Lower it if you're VRAM-constrained.</p>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Sequence Length</label>
-                      <input type="number" value={wizardData.tabbyMaxSeqLen} onChange={e => setWizardData({...wizardData, tabbyMaxSeqLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
+                      <label htmlFor="wizard-max-sequence-length" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Sequence Length</label>
+                      <input id="wizard-max-sequence-length" type="number" value={wizardData.tabbyMaxSeqLen} onChange={e => setWizardData({...wizardData, tabbyMaxSeqLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Generations</label>
-                      <input type="number" value={wizardData.tabbyMaxBatchSize} onChange={e => setWizardData({...wizardData, tabbyMaxBatchSize: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 8 (leave blank for TabbyAPI default)" />
+                      <label htmlFor="wizard-max-concurrent-generations" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Generations</label>
+                      <input id="wizard-max-concurrent-generations" type="number" value={wizardData.tabbyMaxBatchSize} onChange={e => setWizardData({...wizardData, tabbyMaxBatchSize: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 8 (leave blank for TabbyAPI default)" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
+                      <label htmlFor="wizard-image-variant" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
                       {tabbyTagsUnread ? (
                         <TypedTag why={tabbyTagsUnread} value={wizardData.tabbyImageTag} onChange={tabbyImageTag => setWizardData({...wizardData, tabbyImageTag})} />
                       ) : (
-                        <select value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                        <select id="wizard-image-variant" value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                           {tabbyImageTagOptions.length === 0 && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
                           {tabbyImageTagOptions.map(opt => (
                             <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
@@ -527,8 +527,8 @@ export default function AppDeployWizard({
                       <span className="text-[10px] text-slate-500 ml-auto">Enable for thinking models (e.g. DeepSeek-R1 style)</span>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
-                      <select value={wizardData.tabbyToolFormat} onChange={e => setWizardData({...wizardData, tabbyToolFormat: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                      <label htmlFor="wizard-tool-call-format" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
+                      <select id="wizard-tool-call-format" value={wizardData.tabbyToolFormat} onChange={e => setWizardData({...wizardData, tabbyToolFormat: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                         <option value="">None — tool calls won't be parsed</option>
                         {(currentUiDefaults.toolFormats ?? []).map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
                       </select>
@@ -544,21 +544,21 @@ export default function AppDeployWizard({
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
-                        <input value={wizardData.tabbyMemoryLimit} onChange={e => setWizardData({...wizardData, tabbyMemoryLimit: e.target.value})} placeholder="32G (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                        <label htmlFor="wizard-memory-limit-ram" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
+                        <input id="wizard-memory-limit-ram" value={wizardData.tabbyMemoryLimit} onChange={e => setWizardData({...wizardData, tabbyMemoryLimit: e.target.value})} placeholder="32G (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>
-                        <input value={wizardData.tabbyShmSize} onChange={e => setWizardData({...wizardData, tabbyShmSize: e.target.value})} placeholder="16Gi (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                        <label htmlFor="wizard-shared-memory-dev-shm" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>
+                        <input id="wizard-shared-memory-dev-shm" value={wizardData.tabbyShmSize} onChange={e => setWizardData({...wizardData, tabbyShmSize: e.target.value})} placeholder="16Gi (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">CPU Limit</label>
-                        <input value={wizardData.tabbyCpuLimit} onChange={e => setWizardData({...wizardData, tabbyCpuLimit: e.target.value})} placeholder="10 (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                        <label htmlFor="wizard-cpu-limit" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">CPU Limit</label>
+                        <input id="wizard-cpu-limit" value={wizardData.tabbyCpuLimit} onChange={e => setWizardData({...wizardData, tabbyCpuLimit: e.target.value})} placeholder="10 (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Config (env overrides)</label>
-                      <textarea value={wizardData.tabbyExtraEnv} onChange={e => setWizardData({...wizardData, tabbyExtraEnv: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={"One per line, e.g.\nTABBY_MODEL_CHUNK_SIZE=4096\nTABBY_MODEL_ROPE_SCALE=1.0"} />
+                      <label htmlFor="wizard-additional-config-env-overrides" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Config (env overrides)</label>
+                      <textarea id="wizard-additional-config-env-overrides" value={wizardData.tabbyExtraEnv} onChange={e => setWizardData({...wizardData, tabbyExtraEnv: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={"One per line, e.g.\nTABBY_MODEL_CHUNK_SIZE=4096\nTABBY_MODEL_ROPE_SCALE=1.0"} />
                       <p className="text-[11px] text-slate-500 mt-1">Any other scalar config.yml field as a TABBY_&lt;SECTION&gt;_&lt;FIELD&gt; env override (text/number/true-false only — TabbyAPI can't set list-type fields like dummy_model_names via env vars).</p>
                     </div>
                   </div>
@@ -569,7 +569,7 @@ export default function AppDeployWizard({
           {wizardStep === 4 && wizardData.appType !== 'vllm' && wizardData.appType !== 'tabbyapi' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> Component: {wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</h4><p className="text-slate-400 text-sm">Select the image version.</p></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
+              <div><label htmlFor="wizard-docker-repository" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input id="wizard-docker-repository" value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
               <TagPicker
                 repo={wizardData.odooRepo}
                 selected={wizardData.odooTag}
@@ -578,8 +578,8 @@ export default function AppDeployWizard({
               />
               {wizardData.appType === 'openwebui' && (
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
-                  <select value={wizardData.openWebuiTargetId} onChange={e => setWizardData({...wizardData, openWebuiTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                  <label htmlFor="wizard-llm-backend-vllm-tabbyapi-deployment" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
+                  <select id="wizard-llm-backend-vllm-tabbyapi-deployment" value={wizardData.openWebuiTargetId} onChange={e => setWizardData({...wizardData, openWebuiTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                     <option value="">No backend (configure manually later)</option>
                     {deployments.filter((d) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d) => (
                       <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
@@ -598,8 +598,8 @@ export default function AppDeployWizard({
               )}
               {wizardData.appType === 'hermes' && (
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
-                  <select value={wizardData.hermesTargetId} onChange={e => setWizardData({...wizardData, hermesTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                  <label htmlFor="wizard-llm-backend-vllm-tabbyapi-deployment-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
+                  <select id="wizard-llm-backend-vllm-tabbyapi-deployment-2" value={wizardData.hermesTargetId} onChange={e => setWizardData({...wizardData, hermesTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                     <option value="">No backend (configure manually later)</option>
                     {deployments.filter((d) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d) => (
                       <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
@@ -634,8 +634,8 @@ export default function AppDeployWizard({
                   {wizardData.webuiEnableWebSearch && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                       <div>
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Engine</label>
-                        <select value={wizardData.webuiWebSearchEngine} onChange={e => setWizardData({...wizardData, webuiWebSearchEngine: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                        <label htmlFor="wizard-search-engine" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Engine</label>
+                        <select id="wizard-search-engine" value={wizardData.webuiWebSearchEngine} onChange={e => setWizardData({...wizardData, webuiWebSearchEngine: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                           <option value="duckduckgo">DuckDuckGo — no API key needed</option>
                           <option value="tavily">Tavily</option>
                           <option value="brave">Brave Search</option>
@@ -645,8 +645,8 @@ export default function AppDeployWizard({
                       </div>
                       {wizardData.webuiWebSearchEngine !== 'duckduckgo' && (
                         <div>
-                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">API Key</label>
-                          <input type="password" value={wizardData.webuiWebSearchApiKey} onChange={e => setWizardData({...wizardData, webuiWebSearchApiKey: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={`API key for ${wizardData.webuiWebSearchEngine}`} />
+                          <label htmlFor="wizard-api-key" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">API Key</label>
+                          <input id="wizard-api-key" type="password" value={wizardData.webuiWebSearchApiKey} onChange={e => setWizardData({...wizardData, webuiWebSearchApiKey: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={`API key for ${wizardData.webuiWebSearchEngine}`} />
                         </div>
                       )}
                       <p className="text-[11px] text-slate-500">Still needs to be toggled on per-conversation in Open WebUI's chat box — this just makes the feature available.</p>
@@ -659,7 +659,7 @@ export default function AppDeployWizard({
           {wizardStep === 5 && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Database className="text-green-500" size={18}/> Component: Database</h4><p className="text-slate-400 text-sm">Select the database version.</p></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.pgRepo} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
+              <div><label htmlFor="wizard-docker-repository-2" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input id="wizard-docker-repository-2" value={wizardData.pgRepo} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
               <TagPicker
                 repo={wizardData.pgRepo}
                 selected={wizardData.pgTag}

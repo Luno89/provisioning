@@ -30,6 +30,17 @@ const catalogueFixture: CatalogueEntry[] = [
       gpuOnly: true,
     },
   },
+  {
+    id: 'tabbyapi',
+    deploysFromSpec: false,
+    uiDefaults: {
+      helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+      native: { webRepo: 'ghcr.io/theroyallab/tabbyapi', webTag: 'latest', dbRepo: '', dbTag: '' },
+      hasDatabase: false,
+      strategies: ['native'],
+      gpuOnly: true,
+    },
+  },
 ];
 
 vi.mock('../../api/deployments', async (importOriginal) => ({
@@ -172,5 +183,25 @@ describe('the cluster step for an app that needs a GPU', () => {
     expect(offered()).toEqual([]);
     expect(screen.getByText(/None of your machines reports a GPU/)).toBeInTheDocument();
     expect(screen.getByText('dev: nvidia-smi is installed but does not answer')).toBeInTheDocument();
+  });
+});
+
+describe('every field the wizard shows', () => {
+  const unnamed = (): string[] => Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea'))
+    .filter((field) => !field.labels?.length && !field.getAttribute('aria-label') && !field.getAttribute('aria-labelledby'))
+    .map((field) => field.outerHTML.slice(0, 120));
+
+  it.each(['vllm', 'tabbyapi', 'wordpress'])('is named by its label on every step (%s)', async (appType) => {
+    const { user } = setup();
+    await user.selectOptions(screen.getByLabelText(/application type/i), appType);
+    if (appType === 'wordpress') await user.selectOptions(screen.getByLabelText(/target cluster/i), 'c1');
+    expect(unnamed()).toEqual([]);
+    for (let step = 0; step < 5; step++) {
+      const next = screen.queryByRole('button', { name: /^Next/ });
+      if (!next) break;
+      await user.click(next);
+      for (const advanced of screen.queryAllByRole('button', { name: /Advanced/ })) await user.click(advanced);
+      expect(unnamed()).toEqual([]);
+    }
   });
 });

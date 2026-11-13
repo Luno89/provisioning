@@ -58,8 +58,6 @@ function nothingWentWrong(watching: Watched, during: string): void {
 const client = (cookie: string): AxiosInstance => axios.create({ baseURL: devKoalaApi, proxy: false, maxRedirects: 0, headers: { Cookie: cookie }, validateStatus: () => true });
 const mine = async (api: AxiosInstance): Promise<Deployment[]> => (await api.get('/api/deployments')).data as Deployment[];
 
-const fieldAfter = (page: Page, label: string) => page.locator('label', { hasText: label }).locator('xpath=following-sibling::*[self::input or self::select][1]');
-
 async function generatedTokens(port: number): Promise<number> {
   const metrics = await axios.get(`http://127.0.0.1:${port}/metrics`, { proxy: false, responseType: 'text' });
   return String(metrics.data).split('\n').filter((line) => line.startsWith('vllm:generation_tokens_total')).reduce((sum, line) => sum + Number(line.split(' ').at(-1)), 0);
@@ -129,15 +127,15 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: /^Next/ }).click();
     await page.getByRole('button', { name: /Native K8s/ }).click();
     await page.getByRole('button', { name: /^Next/ }).click();
-    await page.getByPlaceholder('e.g. llama, mistral, qwen...').fill(MODEL);
+    await page.getByLabel('Search Hugging Face Models').fill(MODEL);
     await page.getByRole('button', { name: new RegExp(`${MODEL.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} ·`) }).click();
     await page.getByRole('button', { name: /^Next/ }).click();
-    await expect(fieldAfter(page, 'HuggingFace Model ID')).toHaveValue(MODEL);
-    await fieldAfter(page, 'GPU Count').selectOption('1');
-    await fieldAfter(page, 'GPU Vendor').selectOption('nvidia');
+    await expect(page.getByLabel('HuggingFace Model ID')).toHaveValue(MODEL);
+    await page.getByLabel('GPU Count').selectOption('1');
+    await page.getByLabel('GPU Vendor').selectOption('nvidia');
     await page.getByRole('button', { name: /Advanced vLLM Arguments/ }).click();
-    await fieldAfter(page, 'Max Model Length').fill('4096');
-    await fieldAfter(page, 'GPU Memory Utilization').fill('0.5');
+    await page.getByLabel(/^Max Model Length/).fill('4096');
+    await page.getByLabel(/^GPU Memory Utilization/).fill('0.5');
     await page.getByRole('button', { name: /^Next/ }).click();
     await expect(page.getByText('Ready to Launch')).toBeVisible();
     const deployed = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/deployments' && response.request().method() === 'POST');
