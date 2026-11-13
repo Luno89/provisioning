@@ -53,6 +53,16 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(JSON.stringify(listed)).not.toContain('tokenHash');
     });
 
+    it('shows each machine\'s GPUs and any problem reading them, from the report its cluster keeps, and nothing for one that has not reported', async () => {
+      await db.machines.saveLocalAgentDevice(device({ id: 'rig', name: 'rig' }));
+      await db.machines.saveLocalAgentDevice(device({ id: 'old', name: 'old' }));
+      const clusters = new MachineClusters({ store: db.infrastructure, dataKey: 'machine-service-key' });
+      await clusters.reported({ id: 'rig', ownerId: 'bo', name: 'rig' }, 'stopped', { gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: ['the AMD kernel driver does not answer'] });
+      const listed = await service({ clusters }).list('bo');
+      expect(listed.find((entry) => entry.id === 'rig')).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] });
+      expect(listed.find((entry) => entry.id === 'old')).not.toHaveProperty('gpus');
+    });
+
     it('says a machine\'s token has expired once its time is up', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'old' }));
       clock = new Date(clock.getTime() + 91 * DAY);
@@ -211,7 +221,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       await expect(service().forget(gone)).rejects.toThrow('no project');
       expect(devices.drop).toHaveBeenCalledWith('mine');
       projects.removeFor.mockResolvedValue(undefined);
-      await expect(service({ clusters: { forget: async () => { throw new Error('no cluster'); } } }).forget(gone)).rejects.toThrow('no cluster');
+      await expect(service({ clusters: { forget: async () => { throw new Error('no cluster'); }, gpuReports: async () => new Map() } }).forget(gone)).rejects.toThrow('no cluster');
     });
   });
 }

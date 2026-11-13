@@ -123,6 +123,26 @@ describe('My Machines', () => {
     expect(screen.getByText(/last seen/i)).toBeDefined();
   });
 
+  it('says in words whether each machine is online or offline', async () => {
+    renderPanel([machine(), machine({ id: 'dev-2', name: 'Old Desktop', online: false })]);
+
+    await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
+    expect(screen.getByText('online')).toBeDefined();
+    expect(screen.getByText('offline')).toBeDefined();
+  });
+
+  it('shows each machine\'s GPUs and any problem reading them, as its report says', async () => {
+    renderPanel([
+      machine({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] }),
+      machine({ id: 'dev-2', name: 'Toolkit Missing', gpus: [{ vendor: 'nvidia', model: 'RTX 4090', memoryMiB: 24576, count: 1, runtime: false }] }),
+    ]);
+
+    await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
+    expect(screen.getByText('GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each')).toBeDefined();
+    expect(screen.getByText('GPUs could not be read: the AMD kernel driver does not answer')).toBeDefined();
+    expect(screen.getByText('GPUs: 1 × RTX 4090, 24 GiB each, not usable yet: the NVIDIA Container Toolkit is not installed')).toBeDefined();
+  });
+
   it('badges an online device as raw access, since Koala\'s commands there run on the host', async () => {
     renderPanel([
       machine(),

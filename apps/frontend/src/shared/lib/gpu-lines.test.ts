@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gpuLines } from './cluster-gpus'
+import { gpuLines } from './gpu-lines'
 
 const RTX = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }
 

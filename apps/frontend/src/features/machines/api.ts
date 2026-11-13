@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { machineChoice } from '@koala/agent-engine/procedure'
 import { api } from '../../api/client'
 import { machineChoiceLabel } from './lib/machine-rows'
+import type { ReportedGpus } from '../../shared/lib/gpu-lines'
 
 export const localAgentKeys = {
   list: () => ['local-agent-devices'] as const,
@@ -58,6 +59,8 @@ export interface LocalAgentDevice {
   agentsAt?: string
   manualAgents: ManualMachineAgent[]
   agentUpdate?: AgentUpdateView
+  gpus?: NonNullable<ReportedGpus['gpus']>
+  gpuProblems?: string[]
 }
 
 export interface MachineJoinCode {

@@ -4,7 +4,7 @@ import { Bar, Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
 import { clusterCards, healthHash, useInfrastructure } from '../shared'
-import { gpuLines } from '../lib/cluster-gpus'
+import { gpuLines } from '../../../shared/lib/gpu-lines'
 
 export function ClustersSection() {
   const ctx = useShellContext()

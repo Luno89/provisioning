@@ -1,5 +1,5 @@
 import path from 'path';
-import { type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { type ClusterMetadata, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { tokenExpired } from '../lib/device-tokens.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
@@ -9,6 +9,7 @@ import {
 import type { AccountMachine } from './MachineAccounts.js';
 import { agentUpdateReportFrom, agentUpdateView, reportedBundle, type AgentUpdateView } from '../lib/agent-updates.js';
 import type { MachinesStore } from '../store.js';
+import { machineClusterId } from '../lib/machine-clusters.js';
 
 type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'>;
 
@@ -33,7 +34,7 @@ export interface MachineDeps {
     removeFor?(ownerId: string, deviceId: string): Promise<void>;
   };
   bundle?: { sha256(): Promise<string> } | undefined;
-  clusters?: { forget(machine: { id: string; ownerId: string }): Promise<void> } | undefined;
+  clusters?: { forget(machine: { id: string; ownerId: string }): Promise<void>; gpuReports(): Promise<Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>> } | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -53,6 +54,8 @@ export interface MachineView {
   agentsAt?: string | undefined;
   manualAgents: ManualMachineAgent[];
   agentUpdate?: AgentUpdateView | undefined;
+  gpus?: ClusterMetadata['gpus'];
+  gpuProblems?: string[] | undefined;
 }
 
 export class MachineService {
@@ -108,7 +111,8 @@ export class MachineService {
   async list(ownerId: string): Promise<MachineView[]> {
     const devices = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
     const current = devices.length ? await this.currentBundle() : undefined;
-    return devices.map((device) => this.view(device, current));
+    const reports = devices.length && this.deps.clusters ? await this.deps.clusters.gpuReports() : new Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>();
+    return devices.map((device) => ({ ...this.view(device, current), ...reports.get(machineClusterId(device.id)) }));
   }
 
   createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {

@@ -6,6 +6,7 @@ import {
 import { errorMessage } from '../../../api/client';
 import MachineAgents from './MachineAgents';
 import MachineAgentUpdate from './MachineAgentUpdate';
+import { gpuLines } from '../../../shared/lib/gpu-lines';
 import ConfirmDelete from '../../../shared/components/ConfirmDelete';
 import { useCopy } from '../../../shared/lib/use-copy';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -98,10 +99,11 @@ export default function MyMachines() {
           {localAgents.map((d) => (
             <div key={d.id} className="bg-slate-800/50 border border-slate-700/50 rounded-2xl px-5 py-4">
               <div className="flex items-center gap-4">
-                <Circle size={9} className={d.online ? 'text-green-400 fill-green-400' : 'text-slate-600 fill-slate-600'} />
+                <Circle size={9} aria-hidden className={d.online ? 'text-green-400 fill-green-400' : 'text-slate-600 fill-slate-600'} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm text-slate-200 truncate">{d.name}</span>
+                    <span className={`text-[10px] ${d.online ? 'text-green-400' : 'text-slate-500'}`}>{d.online ? 'online' : 'offline'}</span>
                     {d.online && (
                       <span
                         className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
@@ -116,6 +118,7 @@ export default function MyMachines() {
                     {d.os && ` · ${d.os}`}
                     {!d.online && d.lastSeenAt && ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}`}
                   </div>
+                  {gpuLines(d).map((line) => <div key={line} className="text-[11px] text-slate-400 mt-0.5">{line}</div>)}
                   {!d.online && d.tokenExpired && (
                     <div className="text-[11px] text-amber-400 mt-1">Its token expired while it was offline; run the command from My Machines again.</div>
                   )}

@@ -59,6 +59,13 @@ export class MachineClusters {
     return appsOn(await this.deps.store.getDeployments(), clusterId, leaving).length === 0;
   }
 
+  async gpuReports(): Promise<Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>> {
+    return new Map((await this.deps.store.getClusters()).filter((cluster) => cluster.gpus || cluster.gpuProblems).map((cluster) => [cluster.id, {
+      ...(cluster.gpus ? { gpus: cluster.gpus } : {}),
+      ...(cluster.gpuProblems ? { gpuProblems: cluster.gpuProblems } : {}),
+    }]));
+  }
+
   async forget(device: Pick<LocalAgentDeviceMetadata, 'id' | 'ownerId'>): Promise<void> {
     const cluster = await this.clusterOf(device.id);
     if (!cluster) return;
