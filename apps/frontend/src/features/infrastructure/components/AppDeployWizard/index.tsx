@@ -41,9 +41,9 @@ export default function AppDeployWizard({
 
   const targetCluster = clusters.find((c) => c.id === wizardData.clusterId);
   const vllmChoices = useMemo<GpuChoices>(() => (targetCluster ? gpuChoicesOf(targetCluster) : { vendors: [], problem: 'Pick the machine it runs on first.' }), [targetCluster]);
-  const tabbyChoices = useMemo<GpuChoices>(() => (targetCluster ? gpuChoicesOf(targetCluster, { runsOn: ['nvidia'], runsOnCpu: false }) : { vendors: [], problem: 'Pick the machine it runs on first.' }), [targetCluster]);
+  const tabbyChoices = useMemo<GpuChoices>(() => (targetCluster ? gpuChoicesOf(targetCluster, { runsOn: ['nvidia'] }) : { vendors: [], problem: 'Pick the machine it runs on first.' }), [targetCluster]);
   const vllmGpus = chosenGpus(vllmChoices, { vendor: wizardData.vllmGpuVendor, count: wizardData.vllmGpuCount });
-  const tabbyGpus = chosenGpus(tabbyChoices, { vendor: 'nvidia', count: wizardData.tabbyGpuCount }, false);
+  const tabbyGpus = chosenGpus(tabbyChoices, { vendor: 'nvidia', count: wizardData.tabbyGpuCount });
   const chosen: WizardData = { ...wizardData, vllmGpuVendor: vllmGpus.vendor, vllmGpuCount: vllmGpus.count, tabbyGpuCount: tabbyGpus.count };
   const debouncedTabbyModel = useDebounce(wizardData.tabbyModel);
   const debouncedTabbyRevision = useDebounce(wizardData.tabbyRevision);
@@ -67,8 +67,8 @@ export default function AppDeployWizard({
     repo: debouncedVllmModel,
     maxSeqLen: debouncedVllmMaxModelLen,
     cacheMode: 'FP16',
-    gpuCount: chosen.vllmGpuCount !== '0' ? chosen.vllmGpuCount : '1',
-  }, wizardStep === 4 && wizardData.appType === 'vllm');
+    gpuCount: chosen.vllmGpuCount,
+  }, wizardStep === 4 && wizardData.appType === 'vllm' && chosen.vllmGpuCount !== '');
 
   const {
     data: modelSearchResults = [], isFetching: loadingModelSearch,
@@ -341,7 +341,7 @@ export default function AppDeployWizard({
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
               <div><label htmlFor="wizard-huggingface-model-id" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input id="wizard-huggingface-model-id" value={wizardData.vllmModel} onChange={e => setWizardData({...wizardData, vllmModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
-              <div><label htmlFor="wizard-gpu-count" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select id="wizard-gpu-count" value={chosen.vllmGpuCount} onChange={e => setWizardData({...wizardData, vllmGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">{(vllmChoices.vendors.find((choice) => choice.vendor === chosen.vllmGpuVendor)?.counts ?? []).map((count) => <option key={count} value={count}>{count} GPU{count === '1' ? '' : 's'}</option>)}<option value="0">CPU only (no GPU)</option></select>
+              <div><label htmlFor="wizard-gpu-count" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select id="wizard-gpu-count" value={chosen.vllmGpuCount} onChange={e => setWizardData({...wizardData, vllmGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">{(vllmChoices.vendors.find((choice) => choice.vendor === chosen.vllmGpuVendor)?.counts ?? []).map((count) => <option key={count} value={count}>{count} GPU{count === '1' ? '' : 's'}</option>)}</select>
                 {vllmChoices.problem && <p className="text-[11px] text-amber-400/90 mt-2">{vllmChoices.problem}</p>}
                 {loadingVllmModelSize && (
                   <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
@@ -701,7 +701,7 @@ export default function AppDeployWizard({
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId) || (wizardStep === 4 && ((wizardData.appType === 'vllm' && chosen.vllmGpuCount === '') || (wizardData.appType === 'tabbyapi' && chosen.tabbyGpuCount === '')))} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

@@ -84,10 +84,6 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const physicalName = args.clusterName;
   const kubeconfigPath = await steps.access.kubeconfigOf(reach);
 
-  const effectiveDevice = args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda');
-  const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
-  const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
-
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage || {});
   const deploymentId = args.deploymentId || 'default';
 
@@ -107,10 +103,9 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     dbRepo: args.dbRepo,
     dbTag: args.dbTag,
     vllmModel: args.vllmModel,
-    vllmGpuCount: effectiveGpuCount,
+    vllmGpuCount: args.vllmGpuCount,
     vllmGpuVendor: args.vllmGpuVendor,
     vllmCachePvc: args.vllmCachePvc,
-    vllmDevice: effectiveDevice,
     vllmMaxModelLen: args.vllmMaxModelLen,
     vllmGpuMemUtil: args.vllmGpuMemUtil,
     vllmExtraArgs: args.vllmExtraArgs,
@@ -122,7 +117,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
     tabbyModel: args.tabbyModel,
     tabbyRevision: args.tabbyRevision,
-    tabbyGpuCount: effectiveTabbyGpuCount,
+    tabbyGpuCount: args.tabbyGpuCount,
     tabbyCachePvc: args.tabbyCachePvc,
     tabbyCacheMode: args.tabbyCacheMode,
     tabbyMaxSeqLen: args.tabbyMaxSeqLen,

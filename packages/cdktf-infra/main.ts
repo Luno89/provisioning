@@ -241,7 +241,6 @@ class AppStack extends TerraformStack {
           model: process.env.VLLM_MODEL,
           gpuCount: gpuCountFrom('VLLM_GPU_COUNT'),
           gpuVendor: gpuVendorFrom('VLLM_GPU_VENDOR'),
-          device: process.env.VLLM_DEVICE,
           hfToken: process.env.HF_TOKEN || undefined,
           cachePvc: process.env.VLLM_CACHE_PVC,
           image: requiredEnv('MODEL_IMAGE'),
