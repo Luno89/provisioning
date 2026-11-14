@@ -172,18 +172,24 @@ async function main(): Promise<void> {
 
     step('a Koala chat answers from that model, on this machine\'s GPU');
     await page.goto(`${devKoalaPage}/#/chat`);
-    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    const [opened] = await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).pathname === '/api/conversations' && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'New chat', exact: true }).click(),
+    ]);
+    assert.ok(opened.ok(), `making a new chat answered ${opened.status()}: ${await opened.text()}`);
+    const conversationId = ((await opened.json()) as { id: string }).id;
+    chats.made(conversationId);
+    await page.waitForURL((url) => url.hash.includes(conversationId));
+    console.log(`  in a new chat of its own, ${conversationId}`);
     await page.getByPlaceholder(/^Message/).fill(ASKED);
-    const started = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/engine/runs' && response.request().method() === 'POST');
-    await page.getByRole('button', { name: 'Send message' }).click();
-    const run = await started;
+    const [run] = await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).pathname === '/api/engine/runs' && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'Send message' }).click(),
+    ]);
     assert.equal(run.status(), 201, `starting the turn answered ${run.status()}: ${await run.text()}`);
     const runId = ((await run.json()) as { runId: string }).runId;
-    const conversationId = (run.request().postDataJSON() as { conversationId?: string }).conversationId;
-    assert.ok(conversationId, 'the chat started a turn for no conversation');
+    assert.equal((run.request().postDataJSON() as { conversationId?: string }).conversationId, conversationId, 'the turn started in another chat than the one the suite made');
     runIds.add(runId);
-    chats.made(conversationId);
-    console.log(`  in a new chat of its own, ${conversationId}`);
     await temporal.client.workflow.getHandle(workflowOfRun(runId)).result();
     const events = ((await api.get(`/api/turns/${runId}`)).data as { entries: { events: TurnEvent[] }[] }).entries.flatMap((entry) => entry.events);
     const ended = events.find((event) => event.type === 'run.finished' && event.runId === runId);
