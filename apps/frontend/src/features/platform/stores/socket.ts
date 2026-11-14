@@ -6,7 +6,7 @@ import { tryAgainAfter, tryAgainAfterRefusal, UNCHECKED_RETRY_MS } from '../lib/
 let shared: Socket | null = null
 
 const opened = (): Socket => {
-  const socket = io(SOCKET_URL, { withCredentials: true })
+  const socket = io(SOCKET_URL, { withCredentials: true, autoConnect: false })
   socket.on('disconnect', (reason: string) => { if (tryAgainAfter(reason)) socket.connect() })
   socket.on('connect_error', (err: unknown) => { if (tryAgainAfterRefusal(err)) setTimeout(() => { socket.connect() }, UNCHECKED_RETRY_MS) })
   return socket

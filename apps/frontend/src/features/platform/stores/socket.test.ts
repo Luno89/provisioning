@@ -1,11 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { io } from 'socket.io-client'
-import { disconnectShared, reconnectSocket } from './socket'
+import { disconnectShared, getSocket, reconnectSocket } from './socket'
 
 beforeEach(() => { disconnectShared() })
 
+describe('the shared socket before anyone signs in', () => {
+  it('is made without connecting, so a signed-out page never asks the server for a socket it would refuse', () => {
+    const socket = { connected: false, connect: vi.fn(), on: vi.fn(), off: vi.fn(), disconnect: vi.fn() }
+    vi.mocked(io).mockReturnValueOnce(socket as never)
+
+    getSocket()
+
+    expect(vi.mocked(io).mock.lastCall?.[1]).toMatchObject({ autoConnect: false })
+    expect(socket.connect).not.toHaveBeenCalled()
+  })
+})
+
 describe('the shared socket after signing in', () => {
-  it('connects again when the server turned it away before there was a session', () => {
+  it('connects once someone is signed in', () => {
     const socket = { connected: false, connect: vi.fn(), on: vi.fn(), off: vi.fn(), disconnect: vi.fn() }
     vi.mocked(io).mockReturnValueOnce(socket as never)
 
