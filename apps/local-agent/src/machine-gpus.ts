@@ -41,7 +41,8 @@ export async function machineGpus(probe: GpuProbe): Promise<GpuReport> {
   const problems = reads.flatMap((read) => ('problem' in read ? [read.problem] : []));
   const cards = reads.flatMap((read) => ('cards' in read ? read.cards : []));
   if (!cards.length) return { gpus: [], problems };
-  const cdi = cards.some((card) => card.vendor === 'nvidia') && await probe.exists(NVIDIA_CDI_HOOK) && await probe.exists(NVIDIA_RUNTIME);
+  const [hook, runtime] = await Promise.all([probe.exists(NVIDIA_CDI_HOOK), probe.exists(NVIDIA_RUNTIME)]);
+  const cdi = cards.some((card) => card.vendor === 'nvidia') && hook && runtime;
   const usable = (vendor: GpuVendor): boolean => vendor === 'amd' || cdi;
   return { gpus: groupedGpus(cards, usable), problems };
 }
