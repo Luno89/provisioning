@@ -13,6 +13,8 @@ export interface InventoryComponent {
   osvName?: string | undefined;
   github?: string | undefined;
   released?: string | undefined;
+  source?: string | undefined;
+  tracks?: string | undefined;
   floating: boolean;
 }
 
@@ -51,6 +53,8 @@ export function inventoryComponents(bom: unknown): InventoryComponent[] {
       osvName: npm ? name : props['koala:osv-name'],
       github: props['koala:github'],
       released: props['koala:released'],
+      source: props['koala:source'],
+      tracks: props['koala:tracks'],
       floating: props['koala:floating'] === 'true',
     }];
   });

@@ -30,6 +30,11 @@ interface Asked { url: string; body?: string }
 let asked: Asked[];
 let seroval11At = '2026-10-18T00:00:00Z';
 let osvStatus = 200;
+let ghcrStatus = 200;
+let tabbyLatest = 'b'.repeat(64);
+
+const TABBY_PINNED = 'a'.repeat(64);
+const tabby = { 'bom-ref': 'image:pkg:docker/theroyallab/tabbyapi@latest-2026-11-10', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: `ghcr.io/theroyallab/tabbyapi@sha256:${TABBY_PINNED}` }, { name: 'koala:tracks', value: 'latest' }] };
 
 const registry = [
   http.all('*', async ({ request }) => {
@@ -45,6 +50,16 @@ const registry = [
           : query.package.name === 'github.com/k3s-io/k3s' ? [{ id: 'GO-k3s' }]
             : query.package.name === '@xmldom/xmldom' ? [{ id: 'GHSA-xmldom' }] : [],
       })) });
+    }
+    if (url.startsWith('https://ghcr.io/') || url.startsWith('http://sources.test/ghcr/')) {
+      if (ghcrStatus !== 200) return new HttpResponse('{}', { status: ghcrStatus });
+      const path = url.replace(/^https:\/\/ghcr\.io|^http:\/\/sources\.test\/ghcr/, '');
+      if (path === '/token?scope=repository%3Atheroyallab%2Ftabbyapi%3Apull' || path === '/token?scope=repository:theroyallab/tabbyapi:pull') return ok({ token: 'anonymous' });
+      if (request.headers.get('authorization') !== 'Bearer anonymous') return new HttpResponse('{}', { status: 401 });
+      if (path === '/v2/theroyallab/tabbyapi/manifests/latest') return HttpResponse.json({ mediaType: 'application/vnd.oci.image.index.v1+json', manifests: [{ digest: 'sha256:arm', platform: { os: 'linux', architecture: 'arm64' } }, { digest: 'sha256:amd', platform: { os: 'linux', architecture: 'amd64' } }] } as never, { headers: { 'docker-content-digest': `sha256:${tabbyLatest}` } });
+      if (path === '/v2/theroyallab/tabbyapi/manifests/sha256:amd') return ok({ config: { digest: 'sha256:config' } });
+      if (path === '/v2/theroyallab/tabbyapi/blobs/sha256:config') return ok({ config: { Labels: { 'org.opencontainers.image.created': '2026-11-12T20:00:00Z', 'org.opencontainers.image.revision': 'c0ffee' } } });
+      return new HttpResponse('{}', { status: 404 });
     }
     const vuln = /\/vulns\/(.+)$/.exec(url)?.[1];
     if (vuln) return ok(ADVISORIES[decodeURIComponent(vuln)]);
@@ -64,6 +79,8 @@ beforeEach(async () => {
   db = memoryDatabase();
   asked = [];
   osvStatus = 200;
+  ghcrStatus = 200;
+  tabbyLatest = 'b'.repeat(64);
   seroval11At = '2026-10-18T00:00:00Z';
   told = [];
   await db.instances.recordRelease({ imageTag: 'aaaaaaaaaaaa', version: 'v2026.10.23', servedAt: '2026-10-23T00:00:00Z' });
@@ -76,7 +93,7 @@ const watch = (at: string) => new DependencyWatch({
   inventoryOf: async (tag) => inventories[tag],
   currentRelease: 'bbbbbbbbbbbb',
   fetchImpl: fetch,
-  sources: { osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com' },
+  sources: { osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io' },
   tell: async (message) => { told.push(message); },
   rootUrl: 'https://app.example.com',
   now: () => new Date(at),
@@ -119,7 +136,7 @@ describe('root\'s daily check of what its running releases are made of', () => {
       inventoryOf: async (tag) => inventories[tag],
       currentRelease: 'bbbbbbbbbbbb',
       fetchImpl: fetch,
-      sources: { osv: 'http://sources.test/osv', npm: 'http://sources.test/npm', github: 'http://sources.test/github' },
+      sources: { osv: 'http://sources.test/osv', npm: 'http://sources.test/npm', github: 'http://sources.test/github', ghcr: 'http://sources.test/ghcr' },
       tell: async () => undefined,
       rootUrl: 'https://app.example.com',
       now: () => new Date('2026-10-29T12:00:00Z'),
@@ -202,5 +219,39 @@ describe('root\'s daily check of what its running releases are made of', () => {
     } finally {
       warned.mockRestore();
     }
+  });
+
+  describe('an image pinned by digest from a tag that moves', () => {
+    const withTabby = async (run: () => Promise<void>) => {
+      const was = inventories.bbbbbbbbbbbb;
+      inventories.bbbbbbbbbbbb = { components: [npm('seroval', '1.6.11'), npm('left-pad', '1.3.0'), k3s, mongo, tabby] };
+      try { await run(); } finally { inventories.bbbbbbbbbbbb = was; }
+    };
+
+    it('lists a newer build of the tag with when it was built and first seen, takeable two weeks after first seen, and takes nothing', async () => {
+      await withTabby(async () => {
+        const { check } = await watch('2026-11-13T12:00:00Z').check();
+        expect(check!.builds).toEqual([{ image: 'theroyallab/tabbyapi', tag: 'latest', pinned: TABBY_PINNED, digest: 'b'.repeat(64), builtAt: '2026-11-12T20:00:00Z', revision: 'c0ffee', firstSeenAt: '2026-11-13T12:00:00.000Z', takeOn: '2026-11-27' }]);
+        const later = await watch('2026-11-20T12:00:00Z').check();
+        expect(later.check!.builds).toEqual(check!.builds);
+        expect(told.map((message) => message.text).join('\n')).not.toContain('tabbyapi');
+      });
+    });
+
+    it('lists nothing while the tag still names the pinned build', async () => {
+      tabbyLatest = TABBY_PINNED;
+      await withTabby(async () => {
+        expect((await watch('2026-11-13T12:00:00Z').check()).check!.builds).toEqual([]);
+      });
+    });
+
+    it('says the newest build could not be read, rather than listing none, when the registry does not answer', async () => {
+      ghcrStatus = 503;
+      await withTabby(async () => {
+        const { check } = await watch('2026-11-13T12:00:00Z').check();
+        expect(check!.builds).toEqual([]);
+        expect(check!.problems).toEqual([expect.stringMatching(/^the newest build of theroyallab\/tabbyapi:latest could not be read: .*503/)]);
+      });
+    });
   });
 });

@@ -71,7 +71,6 @@ export class VllmApp extends Construct {
       modelArg,
       "--trust-remote-code",
       "--enable-chunked-prefill",
-      `--device ${device}`,
       ...(gpuCount > 1 ? [`--tensor-parallel-size ${gpuCount}`] : []),
       ...(config.maxModelLen !== undefined ? [`--max-model-len ${config.maxModelLen}`] : []),
       ...(config.gpuMemUtil !== undefined ? [`--gpu-memory-utilization ${config.gpuMemUtil}`] : []),

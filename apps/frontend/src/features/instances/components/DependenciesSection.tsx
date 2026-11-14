@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { useCheckDependencies, useDependencies, type ComponentKind, type DependencyFinding, type FindingState } from '../api/dependencies'
-import { ageOf, byWhatRuns, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
+import { ageOf, buildLine, byWhatRuns, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
 
 const STATE_STYLE: Record<FindingState, string> = {
   due: 'bg-red-500/15 text-red-300',
@@ -73,6 +73,12 @@ export function DependenciesSection() {
       {dependencies.isError && <p role="alert" className="text-xs text-red-300">{errorMessage(dependencies.error)}</p>}
       {check.isError && <p role="alert" className="text-xs text-red-300">{errorMessage(check.error)}</p>}
       {view?.check?.problems.map((problem) => <p key={problem} role="status" className="text-xs text-amber-300">{problem}</p>)}
+
+      {(view?.check?.builds ?? []).length > 0 && (
+        <ul className="space-y-1 text-xs" aria-label="Newer builds of a moving tag">
+          {(view?.check?.builds ?? []).map((build) => <li key={`${build.image}@${build.digest}`} className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] px-3 py-2 text-slate-300">{buildLine(build, now)}</li>)}
+        </ul>
+      )}
 
       {view?.check && (
         <ul className="flex flex-wrap gap-2 text-xs" aria-label="Releases checked">

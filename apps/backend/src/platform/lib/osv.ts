@@ -6,13 +6,14 @@ export interface DependencySources {
   osv: string;
   npm: string;
   github: string;
+  ghcr: string;
 }
 
-export const DEPENDENCY_SOURCES: DependencySources = { osv: OSV_API, npm: 'https://registry.npmjs.org', github: 'https://api.github.com' };
+export const DEPENDENCY_SOURCES: DependencySources = { osv: OSV_API, npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io' };
 
 export const dependencySourcesAt = (base: string): DependencySources => {
   const at = base.replace(/\/+$/, '');
-  return { osv: `${at}/osv`, npm: `${at}/npm`, github: `${at}/github` };
+  return { osv: `${at}/osv`, npm: `${at}/npm`, github: `${at}/github`, ghcr: `${at}/ghcr` };
 };
 
 export const OSV_BATCH = 1000;

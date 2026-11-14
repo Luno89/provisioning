@@ -22,6 +22,7 @@ const pins = {
     { kind: 'image', name: 'headscale/headscale', version: 'v0.29.2', source: 'docker.io/headscale/headscale:v0.29.2' },
     { kind: 'action', name: 'actions/checkout', version: 'v4.4.0', commit: 'a'.repeat(40), source: 'https://github.com/actions/checkout' },
     { kind: 'binary', name: 'k3s', version: 'v1.36.4+k3s1', sha256: 'b'.repeat(64), source: 'https://example.invalid/k3s' },
+    { kind: 'image', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', sha256: 'c'.repeat(64), source: `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}`, tracks: 'latest' },
   ],
   unpinned: [{ name: 'tailscale', how: 'curl | sh', usedIn: ['scripts/instance/install.sh'] }],
 };
@@ -53,7 +54,9 @@ describe('the inventory of a release', () => {
   });
 
   it('gives each pinned component its kind, source, checksum, when it was released and where OSV knows it, and lists what is unpinned', () => {
-    const [caddy, headscale, checkout, k3s, tailscale] = pinComponents(pins);
+    const [caddy, headscale, checkout, k3s, tabby, tailscale] = pinComponents(pins);
+    expect(props(tabby)).toMatchObject({ 'koala:tracks': 'latest', 'koala:source': `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}` });
+    expect(props(caddy)['koala:tracks']).toBeUndefined();
     expect(caddy).toMatchObject({ type: 'container', purl: 'pkg:docker/library/caddy@2.10.2' });
     expect(props(caddy)).toMatchObject({ 'koala:osv-ecosystem': 'Go', 'koala:osv-name': 'github.com/caddyserver/caddy/v2', 'koala:github': 'caddyserver/caddy', 'koala:released': '2025-08-23T01:46:14Z' });
     expect(props(headscale)['koala:released']).toBeUndefined();
