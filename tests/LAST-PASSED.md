@@ -27,4 +27,4 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `routing-live` | 2026-11-02 07:22 | 2026-11-01 05:35 |
 | `telemetry-live` | 2026-11-05 17:36 | — |
 | `tree-to-release-live` | — | 2026-11-02 21:35 |
-| `v1-live` | — | 2026-11-14 09:36 |
+| `v1-live` | — | 2026-11-14 11:56 |

@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     await expect(page.getByLabel('Serve tool calling')).toBeChecked();
     await expect(page.getByLabel('Tool Call Parser').locator('option:checked')).toHaveText('Chosen from the model: hermes');
     await page.getByRole('button', { name: /Advanced vLLM Arguments/ }).click();
-    await page.getByLabel(/^Max Model Length/).fill('16384');
+    await page.getByLabel(/^Max Model Length/).fill('32768');
     await page.getByLabel(/^GPU Memory Utilization/).fill('0.5');
     await page.getByRole('button', { name: /^Next/ }).click();
     await expect(page.getByText('Ready to Launch')).toBeVisible();
