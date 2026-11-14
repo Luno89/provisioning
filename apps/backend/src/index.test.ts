@@ -48,6 +48,12 @@ describe('the order routes are mounted in bootstrap', () => {
     const lastRouter = Math.max(...[...bootstrap.matchAll(/^\s*(?:tenant|app)\.use\('\/api\//gm)].map((match) => match.index!));
     expect(catchAll).toBeGreaterThan(lastRouter);
   });
+
+  it('answers every error a route throws through the error responder, mounted after everything else', () => {
+    const responder = at('app.use(errorResponder);');
+    expect(responder).toBeGreaterThan(at("app.get(/^(?!\\/api).*/, (_req, res) => res.sendFile("));
+    expect(bootstrap.lastIndexOf('app.use(')).toBe(responder);
+  });
 });
 
 describe('a backend that cannot start', () => {

@@ -16,7 +16,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute,
+  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
@@ -491,6 +491,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.warn(`⚠️  NODE_ENV=production but no frontend build at ${distPath} — run \`npm run build\`.`);
     }
   }
+
+  app.use(errorResponder);
 
   if (!settings.underTest || settings.e2e) {
     httpServer.on('error', (err: NodeJS.ErrnoException) => {

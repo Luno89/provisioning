@@ -68,6 +68,13 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(res.data.error).toContain('Session missing');
   });
 
+  it('answers a request it refuses with its reason as JSON, never Express\'s own error page', async () => {
+    const res = await axios.post(getUrl('/api/auth/login'), '{"email": "a@example.com", ', { headers: { 'content-type': 'application/json' }, validateStatus: () => true });
+    expect(res.status).toBe(400);
+    expect(String(res.headers['content-type'])).toMatch(/^application\/json/);
+    expect(res.data).toMatchObject({ error: expect.stringMatching(/JSON/) });
+  });
+
   it('should register and log in natively, returning correct JWT session cookie', async () => {
     const email = `test-user-${Date.now()}@example.com`;
     const password = 'a-koala-routes-password';
