@@ -45,7 +45,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
 
   beforeEach(async () => {
     db = await make();
-    clock = new Date('2026-11-04T12:00:00Z');
+    clock = new Date(Math.floor(Date.now() / 1000) * 1000);
     followers = mock<MachineFollowers>();
     followers.joined.mockResolvedValue(undefined);
     followers.removed.mockResolvedValue(undefined);

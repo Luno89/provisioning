@@ -2,14 +2,16 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { turnsRouter } from './turns.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 
-const at = '2026-10-05T00:00:00.000Z';
-const before = '2026-10-02T00:00:00.000Z';
+const now = Math.floor(Date.now() / 1000) * 1000;
+const hoursAgo = (hours: number): string => new Date(now - hours * 3_600_000).toISOString();
+const at = hoursAgo(12);
+const before = hoursAgo(72);
 const harness: Harness = await mountRouter({
   prefix: '/api/turns',
   router: async (db) => {
     await Promise.all([
       db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [{ type: 'run.started', runId: 'r1', at, agentId: 'koala', loopId: 'interactive-chat' } as never] }),
-      db.engine.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: '2026-10-03T00:00:00.000Z', events: [] }),
+      db.engine.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: hoursAgo(48), events: [] }),
       db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 2, at, events: [] }),
       db.engine.appendTurnLog({ turnId: 'r2', ownerId: 'someone-else', seq: 1, at, events: [] }),
       db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 1, at: before, events: [
@@ -24,7 +26,7 @@ const harness: Harness = await mountRouter({
       ] as never }),
       db.engine.appendTurnLog({ turnId: 'grove', ownerId: TEST_USER.id, seq: 4, at: before, events: [{ type: 'content', runId: 'grove', at, nodeId: 'n', delta: 'the tree' }] as never }),
     ]);
-    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) }, now: () => new Date('2026-10-05T12:00:00.000Z') });
+    return turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) }, now: () => new Date(now) });
   },
 });
 

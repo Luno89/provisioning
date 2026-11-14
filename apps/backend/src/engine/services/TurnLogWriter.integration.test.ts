@@ -5,7 +5,7 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { TurnLogEntry } from '../lib/turn-log.js';
 import { TurnLogWriter } from './TurnLogWriter.js';
 
-const at = '2026-10-05T00:00:00.000Z';
+const at = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
 const ev = (event: Record<string, unknown>): EngineEvent => ({ runId: 't1', at, ownerId: 'u1', turnId: 't1', ...event }) as unknown as EngineEvent;
 const fresh = await emptiedEachTime();
 

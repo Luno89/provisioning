@@ -17,7 +17,8 @@ import type { StoredNodeTrace } from '../lib/run-traces.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 import type { EngineStore } from '../store.js';
 
-const at = (minute: number): string => new Date(Date.UTC(2026, 9, 1, 0, minute)).toISOString();
+const start = Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000;
+const at = (minute: number): string => new Date(start + minute * 60_000).toISOString();
 
 const conversation = (over: Partial<Conversation> = {}): Conversation => ({ id: 'chat-1', ownerId: 'owner-1', title: 'A chat', messages: [], createdAt: at(0), updatedAt: at(0), ...over });
 const said = (content: string, minute: number): ConversationMessage => ({ role: 'user', content, at: at(minute) });
@@ -215,8 +216,8 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
 
     it('hands back each entry\'s time as an ISO string, normalised to milliseconds', async () => {
       const store = await make();
-      await store.appendTurnLog(turn('turn-1', 1, [], { at: '2026-10-01T00:00:00Z' }));
-      expect((await store.getTurnLog('owner-1', 'turn-1', 0))[0]?.at).toBe('2026-10-01T00:00:00.000Z');
+      await store.appendTurnLog(turn('turn-1', 1, [], { at: at(0).replace('.000Z', 'Z') }));
+      expect((await store.getTurnLog('owner-1', 'turn-1', 0))[0]?.at).toBe(at(0));
     });
 
     it('refuses a second entry with the same turn and sequence number', async () => {
