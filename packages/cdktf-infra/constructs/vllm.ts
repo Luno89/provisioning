@@ -13,7 +13,6 @@ export interface VllmConfig {
   readonly model?: string;
   readonly gpuCount?: number;
   readonly gpuVendor?: 'nvidia' | 'amd';
-  readonly device?: string;
   readonly hfToken?: string;
   readonly cachePvc?: string;
   readonly serviceType?: string;
@@ -39,11 +38,10 @@ export class VllmApp extends Construct {
 
     const namespaceName = config.namespace || "vllm";
     const modelName = config.model || "meta-llama/Llama-3.2-3B-Instruct";
-    if (config.gpuCount === undefined) throw new Error('vLLM needs to be told how many GPUs it uses, 0 for CPU only');
+    if (config.gpuCount === undefined || config.gpuCount < 1) throw new Error('vLLM needs to be told how many GPUs it uses, 1 or more: Koala runs no model on CPU');
     const gpuCount = config.gpuCount;
-    if (gpuCount > 0 && !config.gpuVendor) throw new Error(`vLLM on ${gpuCount} GPU${gpuCount === 1 ? '' : 's'} needs to be told their vendor`);
+    if (!config.gpuVendor) throw new Error(`vLLM on ${gpuCount} GPU${gpuCount === 1 ? '' : 's'} needs to be told their vendor`);
     const gpuVendor = config.gpuVendor;
-    const device = config.device || process.env.VLLM_DEVICE || process.env.VLLM_TARGET_DEVICE || (gpuCount > 0 ? (gpuVendor === 'amd' ? 'rocm' : 'cuda') : 'cpu');
     const hfToken = config.hfToken || "";
     const cacheHostPath = config.cachePvc
       ? (config.cachePvc.startsWith('/') ? config.cachePvc : `/var/lib/rancher/${config.cachePvc}`)
@@ -62,7 +60,7 @@ export class VllmApp extends Construct {
     const imageName = config.image;
 
     const gpuResourceKey = gpuVendor === 'amd' ? 'amd.com/gpu' : 'nvidia.com/gpu';
-    const gpuResources = (gpuCount > 0 && device !== 'cpu') ? { [gpuResourceKey]: String(gpuCount) } : {};
+    const gpuResources = { [gpuResourceKey]: String(gpuCount) };
 
     const extraArgs = config.extraArgs || [];
     const servedModelName = config.servedModelName || (isPreDownloaded ? modelName : undefined);
@@ -105,10 +103,6 @@ export class VllmApp extends Construct {
         {
           name: "VLLM_MODEL",
           value: modelName,
-        },
-        {
-          name: "VLLM_TARGET_DEVICE",
-          value: device,
         },
         ...tokenEnv,
       ],
@@ -214,7 +208,7 @@ export class VllmApp extends Construct {
       },
       spec: {
         replicas: "1",
-        strategy: gpuCount > 0 && device !== 'cpu' ? { type: "Recreate" } : undefined,
+        strategy: { type: "Recreate" },
         progressDeadlineSeconds: 3630,
         selector: {
           matchLabels: {

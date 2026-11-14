@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
+import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
 
@@ -57,6 +58,8 @@ async function main(): Promise<void> {
   const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
   assert.ok(machine, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
   const clusterId = `machine-${machine}`;
+  const apps = madeHere<Deployment>({ name: 'deployments', list: () => mine(api), idOf: (app) => app.id, stampOf: () => undefined });
+  await apps.before();
   const stopped: StoppedModel[] = [];
   let id: string | undefined;
   let forward: ChildProcess | undefined;
@@ -94,6 +97,7 @@ async function main(): Promise<void> {
       const made = await api.post('/api/deployments', { name: NAME, clusterId, appType: 'vllm', strategy: 'native', vllmModel: MODEL, vllmGpuCount: 1, vllmMaxModelLen: 4096, vllmGpuMemUtil: 0.5 });
       assert.equal(made.status, 202, `the deploy answered ${made.status}: ${JSON.stringify(made.data)}`);
       id = (made.data as { id: string }).id;
+      apps.made(id);
       const running = await until(`${NAME} running`, async () => {
         const found = (await mine(api)).find((entry) => entry.id === id);
         if (!found) throw new Hopeless('the deployment is gone from the list');
@@ -146,6 +150,7 @@ async function main(): Promise<void> {
       });
     }
   }
+  await stage('every deployment of the owner\'s from before is still there', () => apps.untouched());
   console.log('\npassed');
 }
 

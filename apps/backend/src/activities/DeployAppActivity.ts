@@ -174,11 +174,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   const physicalName = args.clusterName;
   const kubeconfigPath = await access.kubeconfigOf(reach);
 
-  const effectiveDevice = args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda');
-  const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
-
-  const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
-
   const notes: string[] = [];
   const note = async (line: string) => {
     notes.push(line);
@@ -257,9 +252,10 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
       if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`the machine's memory could not be read: ${failure.reason}`);
       await note(`Whether the model fits in the machine's memory was not checked: the machine's memory could not be read (${failure.reason}).`);
     }
+    if (!args.tabbyGpuCount || args.tabbyGpuCount < 1) throw ApplicationFailure.nonRetryable('TabbyAPI was not told how many GPUs it uses: deploy it again with 1 or more. Koala runs no model on CPU.');
     tabbyMemoryPlan = planHostMemory({
       modelBytes: tabbyModelSizeBytes,
-      gpuCount: effectiveTabbyGpuCount,
+      gpuCount: args.tabbyGpuCount,
       maxSeqLen: args.tabbyMaxSeqLen ?? TABBYAPI_DEFAULT_MAX_SEQ_LEN,
       inlineModelLoading: args.tabbyInlineModelLoading === true,
       allocatableBytes,
@@ -363,10 +359,9 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     dbRepo: args.dbRepo,
     dbTag: args.dbTag,
     vllmModel: args.vllmModel,
-    vllmGpuCount: effectiveGpuCount,
+    vllmGpuCount: args.vllmGpuCount,
     vllmGpuVendor: args.vllmGpuVendor,
     vllmCachePvc: args.vllmCachePvc,
-    vllmDevice: effectiveDevice,
     vllmMaxModelLen: args.vllmMaxModelLen,
     vllmGpuMemUtil: args.vllmGpuMemUtil,
     vllmExtraArgs: args.vllmExtraArgs,
@@ -378,7 +373,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
     tabbyModel: args.tabbyModel,
     tabbyRevision: args.tabbyRevision,
-    tabbyGpuCount: effectiveTabbyGpuCount,
+    tabbyGpuCount: args.tabbyGpuCount,
     tabbyModelSizeBytes,
     tabbyCachePvc: args.tabbyCachePvc,
     tabbyCacheMode: args.tabbyCacheMode,

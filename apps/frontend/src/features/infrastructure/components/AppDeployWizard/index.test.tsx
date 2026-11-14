@@ -214,11 +214,11 @@ describe('the GPUs a model server is offered', () => {
     for (let step = 0; step < 3; step++) await user.click(screen.getByRole('button', { name: /^Next/ }));
   }
 
-  it('offers vLLM the vendors and counts the chosen machine reports, and CPU only as 0, and sends what was chosen', async () => {
+  it('offers vLLM the vendors and counts the chosen machine reports, never CPU only, and sends what was chosen', async () => {
     const { user, onDeploy } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] }]);
     await walkToGpus(user, 'vllm');
     expect(options(/^GPU Vendor/)).toEqual(['nvidia']);
-    expect(options(/^GPU Count/)).toEqual(['1', '2', '0']);
+    expect(options(/^GPU Count/)).toEqual(['1', '2']);
     await user.type(screen.getByLabelText(/^HuggingFace Model ID/), 'Qwen/Qwen2.5-0.5B-Instruct');
     await user.selectOptions(screen.getByLabelText(/^GPU Count/), '2');
     await user.click(screen.getByRole('button', { name: /^Next/ }));
@@ -228,10 +228,11 @@ describe('the GPUs a model server is offered', () => {
     expect(payload).not.toHaveProperty('odooTag');
   });
 
-  it('offers only CPU only, saying why, when the machine cannot pass its GPUs to a pod', async () => {
+  it('offers no count and goes no further, saying why, when the machine cannot pass its GPUs to a pod', async () => {
     const { user } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: false }] }]);
     await walkToGpus(user, 'vllm');
-    expect(options(/^GPU Count/)).toEqual(['0']);
+    expect(options(/^GPU Count/)).toEqual([]);
+    expect(screen.getByRole('button', { name: /^Next/ })).toBeDisabled();
     expect(screen.getByText(/rig has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA's CDI support is not installed/)).toBeInTheDocument();
   });
 

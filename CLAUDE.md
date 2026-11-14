@@ -2162,8 +2162,9 @@ sudo it already asks for k3s, NVIDIA's own repository under the key Koala pins a
 it by hand. Removing the machine removes only what the join installed. The NVIDIA device plugin hands GPUs out by CDI through the CRI,
 and no app's pod names a runtime class; the plugin itself runs under k3s's `nvidia` runtime, since it needs the driver to count them
 (2026-11-14: under CDI alone it crash-looped with "Driver Not Loaded"). AMD needs only its kernel driver on the machine.
-**A deploy that asks for GPUs is decided by that report** (decision 7): the count the request names (0 means CPU only; none named is
-refused, never guessed), the vendor it names or the machine's only one, and a refusal that says what to do (no GPU shown or its driver not
+**A deploy that asks for GPUs is decided by that report** (decision 7): the count the request names (1 or more: Koala runs no model on CPU, owner 2026-11-13: "I don't want to offer any
+inference deployments targeting the cpu"; none named, or 0, is refused, never guessed), a change to an app's GPUs in its settings decided
+the same way, the vendor it names or the machine's only one, and a refusal that says what to do (no GPU shown or its driver not
 answering, no CDI support, too few, the wrong vendor, two vendors and none named, not a machine). **Koala then readies them**: it applies the
 vendor's pinned device plugin through `ClusterAccess` and waits, with no deadline, until the plugin it applied has rolled out and the node advertises the GPUs asked (a plugin from before still advertising them
 counts for nothing), or fails with the fix when the plugin cannot run. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s.

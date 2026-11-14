@@ -5,7 +5,7 @@ import { encryptValue } from '../../platform/lib/crypto.js';
 import { startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 } } as ClusterMetadata;
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 }, gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
 
 async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: string; args: Record<string, unknown> }[] }> {
   const db = await testDatabase();
@@ -80,9 +80,9 @@ describe('a model\'s Hugging Face token', () => {
     const { deps: d, started } = await deps();
     await d.db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_saved', d.masterKey) } } });
     await d.db.accounts.saveUser({ id: 'bob', email: 'bob@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
-    await startAppDeploy(d, { name: 'given', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmHfToken: 'hf_given' }, 'ann');
-    await startAppDeploy(d, { name: 'saved', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0 }, 'ann');
-    await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'bob');
+    await startAppDeploy(d, { name: 'given', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmHfToken: 'hf_given' }, 'ann');
+    await startAppDeploy(d, { name: 'saved', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 1 }, 'ann');
+    await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'bob');
 
     expect(started.map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_saved'], [undefined, undefined]]);
     const stored = Object.fromEntries((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, [dep.vllmHfToken, dep.tabbyHfToken]]));

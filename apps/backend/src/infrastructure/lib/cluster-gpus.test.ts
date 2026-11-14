@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { MachineGpu } from '@koala/engine-core';
-import { advertisedGpus, gpuAskOf, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './cluster-gpus.js';
+import { advertisedGpus, gpuAskOf, gpuChangeRefusal, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './cluster-gpus.js';
 
 const RTX: MachineGpu = { vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
 const desk = (extra: Partial<{ gpus: MachineGpu[]; gpuProblems: string[]; provider: 'machine' | 'pool' | 'root' }> = {}) => ({ name: 'desk', provider: 'machine' as const, gpus: [RTX], gpuProblems: [], ...extra });
 
 describe('the GPUs an app asks for', () => {
-  it('is the count the request names, 0 meaning CPU only, and is refused when a GPU app names none', () => {
+  it('is the count the request names, 1 or more, and is refused when a GPU app names none or 0', () => {
     expect(gpuAskOf('vllm', { vllmGpuCount: 2, vllmGpuVendor: 'nvidia' })).toEqual({ count: 2, vendor: 'nvidia' });
     expect(gpuAskOf('vllm', { vllmGpuCount: '1' })).toEqual({ count: 1 });
     expect(gpuAskOf('tabbyapi', { tabbyGpuCount: 2 })).toEqual({ count: 2, vendor: 'nvidia' });
-    expect(gpuAskOf('vllm', { vllmGpuCount: 0 })).toBeUndefined();
+    expect(gpuAskOf('vllm', { vllmGpuCount: 0 })).toEqual({ problem: 'Say how many GPUs vLLM uses: 1 or more. Koala runs no model on CPU.' });
+    expect(gpuAskOf('tabbyapi', { tabbyGpuCount: 0 })).toEqual({ problem: 'Say how many GPUs TabbyAPI uses: 1 or more. Koala runs no model on CPU.' });
     expect(gpuAskOf('odoo', {})).toBeUndefined();
-    expect(gpuAskOf('vllm', {})).toEqual({ problem: 'Say how many GPUs vLLM uses: 1 or more, or 0 for CPU only.' });
-    expect(gpuAskOf('tabbyapi', { tabbyGpuCount: 'many' })).toEqual({ problem: 'Say how many GPUs TabbyAPI uses: 1 or more, or 0 for CPU only.' });
+    expect(gpuAskOf('vllm', {})).toEqual({ problem: 'Say how many GPUs vLLM uses: 1 or more. Koala runs no model on CPU.' });
+    expect(gpuAskOf('tabbyapi', { tabbyGpuCount: 'many' })).toEqual({ problem: 'Say how many GPUs TabbyAPI uses: 1 or more. Koala runs no model on CPU.' });
   });
 });
 
@@ -38,6 +39,18 @@ describe('a deploy that asks for GPUs, against what the machine says it has', ()
   it('is refused on a cluster that is not a machine\'s, and on a machine whose agent has not said which GPUs it has', () => {
     expect(gpuDeployRefusal(desk({ provider: 'pool' }), { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and only a machine\'s own cluster runs apps on GPUs; desk is not one. Pick one of your machines that has them, or CPU only.' });
     expect(gpuDeployRefusal({ name: 'desk', provider: 'machine' }, { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and desk has not said which GPUs it has: its agent is from before GPUs were reported, or it has not connected since. Once it connects with a current agent, it says.' });
+  });
+});
+
+describe('an app\'s settings that change the GPUs it runs on', () => {
+  const desk = { name: 'desk', provider: 'machine' as const, gpus: [{ vendor: 'nvidia' as const, model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] };
+
+  it('are decided as a deploy is, against what the machine reports, and leave other settings alone', () => {
+    expect(gpuChangeRefusal({ appType: 'vllm', vllmGpuCount: 1 }, { vllmGpuCount: 2 }, desk)).toEqual({ vendor: 'nvidia' });
+    expect(gpuChangeRefusal({ appType: 'vllm', vllmGpuCount: 1 }, { vllmGpuCount: 4 }, desk)).toEqual({ refused: 'This app asks for 4 NVIDIA GPUs, and desk has 2 NVIDIA GPUs. Ask for 2 or fewer.' });
+    expect(gpuChangeRefusal({ appType: 'tabbyapi', tabbyGpuCount: 1 }, { tabbyGpuCount: 0 }, desk)).toEqual({ refused: 'Say how many GPUs TabbyAPI uses: 1 or more. Koala runs no model on CPU.' });
+    expect(gpuChangeRefusal({ appType: 'vllm', vllmGpuCount: 1 }, { vllmModel: 'Qwen/Qwen3-8B' }, desk)).toBeUndefined();
+    expect(gpuChangeRefusal({ appType: 'vllm', vllmGpuCount: 1 }, { vllmGpuCount: 2 }, undefined)).toEqual({ refused: 'This app asks for GPUs, and its cluster is not known here.' });
   });
 });
 

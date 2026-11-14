@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js';
-import { machineGpus, NVIDIA_CDI_HOOK } from '../../../../local-agent/src/machine-gpus.js';
+import { machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME } from '../../../../local-agent/src/machine-gpus.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -51,7 +51,7 @@ async function reports(host: ClusterHost, withGpus = false): Promise<void> {
 
 const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
   host.run.mockImplementation(async (file) => (file === 'nvidia-smi' ? 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n' : 'inactive\n'));
-  host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_CDI_HOOK);
+  host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_CDI_HOOK || path === NVIDIA_RUNTIME);
   return host;
 };
 

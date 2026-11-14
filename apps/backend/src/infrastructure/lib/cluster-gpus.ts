@@ -31,8 +31,7 @@ export function gpuAskOf(appType: string, config: Record<string, unknown>): GpuA
   if (!app) return undefined;
   const raw = config[app.countField];
   const count = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
-  if (!Number.isInteger(count) || count < 0) return { problem: `Say how many GPUs ${app.label} uses: 1 or more, or 0 for CPU only.` };
-  if (count === 0) return undefined;
+  if (!Number.isInteger(count) || count < 1) return { problem: `Say how many GPUs ${app.label} uses: 1 or more. Koala runs no model on CPU.` };
   const named = app.vendorField ? config[app.vendorField] : undefined;
   const vendor = app.vendor ?? (GPU_VENDORS.includes(named as GpuVendor) ? named as GpuVendor : undefined);
   return vendor ? { count, vendor } : { count };
@@ -66,6 +65,16 @@ export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provid
   if (usable === 0) return { refused: `This app asks for ${askedOf}. ${cluster.name} has ${plural(there, label)}, and pods there cannot be given them yet: NVIDIA's CDI support is not installed. ${GPU_CDI_HINT}` };
   if (ask.count > usable) return { refused: `This app asks for ${askedOf}, and ${cluster.name} has ${plural(usable, label)}. Ask for ${usable} or fewer.` };
   return { vendor };
+}
+
+export function gpuChangeRefusal(existing: Record<string, unknown>, patch: Record<string, unknown>, cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpus' | 'gpuProblems'> | undefined): GpuDecision | undefined {
+  const app = GPU_APPS[String(existing.appType ?? '')];
+  if (!app || ![app.countField, app.vendorField].some((field) => field !== undefined && field in patch)) return undefined;
+  const ask = gpuAskOf(String(existing.appType), { ...existing, ...patch });
+  if (!ask) return undefined;
+  if ('problem' in ask) return { refused: ask.problem };
+  if (!cluster) return { refused: 'This app asks for GPUs, and its cluster is not known here.' };
+  return gpuDeployRefusal(cluster, ask);
 }
 
 export function advertisedGpus(nodes: unknown, resource: string): number {
