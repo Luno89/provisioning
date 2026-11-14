@@ -310,10 +310,14 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
     expect((answer.data as { refusal?: string }).refusal).toBeUndefined();
   });
 
-  it('assumes a large model when its size cannot be looked up, and says so', async () => {
+  it('says what to set, and plans nothing, when the model\'s size cannot be looked up', async () => {
     const { access, call } = tabby();
     server.use(http.get('https://huggingface.co/api/models/org/model/tree/main', () => new HttpResponse(null, { status: 500 })));
     access.kubectl.mockResolvedValue('64Gi');
-    expect(((await call('/d1/resource-plan')).data as { basis: string }).basis).toMatch(/assumed — size lookup failed/);
+    const plan = (await call('/d1/resource-plan')).data as Record<string, unknown>;
+    expect(plan.applicable).toBe(true);
+    expect(plan.unsized).toMatch(/^Koala could not read how big org\/model is from Hugging Face \(.*500.*\), so it cannot size the memory it needs\./);
+    expect(plan).not.toHaveProperty('memoryLimit');
+    expect(plan).not.toHaveProperty('basis');
   });
 });

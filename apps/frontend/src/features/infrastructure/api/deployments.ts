@@ -123,6 +123,7 @@ export interface ResourcePlan {
   cpuLimit?: string
   basis?: string
   refusal?: string
+  unsized?: string
 }
 
 export function useResourcePlan(deployment: Deployment | null | undefined) {

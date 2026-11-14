@@ -21,6 +21,19 @@ const podOf = (build: (scope: Construct) => unknown): Pod => {
 beforeEach(() => { vi.stubEnv("APP_SERVICE_TYPE", "NodePort"); });
 afterEach(() => { vi.unstubAllEnvs(); });
 
+describe("TabbyAPI's memory", () => {
+  it("is refused when neither the model's size nor the memory to give it is known", () => {
+    expect(() => podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1 }))).toThrow("TabbyAPI's memory cannot be sized: neither the model's size nor a memory limit and shared memory were given");
+  });
+
+  it("is sized from the model, or taken as given", () => {
+    const sized = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, modelSizeBytes: 20e9, maxSeqLen: 4096 }));
+    expect(sized.container[0]?.resources.limits.memory).toBe("35G");
+    const given = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, memoryLimit: "48G", shmSize: "16Gi" }));
+    expect(given.container[0]?.resources.limits.memory).toBe("48G");
+  });
+});
+
 describe("a GPU model server's pod", () => {
   it("shares the host's network and IPC on AMD, as ROCm needs, and may trace", () => {
     const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai-rocm:v0.7.2", gpuVendor: "amd", gpuCount: 1 }));
@@ -39,7 +52,7 @@ describe("a GPU model server's pod", () => {
   });
 
   it("checks TabbyAPI is alive only by its port accepting connections", () => {
-    const pod = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1 }));
+    const pod = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, modelSizeBytes: 20e9 }));
     expect(pod.runtime_class_name).toBe("nvidia");
     expect(pod.container[0]?.liveness_probe?.tcp_socket).toEqual([{ port: "5000" }]);
   });

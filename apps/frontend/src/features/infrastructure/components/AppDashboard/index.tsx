@@ -502,6 +502,9 @@ export default function AppDashboard({
                          {resourcePlan?.refusal && (
                            <p className="text-[11px] text-amber-400 mt-1">{resourcePlan.refusal}</p>
                          )}
+                         {resourcePlan?.unsized && (
+                           <p className="text-[11px] text-amber-400 mt-1" role="alert">{resourcePlan.unsized}</p>
+                         )}
                        </div>
                        <div>
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>

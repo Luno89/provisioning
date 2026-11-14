@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planHostMemory, parseQuantity } from './host-memory-plan.js';
+import { planHostMemory, parseQuantity, unsizedModel } from './host-memory-plan.js';
 
 const measured = {
   modelBytes: 19e9,
@@ -52,13 +52,8 @@ describe('planHostMemory', () => {
     expect(plan.refusal).toBeUndefined();
   });
 
-  it('assumes a large model when the size lookup failed, and says so', () => {
-    const plan = planHostMemory({
-      ...measured, modelBytes: undefined, inlineModelLoading: true, allocatableBytes: 128 * 1024 ** 3,
-    });
-
-    expect(plan.basis).toMatch(/size lookup failed/);
-    expect(plan.limitBytes).toBeGreaterThan(10e9);
+  it('says what to set when the model\'s size is not known, never sizing it on a guess', () => {
+    expect(unsizedModel('org/model', 'Hugging Face answered 503')).toBe('Koala could not read how big org/model is from Hugging Face (Hugging Face answered 503), so it cannot size the memory it needs. Set its Memory Limit (RAM) and Shared Memory (/dev/shm) in its advanced settings, or deploy it again once Hugging Face answers.');
   });
 
   it('sizes shared memory per shard, since tensor parallelism splits the weights', () => {
@@ -127,11 +122,7 @@ describe('a chosen limit beats a computed one', () => {
 });
 
 describe('a size lookup that fails quietly', () => {
-  it('treats zero bytes as unknown, not as a very small model', () => {
-    const zero = planHostMemory({ ...measured, modelBytes: 0, maxSeqLen: 32768, inlineModelLoading: false });
-    const missing = planHostMemory({ ...measured, modelBytes: undefined, maxSeqLen: 32768, inlineModelLoading: false });
-
-    expect(zero.limitBytes).toBe(missing.limitBytes);
-    expect(zero.basis).toMatch(/size lookup failed/);
+  it('refuses zero bytes as no size at all, not as a very small model', () => {
+    expect(() => planHostMemory({ ...measured, modelBytes: 0, maxSeqLen: 32768, inlineModelLoading: false })).toThrow('a model of 0 bytes has no size to plan memory from');
   });
 });

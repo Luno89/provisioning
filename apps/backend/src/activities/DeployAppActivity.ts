@@ -4,7 +4,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
+  parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, failureOf, type DatabaseSettings } from '../platform/index.js';
 
@@ -233,6 +233,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   const deploymentId = deploymentIdFor(args.deploymentId, args.name);
 
   let tabbyModelSizeBytes: number | undefined;
+  if (args.appType === 'tabbyapi' && !args.tabbyModel) throw ApplicationFailure.nonRetryable('TabbyAPI was given no model to serve');
   if (args.appType === 'tabbyapi' && args.tabbyModel) {
     try {
       const { getHfModelSize } = await import('../infrastructure/index.js');
@@ -241,12 +242,13 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     } catch (err) {
       const failure = failureOf(err);
       if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`Hugging Face could not say how big ${args.tabbyModel} is: ${failure.reason}`);
-      await note(`Memory is sized for an assumed 20 GB model: Hugging Face could not be asked how big ${args.tabbyModel} is (${failure.reason}). Set a memory limit on the app if the model is larger.`);
+      if (!args.tabbyMemoryLimit || !args.tabbyShmSize) throw ApplicationFailure.nonRetryable(unsizedModel(args.tabbyModel, failure.reason));
+      await note(`Memory is the ${args.tabbyMemoryLimit} and ${args.tabbyShmSize} of shared memory you set: Hugging Face could not say how big ${args.tabbyModel} is (${failure.reason}).`);
     }
   }
 
   let tabbyMemoryPlan: HostMemoryPlan | undefined;
-  if (args.appType === 'tabbyapi') {
+  if (args.appType === 'tabbyapi' && tabbyModelSizeBytes !== undefined) {
     let allocatableBytes: number | undefined;
     try {
       allocatableBytes = await nodeAllocatableBytes(kubectl);

@@ -127,3 +127,11 @@ describe('an app\'s sign-in', () => {
     expect(screen.queryByText('Show sign-in')).toBeNull();
   });
 });
+
+describe('TabbyAPI\'s memory', () => {
+  it('says what to set when the model\'s size could not be read, instead of sizing it on a guess', () => {
+    vi.mocked(deploymentsApi.useResourcePlan).mockReturnValue({ data: { applicable: true, unsized: 'Koala could not read how big org/model is from Hugging Face (it answered 503), so it cannot size the memory it needs.' } } as never);
+    setup(deployment({ appType: 'tabbyapi', tabbyModel: 'org/model' } as Partial<Deployment>), 'storage');
+    expect(screen.getByText('Koala could not read how big org/model is from Hugging Face (it answered 503), so it cannot size the memory it needs.')).toBeInTheDocument();
+  });
+});

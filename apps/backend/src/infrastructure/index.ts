@@ -23,7 +23,7 @@ export {
 export { caddyDnsEnv, credentialEnvOf, credentialsFromEnv, dnsProviderNamed } from './lib/dns-providers.js';
 export { egressReachProblem, validateLocalEgressRules } from './lib/egress-rules.js';
 export { GITAPP_PULL_SECRET, gitappPullSecretArgs } from './lib/gitapp-pull.js';
-export { parseQuantity, planHostMemory } from './lib/host-memory-plan.js';
+export { parseQuantity, planHostMemory, unsizedModel } from './lib/host-memory-plan.js';
 export type { HostMemoryPlan } from './lib/host-memory-plan.js';
 export { getHfModelSize } from './lib/huggingface.js';
 export { infisicalSettingsFrom } from './lib/infisical-settings.js';

@@ -92,7 +92,8 @@ describe('deploying an app on the cluster it was handed', () => {
 
   it('reads the nodes\' memory through the cluster it was handed to plan TabbyAPI\'s, and refuses a node too small', async () => {
     nodes = '1Gi';
-    await expect(DeployAppActivity(deploy({ appType: 'tabbyapi', tabbyGpuCount: 1, tabbyMaxSeqLen: 32768 }), steps())).rejects.toThrow(/of host RAM but only .* is available on the node \(1\.0 GiB allocatable/);
+    huggingFace.use(http.get(MODEL_TREE, () => HttpResponse.json([{ type: 'file', path: 'model.safetensors', size: 4e9 }])));
+    await expect(DeployAppActivity(deploy({ appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 1, tabbyMaxSeqLen: 32768 }), steps())).rejects.toThrow(/of host RAM but only .* is available on the node \(1\.0 GiB allocatable/);
     expect(access.kubectl).toHaveBeenCalledWith(DESK, ['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
     expect(infra.deploy.mock.calls.map(([stack]) => stack)).not.toContain('app-desk-d1');
   });
@@ -154,12 +155,23 @@ describe('deploying an app on the cluster it was handed', () => {
 describe('what TabbyAPI\'s memory plan rests on', () => {
   const tabby = (over: Partial<DeployAppArgs> = {}) => deploy({ appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 1, tabbyMaxSeqLen: 4096, ...over });
 
-  it('goes ahead on an assumed size when Hugging Face is not answering, and says so on the app and in its log', async () => {
+  it('stops, saying what to set, when Hugging Face cannot say how big the model is and the person set no memory', async () => {
     huggingFace.use(http.get(MODEL_TREE, () => new HttpResponse(null, { status: 503 })));
-    const done = await DeployAppActivity(tabby(), steps());
-    expect(done.notes).toEqual([expect.stringMatching(/^Memory is sized for an assumed 20 GB model: Hugging Face could not be asked how big org\/model is \(.*503.*\)/)]);
-    expect(readFileSync(LOG, 'utf8')).toContain('[deploy] Memory is sized for an assumed 20 GB model');
-    expect(infra.deploy.mock.calls.map(([stack]) => stack)).toContain('app-desk-d1');
+    await expect(DeployAppActivity(tabby(), steps())).rejects.toThrow(/^Koala could not read how big org\/model is from Hugging Face \(.*503.*\), so it cannot size the memory it needs\. Set its Memory Limit \(RAM\) and Shared Memory \(\/dev\/shm\)/);
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).not.toContain('app-desk-d1');
+  });
+
+  it('goes ahead on the memory the person set when Hugging Face cannot say how big the model is, and says so', async () => {
+    huggingFace.use(http.get(MODEL_TREE, () => new HttpResponse(null, { status: 503 })));
+    const done = await DeployAppActivity(tabby({ tabbyMemoryLimit: '48G', tabbyShmSize: '16Gi' }), steps());
+    expect(done.notes).toEqual([expect.stringMatching(/^Memory is the 48G and 16Gi of shared memory you set: Hugging Face could not say how big org\/model is \(.*503.*\)\.$/)]);
+    const app = infra.deploy.mock.calls.find(([stack]) => stack === 'app-desk-d1');
+    expect(app?.[1]?.env).toMatchObject({ TABBYAPI_MEMORY_LIMIT: '48G', TABBYAPI_SHM_SIZE: '16Gi' });
+  });
+
+  it('stops, saying so, when it is given no model to serve', async () => {
+    await expect(DeployAppActivity(deploy({ appType: 'tabbyapi', tabbyGpuCount: 1 }), steps())).rejects.toThrow('TabbyAPI was given no model to serve');
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).not.toContain('app-desk-d1');
   });
 
   it('stops, saying why, when Hugging Face answers that the model is not there', async () => {

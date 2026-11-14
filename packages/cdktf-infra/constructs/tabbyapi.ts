@@ -57,37 +57,18 @@ export class TabbyApiApp extends Construct {
     // raise a catchable Python exception, they SIGBUS the whole process (exit code 135), which is
     // why this failed with no traceback, just "Loading with tensor parallel" followed by a
     // resource_tracker warning and a silent restart.
-    //
-    // Sized from the actual model rather than a flat guess, preferring real bytes (from
-    // HuggingFace's file-tree API — see DeployAppActivity.ts) over a regex estimate parsed from
-    // the repo name ("27B", "8B", ...) and revision ("5.00bpw"). Either way the total is divided
-    // by gpuCount: tensor parallelism shards the model across GPU worker processes by design, so
-    // each one's shm footprint should track its own shard, not the whole model.
-    const paramsBMatch = modelRepo.match(/(\d+(?:\.\d+)?)[Bb](?:[^a-zA-Z]|$)/);
-    const bpwMatch = revision?.match(/(\d+(?:\.\d+)?)\s*bpw/i);
-    const estimatedShardGiB = config.modelSizeBytes
-      // Real size already reflects tokenizer/config file overhead and actual quantization, so
-      // it only needs a modest margin for shm staging overhead, not the bit-math estimate's
-      // wider 1.3x fudge factor.
-      ? (config.modelSizeBytes / 1e9 / Math.max(gpuCount, 1)) * 1.15
-      : paramsBMatch
-      // No bpw in the revision (or no revision at all) still means *a* quant was picked — 6.0 is
-      // a reasonable mid-range assumption for "unknown" rather than under- or over-shooting
-      // wildly. Verified live: a Qwen3.6-27B-exl3 5.00bpw checkout is 18.6GB on disk against a
-      // raw 27*5/8=16.9GB bit-math estimate — the ~18% gap is why this branch uses a wider 1.3x
-      // margin than the real-bytes branch above.
-      ? (parseFloat(paramsBMatch[1]) * (bpwMatch ? parseFloat(bpwMatch[1]) : 6.0) / 8 / Math.max(gpuCount, 1)) * 1.3
-      : undefined;
-    // Falls back to a flat 12Gi only when neither the real size nor the repo-name regex is
-    // available — set shmSize explicitly for anything unusual this heuristic gets wrong.
-    const shmSize = config.shmSize || (estimatedShardGiB ? `${Math.max(4, Math.ceil(estimatedShardGiB))}Gi` : "12Gi");
+    if (!config.modelSizeBytes && !(config.shmSize && config.memoryLimit)) {
+      throw new Error("TabbyAPI's memory cannot be sized: neither the model's size nor a memory limit and shared memory were given");
+    }
+    const shardGiB = config.modelSizeBytes ? (config.modelSizeBytes / 1e9 / Math.max(gpuCount, 1)) * 1.15 : 0;
+    const shmSize = config.shmSize || `${Math.max(4, Math.ceil(shardGiB))}Gi`;
     const cpuLimit = config.cpuLimit || "10";
     // Floats with shmSize (+12G for the process itself: Python/CUDA host-side overhead, request
     // buffers, and KV cache staging) with a seqLen factor for high context windows (>32k/64k)
     // rather than a tight 20G limit that long contexts or large models easily exceed (OOMKill).
     const maxSeqLen = config.maxSeqLen !== undefined ? config.maxSeqLen : 262144;
     const seqLenFactor = maxSeqLen > 65536 ? 1.5 : (maxSeqLen > 32768 ? 1.25 : 1.0);
-    const memoryLimit = config.memoryLimit || (estimatedShardGiB ? `${Math.max(32, Math.ceil((estimatedShardGiB * seqLenFactor) + 12))}G` : "32G");
+    const memoryLimit = config.memoryLimit || `${Math.max(32, Math.ceil((shardGiB * seqLenFactor) + 12))}G`;
 
     const serviceType = config.serviceType || defaultServiceType();
 

@@ -1,13 +1,13 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, at, type Database, type DeploymentMetadata, listAt, principalFrom } from '../../platform/index.js';
+import { asyncRoute, at, type Database, type DeploymentMetadata, failureOf, listAt, principalFrom } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { DeployRequestProblem } from '../lib/deploy-request.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
 import { withoutDeploymentSecrets } from '../lib/deployment-secrets.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
-import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
+import { parseQuantity, planHostMemory, unsizedModel } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
@@ -171,12 +171,12 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
     if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
 
-    let modelBytes: number | undefined;
+    let modelBytes: number;
     try {
       const { getHfModelSize } = await import('../lib/huggingface.js');
       modelBytes = (await getHfModelSize(dep.tabbyModel!, dep.tabbyRevision, dep.tabbyHfToken)).totalBytes;
-    } catch (failure) {
-      ignore('without the model\'s size the plan assumes a large model and says the size lookup failed')(failure);
+    } catch (err) {
+      return res.json({ applicable: true, unsized: unsizedModel(dep.tabbyModel!, failureOf(err).reason) });
     }
 
     let allocatableBytes: number | undefined;

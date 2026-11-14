@@ -14,7 +14,7 @@ function seqLenFactor(maxSeqLen: number): number {
 const NODE_SHARE = 0.7;
 
 export interface HostMemoryInputs {
-  modelBytes?: number | undefined;
+  modelBytes: number;
   gpuCount: number;
   maxSeqLen: number;
   inlineModelLoading: boolean;
@@ -31,11 +31,16 @@ export interface HostMemoryPlan {
 
 const gib = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
+export const unsizedModel = (model: string, reason: string): string =>
+  `Koala could not read how big ${model} is from Hugging Face (${reason}), so it cannot size the memory it needs. `
+  + 'Set its Memory Limit (RAM) and Shared Memory (/dev/shm) in its advanced settings, or deploy it again once Hugging Face answers.';
+
 export function planHostMemory(input: HostMemoryInputs): HostMemoryPlan {
   const gpus = Math.max(input.gpuCount, 1);
   const factor = seqLenFactor(input.maxSeqLen);
 
-  const modelBytes = input.modelBytes || 20e9;
+  if (!(input.modelBytes > 0)) throw new Error(`a model of ${input.modelBytes} bytes has no size to plan memory from`);
+  const { modelBytes } = input;
 
   const shmBytes = Math.max(4e9, (modelBytes / gpus) * 1.15);
 
@@ -45,7 +50,7 @@ export function planHostMemory(input: HostMemoryInputs): HostMemoryPlan {
     + shmBytes;
 
   const basis =
-    `${gib(modelBytes)} of weights${input.modelBytes ? '' : ' (assumed — size lookup failed)'}, `
+    `${gib(modelBytes)} of weights, `
     + `${gpus} GPU${gpus > 1 ? 's' : ''}, seq len ${input.maxSeqLen}, `
     + `inline loading ${input.inlineModelLoading ? 'on' : 'off'}`;
 
