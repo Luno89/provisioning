@@ -9,7 +9,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
 | `checks-live` | 2026-11-14 12:52 | 2026-11-10 05:13 |
 | `files-live` | 2026-11-08 21:59 | 2026-11-08 00:36 |
-| `gpu-live` | 2026-11-14 12:36 | 2026-11-14 02:44 |
+| `gpu-live` | 2026-11-14 19:11 | 2026-11-14 02:44 |
 | `hardening-live` | 2026-11-05 17:33 | — |
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
 | `instance-live` | 2026-11-02 21:03 | 2026-11-02 20:55 |
