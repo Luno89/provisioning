@@ -142,6 +142,24 @@ describe('vLLM\'s tool calling in an app\'s settings', () => {
     expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' }));
   });
 
+  it('shows the settings of the app it is switched to, not those of the one before', () => {
+    const first = served();
+    const second = served({ id: 'd2', name: 'mistral', vllmModel: 'mistralai/Mistral-7B-Instruct-v0.3', vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' } as Partial<Deployment>);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const shown = (d: Deployment) => (
+      <QueryClientProvider client={qc}>
+        <AppDashboard target={{ type: 'app', id: d.id }} deployment={d} deployments={[first, second]} clusters={[{ id: 'c1', name: 'dev', provider: 'machine', status: 'healthy' }]} cluster={null} initialTab="storage" onClose={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(shown(first));
+    expect(screen.getByDisplayValue('Qwen/Qwen3-8B')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Serve tool calling/)).not.toBeChecked();
+    rerender(shown(second));
+    expect(screen.getByDisplayValue('mistralai/Mistral-7B-Instruct-v0.3')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Serve tool calling/)).toBeChecked();
+    expect((screen.getByLabelText(/^Tool Call Parser/) as HTMLSelectElement).value).toBe('mistral');
+  });
+
   it('asks for a parser for a model it does not know, and saves nothing until one is picked', async () => {
     const patched = vi.spyOn(deploymentsApi, 'patchDeploymentConfig').mockResolvedValue({} as never);
     const { user } = setup(served({ vllmModel: 'someone/their-own-model' }), 'storage');
