@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { http, HttpResponse } from 'msw';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

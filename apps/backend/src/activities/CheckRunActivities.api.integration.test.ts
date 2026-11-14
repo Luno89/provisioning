@@ -240,7 +240,7 @@ describe('a check\'s world made through the real routes', () => {
     api.ports.appService.getAll.mockResolvedValue([] as never);
     expect((await perform({ ...CHAT, world: apps })).result.error).toBe('the world\'s app shop did not deploy: it is gone');
     api.ports.bridge.deployApp.mockRejectedValue(new Error('no cluster'));
-    expect((await perform({ ...CHAT, world: apps })).result.error).toBe('the world\'s app shop could not be deployed: Temporal app deploy unavailable: no cluster');
+    expect((await perform({ ...CHAT, world: apps })).result.error).toBe('the world\'s app shop could not be deployed: no cluster');
   });
 });
 

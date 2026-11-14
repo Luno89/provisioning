@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { DependencyDownError } from '../../platform/lib/dependencies.js';
 import axios from 'axios';
 import { deploymentsRouter } from './deployments.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -170,17 +171,31 @@ describe('POST / when the deploy is refused', () => {
     expect(res.data.error).not.toMatch(/Temporal/);
   });
 
-  it('still answers 503 when Temporal genuinely is unavailable', async () => {
+  it('still answers 503, with Temporal\'s state, when Temporal genuinely is unavailable', async () => {
     const svc = services();
-    svc.temporalBridge.deployApp = vi.fn(async () => { throw new Error('connection refused'); });
+    svc.temporalBridge.deployApp = vi.fn(async () => { throw new DependencyDownError('temporal', '2026-11-13T10:02:00Z', 'it refused the connection (ECONNREFUSED)'); });
+    await mount(svc);
+
+    const res = await axios.post<{ error: string; dependency: string }>(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
+      validateStatus: () => true,
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.data.dependency).toBe('temporal');
+    expect(res.data.error).toMatch(/isn't answering since .*: it refused the connection \(ECONNREFUSED\)/);
+  });
+
+  it('answers a failure it did not expect with 500 and its reason, never as Temporal being down', async () => {
+    const svc = services();
+    svc.temporalBridge.deployApp = vi.fn(async () => { throw new Error('the deployment record could not be saved'); });
     await mount(svc);
 
     const res = await axios.post<{ error: string }>(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
       validateStatus: () => true,
     });
 
-    expect(res.status).toBe(503);
-    expect(res.data.error).toMatch(/Temporal app deploy unavailable: connection refused/);
+    expect(res.status).toBe(500);
+    expect(res.data.error).toBe('the deployment record could not be saved');
   });
 });
 
