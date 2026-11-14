@@ -1818,6 +1818,7 @@
       "source": "ghcr.io/theroyallab/tabbyapi@sha256:6c21534292cc4d1393ab3e39e843f7949d01ddadeea051984db09367e328d1d7",
       "github": "theroyallab/tabbyAPI",
       "commit": "a32a82e255d9ffe1b6e805cb37527a1f53d9a62f",
+      "tracks": "latest",
       "shaUses": [
         {
           "file": "apps/backend/src/infrastructure/lib/model-images.ts",

@@ -101,6 +101,7 @@ export function pinComponents(pins) {
         ...(component.osv ? [property('koala:osv-ecosystem', component.osv.ecosystem), property('koala:osv-name', component.osv.name)] : []),
         ...(component.commit ? [property('koala:commit', component.commit)] : []),
         ...(component.floating ? [property('koala:floating', true)] : []),
+        ...(component.tracks ? [property('koala:tracks', component.tracks)] : []),
       ],
     };
   });

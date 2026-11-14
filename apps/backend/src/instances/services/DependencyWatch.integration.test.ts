@@ -28,9 +28,20 @@ const ADVISORIES: Record<string, unknown> = {
 
 interface Asked { url: string; body?: string }
 
+const TABBY_PINNED = 'a'.repeat(64);
+const tabby = { 'bom-ref': 'image:pkg:docker/theroyallab/tabbyapi@latest-2026-11-10', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: `ghcr.io/theroyallab/tabbyapi@sha256:${TABBY_PINNED}` }, { name: 'koala:tracks', value: 'latest' }] };
+
 function fakeFetch(asked: Asked[], seroval11At = '2026-10-18T00:00:00Z') {
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
+    if (url.startsWith('https://ghcr.io/')) {
+      asked.push({ url });
+      const json = (body: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', ...headers } });
+      if (url === 'https://ghcr.io/token?scope=repository:theroyallab/tabbyapi:pull') return json({ token: 'anonymous' });
+      if (url === 'https://ghcr.io/v2/theroyallab/tabbyapi/manifests/latest') return json({ config: { digest: 'sha256:config' } }, { 'docker-content-digest': `sha256:${'b'.repeat(64)}` });
+      if (url === 'https://ghcr.io/v2/theroyallab/tabbyapi/blobs/sha256:config') return json({ config: { Labels: { 'org.opencontainers.image.created': '2026-11-12T20:00:00Z', 'org.opencontainers.image.revision': 'c0ffee' } } });
+      return new Response('{}', { status: 404 });
+    }
     asked.push({ url, ...(typeof init?.body === 'string' ? { body: init.body } : {}) });
     const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     if (url.endsWith('/v1/querybatch')) {
@@ -146,5 +157,18 @@ describe('root\'s daily check of what its running releases are made of', () => {
     asked.length = 0;
     expect(await watcher.view()).toEqual({ check, findings });
     expect(asked).toEqual([]);
+  });
+
+  it('keeps when a newer build of a moving tag was first seen from one check to the next, and lists it takeable two weeks after', async () => {
+    const was = inventories.bbbbbbbbbbbb;
+    inventories.bbbbbbbbbbbb = { components: [npm('seroval', '1.6.11'), npm('left-pad', '1.3.0'), k3s, mongo, tabby] };
+    try {
+      await watch([], '2026-11-13T12:00:00Z').check();
+      const { check } = await watch([], '2026-11-20T12:00:00Z').check();
+      expect(check!.builds).toEqual([{ image: 'theroyallab/tabbyapi', tag: 'latest', pinned: TABBY_PINNED, digest: 'b'.repeat(64), builtAt: '2026-11-12T20:00:00Z', revision: 'c0ffee', firstSeenAt: '2026-11-13T12:00:00.000Z', takeOn: '2026-11-27' }]);
+      expect((await watch([], '2026-11-20T12:00:00Z').view()).check!.builds).toEqual(check!.builds);
+    } finally {
+      inventories.bbbbbbbbbbbb = was;
+    }
   });
 });

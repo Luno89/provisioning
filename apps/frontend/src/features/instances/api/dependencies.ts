@@ -58,10 +58,22 @@ export interface ListedComponent {
   publishedAt?: string
 }
 
+export interface TrackedBuild {
+  image: string
+  tag: string
+  pinned: string
+  digest: string
+  builtAt?: string | undefined
+  revision?: string | undefined
+  firstSeenAt: string
+  takeOn: string
+}
+
 export interface DependencyCheck {
   checkedAt: string
   releases: CheckedRelease[]
   components: ListedComponent[]
+  builds?: TrackedBuild[]
   problems: string[]
 }
 

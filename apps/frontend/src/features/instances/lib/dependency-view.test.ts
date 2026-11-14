@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ageOf, componentMatches, countsByState, findingMatches, releaseSummary, sortedFindings } from './dependency-view'
+import { ageOf, buildLine, componentMatches, countsByState, findingMatches, releaseSummary, sortedFindings } from './dependency-view'
 import type { DependencyFinding, ListedComponent } from '../api/dependencies'
 
 const finding = (name: string, state: DependencyFinding['state'], severity?: DependencyFinding['advisory']['severity']): DependencyFinding => ({
@@ -43,5 +43,17 @@ describe('reading the dependency findings', () => {
     expect(releaseSummary('v2026.10.23', [{ ...one, fixedBy: 'v2026.10.29' }])).toBe('Your release, v2026.10.23, has 1 known advisory; v2026.10.29 fixes it.')
     expect(releaseSummary('v2026.10.23', [{ ...one, fixedBy: 'v2026.10.29' }, one])).toBe('Your release, v2026.10.23, has 2 known advisories; v2026.10.29 fixes 1 of them.')
     expect(releaseSummary(undefined, [one])).toBe('Your release has 1 known advisory; no newer release fixes them yet.')
+  })
+})
+
+describe('a newer build of a moving tag', () => {
+  const build = { image: 'theroyallab/tabbyapi', tag: 'latest', pinned: 'a'.repeat(64), digest: 'b'.repeat(64), builtAt: '2026-11-12T20:00:00Z', revision: 'c0ffee1234', firstSeenAt: '2026-11-13T12:00:00.000Z', takeOn: '2026-11-27' }
+
+  it('says when it was built, from which commit, and when it can be taken', () => {
+    expect(buildLine(build, new Date('2026-11-20T00:00:00Z'))).toBe('theroyallab/tabbyapi:latest now names sha256:bbbbbbbbbbbb, built 2026-11-12 from c0ffee1, first seen 2026-11-13. It can be taken on 2026-11-27.')
+  })
+
+  it('says it can be taken now, by pinning its digest, once two weeks have passed since it was first seen', () => {
+    expect(buildLine({ ...build, builtAt: undefined, revision: undefined }, new Date('2026-11-27T00:00:00Z'))).toBe('theroyallab/tabbyapi:latest now names sha256:bbbbbbbbbbbb, first seen 2026-11-13. Take it by pinning that digest in dependencies.pins.json.')
   })
 })

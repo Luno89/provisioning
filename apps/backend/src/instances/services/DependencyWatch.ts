@@ -4,6 +4,7 @@ import {
   type CheckedRelease, type DependencyCheck, type DependencyFinding, type ListedComponent, type Sighting,
 } from '../lib/dependency-findings.js';
 import type { InstanceRelease } from '../lib/instance-updates.js';
+import { trackedBuilds, trackedImageOf, type SeenBuild, type TrackedImage } from '../lib/tracked-builds.js';
 import type { InstancesStore } from '../store.js';
 
 export interface DependencyWatchDeps {
@@ -26,6 +27,8 @@ export interface ReleaseFindings {
   release: string;
   findings: (Pick<DependencyFinding, 'component' | 'advisory' | 'state' | 'fix' | 'takeOn'> & { fixedBy?: string | undefined })[];
 }
+
+const MANIFESTS = 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json';
 
 const labelOf = (release: InstanceRelease | undefined, imageTag: string): string => release?.version ?? imageTag;
 
@@ -83,6 +86,36 @@ export class DependencyWatch {
       if (found?.published_at) return found.published_at;
     }
     return undefined;
+  }
+
+  private registryOf(image: TrackedImage): string {
+    if (image.host !== 'ghcr.io') throw new Error(`Koala follows a moving tag only on ghcr.io, and ${image.image} is on ${image.host}`);
+    return this.deps.sources.ghcr;
+  }
+
+  private async newestBuild(image: TrackedImage): Promise<SeenBuild> {
+    const registry = this.registryOf(image);
+    const { token } = await this.json(`${registry}/token?scope=repository:${image.repository}:pull`) as { token: string };
+    const ask = async (path: string, accept: string) => {
+      const response = await this.deps.fetchImpl(`${registry}/v2/${image.repository}/${path}`, { headers: { authorization: `Bearer ${token}`, accept } });
+      if (!response.ok) throw new Error(`${registry}/v2/${image.repository}/${path} answered ${response.status}`);
+      return { digest: response.headers.get('docker-content-digest'), body: await response.json() as Record<string, unknown> };
+    };
+    const tagged = await ask(`manifests/${image.tag}`, MANIFESTS);
+    if (!tagged.digest?.startsWith('sha256:')) throw new Error(`${registry} named no digest for ${image.repository}:${image.tag}`);
+    const amd64 = (tagged.body.manifests as { digest: string; platform?: { os?: string; architecture?: string } }[] | undefined)?.find((entry) => entry.platform?.os === 'linux' && entry.platform.architecture === 'amd64');
+    const manifest = amd64 ? (await ask(`manifests/${amd64.digest}`, MANIFESTS)).body : tagged.body;
+    const configDigest = (manifest.config as { digest?: string } | undefined)?.digest;
+    if (!configDigest) throw new Error(`${image.repository}:${image.tag} names no image config`);
+    const labels = ((await ask(`blobs/${configDigest}`, 'application/json')).body.config as { Labels?: Record<string, string> } | undefined)?.Labels ?? {};
+    return {
+      image: image.image,
+      tag: image.tag,
+      pinned: image.pinned,
+      digest: tagged.digest.slice('sha256:'.length),
+      ...(labels['org.opencontainers.image.created'] ? { builtAt: labels['org.opencontainers.image.created'] } : {}),
+      ...(labels['org.opencontainers.image.revision'] ? { revision: labels['org.opencontainers.image.revision'] } : {}),
+    };
   }
 
   async check(): Promise<WatchView> {
@@ -166,6 +199,15 @@ export class DependencyWatch {
     if (message) await this.deps.tell(message);
 
     const current = inventories.get(this.deps.currentRelease) ?? [];
+    const seen: SeenBuild[] = [];
+    for (const image of current.flatMap((component) => { const tracked = trackedImageOf(component); return tracked ? [tracked] : []; })) {
+      try {
+        seen.push(await this.newestBuild(image));
+      } catch (err) {
+        problems.push(`the newest build of ${image.image}:${image.tag} could not be read: ${(err as Error).message}`);
+      }
+    }
+    const builds = trackedBuilds((await this.deps.store.getDependencyCheck())?.builds ?? [], seen, now);
     const components: ListedComponent[] = current.map((component) => ({
       name: component.name,
       version: component.version,
@@ -184,7 +226,7 @@ export class DependencyWatch {
       components: inventories.get(release.release)?.length ?? 0,
       inventory: (inventories.get(release.release)?.length ?? 0) > 0,
     }));
-    const check: DependencyCheck = { checkedAt: now.toISOString(), releases, components, problems };
+    const check: DependencyCheck = { checkedAt: now.toISOString(), releases, components, builds, problems };
     await this.deps.store.saveDependencyCheck(check);
     return { check, findings: merged.findings };
   }

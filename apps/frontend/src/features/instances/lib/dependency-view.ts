@@ -1,4 +1,4 @@
-import type { DependencyFinding, FindingState, ListedComponent, ReleaseFinding, Severity } from '../api/dependencies'
+import type { DependencyFinding, FindingState, ListedComponent, ReleaseFinding, Severity, TrackedBuild } from '../api/dependencies'
 
 const STATE_ORDER: Record<FindingState, number> = { due: 0, waiting: 1, 'no-fix': 2 }
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, moderate: 2, low: 3 }
@@ -53,4 +53,10 @@ export function releaseSummary(release: string | undefined, findings: readonly R
   if (fixedBy.length === 0) return `${head}; no newer release fixes them yet.`
   const fixed = findings.filter((finding) => finding.fixedBy).length
   return `${head}; ${fixedBy.at(-1)} fixes ${fixed === findings.length ? (findings.length === 1 ? 'it' : 'all of them') : `${fixed} of them`}.`
+}
+
+export function buildLine(build: TrackedBuild, now: Date): string {
+  const made = [build.builtAt ? `built ${build.builtAt.slice(0, 10)}` : undefined, build.revision ? `from ${build.revision.slice(0, 7)}` : undefined].filter(Boolean).join(' ')
+  const taken = now.toISOString().slice(0, 10) >= build.takeOn ? 'Take it by pinning that digest in dependencies.pins.json.' : `It can be taken on ${build.takeOn}.`
+  return `${build.image}:${build.tag} now names sha256:${build.digest.slice(0, 12)}, ${made ? `${made}, ` : ''}first seen ${build.firstSeenAt.slice(0, 10)}. ${taken}`
 }
