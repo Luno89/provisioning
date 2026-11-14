@@ -6,7 +6,7 @@ const signal = (over: Partial<SignalView>): SignalView => ({ id: 's', kind: 'can
 
 describe('how a finding is shown', () => {
   it('names every kind and tones the serious ones', () => {
-    expect(Object.keys(SIGNAL_TITLES).sort()).toEqual(['canary', 'hidden-in-repo', 'memory-from-outside', 'private-out', 'unvouched-host'])
+    expect(Object.keys(SIGNAL_TITLES).sort()).toEqual(['canary', 'hidden-in-repo', 'memory-from-outside', 'private-out', 'unchecked', 'unvouched-host'])
     expect(severityTone('certain')).toBe('bad')
     expect(severityTone('high')).toBe('bad')
     expect(severityTone('medium')).toBe('warn')
