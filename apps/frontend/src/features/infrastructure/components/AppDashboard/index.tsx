@@ -355,7 +355,7 @@ export default function AppDashboard({
                        </div>
                        <div>
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label>
-                         <select value={configInputs.vllmGpuCount} onChange={e => setConfigInputs(prev => ({ ...prev, vllmGpuCount: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
+                         <select value={configInputs.vllmGpuCount} onChange={e => setConfigInputs(prev => ({ ...prev, vllmGpuCount: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option></select>
                        </div>
                        <div>
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label>

@@ -10,7 +10,7 @@ import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../lib/model-images.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 } };
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 }, gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] };
 async function deps(cluster: ClusterMetadata = CLUSTER) {
   const db = memoryDatabase();
   await db.infrastructure.saveCluster(cluster);
@@ -111,7 +111,7 @@ describe('starting a deploy', () => {
   it('refuses an app a person starts when the cluster cannot fit it', async () => {
     const small: ClusterMetadata = { ...CLUSTER, capacity: { cpuCores: 2, ramGb: 2 } };
     const { deps: d, db, workflow } = await deps(small);
-    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm' }, 'ann')).rejects.toBeInstanceOf(CapacityError);
+    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'ann')).rejects.toBeInstanceOf(CapacityError);
     expect(await db.infrastructure.getDeployments()).toEqual([]);
     expect(workflow.start).not.toHaveBeenCalled();
   });
@@ -119,7 +119,7 @@ describe('starting a deploy', () => {
   it('refuses a model server a person starts on a machine that has not said how big it is, saying why, before it records anything', async () => {
     const { capacity: _unreported, ...unsized } = CLUSTER;
     const { deps: d, db, workflow } = await deps(unsized);
-    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann')).rejects.toThrow('vLLM needs about 5.6 GiB of RAM, and shared has not said how much it has');
+    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'ann')).rejects.toThrow('vLLM needs about 5.6 GiB of RAM, and shared has not said how much it has');
     expect(await db.infrastructure.getDeployments()).toEqual([]);
     expect(workflow.start).not.toHaveBeenCalled();
   });
@@ -127,7 +127,7 @@ describe('starting a deploy', () => {
   it('does not check capacity for platform work started without a person', async () => {
     const small: ClusterMetadata = { ...CLUSTER, capacity: { cpuCores: 2, ramGb: 2 } };
     const { deps: d, workflow } = await deps(small);
-    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 });
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 });
     expect(workflow.start).toHaveBeenCalledTimes(1);
   });
 
@@ -157,8 +157,8 @@ describe('starting a deploy', () => {
 
   it('gives every model app the cache folder on its machine and the image it runs, which its download runs in too', async () => {
     const { deps: d, started } = await deps();
-    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyCachePvc: 'models' }, 'ann');
-    await startAppDeploy(d, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmCachePvc: 'weights' }, 'ann');
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 1, tabbyCachePvc: 'models' }, 'ann');
+    await startAppDeploy(d, { name: 'big', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmCachePvc: 'weights' }, 'ann');
     await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
     expect(started().map((run) => [run.args.modelCacheHostPath, run.args.modelImage])).toEqual([
       ['/var/lib/rancher/models', TABBYAPI_IMAGE],
@@ -173,10 +173,10 @@ describe('starting a deploy', () => {
     await db.accounts.saveUser({ id: 'bob', email: 'b@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
     process.env.HF_TOKEN = 'hf_from_the_environment';
     try {
-      await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann');
-      await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0 }, 'ann');
-      await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'bob');
-      await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 });
+      await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'ann');
+      await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 1 }, 'ann');
+      await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'bob');
+      await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 });
     } finally {
       delete process.env.HF_TOKEN;
     }
@@ -186,15 +186,15 @@ describe('starting a deploy', () => {
   it('keeps the token it was given rather than looking one up', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', KEY) } } } as never);
-    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0, vllmHfToken: '  hf_given  ' }, 'ann');
-    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 0, tabbyHfToken: 'hf_given_tabby' }, 'ann');
+    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmHfToken: '  hf_given  ' }, 'ann');
+    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyGpuCount: 1, tabbyHfToken: 'hf_given_tabby' }, 'ann');
     expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_given_tabby']]);
   });
 
   it('refuses to deploy a model, saying why, when the saved token can no longer be read', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', 'a-key-since-rotated-away-from-this-koala') } } } as never);
-    await expect(startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann'))
+    await expect(startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'ann'))
       .rejects.toThrow('your huggingface hfToken was saved under a key this Koala no longer holds; enter it again under Cloud providers');
     expect(started()).toEqual([]);
   });
@@ -213,7 +213,7 @@ describe('a deploy that asks for GPUs', () => {
   it('is refused with the fix before anything is recorded or started: more GPUs than the machine has, or none said', async () => {
     const { deps: d, db, workflow } = await deps(desk);
     await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 3 }, 'ann')).rejects.toThrow('This app asks for 3 NVIDIA GPUs, and shared has 2 NVIDIA GPUs. Ask for 2 or fewer.');
-    await expect(startAppDeploy(d, { name: 'tabby', clusterId: 'c1', appType: 'tabbyapi' }, 'ann')).rejects.toThrow('Say how many GPUs TabbyAPI uses: 1 or more, or 0 for CPU only.');
+    await expect(startAppDeploy(d, { name: 'tabby', clusterId: 'c1', appType: 'tabbyapi' }, 'ann')).rejects.toThrow('Say how many GPUs TabbyAPI uses: 1 or more. Koala runs no model on CPU.');
     expect(workflow.start).not.toHaveBeenCalled();
     expect((await db.infrastructure.getDeployments()).map((entry) => entry.status)).not.toContain('deploying');
   });

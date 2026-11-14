@@ -25,7 +25,7 @@ const backend = await startBackend(async (site) => {
 })
 
 const owner = await backend.signIn()
-await backend.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: owner.id, machineId: 'desk' })
+await backend.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: owner.id, machineId: 'desk', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] })
 const app = (id: string, over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id, name: id, namespace: `${id}-abcdef`, clusterId: 'machine-desk', strategy: 'native', status: 'running', modules: [], storage: {}, ownerId: owner.id, ...over } as DeploymentMetadata)
 await backend.db.infrastructure.saveDeployment(app('hermes', { appType: 'hermes', hermesDashboardPassword: 'a-made-password' }))
 await backend.db.infrastructure.saveDeployment(app('qwen', { appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-exl3', tabbyGpuCount: 1 }))
@@ -44,6 +44,11 @@ describe('an app\'s page, as it asks the backend', () => {
   it('saves the TabbyAPI settings the page sends and starts re-applying the app', async () => {
     await patchDeploymentConfig('qwen', { storage: { models: '200Gi' }, tabbyModel: 'turboderp/Qwen3-exl3', tabbyRevision: '4.0bpw', tabbyGpuCount: 2, tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: 65536, tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: false, tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '10', tabbyExtraEnv: '' })
     expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'qwen', appType: 'tabbyapi', tabbyRevision: '4.0bpw', tabbyGpuCount: 2, tabbyMaxSeqLen: 65536, storage: objectWith({ models: '200Gi' }) })
+  })
+
+  it('refuses more GPUs than the machine reports, and none at all, as a deploy would', async () => {
+    await expect(patchDeploymentConfig('qwen', { tabbyGpuCount: 3 })).rejects.toMatchObject({ response: { status: 400, data: { error: 'This app asks for 3 NVIDIA GPUs, and desk has 2 NVIDIA GPUs. Ask for 2 or fewer.' } } })
+    await expect(patchDeploymentConfig('qwen', { tabbyGpuCount: 0 })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Say how many GPUs TabbyAPI uses: 1 or more. Koala runs no model on CPU.' } } })
   })
 
   it('refuses settings of the wrong kind, saying which', async () => {

@@ -8,6 +8,7 @@ import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { resourcePlanOf } from '../services/resource-plan.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
+import { gpuChangeRefusal } from '../lib/cluster-gpus.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
@@ -164,10 +165,14 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
 
   router.patch('/:id/config', asyncRoute(async (req, res) => {
     try {
-      if (!(await appService.getById(idOf(req), userOf(req).id))) return res.status(404).json({ error: 'Deployment not found' });
+      const current = await appService.getById(idOf(req), userOf(req).id);
+      if (!current) return res.status(404).json({ error: 'Deployment not found' });
       const read = deploymentConfigPatch(req.body);
       if ('problem' in read) return res.status(400).json({ error: read.problem });
       const patch: Partial<DeploymentMetadata> = read.patch;
+      const gpus = gpuChangeRefusal(current as Record<string, unknown>, patch as Record<string, unknown>, await clusterService.getById(current.clusterId, principalFrom(req)));
+      if (gpus && 'refused' in gpus) return res.status(400).json({ error: gpus.refused });
+      if (gpus && current.appType === 'vllm') patch.vllmGpuVendor = gpus.vendor;
 
       if (read.appSettings !== undefined) {
         const existing = await appService.getById(idOf(req), userOf(req).id);

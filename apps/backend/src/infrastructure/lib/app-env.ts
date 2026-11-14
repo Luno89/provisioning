@@ -17,12 +17,11 @@ export interface AppEnvArgs {
   dbRepo?: string | undefined;
   dbTag?: string | undefined;
   vllmModel?: string | undefined;
-  vllmGpuCount: number;
+  vllmGpuCount?: number | undefined;
   vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
   modelPreDownloaded?: boolean | undefined;
   modelImage?: string | undefined;
   vllmCachePvc?: string | undefined;
-  vllmDevice: string;
   hfToken?: string | undefined;
   vllmMaxModelLen?: number | undefined;
   vllmGpuMemUtil?: number | undefined;
@@ -35,7 +34,7 @@ export interface AppEnvArgs {
   vllmEnablePrefixCaching?: boolean | undefined;
   tabbyModel?: string | undefined;
   tabbyRevision?: string | undefined;
-  tabbyGpuCount: number;
+  tabbyGpuCount?: number | undefined;
   tabbyModelSizeBytes?: number | undefined;
   tabbyCachePvc?: string | undefined;
   tabbyCacheMode?: string | undefined;
@@ -222,7 +221,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_CACHE_PVC: a.vllmCachePvc || '',
     VLLM_MODEL_PREDOWNLOADED: a.modelPreDownloaded ? 'true' : 'false',
     MODEL_IMAGE: a.modelImage ?? '',
-    VLLM_DEVICE: a.vllmDevice,
     HF_TOKEN: a.hfToken || '',
     VLLM_MAX_MODEL_LEN: a.vllmMaxModelLen !== undefined ? String(a.vllmMaxModelLen) : '',
     VLLM_GPU_MEM_UTIL: a.vllmGpuMemUtil !== undefined ? String(a.vllmGpuMemUtil) : '',

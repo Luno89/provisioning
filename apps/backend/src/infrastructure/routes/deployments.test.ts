@@ -280,6 +280,18 @@ describe('changing a deployment', () => {
     expect(answer.data).toEqual({ message: 'Config updated, sync started', deploymentId: 'd1', workflowId: 'w4', state: 'running' });
   });
 
+  it('decides a change to a model server\'s GPUs against what its machine reports, as a deploy is, and syncs only what it allows', async () => {
+    const { appService, clusterService, temporalBridge, call } = setup();
+    appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, clusterId: 'machine-desk' }));
+    clusterService.getById.mockResolvedValue({ id: 'machine-desk', name: 'desk', provider: 'machine', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as never);
+    temporalBridge.updateConfigAndSync.mockResolvedValue(deal('w5'));
+    expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 4 })).data).toEqual({ error: 'This app asks for 4 NVIDIA GPUs, and desk has 2 NVIDIA GPUs. Ask for 2 or fewer.' });
+    expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 0 })).data).toEqual({ error: 'Say how many GPUs vLLM uses: 1 or more. Koala runs no model on CPU.' });
+    expect(temporalBridge.updateConfigAndSync).not.toHaveBeenCalled();
+    expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 2 })).status).toBe(202);
+    expect(temporalBridge.updateConfigAndSync).toHaveBeenCalledWith('d1', { vllmGpuCount: 2, vllmGpuVendor: 'nvidia' });
+  });
+
   it('refuses a config that is not one, settings for an app without a schema, and settings the schema rejects', async () => {
     const { appService, call } = setup();
     expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 'many' })).status).toBe(400);

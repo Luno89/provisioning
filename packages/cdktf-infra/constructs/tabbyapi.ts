@@ -38,11 +38,10 @@ export class TabbyApiApp extends Construct {
     super(scope, id);
 
     const namespaceName = config.namespace || "tabbyapi";
-    // exllamav3 (TabbyAPI's only backend) has no CPU fallback and no ROCm build — unlike
-    // vllm.ts there's no gpuVendor/device axis to plumb through here, it's CUDA-only.
     const modelRepo = config.model || "bartowski/Llama-3.2-3B-Instruct-exl2";
     const revision = config.revision;
-    const gpuCount = config.gpuCount !== undefined ? config.gpuCount : 1;
+    if (config.gpuCount === undefined || config.gpuCount < 1) throw new Error('TabbyAPI needs to be told how many GPUs it uses, 1 or more: Koala runs no model on CPU');
+    const gpuCount = config.gpuCount;
     const hfToken = config.hfToken || "";
     // hostPath, not a PVC — same reasoning as vllm.ts's cacheHostPath: survives app
     // destroy/redeploy (unlike a namespace-scoped PVC, which local-path-provisioner's default
@@ -74,7 +73,7 @@ export class TabbyApiApp extends Construct {
 
     const imageName = config.image;
 
-    const gpuResources = gpuCount > 0 ? { 'nvidia.com/gpu': String(gpuCount) } : {};
+    const gpuResources = { 'nvidia.com/gpu': String(gpuCount) };
 
     // EXL2/EXL3 quants are frequently distributed as multiple bpw (bits-per-weight) branches of
     // the SAME repo rather than separate repos, so the cache folder name has to fold in the
@@ -297,7 +296,7 @@ export class TabbyApiApp extends Construct {
         replicas: "1",
         // Same single-replica GPU-release reasoning as vllm.ts: tear the old pod down before
         // scheduling the new one so it isn't stuck Pending on GPUs the old pod still holds.
-        strategy: gpuCount > 0 ? { type: "Recreate" } : undefined,
+        strategy: { type: "Recreate" },
         progressDeadlineSeconds: 3630,
         selector: {
           matchLabels: {

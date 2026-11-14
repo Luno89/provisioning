@@ -62,6 +62,11 @@ describe("a GPU model server's pod", () => {
     }
   });
 
+  it("refuses to serve a model on CPU: vLLM and TabbyAPI take 1 GPU or more", () => {
+    expect(() => podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.32.0", gpuVendor: "nvidia", gpuCount: 0 }))).toThrow("Koala runs no model on CPU");
+    expect(() => podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 0, modelSizeBytes: 20e9 }))).toThrow("Koala runs no model on CPU");
+  });
+
   it("checks TabbyAPI is alive only by its port accepting connections", () => {
     const pod = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, modelSizeBytes: 20e9 }));
     expect(pod.runtime_class_name).toBeUndefined();
