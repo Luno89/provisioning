@@ -15,7 +15,7 @@ const hf = interceptHttp();
 type Machines = Pick<MachineService, 'choiceProblem'>;
 
 let db: Database;
-let listed: Array<{ id: string }>;
+let listed: Array<{ id: string; name: string; chatProblem?: string }>;
 let credentials: MockProxy<Pick<CredentialService, 'resolveCredentials'>>;
 let machines: MockProxy<Machines>;
 let rateLimits: Mock<ModelsRouterDeps['rateLimits']>;
@@ -40,7 +40,7 @@ const account = async () => db.accounts.getUserById(PERSON.id);
 export function modelsRoutesBehaviour(make: () => Promise<Database>): void {
   beforeEach(async () => {
     db = await make();
-    listed = [{ id: 'tabby-qwen' }];
+    listed = [{ id: 'tabby-qwen', name: 'Qwen on TabbyAPI' }];
     credentials = mock<Pick<CredentialService, 'resolveCredentials'>>();
     credentials.resolveCredentials.mockResolvedValue({ mode: 'none', env: {} });
     machines = mock<Machines>();
@@ -87,6 +87,13 @@ export function modelsRoutesBehaviour(make: () => Promise<Database>): void {
       expect(await call('/default', 'PUT', { modelId: 'nothing' })).toMatchObject({ status: 404, data: { error: 'Model not found' } });
       expect(await call('/default', 'PUT', { modelId: 7 })).toMatchObject({ status: 400, data: { error: 'modelId must be a string, or null to clear' } });
       expect((await account())?.defaultModelId).toBeUndefined();
+    });
+
+    it('refuses a model that cannot run Koala\'s chats, saying why, and keeps the default it had', async () => {
+      await saveAccount({ defaultModelId: 'tabby-qwen' });
+      listed = [{ id: 'tabby-qwen', name: 'Qwen on TabbyAPI' }, { id: 'vllm-1', name: 'Qwen', chatProblem: 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' }];
+      expect(await call('/default', 'PUT', { modelId: 'vllm-1' })).toMatchObject({ status: 400, data: { error: 'Qwen cannot run Koala\'s chats. It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' } });
+      expect((await account())?.defaultModelId).toBe('tabby-qwen');
     });
 
     it('answers 404 for a person with no account record', async () => {

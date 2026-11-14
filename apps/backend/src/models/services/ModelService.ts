@@ -1,7 +1,7 @@
 import dns from 'node:dns/promises';
 import { addressProblem, asPerson, BaseService, type Database, decryptValue, type DeploymentMetadata, type SecretKey } from '../../platform/index.js';
 import type { ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
-import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
+import { cannotChat, listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
 import { modelOwner } from '../../checks/lib/check-space.js';
 import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/index.js';
@@ -95,6 +95,8 @@ export class ModelService extends BaseService {
           + 'or name a model on the request.');
     }
 
+    const refused = cannotChat(routed.provider);
+    if (refused) throw new Error(refused);
     return { owner, ...routed };
   }
 

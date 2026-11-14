@@ -8,12 +8,13 @@ import {
   getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
   getExl3ModelCollection, getHfModelBranches,
 } from '../../infrastructure/lib/huggingface.js';
+import { cannotChat, type ModelProvider } from '../lib/model-registry.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export interface ModelsRouterDeps {
-  modelService: { list(userId: string): Promise<Array<{ id: string }>> };
+  modelService: { list(userId: string): Promise<Array<Pick<ModelProvider, 'id' | 'name' | 'chatProblem'>>> };
   db: Pick<Database, 'accounts'>;
   credentialService: Pick<CredentialService, 'resolveCredentials'>;
   machines?: Pick<MachineService, 'choiceProblem'> | undefined;
@@ -62,8 +63,10 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
       const problem = await deps.machines.choiceProblem(user.id, onMachine);
       if (problem) return res.status(400).json({ error: problem });
     } else if (modelId) {
-      const owned = (await modelService.list(user.id)).some((m) => m.id === modelId);
+      const owned = (await modelService.list(user.id)).find((m) => m.id === modelId);
       if (!owned) return res.status(404).json({ error: 'Model not found' });
+      const refused = cannotChat(owned);
+      if (refused) return res.status(400).json({ error: refused });
     }
     const record = await db.accounts.getUserById(user.id);
     if (!record) return res.status(404).json({ error: 'User not found' });
