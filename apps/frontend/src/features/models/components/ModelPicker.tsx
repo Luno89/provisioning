@@ -82,6 +82,16 @@ export function ModelPicker({
   const modelRow = (m: ModelProvider, underVendor: boolean, indent: string) => {
     const price = formatPrice(m);
     const intelligence = formatIntelligence(m);
+    if (m.chatProblem) {
+      return (
+        <div key={m.id} className={`${indent} pr-3 py-1`}>
+          <button type="button" disabled className="w-full text-left text-[11px] font-mono flex items-center gap-1.5 text-slate-500 cursor-not-allowed">
+            <span className="truncate">{modelRowLabel(m, underVendor)}</span>
+          </button>
+          <p className="text-[10px] text-amber-400/90 leading-snug">{m.chatProblem}</p>
+        </div>
+      );
+    }
     return (
       <button
         key={m.id}
@@ -207,8 +217,9 @@ export function ModelPicker({
                   return (
                     <button
                       type="button"
+                      disabled={!!m.chatProblem}
                       onClick={() => onSelect(m.id)}
-                      className={`w-full text-left px-3 py-2 transition-colors ${
+                      className={`w-full text-left px-3 py-2 transition-colors disabled:cursor-not-allowed disabled:text-slate-500 ${
                         m.id === selectedId
                           ? 'bg-emerald-600/20 text-emerald-200'
                           : 'text-slate-300 hover:bg-[var(--bark-900,#111814)]'
@@ -219,6 +230,7 @@ export function ModelPicker({
                         <span className="text-[11px] font-mono truncate">{modelRowLabel(m, false)}</span>
                       </span>
                       <span className="block text-[10px] text-slate-500 mt-0.5 pl-0.5">{where}</span>
+                      {m.chatProblem && <span className="block text-[10px] text-amber-400/90 mt-0.5 pl-0.5">{m.chatProblem}</span>}
                     </button>
                   );
                 })()

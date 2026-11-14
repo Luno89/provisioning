@@ -50,6 +50,17 @@ describe('a person with no model yet', () => {
     expect(screen.getByRole('button', { name: /paid\/one/ })).not.toBeVisible()
   })
 
+  it('shows a model of their own that cannot run Koala\'s chats with why, and does not offer it', async () => {
+    vi.mocked(modelsApi.listModels).mockResolvedValue([model('vllm-1', { source: 'deployment', kind: 'vllm', model: 'Qwen/Qwen2.5-0.5B-Instruct', chatProblem: 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' })])
+    vi.mocked(modelsApi.getDefaultModel).mockResolvedValue({ defaultModelId: null, globalModelOverride: false })
+    renderIt()
+    const row = await screen.findByRole('button', { name: /Qwen\/Qwen2.5-0.5B-Instruct/ })
+    expect(row).toBeDisabled()
+    expect(screen.getByText('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.')).toBeInTheDocument()
+    fireEvent.click(row)
+    expect(modelsApi.setDefaultModel).not.toHaveBeenCalled()
+  })
+
   it('shows nothing once a default is set', async () => {
     vi.mocked(modelsApi.listModels).mockResolvedValue([model('a')])
     vi.mocked(modelsApi.getDefaultModel).mockResolvedValue({ defaultModelId: 'a', globalModelOverride: false })

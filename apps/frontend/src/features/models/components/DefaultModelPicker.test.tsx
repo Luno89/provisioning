@@ -39,6 +39,14 @@ const setup = (globalModelOverride: boolean) => {
 
 beforeEach(() => vi.clearAllMocks());
 
+describe('a default that cannot run Koala\'s chats', () => {
+  it('says so beside it, with why', async () => {
+    vi.mocked(modelsApi.listModels).mockResolvedValue([{ id: 'm1', name: 'Qwen-Plain', source: 'deployment', kind: 'vllm', model: 'Qwen/Qwen2.5-0.5B-Instruct', chatProblem: 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' }]);
+    setup(false);
+    expect(await screen.findByText(/cannot run Koala's chats\. It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings\./)).toBeInTheDocument();
+  });
+});
+
 describe('the override toggle', () => {
   it('reads off, explaining that an agent keeps its own model', () => {
     setup(false);

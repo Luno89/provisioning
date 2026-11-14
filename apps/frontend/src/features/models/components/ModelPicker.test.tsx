@@ -60,6 +60,19 @@ beforeEach(() => {
   ] as never);
 });
 
+describe('a model that cannot run Koala\'s chats', () => {
+  const toolless = (): ModelProvider => ({ ...local(), id: 'dep-2', name: 'Qwen-Plain', kind: 'vllm', model: 'Qwen/Qwen2.5-0.5B-Instruct', chatProblem: 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' }) as ModelProvider;
+
+  it('is shown with why, and cannot be picked', async () => {
+    const { onSelect } = setup({ models: [toolless()] });
+    expect(await screen.findByText('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.')).toBeInTheDocument();
+    const row = screen.getByRole('button', { name: /Qwen\/Qwen2.5-0.5B-Instruct · Qwen-Plain/ });
+    expect(row).toBeDisabled();
+    fireEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
 describe('tiers', () => {
   it('puts what you control above what you have set up', async () => {
     setup();
