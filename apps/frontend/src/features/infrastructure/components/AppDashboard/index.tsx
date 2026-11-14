@@ -132,10 +132,11 @@ export default function AppDashboard({
   });
 
   const [configInputs, setConfigInputs] = useState(() => configInputsOf(currentDeployment));
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  const [configSeededFor, setConfigSeededFor] = useState(currentDeployment?.id);
+  if (configSeededFor !== currentDeployment?.id) {
+    setConfigSeededFor(currentDeployment?.id);
     setConfigInputs(configInputsOf(currentDeployment));
-  }, [currentDeployment?.id]);
+  }
   const vllmToolCalling = toolCallingOf(configInputs.vllmModel, configInputs.vllmToolCallingEnabled, configInputs.vllmToolCallParser);
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 

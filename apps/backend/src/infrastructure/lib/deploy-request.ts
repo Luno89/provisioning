@@ -83,7 +83,7 @@ const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
   webRepo: 'text', webTag: 'text', odooRepo: 'text', odooTag: 'text', dbRepo: 'text', dbTag: 'text', pgRepo: 'text', pgTag: 'text', url: 'text',
   vllmModel: 'text', vllmGpuCount: 'number', vllmGpuVendor: GPU_VENDORS, vllmCachePvc: 'text', vllmHfToken: 'text',
   vllmMaxModelLen: 'number', vllmGpuMemUtil: 'number', vllmExtraArgs: 'text', vllmToolCallingEnabled: 'flag',
-  vllmToolCallParser: VLLM_TOOL_CALL_PARSERS, vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
+  vllmToolCallParser: VLLM_TOOL_CALL_PARSERS satisfies readonly Field<'vllmToolCallParser'>[], vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
   vllmEnablePrefixCaching: 'flag',
   tabbyModel: 'text', tabbyRevision: 'text', tabbyGpuCount: 'number', tabbyHfToken: 'text', tabbyCachePvc: 'text',
   tabbyImageTag: 'text', tabbyCacheMode: CACHE_MODES, tabbyMaxSeqLen: 'number', tabbyMaxBatchSize: 'number',
