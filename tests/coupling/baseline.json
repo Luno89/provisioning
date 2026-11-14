@@ -1298,7 +1298,6 @@
  "R1 apps/backend/src/infrastructure/routes/deployments.ts#(anonymous) -> apps/backend/src/infrastructure/services/AppService.ts#AppService.listPods (call)": 1,
  "R1 apps/backend/src/infrastructure/routes/deployments.ts#(anonymous) -> apps/backend/src/infrastructure/services/AppService.ts#AppService.updateModules (call)": 1,
  "R1 apps/backend/src/infrastructure/routes/deployments.ts#(anonymous) -> apps/backend/src/infrastructure/services/TemporalBridge.ts#TemporalBridge.resizeDisk (call)": 1,
- "R1 apps/backend/src/infrastructure/routes/deployments.ts#nodeMemory -> apps/backend/src/infrastructure/services/ClusterAccess.ts#ClusterAccess.kubectl (call)": 1,
  "R1 apps/backend/src/infrastructure/routes/logs.ts#(anonymous) -> apps/backend/src/infrastructure/services/AppService.ts#AppService.getAll (interface)": 1,
  "R1 apps/backend/src/infrastructure/routes/registry.ts#(anonymous) -> apps/backend/src/infrastructure/services/RegistryService.ts#RegistryService.getLocalTags (call)": 1,
  "R1 apps/backend/src/infrastructure/routes/registry.ts#(anonymous) -> apps/backend/src/infrastructure/services/RegistryService.ts#RegistryService.getTagPage (call)": 1,
