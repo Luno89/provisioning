@@ -8,6 +8,7 @@ import { asPerson } from '../../platform/lib/permissions.js';
 import type { ClusterMetadata, DeploymentMetadata, ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 import type { EndpointRules } from '../lib/endpoint-url-safety.js';
 import { ModelService, type AppRecords } from '../services/ModelService.js';
+import type { ServedWindows } from '../services/served-windows.js';
 
 const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata[] =>
   Array.from({ length: count }, (_, i) => ({
@@ -30,6 +31,7 @@ let clusters: MockProxy<ClusterService>;
 let access: MockProxy<ClusterAccess>;
 let proxy: MockProxy<ClusterProxyService>;
 let headscale: MockProxy<HeadscaleService>;
+let windows: MockProxy<ServedWindows>;
 
 const user = (fields: Partial<UserMetadata> = {}): UserMetadata =>
   ({ id: 'u1', email: 'u@example.com', emailVerified: true, createdAt: new Date().toISOString(), ...fields }) as UserMetadata;
@@ -37,7 +39,7 @@ const user = (fields: Partial<UserMetadata> = {}): UserMetadata =>
 const build = async (endpoints: ModelEndpointMetadata[], account?: Partial<UserMetadata>, rules: EndpointRules = {}) => {
   for (const endpoint of endpoints) await db.models.saveModelEndpoint(endpoint);
   await db.accounts.saveUser(user(account));
-  return new ModelService(db, apps, clusters, proxy, headscale, 'master-key', rules);
+  return new ModelService(db, apps, clusters, proxy, headscale, windows, 'master-key', rules);
 };
 
 export function modelServiceBehaviour(make: () => Promise<Database>): void {
@@ -49,6 +51,8 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
     clusters = mock<ClusterService>({ access });
     proxy = mock<ClusterProxyService>();
     headscale = mock<HeadscaleService>();
+    windows = mock<ServedWindows>();
+    windows.read.mockResolvedValue(undefined);
     privateNetwork.mockReset();
     privateNetwork.mockImplementation((async () => [{ address: '93.184.216.34', family: 4 }]) as unknown as typeof dns.lookup);
   });
@@ -182,6 +186,19 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       expect(await models.resolveBaseUrl('u1')).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-secret' });
     });
 
+    it('asks an endpoint that knows no window what it serves, with its key', async () => {
+      const models = await build([{ ...gatewayEndpoints('u1', 1)[0]!, apiKeyEnc: encryptValue('sk-secret', 'master-key') }]);
+      windows.read.mockResolvedValue(65536);
+      expect((await models.resolveBaseUrl('u1')).provider.contextTokens).toBe(65536);
+      expect(windows.read).toHaveBeenCalledWith({ baseUrl: 'https://openrouter.ai/api/v1', kind: undefined, model: 'vendor/model-0', apiKey: 'sk-secret' });
+    });
+
+    it('does not ask an endpoint whose window was read when it was connected', async () => {
+      const models = await build([{ ...gatewayEndpoints('u1', 1)[0]!, contextTokens: 200000 }]);
+      expect((await models.resolveBaseUrl('u1')).provider.contextTokens).toBe(200000);
+      expect(windows.read).not.toHaveBeenCalled();
+    });
+
     it('hands back no key where none was stored', async () => {
       const resolved = await (await build(gatewayEndpoints('u1', 1))).resolveBaseUrl('u1');
       expect(resolved).not.toHaveProperty('apiKey');
@@ -215,7 +232,7 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       const endpoint: ModelEndpointMetadata = { id: 'scripted', ownerId: 'space-1', name: 'Scripted', baseUrl: `${base}/space-1/v1`, model: 'scripted', createdAt: 't' };
       await db.models.saveModelEndpoint(endpoint);
       await db.accounts.saveUser(user({ id: 'space-1', email: 'space-1@checks.internal', space: { person: 'u1', checkRunId: 'c1', scenarioId: 's1', models: 'scripted' } } as Partial<UserMetadata>));
-      const models = new ModelService(db, apps, clusters, proxy, headscale, 'master-key', { scriptedBase: base });
+      const models = new ModelService(db, apps, clusters, proxy, headscale, windows, 'master-key', { scriptedBase: base });
       apps.getAll.mockResolvedValue([]);
       expect((await models.resolveBaseUrl('space-1', 'scripted')).baseUrl).toBe(`${base}/space-1/v1`);
       expect(privateNetwork).not.toHaveBeenCalled();
@@ -268,6 +285,24 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       expect(clusters.getById).toHaveBeenCalledWith('c1', asPerson('u1'));
     });
 
+    it('takes the window its server says it serves over the one typed in its settings', async () => {
+      apps.getAll.mockResolvedValue([deployment({ vllmMaxModelLen: 8192 })]);
+      clusters.getById.mockResolvedValue(cluster);
+      proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
+      windows.read.mockResolvedValue(40960);
+
+      expect((await (await build([])).resolveBaseUrl('u1', 'vllm-1')).provider.contextTokens).toBe(40960);
+      expect(windows.read).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:41000/v1', kind: 'vllm', model: 'Qwen/Qwen3', apiKey: undefined });
+    });
+
+    it('keeps the window typed in its settings when its server does not say', async () => {
+      apps.getAll.mockResolvedValue([deployment({ vllmMaxModelLen: 8192 })]);
+      clusters.getById.mockResolvedValue(cluster);
+      proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
+
+      expect((await (await build([])).resolveBaseUrl('u1', 'vllm-1')).provider.contextTokens).toBe(8192);
+    });
+
     it('says so when its cluster is gone', async () => {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(undefined);
@@ -292,8 +327,8 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
     it('is none when they chose none, or the one they chose is gone', async () => {
       expect(await (await build(gatewayEndpoints('u1', 2))).resolveExtractor('u1')).toBeUndefined();
       await db.accounts.saveUser(user({ extractionModelId: 'deleted' }));
-      expect(await new ModelService(db, apps, clusters, proxy, headscale, 'master-key').resolveExtractor('u1')).toBeUndefined();
-      expect(await new ModelService(db, apps, clusters, proxy, headscale, 'master-key').resolveExtractor('nobody')).toBeUndefined();
+      expect(await new ModelService(db, apps, clusters, proxy, headscale, windows, 'master-key').resolveExtractor('u1')).toBeUndefined();
+      expect(await new ModelService(db, apps, clusters, proxy, headscale, windows, 'master-key').resolveExtractor('nobody')).toBeUndefined();
     });
   });
 

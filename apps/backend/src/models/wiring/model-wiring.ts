@@ -1,3 +1,4 @@
+import { servedWindowsOverHttp } from '../services/served-windows.js';
 import { type SecretKey, type Database, type MeshSettings, type Off, type ClusterSettings, type RoleConfig } from '../../platform/index.js';
 import {
   BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService, clusterAccessFrom, type InfrastructureService,
@@ -23,5 +24,5 @@ export function createModelService(place: ModelServicePlace): ModelService {
   const clusters = new ClusterService(db, access, { instanceOwnerId: role.instance?.ownerId });
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = sharedClusterProxy(access);
-  return new ModelService(db, apps, clusters, proxy, new HeadscaleService(dataKey, place.mesh, place.dataDir), dataKey, place.endpointRules);
+  return new ModelService(db, apps, clusters, proxy, new HeadscaleService(dataKey, place.mesh, place.dataDir), servedWindowsOverHttp(), dataKey, place.endpointRules);
 }

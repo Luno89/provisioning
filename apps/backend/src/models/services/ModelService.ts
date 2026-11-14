@@ -6,6 +6,7 @@ import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endp
 import { modelOwner } from '../../checks/lib/check-space.js';
 import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/index.js';
 import { machineChoice } from '@koala/agent-engine/procedure';
+import type { ServedWindows } from './served-windows.js';
 
 export interface AppRecords {
   getAll(userId: string): Promise<DeploymentMetadata[]>;
@@ -18,6 +19,7 @@ export class ModelService extends BaseService {
     private clusters: ClusterService,
     private proxy: ClusterProxyService,
     private headscale: HeadscaleService,
+    private windows: ServedWindows,
     private masterKey: SecretKey,
     private endpointRules: EndpointRules = {},
   ) {
@@ -109,7 +111,11 @@ export class ModelService extends BaseService {
     const resolved = provider.source === 'endpoint'
       ? await this.resolveEndpoint(owner, provider)
       : await this.resolveDeployment(owner, provider);
-    return { ...resolved, source };
+    const asksServer = provider.source === 'deployment' || provider.contextTokens === undefined;
+    const served = asksServer
+      ? await this.windows.read({ baseUrl: resolved.baseUrl, kind: provider.kind, model: provider.model, apiKey: resolved.apiKey })
+      : undefined;
+    return { ...resolved, provider: served ? { ...resolved.provider, contextTokens: served } : resolved.provider, source };
   }
 
   private async resolveEndpoint(
@@ -145,7 +151,7 @@ export class ModelService extends BaseService {
   private async resolveDeployment(
     userId: string,
     provider: ModelProvider,
-  ): Promise<{ provider: ModelProvider; baseUrl: string }> {
+  ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const { clusterId, service, namespace, port } = provider;
     if (!clusterId || !service || !namespace || port === undefined) {
       throw new Error(`Model ${provider.name} is missing its cluster location — it may need redeploying`);

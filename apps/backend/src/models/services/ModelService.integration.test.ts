@@ -29,7 +29,7 @@ const build = async (endpoints: ModelEndpointMetadata[], user?: Partial<UserMeta
 
   const apps = { getAll: async () => [] } as never;
   const stub = {} as never;
-  return new ModelService(db, apps, stub, stub, stub, 'master-key');
+  return new ModelService(db, apps, stub, stub, stub, { read: async () => undefined }, 'master-key');
 };
 
 describe('the engine a run reaches', () => {

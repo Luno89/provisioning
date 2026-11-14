@@ -220,7 +220,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
     binding: conversationBinding(db),
   }))
   const unreached = {} as never
-  const models = new ModelService(db, { getAll: async () => [] } as unknown as AppService, unreached, unreached, unreached, DATA_KEY)
+  const models = new ModelService(db, { getAll: async () => [] } as unknown as AppService, unreached, unreached, unreached, { read: async () => undefined }, DATA_KEY)
   const treeModels = new TreeModelsService({ store: db.projects, models, agentOf: treeAgentsFrom(registry), machines: (ownerId) => machines.machines.list(ownerId), groups: platformGroups })
   const groveRuns = new GroveRunService({
     store: db,

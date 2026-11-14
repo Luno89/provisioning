@@ -44,7 +44,7 @@ import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellatio
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
 import { IdentityService, InstanceReach } from './instances/index.js';
-import { modelsRouter, ModelService } from './models/index.js';
+import { modelsRouter, ModelService, servedWindowsOverHttp } from './models/index.js';
 
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
@@ -181,7 +181,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     side: instanceSide,
     instances: () => (late.instances ? { service: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
-  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, settings.endpointRules);
+  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);
 
   const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies });
   appService.setTemporalBridge(temporalBridge);

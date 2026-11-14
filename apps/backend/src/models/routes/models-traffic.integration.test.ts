@@ -14,7 +14,7 @@ const harness: Harness = await mountRouter({
   prefix: '/api/models',
   router: (db) => modelsRouter({
     db,
-    modelService: new ModelService(db, { getAll: async () => [] } as never, {} as never, {} as never, {} as never, KEY),
+    modelService: new ModelService(db, { getAll: async () => [] } as never, {} as never, {} as never, {} as never, { read: async () => undefined }, KEY),
     credentialService: new CredentialService(db, KEY),
     rateLimits: (ownerId: string) => {
       asked.push(ownerId);

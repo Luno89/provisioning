@@ -17,7 +17,7 @@ const backend = await startBackend((site) => {
   const deployments = { getAll: async (owner: string) => (await site.db.infrastructure.getDeployments()).filter((deployment) => deployment.ownerId === owner) } as unknown as AppService
   const unreached = {} as never
   site.api.use('/models', modelsRouter({
-    modelService: new ModelService(site.db, deployments, unreached, unreached, unreached, DATA_KEY),
+    modelService: new ModelService(site.db, deployments, unreached, unreached, unreached, { read: async () => undefined }, DATA_KEY),
     db: site.db,
     credentialService: new CredentialService(site.db, DATA_KEY),
     machines: side.machines,

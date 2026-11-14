@@ -5,5 +5,7 @@ export { cacheFolderProblem, resolveTabbyCacheHostPath, resolveVllmCacheHostPath
 export { llmCredentialsRouter } from './routes/llm-credentials.js';
 export { modelsRouter } from './routes/models.js';
 export { ModelService } from './services/ModelService.js';
+export { servedWindowsOverHttp } from './services/served-windows.js';
+export type { ServedWindows } from './services/served-windows.js';
 export { treeAgentsFrom, TreeModelsService } from './services/TreeModelsService.js';
 export type { ModelsStore } from './store.js';
