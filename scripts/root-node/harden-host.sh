@@ -92,8 +92,9 @@ write_if_changed /etc/systemd/journald.conf.d/90-koala.conf <<'CONF' && { instal
 [Journal]
 Storage=persistent
 SystemMaxUse=1G
+MaxRetentionSec=14day
 CONF
-ok "the journal is kept on disk, at most 1 GB"
+ok "the journal is kept on disk, at most 1 GB and 14 days"
 
 DAEMON=/etc/docker/daemon.json
 install -d -m 755 /etc/docker
