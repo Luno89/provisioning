@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Database } from '../lib/db-interface.js';
 
-const at = '2026-11-02T00:00:00.000Z';
+const at = new Date().toISOString();
 const later = new Date('2099-01-01T00:00:00.000Z');
 
 interface World {
