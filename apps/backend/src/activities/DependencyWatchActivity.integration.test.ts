@@ -88,4 +88,37 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
       await down.close();
     }
   });
+
+  it('emails root\'s operators once when the registry no longer has a digest the release pins', async () => {
+    const digest = 'd'.repeat(64);
+    const registry = await startDependencySourcesStandIn({ answers: { '/docker-auth/token?service=registry.docker.io&scope=repository:vllm/vllm-openai:pull': { token: 'anonymous' } } });
+    try {
+      const fresh = await testDatabaseAt();
+      await fresh.db.accounts.saveUser({ id: 'operator-3', email: 'operator3@root.test', roles: ['operator'], createdAt: '2026-10-01T00:00:00Z' } as never);
+      const dataDir = testDataDir();
+      mkdirSync(join(dataDir, 'instance-charts'), { recursive: true });
+      const vllm = { 'bom-ref': 'image:pkg:docker/vllm/vllm-openai@v0.32.0', name: 'vllm/vllm-openai', version: 'v0.32.0', hashes: [{ alg: 'SHA-256', content: digest }], properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: 'docker.io/vllm/vllm-openai:v0.32.0' }] };
+      writeFileSync(join(dataDir, 'instance-charts', `${TAG}.sbom.json`), JSON.stringify({ components: [vllm] }));
+      const before = mail.received.length;
+      const settings = hostWorkerSettingsFrom({
+        NODE_ENV: 'development', ...testKeyEnv('dependency-watch-gone'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: fresh.uri.replace(/\/[^/?]*(\?|$)/, `/${fresh.dbName}$1`),
+        TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: dataDir,
+        HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
+        MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: registry.url,
+      });
+      giveHostActivities(settings, hostClusterAccess(settings));
+
+      await DependencyWatchActivity();
+      await DependencyWatchActivity();
+
+      expect(registry.asked).toEqual(expect.arrayContaining([`GET /docker-hub/v2/vllm/vllm-openai/manifests/sha256:${digest}`]));
+      const told = mail.received.slice(before);
+      expect(told.map((message) => message.to)).toEqual([['operator3@root.test']]);
+      expect(mail.subjectOf(told[0]!)).toBe('Koala\'s dependencies: 1 pinned image gone upstream');
+      expect(textOf(told[0]!)).toContain('- vllm/vllm-openai@sha256:dddddddddddd (docker.io/vllm/vllm-openai:v0.32.0), pinned in');
+      expect(textOf(told[0]!)).toContain('See it on Koala\'s dependencies: https://app.root.test/#/dependencies');
+    } finally {
+      await registry.close();
+    }
+  });
 });
