@@ -72,7 +72,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const res = await axios.post(getUrl('/api/auth/login'), '{"email": "a@example.com", ', { headers: { 'content-type': 'application/json' }, validateStatus: () => true });
     expect(res.status).toBe(400);
     expect(String(res.headers['content-type'])).toMatch(/^application\/json/);
-    expect(res.data).toMatchObject({ error: expect.stringMatching(/JSON/) });
+    expect((res.data as { error?: string }).error).toMatch(/JSON/);
   });
 
   it('should register and log in natively, returning correct JWT session cookie', async () => {
