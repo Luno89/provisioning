@@ -14,7 +14,6 @@ spec:
       labels:
         name: nvidia-device-plugin-ds
     spec:
-      runtimeClassName: nvidia
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists
@@ -23,11 +22,22 @@ spec:
       containers:
         - image: nvcr.io/nvidia/k8s-device-plugin:v0.20.1@sha256:27c1b2553a690ca3d29889dcd61df97525d46f58272c0be8dc63c2b18f120075
           name: nvidia-device-plugin-ctr
+          command: ["nvidia-device-plugin"]
           env:
             - name: FAIL_ON_INIT_ERROR
               value: "true"
             - name: DEVICE_DISCOVERY_STRATEGY
               value: nvml
+            - name: DEVICE_LIST_STRATEGY
+              value: cdi-cri
+            - name: NVIDIA_DRIVER_ROOT
+              value: /
+            - name: NVIDIA_CDI_HOOK_PATH
+              value: /usr/bin/nvidia-cdi-hook
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -35,8 +45,21 @@ spec:
           volumeMounts:
             - name: kubelet-device-plugins-dir
               mountPath: /var/lib/kubelet/device-plugins
+            - name: driver-root
+              mountPath: /driver-root
+              readOnly: true
+            - name: cdi-root
+              mountPath: /var/run/cdi
       volumes:
         - name: kubelet-device-plugins-dir
           hostPath:
             path: /var/lib/kubelet/device-plugins
             type: Directory
+        - name: driver-root
+          hostPath:
+            path: /
+            type: Directory
+        - name: cdi-root
+          hostPath:
+            path: /var/run/cdi
+            type: DirectoryOrCreate

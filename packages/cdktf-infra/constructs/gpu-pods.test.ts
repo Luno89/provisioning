@@ -44,16 +44,16 @@ describe("a GPU model server's pod", () => {
     expect(pod.container[0]?.resources.limits["amd.com/gpu"]).toBe("1");
   });
 
-  it("runs under the nvidia runtime class on NVIDIA and keeps its own network", () => {
+  it("is given its NVIDIA GPUs through CDI, with no runtime class, and keeps its own network", () => {
     const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.7.2", gpuVendor: "nvidia", gpuCount: 2 }));
-    expect(pod.runtime_class_name).toBe("nvidia");
+    expect(pod.runtime_class_name).toBeUndefined();
     expect(pod.host_network).toBeUndefined();
     expect(pod.container[0]?.resources.limits["nvidia.com/gpu"]).toBe("2");
   });
 
   it("checks TabbyAPI is alive only by its port accepting connections", () => {
     const pod = podOf((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, modelSizeBytes: 20e9 }));
-    expect(pod.runtime_class_name).toBe("nvidia");
+    expect(pod.runtime_class_name).toBeUndefined();
     expect(pod.container[0]?.liveness_probe?.tcp_socket).toEqual([{ port: "5000" }]);
   });
 });

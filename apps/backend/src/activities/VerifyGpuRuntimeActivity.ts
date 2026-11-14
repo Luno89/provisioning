@@ -4,7 +4,7 @@ import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ignore } from '@koala/engine-core/failures';
 import type { GpuVendor } from '@koala/engine-core';
-import { advertisedGpus, assessWorkload, GPU_PLUGINS, gpuPluginState, runtimeRefused, type Reach, type WorkloadStatus } from '../infrastructure/index.js';
+import { advertisedGpus, assessWorkload, GPU_PLUGINS, gpuPluginState, type Reach, type WorkloadStatus } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 
@@ -45,13 +45,11 @@ export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs, steps
   const want = { vendor: args.vendor, count: args.count };
   let said = '';
   for (;;) {
-    const [nodes, pods, events] = await Promise.all([
+    const [nodes, pods] = await Promise.all([
       read(['get', 'nodes', '-o', 'json']),
       read(['get', 'pods', '-n', plugin.namespace, '-l', plugin.selector, '-o', 'json']),
-      read(['get', 'events', '-n', plugin.namespace, '--field-selector', 'involvedObject.kind=Pod', '-o', 'json']),
     ]);
-    const refused = 'json' in events ? runtimeRefused(events.json) : undefined;
-    const health: WorkloadStatus = refused ? { health: 'unhealthy', reason: refused } : 'json' in pods ? assessWorkload(pods.json) : { health: 'unknown', reason: pods.unread };
+    const health: WorkloadStatus = 'json' in pods ? assessWorkload(pods.json) : { health: 'unknown', reason: pods.unread };
     const advertised = 'json' in nodes ? advertisedGpus(nodes.json, plugin.resource) : 0;
     const state = gpuPluginState(want, advertised, health, machine);
     if (state.state === 'ready') {

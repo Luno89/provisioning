@@ -201,7 +201,6 @@ export class VllmApp extends Construct {
     const podSpec: DeploymentSpecTemplateSpec = {
       container: [containerSpec],
       volume: volumes,
-      ...(gpuVendor === 'nvidia' && gpuCount > 0 && device !== 'cpu' ? { runtimeClassName: "nvidia" } : {}),
       ...(gpuVendor === 'amd' ? { hostNetwork: true, hostIpc: true } : {}),
     };
 

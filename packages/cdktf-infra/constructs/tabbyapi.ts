@@ -282,7 +282,6 @@ export class TabbyApiApp extends Construct {
     const podSpec: DeploymentSpecTemplateSpec = {
       container: [containerSpec],
       volume: volumes,
-      ...(gpuCount > 0 ? { runtimeClassName: "nvidia" } : {}),
     };
 
     new Deployment(this, "tabbyapi-deployment", {

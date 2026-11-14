@@ -16,7 +16,7 @@ describe('the GPUs a model server can be given on a machine', () => {
   it('says why there is no GPU to give when the machine has not said, shows none, or cannot pass them to a pod', () => {
     expect(gpuChoicesOf({ name: 'rig', provider: 'machine' })).toEqual({ vendors: [], problem: 'rig has not said which GPUs it has: its agent is from before GPUs were reported, or it has not connected since. Once it connects with a current agent, it says. Until then it runs this on CPU only.' })
     expect(gpuChoicesOf({ name: 'rig', provider: 'machine', gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] }).problem).toBe('rig shows no GPU: nvidia-smi is installed but does not answer. Until then it runs this on CPU only.')
-    expect(gpuChoicesOf({ ...rig, gpus: [{ ...rig.gpus[0]!, runtime: false }] }).problem).toBe('rig has 2 NVIDIA GPUs, and k3s on it has no NVIDIA container runtime to pass them to a pod: run the command from My Machines again on it, which offers to install the NVIDIA Container Toolkit; k3s takes it up the next time it starts. Until then it runs this on CPU only.')
+    expect(gpuChoicesOf({ ...rig, gpus: [{ ...rig.gpus[0]!, runtime: false }] }).problem).toBe('rig has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA\'s CDI support is not installed. Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package). Until then it runs this on CPU only.')
     expect(gpuChoicesOf({ name: 'koala', provider: 'pool', gpus: rig.gpus }).problem).toBe('Only a machine\'s own cluster runs apps on GPUs, and koala is not one. Until then it runs this on CPU only.')
   })
 

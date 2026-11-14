@@ -37,7 +37,7 @@ export function gpuAskOf(appType: string, config: Record<string, unknown>): GpuA
   return vendor ? { count, vendor } : { count };
 }
 
-export const GPU_TOOLKIT_HINT = 'run the command from My Machines again on it, which offers to install the NVIDIA Container Toolkit; k3s takes it up the next time it starts';
+export const GPU_CDI_HINT = 'Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package).';
 
 const plural = (count: number, label?: string) => `${count} ${label ? `${label} ` : ''}GPU${count === 1 ? '' : 's'}`;
 
@@ -62,7 +62,7 @@ export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provid
   }
   const usable = gpuCountOf(cluster.gpus, vendor);
   const askedOf = plural(ask.count, label);
-  if (usable === 0) return { refused: `This app asks for ${askedOf}. ${cluster.name} has ${plural(there, label)}, and k3s on it has no ${label} container runtime to pass them to a pod: ${GPU_TOOLKIT_HINT}.` };
+  if (usable === 0) return { refused: `This app asks for ${askedOf}. ${cluster.name} has ${plural(there, label)}, and pods there cannot be given them yet: NVIDIA's CDI support is not installed. ${GPU_CDI_HINT}` };
   if (ask.count > usable) return { refused: `This app asks for ${askedOf}, and ${cluster.name} has ${plural(usable, label)}. Ask for ${usable} or fewer.` };
   return { vendor };
 }
@@ -84,18 +84,8 @@ export function gpuPluginState(want: { vendor: GpuVendor; count: number }, adver
   const label = GPU_PLUGINS[want.vendor].label;
   if (advertised >= want.count) return { state: 'ready' };
   if (plugin.health === 'unhealthy') {
-    const fix = want.vendor === 'nvidia' ? ` Once the NVIDIA Container Toolkit is installed there, restart k3s on it so it takes the toolkit up.` : ` Restart k3s on it once the AMD kernel driver is loaded.`;
+    const fix = want.vendor === 'nvidia' ? ` Run the command from My Machines again on it, which offers to install NVIDIA's CDI support, then deploy again.` : ` Restart k3s on it once the AMD kernel driver is loaded.`;
     return { state: 'failed', reason: `the ${label} device plugin cannot run on ${machine}: ${plugin.reason}.${fix}` };
   }
   return { state: 'waiting', reason: `the node advertises ${advertised} of the ${plural(want.count, label)} asked for so far` };
-}
-
-export function runtimeRefused(events: unknown): string | undefined {
-  const items = (events as { items?: unknown } | undefined)?.items;
-  if (!Array.isArray(items)) return undefined;
-  for (const event of items) {
-    const { reason, message } = (event ?? {}) as { reason?: unknown; message?: unknown };
-    if (reason === 'FailedCreatePodSandBox' && typeof message === 'string' && /no runtime for/i.test(message)) return message;
-  }
-  return undefined;
 }

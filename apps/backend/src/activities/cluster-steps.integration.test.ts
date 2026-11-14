@@ -116,10 +116,10 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     await access.kubectl(DESK, ['delete', 'namespace', 'stuck-9a8b7c', '--wait=false']);
   }, 600_000);
 
-  it('applies the NVIDIA device plugin on a machine with no NVIDIA runtime, and fails with what to do rather than wait', async () => {
+  it('applies the NVIDIA device plugin on a machine without NVIDIA\'s CDI support, and fails with what to do rather than wait', async () => {
     try {
       await expect(VerifyGpuRuntimeActivity({ clusterId: DESK.clusterId, reach: DESK, vendor: 'nvidia', count: 1, machine: 'desk' }, steps, (ms) => new Promise((done) => { setTimeout(done, Math.min(ms, 500)); })))
-        .rejects.toThrow(/the NVIDIA device plugin cannot run on desk: .*nvidia.*restart k3s on it/s);
+        .rejects.toThrow(/the NVIDIA device plugin cannot run on desk: .*install NVIDIA's CDI support/s);
     } finally {
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }

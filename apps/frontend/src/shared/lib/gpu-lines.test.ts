@@ -6,7 +6,7 @@ const RTX = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memor
 describe('what a machine\'s card says about its GPUs', () => {
   it('names them with their memory, and says when k3s cannot pass them to a pod', () => {
     expect(gpuLines({ gpus: [RTX], gpuProblems: [] })).toEqual(['GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each'])
-    expect(gpuLines({ gpus: [{ ...RTX, runtime: false }], gpuProblems: [] })).toEqual(['GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each, not usable yet: the NVIDIA Container Toolkit is not installed'])
+    expect(gpuLines({ gpus: [{ ...RTX, runtime: false }], gpuProblems: [] })).toEqual(['GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each, not usable yet: NVIDIA\'s CDI support is not installed'])
   })
 
   it('says what kept the machine from reading them, and nothing for a machine that has not said', () => {

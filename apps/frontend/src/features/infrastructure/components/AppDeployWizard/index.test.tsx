@@ -232,7 +232,7 @@ describe('the GPUs a model server is offered', () => {
     const { user } = setup([{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: false }] }]);
     await walkToGpus(user, 'vllm');
     expect(options(/^GPU Count/)).toEqual(['0']);
-    expect(screen.getByText(/rig has 2 NVIDIA GPUs, and k3s on it has no NVIDIA container runtime to pass them to a pod/)).toBeInTheDocument();
+    expect(screen.getByText(/rig has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA's CDI support is not installed/)).toBeInTheDocument();
   });
 
   it('offers TabbyAPI the NVIDIA GPUs the machine reports, and no CPU only, which it has not', async () => {
