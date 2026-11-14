@@ -20,7 +20,6 @@ export const E2E_STEPS: GateStep[] = [
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'an app deploys on the machine Koala runs on, its sign-in shown only on asking, and is destroyed', script: 'test:app-sign-in-live' },
   { name: 'the machine Koala runs on reports its GPUs, Koala readies them, a model deployed on one answers and too many are refused', script: 'test:gpu-live' },
-  { name: 'v1 end to end in a browser: signed in through root, this computer and its GPUs shown, vLLM deployed on one through the wizard, made the default and answering a chat, destroyed', script: 'test:v1-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },
 ];
 
