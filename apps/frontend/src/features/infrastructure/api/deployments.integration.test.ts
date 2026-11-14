@@ -100,3 +100,17 @@ describe('deploying an app, as the deploy wizard asks for it', () => {
     expect(temporal.started).toHaveLength(1)
   })
 })
+
+describe('deploying vLLM with the wizard\'s defaults', () => {
+  const vllmFromTheWizard = (model: string) => deployPayloadOf({ ...EMPTY_WIZARD_DATA, name: `vllm-${model.length}`, clusterId: GPU_MACHINE.id, appType: 'vllm', vllmModel: model })
+
+  it('serves tool calling with the parser the backend takes for the model, so a Koala chat can run on it', async () => {
+    const accepted = await deployApp<DeployAccepted>(vllmFromTheWizard('Qwen/Qwen2.5-0.5B-Instruct'))
+    const started = temporal.started.find((run) => run.options.workflowId === accepted.workflowId)
+    expect(started?.options.args?.[0]).toMatchObject({ appType: 'vllm', vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' })
+  })
+
+  it('is refused, in words the wizard shows, when tool calling is on and no parser is known for the model', async () => {
+    await expect(deployApp({ ...vllmFromTheWizard('someone/their-own-model'), vllmToolCallParser: undefined })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } } })
+  })
+})

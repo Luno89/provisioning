@@ -19,7 +19,7 @@ export const EMPTY_WIZARD_DATA = {
   vllmMaxModelLen: '',
   vllmGpuMemUtil: '',
   vllmExtraArgs: '',
-  vllmToolCallingEnabled: false,
+  vllmToolCallingEnabled: true,
   vllmToolCallParser: '',
   vllmServedModelName: '',
   vllmMaxNumSeqs: '',

@@ -1,4 +1,7 @@
 import type { WizardData } from './wizard-defaults'
+import { toolCallingOf, type ToolCalling } from './vllm-tool-calling'
+
+const toolCallParserSent = (calling: ToolCalling): string | undefined => ('parser' in calling ? calling.parser : undefined)
 
 type Payload = Record<string, unknown>
 
@@ -26,8 +29,8 @@ function payloadOf(data: WizardData): Payload {
       vllmMaxModelLen: whole(data.vllmMaxModelLen),
       vllmGpuMemUtil: data.vllmGpuMemUtil ? parseFloat(data.vllmGpuMemUtil) : undefined,
       vllmExtraArgs: data.vllmExtraArgs || undefined,
-      vllmToolCallingEnabled: data.vllmToolCallingEnabled && !!data.vllmToolCallParser,
-      vllmToolCallParser: data.vllmToolCallParser || undefined,
+      vllmToolCallingEnabled: data.vllmToolCallingEnabled,
+      vllmToolCallParser: toolCallParserSent(toolCallingOf(data.vllmModel, data.vllmToolCallingEnabled, data.vllmToolCallParser)),
       vllmServedModelName: data.vllmServedModelName || undefined,
       vllmMaxNumSeqs: whole(data.vllmMaxNumSeqs),
       vllmDtype: data.vllmDtype || undefined,

@@ -244,6 +244,49 @@ describe('the GPUs a model server is offered', () => {
   });
 });
 
+describe('vLLM\'s tool calling, which every Koala chat uses', () => {
+  const rig: Cluster[] = [{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 1, runtime: true }] }];
+
+  async function walkToModel(user: ReturnType<typeof userEvent.setup>, model: string) {
+    await user.selectOptions(screen.getByLabelText(/application type/i), 'vllm');
+    for (let step = 0; step < 3; step++) await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.type(screen.getByLabelText(/^HuggingFace Model ID/), model);
+  }
+
+  it('is on by default, its parser chosen from the model typed, and sent with the deploy', async () => {
+    const { user, onDeploy } = setup(rig);
+    await walkToModel(user, 'Qwen/Qwen2.5-0.5B-Instruct');
+    expect(screen.getByLabelText(/^Serve tool calling/)).toBeChecked();
+    expect(screen.getByRole('option', { name: 'Chosen from the model: hermes' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.click(screen.getByRole('button', { name: /Initiate Deployment/ }));
+    expect(onDeploy.mock.calls[0]![0]).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+  });
+
+  it('asks the person to pick a parser for a model it does not know, and goes no further until they do', async () => {
+    const { user, onDeploy } = setup(rig);
+    await walkToModel(user, 'someone/their-own-model');
+    expect(screen.getByText('Koala cannot tell which tool call parser someone/their-own-model needs: pick one, or turn tool calling off.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Next/ })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText(/^Tool Call Parser/), 'mistral');
+    await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.click(screen.getByRole('button', { name: /Initiate Deployment/ }));
+    expect(onDeploy.mock.calls[0]![0]).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' });
+  });
+
+  it('can be turned off, saying Koala\'s chats cannot run on it then', async () => {
+    const { user, onDeploy } = setup(rig);
+    await walkToModel(user, 'someone/their-own-model');
+    await user.click(screen.getByLabelText(/^Serve tool calling/));
+    expect(screen.getByText('Without tool calling, Koala\'s chats cannot run on this model.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.click(screen.getByRole('button', { name: /Initiate Deployment/ }));
+    const payload = onDeploy.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toMatchObject({ vllmToolCallingEnabled: false });
+    expect(payload).not.toHaveProperty('vllmToolCallParser');
+  });
+});
+
 describe('a model whose size cannot be read', () => {
   it.each(['vllm', 'tabbyapi'])('says so as a problem, with the reason, and never that deploying will work anyway (%s)', async (appType) => {
     vi.mocked(modelsApi.useHfModelSize).mockReturnValue({ data: undefined, isFetching: false, isError: true, error: new Error('Hugging Face answered 404 for Qwen/Nope') } as unknown as ReturnType<typeof modelsApi.useHfModelSize>);

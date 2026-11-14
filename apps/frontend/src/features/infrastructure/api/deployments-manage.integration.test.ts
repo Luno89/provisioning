@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { type AppSignIn, destroyResource, exposeDeployment, getAppSignIn, patchDeploymentConfig, setDeploymentModules, setExposurePath, unexposeDeployment } from './deployments'
 import { startBackend } from '../../../test/backend/site'
+import { configInputsOf } from '../lib/app-config-inputs'
+import { toolCallingOf } from '../lib/vllm-tool-calling'
 import { infrastructureOf, type Infrastructure } from '../../../test/backend/infrastructure'
 import { outsideThisTier } from '../../../test/backend/outside'
 import type { Wire } from '../../../test/backend/wire'
@@ -30,6 +32,7 @@ const app = (id: string, over: Partial<DeploymentMetadata>): DeploymentMetadata 
 await backend.db.infrastructure.saveDeployment(app('hermes', { appType: 'hermes', hermesDashboardPassword: 'a-made-password' }))
 await backend.db.infrastructure.saveDeployment(app('qwen', { appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-exl3', tabbyGpuCount: 1 }))
 await backend.db.infrastructure.saveDeployment(app('pals', { appType: 'palworld' }))
+await backend.db.infrastructure.saveDeployment(app('llama', { appType: 'vllm', vllmModel: 'meta-llama/Llama-3.2-3B-Instruct', vllmGpuCount: 1, vllmGpuVendor: 'nvidia' }))
 await backend.db.infrastructure.saveDeployment(app('theirs', { appType: 'hermes', ownerId: 'someone-else' }))
 
 expectTypeOf<Wire<BackendAppSignIn>>().toExtend<AppSignIn>()
@@ -44,6 +47,14 @@ describe('an app\'s page, as it asks the backend', () => {
   it('saves the TabbyAPI settings the page sends and starts re-applying the app', async () => {
     await patchDeploymentConfig('qwen', { storage: { models: '200Gi' }, tabbyModel: 'turboderp/Qwen3-exl3', tabbyRevision: '4.0bpw', tabbyGpuCount: 2, tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: 65536, tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: false, tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '10', tabbyExtraEnv: '' })
     expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'qwen', appType: 'tabbyapi', tabbyRevision: '4.0bpw', tabbyGpuCount: 2, tabbyMaxSeqLen: 65536, storage: objectWith({ models: '200Gi' }) })
+  })
+
+  it('turns vLLM\'s tool calling on with the parser the page shows, and refuses a model with no parser known, as a deploy would', async () => {
+    const page = configInputsOf({ id: 'llama', name: 'llama', appType: 'vllm', clusterId: 'machine-desk', status: 'running', vllmModel: 'meta-llama/Llama-3.2-3B-Instruct' })
+    const calling = toolCallingOf(page.vllmModel, true, '')
+    await patchDeploymentConfig('llama', { vllmToolCallingEnabled: calling.enabled, ...('parser' in calling ? { vllmToolCallParser: calling.parser } : {}) })
+    expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'llama', appType: 'vllm', vllmToolCallingEnabled: true, vllmToolCallParser: 'llama3_json' })
+    await expect(patchDeploymentConfig('llama', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true, vllmToolCallParser: '' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } } })
   })
 
   it('refuses more GPUs than the machine reports, and none at all, as a deploy would', async () => {

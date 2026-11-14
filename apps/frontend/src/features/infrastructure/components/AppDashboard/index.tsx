@@ -21,6 +21,9 @@ import { ClusterHealth } from '../../../monitoring';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 import { safeHref } from '../../../../shared/lib/safe-href';
+import { configInputsOf } from '../../lib/app-config-inputs';
+import { toolCallingOf } from '../../lib/vllm-tool-calling';
+import { VllmToolCalling } from '../VllmToolCalling';
 
 export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
@@ -128,20 +131,12 @@ export default function AppDashboard({
     onSuccess: invalidate,
   });
 
-  const [configInputs, setConfigInputs] = useState({
-    webRepo: '', webTag: '', dbRepo: '', dbTag: '',
-    vllmModel: '', vllmGpuCount: '1', vllmGpuVendor: 'nvidia', vllmHfToken: '',
-    vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '',
-    vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '',
-    vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false,
-    tabbyModel: '', tabbyRevision: '', tabbyGpuCount: '1', tabbyHfToken: '',
-    tabbyImageTag: 'latest', tabbyCacheMode: '', tabbyMaxSeqLen: '', tabbyMaxBatchSize: '',
-    tabbyReasoning: false, tabbyToolFormat: '', tabbyInlineModelLoading: false,
-    tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '', tabbyExtraEnv: '',
-    openWebuiTargetId: '',
-    hermesTargetId: '',
-    webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '',
-  });
+  const [configInputs, setConfigInputs] = useState(() => configInputsOf(currentDeployment));
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setConfigInputs(configInputsOf(currentDeployment));
+  }, [currentDeployment?.id]);
+  const vllmToolCalling = toolCallingOf(configInputs.vllmModel, configInputs.vllmToolCallingEnabled, configInputs.vllmToolCallParser);
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 
   const updateAppModules = useMutation({
@@ -281,7 +276,7 @@ export default function AppDashboard({
                        <p className="text-slate-400 text-xs">Edit storage sizing and app-specific settings below, then save to re-apply the deployment and restart it.</p>
                      </div>
                      <button
-                       disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed')}
+                       disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed') || (currentDeployment.appType === 'vllm' && 'problem' in vllmToolCalling)}
                        onClick={() => {
                          const appType = currentDeployment.appType || 'odoo';
                          const patch: Record<string, unknown> = { storage: storageInputs };
@@ -299,8 +294,8 @@ export default function AppDashboard({
                            if (configInputs.vllmMaxModelLen) patch.vllmMaxModelLen = parseInt(configInputs.vllmMaxModelLen);
                            if (configInputs.vllmGpuMemUtil) patch.vllmGpuMemUtil = parseFloat(configInputs.vllmGpuMemUtil);
                            patch.vllmExtraArgs = configInputs.vllmExtraArgs;
-                           patch.vllmToolCallingEnabled = configInputs.vllmToolCallingEnabled && !!configInputs.vllmToolCallParser;
-                           if (configInputs.vllmToolCallParser) patch.vllmToolCallParser = configInputs.vllmToolCallParser;
+                           patch.vllmToolCallingEnabled = vllmToolCalling.enabled;
+                           if ('parser' in vllmToolCalling) patch.vllmToolCallParser = vllmToolCalling.parser;
                            if (configInputs.vllmServedModelName) patch.vllmServedModelName = configInputs.vllmServedModelName;
                            if (configInputs.vllmMaxNumSeqs) patch.vllmMaxNumSeqs = parseInt(configInputs.vllmMaxNumSeqs);
                            if (configInputs.vllmDtype) patch.vllmDtype = configInputs.vllmDtype;
@@ -397,30 +392,7 @@ export default function AppDashboard({
                      </div>
 
                      <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-3">
-                       <div className="flex items-center gap-3">
-                         <input type="checkbox" id="cfg-tool-calling" checked={configInputs.vllmToolCallingEnabled} onChange={e => setConfigInputs(prev => ({ ...prev, vllmToolCallingEnabled: e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
-                         <label htmlFor="cfg-tool-calling" className="text-sm text-slate-300 cursor-pointer select-none">Enable Tool Calling</label>
-                         <span className="text-[10px] text-slate-500 ml-auto">Required for OpenAI-style function/tool calls (used by Open WebUI's Tools, agents, etc.)</span>
-                       </div>
-                       {configInputs.vllmToolCallingEnabled && (
-                         <div>
-                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
-                           <select value={configInputs.vllmToolCallParser} onChange={e => setConfigInputs(prev => ({ ...prev, vllmToolCallParser: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
-                             <option value="">Select a parser matching your model...</option>
-                             <option value="llama3_json">llama3_json — Llama 3.x</option>
-                             <option value="mistral">mistral — Mistral / Mixtral</option>
-                             <option value="hermes">hermes — Hermes / Qwen</option>
-                             <option value="granite">granite — Granite</option>
-                             <option value="granite-20b-fc">granite-20b-fc — Granite 20B Function Calling</option>
-                             <option value="internlm">internlm — InternLM</option>
-                             <option value="jamba">jamba — Jamba</option>
-                             <option value="pythonic">pythonic — Pythonic (Llama variants)</option>
-                           </select>
-                           {!configInputs.vllmToolCallParser && (
-                             <p className="text-[11px] text-amber-400/80 mt-2">vLLM requires a parser whenever tool calling is enabled — "auto" tool choice will fail to start without one.</p>
-                           )}
-                         </div>
-                       )}
+                       <VllmToolCalling idPrefix="cfg" model={configInputs.vllmModel} enabled={configInputs.vllmToolCallingEnabled} picked={configInputs.vllmToolCallParser} onChange={({ enabled, picked }) => setConfigInputs(prev => ({ ...prev, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked }))} />
                      </div>
 
                      <div>
