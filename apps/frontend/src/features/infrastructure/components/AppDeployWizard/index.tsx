@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Database, Layers, Loader2, Package, X, Zap } from 'lucide-react';
 import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../../models';
 import { TagPicker } from './TagPicker';
+import { VllmToolCalling } from '../VllmToolCalling';
+import { toolCallingOf } from '../../lib/vllm-tool-calling';
 import { useDebounce } from '../../../../shared/lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
@@ -378,6 +380,7 @@ export default function AppDeployWizard({
                     : "Required for gated models (e.g. Llama 3.2, Gemma 2). Get a Read token at huggingface.co/settings/tokens or save it in Cloud Accounts."}
                 </p>
               </div>
+              <VllmToolCalling idPrefix="wizard" model={wizardData.vllmModel} enabled={wizardData.vllmToolCallingEnabled} picked={wizardData.vllmToolCallParser} onChange={({ enabled, picked }) => setWizardData({ ...wizardData, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked })} />
               <div className="pt-2 border-t border-slate-800">
                 <button type="button" onClick={() => setShowVllmAdvanced(!showVllmAdvanced)} className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-200 transition-colors">
                   {showVllmAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Advanced vLLM Arguments
@@ -414,32 +417,6 @@ export default function AppDeployWizard({
                     <div className="flex items-center gap-3">
                       <input type="checkbox" id="wiz-prefix-caching" checked={wizardData.vllmEnablePrefixCaching} onChange={e => setWizardData({...wizardData, vllmEnablePrefixCaching: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
                       <label htmlFor="wiz-prefix-caching" className="text-sm text-slate-300 cursor-pointer select-none">Enable Prefix Caching</label>
-                    </div>
-                    <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-3">
-                      <div className="flex items-center gap-3">
-                        <input type="checkbox" id="wiz-tool-calling" checked={wizardData.vllmToolCallingEnabled} onChange={e => setWizardData({...wizardData, vllmToolCallingEnabled: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
-                        <label htmlFor="wiz-tool-calling" className="text-sm text-slate-300 cursor-pointer select-none">Enable Tool Calling</label>
-                        <span className="text-[10px] text-slate-500 ml-auto">Required for OpenAI-style function/tool calls</span>
-                      </div>
-                      {wizardData.vllmToolCallingEnabled && (
-                        <div>
-                          <label htmlFor="wizard-tool-call-parser" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
-                          <select id="wizard-tool-call-parser" value={wizardData.vllmToolCallParser} onChange={e => setWizardData({...wizardData, vllmToolCallParser: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
-                            <option value="">Select a parser matching your model...</option>
-                            <option value="llama3_json">llama3_json — Llama 3.x</option>
-                            <option value="mistral">mistral — Mistral / Mixtral</option>
-                            <option value="hermes">hermes — Hermes / Qwen</option>
-                            <option value="granite">granite — Granite</option>
-                            <option value="granite-20b-fc">granite-20b-fc — Granite 20B Function Calling</option>
-                            <option value="internlm">internlm — InternLM</option>
-                            <option value="jamba">jamba — Jamba</option>
-                            <option value="pythonic">pythonic — Pythonic (Llama variants)</option>
-                          </select>
-                          {!wizardData.vllmToolCallParser && (
-                            <p className="text-[11px] text-amber-400/80 mt-2">vLLM requires a parser whenever tool calling is enabled — "auto" tool choice will fail to start without one.</p>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div>
                       <label htmlFor="wizard-additional-arguments" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Arguments</label>
@@ -701,7 +678,7 @@ export default function AppDeployWizard({
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId) || (wizardStep === 4 && ((wizardData.appType === 'vllm' && chosen.vllmGpuCount === '') || (wizardData.appType === 'tabbyapi' && chosen.tabbyGpuCount === '')))} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId) || (wizardStep === 4 && ((wizardData.appType === 'vllm' && (chosen.vllmGpuCount === '' || 'problem' in toolCallingOf(wizardData.vllmModel, wizardData.vllmToolCallingEnabled, wizardData.vllmToolCallParser))) || (wizardData.appType === 'tabbyapi' && chosen.tabbyGpuCount === '')))} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

@@ -225,6 +225,29 @@ describe('a deploy that asks for GPUs', () => {
   });
 });
 
+describe('a vLLM deploy\'s tool calling', () => {
+  it('is on for a new app, its parser chosen from the model, so a Koala chat can run on it', async () => {
+    const { deps: d, started, db } = await deps();
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct' }, 'ann');
+    expect(started()[0]?.args).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+  });
+
+  it('stays off when the person turned it off', async () => {
+    const { deps: d, started } = await deps();
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmToolCallingEnabled: false }, 'ann');
+    expect(started()[0]?.args).toMatchObject({ vllmToolCallingEnabled: false });
+  });
+
+  it('is refused, saying to pick a parser, on a model whose parser Koala does not know, before anything is recorded or started', async () => {
+    const { deps: d, db, workflow } = await deps();
+    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'someone/their-own-model' }, 'ann'))
+      .rejects.toThrow('Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off');
+    expect(workflow.start).not.toHaveBeenCalled();
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
+  });
+});
+
 describe('resolveOpenaiApiBaseUrl', () => {
   const vllm = dep({ id: 'v', name: 'My Model', appType: 'vllm' });
   const tabby = dep({ id: 't', name: 'Tabby 1', appType: 'tabbyapi' });

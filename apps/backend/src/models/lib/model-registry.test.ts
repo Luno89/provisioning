@@ -89,6 +89,27 @@ describe('providerFromDeployment', () => {
   });
 });
 
+describe('a model server that cannot run a Koala chat', () => {
+  it('says so for vLLM served without tool calling, which every chat sends', () => {
+    expect(providerFromDeployment(dep())?.chatProblem).toBe('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.');
+    expect(providerFromDeployment(dep({ vllmToolCallingEnabled: false, vllmToolCallParser: 'hermes' }))?.chatProblem).toBe('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.');
+    expect(providerFromDeployment(dep({ vllmToolCallingEnabled: true }))?.chatProblem).toBe('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.');
+  });
+
+  it('says nothing for vLLM served with a tool call parser', () => {
+    expect(providerFromDeployment(dep({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' }))?.chatProblem).toBeUndefined();
+  });
+
+  it('says so for TabbyAPI with no tool call format, and nothing with one', () => {
+    expect(providerFromDeployment(dep({ appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-8B-exl3' }))?.chatProblem).toBe('It is served with no tool call format, which every Koala chat uses: pick one in its settings.');
+    expect(providerFromDeployment(dep({ appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-8B-exl3', tabbyToolFormat: 'qwen3_coder' }))?.chatProblem).toBeUndefined();
+  });
+
+  it('says nothing for a registered endpoint, whose tools Koala cannot see', () => {
+    expect(providerFromEndpoint({ id: 'e', name: 'OpenRouter · x', baseUrl: 'https://openrouter.ai/api/v1', model: 'x', ownerId: 'u' } as ModelEndpointMetadata).chatProblem).toBeUndefined();
+  });
+});
+
 describe('listProviders', () => {
   it('keeps only usable endpoints', () => {
     const list = listProviders([

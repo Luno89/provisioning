@@ -20,7 +20,7 @@ const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata
   }));
 
 const deployment = (fields: Partial<DeploymentMetadata> = {}): DeploymentMetadata =>
-  ({ id: 'vllm-1', name: 'Qwen', appType: 'vllm', status: 'running', clusterId: 'c1', namespace: 'qwen', vllmModel: 'Qwen/Qwen3', ownerId: 'u1', strategy: 'native', createdAt: 'then', ...fields }) as DeploymentMetadata;
+  ({ id: 'vllm-1', name: 'Qwen', appType: 'vllm', status: 'running', clusterId: 'c1', namespace: 'qwen', vllmModel: 'Qwen/Qwen3', vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes', ownerId: 'u1', strategy: 'native', createdAt: 'then', ...fields }) as DeploymentMetadata;
 
 const privateNetwork = vi.spyOn(dns, 'lookup');
 
@@ -138,6 +138,16 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
 
     it('says there are no models when nothing is deployed or registered', async () => {
       await expect((await build([])).route('u1')).rejects.toThrow('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
+    });
+
+    it('refuses at routing a model served without the tools every Koala chat sends, saying why, however it was named', async () => {
+      apps.getAll.mockResolvedValue([deployment({ vllmToolCallingEnabled: false }), deployment({ id: 'tools-on', name: 'Qwen with tools' })]);
+      const reason = 'Qwen cannot run Koala\'s chats. It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.';
+      await expect((await build([], { defaultModelId: 'vllm-1' })).route('u1')).rejects.toThrow(reason);
+      await expect((await build([])).resolveBaseUrl('u1', 'vllm-1')).rejects.toThrow(reason);
+      expect((await (await build([])).route('u1', 'tools-on')).provider.id).toBe('tools-on');
+      apps.getAll.mockResolvedValue([deployment({ vllmToolCallingEnabled: false })]);
+      await expect((await build([])).route('u1')).rejects.toThrow(reason);
     });
 
     it('routes with the owner, the provider and the layer that named it', async () => {

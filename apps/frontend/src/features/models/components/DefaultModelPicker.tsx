@@ -62,7 +62,9 @@ export function DefaultModelPicker() {
 
       <div className="text-[11px] text-slate-400">
         Currently:{' '}
-        {current
+        {current?.chatProblem
+          ? <span className="font-mono text-amber-300">{modelOptionLabel(current)}<span className="font-sans text-amber-400/90"> — cannot run Koala's chats. {current.chatProblem}</span></span>
+          : current
           ? <span className="font-mono text-emerald-300">{modelOptionLabel(current)}</span>
           : machine
             ? <span className="font-mono text-amber-200">{machine}<span className="font-sans text-slate-500"> — chats and the agents that can hand their work to a machine run on it; checks and the bench still need a model</span></span>

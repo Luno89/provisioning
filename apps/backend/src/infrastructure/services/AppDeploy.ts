@@ -12,6 +12,7 @@ import {
 import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
 import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
 import { modelImageOf } from '../lib/model-images.js';
+import { vllmToolCalling } from '../lib/vllm-tool-calling.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
@@ -77,6 +78,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       if (config.id && d.id === config.id && sameOwner(d, userId)) return true
       return false
     })
+    const newApp = !dep
     if (!dep) {
       if (!config.name || !config.clusterId) throw new DeployRequestProblem('a new app needs a name and a cluster to deploy to')
       if (!config.appType) throw new CapacityError('a new app needs its type: say which app to deploy')
@@ -182,6 +184,12 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       if (token && dep.appType === 'tabbyapi') dep.tabbyHfToken = token
       else if (token) dep.vllmHfToken = token
     }
+
+  if (dep.appType === 'vllm') {
+    const tools = vllmToolCalling(dep, { newApp })
+    if ('problem' in tools) throw new DeployRequestProblem(tools.problem)
+    Object.assign(dep, tools)
+  }
 
   const targetCluster = await deps.clusterById(dep.clusterId)
   if (!dep.appType) throw new CapacityError(`${dep.name} has no app type recorded, so it cannot be deployed again: remove it and deploy it anew`)

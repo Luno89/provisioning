@@ -27,13 +27,14 @@ function Choice({ model, picking, onPick }: { model: ModelProvider; picking: boo
   const strength = formatIntelligence(model)
   return (
     <li>
-      <button type="button" disabled={picking} onClick={() => onPick(model.id)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-700 px-3 py-2 text-left text-sm hover:border-emerald-500 disabled:opacity-50">
+      <button type="button" disabled={picking || !!model.chatProblem} onClick={() => onPick(model.id)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-700 px-3 py-2 text-left text-sm hover:border-emerald-500 disabled:opacity-50">
         <span className="min-w-0 truncate">{model.model}</span>
         <span className="flex shrink-0 gap-2 text-[11px] text-slate-400">
           {strength && <span>{strength}</span>}
           {price && <span className={price === 'free' ? 'text-emerald-300' : 'text-amber-300'}>{price === 'free' ? 'free' : `${price} per million tokens`}</span>}
         </span>
       </button>
+      {model.chatProblem && <p className="mt-1 text-[11px] text-amber-400/90">{model.chatProblem}</p>}
     </li>
   )
 }

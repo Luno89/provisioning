@@ -82,6 +82,16 @@ describe('the models the browser lists and the account default, against the real
     expect(await getModelTraffic()).toEqual([])
   })
 
+  it('lists a vLLM app served without tool calling with why it cannot run Koala\'s chats, and refuses it as the default in the words the page shows', async () => {
+    await backend.db.infrastructure.saveDeployment({ id: 'vllm-plain', name: 'Qwen-Plain', appType: 'vllm', status: 'running', clusterId: 'machine-desk', namespace: 'qwen-plain', strategy: 'native', ownerId: owner.id, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmGpuCount: 1 })
+    const problem = 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.'
+    expect((await listModels()).find((model) => model.id === 'vllm-plain')).toMatchObject({ kind: 'vllm', chatProblem: problem })
+    const before = (await getDefaultModel()).defaultModelId
+    await expect(setDefaultModel('vllm-plain')).rejects.toMatchObject({ response: { status: 400, data: { error: `Qwen-Plain cannot run Koala's chats. ${problem}` } } })
+    expect((await getDefaultModel()).defaultModelId).toBe(before)
+    await backend.db.infrastructure.deleteDeployment('vllm-plain')
+  })
+
   it('shows another person none of the first person\'s models', async () => {
     await backend.signInAnother('second@koala.test')
     expect(await listModels()).toEqual([])

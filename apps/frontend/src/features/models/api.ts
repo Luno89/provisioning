@@ -165,6 +165,12 @@ export interface ModelProvider {
   pricing?: { promptPerMTok: number; completionPerMTok: number }
   /** Artificial Analysis Intelligence Index, when their catalogue matched this model. */
   intelligence?: number
+  /**
+   * ── DUPLICATED, KNOWINGLY ──
+   * Authority: `ModelProvider.chatProblem` in apps/backend/src/models/lib/model-registry.ts (`chatProblemOf`).
+   * Why this model server cannot run a Koala chat; routing and the default refuse it.
+   */
+  chatProblem?: string
 }
 
 export const providerKeys = {

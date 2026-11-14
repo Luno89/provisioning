@@ -60,6 +60,30 @@ beforeEach(() => {
   ] as never);
 });
 
+describe('a model that cannot run Koala\'s chats', () => {
+  const toolless = (): ModelProvider => ({ ...local(), id: 'dep-2', name: 'Qwen-Plain', kind: 'vllm', model: 'Qwen/Qwen2.5-0.5B-Instruct', chatProblem: 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.' }) as ModelProvider;
+
+  it('is shown with why, and cannot be picked', async () => {
+    const { onSelect } = setup({ models: [toolless()] });
+    expect(await screen.findByText('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.')).toBeInTheDocument();
+    const row = screen.getByRole('button', { name: /Qwen\/Qwen2.5-0.5B-Instruct · Qwen-Plain/ });
+    expect(row).toBeDisabled();
+    fireEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('is shown with why among the other models of its kind, and only the others can be picked', async () => {
+    const usable = { ...toolless(), id: 'dep-3', name: 'Qwen-Tools', chatProblem: undefined } as ModelProvider;
+    const { onSelect } = setup({ models: [toolless(), usable] });
+    fireEvent.click(await screen.findByLabelText('Expand vLLM'));
+    expect(screen.getByText('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Qwen-Plain/ }));
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Qwen-Tools/ }));
+    expect(onSelect).toHaveBeenCalledWith('dep-3');
+  });
+});
+
 describe('tiers', () => {
   it('puts what you control above what you have set up', async () => {
     setup();

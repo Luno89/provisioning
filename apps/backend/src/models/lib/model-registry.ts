@@ -28,7 +28,20 @@ export interface ModelProvider {
   pricing?: { promptPerMTok: number; completionPerMTok: number };
   /** Artificial Analysis Intelligence Index, when their catalogue matched this model. */
   intelligence?: number;
+  chatProblem?: string;
 }
+
+const SERVED_WITHOUT_TOOLS = 'It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.';
+const TABBY_WITHOUT_TOOLS = 'It is served with no tool call format, which every Koala chat uses: pick one in its settings.';
+
+export function chatProblemOf(dep: Pick<DeploymentMetadata, 'appType' | 'vllmToolCallingEnabled' | 'vllmToolCallParser' | 'tabbyToolFormat'>): string | undefined {
+  if (dep.appType === 'vllm') return dep.vllmToolCallingEnabled === true && dep.vllmToolCallParser ? undefined : SERVED_WITHOUT_TOOLS;
+  if (dep.appType === 'tabbyapi') return dep.tabbyToolFormat ? undefined : TABBY_WITHOUT_TOOLS;
+  return undefined;
+}
+
+export const cannotChat = (provider: Pick<ModelProvider, 'name' | 'chatProblem'>): string | undefined =>
+  provider.chatProblem ? `${provider.name} cannot run Koala's chats. ${provider.chatProblem}` : undefined;
 
 export function sanitizeNamespace(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
@@ -61,6 +74,7 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
     service: `${namespace}-${spec.serviceSuffix}`,
     port: spec.port,
     ...(dep.vllmGpuCount !== undefined ? { gpuCount: dep.vllmGpuCount } : {}),
+    ...(chatProblemOf(dep) ? { chatProblem: chatProblemOf(dep)! } : {}),
     ...(() => {
       const catalogued = llmAppSpec(dep.appType);
       const window = catalogued?.contextField ? dep[catalogued.contextField] : undefined;

@@ -128,6 +128,50 @@ describe('an app\'s sign-in', () => {
   });
 });
 
+describe('vLLM\'s tool calling in an app\'s settings', () => {
+  const served = (over: Partial<Deployment> = {}) => deployment({ appType: 'vllm', vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmGpuVendor: 'nvidia', ...over } as Partial<Deployment>);
+
+  it('shows an app served without it as off, and turning it on saves the parser chosen from the model with the rest as deployed', async () => {
+    const patched = vi.spyOn(deploymentsApi, 'patchDeploymentConfig').mockResolvedValue({} as never);
+    const { user } = setup(served(), 'storage');
+    expect(screen.getByLabelText(/^Serve tool calling/)).not.toBeChecked();
+    expect(screen.getByText('Without tool calling, Koala\'s chats cannot run on this model.')).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/^Serve tool calling/));
+    expect(screen.getByRole('option', { name: 'Chosen from the model: hermes' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Save & Restart/ }));
+    expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' }));
+  });
+
+  it('shows the settings of the app it is switched to, not those of the one before', () => {
+    const first = served();
+    const second = served({ id: 'd2', name: 'mistral', vllmModel: 'mistralai/Mistral-7B-Instruct-v0.3', vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' } as Partial<Deployment>);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const shown = (d: Deployment) => (
+      <QueryClientProvider client={qc}>
+        <AppDashboard target={{ type: 'app', id: d.id }} deployment={d} deployments={[first, second]} clusters={[{ id: 'c1', name: 'dev', provider: 'machine', status: 'healthy' }]} cluster={null} initialTab="storage" onClose={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(shown(first));
+    expect(screen.getByDisplayValue('Qwen/Qwen3-8B')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Serve tool calling/)).not.toBeChecked();
+    rerender(shown(second));
+    expect(screen.getByDisplayValue('mistralai/Mistral-7B-Instruct-v0.3')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Serve tool calling/)).toBeChecked();
+    expect((screen.getByLabelText(/^Tool Call Parser/) as HTMLSelectElement).value).toBe('mistral');
+  });
+
+  it('asks for a parser for a model it does not know, and saves nothing until one is picked', async () => {
+    const patched = vi.spyOn(deploymentsApi, 'patchDeploymentConfig').mockResolvedValue({} as never);
+    const { user } = setup(served({ vllmModel: 'someone/their-own-model' }), 'storage');
+    await user.click(screen.getByLabelText(/^Serve tool calling/));
+    expect(screen.getByText('Koala cannot tell which tool call parser someone/their-own-model needs: pick one, or turn tool calling off.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Save & Restart/ })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText(/^Tool Call Parser/), 'mistral');
+    await user.click(screen.getByRole('button', { name: /Save & Restart/ }));
+    expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' }));
+  });
+});
+
 describe('TabbyAPI\'s memory', () => {
   it('says what to set when the model\'s size could not be read, instead of sizing it on a guess', () => {
     vi.mocked(deploymentsApi.useResourcePlan).mockReturnValue({ data: { applicable: true, unsized: 'Koala could not read how big org/model is from Hugging Face (it answered 503), so it cannot size the memory it needs.' } } as never);
