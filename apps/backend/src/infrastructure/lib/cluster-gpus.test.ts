@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MachineGpu } from '@koala/engine-core';
-import { advertisedGpus, gpuAskOf, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './cluster-gpus.js';
+import { advertisedGpus, gpuAskOf, gpuDeployRefusal, gpuPluginState } from './cluster-gpus.js';
 
 const RTX: MachineGpu = { vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
 const desk = (extra: Partial<{ gpus: MachineGpu[]; gpuProblems: string[]; provider: 'machine' | 'pool' | 'root' }> = {}) => ({ name: 'desk', provider: 'machine' as const, gpus: [RTX], gpuProblems: [], ...extra });
@@ -28,7 +28,7 @@ describe('a deploy that asks for GPUs, against what the machine says it has', ()
     expect(gpuDeployRefusal(desk({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices'] }), { count: 1 }))
       .toEqual({ refused: 'This app asks for 1 GPU, and desk shows none: nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices.' });
     expect(gpuDeployRefusal(desk({ gpus: [{ ...RTX, runtime: false }] }), { count: 1 }))
-      .toEqual({ refused: 'This app asks for 1 NVIDIA GPU. desk has 2 NVIDIA GPUs, and k3s on it has no NVIDIA container runtime to pass them to a pod: run the command from My Machines again on it, which offers to install the NVIDIA Container Toolkit; k3s takes it up the next time it starts.' });
+      .toEqual({ refused: 'This app asks for 1 NVIDIA GPU. desk has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA\'s CDI support is not installed. Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package).' });
     expect(gpuDeployRefusal(desk(), { count: 3 })).toEqual({ refused: 'This app asks for 3 NVIDIA GPUs, and desk has 2 NVIDIA GPUs. Ask for 2 or fewer.' });
     expect(gpuDeployRefusal(desk(), { count: 1, vendor: 'amd' })).toEqual({ refused: 'This app asks for 1 AMD GPU, and desk has no AMD GPU (it has 2 × NVIDIA GeForce RTX 3090). Pick another machine, or CPU only.' });
     const both = desk({ gpus: [RTX, { vendor: 'amd', model: 'AMD gfx1100', memoryMiB: 24560, count: 1, runtime: true }] });
@@ -53,14 +53,7 @@ describe('a machine\'s GPUs, readied', () => {
   it('is ready once the node advertises what the app asks, waits while the plugin starts, and fails with what to do when it cannot run', () => {
     expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 2, { health: 'healthy', reason: '' }, 'desk')).toEqual({ state: 'ready' });
     expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { health: 'starting', reason: 'its pod is being made' }, 'desk')).toEqual({ state: 'waiting', reason: 'the node advertises 0 of the 2 NVIDIA GPUs asked for so far' });
-    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { health: 'unhealthy', reason: 'no runtime for "nvidia" is configured' }, 'desk'))
-      .toEqual({ state: 'failed', reason: 'the NVIDIA device plugin cannot run on desk: no runtime for "nvidia" is configured. Once the NVIDIA Container Toolkit is installed there, restart k3s on it so it takes the toolkit up.' });
-  });
-
-  it('reads a pod the runtime refuses to make from its events, which no pod status says', () => {
-    const events = (message: string, reason = 'FailedCreatePodSandBox') => ({ items: [{ reason, message, involvedObject: { name: 'nvidia-device-plugin-daemonset-x2v' } }] });
-    expect(runtimeRefused(events('failed to get sandbox runtime: no runtime for "nvidia" is configured'))).toBe('failed to get sandbox runtime: no runtime for "nvidia" is configured');
-    expect(runtimeRefused(events('Pulling image', 'Pulling'))).toBeUndefined();
-    expect(runtimeRefused('nonsense')).toBeUndefined();
+    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { health: 'unhealthy', reason: 'its container keeps crashing' }, 'desk'))
+      .toEqual({ state: 'failed', reason: 'the NVIDIA device plugin cannot run on desk: its container keeps crashing. Run the command from My Machines again on it, which offers to install NVIDIA\'s CDI support, then deploy again.' });
   });
 });

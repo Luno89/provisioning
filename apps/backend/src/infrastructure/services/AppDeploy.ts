@@ -67,7 +67,7 @@ export function resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments:
 export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest, userId?: string): Promise<StartedDeploy> {
     if (userId) {
       const cluster = (await deps.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
-      const problem = config.appType ? checkCapacity(config.appType, cluster?.capacity) : undefined
+      const problem = config.appType && cluster ? checkCapacity(config.appType, cluster) : undefined
       if (problem) throw new CapacityError(problem)
     }
 

@@ -16,6 +16,7 @@ import { IdleGate, holding } from './idle-gate.js';
 import { SelfUpdate, type serviceManagerOf, type UpdateReport } from './self-update.js';
 import { discardBundle, placeOf, prepareBundle, swapBundle } from './agent-bundle.js';
 import type { DeviceWorker, DeviceWorkerOptions } from './engine-worker.js';
+import { machineCapacity } from './machine-capacity.js';
 import { machineGpus } from './machine-gpus.js';
 
 export interface AgentPlace {
@@ -98,8 +99,8 @@ export function startWork(
   sessionsMade(sessions);
   socket.on('connect', () => tellRuns(sessions.openRuns()));
   socket.on('connect', () => {
-    Promise.all([clusterOnConnect(place.cluster, say), machineGpus(place.cluster, undefined)]).then(
-      ([state, gpus]) => { if (socket.connected) socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems }); },
+    Promise.all([clusterOnConnect(place.cluster, say), machineGpus(place.cluster)]).then(
+      ([state, gpus]) => { if (socket.connected) socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems, capacity: machineCapacity() }); },
       (err: Error) => say(`whether this machine has its cluster could not be read: ${err.message}`),
     );
   });

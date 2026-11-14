@@ -10,7 +10,7 @@ import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../lib/model-images.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy' };
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 } };
 async function deps(cluster: ClusterMetadata = CLUSTER) {
   const db = memoryDatabase();
   await db.infrastructure.saveCluster(cluster);
@@ -112,6 +112,14 @@ describe('starting a deploy', () => {
     const small: ClusterMetadata = { ...CLUSTER, capacity: { cpuCores: 2, ramGb: 2 } };
     const { deps: d, db, workflow } = await deps(small);
     await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm' }, 'ann')).rejects.toBeInstanceOf(CapacityError);
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
+    expect(workflow.start).not.toHaveBeenCalled();
+  });
+
+  it('refuses a model server a person starts on a machine that has not said how big it is, saying why, before it records anything', async () => {
+    const { capacity: _unreported, ...unsized } = CLUSTER;
+    const { deps: d, db, workflow } = await deps(unsized);
+    await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 0 }, 'ann')).rejects.toThrow('vLLM needs about 5.6 GiB of RAM, and shared has not said how much it has');
     expect(await db.infrastructure.getDeployments()).toEqual([]);
     expect(workflow.start).not.toHaveBeenCalled();
   });

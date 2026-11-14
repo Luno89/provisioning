@@ -19,8 +19,6 @@ export interface KfdNode {
 
 export const AMD_PCI_VENDOR = 4098;
 
-export const VENDOR_RUNTIME: Record<GpuVendor, string | undefined> = { nvidia: 'nvidia', amd: undefined };
-
 export const NVIDIA_SMI_QUERY = ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'];
 
 export function nvidiaCards(csv: string): GpuCard[] {
@@ -59,21 +57,6 @@ export function amdDiscreteCards(nodes: readonly KfdNode[]): GpuCard[] {
   return cards;
 }
 
-export function runtimeHandlersOf(nodes: unknown): string[] {
-  const items = (nodes as { items?: unknown } | undefined)?.items;
-  if (!Array.isArray(items)) return [];
-  const names = new Set<string>();
-  for (const node of items) {
-    const handlers = (node as { status?: { runtimeHandlers?: unknown } } | undefined)?.status?.runtimeHandlers;
-    if (!Array.isArray(handlers)) continue;
-    for (const handler of handlers) {
-      const name = (handler as { name?: unknown } | undefined)?.name;
-      if (typeof name === 'string' && name) names.add(name);
-    }
-  }
-  return [...names];
-}
-
 export function groupedGpus(cards: readonly GpuCard[], runtime: (vendor: GpuVendor) => boolean): MachineGpu[] {
   const groups = new Map<string, MachineGpu>();
   for (const card of cards) {
@@ -94,4 +77,9 @@ export const usableVendors = (gpus: readonly MachineGpu[] | undefined): GpuVendo
 export interface GpuReport {
   gpus: MachineGpu[];
   problems: string[];
+}
+
+export interface MachineCapacity {
+  cpuCores: number;
+  memoryMiB: number;
 }

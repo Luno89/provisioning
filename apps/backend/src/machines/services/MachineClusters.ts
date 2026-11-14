@@ -1,6 +1,6 @@
 import { encryptValue, type ClusterMetadata, type Database, type LocalAgentDeviceMetadata, type SecretKey } from '../../platform/index.js';
-import type { GpuReport, MachineClusterResult } from '@koala/engine-core';
-import { appsOn, machineClusterId, newMachineCluster, type ReportedClusterState } from '../lib/machine-clusters.js';
+import type { GpuReport, MachineCapacity, MachineClusterResult } from '@koala/engine-core';
+import { appsOn, clusterCapacityOf, machineClusterId, newMachineCluster, type ReportedClusterState } from '../lib/machine-clusters.js';
 
 export interface MachineClustersDeps {
   store: Pick<Database['infrastructure'], 'getClusters' | 'saveCluster' | 'patchCluster' | 'deleteCluster' | 'getDeployments' | 'deleteDeploymentsOfCluster'>;
@@ -17,7 +17,7 @@ export class MachineClusters {
     return (await this.deps.store.getClusters()).find((cluster) => cluster.id === id);
   }
 
-  async reported(device: Pick<LocalAgentDeviceMetadata, 'id' | 'ownerId' | 'name' | 'meshIp'>, state: ReportedClusterState, gpus?: GpuReport): Promise<ClusterMetadata | undefined> {
+  async reported(device: Pick<LocalAgentDeviceMetadata, 'id' | 'ownerId' | 'name' | 'meshIp'>, state: ReportedClusterState, gpus?: GpuReport, capacity?: MachineCapacity): Promise<ClusterMetadata | undefined> {
     const cluster = await this.clusterOf(device.id);
     if (state === 'absent') {
       if (cluster && !appsOn(await this.deps.store.getDeployments(), cluster.id).length) {
@@ -25,13 +25,16 @@ export class MachineClusters {
       }
       return undefined;
     }
-    const reportedGpus = gpus ? { gpus: gpus.gpus, gpuProblems: gpus.problems } : {};
+    const reported: Partial<ClusterMetadata> = {
+      ...(gpus ? { gpus: gpus.gpus, gpuProblems: gpus.problems } : {}),
+      ...(capacity ? { capacity: clusterCapacityOf(capacity, gpus?.gpus ?? cluster?.gpus) } : {}),
+    };
     if (cluster) {
-      if (!gpus) return cluster;
-      await this.deps.store.patchCluster(cluster.id, reportedGpus);
-      return { ...cluster, ...reportedGpus };
+      if (!Object.keys(reported).length) return cluster;
+      await this.deps.store.patchCluster(cluster.id, reported);
+      return { ...cluster, ...reported };
     }
-    const made = { ...newMachineCluster(device, (this.deps.now ?? (() => new Date()))().toISOString()), ...reportedGpus };
+    const made = { ...newMachineCluster(device, (this.deps.now ?? (() => new Date()))().toISOString()), ...reported };
     await this.deps.store.saveCluster(made);
     return made;
   }

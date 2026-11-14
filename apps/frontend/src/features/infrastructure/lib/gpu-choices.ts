@@ -20,7 +20,7 @@ export interface GpuChoices { vendors: VendorChoice[]; problem?: string }
 
 const VENDORS: readonly { vendor: GpuVendor; label: string }[] = [{ vendor: 'nvidia', label: 'NVIDIA' }, { vendor: 'amd', label: 'AMD' }]
 
-const TOOLKIT_HINT = 'run the command from My Machines again on it, which offers to install the NVIDIA Container Toolkit; k3s takes it up the next time it starts'
+const CDI_HINT = 'Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package).'
 
 const plural = (count: number, label: string): string => `${count} ${label} GPU${count === 1 ? '' : 's'}`
 
@@ -43,7 +43,7 @@ export function gpuChoicesOf(cluster: GpuReport, { runsOn = ['nvidia', 'amd'], r
   })
   if (vendors.length) return { vendors }
   const present = offered.find(({ vendor }) => countOf(gpus, vendor, false) > 0)
-  if (present) return refused(`${cluster.name} has ${plural(countOf(gpus, present.vendor, false), present.label)}, and k3s on it has no ${present.label} container runtime to pass them to a pod: ${TOOLKIT_HINT}.`)
+  if (present) return refused(`${cluster.name} has ${plural(countOf(gpus, present.vendor, false), present.label)}, and pods there cannot be given them yet: NVIDIA's CDI support is not installed. ${CDI_HINT}`)
   return refused(`${cluster.name} has no ${offered.map((entry) => entry.label).join(' or ')} GPU (it has ${gpus.map((gpu) => `${gpu.count} × ${gpu.model}`).join(', ')}).`)
 }
 

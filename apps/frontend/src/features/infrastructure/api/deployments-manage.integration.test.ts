@@ -18,7 +18,6 @@ const backend = await startBackend(async (site) => {
     appService: infra.apps,
     clusterService: infra.clusters,
     appExposureService: outsideThisTier<AppExposureService>('app exposure, which writes the edge\'s routes'),
-    access: infra.clusters.access,
     temporalBridge: infra.bridge,
     db: site.db,
     io: infra.io,

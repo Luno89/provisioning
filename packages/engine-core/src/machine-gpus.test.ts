@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amdDiscreteCards, gfxName, gpuCountOf, groupedGpus, nvidiaCards, runtimeHandlersOf, usableVendors } from './machine-gpus.js';
+import { amdDiscreteCards, gfxName, gpuCountOf, groupedGpus, nvidiaCards, usableVendors } from './machine-gpus.js';
 
 const RAPHAEL = 'cpu_cores_count 0\nsimd_count 4\nlocal_mem_size 0\ngfx_target_version 100306\nvendor_id 4098\ndevice_id 5710\n';
 const NAVI31 = 'cpu_cores_count 0\nsimd_count 192\nlocal_mem_size 25753026560\ngfx_target_version 110000\nvendor_id 4098\n';
@@ -22,13 +22,6 @@ describe('the GPUs a machine reads for itself', () => {
   it('names an AMD target as ROCm does', () => {
     expect(gfxName(100306)).toBe('gfx1036');
     expect(gfxName(90010)).toBe('gfx90a');
-  });
-
-  it('reads the runtimes containerd reports on the node', () => {
-    const nodes = { items: [{ status: { runtimeHandlers: [{ name: '' }, { name: 'nvidia' }, { name: 'runc' }] } }] };
-    expect(runtimeHandlersOf(nodes)).toEqual(['nvidia', 'runc']);
-    expect(runtimeHandlersOf({ items: [{ status: {} }] })).toEqual([]);
-    expect(runtimeHandlersOf('nonsense')).toEqual([]);
   });
 
   it('groups like cards and counts only those whose runtime is there', () => {

@@ -629,7 +629,7 @@ cluster Koala runs in, whose remote-write receiver the chart switches on (`apply
 before). Every query asked of that Prometheus is scoped by `koala_cluster` on each selector (`inCluster` in
 `monitoring/lib/cluster-scope.ts`, through Prometheus's own PromQL parser; the series of the cluster Koala runs in have none), alerts go to
 the cluster whose series raised them, a machine app's alert rule lives in `monitoring` on the cluster Koala runs in held to its series,
-and a machine keeps that cluster's history. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the registry relay
+and a machine keeps that cluster's history. Not yet: workspaces and sandboxes on it, the registry relay
 and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
 
 **A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
@@ -2151,21 +2151,21 @@ answering (**Outside dependencies**). Start it with `docker compose -f docker-co
 
 ## GPU / vLLM support
 
-**A machine says what GPUs it has** (step 4 slice 1, `~/.claude/plans/step4-slice1-gpu.md`): its agent reads them with `nvidia-smi` and the
-AMD kernel driver's topology (`apps/local-agent/src/machine-gpus.ts`, parsing in `@koala/engine-core`'s `machine-gpus.ts`) and sends them with
-its cluster report (`machine:cluster`: `gpus`, each vendor, model, memory, count and whether the NVIDIA Container Toolkit is installed, and
-`problems`, such as a driver that does not answer, which is never taken for no GPU). The instance keeps both on the machine's cluster record
-(`gpus`, `gpuProblems`); the cluster's card shows them and Deploy an app offers GPU apps on the machines that report GPUs.
-**A deploy that asks for GPUs is decided by that report** (decision 7, `infrastructure/lib/cluster-gpus.ts`, in `AppDeploy` before anything
-is recorded): the count the request names (0 means CPU only; none named is refused, never guessed), the vendor it names or the machine's only
-one, and a refusal that says what to do (no GPU shown or its driver not answering, no toolkit, too few, the wrong vendor, two vendors and none
-named, not a machine). **Koala then readies them** (`VerifyGpuRuntimeActivity`, behind the `gpus-readied` patch): it applies the vendor's
-pinned device plugin (`k8s/gpu-device-plugin/`, in `dependencies.pins.json`) through `ClusterAccess` and waits, with no deadline, until the
-node advertises the GPUs asked, or fails with the fix when the plugin cannot run (a pod the runtime refuses, read from its events: install the
-toolkit, restart k3s). k3s makes the `nvidia` RuntimeClass itself. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s:
-the machine reports both, too many are refused, a vLLM serving a small model on one GPU deploys through Koala and answers; the owner's own
-models holding GPUs are scaled to zero for it and started again however it ends. Not yet: the join offering the toolkit, and capacity that
-cannot be read saying so.
+**A machine says what GPUs it has, and how big it is.** Its agent reads its GPUs (`nvidia-smi`, the AMD kernel driver's topology),
+its cores and its memory, and reports them with its cluster; a driver that does not answer is a problem it reports, never taken for no
+GPU. The instance keeps the report on the machine's cluster record, and that record is the only source of a machine's capacity: the
+backend reads no node and runs no `nvidia-smi` of its own. A machine that has not reported its size is shown as such, and a model server
+is refused on it with why, never planned or checked against a guess.
+**NVIDIA GPUs reach pods through CDI** (owner, 2026-11-13: "C sounds good"). On Linux with an NVIDIA GPU, the join offers, with the
+sudo it already asks for k3s, NVIDIA's own repository under the key Koala pins and the pinned `nvidia-container-toolkit-base`, enabling
+`nvidia-cdi-refresh`; one the person already has is only noticed, and a system NVIDIA's repository does not serve is told how to install
+it by hand. Removing the machine removes only what the join installed. The NVIDIA device plugin hands GPUs out by CDI through the CRI,
+and no pod names a runtime class. AMD needs only its kernel driver on the machine.
+**A deploy that asks for GPUs is decided by that report** (decision 7): the count the request names (0 means CPU only; none named is
+refused, never guessed), the vendor it names or the machine's only one, and a refusal that says what to do (no GPU shown or its driver not
+answering, no CDI support, too few, the wrong vendor, two vendors and none named, not a machine). **Koala then readies them**: it applies the
+vendor's pinned device plugin through `ClusterAccess` and waits, with no deadline, until the node advertises the GPUs asked, or fails with
+the fix when the plugin cannot run. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s.
 
 **GPU passthrough needs native k3s on the machine** (Linux). k3d's nested containerd cannot do real device passthrough at
 all, so a cluster made with k3d never gets a GPU.

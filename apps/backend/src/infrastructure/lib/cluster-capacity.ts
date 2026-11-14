@@ -1,11 +1,8 @@
-import { vramMibFromNodeLabels } from './gpu-vram.js';
-
 export interface ClusterCapacity {
   cpuCores: number;
   ramGb: number;
   gpuCount?: number;
   gpuVendor?: 'nvidia' | 'amd';
-  gpuVramMib?: number;
 }
 
 const BINARY_SUFFIXES: Record<string, number> = {
@@ -52,48 +49,6 @@ export function parseCpuQuantity(raw: string | number | undefined): number | und
   return Number.isFinite(v) ? v : undefined;
 }
 
-interface NodeLike {
-  status?: { allocatable?: Record<string, string> };
-}
-
-export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined {
-  const gpuVramMib = vramMibFromNodeLabels(payload);
-  const items = (payload as { items?: NodeLike[] } | undefined)?.items;
-  if (!Array.isArray(items) || items.length === 0) return undefined;
-
-  let cpuCores = 0;
-  let ramBytes = 0;
-  let gpuCount = 0;
-  let gpuVendor: 'nvidia' | 'amd' | undefined;
-
-  for (const node of items) {
-    const alloc = node?.status?.allocatable;
-    if (!alloc) continue;
-    cpuCores = Math.max(cpuCores, parseCpuQuantity(alloc['cpu']) ?? 0);
-    ramBytes = Math.max(ramBytes, parseMemoryQuantity(alloc['memory']) ?? 0);
-
-    const nvidia = Number(alloc['nvidia.com/gpu'] ?? 0);
-    const amd = Number(alloc['amd.com/gpu'] ?? 0);
-    if (Number.isFinite(nvidia) && nvidia > gpuCount) {
-      gpuCount = nvidia;
-      gpuVendor = 'nvidia';
-    }
-    if (Number.isFinite(amd) && amd > gpuCount) {
-      gpuCount = amd;
-      gpuVendor = 'amd';
-    }
-  }
-
-  if (cpuCores === 0 && ramBytes === 0) return undefined;
-
-  return {
-    cpuCores: Math.round(cpuCores * 100) / 100,
-    ramGb: Math.round((ramBytes / 1024 ** 3) * 10) / 10,
-    ...(gpuCount > 0 ? { gpuCount, ...(gpuVendor ? { gpuVendor } : {}) } : {}),
-    ...(gpuVramMib ? { gpuVramMib } : {}),
-  };
-}
-
 export const APP_RESOURCE_NEEDS: Record<
   string,
   { memory: string; label: string }
@@ -111,18 +66,15 @@ export class CapacityError extends Error {
   }
 }
 
-export function checkCapacity(appType: string, capacity: ClusterCapacity | undefined): string | undefined {
-  if (!capacity) return undefined;
-
+export function checkCapacity(appType: string, cluster: { name: string; capacity?: ClusterCapacity | undefined }): string | undefined {
   const need = APP_RESOURCE_NEEDS[appType];
-  if (need) {
-    const needBytes = parseMemoryQuantity(need.memory);
-    const haveBytes = capacity.ramGb * 1024 ** 3;
-    if (needBytes !== undefined && haveBytes > 0 && needBytes > haveBytes) {
-      const needGb = Math.round((needBytes / 1024 ** 3) * 10) / 10;
-      return `${need.label} needs about ${needGb} GiB of RAM but this cluster's largest node has ${capacity.ramGb} GiB allocatable. The pod would stay Pending forever. Use a larger machine, or lower the app's memory limit.`;
-    }
+  if (!need) return undefined;
+  const needBytes = parseMemoryQuantity(need.memory)!;
+  const needGb = Math.round((needBytes / 1024 ** 3) * 10) / 10;
+  const { capacity } = cluster;
+  if (!capacity) return `${need.label} needs about ${needGb} GiB of RAM, and ${cluster.name} has not said how much it has: its agent is from before machines reported their size, or it has not connected since. Once it connects with a current agent, it says.`;
+  if (needBytes > capacity.ramGb * 1024 ** 3) {
+    return `${need.label} needs about ${needGb} GiB of RAM but ${cluster.name} has ${capacity.ramGb} GiB. The pod would stay Pending forever. Use a larger machine, or lower the app's memory limit.`;
   }
-
   return undefined;
 }

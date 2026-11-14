@@ -6,7 +6,8 @@ import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
-import { machineGpus, NVIDIA_RUNTIME_BINARIES } from '../../../../local-agent/src/machine-gpus.js';
+import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js';
+import { machineGpus, NVIDIA_CDI_HOOK } from '../../../../local-agent/src/machine-gpus.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -44,13 +45,13 @@ async function reports(host: ClusterHost, withGpus = false): Promise<void> {
     socket.emit('machine:cluster', { state });
     return;
   }
-  const gpus = await machineGpus(host, undefined);
-  socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems });
+  const gpus = await machineGpus(host);
+  socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems, capacity: machineCapacity({ cpus: () => 16, totalMemory: () => 64 * 1024 ** 3 }) });
 }
 
 const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
   host.run.mockImplementation(async (file) => (file === 'nvidia-smi' ? 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n' : 'inactive\n'));
-  host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_RUNTIME_BINARIES[1]);
+  host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_CDI_HOOK);
   return host;
 };
 
@@ -99,12 +100,13 @@ describe('a machine telling Koala about its own cluster', () => {
     expect(await until(desk)).toMatchObject({ provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'owner-1', meshIp: '100.64.0.7' });
   }, 30_000);
 
-  it('a machine reporting its GPUs again keeps them on its cluster, read by the agent\'s own reader from what nvidia-smi printed', async () => {
+  it('a machine reporting its GPUs and its size again keeps them on its cluster, read by the agent\'s own readers', async () => {
     await reports(machineWith(true));
     await until(desk);
     await reports(withTwoNvidiaCards(machineWith(true)), true);
     const reported = await until(async () => ((await desk())?.gpus ? desk() : undefined));
     expect(reported).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] });
+    expect(reported?.capacity).toEqual({ cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' });
   }, 30_000);
 
   it('a machine whose k3s is gone takes its cluster with it once no app is on it', async () => {

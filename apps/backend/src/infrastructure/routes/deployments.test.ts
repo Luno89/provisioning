@@ -12,7 +12,6 @@ import { UnreadableCredential } from '../services/CredentialService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
-import type { ClusterAccess } from '../services/ClusterAccess.js';
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { deploymentsRouter } from './deployments.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
@@ -27,14 +26,13 @@ function setup() {
   const appService = mock<AppService>();
   const clusterService = mock<Pick<ClusterService, 'getById'>>();
   const appExposureService = mock<AppExposureService>();
-  const access = mock<Pick<ClusterAccess, 'kubectl'>>();
   const temporalBridge = mock<TemporalBridge>();
   const db = memoryDatabase();
-  const router = deploymentsRouter({ appService, clusterService, appExposureService, access, temporalBridge, db, io: mock<SocketServer>() });
+  const router = deploymentsRouter({ appService, clusterService, appExposureService, temporalBridge, db, io: mock<SocketServer>() });
   appService.getById.calledWith('d1', PERSON.id).mockResolvedValue(deployment());
   const call = (path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser): Promise<RouteAnswer> =>
     routesInProcess({ prefix: '/api/deployments', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/deployments${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { appService, clusterService, appExposureService, access, temporalBridge, db, call };
+  return { appService, clusterService, appExposureService, temporalBridge, db, call };
 }
 
 describe('listing deployments', () => {
@@ -314,26 +312,25 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
     expect((await call('/elsewhere/resource-plan')).status).toBe(404);
   });
 
-  it('budgets against the smallest node\'s memory, read from the cluster', async () => {
-    const { access, call } = tabby();
-    access.kubectl.calledWith('c1', matches((args: string[]) => args.join(' ') === 'get nodes -o jsonpath={.items[*].status.allocatable.memory}')).mockResolvedValue('4Gi 64Gi');
+  it('budgets against the memory the cluster\'s machine reported', async () => {
+    const { clusterService, call } = tabby();
+    clusterService.getById.mockResolvedValue({ id: 'c1', name: 'desk', provider: 'machine', status: 'stopped', capacity: { cpuCores: 4, ramGb: 4 } });
     const answer = await call('/d1/resource-plan');
     expect(answer.data).toMatchObject({ applicable: true, cpuLimit: '10' });
     expect((answer.data as { refusal?: string }).refusal).toMatch(/allocatable/);
   });
 
-  it('plans without a budget when the nodes\' memory cannot be read, and refuses nothing', async () => {
-    const { access, call } = tabby();
-    access.kubectl.mockRejectedValue(new Error('the cluster did not answer'));
+  it('says it did not check the plan against the machine when its machine has not said how much memory it has, and refuses nothing', async () => {
+    const { clusterService, call } = tabby();
+    clusterService.getById.mockResolvedValue({ id: 'c1', name: 'desk', provider: 'machine', status: 'stopped' });
     const answer = await call('/d1/resource-plan');
-    expect((answer.data as { applicable: boolean }).applicable).toBe(true);
+    expect(answer.data).toMatchObject({ applicable: true, unbudgeted: expect.stringMatching(/^desk has not said how much memory it has/) as unknown });
     expect((answer.data as { refusal?: string }).refusal).toBeUndefined();
   });
 
   it('says what to set, and plans nothing, when the model\'s size cannot be looked up', async () => {
-    const { access, call } = tabby();
+    const { call } = tabby();
     server.use(http.get('https://huggingface.co/api/models/org/model/tree/main', () => new HttpResponse(null, { status: 500 })));
-    access.kubectl.mockResolvedValue('64Gi');
     const plan = (await call('/d1/resource-plan')).data as Record<string, unknown>;
     expect(plan.applicable).toBe(true);
     expect(plan.unsized).toMatch(/^Koala could not read how big org\/model is from Hugging Face \(.*500.*\), so it cannot size the memory it needs\./);

@@ -1,20 +1,14 @@
 import { type Actions, allowed, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, textAt } from '../../platform/index.js';
 import type { ClusterAccess } from './ClusterAccess.js';
-import { ignore } from '@koala/engine-core/failures';
-import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
-import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
-import { execShell, type Shell } from '../lib/shell.js';
 
 export class ClusterService extends BaseService {
   readonly access: ClusterAccess;
 
-  private readonly shell: Shell;
   private readonly instanceOwnerId: string | undefined;
 
-  constructor(db: Database, access: ClusterAccess, places: { shell?: Shell | undefined; instanceOwnerId?: string | undefined } = {}) {
+  constructor(db: Database, access: ClusterAccess, places: { instanceOwnerId?: string | undefined } = {}) {
     super(db);
     this.access = access;
-    this.shell = places.shell ?? execShell;
     this.instanceOwnerId = places.instanceOwnerId;
   }
 
@@ -30,9 +24,7 @@ export class ClusterService extends BaseService {
     const id = this.ownClusterId();
     if (!id) return undefined;
     const record = (await this.db.infrastructure.getClusters()).find((cluster) => cluster.id === id);
-    const cluster: ClusterMetadata = { ...(record ?? this.standIn(id)), status: 'healthy', lastSyncedAt: new Date().toISOString() };
-    const capacity = await this.readLiveCapacity(() => this.access.kubectl(cluster.id, ['get', 'nodes', '-o', 'json'])).catch(ignore('a cluster whose capacity cannot be read now shows without it'));
-    return capacity ? { ...cluster, capacity } : cluster;
+    return { ...(record ?? this.standIn(id)), status: 'healthy', lastSyncedAt: new Date().toISOString() };
   }
 
   private standIn(id: string): ClusterMetadata {
@@ -47,26 +39,6 @@ export class ClusterService extends BaseService {
     const own = await this.ownCluster();
     const records = (await this.db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && cluster.id !== own?.id);
     return [...(own && own.ownerId === ownerId ? [own] : []), ...records];
-  }
-
-  private async readLiveCapacity(readNodes: () => Promise<string>): Promise<ClusterCapacity | undefined> {
-    let capacity: ClusterCapacity | undefined;
-    try {
-      const nodesJson = await readNodes();
-      capacity = capacityFromNodes(JSON.parse(nodesJson));
-    } catch {
-      return undefined;
-    }
-    if (!capacity || capacity.gpuVramMib || !capacity.gpuCount) return capacity;
-
-    try {
-      const { stdout } = await this.shell('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
-      const mib = parseNvidiaSmiVram(stdout);
-      if (mib) capacity = { ...capacity, gpuVramMib: mib };
-    } catch (failure) {
-      ignore('a host whose nvidia-smi does not answer shows its capacity without VRAM')(failure);
-    }
-    return capacity;
   }
 
   async getAll(principal: Principal) {

@@ -134,4 +134,11 @@ describe('TabbyAPI\'s memory', () => {
     setup(deployment({ appType: 'tabbyapi', tabbyModel: 'org/model' } as Partial<Deployment>), 'storage');
     expect(screen.getByText('Koala could not read how big org/model is from Hugging Face (it answered 503), so it cannot size the memory it needs.')).toBeInTheDocument();
   });
+
+  it('says the plan was not checked against the machine when the machine has not said how much memory it has', () => {
+    const unbudgeted = 'desk has not said how much memory it has, so whether this fits there is not checked: its agent is from before machines reported their size, or it has not connected since. Once it connects with a current agent, it says.';
+    vi.mocked(deploymentsApi.useResourcePlan).mockReturnValue({ data: { applicable: true, memoryLimit: '17G', shmSize: '5Gi', cpuLimit: '10', basis: '3.7 GiB of weights', unbudgeted } } as never);
+    setup(deployment({ appType: 'tabbyapi', tabbyModel: 'org/model' } as Partial<Deployment>), 'storage');
+    expect(screen.getByRole('alert')).toHaveTextContent(unbudgeted);
+  });
 });

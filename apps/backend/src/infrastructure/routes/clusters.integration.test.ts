@@ -21,7 +21,6 @@ const ANY_STATUS = { validateStatus: () => true };
 const KEY = 'test-secret';
 const KOALAS = 'machine-koala-box';
 const NO_GPUS = { hasGpu: false, vendor: 'none', totalCapacity: 0, totalAllocatable: 0, totalAllocated: 0, availableGpus: 0, nodes: [], devicePlugins: [], gpuPods: [] };
-const NODES = ['get', 'nodes', '-o', 'json'];
 
 let grafana: http.Server;
 let grafanaUrl: string;
@@ -191,7 +190,7 @@ describe('what only whoever owns a cluster may open', () => {
     expect(gpu.data).toEqual({ error: 'Cluster not found' });
     expect(spies.ensurePortForward).not.toHaveBeenCalled();
     expect(spies.getAutoLoginCookies).not.toHaveBeenCalled();
-    expect(kubectl.mock.calls.map(([args]) => args)).toEqual(Array.from({ length: PROXIES.length + 1 }, () => NODES));
+    expect(kubectl).not.toHaveBeenCalled();
     expect(spies.getGpuStatus).not.toHaveBeenCalled();
   });
 

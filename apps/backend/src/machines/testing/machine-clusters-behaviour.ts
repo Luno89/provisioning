@@ -37,6 +37,16 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
       expect(await stored()).toMatchObject({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] });
     });
 
+    it('keeps the cores and memory the machine reports, with the GPUs pods can be given there, and leaves them when a report says nothing of them', async () => {
+      const rtx = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
+      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [] }, { cpuCores: 16, memoryMiB: 65536 });
+      expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' });
+      await clusters.reported(DESK, 'running', { gpus: [{ ...rtx, runtime: false }], problems: [] }, { cpuCores: 16, memoryMiB: 65536 });
+      expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64 });
+      await clusters.reported(DESK, 'running');
+      expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64 });
+    });
+
     it('is not recorded for a machine without k3s, and goes when k3s does, unless apps are still on it', async () => {
       await clusters.reported(DESK, 'absent');
       expect(await stored()).toBeUndefined();

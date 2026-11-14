@@ -1,4 +1,4 @@
-import { GPU_VENDORS, type GpuReport, type GpuVendor, type MachineGpu } from '@koala/engine-core';
+import { GPU_VENDORS, gpuCountOf, type GpuReport, type GpuVendor, type MachineCapacity, type MachineGpu } from '@koala/engine-core';
 import type { ClusterMetadata, DeploymentMetadata, LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 
@@ -35,14 +35,38 @@ const reportedProblems = (raw: unknown): string[] =>
 export interface ReportedCluster {
   state: ReportedClusterState;
   gpus?: GpuReport | undefined;
+  capacity?: MachineCapacity | undefined;
 }
+
+const wholeAboveNothing = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0;
+
+const reportedCapacity = (raw: unknown): MachineCapacity | undefined => {
+  const capacity = raw as Partial<Record<keyof MachineCapacity, unknown>> | undefined;
+  return capacity && typeof capacity === 'object' && wholeAboveNothing(capacity.cpuCores) && wholeAboveNothing(capacity.memoryMiB)
+    ? { cpuCores: capacity.cpuCores, memoryMiB: capacity.memoryMiB }
+    : undefined;
+};
 
 export const reportedCluster = (raw: unknown): ReportedCluster | undefined => {
   const state = reportedClusterState(raw);
   if (!state) return undefined;
   const gpus = reportedGpus((raw as { gpus?: unknown }).gpus);
-  return gpus ? { state, gpus: { gpus, problems: reportedProblems((raw as { problems?: unknown }).problems) } } : { state };
+  const capacity = reportedCapacity((raw as { capacity?: unknown }).capacity);
+  return {
+    state,
+    ...(gpus ? { gpus: { gpus, problems: reportedProblems((raw as { problems?: unknown }).problems) } } : {}),
+    ...(capacity ? { capacity } : {}),
+  };
 };
+
+export function clusterCapacityOf(capacity: MachineCapacity, gpus: readonly MachineGpu[] | undefined): NonNullable<ClusterMetadata['capacity']> {
+  const most = GPU_VENDORS.map((vendor) => ({ vendor, count: gpuCountOf(gpus, vendor) })).reduce((best, next) => (next.count > best.count ? next : best), { vendor: 'nvidia' as GpuVendor, count: 0 });
+  return {
+    cpuCores: capacity.cpuCores,
+    ramGb: Math.floor((capacity.memoryMiB / 1024) * 10) / 10,
+    ...(most.count > 0 ? { gpuCount: most.count, gpuVendor: most.vendor } : {}),
+  };
+}
 
 export const newMachineCluster = (device: Pick<LocalAgentDeviceMetadata, 'id' | 'ownerId' | 'name' | 'meshIp'>, at: string): ClusterMetadata => ({
   id: machineClusterId(device.id),

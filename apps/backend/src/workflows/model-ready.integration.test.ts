@@ -53,7 +53,7 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
     expect(ready).toBe(true);
   }, 600_000);
 
-  it('stop a vLLM deploy at the GPU check on a machine with no NVIDIA runtime, saying what to do', async () => {
+  it('stop a vLLM deploy at the GPU check on a machine without NVIDIA\'s CDI support, saying what to do', async () => {
     const taskQueue = `model-gpu-${Math.random().toString(36).slice(2, 8)}`;
     const failed = await (await worker(taskQueue)).runUntil(env.client.workflow.execute('executeDeployAppWorkflow', {
       taskQueue, workflowId: `deploys-${taskQueue}`,
@@ -63,7 +63,7 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
       expect(failed).toBeInstanceOf(WorkflowFailedError);
       let at = failed as { message?: string; cause?: unknown };
       while (at.cause) at = at.cause as { message?: string; cause?: unknown };
-      expect(at.message).toMatch(/the NVIDIA device plugin cannot run on desk: .*restart k3s on it/s);
+      expect(at.message).toMatch(/the NVIDIA device plugin cannot run on desk: .*install NVIDIA's CDI support, then deploy again\./s);
     } finally {
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }

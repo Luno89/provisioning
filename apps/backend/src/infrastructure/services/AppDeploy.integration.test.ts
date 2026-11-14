@@ -5,7 +5,7 @@ import { encryptValue } from '../../platform/lib/crypto.js';
 import { startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy' } as ClusterMetadata;
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 } } as ClusterMetadata;
 
 async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: string; args: Record<string, unknown> }[] }> {
   const db = await testDatabase();
@@ -91,7 +91,7 @@ describe('a model\'s Hugging Face token', () => {
 });
 
 describe('a deploy asking for GPUs, decided by what the machine reported', () => {
-  const DESK: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
+  const DESK: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped', capacity: { cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' }, gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
   const onDesk = async () => {
     const made = await deps();
     await made.deps.db.infrastructure.saveCluster(DESK);

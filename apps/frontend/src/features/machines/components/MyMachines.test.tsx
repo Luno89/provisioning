@@ -140,7 +140,7 @@ describe('My Machines', () => {
     await waitFor(() => expect(screen.getByText('My Laptop')).toBeDefined());
     expect(screen.getByText('GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each')).toBeDefined();
     expect(screen.getByText('GPUs could not be read: the AMD kernel driver does not answer')).toBeDefined();
-    expect(screen.getByText('GPUs: 1 × RTX 4090, 24 GiB each, not usable yet: the NVIDIA Container Toolkit is not installed')).toBeDefined();
+    expect(screen.getByText('GPUs: 1 × RTX 4090, 24 GiB each, not usable yet: NVIDIA\'s CDI support is not installed')).toBeDefined();
   });
 
   it('badges an online device as raw access, since Koala\'s commands there run on the host', async () => {
