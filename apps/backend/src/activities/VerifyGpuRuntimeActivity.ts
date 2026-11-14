@@ -4,7 +4,7 @@ import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ignore } from '@koala/engine-core/failures';
 import type { GpuVendor } from '@koala/engine-core';
-import { advertisedGpus, assessWorkload, GPU_PLUGINS, gpuPluginState, type Reach, type WorkloadStatus } from '../infrastructure/index.js';
+import { advertisedGpus, GPU_PLUGINS, gpuPluginState, rolloutOfOne, runtimeRefused, type Reach, type Rollout } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 
@@ -45,13 +45,19 @@ export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs, steps
   const want = { vendor: args.vendor, count: args.count };
   let said = '';
   for (;;) {
-    const [nodes, pods] = await Promise.all([
+    const [nodes, plugins, pods, events] = await Promise.all([
       read(['get', 'nodes', '-o', 'json']),
+      read(['get', 'daemonset', plugin.daemonSet, '-n', plugin.namespace, '-o', 'json']),
       read(['get', 'pods', '-n', plugin.namespace, '-l', plugin.selector, '-o', 'json']),
+      read(['get', 'events', '-n', plugin.namespace, '--field-selector', 'involvedObject.kind=Pod', '-o', 'json']),
     ]);
-    const health: WorkloadStatus = 'json' in pods ? assessWorkload(pods.json) : { health: 'unknown', reason: pods.unread };
+    const refused = 'json' in events ? runtimeRefused(events.json) : undefined;
+    const listed = 'json' in plugins && 'json' in pods ? { items: [plugins.json, ...((pods.json as { items?: unknown[] }).items ?? [])] } : undefined;
+    const rollout: Rollout = refused ? { state: 'hopeless', reason: refused }
+      : listed ? rolloutOfOne(listed, `daemonset/${plugin.daemonSet}`)
+      : { state: 'rolling', waiting: `its pods could not be read: ${'unread' in plugins ? plugins.unread : 'unread' in pods ? pods.unread : 'no answer'}` };
     const advertised = 'json' in nodes ? advertisedGpus(nodes.json, plugin.resource) : 0;
-    const state = gpuPluginState(want, advertised, health, machine);
+    const state = gpuPluginState(want, advertised, rollout, machine);
     if (state.state === 'ready') {
       await note(`${machine} advertises ${advertised} ${plugin.label} GPU${advertised === 1 ? '' : 's'} to the scheduler`);
       return;

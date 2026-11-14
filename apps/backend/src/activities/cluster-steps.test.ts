@@ -112,6 +112,34 @@ describe('checking a workload', () => {
 describe('readying a machine\'s GPUs', () => {
   const nodes = (gpus: number) => JSON.stringify({ items: [{ status: { allocatable: { cpu: '16', 'nvidia.com/gpu': String(gpus) } } }] });
   const none = JSON.stringify({ items: [] });
+  const plugin = (generation: number, seen: number, updated: number) => JSON.stringify({ kind: 'DaemonSet', metadata: { name: 'nvidia-device-plugin-daemonset', generation }, status: { observedGeneration: seen, desiredNumberScheduled: 1, updatedNumberScheduled: updated, numberAvailable: updated } });
+  const pluginPod = JSON.stringify({ items: [{ kind: 'Pod', metadata: { name: 'nvidia-device-plugin-daemonset-x', ownerReferences: [{ kind: 'DaemonSet', name: 'nvidia-device-plugin-daemonset' }] }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } }] });
+
+  it('is not ready while the plugin it applied has not rolled out, even though the plugin from before still advertises the GPUs', async () => {
+    access.apply.mockResolvedValue('');
+    let reads = 0;
+    access.kubectl.mockImplementation(async (_target, args) => {
+      if (args[1] === 'nodes') return nodes(2);
+      if (args[1] === 'daemonset') return (reads += 1) > 2 ? plugin(2, 2, 1) : plugin(2, 1, 0);
+      if (args[1] === 'pods') return pluginPod;
+      return none;
+    });
+    await VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 2, machine: 'desk' }, { access }, async () => undefined);
+    expect(reads).toBe(3);
+  });
+
+  it('fails with what to do when k3s there has no NVIDIA runtime for the plugin', async () => {
+    access.apply.mockResolvedValue('');
+    access.kubectl.mockImplementation(async (_target, args) => {
+      if (args[1] === 'nodes') return nodes(0);
+      if (args[1] === 'daemonset') return plugin(1, 1, 0);
+      if (args[1] === 'pods') return JSON.stringify({ items: [{ kind: 'Pod', metadata: { name: 'nvidia-device-plugin-daemonset-x' }, status: { phase: 'Pending' } }] });
+      if (args[1] === 'events') return JSON.stringify({ items: [{ reason: 'FailedCreatePodSandBox', message: 'failed to get sandbox runtime: no runtime for "nvidia" is configured' }] });
+      return none;
+    });
+    await expect(VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 1, machine: 'desk' }, { access }, async () => undefined))
+      .rejects.toThrow(/^the NVIDIA device plugin cannot run on desk: failed to get sandbox runtime: no runtime for "nvidia" is configured\. Run the command from My Machines again on it, .*restart k3s there once it is installed, then deploy again\.$/);
+  });
 
   it('applies the vendor\'s device plugin on the cluster it was handed and is ready once the node advertises what the app asks', async () => {
     const applied: string[] = [];
@@ -120,7 +148,8 @@ describe('readying a machine\'s GPUs', () => {
     access.kubectl.mockImplementation(async (target, args) => {
       said.push({ reach: target as Reach, args });
       if (args[1] === 'nodes') return nodes((reads += 1) > 2 ? 2 : 0);
-      if (args[1] === 'pods') return JSON.stringify({ items: [{ metadata: { name: 'nvidia-device-plugin-daemonset-x' }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0, state: { running: {} } }] } }] });
+      if (args[1] === 'daemonset') return plugin(1, 1, 1);
+      if (args[1] === 'pods') return pluginPod;
       return none;
     });
     const log = join(mkdtempSync(join(tmpdir(), 'koala-gpus-')), 'deploy.log');
@@ -131,18 +160,19 @@ describe('readying a machine\'s GPUs', () => {
     expect(reads).toBe(3);
   });
 
-  it('fails with what to do when the plugin\'s pod cannot keep running, and reads only the nodes and the plugin\'s pods', async () => {
+  it('fails with what to do when the plugin\'s pod cannot keep running, and reads only the nodes, the plugin and its pods\' events', async () => {
     access.apply.mockResolvedValue('');
     const asked: string[] = [];
     access.kubectl.mockImplementation(async (_target, args) => {
       asked.push(args[1]!);
       if (args[1] === 'nodes') return nodes(0);
-      if (args[1] === 'pods') return JSON.stringify({ items: [{ metadata: { name: 'nvidia-device-plugin-daemonset-x' }, status: { phase: 'Running', containerStatuses: [{ ready: false, restartCount: 6, state: { waiting: { reason: 'CrashLoopBackOff', message: 'back-off restarting failed container' } } }] } }] });
+      if (args[1] === 'daemonset') return plugin(1, 1, 0);
+      if (args[1] === 'pods') return JSON.stringify({ items: [{ kind: 'Pod', metadata: { name: 'nvidia-device-plugin-daemonset-x', ownerReferences: [{ kind: 'DaemonSet', name: 'nvidia-device-plugin-daemonset' }] }, status: { phase: 'Running', containerStatuses: [{ ready: false, restartCount: 6, state: { waiting: { reason: 'CrashLoopBackOff', message: 'back-off restarting failed container' } } }] } }] });
       return none;
     });
     await expect(VerifyGpuRuntimeActivity({ clusterId: 'machine-desk', reach: DESK, vendor: 'nvidia', count: 1, machine: 'desk' }, { access }, async () => undefined))
-      .rejects.toThrow(/^the NVIDIA device plugin cannot run on desk: .*CrashLoopBackOff.*\. Run the command from My Machines again on it, which offers to install NVIDIA's CDI support, then deploy again\.$/);
-    expect([...new Set(asked)].sort()).toEqual(['nodes', 'pods']);
+      .rejects.toThrow(/^the NVIDIA device plugin cannot run on desk: .*CrashLoopBackOff.*\. Run the command from My Machines again on it, which offers to install NVIDIA's CDI support \(the NVIDIA Container Toolkit\), restart k3s there once it is installed, then deploy again\.$/);
+    expect([...new Set(asked)].sort()).toEqual(['daemonset', 'events', 'nodes', 'pods']);
   });
 
   it('refuses a deploy that did not say how many GPUs it uses, touching nothing', async () => {

@@ -63,7 +63,7 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
       expect(failed).toBeInstanceOf(WorkflowFailedError);
       let at = failed as { message?: string; cause?: unknown };
       while (at.cause) at = at.cause as { message?: string; cause?: unknown };
-      expect(at.message).toMatch(/the NVIDIA device plugin cannot run on desk: .*install NVIDIA's CDI support, then deploy again\./s);
+      expect(at.message).toMatch(/the NVIDIA device plugin cannot run on desk: .*install NVIDIA's CDI support \(the NVIDIA Container Toolkit\), restart k3s there once it is installed, then deploy again\./s);
     } finally {
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }

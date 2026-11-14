@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MachineGpu } from '@koala/engine-core';
-import { advertisedGpus, gpuAskOf, gpuDeployRefusal, gpuPluginState } from './cluster-gpus.js';
+import { advertisedGpus, gpuAskOf, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './cluster-gpus.js';
 
 const RTX: MachineGpu = { vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
 const desk = (extra: Partial<{ gpus: MachineGpu[]; gpuProblems: string[]; provider: 'machine' | 'pool' | 'root' }> = {}) => ({ name: 'desk', provider: 'machine' as const, gpus: [RTX], gpuProblems: [], ...extra });
@@ -28,7 +28,7 @@ describe('a deploy that asks for GPUs, against what the machine says it has', ()
     expect(gpuDeployRefusal(desk({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices'] }), { count: 1 }))
       .toEqual({ refused: 'This app asks for 1 GPU, and desk shows none: nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices.' });
     expect(gpuDeployRefusal(desk({ gpus: [{ ...RTX, runtime: false }] }), { count: 1 }))
-      .toEqual({ refused: 'This app asks for 1 NVIDIA GPU. desk has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA\'s CDI support is not installed. Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package).' });
+      .toEqual({ refused: 'This app asks for 1 NVIDIA GPU. desk has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA\'s CDI support is not installed. Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit).' });
     expect(gpuDeployRefusal(desk(), { count: 3 })).toEqual({ refused: 'This app asks for 3 NVIDIA GPUs, and desk has 2 NVIDIA GPUs. Ask for 2 or fewer.' });
     expect(gpuDeployRefusal(desk(), { count: 1, vendor: 'amd' })).toEqual({ refused: 'This app asks for 1 AMD GPU, and desk has no AMD GPU (it has 2 × NVIDIA GeForce RTX 3090). Pick another machine, or CPU only.' });
     const both = desk({ gpus: [RTX, { vendor: 'amd', model: 'AMD gfx1100', memoryMiB: 24560, count: 1, runtime: true }] });
@@ -50,10 +50,19 @@ describe('a machine\'s GPUs, readied', () => {
     expect(advertisedGpus('nonsense', 'nvidia.com/gpu')).toBe(0);
   });
 
-  it('is ready once the node advertises what the app asks, waits while the plugin starts, and fails with what to do when it cannot run', () => {
-    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 2, { health: 'healthy', reason: '' }, 'desk')).toEqual({ state: 'ready' });
-    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { health: 'starting', reason: 'its pod is being made' }, 'desk')).toEqual({ state: 'waiting', reason: 'the node advertises 0 of the 2 NVIDIA GPUs asked for so far' });
-    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { health: 'unhealthy', reason: 'its container keeps crashing' }, 'desk'))
-      .toEqual({ state: 'failed', reason: 'the NVIDIA device plugin cannot run on desk: its container keeps crashing. Run the command from My Machines again on it, which offers to install NVIDIA\'s CDI support, then deploy again.' });
+  it('is ready only once the plugin runs its new spec and the node advertises what the app asks, and fails with what to do when it cannot run', () => {
+    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 2, { state: 'done' }, 'desk')).toEqual({ state: 'ready' });
+    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 2, { state: 'rolling', waiting: 'daemonset/nvidia-device-plugin-daemonset has 0 of 1 updated' }, 'desk'))
+      .toEqual({ state: 'waiting', reason: 'the NVIDIA device plugin is not running its new spec yet: daemonset/nvidia-device-plugin-daemonset has 0 of 1 updated' });
+    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 0, { state: 'done' }, 'desk')).toEqual({ state: 'waiting', reason: 'the node advertises 0 of the 2 NVIDIA GPUs asked for so far' });
+    expect(gpuPluginState({ vendor: 'nvidia', count: 2 }, 2, { state: 'hopeless', reason: 'its container keeps crashing' }, 'desk'))
+      .toEqual({ state: 'failed', reason: 'the NVIDIA device plugin cannot run on desk: its container keeps crashing. Run the command from My Machines again on it, which offers to install NVIDIA\'s CDI support (the NVIDIA Container Toolkit), restart k3s there once it is installed, then deploy again.' });
+  });
+
+  it('reads a pod sandbox the runtime refused for want of the NVIDIA runtime, and nothing else', () => {
+    const event = (reason: string, message: string) => ({ items: [{ reason, message }] });
+    expect(runtimeRefused(event('FailedCreatePodSandBox', 'failed to get sandbox runtime: no runtime for "nvidia" is configured'))).toBe('failed to get sandbox runtime: no runtime for "nvidia" is configured');
+    expect(runtimeRefused(event('BackOff', 'Back-off restarting failed container'))).toBeUndefined();
+    expect(runtimeRefused('nonsense')).toBeUndefined();
   });
 });

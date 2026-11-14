@@ -1829,7 +1829,7 @@
     },
     {
       "kind": "binary",
-      "name": "nvidia-container-toolkit-base",
+      "name": "nvidia-container-toolkit",
       "version": "1.20.1",
       "source": "https://nvidia.github.io/libnvidia-container/stable",
       "github": "NVIDIA/nvidia-container-toolkit",

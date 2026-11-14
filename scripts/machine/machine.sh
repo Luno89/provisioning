@@ -26,6 +26,7 @@ NVIDIA_TOOLKIT_VERSION=1.20.1-1
 NVIDIA_KEY_SHA256=c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9
 NVIDIA_REPO=https://nvidia.github.io/libnvidia-container
 NVIDIA_CDI_HOOK=/usr/bin/nvidia-cdi-hook
+NVIDIA_RUNTIME=/usr/bin/nvidia-container-runtime
 NVIDIA_CDI_MARKER=/etc/koala/nvidia-cdi
 HELM_VERSION=v3.15.1
 HELM_SHA256_AMD64=7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11
@@ -223,8 +224,8 @@ rm -rf /etc/systemd/system/k3s.service.d/koala-firewall.conf /etc/koala/machine-
 if [ -f /etc/koala/nvidia-cdi ]; then
   systemctl disable --now nvidia-cdi-refresh.path
   case "$(cat /etc/koala/nvidia-cdi)" in
-    apt) apt-get remove -y nvidia-container-toolkit-base && rm -f /etc/apt/sources.list.d/koala-nvidia-container-toolkit.list /usr/share/keyrings/koala-nvidia-container-toolkit.asc ;;
-    dnf) dnf remove -y nvidia-container-toolkit-base && rm -f /etc/yum.repos.d/koala-nvidia-container-toolkit.repo /etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT ;;
+    apt) apt-get remove -y nvidia-container-toolkit nvidia-container-toolkit-base libnvidia-container-tools libnvidia-container1 && rm -f /etc/apt/sources.list.d/koala-nvidia-container-toolkit.list /usr/share/keyrings/koala-nvidia-container-toolkit.asc ;;
+    dnf) dnf remove -y nvidia-container-toolkit nvidia-container-toolkit-base libnvidia-container-tools libnvidia-container1 && rm -f /etc/yum.repos.d/koala-nvidia-container-toolkit.repo /etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT ;;
   esac
   rm -f /etc/koala/nvidia-cdi /var/run/cdi/nvidia.yaml
 fi
@@ -274,7 +275,7 @@ package_family() {
 install_nvidia_cdi() {
   family=$(package_family)
   if [ "$family" = none ]; then
-    echo "  NVIDIA's CDI support is not offered on this system, so its GPUs are not used. Install nvidia-container-toolkit-base $NVIDIA_TOOLKIT_VERSION as https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html says, enable nvidia-cdi-refresh.path, then run this command again."
+    echo "  NVIDIA's CDI support is not offered on this system, so its GPUs are not used. Install nvidia-container-toolkit $NVIDIA_TOOLKIT_VERSION as https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html says, enable nvidia-cdi-refresh.path, then run this command again."
     return 0
   fi
   key=$(mktemp)
@@ -284,11 +285,11 @@ install_nvidia_cdi() {
     sudo install -m 644 "$key" /usr/share/keyrings/koala-nvidia-container-toolkit.asc
     printf 'deb [signed-by=/usr/share/keyrings/koala-nvidia-container-toolkit.asc] %s/stable/deb/$(ARCH) /\n' "$NVIDIA_REPO" | sudo tee /etc/apt/sources.list.d/koala-nvidia-container-toolkit.list >/dev/null
     sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/koala-nvidia-container-toolkit.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 >/dev/null
-    sudo apt-get install -y "nvidia-container-toolkit-base=$NVIDIA_TOOLKIT_VERSION" >/dev/null
+    sudo apt-get install -y "nvidia-container-toolkit=$NVIDIA_TOOLKIT_VERSION" "nvidia-container-toolkit-base=$NVIDIA_TOOLKIT_VERSION" "libnvidia-container-tools=$NVIDIA_TOOLKIT_VERSION" "libnvidia-container1=$NVIDIA_TOOLKIT_VERSION" >/dev/null
   else
     sudo install -m 644 "$key" /etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT
     printf '[koala-nvidia-container-toolkit]\nname=NVIDIA Container Toolkit, added by Koala\nbaseurl=%s/stable/rpm/$basearch\nrepo_gpgcheck=1\ngpgcheck=0\nenabled=1\ngpgkey=file:///etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT\n' "$NVIDIA_REPO" | sudo tee /etc/yum.repos.d/koala-nvidia-container-toolkit.repo >/dev/null
-    sudo dnf install -y "nvidia-container-toolkit-base-$NVIDIA_TOOLKIT_VERSION" >/dev/null
+    sudo dnf install -y "nvidia-container-toolkit-$NVIDIA_TOOLKIT_VERSION" "nvidia-container-toolkit-base-$NVIDIA_TOOLKIT_VERSION" "libnvidia-container-tools-$NVIDIA_TOOLKIT_VERSION" "libnvidia-container1-$NVIDIA_TOOLKIT_VERSION" >/dev/null
   fi
   rm -f "$key"
   sudo systemctl enable --now nvidia-cdi-refresh.path >/dev/null
@@ -299,11 +300,11 @@ install_nvidia_cdi() {
 
 offer_nvidia_cdi() {
   have nvidia-smi || return 0
-  if [ -x "$NVIDIA_CDI_HOOK" ]; then
+  if [ -x "$NVIDIA_CDI_HOOK" ] && [ -x "$NVIDIA_RUNTIME" ]; then
     ok "NVIDIA's CDI support is already installed here; Koala uses it as it is"
     return 0
   fi
-  if ask "This machine has an NVIDIA GPU. Install NVIDIA's CDI support (nvidia-container-toolkit-base $NVIDIA_TOOLKIT_VERSION, from NVIDIA's own repository) so apps here can use it?"; then
+  if ask "This machine has an NVIDIA GPU. Install NVIDIA's CDI support (nvidia-container-toolkit $NVIDIA_TOOLKIT_VERSION, from NVIDIA's own repository) so apps here can use it?"; then
     install_nvidia_cdi
   else
     echo "  without it Koala runs apps here on CPU only; run this command again to add it"

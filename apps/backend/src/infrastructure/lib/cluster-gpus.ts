@@ -1,9 +1,10 @@
 import { GPU_VENDORS, gpuCountOf, type GpuVendor } from '@koala/engine-core';
 import type { ClusterMetadata } from '../../platform/index.js';
-import type { WorkloadStatus } from './workload-health.js';
+import type { Rollout } from './rollout.js';
 
 export interface GpuPlugin {
   manifest: string;
+  daemonSet: string;
   namespace: string;
   selector: string;
   resource: string;
@@ -11,8 +12,8 @@ export interface GpuPlugin {
 }
 
 export const GPU_PLUGINS: Record<GpuVendor, GpuPlugin> = {
-  nvidia: { manifest: 'k8s/gpu-device-plugin/nvidia.yaml', namespace: 'kube-system', selector: 'name=nvidia-device-plugin-ds', resource: 'nvidia.com/gpu', label: 'NVIDIA' },
-  amd: { manifest: 'k8s/gpu-device-plugin/amd.yaml', namespace: 'kube-system', selector: 'name=amdgpu-dp-ds', resource: 'amd.com/gpu', label: 'AMD' },
+  nvidia: { manifest: 'k8s/gpu-device-plugin/nvidia.yaml', daemonSet: 'nvidia-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=nvidia-device-plugin-ds', resource: 'nvidia.com/gpu', label: 'NVIDIA' },
+  amd: { manifest: 'k8s/gpu-device-plugin/amd.yaml', daemonSet: 'amdgpu-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=amdgpu-dp-ds', resource: 'amd.com/gpu', label: 'AMD' },
 };
 
 const GPU_APPS: Record<string, { countField: string; vendorField?: string; vendor?: GpuVendor; label: string }> = {
@@ -37,7 +38,7 @@ export function gpuAskOf(appType: string, config: Record<string, unknown>): GpuA
   return vendor ? { count, vendor } : { count };
 }
 
-export const GPU_CDI_HINT = 'Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit\'s base package).';
+export const GPU_CDI_HINT = 'Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit).';
 
 const plural = (count: number, label?: string) => `${count} ${label ? `${label} ` : ''}GPU${count === 1 ? '' : 's'}`;
 
@@ -80,12 +81,23 @@ export function advertisedGpus(nodes: unknown, resource: string): number {
 
 export type GpuPluginState = { state: 'ready' } | { state: 'waiting'; reason: string } | { state: 'failed'; reason: string };
 
-export function gpuPluginState(want: { vendor: GpuVendor; count: number }, advertised: number, plugin: WorkloadStatus, machine: string): GpuPluginState {
+export function gpuPluginState(want: { vendor: GpuVendor; count: number }, advertised: number, plugin: Rollout, machine: string): GpuPluginState {
   const label = GPU_PLUGINS[want.vendor].label;
-  if (advertised >= want.count) return { state: 'ready' };
-  if (plugin.health === 'unhealthy') {
-    const fix = want.vendor === 'nvidia' ? ` Run the command from My Machines again on it, which offers to install NVIDIA's CDI support, then deploy again.` : ` Restart k3s on it once the AMD kernel driver is loaded.`;
+  if (plugin.state === 'hopeless') {
+    const fix = want.vendor === 'nvidia' ? ` Run the command from My Machines again on it, which offers to install NVIDIA's CDI support (the NVIDIA Container Toolkit), restart k3s there once it is installed, then deploy again.` : ` Restart k3s on it once the AMD kernel driver is loaded.`;
     return { state: 'failed', reason: `the ${label} device plugin cannot run on ${machine}: ${plugin.reason}.${fix}` };
   }
+  if (plugin.state === 'rolling') return { state: 'waiting', reason: `the ${label} device plugin is not running its new spec yet: ${plugin.waiting}` };
+  if (advertised >= want.count) return { state: 'ready' };
   return { state: 'waiting', reason: `the node advertises ${advertised} of the ${plural(want.count, label)} asked for so far` };
+}
+
+export function runtimeRefused(events: unknown): string | undefined {
+  const items = (events as { items?: unknown } | undefined)?.items;
+  if (!Array.isArray(items)) return undefined;
+  for (const event of items) {
+    const { reason, message } = (event ?? {}) as { reason?: unknown; message?: unknown };
+    if (reason === 'FailedCreatePodSandBox' && typeof message === 'string' && /no runtime for/i.test(message)) return message;
+  }
+  return undefined;
 }

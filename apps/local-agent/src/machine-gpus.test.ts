@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { KFD_NODES, machineGpus, NVIDIA_CDI_HOOK, type GpuProbe } from './machine-gpus.js';
+import { KFD_NODES, machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME, type GpuProbe } from './machine-gpus.js';
 
 const missing = () => Object.assign(new Error('spawn nvidia-smi ENOENT'), { code: 'ENOENT' });
 
-function probe(opts: { smi?: string | Error; kfd?: Record<string, string>; kfdUnreadable?: boolean; cdi?: boolean; runtimeOnly?: boolean }) {
+function probe(opts: { smi?: string | Error; kfd?: Record<string, string>; kfdUnreadable?: boolean; cdi?: boolean; runtime?: boolean }) {
   const machine = mock<GpuProbe>();
   machine.run.mockImplementation(async (file) => {
     if (file !== 'nvidia-smi') throw new Error(file);
     if (opts.smi instanceof Error || opts.smi === undefined) throw opts.smi ?? missing();
     return opts.smi;
   });
-  machine.exists.mockImplementation(async (path) => (path === KFD_NODES && Boolean(opts.kfd || opts.kfdUnreadable)) || (Boolean(opts.cdi) && path === NVIDIA_CDI_HOOK) || (Boolean(opts.runtimeOnly) && path === '/usr/bin/nvidia-container-runtime'));
+  machine.exists.mockImplementation(async (path) => (path === KFD_NODES && Boolean(opts.kfd || opts.kfdUnreadable)) || (Boolean(opts.cdi) && path === NVIDIA_CDI_HOOK) || (Boolean(opts.runtime) && path === NVIDIA_RUNTIME));
   machine.list.mockImplementation(async () => {
     if (opts.kfdUnreadable) throw new Error('EACCES: permission denied');
     return Object.keys(opts.kfd ?? {});
@@ -38,15 +38,16 @@ describe('what a machine says about its GPUs', () => {
     expect(await machineGpus(probe({ kfdUnreadable: true }))).toEqual({ gpus: [], problems: ['the AMD kernel driver is loaded but its GPU list cannot be read: EACCES: permission denied'] });
   });
 
-  it('leaves the integrated AMD GPU out and keeps the NVIDIA cards, usable once NVIDIA\'s CDI hook is installed', async () => {
+  it('leaves the integrated AMD GPU out and keeps the NVIDIA cards, usable once NVIDIA\'s CDI hook and its container runtime are installed', async () => {
     const kfd = { 0: 'cpu_cores_count 8\nsimd_count 0\nvendor_id 0\n', 1: 'cpu_cores_count 0\nsimd_count 4\nlocal_mem_size 0\nvendor_id 4098\n' };
-    const report = await machineGpus(probe({ smi: 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n', kfd, cdi: true }));
+    const report = await machineGpus(probe({ smi: 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n', kfd, cdi: true, runtime: true }));
     expect(report).toEqual({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: [] });
   });
 
-  it('does not take NVIDIA\'s container runtime alone as a way to give pods the GPUs, since pods get them through CDI', async () => {
-    const report = await machineGpus(probe({ smi: 'NVIDIA GeForce RTX 3090, 24576\n', runtimeOnly: true }));
-    expect(report.gpus).toEqual([{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }]);
+  it('takes neither NVIDIA\'s CDI hook nor its container runtime alone as a way to give pods the GPUs: pods get them through CDI, and the device plugin runs under the runtime', async () => {
+    const one = [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }];
+    expect((await machineGpus(probe({ smi: 'NVIDIA GeForce RTX 3090, 24576\n', runtime: true }))).gpus).toEqual(one);
+    expect((await machineGpus(probe({ smi: 'NVIDIA GeForce RTX 3090, 24576\n', cdi: true }))).gpus).toEqual(one);
   });
 
   it('counts a discrete AMD card, which needs no runtime of its own', async () => {

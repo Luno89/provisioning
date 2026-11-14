@@ -46,7 +46,7 @@ export { assessWorkload } from './lib/workload-health.js';
 export type { WorkloadHealth, WorkloadStatus } from './lib/workload-health.js';
 export { ALREADY_HERE, HUGGING_FACE, MODEL_DOWNLOADS, modelDownloadJob, modelJobName } from './lib/model-download-job.js';
 export { modelImageOf } from './lib/model-images.js';
-export { advertisedGpus, GPU_PLUGINS, gpuAskOf, gpuDeployRefusal, gpuPluginState } from './lib/cluster-gpus.js';
+export { advertisedGpus, GPU_PLUGINS, gpuAskOf, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './lib/cluster-gpus.js';
 export type { GpuAsk, GpuDecision } from './lib/cluster-gpus.js';
 export { bindingTypesRouter } from './routes/binding-types.js';
 export { clusterAccessRouter } from './routes/cluster-access.js';

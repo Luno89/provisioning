@@ -2157,15 +2157,16 @@ GPU. The instance keeps the report on the machine's cluster record, and that rec
 backend reads no node and runs no `nvidia-smi` of its own. A machine that has not reported its size is shown as such, and a model server
 is refused on it with why, never planned or checked against a guess.
 **NVIDIA GPUs reach pods through CDI** (owner, 2026-11-13: "C sounds good"). On Linux with an NVIDIA GPU, the join offers, with the
-sudo it already asks for k3s, NVIDIA's own repository under the key Koala pins and the pinned `nvidia-container-toolkit-base`, enabling
+sudo it already asks for k3s, NVIDIA's own repository under the key Koala pins and the pinned `nvidia-container-toolkit`, enabling
 `nvidia-cdi-refresh`; one the person already has is only noticed, and a system NVIDIA's repository does not serve is told how to install
 it by hand. Removing the machine removes only what the join installed. The NVIDIA device plugin hands GPUs out by CDI through the CRI,
-and no pod names a runtime class. AMD needs only its kernel driver on the machine.
+and no app's pod names a runtime class; the plugin itself runs under k3s's `nvidia` runtime, since it needs the driver to count them
+(2026-11-14: under CDI alone it crash-looped with "Driver Not Loaded"). AMD needs only its kernel driver on the machine.
 **A deploy that asks for GPUs is decided by that report** (decision 7): the count the request names (0 means CPU only; none named is
 refused, never guessed), the vendor it names or the machine's only one, and a refusal that says what to do (no GPU shown or its driver not
 answering, no CDI support, too few, the wrong vendor, two vendors and none named, not a machine). **Koala then readies them**: it applies the
-vendor's pinned device plugin through `ClusterAccess` and waits, with no deadline, until the node advertises the GPUs asked, or fails with
-the fix when the plugin cannot run. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s.
+vendor's pinned device plugin through `ClusterAccess` and waits, with no deadline, until the plugin it applied has rolled out and the node advertises the GPUs asked (a plugin from before still advertising them
+counts for nothing), or fails with the fix when the plugin cannot run. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s.
 
 **GPU passthrough needs native k3s on the machine** (Linux). k3d's nested containerd cannot do real device passthrough at
 all, so a cluster made with k3d never gets a GPU.
