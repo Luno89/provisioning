@@ -73,7 +73,8 @@ describe('a model that cannot run Koala\'s chats', () => {
   });
 
   it('is shown with why among the other models of its kind, and only the others can be picked', async () => {
-    const usable = { ...toolless(), id: 'dep-3', name: 'Qwen-Tools', chatProblem: undefined } as ModelProvider;
+    const { chatProblem: _served, ...withTools } = toolless();
+    const usable: ModelProvider = { ...withTools, id: 'dep-3', name: 'Qwen-Tools' };
     const { onSelect } = setup({ models: [toolless(), usable] });
     fireEvent.click(await screen.findByLabelText('Expand vLLM'));
     expect(screen.getByText('It is served without tool calling, which every Koala chat uses: turn tool calling on in its settings.')).toBeInTheDocument();
