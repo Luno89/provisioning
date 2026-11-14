@@ -69,11 +69,20 @@ export interface TrackedBuild {
   takeOn: string
 }
 
+export interface GoneImage {
+  image: string
+  source: string
+  digest: string
+  since: string
+  releases: string[]
+}
+
 export interface DependencyCheck {
   checkedAt: string
   releases: CheckedRelease[]
   components: ListedComponent[]
   builds?: TrackedBuild[]
+  gone?: GoneImage[]
   problems: string[]
 }
 

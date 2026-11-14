@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { DependencyWatch } from './DependencyWatch.js';
-import { DEPENDENCY_SOURCES } from '../../platform/lib/osv.js';
+import { DEPENDENCY_SOURCES, dependencySourcesAt } from '../../platform/lib/osv.js';
+import { startDependencySourcesStandIn } from '../../platform/testing/dependency-sources-stand-in.js';
 
 const fresh = await emptiedEachTime();
 
@@ -38,6 +39,7 @@ function fakeFetch(asked: Asked[], seroval11At = '2026-10-18T00:00:00Z') {
       asked.push({ url });
       const json = (body: unknown, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', ...headers } });
       if (url === 'https://ghcr.io/token?scope=repository:theroyallab/tabbyapi:pull') return json({ token: 'anonymous' });
+      if (url === `https://ghcr.io/v2/theroyallab/tabbyapi/manifests/sha256:${TABBY_PINNED}`) return json({ mediaType: 'application/vnd.oci.image.index.v1+json', manifests: [] });
       if (url === 'https://ghcr.io/v2/theroyallab/tabbyapi/manifests/latest') return json({ config: { digest: 'sha256:config' } }, { 'docker-content-digest': `sha256:${'b'.repeat(64)}` });
       if (url === 'https://ghcr.io/v2/theroyallab/tabbyapi/blobs/sha256:config') return json({ config: { Labels: { 'org.opencontainers.image.created': '2026-11-12T20:00:00Z', 'org.opencontainers.image.revision': 'c0ffee' } } });
       return new Response('{}', { status: 404 });
@@ -170,5 +172,60 @@ describe('root\'s daily check of what its running releases are made of', () => {
     } finally {
       inventories.bbbbbbbbbbbb = was;
     }
+  });
+
+  describe('an image pinned by digest, asked of a registry on this machine', () => {
+    const VLLM = 'd'.repeat(64);
+    const vllm = { 'bom-ref': 'image:pkg:docker/vllm/vllm-openai@v0.32.0', name: 'vllm/vllm-openai', version: 'v0.32.0', hashes: [{ alg: 'SHA-256', content: VLLM }], properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: 'docker.io/vllm/vllm-openai:v0.32.0' }] };
+    const token = '/docker-auth/token?service=registry.docker.io&scope=repository:vllm/vllm-openai:pull';
+    const manifest = `/docker-hub/v2/vllm/vllm-openai/manifests/sha256:${VLLM}`;
+
+    const against = async (answers: Record<string, unknown>, down: string[], run: (watchAt: (at: string) => DependencyWatch, asked: string[]) => Promise<void>) => {
+      const standIn = await startDependencySourcesStandIn({ answers, down });
+      const was = inventories.bbbbbbbbbbbb;
+      inventories.bbbbbbbbbbbb = { components: [npm('left-pad', '1.3.0'), vllm] };
+      try {
+        await run((at) => new DependencyWatch({
+          store: db.instances,
+          inventoryOf: async (tag) => inventories[tag],
+          currentRelease: 'bbbbbbbbbbbb',
+          fetchImpl: fetch,
+          sources: dependencySourcesAt(standIn.url),
+          tell: async (message) => { told.push(message); },
+          rootUrl: 'https://app.example.com',
+          now: () => new Date(at),
+        }), standIn.asked);
+      } finally {
+        inventories.bbbbbbbbbbbb = was;
+        await standIn.close();
+      }
+    };
+
+    it('keeps nothing while the registry serves the digest', async () => {
+      await against({ [token]: { token: 'anonymous' }, [manifest]: { schemaVersion: 2 } }, [], async (watchAt, asked) => {
+        const { check } = await watchAt('2026-11-14T06:00:00Z').check();
+        expect(asked).toEqual(expect.arrayContaining([`GET ${token}`, `GET ${manifest}`]));
+        expect(check!.gone).toEqual([]);
+        expect(told.filter((message) => message.subject.includes('gone upstream'))).toEqual([]);
+      });
+    });
+
+    it('keeps a digest the registry no longer has, from one check to the next, and emails the operator once', async () => {
+      await against({ [token]: { token: 'anonymous' } }, [], async (watchAt) => {
+        await watchAt('2026-11-14T06:00:00Z').check();
+        const { check } = await watchAt('2026-11-15T06:00:00Z').check();
+        expect(check!.gone).toEqual([{ image: 'vllm/vllm-openai', source: 'docker.io/vllm/vllm-openai:v0.32.0', digest: VLLM, since: '2026-11-14T06:00:00.000Z', releases: ['v2026.10.29'] }]);
+        expect((await watchAt('2026-11-15T06:00:00Z').view()).check!.gone).toEqual(check!.gone);
+        expect(told.filter((message) => message.subject === 'Koala\'s dependencies: 1 pinned image gone upstream')).toHaveLength(1);
+      });
+    });
+
+    it('says the digest could not be checked when the registry does not answer, and calls it neither gone nor fine', async () => {
+      await against({ [token]: { token: 'anonymous' } }, ['/docker-hub/'], async (watchAt) => {
+        const { check } = await watchAt('2026-11-14T06:00:00Z').check();
+        expect(check!.gone).toEqual([]);
+        expect(check!.problems).toEqual([`whether vllm/vllm-openai@sha256:dddddddddddd is still published could not be checked: asking docker.io for its manifest, it answered 503`]);
+      });
+    });
   });
 });

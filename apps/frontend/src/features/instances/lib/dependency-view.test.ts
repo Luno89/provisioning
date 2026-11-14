@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ageOf, buildLine, componentMatches, countsByState, findingMatches, releaseSummary, sortedFindings } from './dependency-view'
+import { ageOf, buildLine, goneLine, componentMatches, countsByState, findingMatches, releaseSummary, sortedFindings } from './dependency-view'
 import type { DependencyFinding, ListedComponent } from '../api/dependencies'
 
 const finding = (name: string, state: DependencyFinding['state'], severity?: DependencyFinding['advisory']['severity']): DependencyFinding => ({
@@ -55,5 +55,14 @@ describe('a newer build of a moving tag', () => {
 
   it('says it can be taken now, by pinning its digest, once two weeks have passed since it was first seen', () => {
     expect(buildLine({ ...build, builtAt: undefined, revision: undefined }, new Date('2026-11-27T00:00:00Z'))).toBe('theroyallab/tabbyapi:latest now names sha256:bbbbbbbbbbbb, first seen 2026-11-13. Take it by pinning that digest in dependencies.pins.json.')
+  })
+})
+
+describe('a pinned digest gone upstream', () => {
+  it('says which digest is gone, since when, from where, and what it means for a deploy', () => {
+    expect(goneLine({ image: 'vllm/vllm-openai', source: 'docker.io/vllm/vllm-openai:v0.32.0', digest: 'd'.repeat(64), since: '2026-11-14T06:00:00.000Z', releases: ['v2026.11.13', 'v2026.11.14'] }))
+      .toBe('vllm/vllm-openai@sha256:dddddddddddd is gone upstream since 2026-11-14: docker.io no longer has the digest v2026.11.13, v2026.11.14 pin, so a machine that has not pulled it already cannot deploy it.')
+    expect(goneLine({ image: 'theroyallab/tabbyapi', source: `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}`, digest: 'c'.repeat(64), since: '2026-11-14T06:00:00.000Z', releases: ['v2026.11.13'] }))
+      .toBe('theroyallab/tabbyapi@sha256:cccccccccccc is gone upstream since 2026-11-14: ghcr.io no longer has the digest v2026.11.13 pins, so a machine that has not pulled it already cannot deploy it.')
   })
 })

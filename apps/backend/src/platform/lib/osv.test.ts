@@ -10,6 +10,7 @@ const bom = {
     { 'bom-ref': 'image:pkg:docker/library/mongo@7', name: 'mongo', version: '7', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:floating', value: 'true' }] },
     { 'bom-ref': 'unpinned:tailscale', name: 'tailscale', properties: [{ name: 'koala:kind', value: 'unpinned' }] },
     { 'bom-ref': 'image:pkg:docker/theroyallab/tabbyapi@latest-2026-11-10', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}` }, { name: 'koala:tracks', value: 'latest' }] },
+    { 'bom-ref': 'image:pkg:docker/vllm/vllm-openai@v0.32.0', name: 'vllm/vllm-openai', version: 'v0.32.0', hashes: [{ alg: 'SHA-256', content: 'd'.repeat(64) }], properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: 'docker.io/vllm/vllm-openai:v0.32.0' }] },
     { 'bom-ref': 'other', name: 'not ours' },
   ],
 };
@@ -17,7 +18,9 @@ const bom = {
 describe('reading a release\'s inventory', () => {
   it('keeps each component Koala listed, when it was released, and which of them OSV can be asked about', () => {
     const components = inventoryComponents(bom);
-    expect(components.map((component) => component.name)).toEqual(['seroval', 'vite', 'k3s', 'mongo', 'tailscale', 'theroyallab/tabbyapi']);
+    expect(components.map((component) => component.name)).toEqual(['seroval', 'vite', 'k3s', 'mongo', 'tailscale', 'theroyallab/tabbyapi', 'vllm/vllm-openai']);
+    expect(components[6]).toMatchObject({ source: 'docker.io/vllm/vllm-openai:v0.32.0', digest: 'd'.repeat(64) });
+    expect(components[3]!.digest).toBeUndefined();
     expect(components[5]).toMatchObject({ source: `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}`, tracks: 'latest' });
     expect(components[3]!.tracks).toBeUndefined();
     expect(components.filter(checkedByOsv).map((component) => component.name)).toEqual(['seroval', 'vite', 'k3s']);

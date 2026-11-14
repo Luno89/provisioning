@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { useCheckDependencies, useDependencies, type ComponentKind, type DependencyFinding, type FindingState } from '../api/dependencies'
-import { ageOf, buildLine, byWhatRuns, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
+import { ageOf, buildLine, goneLine, byWhatRuns, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
 
 const STATE_STYLE: Record<FindingState, string> = {
   due: 'bg-red-500/15 text-red-300',
@@ -73,6 +73,12 @@ export function DependenciesSection() {
       {dependencies.isError && <p role="alert" className="text-xs text-red-300">{errorMessage(dependencies.error)}</p>}
       {check.isError && <p role="alert" className="text-xs text-red-300">{errorMessage(check.error)}</p>}
       {view?.check?.problems.map((problem) => <p key={problem} role="status" className="text-xs text-amber-300">{problem}</p>)}
+
+      {(view?.check?.gone ?? []).length > 0 && (
+        <ul className="space-y-1 text-xs" aria-label="Pinned images gone upstream">
+          {(view?.check?.gone ?? []).map((gone) => <li key={`${gone.image}@${gone.digest}`} className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200">{goneLine(gone)}</li>)}
+        </ul>
+      )}
 
       {(view?.check?.builds ?? []).length > 0 && (
         <ul className="space-y-1 text-xs" aria-label="Newer builds of a moving tag">

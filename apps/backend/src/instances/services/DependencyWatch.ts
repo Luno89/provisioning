@@ -1,9 +1,10 @@
-import { advisoryFor, batches, checkedByOsv, idsFromBatch, inventoryComponents, queryKey, queryOf, type DependencySources, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
+import { answerFailure, advisoryFor, batches, failureOf, checkedByOsv, idsFromBatch, inventoryComponents, queryKey, queryOf, type DependencySources, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
 import {
   componentOf, findingKey, fixFor, fixingRelease, mergeFindings, runtimeFindings, tellingMessage,
   type CheckedRelease, type DependencyCheck, type DependencyFinding, type ListedComponent, type Sighting,
 } from '../lib/dependency-findings.js';
 import type { InstanceRelease } from '../lib/instance-updates.js';
+import { goneImages, goneMessage, manifestAnswer, MANIFESTS, pinnedImageOf, registryReachOf, shortDigest, type DigestSeen, type PinnedImage } from '../lib/pinned-images.js';
 import { trackedBuilds, trackedImageOf, type SeenBuild, type TrackedImage } from '../lib/tracked-builds.js';
 import type { InstancesStore } from '../store.js';
 
@@ -27,8 +28,6 @@ export interface ReleaseFindings {
   release: string;
   findings: (Pick<DependencyFinding, 'component' | 'advisory' | 'state' | 'fix' | 'takeOn'> & { fixedBy?: string | undefined })[];
 }
-
-const MANIFESTS = 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json';
 
 const labelOf = (release: InstanceRelease | undefined, imageTag: string): string => release?.version ?? imageTag;
 
@@ -88,14 +87,67 @@ export class DependencyWatch {
     return undefined;
   }
 
-  private registryOf(image: TrackedImage): string {
-    if (image.host !== 'ghcr.io') throw new Error(`Koala follows a moving tag only on ghcr.io, and ${image.image} is on ${image.host}`);
-    return this.deps.sources.ghcr;
+  private reachOf(host: string, repository: string) {
+    const reach = registryReachOf(host, repository, this.deps.sources);
+    if (!reach) throw new Error(`Koala asks only docker.io and ghcr.io, and it is on ${host}`);
+    return reach;
+  }
+
+  private async digestState(image: PinnedImage): Promise<'present' | 'gone'> {
+    const reach = this.reachOf(image.host, image.repository);
+    const step = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
+      try {
+        return await run();
+      } catch (err) {
+        throw new Error(`asking ${what}, ${failureOf(err).reason}`);
+      }
+    };
+    const token = await step(`${image.host}'s token service`, async () => {
+      const response = await this.deps.fetchImpl(reach.token, { headers: { accept: 'application/json' } });
+      if (!response.ok) throw answerFailure(response.status, response.headers.get('retry-after'));
+      const answer = await response.json() as { token?: unknown; access_token?: unknown };
+      const given = typeof answer.token === 'string' ? answer.token : answer.access_token;
+      if (typeof given !== 'string' || !given) throw new Error('it gave no token');
+      return given;
+    });
+    return step(`${image.host} for its manifest`, async () => {
+      const response = await this.deps.fetchImpl(`${reach.registry}/v2/${image.repository}/manifests/sha256:${image.digest}`, { headers: { authorization: `Bearer ${token}`, accept: MANIFESTS } });
+      const text = await response.text();
+      let body: unknown;
+      try { body = text ? JSON.parse(text) : undefined; } catch { body = undefined; }
+      const state = manifestAnswer(response.status, body);
+      if (!state) throw answerFailure(response.status, response.headers.get('retry-after'));
+      return state;
+    });
+  }
+
+  private async pinnedDigests(watched: readonly { release: string; label: string }[], inventories: ReadonlyMap<string, InventoryComponent[]>, problems: string[]): Promise<DigestSeen[]> {
+    const pinned = new Map<string, { pinned: PinnedImage; releases: string[] }>();
+    for (const release of watched) {
+      for (const component of inventories.get(release.release) ?? []) {
+        const image = pinnedImageOf(component);
+        if (!image) continue;
+        const key = `${image.image}@${image.digest}`;
+        const entry = pinned.get(key) ?? { pinned: image, releases: [] };
+        if (!entry.releases.includes(release.label)) entry.releases.push(release.label);
+        pinned.set(key, entry);
+      }
+    }
+    const seen: DigestSeen[] = [];
+    for (const entry of pinned.values()) {
+      try {
+        seen.push({ ...entry, state: await this.digestState(entry.pinned) });
+      } catch (err) {
+        problems.push(`whether ${entry.pinned.image}@${shortDigest(entry.pinned.digest)} is still published could not be checked: ${(err as Error).message}`);
+        seen.push({ ...entry, state: 'unchecked' });
+      }
+    }
+    return seen;
   }
 
   private async newestBuild(image: TrackedImage): Promise<SeenBuild> {
-    const registry = this.registryOf(image);
-    const { token } = await this.json(`${registry}/token?scope=repository:${image.repository}:pull`) as { token: string };
+    const { registry, token: tokenUrl } = this.reachOf(image.host, image.repository);
+    const { token } = await this.json(tokenUrl) as { token: string };
     const ask = async (path: string, accept: string) => {
       const response = await this.deps.fetchImpl(`${registry}/v2/${image.repository}/${path}`, { headers: { authorization: `Bearer ${token}`, accept } });
       if (!response.ok) throw new Error(`${registry}/v2/${image.repository}/${path} answered ${response.status}`);
@@ -198,6 +250,9 @@ export class DependencyWatch {
     const message = tellingMessage(merged.tell, this.deps.rootUrl);
     if (message) await this.deps.tell(message);
 
+    const previousCheck = await this.deps.store.getDependencyCheck();
+    const digests = goneImages(previousCheck?.gone ?? [], await this.pinnedDigests(watched, inventories, problems), now);
+
     const current = inventories.get(this.deps.currentRelease) ?? [];
     const seen: SeenBuild[] = [];
     for (const image of current.flatMap((component) => { const tracked = trackedImageOf(component); return tracked ? [tracked] : []; })) {
@@ -207,7 +262,7 @@ export class DependencyWatch {
         problems.push(`the newest build of ${image.image}:${image.tag} could not be read: ${(err as Error).message}`);
       }
     }
-    const builds = trackedBuilds((await this.deps.store.getDependencyCheck())?.builds ?? [], seen, now);
+    const builds = trackedBuilds(previousCheck?.builds ?? [], seen, now);
     const components: ListedComponent[] = current.map((component) => ({
       name: component.name,
       version: component.version,
@@ -226,8 +281,10 @@ export class DependencyWatch {
       components: inventories.get(release.release)?.length ?? 0,
       inventory: (inventories.get(release.release)?.length ?? 0) > 0,
     }));
-    const check: DependencyCheck = { checkedAt: now.toISOString(), releases, components, builds, problems };
+    const check: DependencyCheck = { checkedAt: now.toISOString(), releases, components, builds, gone: digests.gone, problems };
     await this.deps.store.saveDependencyCheck(check);
+    const goneTelling = goneMessage(digests.fresh, this.deps.rootUrl);
+    if (goneTelling) await this.deps.tell(goneTelling);
     return { check, findings: merged.findings };
   }
 

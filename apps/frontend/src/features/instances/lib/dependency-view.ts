@@ -1,4 +1,4 @@
-import type { DependencyFinding, FindingState, ListedComponent, ReleaseFinding, Severity, TrackedBuild } from '../api/dependencies'
+import type { DependencyFinding, FindingState, GoneImage, ListedComponent, ReleaseFinding, Severity, TrackedBuild } from '../api/dependencies'
 
 const STATE_ORDER: Record<FindingState, number> = { due: 0, waiting: 1, 'no-fix': 2 }
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, high: 1, moderate: 2, low: 3 }
@@ -59,4 +59,10 @@ export function buildLine(build: TrackedBuild, now: Date): string {
   const made = [build.builtAt ? `built ${build.builtAt.slice(0, 10)}` : undefined, build.revision ? `from ${build.revision.slice(0, 7)}` : undefined].filter(Boolean).join(' ')
   const taken = now.toISOString().slice(0, 10) >= build.takeOn ? 'Take it by pinning that digest in dependencies.pins.json.' : `It can be taken on ${build.takeOn}.`
   return `${build.image}:${build.tag} now names sha256:${build.digest.slice(0, 12)}, ${made ? `${made}, ` : ''}first seen ${build.firstSeenAt.slice(0, 10)}. ${taken}`
+}
+
+export function goneLine(gone: GoneImage): string {
+  const host = gone.source.split('/')[0]
+  const pins = gone.releases.length === 1 ? 'pins' : 'pin'
+  return `${gone.image}@sha256:${gone.digest.slice(0, 12)} is gone upstream since ${gone.since.slice(0, 10)}: ${host} no longer has the digest ${gone.releases.join(', ')} ${pins}, so a machine that has not pulled it already cannot deploy it.`
 }

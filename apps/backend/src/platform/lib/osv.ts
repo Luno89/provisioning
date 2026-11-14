@@ -7,13 +7,15 @@ export interface DependencySources {
   npm: string;
   github: string;
   ghcr: string;
+  dockerHub: string;
+  dockerAuth: string;
 }
 
-export const DEPENDENCY_SOURCES: DependencySources = { osv: OSV_API, npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io' };
+export const DEPENDENCY_SOURCES: DependencySources = { osv: OSV_API, npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io', dockerHub: 'https://registry-1.docker.io', dockerAuth: 'https://auth.docker.io' };
 
 export const dependencySourcesAt = (base: string): DependencySources => {
   const at = base.replace(/\/+$/, '');
-  return { osv: `${at}/osv`, npm: `${at}/npm`, github: `${at}/github`, ghcr: `${at}/ghcr` };
+  return { osv: `${at}/osv`, npm: `${at}/npm`, github: `${at}/github`, ghcr: `${at}/ghcr`, dockerHub: `${at}/docker-hub`, dockerAuth: `${at}/docker-auth` };
 };
 
 export const OSV_BATCH = 1000;

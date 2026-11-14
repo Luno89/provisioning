@@ -32,6 +32,10 @@ let seroval11At = '2026-10-18T00:00:00Z';
 let osvStatus = 200;
 let ghcrStatus = 200;
 let tabbyLatest = 'b'.repeat(64);
+let hub: { token: number; manifest: number; body?: unknown };
+
+const VLLM_PINNED = 'd'.repeat(64);
+const vllm = (digest = VLLM_PINNED) => ({ 'bom-ref': 'image:pkg:docker/vllm/vllm-openai@v0.32.0', name: 'vllm/vllm-openai', version: 'v0.32.0', hashes: [{ alg: 'SHA-256', content: digest }], properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: 'docker.io/vllm/vllm-openai:v0.32.0' }] });
 
 const TABBY_PINNED = 'a'.repeat(64);
 const tabby = { 'bom-ref': 'image:pkg:docker/theroyallab/tabbyapi@latest-2026-11-10', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: `ghcr.io/theroyallab/tabbyapi@sha256:${TABBY_PINNED}` }, { name: 'koala:tracks', value: 'latest' }] };
@@ -51,12 +55,25 @@ const registry = [
             : query.package.name === '@xmldom/xmldom' ? [{ id: 'GHSA-xmldom' }] : [],
       })) });
     }
+    if (url.startsWith('https://auth.docker.io/') || url.startsWith('http://sources.test/docker-auth/')) {
+      if (hub.token !== 200) return new HttpResponse('{}', { status: hub.token });
+      const scope = new URL(url).searchParams;
+      if (scope.get('service') !== 'registry.docker.io' || scope.get('scope') !== 'repository:vllm/vllm-openai:pull') return new HttpResponse('{}', { status: 400 });
+      return ok({ token: 'hub-anonymous' });
+    }
+    if (url.startsWith('https://registry-1.docker.io/') || url.startsWith('http://sources.test/docker-hub/')) {
+      if (request.headers.get('authorization') !== 'Bearer hub-anonymous') return new HttpResponse('{}', { status: 401 });
+      if (!(request.headers.get('accept') ?? '').includes('application/vnd.oci.image.index.v1+json')) return new HttpResponse('{}', { status: 406 });
+      if (new URL(url).pathname.replace(/^\/docker-hub/, '') !== `/v2/vllm/vllm-openai/manifests/sha256:${VLLM_PINNED}`) return new HttpResponse(JSON.stringify({ errors: [{ code: 'MANIFEST_UNKNOWN' }] }), { status: 404 });
+      return new HttpResponse(hub.body === undefined ? '{}' : JSON.stringify(hub.body), { status: hub.manifest, headers: { 'content-type': 'application/json' } });
+    }
     if (url.startsWith('https://ghcr.io/') || url.startsWith('http://sources.test/ghcr/')) {
       if (ghcrStatus !== 200) return new HttpResponse('{}', { status: ghcrStatus });
       const path = url.replace(/^https:\/\/ghcr\.io|^http:\/\/sources\.test\/ghcr/, '');
       if (path === '/token?scope=repository%3Atheroyallab%2Ftabbyapi%3Apull' || path === '/token?scope=repository:theroyallab/tabbyapi:pull') return ok({ token: 'anonymous' });
       if (request.headers.get('authorization') !== 'Bearer anonymous') return new HttpResponse('{}', { status: 401 });
       if (path === '/v2/theroyallab/tabbyapi/manifests/latest') return HttpResponse.json({ mediaType: 'application/vnd.oci.image.index.v1+json', manifests: [{ digest: 'sha256:arm', platform: { os: 'linux', architecture: 'arm64' } }, { digest: 'sha256:amd', platform: { os: 'linux', architecture: 'amd64' } }] } as never, { headers: { 'docker-content-digest': `sha256:${tabbyLatest}` } });
+      if (path === `/v2/theroyallab/tabbyapi/manifests/sha256:${TABBY_PINNED}`) return ok({ mediaType: 'application/vnd.oci.image.index.v1+json', manifests: [] });
       if (path === '/v2/theroyallab/tabbyapi/manifests/sha256:amd') return ok({ config: { digest: 'sha256:config' } });
       if (path === '/v2/theroyallab/tabbyapi/blobs/sha256:config') return ok({ config: { Labels: { 'org.opencontainers.image.created': '2026-11-12T20:00:00Z', 'org.opencontainers.image.revision': 'c0ffee' } } });
       return new HttpResponse('{}', { status: 404 });
@@ -81,6 +98,7 @@ beforeEach(async () => {
   osvStatus = 200;
   ghcrStatus = 200;
   tabbyLatest = 'b'.repeat(64);
+  hub = { token: 200, manifest: 200 };
   seroval11At = '2026-10-18T00:00:00Z';
   told = [];
   await db.instances.recordRelease({ imageTag: 'aaaaaaaaaaaa', version: 'v2026.10.23', servedAt: '2026-10-23T00:00:00Z' });
@@ -93,7 +111,7 @@ const watch = (at: string) => new DependencyWatch({
   inventoryOf: async (tag) => inventories[tag],
   currentRelease: 'bbbbbbbbbbbb',
   fetchImpl: fetch,
-  sources: { osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io' },
+  sources: { osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io', dockerHub: 'https://registry-1.docker.io', dockerAuth: 'https://auth.docker.io' },
   tell: async (message) => { told.push(message); },
   rootUrl: 'https://app.example.com',
   now: () => new Date(at),
@@ -136,7 +154,7 @@ describe('root\'s daily check of what its running releases are made of', () => {
       inventoryOf: async (tag) => inventories[tag],
       currentRelease: 'bbbbbbbbbbbb',
       fetchImpl: fetch,
-      sources: { osv: 'http://sources.test/osv', npm: 'http://sources.test/npm', github: 'http://sources.test/github', ghcr: 'http://sources.test/ghcr' },
+      sources: { osv: 'http://sources.test/osv', npm: 'http://sources.test/npm', github: 'http://sources.test/github', ghcr: 'http://sources.test/ghcr', dockerHub: 'http://sources.test/docker-hub', dockerAuth: 'http://sources.test/docker-auth' },
       tell: async () => undefined,
       rootUrl: 'https://app.example.com',
       now: () => new Date('2026-10-29T12:00:00Z'),
@@ -250,8 +268,114 @@ describe('root\'s daily check of what its running releases are made of', () => {
       await withTabby(async () => {
         const { check } = await watch('2026-11-13T12:00:00Z').check();
         expect(check!.builds).toEqual([]);
-        expect(check!.problems).toEqual([expect.stringMatching(/^the newest build of theroyallab\/tabbyapi:latest could not be read: .*503/)]);
+        expect(check!.problems).toEqual([
+          expect.stringMatching(/^whether theroyallab\/tabbyapi@sha256:aaaaaaaaaaaa is still published could not be checked: .*503/),
+          expect.stringMatching(/^the newest build of theroyallab\/tabbyapi:latest could not be read: .*503/),
+        ]);
       });
+    });
+  });
+
+  describe('an image pinned by digest that its registry no longer has', () => {
+    const withVllm = async (run: () => Promise<void>, digest = VLLM_PINNED) => {
+      const was = inventories.bbbbbbbbbbbb;
+      inventories.bbbbbbbbbbbb = { components: [npm('seroval', '1.6.11'), npm('left-pad', '1.3.0'), k3s, mongo, vllm(digest)] };
+      try { await run(); } finally { inventories.bbbbbbbbbbbb = was; }
+    };
+    const goneTold = () => told.filter((message) => message.subject.includes('gone upstream'));
+
+    it('asks Docker Hub for the pinned digest\'s manifest with an anonymous token, and keeps nothing while it is there', async () => {
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        expect(asked.map((entry) => entry.url)).toEqual(expect.arrayContaining([
+          'https://auth.docker.io/token?service=registry.docker.io&scope=repository:vllm/vllm-openai:pull',
+          `https://registry-1.docker.io/v2/vllm/vllm-openai/manifests/sha256:${VLLM_PINNED}`,
+        ]));
+        expect(check!.gone).toEqual([]);
+        expect(check!.problems).toEqual([]);
+        expect(goneTold()).toEqual([]);
+      });
+    });
+
+    it('keeps a digest the registry says is gone, with since when, and emails the operator once', async () => {
+      hub.manifest = 404;
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        expect(check!.gone).toEqual([{ image: 'vllm/vllm-openai', source: 'docker.io/vllm/vllm-openai:v0.32.0', digest: VLLM_PINNED, since: '2026-11-14T06:00:00.000Z', releases: ['v2026.10.29'] }]);
+        expect(goneTold()).toHaveLength(1);
+        expect(goneTold()[0]!.subject).toBe('Koala\'s dependencies: 1 pinned image gone upstream');
+        expect(goneTold()[0]!.text).toContain('- vllm/vllm-openai@sha256:dddddddddddd (docker.io/vllm/vllm-openai:v0.32.0), pinned in v2026.10.29');
+        expect(goneTold()[0]!.text).toContain('See it on Koala\'s dependencies: https://app.example.com/#/dependencies');
+        const later = await watch('2026-11-15T06:00:00Z').check();
+        expect(later.check!.gone).toEqual(check!.gone);
+        expect(goneTold()).toHaveLength(1);
+        expect((await watch('2026-11-15T06:00:00Z').view()).check!.gone).toEqual(check!.gone);
+      });
+    });
+
+    it('takes the registry\'s MANIFEST_UNKNOWN as gone too', async () => {
+      hub.manifest = 400;
+      hub.body = { errors: [{ code: 'MANIFEST_UNKNOWN', message: 'manifest unknown' }] };
+      await withVllm(async () => {
+        expect((await watch('2026-11-14T06:00:00Z').check()).check!.gone!.map((entry) => entry.image)).toEqual(['vllm/vllm-openai']);
+      });
+    });
+
+    it('clears it once the digest answers again, and when the pin moves to another digest', async () => {
+      hub.manifest = 404;
+      await withVllm(async () => {
+        await watch('2026-11-14T06:00:00Z').check();
+        hub.manifest = 200;
+        expect((await watch('2026-11-15T06:00:00Z').check()).check!.gone).toEqual([]);
+      });
+      await withVllm(async () => {
+        hub.manifest = 404;
+        await watch('2026-11-16T06:00:00Z').check();
+      });
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-17T06:00:00Z').check();
+        expect(check!.gone).toEqual([{ image: 'vllm/vllm-openai', source: 'docker.io/vllm/vllm-openai:v0.32.0', digest: 'e'.repeat(64), since: '2026-11-17T06:00:00.000Z', releases: ['v2026.10.29'] }]);
+      }, 'e'.repeat(64));
+    });
+
+    it('says the digest could not be checked, never gone and never fine, when the token service or the registry answers anything else', async () => {
+      hub.token = 503;
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        expect(check!.gone).toEqual([]);
+        expect(check!.problems).toEqual([`whether vllm/vllm-openai@sha256:dddddddddddd is still published could not be checked: asking docker.io's token service, it answered 503`]);
+      });
+      hub.token = 200;
+      hub.manifest = 401;
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        expect(check!.gone).toEqual([]);
+        expect(check!.problems).toEqual([`whether vllm/vllm-openai@sha256:dddddddddddd is still published could not be checked: asking docker.io for its manifest, it refused the request (401)`]);
+      });
+      expect(goneTold()).toEqual([]);
+    });
+
+    it('keeps a digest known gone while its registry cannot be asked', async () => {
+      hub.manifest = 404;
+      await withVllm(async () => {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        hub.manifest = 503;
+        const later = await watch('2026-11-15T06:00:00Z').check();
+        expect(later.check!.gone).toEqual(check!.gone);
+        expect(later.check!.problems).toEqual([expect.stringContaining('could not be checked: asking docker.io for its manifest, it answered 503')]);
+        expect(goneTold()).toHaveLength(1);
+      });
+    });
+
+    it('says a registry Koala does not ask could not be checked', async () => {
+      const was = inventories.bbbbbbbbbbbb;
+      inventories.bbbbbbbbbbbb = { components: [{ ...vllm(), properties: [{ name: 'koala:kind', value: 'image' }, { name: 'koala:source', value: 'nvcr.io/nvidia/k8s-device-plugin:v0.20.1' }] }] };
+      try {
+        const { check } = await watch('2026-11-14T06:00:00Z').check();
+        expect(check!.problems).toEqual(['whether vllm/vllm-openai@sha256:dddddddddddd is still published could not be checked: Koala asks only docker.io and ghcr.io, and it is on nvcr.io']);
+      } finally {
+        inventories.bbbbbbbbbbbb = was;
+      }
     });
   });
 });

@@ -1,3 +1,4 @@
+import type { GoneImage } from './pinned-images.js';
 import type { TrackedBuild } from './tracked-builds.js';
 import { compareVersions, COOLING_OFF_DAYS, DAY_MS, fixOf } from '../../platform/lib/dependency-rule.js';
 import type { ComponentKind, InventoryComponent, Severity } from '../../platform/index.js';
@@ -62,6 +63,7 @@ export interface DependencyCheck {
   releases: CheckedRelease[];
   components: ListedComponent[];
   builds?: TrackedBuild[] | undefined;
+  gone?: GoneImage[] | undefined;
   problems: string[];
 }
 

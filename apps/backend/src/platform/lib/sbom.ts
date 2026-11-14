@@ -15,6 +15,7 @@ export interface InventoryComponent {
   released?: string | undefined;
   source?: string | undefined;
   tracks?: string | undefined;
+  digest?: string | undefined;
   floating: boolean;
 }
 
@@ -23,6 +24,7 @@ interface BomComponent {
   scope?: unknown;
   name?: unknown;
   version?: unknown;
+  hashes?: { alg?: unknown; content?: unknown }[];
   properties?: { name?: unknown; value?: unknown }[];
 }
 
@@ -55,6 +57,7 @@ export function inventoryComponents(bom: unknown): InventoryComponent[] {
       released: props['koala:released'],
       source: props['koala:source'],
       tracks: props['koala:tracks'],
+      digest: kind === 'image' ? text((component.hashes ?? []).find((hash) => hash.alg === 'SHA-256')?.content) : undefined,
       floating: props['koala:floating'] === 'true',
     }];
   });

@@ -16,7 +16,7 @@ export type { Database } from './lib/db-interface.js';
 export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities } from './lib/dependency-rule.js';
 export type { DevMarks, JudgedVulnerability, Vulnerability } from './lib/dependency-rule.js';
 export { podPlaceFrom } from './lib/drain.js';
-export { DEPENDENCIES, DEPENDENCY_IDS, DependencyDownError, downAcross, failureOf, GONE_STATUSES, isDependencyId, NAME_NOT_FOUND, refusedByServer, reportingFetch, reportStatus, statusFailure, stillDown, temporaryStatus, thrownFor } from './lib/dependencies.js';
+export { answerFailure, DEPENDENCIES, DEPENDENCY_IDS, DependencyDownError, downAcross, failureOf, GONE_STATUSES, isDependencyId, NAME_NOT_FOUND, refusedByServer, reportingFetch, reportStatus, statusFailure, stillDown, temporaryStatus, thrownFor } from './lib/dependencies.js';
 export type { DependencyDown, DependencyId, DependencyReporter, DependencyState, DependencyStateRow, Failure } from './lib/dependencies.js';
 export { emailWayFrom } from './lib/email-way.js';
 export { theFence } from './lib/fence.js';
