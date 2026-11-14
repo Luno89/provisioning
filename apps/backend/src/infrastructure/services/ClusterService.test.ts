@@ -2,11 +2,9 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { mockFn } from 'vitest-mock-extended';
 import { asPerson, principalOf, type ClusterMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import type { Shell } from '../lib/shell.js';
 import { ClusterService } from './ClusterService.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 
@@ -14,45 +12,32 @@ const MASTER = 'cluster-service-test-key';
 const NODES = JSON.stringify({ items: [{ metadata: { labels: {} }, status: { allocatable: { cpu: '8', memory: '32Gi', 'nvidia.com/gpu': '1' } } }] });
 const machine = (id: string, extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: id, provider: 'machine', machineId: id, status: 'stopped', ownerId: 'bo', ...extra });
 
-interface Places { shell?: Shell; koalaMachineId?: string | undefined; poolName?: string | undefined; root?: boolean | undefined; instanceOwnerId?: string | undefined }
+interface Places { koalaMachineId?: string | undefined; poolName?: string | undefined; root?: boolean | undefined; instanceOwnerId?: string | undefined }
 
 function setup(places: Places = { koalaMachineId: 'desk', instanceOwnerId: 'bo' }) {
-  const noHostTools = mockFn<Shell>();
-  noHostTools.mockRejectedValue(new Error('not on this host'));
   const db: Database = memoryDatabase();
   const kubectl = vi.fn<(args: readonly string[]) => Promise<string>>();
   kubectl.mockRejectedValue(new Error('no nodes here'));
   const folder = mkdtempSync(join(tmpdir(), 'cluster-service-'));
   const access = testClusterAccess(db, { answers: kubectl, dataKey: MASTER, folder, koalaMachineId: places.koalaMachineId, poolName: places.poolName, root: places.root, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } });
-  return { db, kubectl, folder, service: new ClusterService(db, access, { shell: places.shell ?? noHostTools, instanceOwnerId: places.instanceOwnerId }) };
+  return { db, kubectl, folder, service: new ClusterService(db, access, { instanceOwnerId: places.instanceOwnerId }) };
 }
 
-describe('the cluster this Koala runs in, read with its capacity', () => {
-  it('is its machine\'s record, running while Koala is on it, with the capacity its nodes report', async () => {
+describe('the cluster this Koala runs in, with the capacity its machine reported', () => {
+  it('is its machine\'s record, running while Koala is on it, with the capacity the machine reported, never read from the cluster', async () => {
+    const { service, kubectl, db } = setup();
+    await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk', capacity: { cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' } });
+    kubectl.mockResolvedValue(NODES);
+    expect(await service.ownCluster()).toMatchObject({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', capacity: { cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' } });
+    expect(kubectl).not.toHaveBeenCalled();
+  });
+
+  it('has no capacity until its machine reports one, rather than one read from the cluster or the host Koala runs on', async () => {
     const { service, kubectl, db } = setup();
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' });
     kubectl.mockResolvedValue(NODES);
-    expect(await service.ownCluster()).toMatchObject({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1, gpuVendor: 'nvidia' } });
-  });
-
-  it('adds the VRAM nvidia-smi reports when the nodes do not label it', async () => {
-    const shell = mockFn<Shell>();
-    shell.calledWith('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits').mockResolvedValue({ stdout: '24576\n', stderr: '' });
-    const { service, kubectl } = setup({ shell, koalaMachineId: 'desk', instanceOwnerId: 'bo' });
-    kubectl.mockResolvedValue(NODES);
-    expect((await service.ownCluster())?.capacity).toMatchObject({ gpuVramMib: 24576 });
-  });
-
-  it('shows its capacity without VRAM when nvidia-smi does not answer, and without capacity when its nodes cannot be read', async () => {
-    const shell = mockFn<Shell>();
-    shell.mockRejectedValue(new Error('nvidia-smi: not found'));
-    const { service, kubectl } = setup({ shell, koalaMachineId: 'desk', instanceOwnerId: 'bo' });
-    kubectl.mockResolvedValue(NODES);
-    expect((await service.ownCluster())?.capacity).not.toHaveProperty('gpuVramMib');
-    kubectl.mockRejectedValue(new Error('refused'));
-    const without = await service.ownCluster();
-    expect(without?.status).toBe('healthy');
-    expect(without?.capacity).toBeUndefined();
+    expect((await service.ownCluster())?.capacity).toBeUndefined();
+    expect(kubectl).not.toHaveBeenCalled();
   });
 
   it('is its machine\'s cluster, the instance owner\'s, before the machine has reported it', async () => {
