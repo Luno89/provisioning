@@ -1804,6 +1804,43 @@
         }
       ],
       "released": "2026-11-10T23:16:09Z"
+    },
+    {
+      "kind": "binary",
+      "name": "nvidia-container-toolkit-base",
+      "version": "1.20.1",
+      "source": "https://nvidia.github.io/libnvidia-container/stable",
+      "github": "NVIDIA/nvidia-container-toolkit",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/NVIDIA/nvidia-container-toolkit"
+      },
+      "usedIn": [
+        "scripts/machine/machine.sh"
+      ],
+      "uses": [
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "NVIDIA_TOOLKIT_VERSION=([0-9.]+)-1"
+        }
+      ],
+      "released": "2026-09-19T00:01:48Z"
+    },
+    {
+      "kind": "data",
+      "name": "nvidia-container-toolkit-signing-key",
+      "version": "2041629BF5352FAC178A9B1F6ED91CA3AC1160CD",
+      "sha256": "c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9",
+      "source": "https://nvidia.github.io/libnvidia-container/gpgkey",
+      "usedIn": [
+        "scripts/machine/machine.sh"
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "NVIDIA_KEY_SHA256=([0-9a-f]{64})"
+        }
+      ]
     }
   ],
   "unpinned": []

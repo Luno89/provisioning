@@ -22,6 +22,11 @@ K3S_SHA256_AMD64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3
 K3S_SHA256_ARM64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb
 K3S_MIRROR="https://github.com/k3s-io/k3s/releases/download"
 K3S_MARKER=/etc/koala/machine-k3s
+NVIDIA_TOOLKIT_VERSION=1.20.1-1
+NVIDIA_KEY_SHA256=c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9
+NVIDIA_REPO=https://nvidia.github.io/libnvidia-container
+NVIDIA_CDI_HOOK=/usr/bin/nvidia-cdi-hook
+NVIDIA_CDI_MARKER=/etc/koala/nvidia-cdi
 HELM_VERSION=v3.15.1
 HELM_SHA256_AMD64=7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11
 HELM_SHA256_ARM64=b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e86
@@ -215,6 +220,14 @@ for tables in iptables ip6tables; do
   "$tables" -F KOALA-MACHINE 2>/dev/null && "$tables" -X KOALA-MACHINE 2>/dev/null
 done
 rm -rf /etc/systemd/system/k3s.service.d/koala-firewall.conf /etc/koala/machine-k3s /usr/local/lib/koala/k3s-firewall.sh /etc/sudoers.d/koala-k3s
+if [ -f /etc/koala/nvidia-cdi ]; then
+  systemctl disable --now nvidia-cdi-refresh.path
+  case "$(cat /etc/koala/nvidia-cdi)" in
+    apt) apt-get remove -y nvidia-container-toolkit-base && rm -f /etc/apt/sources.list.d/koala-nvidia-container-toolkit.list /usr/share/keyrings/koala-nvidia-container-toolkit.asc ;;
+    dnf) dnf remove -y nvidia-container-toolkit-base && rm -f /etc/yum.repos.d/koala-nvidia-container-toolkit.repo /etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT ;;
+  esac
+  rm -f /etc/koala/nvidia-cdi /var/run/cdi/nvidia.yaml
+fi
 systemctl daemon-reload
 rm -f /usr/local/lib/koala/machine-uninstall.sh
 UNINSTALL
@@ -244,6 +257,59 @@ UNINSTALL
   printf '%s\n' "$K3S_VERSION" | sudo tee "$K3S_MARKER" >/dev/null
 }
 
+os_ids() {
+  . /etc/os-release
+  printf '%s %s' "${ID:-}" "${ID_LIKE:-}"
+}
+
+package_family() {
+  [ -r /etc/os-release ] || { echo none; return 0; }
+  case " $(os_ids) " in
+    *" debian "*|*" ubuntu "*) echo apt ;;
+    *" fedora "*|*" rhel "*|*" centos "*|*" rocky "*|*" almalinux "*|*" amzn "*) echo dnf ;;
+    *) echo none ;;
+  esac
+}
+
+install_nvidia_cdi() {
+  family=$(package_family)
+  if [ "$family" = none ]; then
+    echo "  NVIDIA's CDI support is not offered on this system, so its GPUs are not used. Install nvidia-container-toolkit-base $NVIDIA_TOOLKIT_VERSION as https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html says, enable nvidia-cdi-refresh.path, then run this command again."
+    return 0
+  fi
+  key=$(mktemp)
+  curl -fsSL "$NVIDIA_REPO/gpgkey" -o "$key" || { rm -f "$key"; die "could not download NVIDIA's package signing key; nothing was installed"; }
+  [ "$(sha256_of "$key")" = "$NVIDIA_KEY_SHA256" ] || { rm -f "$key"; die "NVIDIA's package signing key downloaded is not the one Koala pins (its sha256 differs); nothing was installed"; }
+  if [ "$family" = apt ]; then
+    sudo install -m 644 "$key" /usr/share/keyrings/koala-nvidia-container-toolkit.asc
+    printf 'deb [signed-by=/usr/share/keyrings/koala-nvidia-container-toolkit.asc] %s/stable/deb/$(ARCH) /\n' "$NVIDIA_REPO" | sudo tee /etc/apt/sources.list.d/koala-nvidia-container-toolkit.list >/dev/null
+    sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/koala-nvidia-container-toolkit.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 >/dev/null
+    sudo apt-get install -y "nvidia-container-toolkit-base=$NVIDIA_TOOLKIT_VERSION" >/dev/null
+  else
+    sudo install -m 644 "$key" /etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT
+    printf '[koala-nvidia-container-toolkit]\nname=NVIDIA Container Toolkit, added by Koala\nbaseurl=%s/stable/rpm/$basearch\nrepo_gpgcheck=1\ngpgcheck=0\nenabled=1\ngpgkey=file:///etc/pki/rpm-gpg/KOALA-NVIDIA-CONTAINER-TOOLKIT\n' "$NVIDIA_REPO" | sudo tee /etc/yum.repos.d/koala-nvidia-container-toolkit.repo >/dev/null
+    sudo dnf install -y "nvidia-container-toolkit-base-$NVIDIA_TOOLKIT_VERSION" >/dev/null
+  fi
+  rm -f "$key"
+  sudo systemctl enable --now nvidia-cdi-refresh.path >/dev/null
+  sudo systemctl start nvidia-cdi-refresh.service
+  printf '%s\n' "$family" | sudo tee "$NVIDIA_CDI_MARKER" >/dev/null
+  ok "NVIDIA's CDI support $NVIDIA_TOOLKIT_VERSION installed from NVIDIA's own repository; apps here can be given this machine's NVIDIA GPUs"
+}
+
+offer_nvidia_cdi() {
+  have nvidia-smi || return 0
+  if [ -x "$NVIDIA_CDI_HOOK" ]; then
+    ok "NVIDIA's CDI support is already installed here; Koala uses it as it is"
+    return 0
+  fi
+  if ask "This machine has an NVIDIA GPU. Install NVIDIA's CDI support (nvidia-container-toolkit-base $NVIDIA_TOOLKIT_VERSION, from NVIDIA's own repository) so apps here can use it?"; then
+    install_nvidia_cdi
+  else
+    echo "  without it Koala runs apps here on CPU only; run this command again to add it"
+  fi
+}
+
 if [ "$CLUSTER" = 1 ] && [ "$(uname -s)" = Linux ]; then
   say "This machine's own cluster"
   if [ -x /usr/local/bin/k3s ] && [ ! -f "$K3S_MARKER" ]; then
@@ -251,6 +317,7 @@ if [ "$CLUSTER" = 1 ] && [ "$(uname -s)" = Linux ]; then
   elif ask "Koala runs apps and workspaces here in k3s, started only while there is work and stopped after. Install k3s $K3S_VERSION (asks for sudo once)?"; then
     install_k3s
     ok "k3s $K3S_VERSION installed, stopped until Koala has work here; it answers only on this machine and your private network"
+    offer_nvidia_cdi
   else
     echo "  without it Koala runs only your coding agents here; run this command again to add it"
   fi
