@@ -16,7 +16,7 @@ describe('the account default', () => {
         await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email } as never);
         return modelsRouter({
           db,
-          modelService: { list: async () => [{ id: 'tabby-qwen', name: 'Qwen on TabbyAPI' }] },
+          modelService: { list: async () => [{ id: 'tabby-qwen', name: 'Qwen on TabbyAPI' }], listAsServed: async () => [{ id: 'tabby-qwen', name: 'Qwen on TabbyAPI' }] as never },
           credentialService: { resolveCredentials: async () => ({ mode: 'none' as const, env: {} }) },
           rateLimits: () => [],
           machines: {

@@ -303,6 +303,18 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       expect((await (await build([])).resolveBaseUrl('u1', 'vllm-1')).provider.contextTokens).toBe(8192);
     });
 
+    it('is listed with the window its server says it serves, and with the typed one while its cluster cannot be reached', async () => {
+      apps.getAll.mockResolvedValue([deployment({ vllmMaxModelLen: 8192 })]);
+      clusters.getById.mockResolvedValue(cluster);
+      proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
+      windows.read.mockResolvedValue(32768);
+      const models = await build([]);
+      expect((await models.listAsServed('u1')).map((m) => m.contextTokens)).toEqual([32768]);
+
+      proxy.serviceUrl.mockRejectedValue(new Error('c1 is stopped until something runs on it'));
+      expect((await models.listAsServed('u1')).map((m) => m.contextTokens)).toEqual([8192]);
+    });
+
     it('says so when its cluster is gone', async () => {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(undefined);

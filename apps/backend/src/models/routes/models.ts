@@ -14,7 +14,7 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export interface ModelsRouterDeps {
-  modelService: { list(userId: string): Promise<Array<Pick<ModelProvider, 'id' | 'name' | 'chatProblem'>>> };
+  modelService: { list(userId: string): Promise<Array<Pick<ModelProvider, 'id' | 'name' | 'chatProblem'>>>; listAsServed(userId: string): Promise<ModelProvider[]> };
   db: Pick<Database, 'accounts'>;
   credentialService: Pick<CredentialService, 'resolveCredentials'>;
   machines?: Pick<MachineService, 'choiceProblem'> | undefined;
@@ -40,7 +40,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
 
   router.get('/', asyncRoute(async (req, res) => {
     try {
-      res.json(await modelService.list(userOf(req).id));
+      res.json(await modelService.listAsServed(userOf(req).id));
     } catch (err) {
       res.status(500).json({ error: messageOf(err) });
     }

@@ -94,7 +94,7 @@ async function main(): Promise<void> {
 
     const imagesBefore = await vllmImages();
     const deployed = await stage(`${NAME}, vLLM serving ${MODEL} on one GPU, deploys through Koala, which readies the machine's GPUs first`, async () => {
-      const made = await api.post('/api/deployments', { name: NAME, clusterId, appType: 'vllm', strategy: 'native', vllmModel: MODEL, vllmGpuCount: 1, vllmMaxModelLen: 4096, vllmGpuMemUtil: 0.5 });
+      const made = await api.post('/api/deployments', { name: NAME, clusterId, appType: 'vllm', strategy: 'native', vllmModel: MODEL, vllmGpuCount: 1, vllmGpuMemUtil: 0.5 });
       assert.equal(made.status, 202, `the deploy answered ${made.status}: ${JSON.stringify(made.data)}`);
       id = (made.data as { id: string }).id;
       apps.made(id);
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
       assert.equal(advertised, reported);
     });
 
-    await stage(`the model answers through its service, from its GPU`, async () => {
+    await stage(`the model answers through its service, from its GPU, and Koala takes the window it serves`, async () => {
       const namespace = deployed.namespace ?? NAME;
       const services = JSON.parse(await devKubectl(namespace, 'get', 'services', '-o', 'json')) as { items: { metadata: { name: string }; spec: { ports: { port: number }[] } }[] };
       const service = services.items.find((entry) => entry.spec.ports.some((port) => port.port === 8000));
@@ -131,6 +131,11 @@ async function main(): Promise<void> {
       const said = (answer.data as { choices: { message: { content: string } }[] }).choices[0]?.message.content ?? '';
       console.log(`    ${served} said: ${JSON.stringify(said)}`);
       assert.ok(said.trim().length > 0, 'the model said nothing');
+      const window = ((await vllm.get('/v1/models')).data as { data: { max_model_len?: number }[] }).data[0]?.max_model_len;
+      assert.ok(window, 'vLLM listed no max_model_len');
+      const listed = ((await api.get('/api/models')).data as { id: string; contextTokens?: number }[]).find((entry) => entry.id === id);
+      console.log(`    vLLM serves a window of ${window} tokens; Koala lists it with ${String(listed?.contextTokens)}`);
+      assert.equal(listed?.contextTokens, window, 'Koala does not list the window its server serves');
       const pods = JSON.parse(await devKubectl(namespace, 'get', 'pods', '-o', 'json')) as { items: { spec: { containers: { resources?: { limits?: Record<string, string> } }[] } }[] };
       assert.equal(pods.items[0]?.spec.containers[0]?.resources?.limits?.['nvidia.com/gpu'], '1', 'the model\'s pod holds no GPU');
     });

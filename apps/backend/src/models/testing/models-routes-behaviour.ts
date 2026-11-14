@@ -21,7 +21,7 @@ let machines: MockProxy<Machines>;
 let rateLimits: Mock<ModelsRouterDeps['rateLimits']>;
 
 const deps = (extra: Partial<ModelsRouterDeps> = {}): ModelsRouterDeps => ({
-  modelService: { list: async () => listed },
+  modelService: { list: async () => listed, listAsServed: async () => listed as never },
   db,
   credentialService: credentials,
   rateLimits,
@@ -63,7 +63,8 @@ export function modelsRoutesBehaviour(make: () => Promise<Database>): void {
     });
 
     it('says why they cannot be listed', async () => {
-      const answer = await call('/', 'GET', undefined, { modelService: { list: async () => { throw new Error('store is gone'); } } });
+      const gone = async (): Promise<never> => { throw new Error('store is gone'); };
+      const answer = await call('/', 'GET', undefined, { modelService: { list: gone, listAsServed: gone } });
       expect(answer).toMatchObject({ status: 500, data: { error: 'store is gone' } });
     });
   });
@@ -150,7 +151,8 @@ export function modelsRoutesBehaviour(make: () => Promise<Database>): void {
     });
 
     it('says why it could not be set', async () => {
-      const answer = await call('/extractor', 'PUT', { modelId: 'x' }, { modelService: { list: async () => { throw new Error('store is gone'); } } });
+      const gone = async (): Promise<never> => { throw new Error('store is gone'); };
+      const answer = await call('/extractor', 'PUT', { modelId: 'x' }, { modelService: { list: gone, listAsServed: gone } });
       expect(answer).toMatchObject({ status: 500, data: { error: 'store is gone' } });
     });
   });

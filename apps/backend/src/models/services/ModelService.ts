@@ -7,6 +7,7 @@ import { modelOwner } from '../../checks/lib/check-space.js';
 import { MACHINE_DEFAULT_NEEDS_MODEL } from '../../machines/index.js';
 import { machineChoice } from '@koala/agent-engine/procedure';
 import type { ServedWindows } from './served-windows.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface AppRecords {
   getAll(userId: string): Promise<DeploymentMetadata[]>;
@@ -111,11 +112,23 @@ export class ModelService extends BaseService {
     const resolved = provider.source === 'endpoint'
       ? await this.resolveEndpoint(owner, provider)
       : await this.resolveDeployment(owner, provider);
-    const asksServer = provider.source === 'deployment' || provider.contextTokens === undefined;
-    const served = asksServer
-      ? await this.windows.read({ baseUrl: resolved.baseUrl, kind: provider.kind, model: provider.model, apiKey: resolved.apiKey })
-      : undefined;
-    return { ...resolved, provider: served ? { ...resolved.provider, contextTokens: served } : resolved.provider, source };
+    return { ...resolved, provider: await this.asServed(resolved), source };
+  }
+
+  async listAsServed(userId: string): Promise<ModelProvider[]> {
+    const owner = await this.modelOwner(userId);
+    return Promise.all((await this.list(userId)).map(async (provider) => {
+      if (provider.source !== 'deployment') return provider;
+      const resolved = await this.resolveDeployment(owner, provider)
+        .catch(ignore('a model whose cluster cannot be reached now is listed with the window its settings name, and a run on it says why it cannot reach it'));
+      return resolved ? this.asServed(resolved) : provider;
+    }));
+  }
+
+  private async asServed({ provider, baseUrl, apiKey }: { provider: ModelProvider; baseUrl: string; apiKey?: string }): Promise<ModelProvider> {
+    if (provider.source !== 'deployment' && provider.contextTokens !== undefined) return provider;
+    const served = await this.windows.read({ baseUrl, kind: provider.kind, model: provider.model, apiKey });
+    return served ? { ...provider, contextTokens: served } : provider;
   }
 
   private async resolveEndpoint(
