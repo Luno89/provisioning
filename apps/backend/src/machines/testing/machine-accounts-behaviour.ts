@@ -158,9 +158,11 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     it('keeps each with its id and token hash for the instance\'s owner, once, so running the command again keeps it', async () => {
       const machines = accounts();
       const oldToken = 'a-token-the-instance-gave-before';
-      const before = { id: 'old-desk', ownerId: 'someone-else', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z', tokenHash: deviceTokenHash(oldToken), issuedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-12-30T00:00:00Z', agents: [{ id: 'x' }] };
+      const issuedAt = new Date(clock.getTime() - 30 * DAY).toISOString();
+      const expiresAt = new Date(clock.getTime() + 60 * DAY).toISOString();
+      const before = { id: 'old-desk', ownerId: 'someone-else', name: 'desk', rootDir: '/home/bo/koala', createdAt: issuedAt, tokenHash: deviceTokenHash(oldToken), issuedAt, expiresAt, agents: [{ id: 'x' }] };
       expect(await machines.adoptFrom('bo', [before, { id: 'no-folder', name: 'x', createdAt: 'then' }, 'nonsense'])).toEqual({ adopted: 1 });
-      expect(await stored('old-desk')).toEqual({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z', tokenHash: deviceTokenHash(oldToken), issuedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-12-30T00:00:00Z' });
+      expect(await stored('old-desk')).toEqual({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: issuedAt, tokenHash: deviceTokenHash(oldToken), issuedAt, expiresAt });
       expect(await machines.adoptFrom('bo', [{ ...before, name: 'changed' }])).toEqual({ adopted: 0 });
       expect((await stored('old-desk'))?.name).toBe('desk');
       const { code } = await machines.createJoinCode('bo');
