@@ -18,11 +18,14 @@ const TERMINAL_WAITING = new Set([
   'CreateContainerConfigError',
 ]);
 
+const PULLING = new Set(['ImagePullBackOff', 'ErrImagePull']);
+
 interface ContainerLike {
   name?: string;
+  image?: string;
   ready?: boolean;
   restartCount?: number;
-  state?: { waiting?: { reason?: string }; terminated?: { reason?: string; exitCode?: number } };
+  state?: { waiting?: { reason?: string; message?: string }; terminated?: { reason?: string; exitCode?: number } };
   lastState?: { terminated?: { finishedAt?: string } };
 }
 
@@ -35,9 +38,15 @@ interface PodLike {
   };
 }
 
+function pulled(container: ContainerLike): string {
+  const message = container.state?.waiting?.message;
+  if (!container.image) return message ? `: ${message}` : '';
+  return `, its image ${container.image} could not be pulled${message ? `: ${message}` : ''}`;
+}
+
 function stuck(name: string, container: ContainerLike, now: number): WorkloadStatus | undefined {
   const waiting = container.state?.waiting?.reason;
-  if (waiting && TERMINAL_WAITING.has(waiting)) return { health: 'unhealthy', reason: `${name}: ${waiting}` };
+  if (waiting && TERMINAL_WAITING.has(waiting)) return { health: 'unhealthy', reason: `${name}: ${waiting}${PULLING.has(waiting) ? pulled(container) : ''}` };
   const lastRestart = Date.parse(container.lastState?.terminated?.finishedAt ?? '');
   const restartedLately = Number.isFinite(lastRestart) && now - lastRestart < RECENT_RESTART_MS;
   if ((container.restartCount ?? 0) >= RESTARTS_BEFORE_FAILING && !container.ready && restartedLately) {

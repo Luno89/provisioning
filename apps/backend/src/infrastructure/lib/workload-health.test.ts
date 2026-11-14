@@ -53,6 +53,17 @@ describe('a workload that has settled into failing', () => {
       .toBe('unhealthy');
   });
 
+  it('names the image that cannot be pulled and the registry\'s reason, so a digest gone upstream reads as one', () => {
+    const image = 'docker.io/vllm/vllm-openai:v0.32.0@sha256:befccf0e7e40';
+    const message = `failed to pull and unpack image "${image}": failed to resolve reference "${image}": not found`;
+    expect(assessWorkload(pods([{ ready: false, restartCount: 0, image, state: { waiting: { reason: 'ErrImagePull', message } } }]))).toEqual({
+      health: 'unhealthy',
+      reason: `pod-0: ErrImagePull, its image ${image} could not be pulled: ${message}`,
+    });
+    expect(assessWorkload(pods([{ ready: false, restartCount: 0, image, state: { waiting: { reason: 'ImagePullBackOff', message: `Back-off pulling image "${image}"` } } }])).reason)
+      .toBe(`pod-0: ImagePullBackOff, its image ${image} could not be pulled: Back-off pulling image "${image}"`);
+  });
+
   it('catches an init container that cannot pull its image or keeps crashing, which held its pod at Init forever', () => {
     const initWaiting = (reason: string) => ({ items: [{ metadata: { name: 'backend-new' }, status: {
       phase: 'Pending',
