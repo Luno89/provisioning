@@ -7,6 +7,7 @@ import { numberOf, textOf } from './read.js';
 
 export const DEFAULT_CONTEXT_MARGIN = 1000;
 export const DEFAULT_MIN_REPLY_TOKENS = 512;
+export const FALLBACK_CONTEXT_TOKENS = 131_072;
 
 export const chooseModel: BuiltInNode = {
   definition: defineNode({

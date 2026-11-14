@@ -1,4 +1,5 @@
 import { fittedMaxTokens, type ModelProvider, type EngineEndpoint } from '@koala/agent-engine';
+import { FALLBACK_CONTEXT_TOKENS } from '@koala/agent-engine/procedure';
 import type { AgentRegistry } from './registry.js';
 import type { SamplingConfig } from '@koala/harness-types';
 
@@ -64,7 +65,7 @@ export function createEndpointResolver(options: EndpointResolverOptions) {
       };
 
       const budget = {
-        contextTokens: provider.contextTokens ?? 32_000,
+        contextTokens: provider.contextTokens ?? FALLBACK_CONTEXT_TOKENS,
         contextMargin: 1_000,
         minReplyTokens: 512,
       };

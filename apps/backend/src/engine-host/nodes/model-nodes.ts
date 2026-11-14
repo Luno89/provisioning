@@ -23,6 +23,7 @@ import {
   type Compaction,
   DEFAULT_CONTEXT_MARGIN,
   DEFAULT_MIN_REPLY_TOKENS,
+  FALLBACK_CONTEXT_TOKENS,
   promptCharacters,
   readDecision,
   replyExit,
@@ -38,8 +39,6 @@ import {
 import { toolSchemas } from '@koala/engine-core';
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
 import type { HostNodeServices } from './services.js';
-
-const DEFAULT_CONTEXT_TOKENS = 32_000;
 
 const roomForReply = (binding: ModelBinding, system: string, messages: readonly ChatMessage[]): number => fittedMaxTokens(
   {
@@ -111,7 +110,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
         ...(provider.kind ? { kind: provider.kind } : {}),
         ...(modelId ? { modelId } : {}),
         ...(endpointId ? { endpointId } : {}),
-        contextTokens: provider.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
+        contextTokens: provider.contextTokens ?? FALLBACK_CONTEXT_TOKENS,
         ...(written ?? learned ? { replyCeiling: written ?? learned } : {}),
         ...(sampling ? { sampling } : {}),
         ...(persona.model?.reasoningEffort ? { reasoningEffort: persona.model.reasoningEffort } : {}),
