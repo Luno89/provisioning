@@ -93,13 +93,14 @@ async function main(): Promise<void> {
     await expect(row.getByText('online', { exact: true })).toBeVisible();
     await expect(row.getByText(/^GPUs: 2 × .+ GiB each$/)).toBeVisible();
     await expect(row.getByText(/not usable yet|could not be read/)).toHaveCount(0);
+    const gpusOnMyMachines = await row.getByText(/^GPUs:/).innerText();
     const cluster = ((await api.get('/api/clusters')).data as Cluster[]).find((entry) => entry.id === clusterId);
     assert.ok(cluster, `${clusterId} is not among the owner's clusters`);
     await page.goto(`${devKoalaPage}/#/infrastructure`);
     const card = page.getByTestId('cluster-card').filter({ hasText: cluster.name });
     await expect(card.getByText(/^GPUs: 2 × .+ GiB each$/)).toBeVisible({ timeout: 60_000 });
     await expect(card.getByText(/not usable yet|could not be read/)).toHaveCount(0);
-    console.log(`  ${device.name} online; ${await row.getByText(/^GPUs:/).innerText()}, on My Machines and its cluster card`);
+    console.log(`  ${device.name} online; ${gpusOnMyMachines}, on My Machines and its cluster card`);
     nothingWentWrong(watching, 'My Machines and the cluster card');
 
     step('the owner\'s own models holding GPUs here are stopped for the test, their records kept');
