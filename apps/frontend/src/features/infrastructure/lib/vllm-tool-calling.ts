@@ -7,6 +7,7 @@
 export const VLLM_TOOL_CALL_PARSERS: readonly { parser: string; label: string }[] = [
   { parser: 'hermes', label: 'Hermes, Qwen 2.5, QwQ, Qwen 3' },
   { parser: 'qwen3_xml', label: 'Qwen3-Coder' },
+  { parser: 'qwen3_coder', label: 'Qwen 3.5, 3.6' },
   { parser: 'llama3_json', label: 'Llama 3.1, 3.2, 3.3' },
   { parser: 'llama4_pythonic', label: 'Llama 4' },
   { parser: 'pythonic', label: 'Pythonic (Llama 3.2 small, ToolACE)' },
@@ -38,6 +39,7 @@ export const VLLM_TOOL_CALL_PARSERS: readonly { parser: string; label: string }[
 
 const FAMILIES: readonly { name: RegExp; org?: RegExp; parser: string }[] = [
   { name: /^qwen3-coder-/, parser: 'qwen3_xml' },
+  { name: /^qwen3\.[56]-/, parser: 'qwen3_coder' },
   { name: /^(qwen2\.5-|qwq-|qwen3-)/, parser: 'hermes' },
   { name: /^hermes-(2-pro|3)-/, parser: 'hermes' },
   { name: /^(mistral|mixtral)-/, parser: 'mistral' },

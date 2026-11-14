@@ -47,7 +47,6 @@ describe('toolCallParserFor', () => {
   });
 
   it.each([
-    'Qwen/Qwen3.6-27B',
     'NousResearch/Hermes-2-Theta-Llama-3-8B',
     'meta-llama/Llama-4-Scout-17B-16E-Instruct',
     'ibm-granite/granite-3.0-8b-instruct',
@@ -95,5 +94,17 @@ describe('vllmToolCalling', () => {
   it('refuses a parser vLLM does not have', () => {
     expect(vllmToolCalling({ vllmModel: 'Qwen/Qwen3-8B', vllmToolCallingEnabled: true, vllmToolCallParser: 'made-up' }, { newApp: true }))
       .toEqual({ problem: 'made-up is not a tool call parser vLLM v0.32.0 has' });
+  });
+});
+
+describe('the tool call parser Koala picks from a model\'s name', () => {
+  it.each([
+    ['Qwen/Qwen3-8B', 'hermes'],
+    ['Qwen/Qwen3-Coder-30B-A3B-Instruct', 'qwen3_xml'],
+    ['Qwen/Qwen3.5-9B', 'qwen3_coder'],
+    ['Qwen/Qwen3.6-35B-A3B', 'qwen3_coder'],
+    ['Qwen/Qwen3.6-27B', 'qwen3_coder'],
+  ])('is %s → %s, as vLLM v0.32.0\'s own recipes serve it', (model, parser) => {
+    expect(toolCallParserFor(model)).toBe(parser);
   });
 });

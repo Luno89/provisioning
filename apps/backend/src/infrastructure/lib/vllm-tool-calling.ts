@@ -1,7 +1,7 @@
 export const VLLM_TOOL_CALL_PARSERS = [
   'hermes', 'mistral', 'granite4', 'granite', 'granite-20b-fc', 'llama3_json', 'llama4_pythonic', 'pythonic',
   'internlm', 'jamba', 'xlam', 'deepseek_v3', 'deepseek_v31', 'openai', 'kimi_k2', 'hunyuan_a13b',
-  'cohere_command3', 'cohere_command4', 'longcat', 'glm45', 'glm47', 'functiongemma', 'qwen3_xml', 'mimo',
+  'cohere_command3', 'cohere_command4', 'longcat', 'glm45', 'glm47', 'functiongemma', 'qwen3_xml', 'qwen3_coder', 'mimo',
   'step3p5', 'olmo3', 'gigachat3', 'apertus', 'hf',
 ] as const;
 
@@ -9,6 +9,7 @@ export type VllmToolCallParser = typeof VLLM_TOOL_CALL_PARSERS[number];
 
 const FAMILIES: readonly { name: RegExp; org?: RegExp; parser: VllmToolCallParser }[] = [
   { name: /^qwen3-coder-/, parser: 'qwen3_xml' },
+  { name: /^qwen3\.[56]-/, parser: 'qwen3_coder' },
   { name: /^(qwen2\.5-|qwq-|qwen3-)/, parser: 'hermes' },
   { name: /^hermes-(2-pro|3)-/, parser: 'hermes' },
   { name: /^(mistral|mixtral)-/, parser: 'mistral' },

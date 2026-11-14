@@ -7,6 +7,8 @@ describe('the tool call parser for a model', () => {
     ['Qwen/Qwen2.5-0.5B-Instruct', 'hermes'],
     ['Qwen/Qwen3-8B', 'hermes'],
     ['Qwen/Qwen3-Coder-30B-A3B-Instruct', 'qwen3_xml'],
+    ['Qwen/Qwen3.5-9B', 'qwen3_coder'],
+    ['Qwen/Qwen3.6-35B-A3B', 'qwen3_coder'],
     ['meta-llama/Llama-3.2-3B-Instruct', 'llama3_json'],
     ['mistralai/Mistral-7B-Instruct-v0.3', 'mistral'],
     ['ibm-granite/granite-4.0-h-small', 'granite4'],
@@ -16,7 +18,7 @@ describe('the tool call parser for a model', () => {
     expect(toolCallParserFor(model)).toBe(parser)
   })
 
-  it.each(['Qwen/Qwen3.6-27B', 'meta-llama/Llama-4-Scout-17B-16E-Instruct', 'someone/their-own-model', ''])('is not guessed for %s', (model) => {
+  it.each(['meta-llama/Llama-4-Scout-17B-16E-Instruct', 'someone/their-own-model', ''])('is not guessed for %s', (model) => {
     expect(toolCallParserFor(model)).toBeUndefined()
   })
 
