@@ -186,6 +186,13 @@ async function serverAnswers(endpoint: EngineEndpoint, fetchImpl: typeof fetch, 
   }
 }
 
+export function contextTooSmall(detail: string | undefined): string | undefined {
+  const window = /maximum context length is (\d+) tokens/i.exec(detail ?? '');
+  if (!window) return undefined;
+  const needed = /contains at least (\d+)/i.exec(detail ?? '') ?? /requested (\d+) tokens/i.exec(detail ?? '');
+  return `This model serves a context of ${window[1]} tokens, and this turn needs ${needed ? `at least ${needed[1]}` : 'more'}: serve it with a longer context (its Max Model Length), then ask again.`;
+}
+
 async function askOnce(
   sink: StreamSink,
   unsupported: string[],
@@ -195,8 +202,9 @@ async function askOnce(
 
   if (!response.ok) {
     const detail = await response.text().catch(ignore('the status already says the call failed, and the body only adds detail when it can be read'));
+    const fix = contextTooSmall(detail);
     throw new ModelCallError(
-      `Model call failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 400)}` : ''}`,
+      `${fix ? `${fix} ` : ''}Model call failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 400)}` : ''}`,
       response.status,
     );
   }

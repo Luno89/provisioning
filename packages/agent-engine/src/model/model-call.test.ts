@@ -89,6 +89,14 @@ describe('callModel', () => {
     ]);
   });
 
+  it('says what to do when the model\'s context cannot hold the prompt, before the server\'s own words', async () => {
+    const said = '{"error":{"message":"This model\'s maximum context length is 4096 tokens. However, your prompt contains at least 4097 input tokens, which exceeds this limit.","type":"BadRequestError"}}';
+    const fetchImpl = vi.fn(async () => streamingResponse([said], { ok: false, status: 400 }));
+    const refused: unknown = await callModel({ endpoint: endpoint(), messages: [], maxTokens: 10, fetchImpl: fetchImpl as unknown as typeof fetch }).catch((err: unknown) => err);
+    expect(refused).toMatchObject({ name: 'ModelCallError', status: 400 });
+    expect((refused as ModelCallError).message).toMatch(/^This model serves a context of 4096 tokens, and this turn needs at least 4097: serve it with a longer context \(its Max Model Length\), then ask again\. Model call failed \(HTTP 400\): /);
+  });
+
   it('throws ModelCallError carrying the status when the endpoint rejects the call', async () => {
     const fetchImpl = vi.fn(async () => streamingResponse(['upstream is unhappy'], { ok: false, status: 502 }));
 
