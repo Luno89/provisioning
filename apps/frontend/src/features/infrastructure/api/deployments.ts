@@ -124,6 +124,7 @@ export interface ResourcePlan {
   basis?: string
   refusal?: string
   unsized?: string
+  unbudgeted?: string
 }
 
 export function useResourcePlan(deployment: Deployment | null | undefined) {

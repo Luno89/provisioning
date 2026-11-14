@@ -11,14 +11,12 @@ import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
-import type { ClusterAccess } from '../services/ClusterAccess.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 
 export interface DeploymentsRouterDeps {
   appService: AppService;
   clusterService: Pick<ClusterService, 'getById'>;
   appExposureService: AppExposureService;
-  access: Pick<ClusterAccess, 'kubectl'>;
   temporalBridge: TemporalBridge;
   db: Database;
   io: SocketServer;
@@ -30,7 +28,7 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
-  const { appService, clusterService, appExposureService, access, temporalBridge, db, io } = deps;
+  const { appService, clusterService, appExposureService, temporalBridge, db, io } = deps;
   const router = Router();
   router.use((_req, res, next) => {
     const send = res.json.bind(res);
@@ -160,7 +158,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
     res.json(await resourcePlanOf(dep, {
       modelSize: async (model, revision, token) => (await import('../lib/huggingface.js')).getHfModelSize(model, revision, token),
-      nodeMemory: (clusterId) => access.kubectl(clusterId, ['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']),
+      clusterOf: (clusterId) => clusterService.getById(clusterId, principalFrom(req)),
     }));
   }));
 

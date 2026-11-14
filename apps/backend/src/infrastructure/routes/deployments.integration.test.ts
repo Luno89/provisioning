@@ -28,7 +28,6 @@ const services = () => ({
   },
   clusterService: { getById: vi.fn(async () => ({ id: 'c1', name: 'dev' })) },
   appExposureService: { expose: vi.fn(async () => ({ url: 'https://x' })), unexpose: vi.fn(async () => undefined) },
-  access: { kubectl: vi.fn(async (_clusterId: string, _args: readonly string[]): Promise<string> => '') },
   temporalBridge: {
     deployApp: vi.fn(async () => ({ id: 'w1', resourceId: 'd1' })),
     destroyApp: vi.fn(async () => ({ id: 'w2' })),
@@ -135,21 +134,21 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
     return svc;
   };
 
-  it('budgets against the smallest node\'s memory, read from the cluster', async () => {
+  it('budgets against the memory the cluster\'s machine reported', async () => {
     const svc = tabby();
-    svc.access.kubectl = vi.fn(async () => '4Gi 64Gi');
+    svc.clusterService.getById = vi.fn(async () => ({ id: 'c1', name: 'dev', capacity: { cpuCores: 4, ramGb: 4 } }));
     await mount(svc);
     const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
     expect(res.data.applicable).toBe(true);
     expect(res.data.refusal).toMatch(/allocatable/);
   });
 
-  it('plans without a budget when the nodes\' memory cannot be read, and says nothing is refused', async () => {
+  it('says it did not check the plan against the machine when the machine has not said how much memory it has, and refuses nothing', async () => {
     const svc = tabby();
-    svc.access.kubectl = vi.fn(async () => { throw new Error('the cluster did not answer'); });
     await mount(svc);
-    const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
+    const res = await axios.get<{ applicable: boolean; refusal?: string; unbudgeted?: string }>(h!.url('/api/deployments/d1/resource-plan'));
     expect(res.data.applicable).toBe(true);
+    expect(res.data.unbudgeted).toMatch(/^dev has not said how much memory it has/);
     expect(res.data.refusal).toBeUndefined();
   });
 });

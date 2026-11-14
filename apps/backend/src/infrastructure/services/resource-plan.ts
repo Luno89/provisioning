@@ -1,17 +1,16 @@
-import { failureOf, type DeploymentMetadata } from '../../platform/index.js';
-import { ignore } from '@koala/engine-core/failures';
+import { failureOf, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
-import { parseQuantity, planHostMemory, unsizedModel } from '../lib/host-memory-plan.js';
+import { planHostMemory, unsizedModel } from '../lib/host-memory-plan.js';
 
 export interface ResourcePlanDeps {
   modelSize(model: string, revision: string | undefined, token: string | undefined): Promise<{ totalBytes: number }>;
-  nodeMemory(clusterId: string): Promise<string>;
+  clusterOf(clusterId: string): Promise<Pick<ClusterMetadata, 'name' | 'capacity'> | undefined>;
 }
 
 export type ResourcePlan =
   | { applicable: false }
   | { applicable: true; unsized: string }
-  | { applicable: true; memoryLimit: string; shmSize: string; cpuLimit: string; basis: string; refusal?: string };
+  | { applicable: true; memoryLimit: string; shmSize: string; cpuLimit: string; basis: string; refusal?: string; unbudgeted?: string };
 
 export async function resourcePlanOf(dep: DeploymentMetadata, deps: ResourcePlanDeps): Promise<ResourcePlan> {
   if (dep.appType !== 'tabbyapi' || !dep.tabbyModel) return { applicable: false };
@@ -23,14 +22,11 @@ export async function resourcePlanOf(dep: DeploymentMetadata, deps: ResourcePlan
     return { applicable: true, unsized: unsizedModel(dep.tabbyModel, failureOf(err).reason) };
   }
 
-  let allocatableBytes: number | undefined;
-  try {
-    const sizes = (await deps.nodeMemory(dep.clusterId)).trim().split(/\s+/).map((q) => parseQuantity(q))
-      .filter((n): n is number => n !== undefined);
-    if (sizes.length) allocatableBytes = Math.min(...sizes);
-  } catch (failure) {
-    ignore('without the nodes\' memory the plan has no budget to check and says so')(failure);
-  }
+  const cluster = await deps.clusterOf(dep.clusterId);
+  const allocatableBytes = cluster?.capacity ? cluster.capacity.ramGb * 1024 ** 3 : undefined;
+  const unbudgeted = allocatableBytes === undefined
+    ? `${cluster?.name ?? dep.clusterId} has not said how much memory it has, so whether this fits there is not checked: its agent is from before machines reported their size, or it has not connected since. Once it connects with a current agent, it says.`
+    : undefined;
 
   const plan = planHostMemory({
     modelBytes,
@@ -46,5 +42,6 @@ export async function resourcePlanOf(dep: DeploymentMetadata, deps: ResourcePlan
     cpuLimit: '10',
     basis: plan.basis,
     ...(plan.refusal ? { refusal: plan.refusal } : {}),
+    ...(unbudgeted ? { unbudgeted } : {}),
   };
 }

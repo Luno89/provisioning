@@ -74,7 +74,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
     giteaService: deps.gitea, infisicalService: deps.infisical,
   }));
   tenant.use('/api/deployments', deploymentsRouter({
-    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, access: deps.clusters.access, temporalBridge: deps.temporalBridge, db, io,
+    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, temporalBridge: deps.temporalBridge, db, io,
   }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog, operatorOnly: deps.operatorOnly }));

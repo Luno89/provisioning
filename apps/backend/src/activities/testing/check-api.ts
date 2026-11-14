@@ -259,7 +259,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   projects.use(projectsRouter({ db, getOwnedProject, projectRepoService: ports.repos, temporalBridge: ports.bridge, giteaService: ports.gitea, clusterService: ports.clusters, channels, removal: ports.removal }));
   app.use('/api/projects', projects);
   app.use('/api/release-settings', releaseSettingsRouter({ settings: ports.releaseSettings }));
-  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, access: ports.access, temporalBridge: ports.bridge, db, io: mock<SocketServer>() }));
+  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, temporalBridge: ports.bridge, db, io: mock<SocketServer>() }));
   app.use('/api/monitoring', monitoringRouter({ monitoring: ports.monitoring }));
   app.use('/api/project-sharing', projectSharingRouter({ sharing: ports.sharing }));
   app.use('/api/hub', hubRouter({ hub: ports.hub }));
