@@ -9,6 +9,7 @@ import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/o
 import { releaseRunWorkflowId } from '../apps/backend/src/releases/lib/release-run.js';
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
+import { madeHere } from './lib/made-here.js';
 
 const BASE = process.env.ODOO_RELEASE_LIVE_URL ?? `${devKoalaApi}/api`;
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
@@ -143,6 +144,8 @@ async function main(): Promise<void> {
 
   let projectId: string | undefined;
   const releaseIds: string[] = [];
+  const projects = madeHere<{ id: string }>({ name: 'projects', list: async () => (await http.get('/projects')).data as { id: string }[], idOf: (project) => project.id, stampOf: () => undefined });
+  await projects.before();
   try {
     console.log(`[1] a project with no cluster picked, so on Koala's own cluster: ${NAME}`);
     const clusters = (await http.get('/infrastructure')).data.monitoring.clusters as { id: string; own: boolean }[];
@@ -152,6 +155,7 @@ async function main(): Promise<void> {
     assert.ok(made.status < 300, JSON.stringify(made.data));
     const project = made.data as { id: string; name: string; giteaOwner: string; giteaRepo: string };
     projectId = project.id;
+    projects.made(project.id);
     place = releasePlace(newReleaseName(project));
     assert.equal(made.data.targetClusterId, koalas.id, 'a project with no cluster picked deploys to Koala\'s own cluster');
 
@@ -481,6 +485,8 @@ async function main(): Promise<void> {
       assert.equal(left, 0, 'the release artifacts outlived the project');
       console.log('    the browser tests\' files went with the project');
     }
+    await projects.untouched();
+    console.log('    every project of the owner\'s from before is still there');
     console.log('odoo release live — PASS');
   } finally {
     if (projectId && process.env.ODOO_RELEASE_LIVE_KEEP === '1') {

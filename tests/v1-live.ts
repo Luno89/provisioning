@@ -5,6 +5,7 @@ import { chromium, expect, type BrowserContext, type Page } from '@playwright/te
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
 import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
 
@@ -57,11 +58,11 @@ async function main(): Promise<void> {
   const db = devKoalaDatabase();
   await db.init();
   const temporal = await devKoalaTemporal();
-  const began = new Date().toISOString();
   const runIds = new Set<string>();
-  const conversations = new Set<string>();
+  const chats = madeHere<{ id: string; updatedAt?: string }>({ name: 'conversations', list: async () => (await api.get('/api/conversations')).data as { id: string; updatedAt?: string }[], idOf: (chat) => chat.id, stampOf: (chat) => chat.updatedAt });
   const stopped: StoppedModel[] = [];
   const previousDefault = ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
+  await chats.before();
   let deploymentId: string | undefined;
   let forward: ChildProcess | undefined;
   const browser = await chromium.launch();
@@ -171,16 +172,24 @@ async function main(): Promise<void> {
 
     step('a Koala chat answers from that model, on this machine\'s GPU');
     await page.goto(`${devKoalaPage}/#/chat`);
+    const [opened] = await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).pathname === '/api/conversations' && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'New chat', exact: true }).click(),
+    ]);
+    assert.ok(opened.ok(), `making a new chat answered ${opened.status()}: ${await opened.text()}`);
+    const conversationId = ((await opened.json()) as { id: string }).id;
+    chats.made(conversationId);
+    await page.waitForURL((url) => url.hash.includes(conversationId));
+    console.log(`  in a new chat of its own, ${conversationId}`);
     await page.getByPlaceholder(/^Message/).fill(ASKED);
-    const started = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/engine/runs' && response.request().method() === 'POST');
-    await page.getByRole('button', { name: 'Send message' }).click();
-    const run = await started;
+    const [run] = await Promise.all([
+      page.waitForResponse((response) => new URL(response.url()).pathname === '/api/engine/runs' && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'Send message' }).click(),
+    ]);
     assert.equal(run.status(), 201, `starting the turn answered ${run.status()}: ${await run.text()}`);
     const runId = ((await run.json()) as { runId: string }).runId;
-    const conversationId = (run.request().postDataJSON() as { conversationId?: string }).conversationId;
-    assert.ok(conversationId, 'the chat started a turn for no conversation');
+    assert.equal((run.request().postDataJSON() as { conversationId?: string }).conversationId, conversationId, 'the turn started in another chat than the one the suite made');
     runIds.add(runId);
-    conversations.add(conversationId);
     await temporal.client.workflow.getHandle(workflowOfRun(runId)).result();
     const events = ((await api.get(`/api/turns/${runId}`)).data as { entries: { events: TurnEvent[] }[] }).entries.flatMap((entry) => entry.events);
     const ended = events.find((event) => event.type === 'run.finished' && event.runId === runId);
@@ -220,8 +229,8 @@ async function main(): Promise<void> {
     }
     const restored = await api.put('/api/models/default', { modelId: previousDefault });
     console.log(restored.status === 200 ? `  the default is back to ${previousDefault ?? 'none'}` : `  THE DEFAULT COULD NOT BE PUT BACK to ${previousDefault}: ${JSON.stringify(restored.data)}`);
-    for (const id of conversations) await api.delete(`/api/conversations/${id}`);
-    for await (const workflow of temporal.client.workflow.list({ query: `WorkflowId STARTS_WITH "memory-" AND StartTime >= "${began}"` })) runIds.add(workflow.workflowId);
+    for (const id of chats.madeIds()) for await (const workflow of temporal.client.workflow.list({ query: `WorkflowId STARTS_WITH "memory-conversation-${id.replace(/[^A-Za-z0-9_-]+/g, '-')}-"` })) runIds.add(workflow.workflowId);
+    await chats.removeMade(async (id) => { await api.delete(`/api/conversations/${id}`); });
     await forgetWhatRunsLeft(db, owner.id, new Set([...runIds, ...[...runIds].map((id) => `memory-run-${id}`)]));
     if (stopped.length) {
       await startOwnersModels(stopped);
@@ -230,6 +239,11 @@ async function main(): Promise<void> {
     await temporal.close();
     await db.close?.();
   }
+  step('the owner\'s own Koala is as it was: every conversation there before untouched, the default model back');
+  await chats.untouched();
+  const defaultNow = ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
+  assert.equal(defaultNow, previousDefault, `the default model is ${defaultNow}, not ${previousDefault ?? 'none'} as before`);
+  console.log('  untouched');
   console.log('\nv1 live — PASS');
 }
 

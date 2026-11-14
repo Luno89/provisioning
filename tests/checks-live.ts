@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
+import { madeHere } from './lib/made-here.js';
 import { whereItFailed } from './lib/where-it-failed.js';
 import { keepTimings, type Timed } from './lib/timings.js';
 
@@ -18,6 +19,14 @@ async function main(): Promise<void> {
   await db.init();
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: owner.cookie }, validateStatus: () => true });
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
+  const listed = (name: string, path: string) => madeHere<{ id: string }>({ name, list: async () => (await http.get(path)).data as { id: string }[], idOf: (entry) => entry.id, stampOf: () => undefined });
+  const owners = [
+    madeHere<{ id: string; space?: unknown }>({ name: 'accounts', list: async () => (await db.accounts.getUsers()).filter((entry) => !entry.space), idOf: (entry) => entry.id, stampOf: () => undefined }),
+    listed('conversations', '/conversations'),
+    listed('projects', '/projects'),
+    listed('deployments', '/deployments'),
+  ];
+  for (const kind of owners) await kind.before();
 
   try {
     console.log(`[1] ${ONLY.length} scenarios run on the check runner, each a run of its own${TOGETHER > 1 ? `, ${TOGETHER} at a time, the next starting as one ends` : ''}`);
@@ -89,6 +98,8 @@ async function main(): Promise<void> {
     const spacesAfter = (await db.accounts.getUsers()).filter((entry) => entry.space);
     console.log(`    every run opens; spaces before ${spacesBefore}, after ${spacesAfter.length}`);
     assert.equal(spacesAfter.length, spacesBefore, `spaces were left behind: ${spacesAfter.map((entry) => entry.id).join(', ')}`);
+    for (const kind of owners) await kind.untouched();
+    console.log('    every account, conversation, project and app of the owner\'s from before is still there');
     console.log(`checks live — PASS (${run.results.filter((result) => result.passed).length} of ${run.results.length} scenarios passed on the model)`);
   } finally {
     await db.close();
