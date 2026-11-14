@@ -8,3 +8,4 @@ a5c31cf0cc22b1584e3f7f561d0509aba4b17e1f:apps/backend/src/files/testing/store-co
 70f025f1a06d29c05fe3facb6a74d688acd434c6:apps/backend/src/platform/lib/key-rotation.test.ts:private-key:72
 30a3acdfb89851e5b8a2cc9b575a534615221162:apps/backend/src/files/testing/store-contract.ts:generic-api-key:119
 4417207b8e807c563df8a7e73c7754a4705dbd91:apps/frontend/src/features/monitoring/api/notifications.integration.test.ts:generic-api-key:29
+e3ee1f7b5a40b4d1838f56f8ed274e1be1d49e85:scripts/machine/machine.sh:generic-api-key:26
