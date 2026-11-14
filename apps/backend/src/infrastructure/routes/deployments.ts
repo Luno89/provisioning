@@ -1,15 +1,13 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, at, type Database, type DeploymentMetadata, failureOf, listAt, principalFrom } from '../../platform/index.js';
+import { asyncRoute, at, type Database, type DeploymentMetadata, listAt, principalFrom } from '../../platform/index.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
 import { withoutDeploymentSecrets } from '../lib/deployment-secrets.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
-import { parseQuantity, planHostMemory, unsizedModel } from '../lib/host-memory-plan.js';
-import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
+import { resourcePlanOf } from '../services/resource-plan.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
-import { ignore } from '@koala/engine-core/failures';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
@@ -160,42 +158,10 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   router.get('/:id/resource-plan', asyncRoute(async (req, res) => {
     const dep = await appService.getById(idOf(req), userOf(req).id);
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
-    if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
-
-    let modelBytes: number;
-    try {
-      const { getHfModelSize } = await import('../lib/huggingface.js');
-      modelBytes = (await getHfModelSize(dep.tabbyModel!, dep.tabbyRevision, dep.tabbyHfToken)).totalBytes;
-    } catch (err) {
-      return res.json({ applicable: true, unsized: unsizedModel(dep.tabbyModel!, failureOf(err).reason) });
-    }
-
-    let allocatableBytes: number | undefined;
-    try {
-      const nodes = await access.kubectl(dep.clusterId, ['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
-      const sizes = nodes.trim().split(/\s+/).map((q) => parseQuantity(q))
-        .filter((n): n is number => n !== undefined);
-      if (sizes.length) allocatableBytes = Math.min(...sizes);
-    } catch (failure) {
-      ignore('without the nodes\' memory the plan has no budget to check and says so')(failure);
-    }
-
-    const plan = planHostMemory({
-      modelBytes,
-      gpuCount: Number(dep.tabbyGpuCount) || 1,
-      maxSeqLen: Number(dep.tabbyMaxSeqLen) || TABBYAPI_DEFAULT_MAX_SEQ_LEN,
-      inlineModelLoading: dep.tabbyInlineModelLoading === true,
-      allocatableBytes,
-    });
-
-    res.json({
-      applicable: true,
-      memoryLimit: `${Math.ceil(plan.limitBytes / 1e9)}G`,
-      shmSize: `${Math.ceil(plan.shmBytes / 1024 ** 3)}Gi`,
-      cpuLimit: '10',
-      basis: plan.basis,
-      ...(plan.refusal ? { refusal: plan.refusal } : {}),
-    });
+    res.json(await resourcePlanOf(dep, {
+      modelSize: async (model, revision, token) => (await import('../lib/huggingface.js')).getHfModelSize(model, revision, token),
+      nodeMemory: (clusterId) => access.kubectl(clusterId, ['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']),
+    }));
   }));
 
   router.patch('/:id/config', asyncRoute(async (req, res) => {

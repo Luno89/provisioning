@@ -8,7 +8,9 @@ import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from '../activities/CheckWorkloadActivity.js';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
-import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
+import { DeployAppActivity, type DeployAppArgs } from '../activities/DeployAppActivity.js';
+import { http, HttpResponse } from 'msw';
+import { interceptHttp } from '../platform/testing/http.js';
 import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAppActivity.js';
 import { handedReach } from '../activities/handed-reach.js';
 import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
@@ -59,13 +61,15 @@ beforeAll(async () => {
   bundle = await bundled(resolve(import.meta.dirname, 'index.ts'));
 }, 120_000);
 
-async function working<T>(work: Promise<T>): Promise<T> {
+const huggingFace = interceptHttp();
+
+async function working<T>(work: Promise<T>, deployApp: (args: DeployAppArgs) => Promise<unknown> = placedRefused): Promise<T> {
   const worker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE,
     workflowBundle: bundle,
     activities: {
-      DeployAppActivity: placedRefused,
+      DeployAppActivity: deployApp,
       CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
       DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
     },
@@ -103,4 +107,12 @@ describe('deploying and removing an app through Temporal on a real k3s, with the
     await expect(working(deploy({}))).rejects.toMatchObject({ cause: { message: expect.stringContaining('this work was started with no way to reach machine-dev1') as unknown } });
     expect(deployed).toEqual([]);
   }, 60_000);
+});
+
+describe('a TabbyAPI app whose model\'s size Hugging Face cannot say, deployed through Temporal', () => {
+  it('stops at the deploy step, saying what to set, and sizes nothing on a guess', async () => {
+    huggingFace.use(http.get('https://huggingface.co/api/models/org/model/tree/*', () => new HttpResponse(null, { status: 503 })));
+    await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), (args) => DeployAppActivity(args, steps)))
+      .rejects.toMatchObject({ cause: { cause: { message: expect.stringMatching(/^Koala could not read how big org\/model is from Hugging Face \(.*503.*\), so it cannot size the memory it needs\. Set its Memory Limit \(RAM\) and Shared Memory/) as unknown } } });
+  }, 120_000);
 });
