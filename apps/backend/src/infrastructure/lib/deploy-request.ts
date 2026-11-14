@@ -94,7 +94,9 @@ const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
   webuiWebSearchApiKey: 'text', appSettings: 'textRecord', gitappProjectId: 'text', gitappImageTag: 'text', gitappEnv: 'text',
 };
 
-export class DeployRequestProblem extends Error {}
+export class DeployRequestProblem extends Error {
+  readonly status = 400;
+}
 
 export type Defined<T> = { [K in keyof T]?: Exclude<T[K], undefined> };
 

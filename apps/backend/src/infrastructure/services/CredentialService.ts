@@ -37,6 +37,8 @@ export interface ProviderStatus {
 }
 
 export class UnreadableCredential extends Error {
+  readonly status = 409;
+
   constructor(readonly provider: string, readonly field: string) {
     super(`your ${provider} ${field} was saved under a key this Koala no longer holds; enter it again under Cloud providers`);
     this.name = 'UnreadableCredential';

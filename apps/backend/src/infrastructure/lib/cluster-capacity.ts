@@ -103,6 +103,8 @@ export const APP_RESOURCE_NEEDS: Record<
 };
 
 export class CapacityError extends Error {
+  readonly status = 400;
+
   constructor(message: string) {
     super(message);
     this.name = 'CapacityError';

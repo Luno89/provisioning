@@ -7,6 +7,8 @@ import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { DeployRequestProblem } from '../lib/deploy-request.js';
+import { DependencyDownError } from '../../platform/lib/dependencies.js';
+import { UnreadableCredential } from '../services/CredentialService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -108,13 +110,31 @@ describe('deploying', () => {
     expect(answer.data).toEqual({ error: 'a model server takes no pgTag: its GPUs, vendor, Hugging Face token and image each have their own field' });
   });
 
-  it('answers 503 when Temporal genuinely is unavailable', async () => {
+  it('answers 503 with Temporal\'s state only when Temporal is not answering', async () => {
     const { clusterService, temporalBridge, call } = setup();
     clusterService.getById.mockResolvedValue({ id: 'c1' } as ClusterMetadata);
-    temporalBridge.deployApp.mockRejectedValue(new Error('connection refused'));
+    temporalBridge.deployApp.mockRejectedValue(new DependencyDownError('temporal', '2026-11-13T10:02:00Z', 'it refused the connection (ECONNREFUSED)'));
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(503);
-    expect((answer.data as { error: string }).error).toMatch(/Temporal app deploy unavailable: connection refused/);
+    expect(answer.data).toMatchObject({ dependency: 'temporal', reason: 'it refused the connection (ECONNREFUSED)' });
+  });
+
+  it('answers a saved credential it can no longer read with 409 and what to do, never as Temporal being down', async () => {
+    const { clusterService, temporalBridge, call } = setup();
+    clusterService.getById.mockResolvedValue({ id: 'c1' } as ClusterMetadata);
+    temporalBridge.deployApp.mockRejectedValue(new UnreadableCredential('huggingface', 'hfToken'));
+    const answer = await call('', 'POST', asked);
+    expect(answer.status).toBe(409);
+    expect(answer.data).toEqual({ error: 'your huggingface hfToken was saved under a key this Koala no longer holds; enter it again under Cloud providers' });
+  });
+
+  it('answers a failure it did not expect with 500 and its reason, never as Temporal being down', async () => {
+    const { clusterService, temporalBridge, call } = setup();
+    clusterService.getById.mockResolvedValue({ id: 'c1' } as ClusterMetadata);
+    temporalBridge.deployApp.mockRejectedValue(new Error('the deployment record could not be saved'));
+    const answer = await call('', 'POST', asked);
+    expect(answer.status).toBe(500);
+    expect(answer.data).toEqual({ error: 'the deployment record could not be saved' });
   });
 });
 

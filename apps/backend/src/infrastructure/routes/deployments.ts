@@ -1,8 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, at, type Database, type DeploymentMetadata, failureOf, listAt, principalFrom } from '../../platform/index.js';
-import { CapacityError } from '../lib/cluster-capacity.js';
-import { DeployRequestProblem } from '../lib/deploy-request.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
 import { withoutDeploymentSecrets } from '../lib/deployment-secrets.js';
@@ -52,26 +50,19 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   }));
 
   router.post('/', asyncRoute(async (req, res) => {
-    try {
-      const user = userOf(req);
-      const asked = deployRequestFrom(req.body);
-      if ('problem' in asked) return res.status(400).json({ error: asked.problem });
-      const targetCluster = await clusterService.getById(String(asked.request.clusterId ?? ''), principalFrom(req), 'deploy-to');
-      if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
-      const info = await temporalBridge.deployApp(asked.request, user?.id);
-      res.status(202).json({
-        message: 'Deployment started',
-        deploymentName: asked.request.name,
-        id: info.resourceId,
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err) {
-      if (err instanceof CapacityError || err instanceof DeployRequestProblem) {
-        return res.status(400).json({ error: err.message });
-      }
-      res.status(503).json({ error: `Temporal app deploy unavailable: ${(err as Error).message}` });
-    }
+    const user = userOf(req);
+    const asked = deployRequestFrom(req.body);
+    if ('problem' in asked) return res.status(400).json({ error: asked.problem });
+    const targetCluster = await clusterService.getById(String(asked.request.clusterId ?? ''), principalFrom(req), 'deploy-to');
+    if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
+    const info = await temporalBridge.deployApp(asked.request, user?.id);
+    res.status(202).json({
+      message: 'Deployment started',
+      deploymentName: asked.request.name,
+      id: info.resourceId,
+      workflowId: info.id,
+      state: 'running',
+    });
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {

@@ -17,7 +17,7 @@ import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
-import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
+import { definedFields, DeployRequestProblem, type DeployRequest } from '../lib/deploy-request.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 import { QUEUES } from '../../platform/index.js';
 
@@ -78,7 +78,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       return false
     })
     if (!dep) {
-      if (!config.name || !config.clusterId) throw new Error('a new app needs a name and a cluster to deploy to')
+      if (!config.name || !config.clusterId) throw new DeployRequestProblem('a new app needs a name and a cluster to deploy to')
       if (!config.appType) throw new CapacityError('a new app needs its type: say which app to deploy')
       const target = await deps.clusterById(config.clusterId)
       const id = config.id || randomUUID()
