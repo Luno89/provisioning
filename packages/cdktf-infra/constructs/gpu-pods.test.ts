@@ -8,7 +8,7 @@ interface Pod {
   host_ipc?: boolean;
   host_network?: boolean;
   runtime_class_name?: string;
-  container: { resources: { limits: Record<string, string> }; security_context?: { run_as_group?: string }; liveness_probe?: { tcp_socket?: { port: string }[] } }[];
+  container: { args?: string[]; resources: { limits: Record<string, string> }; security_context?: { run_as_group?: string }; liveness_probe?: { tcp_socket?: { port: string }[] } }[];
 }
 
 const podOf = (build: (scope: Construct) => unknown): Pod => {
@@ -36,7 +36,7 @@ describe("TabbyAPI's memory", () => {
 
 describe("a GPU model server's pod", () => {
   it("shares the host's network and IPC on AMD, as ROCm needs, and may trace", () => {
-    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai-rocm:v0.7.2", gpuVendor: "amd", gpuCount: 1 }));
+    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai-rocm:v0.32.0", gpuVendor: "amd", gpuCount: 1 }));
     expect(pod.host_network).toBe(true);
     expect(pod.host_ipc).toBe(true);
     expect(pod.runtime_class_name).toBeUndefined();
@@ -45,10 +45,21 @@ describe("a GPU model server's pod", () => {
   });
 
   it("runs under the nvidia runtime class on NVIDIA and keeps its own network", () => {
-    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.7.2", gpuVendor: "nvidia", gpuCount: 2 }));
+    const pod = podOf((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.32.0", gpuVendor: "nvidia", gpuCount: 2 }));
     expect(pod.runtime_class_name).toBe("nvidia");
     expect(pod.host_network).toBeUndefined();
     expect(pod.container[0]?.resources.limits["nvidia.com/gpu"]).toBe("2");
+  });
+
+  it("serves vLLM with only the options its pinned version takes: the device comes from the image, never --device", () => {
+    for (const [vendor, image] of [["nvidia", "vllm/vllm-openai:v0.32.0"], ["amd", "vllm/vllm-openai-rocm:v0.32.0"]] as const) {
+      const serve = podOf((scope) => new VllmApp(scope, "app", { image, gpuVendor: vendor, gpuCount: 2, maxModelLen: 4096, gpuMemUtil: 0.5 })).container[0]?.args?.[0] ?? "";
+      expect(serve).toMatch(/^vllm serve /);
+      expect(serve).not.toMatch(/--device\b(?!-)/);
+      expect(serve).toContain("--tensor-parallel-size 2");
+      expect(serve).toContain("--max-model-len 4096");
+      expect(serve).toContain("--gpu-memory-utilization 0.5");
+    }
   });
 
   it("checks TabbyAPI is alive only by its port accepting connections", () => {
