@@ -172,7 +172,7 @@ async function main(): Promise<void> {
 
     step('a Koala chat answers from that model, on this machine\'s GPU');
     await page.goto(`${devKoalaPage}/#/chat`);
-    await page.getByRole('button', { name: 'New Chat' }).click();
+    await page.getByRole('button', { name: 'New chat', exact: true }).click();
     await page.getByPlaceholder(/^Message/).fill(ASKED);
     const started = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/engine/runs' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Send message' }).click();
