@@ -8,7 +8,8 @@ import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from '../activities/CheckWorkloadActivity.js';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
-import { DeployAppActivity, type DeployAppArgs } from '../activities/DeployAppActivity.js';
+import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
+import { clusterActivities } from '../worker-cluster.js';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../platform/testing/http.js';
 import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAppActivity.js';
@@ -112,7 +113,7 @@ describe('deploying and removing an app through Temporal on a real k3s, with the
 describe('a TabbyAPI app whose model\'s size Hugging Face cannot say, deployed through Temporal', () => {
   it('stops at the deploy step, saying what to set, and sizes nothing on a guess', async () => {
     huggingFace.use(http.get('https://huggingface.co/api/models/org/model/tree/*', () => new HttpResponse(null, { status: 503 })));
-    await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), (args) => DeployAppActivity(args, steps)))
+    await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), clusterActivities(steps).DeployAppActivity))
       .rejects.toMatchObject({ cause: { cause: { message: expect.stringMatching(/^Koala could not read how big org\/model is from Hugging Face \(.*503.*\), so it cannot size the memory it needs\. Set its Memory Limit \(RAM\) and Shared Memory/) as unknown } } });
   }, 120_000);
 });
