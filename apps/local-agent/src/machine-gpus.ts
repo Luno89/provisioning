@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { amdDiscreteCards, groupedGpus, NVIDIA_SMI_QUERY, nvidiaCards, VENDOR_RUNTIME, type GpuCard, type GpuReport, type GpuVendor } from '@koala/engine-core';
+import { amdDiscreteCards, groupedGpus, NVIDIA_SMI_QUERY, nvidiaCards, type GpuCard, type GpuReport, type GpuVendor } from '@koala/engine-core';
 
 export interface GpuProbe {
   run(file: string, args: string[]): Promise<string>;
@@ -10,11 +10,7 @@ export interface GpuProbe {
 
 export const KFD_NODES = '/sys/class/kfd/kfd/topology/nodes';
 
-export const NVIDIA_RUNTIME_BINARIES = [
-  '/usr/local/nvidia/toolkit/nvidia-container-runtime',
-  '/usr/bin/nvidia-container-runtime',
-  '/usr/local/bin/nvidia-container-runtime',
-];
+export const NVIDIA_CDI_HOOK = '/usr/bin/nvidia-cdi-hook';
 
 type Read = { cards: GpuCard[] } | { problem: string };
 
@@ -39,21 +35,12 @@ async function amdOf(probe: GpuProbe): Promise<Read> {
   return { cards: amdDiscreteCards(read) };
 }
 
-async function toolkitThere(probe: GpuProbe): Promise<boolean> {
-  for (const binary of NVIDIA_RUNTIME_BINARIES) if (await probe.exists(binary)) return true;
-  return false;
-}
-
-export async function machineGpus(probe: GpuProbe, handlers: readonly string[] | undefined): Promise<GpuReport> {
+export async function machineGpus(probe: GpuProbe): Promise<GpuReport> {
   const reads = [await nvidiaOf(probe), await amdOf(probe)];
   const problems = reads.flatMap((read) => ('problem' in read ? [read.problem] : []));
   const cards = reads.flatMap((read) => ('cards' in read ? read.cards : []));
   if (!cards.length) return { gpus: [], problems };
-  const toolkit = handlers ? false : await toolkitThere(probe);
-  const runtime = (vendor: GpuVendor): boolean => {
-    const wanted = VENDOR_RUNTIME[vendor];
-    if (!wanted) return true;
-    return handlers ? handlers.includes(wanted) : toolkit;
-  };
-  return { gpus: groupedGpus(cards, runtime), problems };
+  const cdi = cards.some((card) => card.vendor === 'nvidia') && await probe.exists(NVIDIA_CDI_HOOK);
+  const usable = (vendor: GpuVendor): boolean => vendor === 'amd' || cdi;
+  return { gpus: groupedGpus(cards, usable), problems };
 }
