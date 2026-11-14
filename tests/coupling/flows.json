@@ -99,6 +99,28 @@
     ]
   },
   {
+    "name": "change-app-settings",
+    "title": "Change a deployed app's settings, vLLM's model and tool calling among them",
+    "entries": [
+      "apps/frontend/src/features/infrastructure/api/deployments.ts#patchDeploymentConfig"
+    ],
+    "concepts": [
+      "work",
+      "kubeconfig",
+      "cluster-command",
+      "config",
+      "dependencies"
+    ],
+    "endings": [
+      {
+        "title": "Apps shows it applied again, or failed with why",
+        "entries": [
+          "apps/frontend/src/features/infrastructure/api/deployments.ts#listDeployments"
+        ]
+      }
+    ]
+  },
+  {
     "name": "default-model",
     "title": "Make a model the default",
     "entries": [
