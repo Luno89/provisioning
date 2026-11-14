@@ -90,6 +90,16 @@ describe('patching config', () => {
     }
   });
 
+  it('turns vLLM\'s tool calling on with the parser its model needs, and refuses it over HTTP for a model whose parser is unknown', async () => {
+    const { h, svc } = await mount();
+    svc.appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'meta-llama/Llama-3.2-3B-Instruct' }) as never);
+    const on = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), { vllmToolCallingEnabled: true }, ANY_STATUS);
+    expect(on.status).toBe(202);
+    expect(svc.temporalBridge.updateConfigAndSync).toHaveBeenCalledWith('d1', { vllmToolCallingEnabled: true, vllmToolCallParser: 'llama3_json' });
+    const refused = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true, vllmToolCallParser: '' }, ANY_STATUS);
+    expect(refused).toMatchObject({ status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } });
+  });
+
   it('reports Temporal being down as 503, not as a bad patch', async () => {
     const { h, svc } = await mount();
     svc.temporalBridge.updateConfigAndSync.mockRejectedValue(new Error('no worker') as never);

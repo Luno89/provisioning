@@ -292,6 +292,19 @@ describe('changing a deployment', () => {
     expect(temporalBridge.updateConfigAndSync).toHaveBeenCalledWith('d1', { vllmGpuCount: 2, vllmGpuVendor: 'nvidia' });
   });
 
+  it('decides a change to vLLM\'s tool calling by the rules a deploy follows, its parser chosen from the model when none is picked', async () => {
+    const { appService, temporalBridge, call } = setup();
+    appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' }));
+    temporalBridge.updateConfigAndSync.mockResolvedValue(deal('w6'));
+    expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: true, vllmToolCallParser: 'made-up' })).data).toEqual({ error: 'made-up is not a tool call parser vLLM v0.32.0 has' });
+    expect((await call('/d1/config', 'PATCH', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true })).data).toEqual({ error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' });
+    expect(temporalBridge.updateConfigAndSync).not.toHaveBeenCalled();
+    expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: true, vllmToolCallParser: '' })).status).toBe(202);
+    expect(temporalBridge.updateConfigAndSync).toHaveBeenLastCalledWith('d1', { vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+    expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: false })).status).toBe(202);
+    expect(temporalBridge.updateConfigAndSync).toHaveBeenLastCalledWith('d1', { vllmToolCallingEnabled: false });
+  });
+
   it('refuses a config that is not one, settings for an app without a schema, and settings the schema rejects', async () => {
     const { appService, call } = setup();
     expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 'many' })).status).toBe(400);

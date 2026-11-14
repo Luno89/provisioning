@@ -62,6 +62,8 @@ export class VllmApp extends Construct {
     const gpuResourceKey = gpuVendor === 'amd' ? 'amd.com/gpu' : 'nvidia.com/gpu';
     const gpuResources = { [gpuResourceKey]: String(gpuCount) };
 
+    if (config.toolCallingEnabled && !config.toolCallParser) throw new Error(`vLLM with tool calling on needs a tool call parser for ${modelName}: pick one, or turn tool calling off`);
+
     const extraArgs = config.extraArgs || [];
     const servedModelName = config.servedModelName || (isPreDownloaded ? modelName : undefined);
     const serveArgs = [
@@ -72,7 +74,7 @@ export class VllmApp extends Construct {
       ...(gpuCount > 1 ? [`--tensor-parallel-size ${gpuCount}`] : []),
       ...(config.maxModelLen !== undefined ? [`--max-model-len ${config.maxModelLen}`] : []),
       ...(config.gpuMemUtil !== undefined ? [`--gpu-memory-utilization ${config.gpuMemUtil}`] : []),
-      ...(config.toolCallingEnabled && config.toolCallParser ? ['--enable-auto-tool-choice', `--tool-call-parser ${config.toolCallParser}`] : []),
+      ...(config.toolCallingEnabled ? ['--enable-auto-tool-choice', `--tool-call-parser ${config.toolCallParser}`] : []),
       ...(servedModelName ? [`--served-model-name ${servedModelName}`] : []),
       ...(config.maxNumSeqs !== undefined ? [`--max-num-seqs ${config.maxNumSeqs}`] : []),
       ...(config.dtype ? [`--dtype ${config.dtype}`] : []),

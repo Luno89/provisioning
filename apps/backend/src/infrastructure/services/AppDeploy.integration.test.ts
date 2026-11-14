@@ -90,6 +90,16 @@ describe('a model\'s Hugging Face token', () => {
   });
 });
 
+describe('a vLLM deploy\'s tool calling, as the database keeps it', () => {
+  it('is stored on, with the parser chosen from the model, and refused with nothing stored for a model whose parser is unknown', async () => {
+    const { deps: d, started } = await deps();
+    await startAppDeploy(d, { name: 'qwen', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' }, 'ann');
+    await expect(startAppDeploy(d, { name: 'odd', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'someone/their-own-model' }, 'ann')).rejects.toThrow(/pick one, or turn tool calling off/);
+    expect(started.map((run) => [run.args.vllmToolCallingEnabled, run.args.vllmToolCallParser])).toEqual([[true, 'hermes']]);
+    expect((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, dep.vllmToolCallingEnabled, dep.vllmToolCallParser])).toEqual([['qwen', true, 'hermes']]);
+  });
+});
+
 describe('a deploy asking for GPUs, decided by what the machine reported', () => {
   const DESK: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped', capacity: { cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' }, gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
   const onDesk = async () => {

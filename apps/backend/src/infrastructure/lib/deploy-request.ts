@@ -1,4 +1,5 @@
 import type { DeploymentMetadata } from '../../platform/index.js';
+import { VLLM_TOOL_CALL_PARSERS } from './vllm-tool-calling.js';
 
 type Field<K extends keyof DeploymentMetadata> = Exclude<DeploymentMetadata[K], undefined>;
 
@@ -71,7 +72,6 @@ type Kind = 'text' | 'number' | 'flag' | 'texts' | 'textRecord' | readonly strin
 
 const STRATEGIES = ['helm', 'native'] as const satisfies readonly Field<'strategy'>[];
 const GPU_VENDORS = ['nvidia', 'amd'] as const satisfies readonly Field<'vllmGpuVendor'>[];
-const TOOL_CALL_PARSERS = ['granite-20b-fc', 'granite', 'hermes', 'internlm', 'jamba', 'llama3_json', 'mistral', 'pythonic'] as const satisfies readonly Field<'vllmToolCallParser'>[];
 const DTYPES = ['auto', 'half', 'float16', 'bfloat16', 'float', 'float32'] as const satisfies readonly Field<'vllmDtype'>[];
 const CACHE_MODES = ['FP16', 'Q8', 'Q6', 'Q4'] as const satisfies readonly Field<'tabbyCacheMode'>[];
 const TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'] as const satisfies readonly Field<'tabbyToolFormat'>[];
@@ -83,7 +83,7 @@ const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
   webRepo: 'text', webTag: 'text', odooRepo: 'text', odooTag: 'text', dbRepo: 'text', dbTag: 'text', pgRepo: 'text', pgTag: 'text', url: 'text',
   vllmModel: 'text', vllmGpuCount: 'number', vllmGpuVendor: GPU_VENDORS, vllmCachePvc: 'text', vllmHfToken: 'text',
   vllmMaxModelLen: 'number', vllmGpuMemUtil: 'number', vllmExtraArgs: 'text', vllmToolCallingEnabled: 'flag',
-  vllmToolCallParser: TOOL_CALL_PARSERS, vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
+  vllmToolCallParser: VLLM_TOOL_CALL_PARSERS, vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
   vllmEnablePrefixCaching: 'flag',
   tabbyModel: 'text', tabbyRevision: 'text', tabbyGpuCount: 'number', tabbyHfToken: 'text', tabbyCachePvc: 'text',
   tabbyImageTag: 'text', tabbyCacheMode: CACHE_MODES, tabbyMaxSeqLen: 'number', tabbyMaxBatchSize: 'number',

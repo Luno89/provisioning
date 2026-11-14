@@ -8,6 +8,7 @@ import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { resourcePlanOf } from '../services/resource-plan.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
+import { vllmToolCallingChange } from '../lib/vllm-tool-calling.js';
 import { gpuChangeRefusal } from '../lib/cluster-gpus.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -173,6 +174,9 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
       const gpus = gpuChangeRefusal(current as Record<string, unknown>, patch as Record<string, unknown>, await clusterService.getById(current.clusterId, principalFrom(req)));
       if (gpus && 'refused' in gpus) return res.status(400).json({ error: gpus.refused });
       if (gpus && current.appType === 'vllm') patch.vllmGpuVendor = gpus.vendor;
+      const tools = vllmToolCallingChange(current, patch);
+      if (tools && 'problem' in tools) return res.status(400).json({ error: tools.problem });
+      if (tools) Object.assign(patch, tools);
 
       if (read.appSettings !== undefined) {
         const existing = await appService.getById(idOf(req), userOf(req).id);

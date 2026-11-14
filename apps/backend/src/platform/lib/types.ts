@@ -79,7 +79,7 @@ export interface DeploymentMetadata {
   vllmGpuMemUtil?: number;
   vllmExtraArgs?: string;
   vllmToolCallingEnabled?: boolean;
-  vllmToolCallParser?: 'granite-20b-fc' | 'granite' | 'hermes' | 'internlm' | 'jamba' | 'llama3_json' | 'mistral' | 'pythonic';
+  vllmToolCallParser?: 'hermes' | 'mistral' | 'granite4' | 'granite' | 'granite-20b-fc' | 'llama3_json' | 'llama4_pythonic' | 'pythonic' | 'internlm' | 'jamba' | 'xlam' | 'deepseek_v3' | 'deepseek_v31' | 'openai' | 'kimi_k2' | 'hunyuan_a13b' | 'cohere_command3' | 'cohere_command4' | 'longcat' | 'glm45' | 'glm47' | 'functiongemma' | 'qwen3_xml' | 'mimo' | 'step3p5' | 'olmo3' | 'gigachat3' | 'apertus' | 'hf';
   vllmServedModelName?: string;
   vllmMaxNumSeqs?: number;
   vllmDtype?: 'auto' | 'half' | 'float16' | 'bfloat16' | 'float' | 'float32';
