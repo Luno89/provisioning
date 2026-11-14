@@ -5,6 +5,7 @@ import { chromium, expect, type BrowserContext, type Page } from '@playwright/te
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
 import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
 
 const NAME = `v1-${Date.now().toString(36)}`;
@@ -20,7 +21,6 @@ interface Gpu { vendor: string; model: string; count: number; runtime: boolean }
 interface Cluster { id: string; name: string; gpus?: Gpu[]; gpuProblems?: string[] }
 interface Device { id: string; name: string; online: boolean }
 interface TurnEvent { type: string; runId: string; outcome?: string; reason?: string }
-interface Watched { page: Page; problems: string[] }
 
 class Hopeless extends Error {}
 
@@ -39,22 +39,6 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
   }
 }
 
-async function watched(context: BrowserContext): Promise<Watched> {
-  const page = await context.newPage();
-  const problems: string[] = [];
-  page.on('pageerror', (err) => problems.push(`uncaught: ${err.message}`));
-  page.on('console', (message) => {
-    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource')) problems.push(`console: ${message.text()}`);
-  });
-  page.on('response', (response) => {
-    if (response.status() >= 400) problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`);
-  });
-  return { page, problems };
-}
-
-function nothingWentWrong(watching: Watched, during: string): void {
-  assert.deepEqual(watching.problems, [], `the page reported problems during ${during}`);
-}
 
 const client = (cookie: string): AxiosInstance => axios.create({ baseURL: devKoalaApi, proxy: false, maxRedirects: 0, headers: { Cookie: cookie }, validateStatus: () => true });
 const mine = async (api: AxiosInstance): Promise<Deployment[]> => (await api.get('/api/deployments')).data as Deployment[];

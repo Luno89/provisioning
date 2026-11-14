@@ -1,32 +1,11 @@
 import assert from 'node:assert/strict';
 import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
 import { startModelStandIn, type ModelStandIn } from './lib/model-stand-in.js';
+import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
 import { startSplitStack, type SplitStack } from './lib/split-stack.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
-interface Watched { page: Page; problems: string[] }
-
-const EXPECTED = [/^401 GET \/api\/auth\/me$/];
-
-async function watched(context: BrowserContext): Promise<Watched> {
-  const page = await context.newPage();
-  const problems: string[] = [];
-  page.on('pageerror', (err) => problems.push(`uncaught: ${err.message}`));
-  page.on('console', (message) => {
-    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource')) problems.push(`console: ${message.text()}`);
-  });
-  page.on('response', (response) => {
-    if (response.status() < 400) return;
-    const said = `${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`;
-    if (!EXPECTED.some((expected) => expected.test(said))) problems.push(said);
-  });
-  return { page, problems };
-}
-
-function nothingWentWrong(watching: Watched, during: string): void {
-  assert.deepEqual(watching.problems, [], `the page reported problems during ${during}`);
-}
 
 async function signsIn(stack: SplitStack, watching: Watched): Promise<void> {
   step('the owner signs in on root\'s page with their password and lands on their instance, signed in');
