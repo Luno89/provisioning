@@ -4,15 +4,14 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
-import { UnreadableCredential } from './CredentialService.js';
+import { savedHuggingFaceToken } from './hugging-face-token.js';
 import {
-  decryptValue, type SecretKey, type Database, type ClusterMetadata, type CloudCredentials, type DeploymentMetadata,
+  type SecretKey, type Database, type ClusterMetadata, type DeploymentMetadata,
   type PipelineRunMetadata, type ProjectMetadata, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
 import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
 import { modelImageOf } from '../lib/model-images.js';
-import { vllmToolCalling } from '../lib/vllm-tool-calling.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
@@ -20,6 +19,7 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { definedFields, DeployRequestProblem, type DeployRequest } from '../lib/deploy-request.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
+import type { ToolCallParsers } from '../../models/index.js';
 import { QUEUES } from '../../platform/index.js';
 
 export const CLUSTER_QUEUE = QUEUES.cluster;
@@ -31,16 +31,7 @@ export interface AppDeployDeps {
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
   handOver: (clusterId: string) => Promise<HandOver>;
   logDir: string;
-}
-
-function savedHuggingFaceToken(credentials: CloudCredentials | undefined, key: SecretKey): string | undefined {
-  const sealed = credentials?.huggingface?.hfToken;
-  if (!sealed) return undefined;
-  try {
-    return decryptValue(sealed, key);
-  } catch {
-    throw new UnreadableCredential('huggingface', 'hfToken');
-  }
+  toolCalling: Pick<ToolCallParsers, 'decide'>;
 }
 
 export interface StartedDeploy {
@@ -185,12 +176,6 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       else if (token) dep.vllmHfToken = token
     }
 
-  if (dep.appType === 'vllm') {
-    const tools = vllmToolCalling(dep, { newApp })
-    if ('problem' in tools) throw new DeployRequestProblem(tools.problem)
-    Object.assign(dep, tools)
-  }
-
   const targetCluster = await deps.clusterById(dep.clusterId)
   if (!dep.appType) throw new CapacityError(`${dep.name} has no app type recorded, so it cannot be deployed again: remove it and deploy it anew`)
   const gpus = gpuAskOf(dep.appType, dep as Record<string, unknown>)
@@ -200,6 +185,11 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     const decided = gpuDeployRefusal(targetCluster, gpus)
     if ('refused' in decided) throw new CapacityError(decided.refused)
     if (dep.appType === 'vllm') dep.vllmGpuVendor = decided.vendor
+  }
+  if (dep.appType === 'vllm') {
+    const tools = await deps.toolCalling.decide(dep, { newApp, ownerId: userId ?? dep.ownerId })
+    if ('problem' in tools) throw new DeployRequestProblem(tools.problem)
+    Object.assign(dep, tools)
   }
   const handed = await deps.handOver(dep.clusterId)
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

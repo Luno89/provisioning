@@ -2,7 +2,9 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { type AppSignIn, destroyResource, exposeDeployment, getAppSignIn, patchDeploymentConfig, setDeploymentModules, setExposurePath, unexposeDeployment } from './deployments'
 import { startBackend } from '../../../test/backend/site'
 import { configInputsOf } from '../lib/app-config-inputs'
-import { toolCallingOf } from '../lib/vllm-tool-calling'
+import { pickToolCallParser } from '../../models/api'
+import { toolCallParsersOn } from '../../../test/backend/tool-calling'
+import { toolCallParsersRouter } from '../../../../../backend/src/models/routes/tool-call-parsers'
 import { infrastructureOf, type Infrastructure } from '../../../test/backend/infrastructure'
 import { outsideThisTier } from '../../../test/backend/outside'
 import type { Wire } from '../../../test/backend/wire'
@@ -15,12 +17,18 @@ import { objectWith } from '../../../../../backend/src/platform/lib/test-matcher
 let infra: Infrastructure | undefined
 
 const backend = await startBackend(async (site) => {
-  infra = await infrastructureOf(site)
+  const { parsers } = await toolCallParsersOn(site, {
+    'meta-llama/Llama-3.2-3B-Instruct': { fixture: 'meta-llama/Llama-3.2-3B-Instruct' },
+    'someone/their-own-model': { template: '{% for message in messages %}{{ message.content }}{% endfor %}' },
+  })
+  infra = await infrastructureOf(site, undefined, undefined, parsers)
+  site.api.use('/tool-call-parsers', toolCallParsersRouter({ parsers }))
   site.api.use('/deployments', deploymentsRouter({
     appService: infra.apps,
     clusterService: infra.clusters,
     appExposureService: outsideThisTier<AppExposureService>('app exposure, which writes the edge\'s routes'),
     temporalBridge: infra.bridge,
+    toolCalling: parsers,
     db: site.db,
     io: infra.io,
   }))
@@ -49,12 +57,13 @@ describe('an app\'s page, as it asks the backend', () => {
     expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'qwen', appType: 'tabbyapi', tabbyRevision: '4.0bpw', tabbyGpuCount: 2, tabbyMaxSeqLen: 65536, storage: objectWith({ models: '200Gi' }) })
   })
 
-  it('turns vLLM\'s tool calling on with the parser the page shows, and refuses a model with no parser known, as a deploy would', async () => {
+  it('turns vLLM\'s tool calling on with the parser the page shows, chosen from the model\'s chat template, and refuses a template with no format Koala knows, as a deploy would', async () => {
     const page = configInputsOf({ id: 'llama', name: 'llama', appType: 'vllm', clusterId: 'machine-desk', status: 'running', vllmModel: 'meta-llama/Llama-3.2-3B-Instruct' })
-    const calling = toolCallingOf(page.vllmModel, true, '')
-    await patchDeploymentConfig('llama', { vllmToolCallingEnabled: calling.enabled, ...('parser' in calling ? { vllmToolCallParser: calling.parser } : {}) })
+    expect(await pickToolCallParser(page.vllmModel)).toEqual({ parser: 'llama3_json', from: 'template' })
+    await patchDeploymentConfig('llama', { vllmToolCallingEnabled: true, vllmToolCallParser: page.vllmToolCallParser })
     expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'llama', appType: 'vllm', vllmToolCallingEnabled: true, vllmToolCallParser: 'llama3_json' })
-    await expect(patchDeploymentConfig('llama', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true, vllmToolCallParser: '' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } } })
+    expect(await pickToolCallParser('someone/their-own-model')).toEqual({ problem: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' })
+    await expect(patchDeploymentConfig('llama', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true, vllmToolCallParser: '' })).rejects.toMatchObject({ response: { status: 400, data: { error: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' } } })
   })
 
   it('refuses more GPUs than the machine reports, and none at all, as a deploy would', async () => {

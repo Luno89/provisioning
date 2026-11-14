@@ -13,6 +13,7 @@ import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
+import { ChatTemplateUnread, type ToolCallParsers } from '../../models/index.js';
 import { deploymentsRouter } from './deployments.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
 import { PERSON, routesInProcess, type RouteAnswer } from '../../platform/testing/routes.js';
@@ -27,12 +28,13 @@ function setup() {
   const clusterService = mock<Pick<ClusterService, 'getById'>>();
   const appExposureService = mock<AppExposureService>();
   const temporalBridge = mock<TemporalBridge>();
+  const toolCalling = mock<Pick<ToolCallParsers, 'change'>>();
   const db = memoryDatabase();
-  const router = deploymentsRouter({ appService, clusterService, appExposureService, temporalBridge, db, io: mock<SocketServer>() });
+  const router = deploymentsRouter({ appService, clusterService, appExposureService, temporalBridge, toolCalling, db, io: mock<SocketServer>() });
   appService.getById.calledWith('d1', PERSON.id).mockResolvedValue(deployment());
   const call = (path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser): Promise<RouteAnswer> =>
     routesInProcess({ prefix: '/api/deployments', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/deployments${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { appService, clusterService, appExposureService, temporalBridge, db, call };
+  return { appService, clusterService, appExposureService, temporalBridge, toolCalling, db, call };
 }
 
 describe('listing deployments', () => {
@@ -292,17 +294,30 @@ describe('changing a deployment', () => {
     expect(temporalBridge.updateConfigAndSync).toHaveBeenCalledWith('d1', { vllmGpuCount: 2, vllmGpuVendor: 'nvidia' });
   });
 
-  it('decides a change to vLLM\'s tool calling by the rules a deploy follows, its parser chosen from the model when none is picked', async () => {
-    const { appService, temporalBridge, call } = setup();
-    appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' }));
+  it('decides a change to vLLM\'s tool calling by the rules a deploy follows, as the app\'s owner, refusing with why', async () => {
+    const { appService, temporalBridge, toolCalling, call } = setup();
+    const app = deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' });
+    appService.getById.mockResolvedValue(app);
     temporalBridge.updateConfigAndSync.mockResolvedValue(deal('w6'));
-    expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: true, vllmToolCallParser: 'made-up' })).data).toEqual({ error: 'made-up is not a tool call parser vLLM v0.32.0 has' });
-    expect((await call('/d1/config', 'PATCH', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true })).data).toEqual({ error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' });
+    toolCalling.change.calledWith(app, matches((patch: Record<string, unknown>) => patch.vllmToolCallParser === 'made-up'), matches((asking: { ownerId?: string }) => asking.ownerId === PERSON.id)).mockResolvedValue({ problem: 'made-up is not a tool call parser Koala knows' });
+    toolCalling.change.calledWith(app, matches((patch: Record<string, unknown>) => patch.vllmModel === 'someone/their-own-model'), matches(() => true)).mockResolvedValue({ problem: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' });
+    toolCalling.change.calledWith(app, matches((patch: Record<string, unknown>) => patch.vllmToolCallParser === ''), matches(() => true)).mockResolvedValue({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+    toolCalling.change.calledWith(app, matches((patch: Record<string, unknown>) => patch.vllmToolCallingEnabled === false), matches(() => true)).mockResolvedValue({ vllmToolCallingEnabled: false });
+    expect(await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: true, vllmToolCallParser: 'made-up' })).toMatchObject({ status: 400, data: { error: 'made-up is not a tool call parser Koala knows' } });
+    expect((await call('/d1/config', 'PATCH', { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true })).data).toEqual({ error: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' });
     expect(temporalBridge.updateConfigAndSync).not.toHaveBeenCalled();
     expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: true, vllmToolCallParser: '' })).status).toBe(202);
     expect(temporalBridge.updateConfigAndSync).toHaveBeenLastCalledWith('d1', { vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
     expect((await call('/d1/config', 'PATCH', { vllmToolCallingEnabled: false })).status).toBe(202);
     expect(temporalBridge.updateConfigAndSync).toHaveBeenLastCalledWith('d1', { vllmToolCallingEnabled: false });
+  });
+
+  it('answers 502 with why when the model\'s chat template cannot be read, never as Temporal being down', async () => {
+    const { appService, temporalBridge, toolCalling, call } = setup();
+    appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' }));
+    toolCalling.change.mockRejectedValue(new ChatTemplateUnread('Hugging Face did not answer for Qwen/Qwen3-8B\'s chat template: it answered 503'));
+    expect(await call('/d1/config', 'PATCH', { vllmModel: 'Qwen/Qwen3-8B' })).toMatchObject({ status: 502, data: { error: 'Hugging Face did not answer for Qwen/Qwen3-8B\'s chat template: it answered 503' } });
+    expect(temporalBridge.updateConfigAndSync).not.toHaveBeenCalled();
   });
 
   it('refuses a config that is not one, settings for an app without a schema, and settings the schema rejects', async () => {

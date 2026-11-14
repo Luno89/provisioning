@@ -11,6 +11,7 @@ import {
   migrateAgentTools, migrateMcpServers, migrateToDependencies,
 } from '../engine/index.js';
 import { giveDeviceTokenLifetimes, hashDeviceTokens } from '../machines/index.js';
+import { seedToolCallParsers } from '../models/index.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
@@ -35,6 +36,7 @@ export async function seedAll(db: Database, dataKey: SecretKey) {
   counts.githubCredentialsDropped = (await runOnce(ledger, 'github-credentials-dropped', now, async () => ({ dropped: await db.accounts.dropGitHubCredentials() }))).dropped ?? 0;
   counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
+  counts.toolCallParsers = await seedToolCallParsers(db.models);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db.engine);
   counts.engineTools = await seedEngineTools(db.engine);

@@ -181,6 +181,22 @@ describe('seed-all', () => {
     expect(Object.values(again).reduce((a, b) => a + b, 0)).toBe(0);
   });
 
+  it('keeps vLLM\'s tool call parsers as they ship on every start, and every parser added another way', async () => {
+    const db = await testDatabase();
+    await db.models.saveToolCallParser({ parser: 'my-own', label: 'Mine', template: [{ contains: '<mine>' }], names: [], shipped: false });
+    expect((await seedAll(db, SEED_KEY)).toolCallParsers).toBe(54);
+    const hermes = (await db.models.getToolCallParsers()).find((row) => row.parser === 'hermes')!;
+    await db.models.saveToolCallParser({ ...hermes, label: 'changed by hand', template: [] });
+    await db.models.saveToolCallParser({ ...hermes, parser: 'no-longer-shipped' });
+
+    expect((await seedAll(db, SEED_KEY)).toolCallParsers).toBe(2);
+    const rows = await db.models.getToolCallParsers();
+    expect(rows.find((row) => row.parser === 'hermes')).toEqual(hermes);
+    expect(rows.find((row) => row.parser === 'my-own')).toEqual({ parser: 'my-own', label: 'Mine', template: [{ contains: '<mine>' }], names: [], shipped: false });
+    expect(rows.map((row) => row.parser)).not.toContain('no-longer-shipped');
+    expect(rows).toHaveLength(55);
+  });
+
   it('drops the cluster providers Koala kept before it stopped making clusters, once, keeping everything else', async () => {
     const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
     const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });

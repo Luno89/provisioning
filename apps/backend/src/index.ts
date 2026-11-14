@@ -44,12 +44,13 @@ import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellatio
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
 import { IdentityService, InstanceReach } from './instances/index.js';
-import { modelsRouter, ModelService, servedWindowsOverHttp } from './models/index.js';
+import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHttp, ToolCallParsers, toolCallParsersRouter } from './models/index.js';
 
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, vpsCatalogAdapters,
+  savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import { GiteaService, pushToBuild } from './projects/index.js';
@@ -183,7 +184,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);
 
-  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies });
+  const toolCallParsers = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
+  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
@@ -356,7 +358,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   wireInfrastructure({
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: settings.tests.openRouterUrl, googleDrive: settings.operator.googleDrive, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService,
-    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
+    temporalBridge, toolCalling: toolCallParsers, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
     vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
 
@@ -399,6 +401,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   wireAccounts({ app, role, db, temporal: getTemporalClient, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
+  tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
     tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,

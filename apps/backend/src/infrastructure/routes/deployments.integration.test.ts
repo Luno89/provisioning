@@ -1,9 +1,12 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { DependencyDownError } from '../../platform/lib/dependencies.js';
 import axios from 'axios';
 import { deploymentsRouter } from './deployments.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
+import { chatTemplatesOverHttp, seedToolCallParsers, ToolCallParsers } from '../../models/index.js';
+import { startHuggingFaceStandIn, type HuggingFaceStandIn } from '../../models/testing/hugging-face-stand-in.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 
 vi.mock('../lib/huggingface.js', () => ({ getHfModelSize: async () => ({ totalBytes: 20e9 }) }));
 
@@ -11,6 +14,19 @@ const ANY_STATUS = { validateStatus: () => true };
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
+
+let hf: HuggingFaceStandIn;
+let toolCalling: ToolCallParsers;
+beforeAll(async () => {
+  hf = await startHuggingFaceStandIn({
+    'meta-llama/Llama-3.2-3B-Instruct': { fixture: 'meta-llama/Llama-3.2-3B-Instruct' },
+    'someone/their-own-model': { template: '{% for message in messages %}{{ message.content }}{% endfor %}' },
+  });
+  const parsers = await testDatabase();
+  await seedToolCallParsers(parsers.models);
+  toolCalling = new ToolCallParsers({ store: parsers.models, templates: chatTemplatesOverHttp(hf.url), savedToken: async () => undefined });
+});
+afterAll(async () => { await hf.close(); });
 
 const deployment = (over: Record<string, unknown> = {}) => ({
   id: 'd1', name: 'odoo', appType: 'odoo', clusterId: 'c1', ownerId: TEST_USER.id, ...over,
@@ -36,6 +52,7 @@ const services = () => ({
   },
   db: { infrastructure: { getDeployments: vi.fn(async () => [deployment()]), saveDeployment: vi.fn(async () => undefined) } },
   io: { emit: vi.fn() },
+  toolCalling,
 });
 
 const mount = async (svc = services(), user: typeof TEST_USER | null = TEST_USER) => {
@@ -90,14 +107,14 @@ describe('patching config', () => {
     }
   });
 
-  it('turns vLLM\'s tool calling on with the parser its model needs, and refuses it over HTTP for a model whose parser is unknown', async () => {
+  it('turns vLLM\'s tool calling on with the parser its model\'s chat template needs, and refuses it over HTTP for a template with no format Koala knows', async () => {
     const { h, svc } = await mount();
     svc.appService.getById.mockResolvedValue(deployment({ appType: 'vllm', vllmGpuCount: 1, vllmModel: 'meta-llama/Llama-3.2-3B-Instruct' }) as never);
     const on = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), { vllmToolCallingEnabled: true }, ANY_STATUS);
     expect(on.status).toBe(202);
     expect(svc.temporalBridge.updateConfigAndSync).toHaveBeenCalledWith('d1', { vllmToolCallingEnabled: true, vllmToolCallParser: 'llama3_json' });
     const refused = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), { vllmModel: 'someone/their-own-model', vllmToolCallingEnabled: true, vllmToolCallParser: '' }, ANY_STATUS);
-    expect(refused).toMatchObject({ status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } });
+    expect(refused).toMatchObject({ status: 400, data: { error: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' } });
   });
 
   it('reports Temporal being down as 503, not as a bad patch', async () => {

@@ -10,6 +10,7 @@ import type { InfrastructureService } from '../../../../backend/src/infrastructu
 import { MonitoringService } from '../../../../backend/src/monitoring/services/MonitoringService'
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
 import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
+import type { ToolCallParsers } from '../../../../backend/src/models/services/ToolCallParsers'
 
 export interface Infrastructure {
   host: InfrastructureService
@@ -21,12 +22,12 @@ export interface Infrastructure {
   io: Server
 }
 
-export async function infrastructureOf({ db }: Site, koalaMachineId?: string, instanceOwnerId?: string): Promise<Infrastructure> {
+export async function infrastructureOf({ db }: Site, koalaMachineId?: string, instanceOwnerId?: string, toolCalling?: ToolCallParsers): Promise<Infrastructure> {
   const host = outsideThisTier<InfrastructureService>('the host\'s kubectl and helm')
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY, koalaMachineId }), { instanceOwnerId })
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
   const temporal = recordedTemporal()
-  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client, toolCalling })
   await bridge.start()
   const reach = (what: string) => async (): Promise<never> => { throw new Error(`${what} reaches a cluster, which the integration tier never does`) }
   const monitoring = new MonitoringService({

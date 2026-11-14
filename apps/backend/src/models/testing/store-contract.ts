@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelThinkingProfile } from '../../engine/index.js';
 import type { ModelEndpointMetadata } from '../../platform/index.js';
 import type { ModelsStore } from '../store.js';
+import type { ToolCallParser } from '../lib/tool-call-parsers.js';
 
 const endpoint = (id: string, extra: Partial<ModelEndpointMetadata> = {}): ModelEndpointMetadata => ({
   id,
@@ -26,7 +27,41 @@ const profile = (modelId: string, extra: Partial<ModelThinkingProfile> = {}): Mo
   ...extra,
 });
 
+const parser = (name: string, extra: Partial<ToolCallParser> = {}): ToolCallParser => ({
+  parser: name,
+  label: `the ${name} parser`,
+  template: [{ contains: '<tool_call>' }, { matches: '\\{"name": <[a-z-]+>' }],
+  names: ['(^|/)qwen3-'],
+  shipped: true,
+  ...extra,
+});
+
 export function modelsStoreContract(make: () => Promise<ModelsStore>): void {
+  describe('the tool call parsers', () => {
+    it('has none before any is saved, keeps each as saved in name order, replaces one saved again and forgets one deleted', async () => {
+      const store = await make();
+      expect(await store.getToolCallParsers()).toEqual([]);
+      await store.saveToolCallParser(parser('qwen3_xml'));
+      await store.saveToolCallParser(parser('hermes', { names: [], template: [{ contains: '<tool_call>' }] }));
+      await store.saveToolCallParser(parser('mine', { shipped: false, template: [], names: [] }));
+      expect(await store.getToolCallParsers()).toEqual([parser('hermes', { names: [], template: [{ contains: '<tool_call>' }] }), parser('mine', { shipped: false, template: [], names: [] }), parser('qwen3_xml')]);
+      await store.saveToolCallParser(parser('qwen3_xml', { label: 'Qwen3-Coder' }));
+      expect((await store.getToolCallParsers()).find((row) => row.parser === 'qwen3_xml')).toEqual(parser('qwen3_xml', { label: 'Qwen3-Coder' }));
+      await store.deleteToolCallParser('hermes');
+      await store.deleteToolCallParser('never');
+      expect((await store.getToolCallParsers()).map((row) => row.parser)).toEqual(['mine', 'qwen3_xml']);
+    });
+
+    it('hands back a copy, so changing what it read changes nothing stored', async () => {
+      const store = await make();
+      await store.saveToolCallParser(parser('hermes'));
+      const [read] = await store.getToolCallParsers();
+      read!.names.push('changed');
+      read!.label = 'changed';
+      expect(await store.getToolCallParsers()).toEqual([parser('hermes')]);
+    });
+  });
+
   describe('the model endpoints', () => {
     it('keeps an endpoint as it was saved, replaces it whole when saved again, and forgets it when deleted', async () => {
       const store = await make();

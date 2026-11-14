@@ -50,6 +50,7 @@ import { artifactsRouter } from '../../files/routes/artifacts.js';
 import { projectFilesRouter } from '../../files/routes/project-files.js';
 import { hubRouter } from '../../hub/routes/hub.js';
 import { projectSharingRouter } from '../../hub/routes/project-sharing.js';
+import type { ToolCallParsers } from '../../models/index.js';
 import { deploymentsRouter } from '../../infrastructure/routes/deployments.js';
 import { monitoringRouter } from '../../monitoring/routes/monitoring.js';
 import { branchesRouter } from '../../projects/routes/branches.js';
@@ -94,6 +95,7 @@ export interface CheckApiPorts {
   clusters: MockProxy<ClusterService>;
   access: MockProxy<ClusterAccess>;
   bridge: MockProxy<TemporalBridge>;
+  toolCalling: MockProxy<Pick<ToolCallParsers, 'change'>>;
   monitoring: MockProxy<MonitoringService>;
   releases: MockProxy<OdooReleaseService>;
   releaseSettings: MockProxy<ReleaseSettings>;
@@ -161,6 +163,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
     clusters: mock<ClusterService>(),
     access: mock<ClusterAccess>(),
     bridge: mock<TemporalBridge>(),
+    toolCalling: mock<Pick<ToolCallParsers, 'change'>>(),
     monitoring: mock<MonitoringService>(),
     releases: mock<OdooReleaseService>(),
     releaseSettings: mock<ReleaseSettings>(),
@@ -259,7 +262,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   projects.use(projectsRouter({ db, getOwnedProject, projectRepoService: ports.repos, temporalBridge: ports.bridge, giteaService: ports.gitea, clusterService: ports.clusters, channels, removal: ports.removal }));
   app.use('/api/projects', projects);
   app.use('/api/release-settings', releaseSettingsRouter({ settings: ports.releaseSettings }));
-  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, temporalBridge: ports.bridge, db, io: mock<SocketServer>() }));
+  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, temporalBridge: ports.bridge, toolCalling: ports.toolCalling, db, io: mock<SocketServer>() }));
   app.use('/api/monitoring', monitoringRouter({ monitoring: ports.monitoring }));
   app.use('/api/project-sharing', projectSharingRouter({ sharing: ports.sharing }));
   app.use('/api/hub', hubRouter({ hub: ports.hub }));

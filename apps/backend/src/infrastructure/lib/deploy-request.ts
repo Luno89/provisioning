@@ -1,5 +1,4 @@
 import type { DeploymentMetadata } from '../../platform/index.js';
-import { VLLM_TOOL_CALL_PARSERS } from './vllm-tool-calling.js';
 
 type Field<K extends keyof DeploymentMetadata> = Exclude<DeploymentMetadata[K], undefined>;
 
@@ -83,7 +82,7 @@ const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
   webRepo: 'text', webTag: 'text', odooRepo: 'text', odooTag: 'text', dbRepo: 'text', dbTag: 'text', pgRepo: 'text', pgTag: 'text', url: 'text',
   vllmModel: 'text', vllmGpuCount: 'number', vllmGpuVendor: GPU_VENDORS, vllmCachePvc: 'text', vllmHfToken: 'text',
   vllmMaxModelLen: 'number', vllmGpuMemUtil: 'number', vllmExtraArgs: 'text', vllmToolCallingEnabled: 'flag',
-  vllmToolCallParser: VLLM_TOOL_CALL_PARSERS satisfies readonly Field<'vllmToolCallParser'>[], vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
+  vllmToolCallParser: 'text', vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
   vllmEnablePrefixCaching: 'flag',
   tabbyModel: 'text', tabbyRevision: 'text', tabbyGpuCount: 'number', tabbyHfToken: 'text', tabbyCachePvc: 'text',
   tabbyImageTag: 'text', tabbyCacheMode: CACHE_MODES, tabbyMaxSeqLen: 'number', tabbyMaxBatchSize: 'number',

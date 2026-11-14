@@ -15,8 +15,9 @@ describe('what Deploy sends for a model server', () => {
     expect(deployPayloadOf({ ...vllm, vllmGpuCount: '0' })).toMatchObject({ vllmGpuCount: 0 })
   })
 
-  it('sends vLLM\'s tool calling on with the parser chosen from the model or picked, and no parser when it is off', () => {
-    expect(deployPayloadOf(vllm)).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' })
+  it('sends vLLM\'s tool calling on with the parser picked, none for Koala to choose from the model, and no parser when it is off', () => {
+    expect(deployPayloadOf(vllm)).toMatchObject({ vllmToolCallingEnabled: true })
+    expect(deployPayloadOf(vllm)).not.toHaveProperty('vllmToolCallParser')
     expect(deployPayloadOf({ ...vllm, vllmToolCallParser: 'pythonic' })).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'pythonic' })
     const off = deployPayloadOf({ ...vllm, vllmToolCallingEnabled: false, vllmToolCallParser: 'hermes' })
     expect(off).toMatchObject({ vllmToolCallingEnabled: false })

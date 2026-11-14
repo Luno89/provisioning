@@ -1,15 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
 import { encryptValue } from '../../platform/lib/crypto.js';
 import { startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
+import { chatTemplatesOverHttp, seedToolCallParsers, ToolCallParsers } from '../../models/index.js';
+import { startHuggingFaceStandIn, type HuggingFaceStandIn } from '../../models/testing/hugging-face-stand-in.js';
+import { savedHuggingFaceTokenOf } from './hugging-face-token.js';
+
+const KEY = 'test-key-that-is-at-least-32-characters-long';
+
+let hf: HuggingFaceStandIn;
+beforeAll(async () => {
+  hf = await startHuggingFaceStandIn({
+    'Qwen/Qwen3-8B': { fixture: 'Qwen/Qwen3-8B', as: 'tokenizer_config.json' },
+    'meta-llama/Llama-3.2-3B-Instruct': { fixture: 'meta-llama/Llama-3.2-3B-Instruct' },
+    'someone/their-own-model': { template: '{% for message in messages %}{{ message.content }}{% endfor %}' },
+  });
+});
+afterAll(async () => { await hf.close(); });
 
 const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 }, gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] } as ClusterMetadata;
 
 async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: string; args: Record<string, unknown> }[] }> {
   const db = await testDatabase();
   await db.infrastructure.saveCluster(CLUSTER);
+  await seedToolCallParsers(db.models);
   const started: { workflowId: string; args: Record<string, unknown> }[] = [];
   const start = vi.fn(async (_workflow: unknown, options: { workflowId: string; args: [Record<string, unknown>] }) => {
     started.push({ workflowId: options.workflowId, args: options.args[0] });
@@ -19,10 +35,11 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
     deps: {
       db,
       client: () => ({ workflow: { start } }) as never,
-      masterKey: 'test-key-that-is-at-least-32-characters-long' as never,
+      masterKey: KEY as never,
       clusterById: async (id) => (id === CLUSTER.id ? CLUSTER : undefined),
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
+      toolCalling: new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(hf.url), savedToken: savedHuggingFaceTokenOf(db.accounts, KEY as never) }),
     },
     started,
   };
@@ -85,16 +102,17 @@ describe('a model\'s Hugging Face token', () => {
     await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1 }, 'bob');
 
     expect(started.map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_saved'], [undefined, undefined]]);
+    expect(hf.asked.filter((ask) => ask.path.startsWith('/meta-llama/')).map((ask) => ask.token)).toEqual(['hf_given', undefined]);
     const stored = Object.fromEntries((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, [dep.vllmHfToken, dep.tabbyHfToken]]));
     expect(stored).toEqual({ given: ['hf_given', undefined], saved: [undefined, 'hf_saved'], none: [undefined, undefined] });
   });
 });
 
 describe('a vLLM deploy\'s tool calling, as the database keeps it', () => {
-  it('is stored on, with the parser chosen from the model, and refused with nothing stored for a model whose parser is unknown', async () => {
+  it('is stored on, with the parser chosen from the model\'s chat template, and refused with nothing stored for a template with no format Koala knows', async () => {
     const { deps: d, started } = await deps();
     await startAppDeploy(d, { name: 'qwen', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen3-8B' }, 'ann');
-    await expect(startAppDeploy(d, { name: 'odd', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'someone/their-own-model' }, 'ann')).rejects.toThrow(/pick one, or turn tool calling off/);
+    await expect(startAppDeploy(d, { name: 'odd', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'someone/their-own-model' }, 'ann')).rejects.toThrow(/has no tool call format Koala knows: pick a parser, or turn tool calling off/);
     expect(started.map((run) => [run.args.vllmToolCallingEnabled, run.args.vllmToolCallParser])).toEqual([[true, 'hermes']]);
     expect((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, dep.vllmToolCallingEnabled, dep.vllmToolCallParser])).toEqual([['qwen', true, 'hermes']]);
   });

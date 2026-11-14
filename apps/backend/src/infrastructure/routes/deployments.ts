@@ -8,18 +8,19 @@ import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { resourcePlanOf } from '../services/resource-plan.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
-import { vllmToolCallingChange } from '../lib/vllm-tool-calling.js';
 import { gpuChangeRefusal } from '../lib/cluster-gpus.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { ToolCallParsers } from '../../models/index.js';
 
 export interface DeploymentsRouterDeps {
   appService: AppService;
   clusterService: Pick<ClusterService, 'getById'>;
   appExposureService: AppExposureService;
   temporalBridge: TemporalBridge;
+  toolCalling: Pick<ToolCallParsers, 'change'>;
   db: Database;
   io: SocketServer;
 }
@@ -30,7 +31,7 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
-  const { appService, clusterService, appExposureService, temporalBridge, db, io } = deps;
+  const { appService, clusterService, appExposureService, temporalBridge, toolCalling, db, io } = deps;
   const router = Router();
   router.use((_req, res, next) => {
     const send = res.json.bind(res);
@@ -165,19 +166,18 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   }));
 
   router.patch('/:id/config', asyncRoute(async (req, res) => {
+    const current = await appService.getById(idOf(req), userOf(req).id);
+    if (!current) return res.status(404).json({ error: 'Deployment not found' });
+    const read = deploymentConfigPatch(req.body);
+    if ('problem' in read) return res.status(400).json({ error: read.problem });
+    const patch: Partial<DeploymentMetadata> = read.patch;
+    const gpus = gpuChangeRefusal(current as Record<string, unknown>, patch as Record<string, unknown>, await clusterService.getById(current.clusterId, principalFrom(req)));
+    if (gpus && 'refused' in gpus) return res.status(400).json({ error: gpus.refused });
+    if (gpus && current.appType === 'vllm') patch.vllmGpuVendor = gpus.vendor;
+    const tools = await toolCalling.change(current, patch, { ownerId: userOf(req).id });
+    if (tools && 'problem' in tools) return res.status(400).json({ error: tools.problem });
+    if (tools) Object.assign(patch, tools);
     try {
-      const current = await appService.getById(idOf(req), userOf(req).id);
-      if (!current) return res.status(404).json({ error: 'Deployment not found' });
-      const read = deploymentConfigPatch(req.body);
-      if ('problem' in read) return res.status(400).json({ error: read.problem });
-      const patch: Partial<DeploymentMetadata> = read.patch;
-      const gpus = gpuChangeRefusal(current as Record<string, unknown>, patch as Record<string, unknown>, await clusterService.getById(current.clusterId, principalFrom(req)));
-      if (gpus && 'refused' in gpus) return res.status(400).json({ error: gpus.refused });
-      if (gpus && current.appType === 'vllm') patch.vllmGpuVendor = gpus.vendor;
-      const tools = vllmToolCallingChange(current, patch);
-      if (tools && 'problem' in tools) return res.status(400).json({ error: tools.problem });
-      if (tools) Object.assign(patch, tools);
-
       if (read.appSettings !== undefined) {
         const existing = await appService.getById(idOf(req), userOf(req).id);
         const schema = APP_SETTINGS_SCHEMAS[existing?.appType ?? ''];

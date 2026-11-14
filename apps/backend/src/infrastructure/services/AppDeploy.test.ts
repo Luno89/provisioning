@@ -8,6 +8,7 @@ import { CapacityError } from '../lib/cluster-capacity.js';
 import { deployProjectBuild, resolveOpenaiApiBaseUrl, startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../lib/model-images.js';
+import type { ToolCallParsers } from '../../models/index.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
 const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy', capacity: { cpuCores: 16, ramGb: 64 }, gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] };
@@ -17,6 +18,8 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
   const workflow = mock<Pick<WorkflowClient, 'start'>>();
   const access = mock<Pick<ClusterAccess, 'handOver'>>();
   access.handOver.mockImplementation(async (clusterId) => ({ clusterId, reach: { clusterId, kind: 'koala' } }));
+  const toolCalling = mock<Pick<ToolCallParsers, 'decide'>>();
+  toolCalling.decide.mockResolvedValue({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
   const started = () => workflow.start.mock.calls.map(([, options]) => ({ workflowId: options.workflowId, taskQueue: options.taskQueue, args: (options.args as [Record<string, unknown>])[0], memo: options.searchAttributes }));
   const all: AppDeployDeps = {
     db,
@@ -25,8 +28,9 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
     clusterById: async (id) => (id === cluster.id ? cluster : undefined),
     handOver: (clusterId) => access.handOver(clusterId),
     logDir: '/tmp/logs',
+    toolCalling,
   };
-  return { deps: all, db, workflow, started, access };
+  return { deps: all, db, workflow, started, access, toolCalling };
 }
 
 const dep = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'd', name: 'app', clusterId: 'c1', strategy: 'helm', status: 'running', ...over });
@@ -226,25 +230,34 @@ describe('a deploy that asks for GPUs', () => {
 });
 
 describe('a vLLM deploy\'s tool calling', () => {
-  it('is on for a new app, its parser chosen from the model, so a Koala chat can run on it', async () => {
-    const { deps: d, started, db } = await deps();
-    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct' }, 'ann');
+  it('is decided for a new app as the person deploying it, with the token the deploy will use, and recorded and handed on as decided', async () => {
+    const { deps: d, started, db, toolCalling } = await deps();
+    await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmHfToken: 'hf_given' }, 'ann');
+    expect(toolCalling.decide).toHaveBeenCalledWith(expect.objectContaining({ vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmHfToken: 'hf_given' }), { newApp: true, ownerId: 'ann' });
     expect(started()[0]?.args).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
     expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
   });
 
-  it('stays off when the person turned it off', async () => {
-    const { deps: d, started } = await deps();
+  it('stays off when it is decided off', async () => {
+    const { deps: d, started, toolCalling } = await deps();
+    toolCalling.decide.mockResolvedValue({ vllmToolCallingEnabled: false });
     await startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct', vllmToolCallingEnabled: false }, 'ann');
     expect(started()[0]?.args).toMatchObject({ vllmToolCallingEnabled: false });
   });
 
-  it('is refused, saying to pick a parser, on a model whose parser Koala does not know, before anything is recorded or started', async () => {
-    const { deps: d, db, workflow } = await deps();
+  it('is refused with the reason it was refused for, before anything is recorded or started', async () => {
+    const { deps: d, db, workflow, toolCalling } = await deps();
+    toolCalling.decide.mockResolvedValue({ problem: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' });
     await expect(startAppDeploy(d, { name: 'llm', clusterId: 'c1', appType: 'vllm', vllmGpuCount: 1, vllmModel: 'someone/their-own-model' }, 'ann'))
-      .rejects.toThrow('Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off');
+      .rejects.toThrow('someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off');
     expect(workflow.start).not.toHaveBeenCalled();
     expect(await db.infrastructure.getDeployments()).toEqual([]);
+  });
+
+  it('is not asked about for an app that is not vLLM', async () => {
+    const { deps: d, toolCalling } = await deps();
+    await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
+    expect(toolCalling.decide).not.toHaveBeenCalled();
   });
 });
 

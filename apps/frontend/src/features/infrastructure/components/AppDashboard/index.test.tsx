@@ -20,7 +20,22 @@ vi.mock('../../api/deployments', async (importOriginal) => ({
 vi.mock('../../../models/api', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   useTabbyImageTags: vi.fn(() => ({ options: [], loading: false })),
+  useToolCallParsers: vi.fn(() => ({ data: TOOL_CALL_PARSERS, isError: false })),
+  useToolCallParserPick: vi.fn((model: string) => ({ data: PICKS[model], isFetching: false, error: null })),
 }));
+
+const TOOL_CALL_PARSERS = [
+  { parser: 'hermes', label: 'Hermes, Qwen 2.5, QwQ, Qwen 3' },
+  { parser: 'mistral', label: 'Mistral' },
+  { parser: 'pythonic', label: 'Pythonic (Llama 3.2 small, ToolACE)' },
+];
+
+const PICKS: Record<string, modelsApi.ToolCallParserPick> = {
+  'Qwen/Qwen2.5-0.5B-Instruct': { parser: 'hermes', from: 'template' },
+  'Qwen/Qwen3-8B': { parser: 'hermes', from: 'template' },
+  'mistralai/Mistral-7B-Instruct-v0.3': { parser: 'mistral', from: 'template' },
+  'someone/their-own-model': { problem: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' },
+};
 
 const useHelmStatus = vi.mocked(deploymentsApi.useHelmStatus);
 const useDiagnostics = vi.mocked(deploymentsApi.useDiagnostics);
@@ -137,9 +152,9 @@ describe('vLLM\'s tool calling in an app\'s settings', () => {
     expect(screen.getByLabelText(/^Serve tool calling/)).not.toBeChecked();
     expect(screen.getByText('Without tool calling, Koala\'s chats cannot run on this model.')).toBeInTheDocument();
     await user.click(screen.getByLabelText(/^Serve tool calling/));
-    expect(screen.getByRole('option', { name: 'Chosen from the model: hermes' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Chosen from its chat template: hermes' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Save & Restart/ }));
-    expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' }));
+    expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmToolCallingEnabled: true, vllmToolCallParser: '' }));
   });
 
   it('shows the settings of the app it is switched to, not those of the one before', () => {
@@ -164,7 +179,7 @@ describe('vLLM\'s tool calling in an app\'s settings', () => {
     const patched = vi.spyOn(deploymentsApi, 'patchDeploymentConfig').mockResolvedValue({} as never);
     const { user } = setup(served({ vllmModel: 'someone/their-own-model' }), 'storage');
     await user.click(screen.getByLabelText(/^Serve tool calling/));
-    expect(screen.getByText('Koala cannot tell which tool call parser someone/their-own-model needs: pick one, or turn tool calling off.')).toBeInTheDocument();
+    expect(screen.getByText('someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Save & Restart/ })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText(/^Tool Call Parser/), 'mistral');
     await user.click(screen.getByRole('button', { name: /Save & Restart/ }));

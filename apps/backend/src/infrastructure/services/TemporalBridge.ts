@@ -38,6 +38,7 @@ import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
+import type { ToolCallParsers } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
 import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
 import { executeDestroyAppWorkflow } from '../../workflows/DestroyAppWorkflow.js'
@@ -206,7 +207,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined; toolCalling?: Pick<ToolCallParsers, 'decide'> | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -222,6 +223,12 @@ export class TemporalBridge {
   private mcpProbes(dep: DeploymentMetadata): Promise<McpProbe> {
     this.mcpProbeCache ??= cachedProbes(mcpReachFrom({ access: this.clusterAccess(), clusterById: (id) => this.getClusterById(id) }).probe)
     return this.mcpProbeCache(dep)
+  }
+
+  private toolCalling(): Pick<ToolCallParsers, 'decide'> {
+    const toolCalling = this.seams.toolCalling
+    if (!toolCalling) throw new Error('a vLLM app\'s tool calling is decided by the tool call parsers, and this bridge was given none')
+    return toolCalling
   }
 
   private clusterAccess(): ClusterService['access'] {
@@ -635,7 +642,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: this.logDir }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: this.logDir, toolCalling: { decide: (app, asking) => this.toolCalling().decide(app, asking) } }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

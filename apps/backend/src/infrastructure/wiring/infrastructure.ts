@@ -9,6 +9,7 @@ import type { CredentialService } from '../services/CredentialService.js';
 import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { ToolCallParsers } from '../../models/index.js';
 import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
 import { credentialsRouter } from '../routes/credentials.js';
@@ -52,6 +53,7 @@ export interface InfrastructureWiringDeps {
   apps: AppService;
   proxy: ReturnType<typeof sharedClusterProxy>;
   temporalBridge: TemporalBridge;
+  toolCalling: Pick<ToolCallParsers, 'change'>;
   gitea: GiteaService;
   infisical: InfisicalService;
   exposure: AppExposureService;
@@ -74,7 +76,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
     giteaService: deps.gitea, infisicalService: deps.infisical,
   }));
   tenant.use('/api/deployments', deploymentsRouter({
-    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, temporalBridge: deps.temporalBridge, db, io,
+    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, temporalBridge: deps.temporalBridge, toolCalling: deps.toolCalling, db, io,
   }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog, operatorOnly: deps.operatorOnly }));

@@ -43,6 +43,7 @@ describe('deploying a project\'s build', () => {
       clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'machine', machineId: 'dev2' } as ClusterMetadata : undefined),
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
+      toolCalling: {} as never,
     };
   });
 

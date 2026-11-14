@@ -1,6 +1,10 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { getModelRateLimiterSnapshot, type ModelRateLimitBucketSnapshot } from '@koala/agent-engine'
-import { type ModelProvider, type ModelTraffic, getDefaultModel, getModelTraffic, listModels, setDefaultModel, setGlobalModelOverride } from './api'
+import { type ModelProvider, type ModelTraffic, type ToolCallParserChoice, type ToolCallParserPick, getDefaultModel, getModelTraffic, listModels, listToolCallParsers, pickToolCallParser, setDefaultModel, setGlobalModelOverride } from './api'
+import { toolCallParsersOn } from '../../test/backend/tool-calling'
+import { toolCallParsersRouter } from '../../../../backend/src/models/routes/tool-call-parsers'
+import type { ParserPick } from '../../../../backend/src/models/lib/tool-call-parsers'
+import { encryptValue } from '../../../../backend/src/platform/lib/crypto'
 import { startBackend } from '../../test/backend/site'
 import { machinesOf, DATA_KEY, type Machines } from '../../test/backend/machines'
 import type { Wire } from '../../test/backend/wire'
@@ -12,7 +16,13 @@ import type { AppService } from '../../../../backend/src/infrastructure/services
 
 let side: Machines | undefined
 
-const backend = await startBackend((site) => {
+const backend = await startBackend(async (site) => {
+  const { parsers } = await toolCallParsersOn(site, {
+    'Qwen/Qwen3.6-27B': { fixture: 'Qwen/Qwen3.6-27B' },
+    'meta-llama/Llama-3.2-3B-Instruct': { fixture: 'meta-llama/Llama-3.2-3B-Instruct', needsToken: 'hf_saved' },
+    'someone/busy': { answers: 503 },
+  })
+  site.api.use('/tool-call-parsers', toolCallParsersRouter({ parsers }))
   side = machinesOf(site)
   const deployments = { getAll: async (owner: string) => (await site.db.infrastructure.getDeployments()).filter((deployment) => deployment.ownerId === owner) } as unknown as AppService
   const unreached = {} as never
@@ -30,6 +40,29 @@ await backend.db.models.saveModelEndpoint({ id: 'tabby-qwen', ownerId: owner.id,
 
 expectTypeOf<Wire<BackendModelProvider>>().toExtend<ModelProvider>()
 expectTypeOf<Wire<ModelRateLimitBucketSnapshot>>().toExtend<ModelTraffic>()
+expectTypeOf<Wire<ParserPick>>().toExtend<ToolCallParserPick>()
+
+describe('the tool call parsers the deploy wizard and an app\'s settings show, against the real routes', () => {
+  it('lists every parser Koala seeded, each with its label', async () => {
+    const listed: ToolCallParserChoice[] = await listToolCallParsers()
+    expect(listed).toHaveLength(54)
+    expect(listed).toContainEqual({ parser: 'qwen3_coder', label: 'Qwen 3.5, 3.6' })
+  })
+
+  it('chooses the parser from the chat template of the model typed, reading a gated one with the token typed', async () => {
+    expect(await pickToolCallParser('Qwen/Qwen3.6-27B')).toEqual({ parser: 'qwen3_coder', from: 'template' })
+    expect(await pickToolCallParser('meta-llama/Llama-3.2-3B-Instruct', 'hf_saved')).toEqual({ parser: 'llama3_json', from: 'template' })
+  })
+
+  it('reads a gated model with the person\'s saved token when none is typed', async () => {
+    await backend.db.accounts.saveUser({ ...(await backend.db.accounts.getUserById(owner.id))!, credentials: { huggingface: { hfToken: encryptValue('hf_saved', DATA_KEY) } } })
+    expect(await pickToolCallParser('meta-llama/Llama-3.2-3B-Instruct')).toEqual({ parser: 'llama3_json', from: 'template' })
+  })
+
+  it('says why when Hugging Face does not answer', async () => {
+    await expect(pickToolCallParser('someone/busy')).rejects.toMatchObject({ response: { status: 502, data: { error: 'Hugging Face did not answer for someone/busy\'s chat template: it answered 503' } } })
+  })
+})
 
 describe('the models the browser lists and the account default, against the real models routes', () => {
   it('lists the person\'s own endpoint with what the model picker shows', async () => {

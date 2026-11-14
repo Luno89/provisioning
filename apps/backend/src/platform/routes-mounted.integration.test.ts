@@ -62,6 +62,7 @@ const ROUTERS: Probe[] = [
   { path: '/api/server-orders', on: TENANT },
   { path: '/api/share/no-such-token', on: TENANT },
   { path: '/api/temporal/status', on: TENANT },
+  { path: '/api/tool-call-parsers', on: TENANT },
   { path: '/api/trees', on: TENANT },
   { path: '/api/tree-types', on: TENANT },
   { path: '/api/turns', on: TENANT },

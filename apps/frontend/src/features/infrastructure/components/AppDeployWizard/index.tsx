@@ -5,7 +5,8 @@ import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Data
 import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../../models';
 import { TagPicker } from './TagPicker';
 import { VllmToolCalling } from '../VllmToolCalling';
-import { toolCallingOf } from '../../lib/vllm-tool-calling';
+import { toolCallingBlocks } from '../../lib/vllm-tool-calling';
+import { useVllmToolCalling } from '../../hooks/useVllmToolCalling';
 import { useDebounce } from '../../../../shared/lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
@@ -47,6 +48,7 @@ export default function AppDeployWizard({
   const vllmGpus = chosenGpus(vllmChoices, { vendor: wizardData.vllmGpuVendor, count: wizardData.vllmGpuCount });
   const tabbyGpus = chosenGpus(tabbyChoices, { vendor: 'nvidia', count: wizardData.tabbyGpuCount });
   const chosen: WizardData = { ...wizardData, vllmGpuVendor: vllmGpus.vendor, vllmGpuCount: vllmGpus.count, tabbyGpuCount: tabbyGpus.count };
+  const vllmToolCalling = useVllmToolCalling(wizardData.vllmModel, wizardData.vllmToolCallingEnabled && wizardData.appType === 'vllm', wizardData.vllmToolCallParser, wizardData.vllmHfToken);
   const debouncedTabbyModel = useDebounce(wizardData.tabbyModel);
   const debouncedTabbyRevision = useDebounce(wizardData.tabbyRevision);
   const debouncedTabbyMaxSeqLen = useDebounce(wizardData.tabbyMaxSeqLen);
@@ -380,7 +382,7 @@ export default function AppDeployWizard({
                     : "Required for gated models (e.g. Llama 3.2, Gemma 2). Get a Read token at huggingface.co/settings/tokens or save it in Cloud Accounts."}
                 </p>
               </div>
-              <VllmToolCalling idPrefix="wizard" model={wizardData.vllmModel} enabled={wizardData.vllmToolCallingEnabled} picked={wizardData.vllmToolCallParser} onChange={({ enabled, picked }) => setWizardData({ ...wizardData, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked })} />
+              <VllmToolCalling idPrefix="wizard" calling={vllmToolCalling} enabled={wizardData.vllmToolCallingEnabled} picked={wizardData.vllmToolCallParser} onChange={({ enabled, picked }) => setWizardData({ ...wizardData, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked })} />
               <div className="pt-2 border-t border-slate-800">
                 <button type="button" onClick={() => setShowVllmAdvanced(!showVllmAdvanced)} className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-200 transition-colors">
                   {showVllmAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Advanced vLLM Arguments
@@ -678,7 +680,7 @@ export default function AppDeployWizard({
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId) || (wizardStep === 4 && ((wizardData.appType === 'vllm' && (chosen.vllmGpuCount === '' || 'problem' in toolCallingOf(wizardData.vllmModel, wizardData.vllmToolCallingEnabled, wizardData.vllmToolCallParser))) || (wizardData.appType === 'tabbyapi' && chosen.tabbyGpuCount === '')))} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId) || (wizardStep === 4 && ((wizardData.appType === 'vllm' && (chosen.vllmGpuCount === '' || toolCallingBlocks(vllmToolCalling))) || (wizardData.appType === 'tabbyapi' && chosen.tabbyGpuCount === '')))} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => onDeploy(deployPayloadOf(chosen) as WizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

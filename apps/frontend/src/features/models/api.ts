@@ -135,6 +135,38 @@ export function useTabbyImageTags(enabled: boolean) {
   return { options, loading: remote.isLoading, ...(remote.error ? { unread: errorMessage(remote.error) } : {}) }
 }
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `ParserPick` in apps/backend/src/models/lib/tool-call-parsers.ts, answered by
+ * apps/backend/src/models/routes/tool-call-parsers.ts.
+ */
+export type ToolCallParserPick = { parser: string; from: 'template' | 'name' } | { problem: string }
+
+export interface ToolCallParserChoice {
+  parser: string
+  label: string
+}
+
+export const listToolCallParsers = (): Promise<ToolCallParserChoice[]> =>
+  api.get<ToolCallParserChoice[]>('/tool-call-parsers').then((r) => r.data)
+
+export const pickToolCallParser = (model: string, hfToken?: string): Promise<ToolCallParserPick> =>
+  api.post<ToolCallParserPick>('/tool-call-parsers/pick', { model, ...(hfToken ? { hfToken } : {}) }).then((r) => r.data)
+
+export function useToolCallParsers() {
+  return useQuery({ queryKey: ['tool-call-parsers'] as const, queryFn: listToolCallParsers, staleTime: 5 * 60_000 })
+}
+
+export function useToolCallParserPick(model: string, hfToken: string, enabled: boolean) {
+  const typed = useDebounce(model.trim(), 400)
+  return useQuery({
+    queryKey: ['tool-call-parser-pick', typed, hfToken] as const,
+    queryFn: () => pickToolCallParser(typed, hfToken || undefined),
+    enabled: enabled && typed !== '' && typed === model.trim(),
+    staleTime: 60_000,
+  })
+}
+
 export function useHfBranches(repo: string, enabled: boolean) {
   return useQuery({
     queryKey: ['hf-branches', repo] as const,

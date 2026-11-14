@@ -21,20 +21,27 @@ import type { AppSettingsSchema as BackendSchema } from '../../../../../backend/
 import { anyOf, containing, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
 import { testClusterAccess } from '../../../../../backend/src/infrastructure/testing/cluster-access'
 import { testDataDir } from '../../../../../backend/src/platform/testing/data-dir'
+import { toolCallParsersOn } from '../../../test/backend/tool-calling'
 
 const temporal = recordedTemporal()
 
-const backend = await startBackend(async ({ api, db }) => {
+const backend = await startBackend(async (site) => {
+  const { api, db } = site
+  const { parsers } = await toolCallParsersOn(site, {
+    'Qwen/Qwen2.5-0.5B-Instruct': { fixture: 'Qwen/Qwen2.5-0.5B-Instruct', as: 'tokenizer_config.json' },
+    'someone/their-own-model': { template: '{% for message in messages %}{{ message.content }}{% endfor %}' },
+  })
   const host = outsideThisTier<InfrastructureService>('the host\'s kubectl and helm')
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY }))
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
-  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, testDataDir(), undefined, DATA_KEY, clusters, { connect: async () => temporal.client, toolCalling: parsers })
   await bridge.start()
   api.use('/deployments', deploymentsRouter({
     appService: apps,
     clusterService: clusters,
     appExposureService: outsideThisTier<AppExposureService>('app exposure'),
     temporalBridge: bridge,
+    toolCalling: parsers,
     db,
     io: new Server(),
   }))
@@ -111,6 +118,6 @@ describe('deploying vLLM with the wizard\'s defaults', () => {
   })
 
   it('is refused, in words the wizard shows, when tool calling is on and no parser is known for the model', async () => {
-    await expect(deployApp({ ...vllmFromTheWizard('someone/their-own-model'), vllmToolCallParser: undefined })).rejects.toMatchObject({ response: { status: 400, data: { error: 'Koala cannot tell which tool call parser vLLM needs for someone/their-own-model: pick one, or turn tool calling off' } } })
+    await expect(deployApp({ ...vllmFromTheWizard('someone/their-own-model'), vllmToolCallParser: undefined })).rejects.toMatchObject({ response: { status: 400, data: { error: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' } } })
   })
 })

@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
   InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor,
-  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth,
+  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth, savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
@@ -76,7 +76,7 @@ import { conversationBinding } from './engine-host/conversation-binding.js';
 import { storedFilesFor } from './files/wiring/files.js';
 import { bindChatWithItsFiles } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
-import { TreeModelsService, treeAgentsFrom } from './models/index.js';
+import { chatTemplatesOverHttp, ToolCallParsers, TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { ignore } from '@koala/engine-core/failures';
@@ -224,6 +224,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
             clusterById: (id) => clusterService.getByIdUnscoped(id),
             handOver: (id) => clusterService.access.handOver(id),
             logDir: path.join(settings.dataDir, 'logs'),
+            toolCalling: new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) }),
           }, project, run);
           return { workflowId: started.workflowId };
         },

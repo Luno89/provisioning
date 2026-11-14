@@ -27,7 +27,7 @@ beforeAll(async () => {
   h = await mountRouter({
     prefix: '/api/deployments',
     db,
-    router: () => deploymentsRouter({ appService: apps, clusterService: new ClusterService(db, testClusterAccess(db, { dataKey: 'resource-plan-route-key' })), appExposureService: {} as never, temporalBridge: {} as never, db, io: undefined as never }),
+    router: () => deploymentsRouter({ appService: apps, clusterService: new ClusterService(db, testClusterAccess(db, { dataKey: 'resource-plan-route-key' })), appExposureService: {} as never, temporalBridge: {} as never, toolCalling: {} as never, db, io: undefined as never }),
   });
   h.setUser(ANN);
 });

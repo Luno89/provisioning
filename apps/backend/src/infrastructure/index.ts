@@ -72,6 +72,7 @@ export { EgressProxyService } from './services/EgressProxyService.js';
 export { EgressService } from './services/EgressService.js';
 export { GitModuleService } from './services/GitModuleService.js';
 export { HeadscaleService } from './services/HeadscaleService.js';
+export { savedHuggingFaceTokenOf } from './services/hugging-face-token.js';
 export { InfisicalService } from './services/InfisicalService.js';
 export type { InfisicalAt } from './services/InfisicalService.js';
 export { InfrastructureService, terraformPlacesFor } from './services/InfrastructureService.js';

@@ -48,6 +48,19 @@ vi.mock('../../api/deployments', async (importOriginal) => ({
   useAppCatalogue: vi.fn(() => ({ data: catalogueFixture, isLoading: false })),
 }));
 
+const TOOL_CALL_PARSERS = [
+  { parser: 'hermes', label: 'Hermes, Qwen 2.5, QwQ, Qwen 3' },
+  { parser: 'mistral', label: 'Mistral' },
+  { parser: 'pythonic', label: 'Pythonic (Llama 3.2 small, ToolACE)' },
+];
+
+const PICKS: Record<string, modelsApi.ToolCallParserPick> = {
+  'Qwen/Qwen2.5-0.5B-Instruct': { parser: 'hermes', from: 'template' },
+  'Qwen/Qwen3-8B': { parser: 'hermes', from: 'template' },
+  'mistralai/Mistral-7B-Instruct-v0.3': { parser: 'mistral', from: 'template' },
+  'someone/their-own-model': { problem: 'someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off' },
+};
+
 const modelsApiEmptyPage = {
   tags: [] as string[], page: 1, pageSize: 30, total: 0, totalPages: 1, sort: 'newest' as const,
 };
@@ -59,6 +72,8 @@ vi.mock('../../../models/api', async (importOriginal) => ({
   useModelSearch: vi.fn(() => ({ data: [], isFetching: false })),
   useTabbyImageTags: vi.fn(() => ({ options: [], loading: false })),
   useHfBranches: vi.fn(() => ({ data: [], isFetching: false })),
+  useToolCallParsers: vi.fn(() => ({ data: TOOL_CALL_PARSERS, isError: false })),
+  useToolCallParserPick: vi.fn((model: string) => ({ data: PICKS[model], isFetching: false, error: null })),
 }));
 
 const clusters: Cluster[] = [
@@ -253,20 +268,23 @@ describe('vLLM\'s tool calling, which every Koala chat uses', () => {
     await user.type(screen.getByLabelText(/^HuggingFace Model ID/), model);
   }
 
-  it('is on by default, its parser chosen from the model typed, and sent with the deploy', async () => {
+  it('is on by default, shows the parser Koala chose from the model\'s chat template, and leaves that choice to Koala when deploying', async () => {
     const { user, onDeploy } = setup(rig);
     await walkToModel(user, 'Qwen/Qwen2.5-0.5B-Instruct');
     expect(screen.getByLabelText(/^Serve tool calling/)).toBeChecked();
-    expect(screen.getByRole('option', { name: 'Chosen from the model: hermes' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Chosen from its chat template: hermes' })).toBeInTheDocument();
+    expect(vi.mocked(modelsApi.useToolCallParserPick)).toHaveBeenLastCalledWith('Qwen/Qwen2.5-0.5B-Instruct', '', true);
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(expect.arrayContaining(['hermes — Hermes, Qwen 2.5, QwQ, Qwen 3', 'mistral — Mistral']));
     await user.click(screen.getByRole('button', { name: /^Next/ }));
     await user.click(screen.getByRole('button', { name: /Initiate Deployment/ }));
-    expect(onDeploy.mock.calls[0]![0]).toMatchObject({ vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes' });
+    expect(onDeploy.mock.calls[0]![0]).toMatchObject({ vllmToolCallingEnabled: true });
+    expect(onDeploy.mock.calls[0]![0]).not.toHaveProperty('vllmToolCallParser');
   });
 
   it('asks the person to pick a parser for a model it does not know, and goes no further until they do', async () => {
     const { user, onDeploy } = setup(rig);
     await walkToModel(user, 'someone/their-own-model');
-    expect(screen.getByText('Koala cannot tell which tool call parser someone/their-own-model needs: pick one, or turn tool calling off.')).toBeInTheDocument();
+    expect(screen.getByText('someone/their-own-model\'s chat template has no tool call format Koala knows: pick a parser, or turn tool calling off')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Next/ })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText(/^Tool Call Parser/), 'mistral');
     await user.click(screen.getByRole('button', { name: /^Next/ }));
@@ -284,6 +302,23 @@ describe('vLLM\'s tool calling, which every Koala chat uses', () => {
     const payload = onDeploy.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload).toMatchObject({ vllmToolCallingEnabled: false });
     expect(payload).not.toHaveProperty('vllmToolCallParser');
+  });
+});
+
+describe('vLLM\'s tool calling while Koala reads the model\'s chat template', () => {
+  it('goes no further until it is read, and says why when it cannot be', async () => {
+    const rig: Cluster[] = [{ id: 'rig', name: 'rig', provider: 'machine', status: 'healthy', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 1, runtime: true }] }];
+    vi.mocked(modelsApi.useToolCallParserPick).mockImplementation((model: string) => ({ data: undefined, isFetching: model === 'a/reading', error: model === 'a/down' ? new Error('Hugging Face did not answer for a/down\'s chat template: it answered 503') : null }) as unknown as ReturnType<typeof modelsApi.useToolCallParserPick>);
+    const { user } = setup(rig);
+    await user.selectOptions(screen.getByLabelText(/application type/i), 'vllm');
+    for (let step = 0; step < 3; step++) await user.click(screen.getByRole('button', { name: /^Next/ }));
+    await user.type(screen.getByLabelText(/^HuggingFace Model ID/), 'a/reading');
+    expect(screen.getByText('Koala is reading a/reading\'s chat template to choose its parser')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Next/ })).toBeDisabled();
+    await user.clear(screen.getByLabelText(/^HuggingFace Model ID/));
+    await user.type(screen.getByLabelText(/^HuggingFace Model ID/), 'a/down');
+    expect(screen.getByText('Hugging Face did not answer for a/down\'s chat template: it answered 503')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Next/ })).toBeDisabled();
   });
 });
 

@@ -22,7 +22,8 @@ import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 import { safeHref } from '../../../../shared/lib/safe-href';
 import { configInputsOf } from '../../lib/app-config-inputs';
-import { toolCallingOf } from '../../lib/vllm-tool-calling';
+import { toolCallingBlocks } from '../../lib/vllm-tool-calling';
+import { useVllmToolCalling } from '../../hooks/useVllmToolCalling';
 import { VllmToolCalling } from '../VllmToolCalling';
 
 export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
@@ -137,7 +138,7 @@ export default function AppDashboard({
     setConfigSeededFor(currentDeployment?.id);
     setConfigInputs(configInputsOf(currentDeployment));
   }
-  const vllmToolCalling = toolCallingOf(configInputs.vllmModel, configInputs.vllmToolCallingEnabled, configInputs.vllmToolCallParser);
+  const vllmToolCalling = useVllmToolCalling(configInputs.vllmModel, configInputs.vllmToolCallingEnabled && currentDeployment?.appType === 'vllm', configInputs.vllmToolCallParser, configInputs.vllmHfToken);
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 
   const updateAppModules = useMutation({
@@ -277,7 +278,7 @@ export default function AppDashboard({
                        <p className="text-slate-400 text-xs">Edit storage sizing and app-specific settings below, then save to re-apply the deployment and restart it.</p>
                      </div>
                      <button
-                       disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed') || (currentDeployment.appType === 'vllm' && 'problem' in vllmToolCalling)}
+                       disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed') || (currentDeployment.appType === 'vllm' && toolCallingBlocks(vllmToolCalling))}
                        onClick={() => {
                          const appType = currentDeployment.appType || 'odoo';
                          const patch: Record<string, unknown> = { storage: storageInputs };
@@ -295,8 +296,8 @@ export default function AppDashboard({
                            if (configInputs.vllmMaxModelLen) patch.vllmMaxModelLen = parseInt(configInputs.vllmMaxModelLen);
                            if (configInputs.vllmGpuMemUtil) patch.vllmGpuMemUtil = parseFloat(configInputs.vllmGpuMemUtil);
                            patch.vllmExtraArgs = configInputs.vllmExtraArgs;
-                           patch.vllmToolCallingEnabled = vllmToolCalling.enabled;
-                           if ('parser' in vllmToolCalling) patch.vllmToolCallParser = vllmToolCalling.parser;
+                           patch.vllmToolCallingEnabled = configInputs.vllmToolCallingEnabled;
+                           if (configInputs.vllmToolCallingEnabled) patch.vllmToolCallParser = configInputs.vllmToolCallParser;
                            if (configInputs.vllmServedModelName) patch.vllmServedModelName = configInputs.vllmServedModelName;
                            if (configInputs.vllmMaxNumSeqs) patch.vllmMaxNumSeqs = parseInt(configInputs.vllmMaxNumSeqs);
                            if (configInputs.vllmDtype) patch.vllmDtype = configInputs.vllmDtype;
@@ -393,7 +394,7 @@ export default function AppDashboard({
                      </div>
 
                      <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-3">
-                       <VllmToolCalling idPrefix="cfg" model={configInputs.vllmModel} enabled={configInputs.vllmToolCallingEnabled} picked={configInputs.vllmToolCallParser} onChange={({ enabled, picked }) => setConfigInputs(prev => ({ ...prev, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked }))} />
+                       <VllmToolCalling idPrefix="cfg" calling={vllmToolCalling} enabled={configInputs.vllmToolCallingEnabled} picked={configInputs.vllmToolCallParser} onChange={({ enabled, picked }) => setConfigInputs(prev => ({ ...prev, vllmToolCallingEnabled: enabled, vllmToolCallParser: picked }))} />
                      </div>
 
                      <div>
