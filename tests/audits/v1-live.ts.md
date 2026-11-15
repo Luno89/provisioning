@@ -29,8 +29,24 @@ the suite. None was timing.
    model call now leads with the window, what the turn needs and the fix (fa1ad9fcc); the suite serves Qwen2.5-0.5B-Instruct's full 32768. That Koala's opening is over 16k tokens is
    open for the owner (`~/.claude/plans/decisions-2026-11-14-open.md`).
 
+## On the first fresh dev stack (2026-11-15)
+The first runs after `dev:reset`, as a new owner on a new root, failed three times, each on something a stranger's first Koala
+would hit:
+8. **This computer showed offline on My Machines, its agent never told where its Koala was.** The install finished while root
+   restarted under its watcher, and the machine told root `ready` once, with no second try, so root kept the instance installing
+   until a self-upgrade check-in reported it ready. That check-in, in turn, changed the status without telling the person's
+   machines, who were told only when an instance connects to root. The machine now tells root each state until root hears it,
+   waiting out a lost connection or a 5xx on the layer's backoff (0706d8b6c), and root tells the owner's machines whenever a
+   report changes the instance's status (cbe2ab1d0).
+9. **A fresh owner is asked for a first model**, and that dialog, whose rows name the machine, covered My Machines; the suite's
+   card locator matched it. The suite now sees the dialog and puts it off, as a person deploying their first model does (056a3e471).
+10. **Every vLLM app showed "Down: it does not answer" while it answered.** Its probe asked `/`, where vLLM serves nothing, and the
+    fresh stack's Prometheus read the probe (the old stack's never had, so the page showed the record's state). The probe asks
+    `/health`, as its readiness does (056a3e471). TabbyAPI's probe also asks `/`; whether TabbyAPI answers 2xx there is not
+    proved, and is listed for the owner.
+
 ## How it is now built
 Each failure pointed at something a person would hit (a page error, a GPU not offered, a model that cannot chat, an obscure 400),
 and each fix is in the product with its own unit and integration tests; the suite changes are the guard, the awaited clicks and the
-context it serves. It still runs on the owner's dev instance and stays out of ship until it runs on a test Koala of its own
-(`~/.claude/plans/test-koalas.md` step 2).
+context it serves. It runs on the disposable dev stack as a fresh owner (owner, 2026-11-14: "Disposable, reset each run"), and passed
+there on 2026-11-15.
