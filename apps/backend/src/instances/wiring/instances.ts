@@ -286,6 +286,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   let presenceOf: ((instanceId: string) => boolean) | undefined;
   const instanceService = new InstanceService(db, {
     connected: (instanceId) => presenceOf?.(instanceId) ?? false,
+    serviceChanged: deps.instanceArrived,
     rootUrl: publicUrl,
     rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
     meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer,

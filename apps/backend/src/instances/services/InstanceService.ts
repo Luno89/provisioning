@@ -61,6 +61,7 @@ export interface InstanceSettings {
   releases?: ReleaseSource | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
   connected?: ((instanceId: string) => boolean) | undefined;
+  serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
   reach?: InstanceReach | undefined;
 }
 
@@ -609,6 +610,7 @@ export class InstanceService {
     const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved });
     if (report.presence !== true && !this.settings.connected?.(instance.id)) await this.store.instances.savePresence(instance, false);
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
+    if (saved.status !== instance.status) this.settings.serviceChanged?.(saved);
     return { ok: true, value: saved };
   }
 

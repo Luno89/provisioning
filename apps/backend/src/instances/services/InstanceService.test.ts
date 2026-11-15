@@ -86,6 +86,22 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect(await service.release('inst-someone-else', joined.value.credential)).toMatchObject({ ok: false, status: 401 });
   });
 
+  it('tells its owner\'s machines where their Koala is when a report brings it into service, as when it reached root still installing', async () => {
+    const told: string[] = [];
+    service = new InstanceService(db, { ...settings, serviceChanged: (instance) => { told.push(`${instance.ownerId}:${instance.status}`); } }, mesh, () => now, () => undefined);
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+
+    await service.report(instanceId, credential, { status: 'installing', detail: 'installing Koala on this machine' });
+    await service.report(instanceId, credential, { status: 'installing', detail: 'still installing' });
+    await service.report(instanceId, credential, { status: 'ready', detail: 'Running dev' });
+    await service.report(instanceId, credential, { status: 'ready', detail: 'Running dev' });
+
+    expect(told).toEqual(['u1:installing', 'u1:ready']);
+  });
+
   it('records what the machine reports, and where the instance answers', async () => {
     const { token } = await tokenFor('u1');
     const joined = await service.join(token, 'm');
