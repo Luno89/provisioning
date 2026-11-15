@@ -259,6 +259,7 @@ export class VllmApp extends Construct {
       namespace: namespaceName,
       serviceName: `${sanitizedName}-vllm`,
       servicePort: 8000,
+      path: "/health",
     });
 
     new Manifest(this, "servicemonitor", {

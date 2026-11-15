@@ -84,6 +84,11 @@ async function main(): Promise<void> {
     assert.equal(((await me.json()) as { email: string }).email, email);
     console.log(`  on ${devKoalaPage}, signed in as the instance's owner`);
     nothingWentWrong(watching, 'signing in');
+    const firstModel = page.getByRole('heading', { name: 'Give Koala a model to think with' });
+    await expect(firstModel).toBeVisible();
+    await page.getByRole('button', { name: 'Later', exact: true }).click();
+    await expect(firstModel).toHaveCount(0);
+    console.log('  asked for a first model, which the owner puts off until their own is deployed');
 
     step('My Machines shows this computer online with its two NVIDIA GPUs, usable, as does its cluster card (the join itself is machine-live\'s, on a VM)');
     const device = ((await api.get('/api/mesh/local-agents')).data as Device[]).find((entry) => entry.id === machineId);

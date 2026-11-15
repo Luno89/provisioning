@@ -27,3 +27,11 @@ describe("vLLM's tool calling", () => {
     expect(serveOf({ toolCallingEnabled: false, toolCallParser: "hermes" })).not.toContain("--enable-auto-tool-choice");
   });
 });
+
+describe("vLLM's probe", () => {
+  it("asks the server's health, since vLLM serves nothing at its root and the probe would call it down forever", () => {
+    const synthed = JSON.parse(Testing.synthScope((scope) => { new VllmApp(scope, "app", { image: "vllm/vllm-openai:v0.32.0", gpuVendor: "nvidia", gpuCount: 1, model: "Qwen/Qwen2.5-0.5B-Instruct", toolCallingEnabled: false }); })) as { resource: { kubernetes_manifest: Record<string, { manifest: { kind: string; spec?: { targets?: { staticConfig?: { static?: string[] } } } } }> } };
+    const probe = Object.values(synthed.resource.kubernetes_manifest).find((entry) => entry.manifest.kind === "Probe");
+    expect(probe?.manifest.spec?.targets?.staticConfig?.static?.[0]).toMatch(/:8000\/health$/);
+  });
+});
