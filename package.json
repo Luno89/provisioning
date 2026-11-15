@@ -9,6 +9,7 @@
     "build": "npm run build -w apps/frontend",
     "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\" \"npm run start:worker:engine -w apps/backend\"",
     "dev": "bash scripts/dev.sh",
+    "dev:reset": "bash scripts/dev-reset.sh",
     "dev:infisical": "bash scripts/ensure-infisical.sh",
     "clean-dev": "bash scripts/cleanup-all.sh",
     "backup": "bash scripts/backup-to-drive.sh",

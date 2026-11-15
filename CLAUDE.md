@@ -90,7 +90,9 @@ npm workspaces: `apps/*`, `packages/*`.
 ## Commands
 
 ```bash
-npm run setup        # bootstrap: deps, CDKTF bindings, pre-bundled binaries, k3d cluster, worker pod, env
+sudo bash scripts/setup-root.sh # once, on Linux: Docker, the docker group, firewalld
+npm run setup        # from a clean clone: binaries, packages, CDKTF bindings, the platform keys
+npm run dev:reset    # dev is disposable: removes this computer as a machine (its k3s and Koala), root's and the hub's databases, Temporal and Headscale; npm run dev then starts it fresh
 npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, frontend, host-worker, cluster-worker
 npm run dev:split    # the same stack as root and your instance: root at http://koala.localhost:5175 (sign in there), your instance at http://dev.localhost:5173
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
@@ -1575,7 +1577,7 @@ Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys`, 
 No process starts without all five, in production or not, and root none without `ROOT_IDENTITY_KEY` (decision 14, "Migrate
 once, then delete": nothing is derived from `JWT_SECRET` or a secret written in the source any more, and `JWT_SECRET` is on no
 keyring). `loadKeys` takes all five, `loadKey(env, purpose)` one, for a program that needs only that (Temporal's key server,
-`databaseSettingsFrom`). A new dev box gets them from `scripts/setup-env.sh`, which runs `npm run keys -w apps/backend --
+`databaseSettingsFrom`). A new dev box gets them from `npm run setup`, which runs `npm run keys -w apps/backend --
 --write-env`; the test stacks hand their containers the dev box's `apps/backend/.env`, and tests take theirs from
 `platform/testing/keys.ts` (`testKeyEnv`, `testKeys`, `testIdentityKey`). Never pass a raw env var where a key is wanted: take
 `settings.keys` from the reader.

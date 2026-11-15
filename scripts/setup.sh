@@ -1,62 +1,27 @@
 #!/bin/bash
+set -euo pipefail
 
-# Multi-Cloud Provisioning Platform - First Time Setup Script
-set -e
-
-# This script must never run as root: it does `npm install` and creates files that need to
-# stay owned by your normal user (running it under sudo leaves node_modules root-owned, which
-# breaks Vite and everything else). Root-only setup (Docker CE on Linux, native k3s) lives in
-# scripts/setup-root.sh — run that first, with sudo, then run this one plain.
 if [ "$(id -u)" -eq 0 ]; then
-    echo "❌ Do not run this script with sudo — it installs npm packages and creates files that"
-    echo "   need to stay owned by your normal user."
-    echo "   Root-only setup lives in a separate script. Run, in order:"
-    echo "     sudo bash scripts/setup-root.sh"
-    echo "     bash scripts/setup.sh"
+    echo "Run npm run setup as yourself, not with sudo; on Linux run sudo bash scripts/setup-root.sh first."
     exit 1
 fi
 
-echo "🚀 Starting first-time setup..."
-
-# 1. Check Docker is installed & running (Required for k3d / the macOS management cluster)
-is_docker_running() {
-    docker info &> /dev/null
-}
-
+cd "$(dirname "$0")/.."
 DETECTED_OS="$(uname -s)"
 
-if ! command -v docker &> /dev/null || ! is_docker_running; then
-    if [ "$DETECTED_OS" = "Darwin" ]; then
-        echo "💻 macOS detected. Setting up Colima (open-source Docker runtime alternative)..."
-        if ! command -v colima &> /dev/null; then
-            if command -v brew &> /dev/null; then
-                echo "📥 Installing Colima and Docker CLI via Homebrew..."
-                brew install colima docker
-            else
-                echo "❌ Homebrew is not installed. Please install Homebrew (https://brew.sh) or Docker Desktop first."
-                exit 1
-            fi
-        fi
-
-        # Start Colima if not running
-        if ! colima status &>/dev/null; then
-            echo "🚀 Starting Colima container runtime..."
-            colima start
-        fi
-
-        echo "⏳ Waiting for Docker daemon to become responsive..."
-        sleep 3
-        if ! is_docker_running; then
-            echo "❌ Error: Docker daemon is still not running. Please ensure Colima is active."
-            exit 1
-        fi
-    else
-        echo "❌ Docker is not installed or not running, and installing/starting it needs root."
-        echo "   Run: sudo bash scripts/setup-root.sh"
-        exit 1
-    fi
+if [ "$DETECTED_OS" = "Darwin" ] && ! docker info >/dev/null 2>&1; then
+    command -v brew >/dev/null 2>&1 || { echo "Install Homebrew (https://brew.sh) or Docker Desktop, then run npm run setup again."; exit 1; }
+    command -v colima >/dev/null 2>&1 || brew install colima docker
+    colima status >/dev/null 2>&1 || colima start
 fi
-echo "✅ Docker detected and running."
+if ! docker info >/dev/null 2>&1; then
+    if [ "$DETECTED_OS" = "Linux" ] && id -nG "$(id -un)" | tr ' ' '\n' | grep -qx docker && [ -z "${KOALA_SETUP_IN_DOCKER_GROUP:-}" ]; then
+        exec sg docker -c "KOALA_SETUP_IN_DOCKER_GROUP=1 bash '$(pwd)/scripts/setup.sh'"
+    fi
+    echo "Docker is not running or not yours to use. On Linux: sudo bash scripts/setup-root.sh"
+    exit 1
+fi
+echo "Docker runs"
 
 # 2. Create local bin directory
 mkdir -p bin
@@ -220,79 +185,16 @@ sh scripts/terraform-providers.sh bin/terraform-providers
 
 echo "✅ Binaries ready."
 
-# 4. Install NPM Dependencies
-echo "npm 📦 Installing dependencies..."
-# Clean up any conflicting node_modules before a fresh install
-rm -rf node_modules apps/frontend/node_modules apps/backend/node_modules packages/cdktf-infra/node_modules
-npm install
+echo "Installing the workspaces' packages"
+npm ci
 
-# 5. Generate CDKTF Provider Bindings
-echo "⚙️ Generating CDKTF provider bindings..."
-cd packages/cdktf-infra
-# Dependencies already installed by workspace root install
-npx cdktf get
-cd ../..
+echo "Generating CDKTF's provider bindings"
+(cd packages/cdktf-infra && npx cdktf get)
 
-# 6. Initialize Backend
-echo "🛠️ Initializing backend..."
 mkdir -p apps/backend/data
-if [ ! -f "apps/backend/.env" ]; then
-    if [ -f "apps/backend/.env.example" ]; then
-        cp apps/backend/.env.example apps/backend/.env
-        # setup-root.sh runs before this script and may have created the target
-        # directory as root — ensure the file we just wrote stays owned by the
-        # current user (npm install and Vite below both need to write into it).
-        chown "$(id -u):$(id -g)" apps/backend/.env
-        echo "📝 Created default .env for backend."
-    else
-        echo "PORT=3001" > apps/backend/.env
-        chown "$(id -u):$(id -g)" apps/backend/.env
-        echo "📝 Created new .env for backend."
-    fi
-fi
+[ -f apps/backend/.env ] || cp apps/backend/.env.example apps/backend/.env
+echo "Writing the platform keys apps/backend/.env lacks"
+npm run -s keys -w apps/backend -- --write-env
 
-# 7. Start MongoDB and seed the catalogues
-# The database is the runtime source for tools, personas, packs, tree types, app specs, binding
-# types and cluster providers. Nothing seeds them at server start any more, so a fresh install has
-# to do it here — and Mongo has to be up first.
-echo "🗄️  Ensuring MongoDB is running..."
-bash "$(dirname "$0")/ensure-mongo.sh"
-
-echo "🔐 Ensuring Infisical secret vault is running..."
-bash "$(dirname "$0")/ensure-infisical.sh"
-
-echo "🌱 Seeding catalogues..."
-npx tsx apps/backend/src/scripts/seed-all.ts
-
-# 8. Setup management cluster
-# This is the step that actually "makes the system cluster" — installing it (setup-root.sh) is
-# necessary but not sufficient; setup isn't done until it's up and Ready.
-# Linux: the native k3s management cluster (GPU-capable, no Docker-in-Docker nesting — see
-#        scripts/cluster.sh for why) must already be installed by scripts/setup-root.sh (needs
-#        root — setup.sh itself never runs as root, see the guard at the top of this file).
-#        Starting it here needs one scoped, interactive sudo prompt (cluster.sh's own
-#        `sudo systemctl start` — nothing else in this script escalates). Idempotent: no-ops if
-#        it's already running (e.g. setup.sh re-run without an intervening clean-dev).
-# macOS: native k3s can't run at all (no Linux kernel) — keep the existing k3d cluster, which
-#        doesn't need root at all (just Docker group membership), so it's created right here.
-if [ "$OS" = "linux" ]; then
-    if [ ! -f "/etc/systemd/system/k3s-provisioning-lunorica.service" ]; then
-        echo "❌ Native k3s management cluster is not installed yet."
-        echo "   Run: sudo bash scripts/setup-root.sh"
-        exit 1
-    fi
-    echo "🔄 Starting native k3s management cluster..."
-    ./scripts/cluster.sh create provisioning-lunorica
-else
-    echo "🔄 Setting up k3d cluster..."
-    if ! ./bin/k3d cluster list 2>/dev/null | grep -q "provisioning-lunorica"; then
-        ./scripts/cluster.sh create provisioning-lunorica
-    else
-        echo "  ▶  cluster provisioning-lunorica already running — skipping creation"
-    fi
-fi
-# Initialize .env file
-bash scripts/setup-env.sh
-
-echo "✨ Setup complete! You can now run 'npm run dev' to start the platform."
-
+echo ""
+echo "Setup is done. npm run dev starts root and the hub, signs you up, joins this computer as your machine and puts Koala on it."

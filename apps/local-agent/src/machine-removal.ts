@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { configFile } from './machine-config.js';
+import { K3S_UNINSTALL, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const run = promisify(execFile);
 
@@ -30,6 +31,15 @@ export async function forgetThisMachine(log: (line: string) => void, env: NodeJS
   for (const command of stopServiceCommands(process.platform, process.getuid?.() ?? 0, home)) {
     await run(command.file, command.args).catch((err: Error) => log(`${command.file} could not stop the service: ${err.message}`));
   }
+}
+
+export async function removeThisMachine(host: ClusterHost, forget: () => Promise<void>, log: (line: string) => void): Promise<void> {
+  try {
+    await uninstallMachineCluster(host, log);
+  } finally {
+    await forget();
+  }
+  if (await host.exists(K3S_UNINSTALL)) throw new Error(`k3s is still on this machine: ${K3S_UNINSTALL} did not remove it`);
 }
 
 export async function meshIp(): Promise<string | undefined> {

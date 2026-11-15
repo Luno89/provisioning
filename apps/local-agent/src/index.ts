@@ -11,8 +11,8 @@ import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.
 import { askOnTerminal } from './terminal-ask.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
-import { forgetThisMachine, meshIp } from './machine-removal.js';
-import { hostCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
+import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.js';
+import { hostCluster, startIfWanted } from './machine-cluster.js';
 import { installKoala, ownValuesFile, placedFrom } from './koala-install.js';
 import { useDependencyHttp } from '@koala/engine-core/http';
 import { serviceManagerOf } from './self-update.js';
@@ -39,10 +39,11 @@ const placeKoala = (raw: unknown): boolean => {
 
 const forgetAndStop = (closing: () => Promise<unknown>) => {
   void closing()
-    .finally(() => uninstallMachineCluster(machineCluster, say))
-    .finally(() => forgetThisMachine(say))
+    .finally(() => removeHere().catch((err: Error) => say(err.message)))
     .finally(() => process.exit(0));
 };
+
+const removeHere = () => removeThisMachine(machineCluster, () => forgetThisMachine(say), say);
 
 const thisComputer = (service: ReturnType<typeof serviceManagerOf>): AgentPlace => ({
   agentDir: AGENT_DIR,
@@ -108,9 +109,10 @@ function sayVersion(): Promise<void> {
 
 useDependencyHttp();
 const command = process.argv[2];
-const started = command === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : command === 'version' ? sayVersion() : main();
+const ONCE = ['agents', 'version', 'remove'];
+const started = command === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : command === 'version' ? sayVersion() : command === 'remove' ? removeHere() : main();
 started.then(() => {
-  if (command === 'agents' || command === 'version') process.exit(0);
+  if (ONCE.includes(command ?? '')) process.exit(0);
 }, (err: Error) => {
   console.error(`[koala-local-agent] fatal: ${err.message}`);
   process.exit(1);
