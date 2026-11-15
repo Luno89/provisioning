@@ -59,7 +59,13 @@ async function joinThisComputer(cookie: string, instanceWeb: string): Promise<vo
 async function untilKoalaReady(cookie: string): Promise<void> {
   let told = '';
   for (;;) {
-    const { instance } = await (await fetch(`${ROOT_API}/api/instances/mine`, { headers: { Cookie: cookie } })).json() as { instance: { status?: string; detail?: string } | null };
+    const answer = await fetch(`${ROOT_API}/api/instances/mine`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
+    if (!answer) {
+      say('root stopped answering (its watcher restarts it when its code changes); waiting for it');
+      await untilRootAnswers();
+      continue;
+    }
+    const { instance } = await answer.json() as { instance: { status?: string; detail?: string } | null };
     const line = `${instance?.status ?? 'waiting'}: ${instance?.detail ?? 'waiting for this computer to put Koala on itself'}`;
     if (line !== told) say(`your Koala is ${line}`);
     told = line;
