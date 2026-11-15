@@ -42,8 +42,7 @@ would hit:
    card locator matched it. The suite now sees the dialog and puts it off, as a person deploying their first model does (056a3e471).
 10. **Every vLLM app showed "Down: it does not answer" while it answered.** Its probe asked `/`, where vLLM serves nothing, and the
     fresh stack's Prometheus read the probe (the old stack's never had, so the page showed the record's state). The probe asks
-    `/health`, as its readiness does (056a3e471). TabbyAPI's probe also asks `/`; whether TabbyAPI answers 2xx there is not
-    proved, and is listed for the owner.
+    `/health`, as its readiness does (056a3e471). TabbyAPI's has asked `/health` since 6802236e6.
 
 ## How it is now built
 Each failure pointed at something a person would hit (a page error, a GPU not offered, a model that cannot chat, an obscure 400),
