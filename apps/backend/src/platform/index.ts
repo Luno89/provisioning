@@ -32,6 +32,7 @@ export { commandSafeCode, INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpi
 export type { InviteView } from './lib/invite-codes.js';
 export { at, isRecord, listAt, numberAt, recordAt, textAt } from './lib/json-shapes.js';
 export type { JsonRecord } from './lib/json-shapes.js';
+export { ensureReplicaSet } from './lib/replica-set.js';
 export { fieldsOf, trimmedText } from './lib/request-fields.js';
 export type { Fields } from './lib/request-fields.js';
 export { keepTrying } from './lib/keep-trying.js';

@@ -10,7 +10,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import { clusterAccessFrom, InfrastructureService, terraformPlacesFor, type ClusterAccess } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { failureOf, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings } from '../platform/index.js';
+import { ensureReplicaSet, failureOf, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -111,6 +111,7 @@ export async function restoreMongoInto(target: { uri: string; dbName: string }, 
     await again.after();
   }
   try {
+    await ensureReplicaSet(client);
     return await restoreMongoFrom(client, target.dbName, gzipped);
   } finally {
     await client.close();
