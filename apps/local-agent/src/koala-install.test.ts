@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { createHash } from 'node:crypto';
+import { reopening } from '@koala/engine-core/reopening';
 import { K3S_KUBECONFIG, K3S_MARKER, type ClusterHost } from './machine-cluster.js';
 import { helmArgs, installKoala, koalaUrlOf, koalaValues, placedFrom, type PlacedKoala } from './koala-install.js';
 
@@ -110,5 +111,30 @@ describe('putting Koala on this machine', () => {
     await installKoala(PLACED, { cluster: host, helm: 'helm', fetch: fetchImpl, say: () => undefined });
     expect(ran.some(([file]) => file === 'helm')).toBe(false);
     expect(reports.at(-1)).toMatchObject({ status: 'failed', detail: 'the chart root sent is not the one it released (its sha256 differs); nothing was installed' });
+  });
+  it('tells root Koala is ready once root answers again, when root was restarting as the install finished', async () => {
+    const { host } = machine();
+    const { fetchImpl, reports } = root();
+    let refusals = 2;
+    const restarting = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url) !== PLACED.chartUrl && String(init?.body).includes('"ready"') && refusals-- > 0) {
+        throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
+      }
+      return fetchImpl(url, init);
+    }) as typeof fetch;
+    await installKoala(PLACED, { cluster: host, helm: 'helm', fetch: restarting, say: () => undefined, wait: reopening(1) });
+    expect(reports.map((report) => report.status)).toEqual(['installing', 'installing', 'ready']);
+  });
+
+  it('tells root once it answers again when it answered that it is busy', async () => {
+    const { host } = machine();
+    const { fetchImpl, reports } = root();
+    let busy = 1;
+    const answering = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url) !== PLACED.chartUrl && String(init?.body).includes('"ready"') && busy-- > 0) return new Response('restarting', { status: 503 });
+      return fetchImpl(url, init);
+    }) as typeof fetch;
+    await installKoala(PLACED, { cluster: host, helm: 'helm', fetch: answering, say: () => undefined, wait: reopening(1) });
+    expect(reports.map((report) => report.status)).toEqual(['installing', 'installing', 'ready']);
   });
 });
