@@ -108,6 +108,7 @@ describe('settling the work the bridge itself starts', () => {
 
     await db.infrastructure.saveCluster({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     for (const id of ['gone', 'grown', 'synced']) await db.infrastructure.saveDeployment(app(id));
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 't', defaultModelId: 'gone' });
     await db.infrastructure.saveDeployment(app('model', { appType: 'vllm', vllmModel: 'acme/tiny', vllmGpuCount: 1, vllmCachePvc: 'shared-models' }));
     const startedSync = vi.spyOn(bridge.client.workflow, 'start');
     const project = { id: 'p1', name: 'Shop', ownerId: 'u1', giteaOwner: 'bo', giteaRepo: 'shop', autoDeployOnBuild: true, createdAt: 't' } as ProjectMetadata;
@@ -133,6 +134,7 @@ describe('settling the work the bridge itself starts', () => {
 
     const deployments = new Map((await db.infrastructure.getDeployments()).map((dep) => [dep.id, dep]));
     expect(deployments.has('gone')).toBe(false);
+    expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
     expect(deployments.get('grown')).toMatchObject({ status: 'running', storage: { data: '20Gi' } });
     expect(deployments.get('synced')).toMatchObject({ status: 'unhealthy', healthReason: 'its pod cannot pull its image' });
     const [run] = await db.releases.getPipelineRuns();

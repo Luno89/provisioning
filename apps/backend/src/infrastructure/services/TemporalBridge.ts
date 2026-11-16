@@ -397,6 +397,7 @@ export class TemporalBridge {
         await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
         await this.db.infrastructure.deleteDeployment(resourceId)
+        await this.db.accounts.forgetDefaultModels([resourceId])
       }
       if (this.io) this.io.emit('deployment-updated')
     } else if (action === 'app-resize') {
@@ -918,7 +919,9 @@ export class TemporalBridge {
   }
 
   async onClusterStatusClearup(clusterId: string): Promise<void> {
+    const apps = (await this.db.infrastructure.getDeployments()).filter((app) => app.clusterId === clusterId).map((app) => app.id)
     await this.db.infrastructure.deleteDeploymentsOfCluster(clusterId)
+    await this.db.accounts.forgetDefaultModels(apps)
   }
 
   async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<ResourceDeal | NothingToBuild> {

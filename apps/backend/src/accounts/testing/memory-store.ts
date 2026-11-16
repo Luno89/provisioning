@@ -101,6 +101,13 @@ export class MemoryAccountsStore implements AccountsStore {
     return moved;
   }
 
+  async forgetDefaultModels(modelIds: readonly string[]): Promise<void> {
+    for (const user of this.users.all()) {
+      if (!user.defaultModelId || !modelIds.includes(user.defaultModelId)) continue;
+      this.users.change(user.id, ({ defaultModelId: _gone, ...kept }) => kept);
+    }
+  }
+
   async dropGitHubCredentials(): Promise<number> {
     let dropped = 0;
     for (const user of this.users.all()) {

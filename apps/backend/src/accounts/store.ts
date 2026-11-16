@@ -23,6 +23,7 @@ export interface AccountsStore extends AreaStore {
   getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined>;
   moveProviderIdsToLinks(): Promise<number>;
   dropGitHubCredentials(): Promise<number>;
+  forgetDefaultModels(modelIds: readonly string[]): Promise<void>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
   deleteUser(id: string): Promise<void>;
   getInvites(): Promise<InviteMetadata[]>;
@@ -324,6 +325,10 @@ export class MongoAccountsStore implements AccountsStore {
 
   async dropGitHubCredentials(): Promise<number> {
     return (await this.users.updateMany({ 'credentials.github': { $exists: true } }, { $unset: { 'credentials.github': '' } })).modifiedCount;
+  }
+
+  async forgetDefaultModels(modelIds: readonly string[]): Promise<void> {
+    if (modelIds.length) await this.users.updateMany({ defaultModelId: { $in: [...modelIds] } }, { $unset: { defaultModelId: '' } });
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {

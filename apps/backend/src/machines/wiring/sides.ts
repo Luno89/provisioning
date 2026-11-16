@@ -65,7 +65,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     placer: { placeOn: async (ownerId, machine, name) => (deps.instances()?.service?.placeOn ? deps.instances()!.service!.placeOn!(ownerId, machine, name) : { ok: false, status: 503, error: 'this Koala holds no instances to put on machines' }) },
     mesh: deps.mesh,
   }) : undefined;
-  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, dataKey: deps.dataKey, koalaMachineId: deps.koalaMachineId }) : undefined;
+  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, koalaMachineId: deps.koalaMachineId }) : undefined;
   const root = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken ?? (async () => '') }) : undefined;
   machines = new MachineService({
     store: db.machines,

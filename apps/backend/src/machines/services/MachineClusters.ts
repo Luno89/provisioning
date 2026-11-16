@@ -4,6 +4,7 @@ import { appsOn, clusterCapacityOf, machineClusterId, newMachineCluster, type Re
 
 export interface MachineClustersDeps {
   store: Pick<Database['infrastructure'], 'getClusters' | 'saveCluster' | 'patchCluster' | 'deleteCluster' | 'getDeployments' | 'deleteDeploymentsOfCluster'>;
+  accounts: Pick<Database['accounts'], 'forgetDefaultModels'>;
   dataKey: SecretKey;
   koalaMachineId?: string | undefined;
   now?: (() => Date) | undefined;
@@ -72,7 +73,9 @@ export class MachineClusters {
   async forget(device: Pick<LocalAgentDeviceMetadata, 'id' | 'ownerId'>): Promise<void> {
     const cluster = await this.clusterOf(device.id);
     if (!cluster) return;
+    const apps = appsOn(await this.deps.store.getDeployments(), cluster.id).map((app) => app.id);
     await this.deps.store.deleteDeploymentsOfCluster(cluster.id);
+    await this.deps.accounts.forgetDefaultModels(apps);
     await this.deps.store.deleteCluster(cluster.id);
   }
 }

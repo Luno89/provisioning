@@ -200,6 +200,19 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
       expect(await store.getUserById('none')).toEqual({ ...person('none'), credentials: { huggingface: { hfToken: 'sealed-hf' } } });
       expect(await store.dropGitHubCredentials()).toBe(0);
     });
+
+    it('forgets models that are gone as anyone\'s default, leaving every other default and field as it was', async () => {
+      const store = await make();
+      await store.saveUser({ ...person('on-gone'), defaultModelId: 'gone-1', globalModelOverride: true });
+      await store.saveUser({ ...person('on-other-gone'), defaultModelId: 'gone-2' });
+      await store.saveUser({ ...person('on-kept'), defaultModelId: 'kept' });
+      await store.saveUser(person('none'));
+      await store.forgetDefaultModels(['gone-1', 'gone-2']);
+      expect(await store.getUserById('on-gone')).toEqual({ ...person('on-gone'), globalModelOverride: true });
+      expect(await store.getUserById('on-other-gone')).toEqual(person('on-other-gone'));
+      expect(await store.getUserById('on-kept')).toEqual({ ...person('on-kept'), defaultModelId: 'kept' });
+      expect(await store.getUserById('none')).toEqual(person('none'));
+    });
   });
 
   describe('invites', () => {

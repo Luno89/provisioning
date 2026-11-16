@@ -14,7 +14,7 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
 
   beforeEach(async () => {
     db = await make();
-    clusters = new MachineClusters({ store: db.infrastructure, dataKey: KEY, now: () => new Date('2026-11-05T12:00:00Z') });
+    clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, now: () => new Date('2026-11-05T12:00:00Z') });
   });
 
   const stored = async () => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk');
@@ -71,7 +71,7 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
     });
 
     it('takes the time from the clock when it is given none', async () => {
-      const unclocked = new MachineClusters({ store: db.infrastructure, dataKey: KEY });
+      const unclocked = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY });
       const before = Date.now();
       await unclocked.reported(DESK, 'stopped');
       await unclocked.started('machine-desk', { state: 'running', meshIp: DESK.meshIp, kubeconfig: 'k' });
@@ -96,18 +96,22 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
     });
 
     it('is never idle while Koala runs on it, apps or none', async () => {
-      const holding = new MachineClusters({ store: db.infrastructure, dataKey: KEY, koalaMachineId: 'desk' });
+      const holding = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, koalaMachineId: 'desk' });
       expect(await holding.idle('machine-desk')).toBe(false);
       expect(await holding.idle('machine-nas')).toBe(true);
     });
 
-    it('is forgotten with its apps\' records when the machine is removed, leaving other clusters\' apps', async () => {
+    it('is forgotten with its apps\' records when the machine is removed, leaving other clusters\' apps, and a model of it is nobody\'s default any more', async () => {
       await clusters.reported(DESK, 'stopped');
       await db.infrastructure.saveDeployment(app('shop'));
       await db.infrastructure.saveDeployment(app('elsewhere', 'other-cluster'));
+      await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z', defaultModelId: 'shop' });
+      await db.accounts.saveUser({ id: 'cy', email: 'cy@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z', defaultModelId: 'elsewhere' });
       await clusters.forget(DESK);
       expect(await stored()).toBeUndefined();
       expect((await db.infrastructure.getDeployments()).map((deployment) => deployment.id)).toEqual(['elsewhere']);
+      expect((await db.accounts.getUserById('bo'))?.defaultModelId).toBeUndefined();
+      expect((await db.accounts.getUserById('cy'))?.defaultModelId).toBe('elsewhere');
       await clusters.forget(DESK);
     });
   });

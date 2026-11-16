@@ -73,8 +73,10 @@ describe('aborting an app', () => {
     apps.setTemporalBridge(bridge);
     infra.getLogPath.mockReturnValue('/tmp/abort.log');
     await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress', status: 'deploying', temporalWorkflowId: 'wf-1' }));
+    await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at, defaultModelId: 'wp' });
     await apps.abort('wp', 'bo');
-    await vi.waitFor(async () => expect(await db.infrastructure.getDeployments()).toEqual([]));
+    await vi.waitFor(async () => expect((await db.accounts.getUserById('bo'))?.defaultModelId).toBeUndefined());
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
     expect(bridge.terminateWorkflow).toHaveBeenCalledWith('wf-1', 'User aborted deployment');
     expect(access.kubectl.mock.calls).toEqual([
       ['c1', ['delete', 'namespace', 'wordpress', '--ignore-not-found=true', '--wait=false']],

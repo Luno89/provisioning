@@ -267,6 +267,29 @@ describe('following work to its end', () => {
     expect(stored).not.toHaveProperty('failure');
   });
 
+  it('removes an app once the workflow destroying it ends, and a model it served is nobody\'s default any more', async () => {
+    const { db, workflow, ready } = bridge();
+    const person = { email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z' };
+    await db.accounts.saveUser({ id: 'u1', ...person, defaultModelId: 'd1' });
+    await db.accounts.saveUser({ id: 'u2', ...person, email: 'u2@example.com', defaultModelId: 'd2' });
+    await db.infrastructure.saveDeployment({ ...deploying, status: 'destroying', appType: 'vllm' });
+    workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
+    await ready().follow('wf-1', 'app-destroy', 'd1', 'shop', deploying);
+    expect(await statusOf(db, 'd1')).toBeUndefined();
+    expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
+    expect((await db.accounts.getUserById('u2'))?.defaultModelId).toBe('d2');
+  });
+
+  it('forgets a cluster\'s apps, and any of their models as a default, when the cluster is cleared up', async () => {
+    const { db, ready } = bridge();
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z', defaultModelId: 'd1' });
+    await db.infrastructure.saveDeployment({ ...deploying, status: 'running', appType: 'vllm' });
+    await db.infrastructure.saveDeployment({ ...deploying, id: 'd9', name: 'other', clusterId: 'c9', status: 'running' });
+    await ready().onClusterStatusClearup('c1');
+    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['d9']);
+    expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
+  });
+
   it('takes a workflow Temporal does not have as failed', async () => {
     const { db, workflow, ready } = bridge();
     workflow.getHandle.mockReturnValue(closing(async () => { throw new WorkflowNotFoundError('not found', 'wf-1', undefined); }, 'COMPLETED') as never);

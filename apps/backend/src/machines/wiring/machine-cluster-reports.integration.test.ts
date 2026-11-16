@@ -82,7 +82,7 @@ beforeEach(async () => {
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines, workTokens, clusters: {} as never, apps: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
-    machineClusters: new MachineClusters({ store: db.infrastructure, dataKey: keys.data }),
+    machineClusters: new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: keys.data }),
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

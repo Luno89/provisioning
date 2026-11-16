@@ -158,6 +158,7 @@ export class AppService extends BaseService {
         }
         await removeNamespace((args) => this.clusters.access.kubectl(dep.clusterId, args), namespaceOf(dep));
         await this.db.infrastructure.deleteDeployment(id);
+        await this.db.accounts.forgetDefaultModels([id]);
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
           io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
