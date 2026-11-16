@@ -136,6 +136,13 @@ describe('R5, the layers a service, route or activity is tested at', () => {
     ]);
   });
 
+  it('drops or lowers an entry only as far as the audit before also found it gone, so one run that happened to run a call does not shrink the baseline', () => {
+    const baseline = { 'R1 a -> b (call)': 1, 'R1 c -> d (call)': 2, 'R1 e -> f (call)': 1 };
+    const none: Breach[] = [];
+    expect(pruned(baseline, none, ['R1'], { 'R1 a -> b (call)': 1, 'R1 c -> d (call)': 1 })).toEqual({ 'R1 a -> b (call)': 1, 'R1 c -> d (call)': 1 });
+    expect(pruned(baseline, none, ['R1'], {})).toEqual({});
+  });
+
   it('judges startup code as any other code: what the live stack ran counts for nothing, since its state differs from run to run', () => {
     const started: Graph = {
       units: {

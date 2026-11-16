@@ -48,8 +48,12 @@ const CROSS_PROCESS: ReadonlySet<Edge['through']> = new Set(['temporal', 'socket
 
 export const crossesProcess = (edge: Edge): boolean => CROSS_PROCESS.has(edge.through);
 
+const unitName = (graph: Graph, id: string): string => { const unit = graph.units[id]; return unit ? `${unit.file}#${unit.name}` : id; };
+
+export const callOf = (edge: Edge, graph: Graph): string => `${unitName(graph, edge.from)} -> ${edge.to.map((id) => unitName(graph, id)).sort().join(' | ')} (${edge.through})`;
+
 export function breaches(judged: readonly Judged[], graph: Graph, rules: readonly Rule[] = RULES): Breach[] {
-  const name = (id: string) => { const unit = graph.units[id]; return unit ? `${unit.file}#${unit.name}` : id; };
+  const name = (id: string) => unitName(graph, id);
   const callers = new Map<string, number>();
   for (const edge of graph.edges) for (const to of edge.to) callers.set(to, (callers.get(to) ?? 0) + 1);
   const found: Breach[] = [];
@@ -57,7 +61,7 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
     const { edge } = entry;
     const at = `${edge.site.file}:${edge.site.line}`;
     if (edge.to.length > 0 && edge.to.every((id) => graph.units[id]?.noBehaviour)) continue;
-    const pair = `${name(edge.from)} -> ${edge.to.map(name).sort().join(' | ')} (${edge.through})`;
+    const pair = callOf(edge, graph);
     if (edge.to.length === 0) {
       found.push({ rule: 'R4', key: `R4 ${pair}`, at, why: 'no implementation found for this call' });
       continue;
@@ -102,10 +106,11 @@ export function against(found: readonly Breach[], whole: Baseline, rules: readon
   return { added, fixed };
 }
 
-export function pruned(baseline: Baseline, found: readonly Breach[], rules: readonly Rule[] = RULES): Baseline {
+export function pruned(baseline: Baseline, found: readonly Breach[], rules: readonly Rule[] = RULES, before?: Baseline): Baseline {
   const now = counted(found);
   const judgedNow = (key: string) => (rules as readonly string[]).includes(ruleOf(key));
-  return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, judgedNow(key) ? Math.min(was, now[key] ?? 0) : was]).filter(([, count]) => count > 0));
+  const steady = (key: string) => Math.max(now[key] ?? 0, before ? (before[key] ?? 0) : 0);
+  return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, judgedNow(key) ? Math.min(was, steady(key)) : was]).filter(([, count]) => count > 0));
 }
 
 const KEY = /^(R\d) (\S+) -> (.+) \(([^()]+)\)$/;

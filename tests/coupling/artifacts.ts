@@ -30,6 +30,8 @@ const git = (root: string, args: readonly string[]): string => execFileSync('git
 
 export const commitOf = (root = ROOT): string => git(root, ['rev-parse', '--short=12', 'HEAD']).trim();
 
+export const keptAcrossGathers = (root = ROOT): string => join(resolve(root, git(root, ['rev-parse', '--git-common-dir']).trim()), 'koala-coupling');
+
 export type SourceScope = 'all' | 'production';
 
 const NOT_PRODUCTION = [':(exclude,glob)**/*.test.ts', ':(exclude,glob)**/*.test.tsx', ':(exclude,glob)**/*.test.mjs', ':(exclude,glob)**/testing/**'];

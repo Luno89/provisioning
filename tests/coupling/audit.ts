@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
+import { commitOf, gatheredIn, keptAcrossGathers, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
+import { kept, lastRanLine, ranIn, type RanRecord } from './ran-history.js';
 import { judge, unitLevels } from './join.js';
 import { builtGraph } from './repo-graph.js';
 import type { Ran } from './collect.js';
@@ -56,6 +57,8 @@ const breachesIn = (counted: readonly Ran[]) => [
 const found = breachesIn(runs);
 const belowLive = (): Breach[] => breachesIn(runs.filter((run) => levelOf(run.testFile) !== 'live'));
 const write = (baseline: Baseline) => writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 1)}\n`);
+const RAN_HISTORY = join(keptAcrossGathers(), 'ran.json');
+const ranBefore = existsSync(RAN_HISTORY) ? JSON.parse(readFileSync(RAN_HISTORY, 'utf8')) as RanRecord[] : [];
 let held: Result['baseline'];
 if (!existsSync(BASELINE) && !options.seed) {
   held = { kind: 'none' };
@@ -69,10 +72,14 @@ if (!existsSync(BASELINE) && !options.seed) {
   const lowering = belowLive();
   const moved = movedIn(before, found);
   for (const move of moved.moves) console.log(`moved: ${move.from} -> ${move.to} (${move.count})`);
-  const baseline = options.prune ? pruned(moved.baseline, lowering, rules.judged) : moved.baseline;
+  const baseline = options.prune ? pruned(moved.baseline, lowering, rules.judged, ranBefore[0]?.breaches) : moved.baseline;
   held = { kind: 'held', ...against(found, baseline, rules.judged, lowering) };
   if (options.prune && held.added.length === 0) write(baseline);
 }
+
+const commit = commitOf();
+mkdirSync(keptAcrossGathers(), { recursive: true });
+writeFileSync(RAN_HISTORY, JSON.stringify(kept(ranBefore, { commit, at: new Date().toISOString(), ran: ranIn(judged, graph), breaches: counted(belowLive()) })));
 
 const result = resultOf({
   at: new Date().toISOString(), commit: commitOf(), source, gathered, problems: usable.problems, rules,
@@ -94,6 +101,7 @@ else if (held.kind === 'none') {
     console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
     for (const line of breach.near ? nearLines(breach.near, breach.rule) : []) console.log(line);
     for (const was of sameCall.get(breach.key) ?? []) console.log(`  the baseline held this call under another target, now gone from it: ${was}`);
+    if (breach.rule !== 'R4' && breach.rule !== 'R5') console.log(lastRanLine(ranBefore, breach.key));
   }
   for (const entry of held.fixed) console.log(`fixed, prune it: ${entry.key} (${entry.was} -> ${entry.now})`);
   if (held.added.length > 0 || held.fixed.length > 0) process.exitCode = 1;
