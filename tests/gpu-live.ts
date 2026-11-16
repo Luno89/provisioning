@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
-import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
+import { noAppHoldsAGpu } from './lib/gpus-free.js';
 
 const NAME = `gpu-${Date.now().toString(36)}`;
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -60,7 +60,8 @@ async function main(): Promise<void> {
   const clusterId = `machine-${machine}`;
   const apps = madeHere<Deployment>({ name: 'deployments', list: () => mine(api), idOf: (app) => app.id, stampOf: () => undefined });
   await apps.before();
-  const stopped: StoppedModel[] = [];
+  const defaultModel = async () => ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
+  const defaultBefore = await defaultModel();
   let id: string | undefined;
   let forward: ChildProcess | undefined;
 
@@ -87,10 +88,7 @@ async function main(): Promise<void> {
       assert.equal((await mine(api)).some((entry) => entry.name === `${NAME}-too-many`), false, 'the refused deploy left a record');
     });
 
-    await stage('the owner\'s own models holding GPUs on this machine are stopped for the test, their records kept', async () => {
-      stopped.push(...await stopOwnersModels(api, clusterId));
-      console.log(stopped.length ? `    stopped ${describeStopped(stopped)}` : '    none of the owner\'s models holds a GPU here, so none is stopped');
-    });
+    await stage('no app on this machine asks for its GPUs before the suite deploys, as a reset leaves it', () => noAppHoldsAGpu(api, clusterId));
 
     const imagesBefore = await vllmImages();
     const deployed = await stage(`${NAME}, vLLM serving ${MODEL} on one GPU, deploys through Koala, which readies the machine's GPUs first`, async () => {
@@ -148,14 +146,11 @@ async function main(): Promise<void> {
         await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true));
       });
     }
-    if (stopped.length) {
-      await stage('the owner\'s models are started again as they were', async () => {
-        await startOwnersModels(stopped);
-        console.log(`    started ${describeStopped(stopped)}`);
-      });
-    }
   }
-  await stage('every deployment of the owner\'s from before is still there', () => apps.untouched());
+  await stage('the stack is as the suite found it: every deployment there before is still there, the default model as it was', async () => {
+    await apps.untouched();
+    assert.equal(await defaultModel(), defaultBefore, `the default model is not ${defaultBefore ?? 'none'} as before: destroying ${NAME} left it naming a model that is gone`);
+  });
   console.log('\npassed');
 }
 

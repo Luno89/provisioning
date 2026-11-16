@@ -7,7 +7,7 @@ import { devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTempo
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
-import { describeStopped, startOwnersModels, stopOwnersModels, type StoppedModel } from './lib/owner-models.js';
+import { noAppHoldsAGpu } from './lib/gpus-free.js';
 
 const NAME = `v1-${Date.now().toString(36)}`;
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -60,7 +60,6 @@ async function main(): Promise<void> {
   const temporal = await devKoalaTemporal();
   const runIds = new Set<string>();
   const chats = madeHere<{ id: string; updatedAt?: string }>({ name: 'conversations', list: async () => (await api.get('/api/conversations')).data as { id: string; updatedAt?: string }[], idOf: (chat) => chat.id, stampOf: (chat) => chat.updatedAt });
-  const stopped: StoppedModel[] = [];
   const previousDefault = ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
   await chats.before();
   let deploymentId: string | undefined;
@@ -109,9 +108,9 @@ async function main(): Promise<void> {
     console.log(`  ${device.name} online; ${gpusOnMyMachines}, on My Machines and its cluster card`);
     nothingWentWrong(watching, 'My Machines and the cluster card');
 
-    step('the owner\'s own models holding GPUs here are stopped for the test, their records kept');
-    stopped.push(...await stopOwnersModels(api, clusterId));
-    console.log(stopped.length ? `  stopped ${describeStopped(stopped)}` : '  none of the owner\'s models holds a GPU here, so none is stopped');
+    step('no app on this machine asks for its GPUs before the suite deploys, as a reset leaves it');
+    await noAppHoldsAGpu(api, clusterId);
+    console.log('  none does');
 
     step(`Deploy an app: vLLM serving ${MODEL} on this machine, one NVIDIA GPU, through the wizard`);
     await page.getByRole('button', { name: 'Deploy an app' }).click();
@@ -239,14 +238,10 @@ async function main(): Promise<void> {
     for (const id of chats.madeIds()) for await (const workflow of temporal.client.workflow.list({ query: `WorkflowId STARTS_WITH "memory-conversation-${id.replace(/[^A-Za-z0-9_-]+/g, '-')}-"` })) runIds.add(workflow.workflowId);
     await chats.removeMade(async (id) => { await api.delete(`/api/conversations/${id}`); });
     await forgetWhatRunsLeft(db, owner.id, new Set([...runIds, ...[...runIds].map((id) => `memory-run-${id}`)]));
-    if (stopped.length) {
-      await startOwnersModels(stopped);
-      console.log(`  the owner's models are started again: ${describeStopped(stopped)}`);
-    }
     await temporal.close();
     await db.close?.();
   }
-  step('the owner\'s own Koala is as it was: every conversation there before untouched, the default model back');
+  step('the stack is as the suite found it: every conversation there before untouched, the default model back');
   await chats.untouched();
   const defaultNow = ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
   assert.equal(defaultNow, previousDefault, `the default model is ${defaultNow}, not ${previousDefault ?? 'none'} as before`);
