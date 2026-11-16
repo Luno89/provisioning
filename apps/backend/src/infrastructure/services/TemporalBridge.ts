@@ -643,7 +643,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: this.logDir, toolCalling: { decide: (app, asking) => this.toolCalling().decide(app, asking) } }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: this.logDir, toolCalling: { decide: async (app, asking) => this.toolCalling().decide(app, asking) } }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
@@ -912,16 +912,6 @@ export class TemporalBridge {
       if (err instanceof WorkflowNotFoundError || (isGrpcServiceError(err) && err.code === GRPC_NOT_FOUND)) return null
       throw err
     }
-  }
-
-  async onClusterStatus(_query: string): Promise<ClusterMetadata[]> {
-    return this.db.infrastructure.getClusters()
-  }
-
-  async onClusterStatusClearup(clusterId: string): Promise<void> {
-    const apps = (await this.db.infrastructure.getDeployments()).filter((app) => app.clusterId === clusterId).map((app) => app.id)
-    await this.db.infrastructure.deleteDeploymentsOfCluster(clusterId)
-    await this.db.accounts.forgetDefaultModels(apps)
   }
 
   async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<ResourceDeal | NothingToBuild> {

@@ -12,6 +12,7 @@ import type { ClusterAccess } from './ClusterAccess.js';
 import type { ClusterService } from './ClusterService.js';
 import { connectToTemporal, TemporalBridge, type TemporalConnect } from './TemporalBridge.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
+import type { ToolCallParsers } from '../../models/index.js';
 
 const KEY = 'temporal-bridge-test-key';
 const SHA = '8c646f4f20f5fb217793c11ebbab0779f7d26757';
@@ -228,6 +229,19 @@ describe('changing an app\'s config', () => {
   });
 });
 
+describe('deciding a vLLM app\'s tool calling for a deploy', () => {
+  it('asks the tool call parsers it was given, and says plainly when it was given none', async () => {
+    const toolCalling = mock<Pick<ToolCallParsers, 'decide'>>();
+    toolCalling.decide.mockResolvedValue({ enabled: true, parser: 'hermes' } as never);
+    const given = new TemporalBridge(memoryDatabase(), testDataDir(), undefined, KEY, undefined, { toolCalling });
+    const app = { vllmModel: 'Qwen/Qwen2.5-0.5B-Instruct' } as never;
+    expect(await given.appDeployDeps().toolCalling.decide(app, { newApp: true, ownerId: 'u1' })).toEqual({ enabled: true, parser: 'hermes' });
+    expect(toolCalling.decide).toHaveBeenCalledWith(app, { newApp: true, ownerId: 'u1' });
+    const none = new TemporalBridge(memoryDatabase(), testDataDir(), undefined, KEY);
+    await expect(none.appDeployDeps().toolCalling.decide(app, { newApp: true, ownerId: 'u1' })).rejects.toThrow('a vLLM app\'s tool calling is decided by the tool call parsers, and this bridge was given none');
+  });
+});
+
 describe('following work to its end', () => {
   const closing = (ends: () => Promise<unknown>, status: string) => {
     const run = mock<WorkflowHandle>();
@@ -278,16 +292,6 @@ describe('following work to its end', () => {
     expect(await statusOf(db, 'd1')).toBeUndefined();
     expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
     expect((await db.accounts.getUserById('u2'))?.defaultModelId).toBe('d2');
-  });
-
-  it('forgets a cluster\'s apps, and any of their models as a default, when the cluster is cleared up', async () => {
-    const { db, ready } = bridge();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z', defaultModelId: 'd1' });
-    await db.infrastructure.saveDeployment({ ...deploying, status: 'running', appType: 'vllm' });
-    await db.infrastructure.saveDeployment({ ...deploying, id: 'd9', name: 'other', clusterId: 'c9', status: 'running' });
-    await ready().onClusterStatusClearup('c1');
-    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['d9']);
-    expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
   });
 
   it('takes a workflow Temporal does not have as failed', async () => {

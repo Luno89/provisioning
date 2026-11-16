@@ -100,6 +100,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
+  const toolCalling = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
   const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies });
 
   const giteaAt = tenant.gitea;
@@ -224,7 +225,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
             clusterById: (id) => clusterService.getByIdUnscoped(id),
             handOver: (id) => clusterService.access.handOver(id),
             logDir: path.join(settings.dataDir, 'logs'),
-            toolCalling: new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) }),
+            toolCalling,
           }, project, run);
           return { workflowId: started.workflowId };
         },
