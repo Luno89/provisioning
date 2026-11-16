@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer, type AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import type { NextFunction, Request, Response } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,6 +10,7 @@ import { instancesRouter } from '../instances/routes/instances.js';
 import { InstanceService } from '../instances/services/InstanceService.js';
 import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
 import { selfUpgrade } from './self-upgrade.js';
+import { reopening } from '@koala/engine-core/reopening';
 
 const CHART = 'the chart root released';
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -106,6 +108,21 @@ describe('an instance upgrading itself to what root released', () => {
     const kube = cluster([]);
     expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222' }, cluster: kube.cluster, ...quiet })).toBe(true);
     expect(kube.ran).toEqual([]);
+    expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
+  });
+
+  it('waits for a root that is not answering, saying so each time, and checks in once it answers', async () => {
+    const { root, record } = await rootServing();
+    const kube = cluster([]);
+    const said: string[] = [];
+    let refused = 2;
+    const closed = await new Promise<number>((done) => { const server = createServer().listen(0, '127.0.0.1', () => { const { port } = server.address() as AddressInfo; server.close(() => done(port)); }); });
+    const rootDown: typeof fetch = (url, init) => (refused-- > 0 ? fetch(`http://127.0.0.1:${closed}/`, init) : fetch(url, init));
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222' }, cluster: kube.cluster, fetch: rootDown, wait: reopening(1), sleep: async () => undefined, log: (line) => said.push(line) })).toBe(true);
+    expect(said).toEqual([
+      'root isn\'t answering when this instance asks which release to run (it refused the connection (ECONNREFUSED)); asking again in 0 s',
+      'root isn\'t answering when this instance asks which release to run (it refused the connection (ECONNREFUSED)); asking again in 0 s',
+    ]);
     expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
   });
 

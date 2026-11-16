@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { failureOf, temporaryStatus } from '@koala/engine-core/failures';
-import { reopening, type Reopening } from '@koala/engine-core/reopening';
+import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
 import { parse } from 'yaml';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -88,25 +87,12 @@ export const ownValuesFile = (env: NodeJS.ProcessEnv = process.env): string =>
 type Status = 'installing' | 'ready' | 'failed';
 
 async function report(placed: PlacedKoala, deps: Pick<KoalaInstallDeps, 'fetch' | 'say'> & { wait: Reopening }, status: Status, detail: string, extra: Record<string, unknown> = {}): Promise<void> {
-  for (;;) {
-    const answer = await deps.fetch(`${placed.rootUrl}/api/instances/status`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-instance-id': placed.instanceId, authorization: `Bearer ${placed.credential}` },
-      body: JSON.stringify({ status, detail, meshIp: placed.meshAddress, presence: true, ...extra }),
-    }).catch((err: unknown) => {
-      const failure = failureOf(err);
-      if (failure.kind === 'final') throw err;
-      return failure.reason;
-    });
-    if (typeof answer !== 'string' && answer.ok) {
-      deps.wait.reset();
-      return;
-    }
-    if (typeof answer !== 'string' && !temporaryStatus(answer.status)) throw new Error(`root refused the report that Koala is ${status} (${answer.status}): ${(await answer.text()).slice(0, 300)}`);
-    const why = typeof answer === 'string' ? answer : `it answered ${answer.status}`;
-    deps.say(`root was not told Koala is ${status} (${why}); telling it again in ${deps.wait.seconds} s`);
-    await deps.wait.after();
-  }
+  const answer = await untilAnswered(() => deps.fetch(`${placed.rootUrl}/api/instances/status`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-instance-id': placed.instanceId, authorization: `Bearer ${placed.credential}` },
+    body: JSON.stringify({ status, detail, meshIp: placed.meshAddress, presence: true, ...extra }),
+  }), deps.wait, (why, seconds) => deps.say(`root was not told Koala is ${status} (${why}); telling it again in ${seconds} s`));
+  if (!answer.ok) throw new Error(`root refused the report that Koala is ${status} (${answer.status}): ${(await answer.text()).slice(0, 300)}`);
 }
 
 export function ownPublicUrl(ownValuesYaml: string): string | undefined {

@@ -1,3 +1,4 @@
+import { failureOf, temporaryStatus } from './failures.js';
 export const REOPEN_FIRST_MS = 5_000;
 export const REOPEN_MOST_MS = 60_000;
 
@@ -27,4 +28,20 @@ export function reopening(firstMs = REOPEN_FIRST_MS): Reopening {
     },
     reset() { wait = firstMs; },
   };
+}
+
+export async function untilAnswered(ask: () => Promise<Response>, wait: Reopening, waiting: (why: string, seconds: number) => void): Promise<Response> {
+  for (;;) {
+    const answer = await ask().catch((err: unknown) => {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw err;
+      return failure.reason;
+    });
+    if (typeof answer !== 'string' && !temporaryStatus(answer.status)) {
+      wait.reset();
+      return answer;
+    }
+    waiting(typeof answer === 'string' ? answer : `it answered ${answer.status}`, wait.seconds);
+    await wait.after();
+  }
 }

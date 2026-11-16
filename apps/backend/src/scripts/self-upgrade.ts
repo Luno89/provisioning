@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
 import { abandonedJobs, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
 import { clusterAccessFrom, ROLLOUT_KINDS, rolloutOf, stuckHook } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
@@ -35,6 +36,7 @@ export interface SelfUpgradeDeps {
   release: { name: string; namespace: string; current: string };
   cluster: SelfUpgradeCluster;
   fetch?: typeof fetch;
+  wait?: Reopening;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   log?: (line: string) => void;
@@ -52,18 +54,20 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const now = deps.now ?? (() => Date.now());
   const headers = { 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${deps.root.credential}` };
   const { name, namespace, current } = deps.release;
+  const wait = deps.wait ?? reopening();
+  const ofRoot = (doing: string, ask: () => Promise<Response>): Promise<Response> =>
+    untilAnswered(ask, wait, (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`));
 
   const report = async (status: string, detail: string, imageTag?: string): Promise<void> => {
-    const answer = await call(`${deps.root.url}/api/instances/status`, {
+    const answer = await ofRoot(`tells it it is ${status}`, () => call(`${deps.root.url}/api/instances/status`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, detail, ...(imageTag ? { imageTag } : {}), presence: true }),
-    }).catch((err: Error) => err);
-    if (answer instanceof Error) log(`root did not hear that this instance is ${status} (${answer.message}): ${detail}`);
-    else if (!answer.ok) log(`root refused hearing that this instance is ${status} (${answer.status}): ${await answer.text()}`);
+    }));
+    if (!answer.ok) log(`root refused hearing that this instance is ${status} (${answer.status}): ${await answer.text()}`);
   };
 
-  const asked = await call(`${deps.root.url}/api/instances/release`, { headers });
+  const asked = await ofRoot('asks which release to run', () => call(`${deps.root.url}/api/instances/release`, { headers }));
   if (!asked.ok) throw new Error(`root did not say which release this instance should run (${asked.status}): ${await asked.text()}`);
   const wanted = await asked.json() as Released;
   if (wanted.imageTag === current) {
@@ -72,7 +76,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   }
 
   await report('installing', UPGRADE_WORDS.upgrading(current, wanted.imageTag));
-  const chart = await call(wanted.chartUrl);
+  const chart = await ofRoot(`downloads the chart for ${wanted.imageTag}`, () => call(wanted.chartUrl));
   if (!chart.ok) throw new Error(`root's chart for ${wanted.imageTag} could not be downloaded (${chart.status})`);
   const bytes = Buffer.from(await chart.arrayBuffer());
   if (wanted.chartSha256 && createHash('sha256').update(bytes).digest('hex') !== wanted.chartSha256) {
