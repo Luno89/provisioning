@@ -44,6 +44,21 @@ would hit:
     fresh stack's Prometheus read the probe (the old stack's never had, so the page showed the record's state). The probe asks
     `/health`, as its readiness does (056a3e471). TabbyAPI's has asked `/health` since 6802236e6.
 
+## On the second and third fresh dev stacks (2026-11-16)
+11. **My Machines showed this computer twice, once offline.** The first `npm run dev` after a reset stopped at the join's first
+    sudo prompt, which came minutes after it started and timed out unanswered. Root had already made the machine when the join
+    traded its code, and `machine.json`, which running the command again reads to replace that machine, was written only at the
+    end, so the second run added a machine beside the ghost. The suite took the first card by name. The join now keeps
+    `machine.json` as soon as root answers, so a join stopped at any later step is replaced, never doubled; dev counts this
+    computer joined only once the agent's service is installed, and asks for sudo at its start, before anything else, keeping it
+    until the join ends (61147cfab).
+12. **The owner's default named a model that was gone.** Koala makes someone's first running model their default; destroying it
+    (or aborting it, removing its machine, clearing its cluster) deleted the record and left the default naming nothing, so the
+    first-model dialog never came back and a chat would fail with "Model not found". gpu-live, run before it, left the dev stack
+    so. Every way a deployment's record goes now forgets it as anyone's default (owner, 2026-11-16: "Clear it"), and gpu-live
+    checks the default is as it found it. A run after that one failed in its clean-up with "socket hang up": I saved a backend
+    file while it ran and the dev backend reloaded under it, which is no fault of the code.
+
 ## How it is now built
 Each failure pointed at something a person would hit (a page error, a GPU not offered, a model that cannot chat, an obscure 400),
 and each fix is in the product with its own unit and integration tests; the suite changes are the guard, the awaited clicks and the
