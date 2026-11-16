@@ -31,11 +31,15 @@ export const koalaHereFile = (env: NodeJS.ProcessEnv = process.env): string => p
 
 const present = (file: string) => access(file).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; });
 
-export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt: string = wantedFile(), koalaHere: string = koalaHereFile()): ClusterHost => ({
-  run: async (file, args) => (await execute(file, args, { maxBuffer: 16 * 1024 * 1024 })).stdout,
-  exists: (path) => access(path).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
-  read: (path) => readFile(path, 'utf8'),
-  list: (dir) => readdir(dir),
+export const onMachine = (machineRoot: string) => (file: string): string => (machineRoot === '/' || !path.isAbsolute(file) ? file : path.join(machineRoot, file));
+
+export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), machineRoot = '/' }: { wantedAt?: string; koalaHere?: string; machineRoot?: string } = {}): ClusterHost => {
+  const at = onMachine(machineRoot);
+  return {
+  run: async (file, args) => (await execute(at(file), args.map(at), { maxBuffer: 16 * 1024 * 1024 })).stdout,
+  exists: (file) => access(at(file)).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
+  read: (file) => readFile(at(file), 'utf8'),
+  list: (dir) => readdir(at(dir)),
   wanted: async (running) => {
     if (!running) return rm(wantedAt, { force: true });
     await mkdir(path.dirname(wantedAt), { recursive: true });
@@ -53,7 +57,8 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt:
     const until = Date.now() + ms;
     while (Date.now() < until) await new Promise((done) => setTimeout(done, until - Date.now()));
   },
-});
+  };
+};
 
 const kubectl = (host: ClusterHost, args: string[]) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]);
 

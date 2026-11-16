@@ -96,3 +96,111 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     expect(await ended).toBe(0);
   }, 120_000);
 });
+
+const program = async (args: string[], extra: Record<string, string> = {}) => {
+  const place = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-place-'));
+  const machineRoot = path.join(place, 'machine');
+  const bin = path.join(place, 'bin');
+  await fs.mkdir(bin, { recursive: true });
+  await fs.symlink(process.execPath, path.join(bin, 'node'));
+  await fs.writeFile(path.join(bin, 'sudo'), '#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n', { mode: 0o755 });
+  const said: string[] = [];
+  const start = () => {
+    const child = spawn(process.execPath, ['--import', 'tsx', ENTRY, ...args], {
+      cwd: AGENT,
+      env: {
+        HOME: place,
+        PATH: bin,
+        TMPDIR: os.tmpdir(),
+        KOALA_MACHINE_ROOT: machineRoot,
+        ...extra,
+        ...(process.env.NODE_V8_COVERAGE ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE } : {}),
+        ...(process.env.NODE_OPTIONS ? { NODE_OPTIONS: process.env.NODE_OPTIONS } : {}),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout?.on('data', (chunk: Buffer) => said.push(chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => said.push(chunk.toString()));
+    return child;
+  };
+  const onMachine = (file: string) => path.join(machineRoot, file);
+  const machineFile = path.join(place, '.config', 'koala', 'machine.json');
+  const serviceFile = path.join(place, '.config', 'systemd', 'user', 'koala-machine.service');
+  const joined = async (rootUrl: string) => {
+    await fs.mkdir(path.dirname(machineFile), { recursive: true });
+    await fs.writeFile(machineFile, JSON.stringify({ rootUrl, token: 'program-device-token', rootDir: path.join(place, 'koala'), deviceId: 'program-desk' }), { mode: 0o600 });
+    await fs.mkdir(path.dirname(serviceFile), { recursive: true });
+    await fs.writeFile(serviceFile, '[Service]\n');
+  };
+  const k3sInstalled = async (uninstall: string) => {
+    await fs.mkdir(path.dirname(onMachine('/etc/koala/machine-k3s')), { recursive: true });
+    await fs.writeFile(onMachine('/etc/koala/machine-k3s'), '');
+    await fs.mkdir(path.dirname(onMachine('/usr/local/lib/koala/machine-uninstall.sh')), { recursive: true });
+    await fs.writeFile(onMachine('/usr/local/lib/koala/machine-uninstall.sh'), `#!/bin/sh\n${uninstall}\n`, { mode: 0o755 });
+  };
+  const there = (file: string) => fs.access(file).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; });
+  return { start, said, onMachine, machineFile, serviceFile, joined, k3sInstalled, there };
+};
+
+describe('removing this machine, as the agent\'s own program does it, on a throwaway home and machine', () => {
+  it('uninstalls Koala\'s k3s, deletes its token and service file, and says so', async () => {
+    const here = await program(['remove']);
+    await here.joined('http://127.0.0.1:1');
+    await here.k3sInstalled(`/bin/rm -f "${here.onMachine('/etc/koala/machine-k3s')}" "$0"`);
+    expect(await exited(here.start()), here.said.join('')).toBe(0);
+    expect(here.said.join('')).toContain('k3s and everything Koala ran on it are removed from this machine');
+    expect(await here.there(here.onMachine('/usr/local/lib/koala/machine-uninstall.sh'))).toBe(false);
+    expect(await here.there(here.machineFile)).toBe(false);
+    expect(await here.there(here.serviceFile)).toBe(false);
+  }, 120_000);
+
+  it('still deletes its token, and fails saying so, when k3s is left on the machine', async () => {
+    const here = await program(['remove']);
+    await here.joined('http://127.0.0.1:1');
+    await here.k3sInstalled('exit 0');
+    expect(await exited(here.start())).toBe(1);
+    expect(here.said.join('')).toContain('k3s is still on this machine: /usr/local/lib/koala/machine-uninstall.sh did not remove it');
+    expect(await here.there(here.machineFile)).toBe(false);
+  }, 120_000);
+});
+
+describe('Koala placed on this machine by root, as the agent\'s own program takes it, on a machine without Koala\'s k3s', () => {
+  it('tells root it is installing, then that it failed and why, and removes itself when root removes the machine', async () => {
+    const reports: Array<{ status: string; detail: string; instance: string | undefined }> = [];
+    const http = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === '/api/instances/status') {
+          const sent = JSON.parse(body) as { status: string; detail: string };
+          reports.push({ status: sent.status, detail: sent.detail, instance: req.headers['x-instance-id'] as string | undefined });
+        }
+        res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+      });
+    });
+    servers.push(http);
+    const io = new Server(http);
+    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
+    const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
+    const toRoot: Array<{ emit(event: string): void }> = [];
+    io.of('/machine-account').on('connection', (socket) => {
+      toRoot.push(socket);
+      socket.emit('machine:place-koala', {
+        instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
+        meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
+      });
+    });
+    const here = await program([]);
+    await here.joined(rootUrl);
+    const child = here.start();
+    while (!reports.some((report) => report.status === 'failed') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
+    expect(reports, here.said.join('')).toEqual([
+      { status: 'installing', detail: 'starting this machine\'s cluster', instance: 'program-koala' },
+      { status: 'failed', detail: 'k3s is not installed on this machine; run the command from My Machines again to install it', instance: 'program-koala' },
+    ]);
+    const ended = exited(child);
+    toRoot[0]!.emit('machine:removed');
+    expect(await ended, here.said.join('')).toBe(0);
+    expect(await here.there(here.machineFile)).toBe(false);
+  }, 120_000);
+});

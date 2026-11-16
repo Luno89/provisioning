@@ -18,21 +18,21 @@ describe('the machine as its cluster sees it', () => {
     const data = folder();
     const wanted = wantedFile({ XDG_DATA_HOME: data });
     expect(wanted).toBe(join(data, 'koala', 'cluster-wanted'));
-    const before = hostCluster(async () => undefined, wanted);
+    const before = hostCluster(async () => undefined, { wantedAt: wanted });
     expect(await before.isWanted()).toBe(false);
     await before.wanted(true);
     expect(existsSync(wanted)).toBe(true);
-    expect(await hostCluster(async () => undefined, wanted).isWanted()).toBe(true);
+    expect(await hostCluster(async () => undefined, { wantedAt: wanted }).isWanted()).toBe(true);
     await before.wanted(false);
     await before.wanted(false);
-    expect(await hostCluster(async () => undefined, wanted).isWanted()).toBe(false);
+    expect(await hostCluster(async () => undefined, { wantedAt: wanted }).isWanted()).toBe(false);
   });
 
   it('runs real programs, reads real files, and asks the mesh for its address', async () => {
     const dir = folder();
     const config = join(dir, 'k3s.yaml');
     writeFileSync(config, 'server: https://127.0.0.1:6443\n');
-    const host = hostCluster(async () => '100.64.0.7', join(dir, 'wanted'));
+    const host = hostCluster(async () => '100.64.0.7', { wantedAt: join(dir, 'wanted') });
     expect(await host.run(process.execPath, ['-e', 'process.stdout.write("active")'])).toBe('active');
     await expect(host.run(process.execPath, ['-e', 'process.exit(3)'])).rejects.toThrow();
     expect(await host.exists(config)).toBe(true);

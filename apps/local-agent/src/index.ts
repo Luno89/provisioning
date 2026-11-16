@@ -21,7 +21,7 @@ import { ownBundle, ownVersion, readCgroup } from './agent-bundle.js';
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const OWN_BUNDLE = ownBundle(AGENT_DIR);
 
-const machineCluster = hostCluster(meshIp);
+const machineCluster = hostCluster(meshIp, { machineRoot: process.env.KOALA_MACHINE_ROOT || '/' });
 
 const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
