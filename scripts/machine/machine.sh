@@ -162,6 +162,20 @@ MESH_LOGIN_SERVER=$(joined MESH_LOGIN_SERVER)
 joined MESH_AUTH_KEY > "$MESH_KEY_FILE"
 rm -f "$JOINED"
 ok "this machine is ${HOST} on your account"
+mkdir -p "$(dirname "$CONFIG")"
+(
+  umask 077
+  cat > "$CONFIG" <<EOF
+{
+  "rootUrl": "$(json "$KOALA_ROOT_URL")",
+  "token": "$(json "$KOALA_DEVICE_TOKEN")",
+  "deviceId": "$(json "$KOALA_DEVICE_ID")",
+  "rootDir": "$(json "$KOALA_ROOT_DIR")"
+}
+EOF
+)
+chmod 600 "$CONFIG"
+ok "its settings are in $CONFIG, readable only by you"
 
 if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
   say "Joining your private network"
@@ -361,23 +375,6 @@ printf '%s\n' "$KOALA_AGENT_SHA256" > "$NEXT_DIR/bundle.sha256"
 rm -rf "$DATA_DIR"
 mv "$NEXT_DIR" "$DATA_DIR"
 ok "installed in $DATA_DIR"
-
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/koala"
-mkdir -p "$CONFIG_DIR"
-CONFIG="$CONFIG_DIR/machine.json"
-(
-  umask 077
-  cat > "$CONFIG" <<EOF
-{
-  "rootUrl": "$(json "$KOALA_ROOT_URL")",
-  "token": "$(json "$KOALA_DEVICE_TOKEN")",
-  "deviceId": "$(json "$KOALA_DEVICE_ID")",
-  "rootDir": "$(json "$KOALA_ROOT_DIR")"
-}
-EOF
-)
-chmod 600 "$CONFIG"
-ok "its settings are in $CONFIG, readable only by you"
 
 say "Coding agents on this machine"
 (cd "$FOLDER" && "$NODE_BIN" "$DATA_DIR/agent.mjs" agents --adapters "$ADAPTERS") || echo "  Koala could not look for coding agents now; it looks again each time this machine connects."

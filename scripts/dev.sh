@@ -42,6 +42,18 @@ quietly() {
   rm -f "${log}"
 }
 
+SUDO_KEPT=""
+stop_keeping_sudo() { [ -n "${SUDO_KEPT}" ] && kill "${SUDO_KEPT}" 2>/dev/null; SUDO_KEPT=""; }
+JOINING=0
+npx tsx "${ROOT}/apps/backend/src/scripts/dev-machine.ts" joined || JOINING=1
+if [ "${JOINING}" = 1 ]; then
+  say "This computer joins dev's root as a machine, which needs sudo for Tailscale, k3s and NVIDIA's CDI support: asked now, once, and kept until the join is done"
+  sudo -v || { echo "  npm run dev stops here: the join cannot go on without sudo"; exit 1; }
+  (while sleep 60; do sudo -n -v 2>/dev/null || exit 0; done) &
+  SUDO_KEPT=$!
+  trap stop_keeping_sudo EXIT
+fi
+
 say "Terraform's providers, pinned, in the mirror every stack installs from"
 quietly sh "${ROOT}/scripts/terraform-providers.sh" "${ROOT}/bin/terraform-providers"
 echo "  ready"
@@ -106,15 +118,15 @@ ROOT_PROCESSES=(
   "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5176 --strictPort --host 0.0.0.0"
 )
 
-MACHINE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json"
-if ! node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).rootUrl === process.argv[2] ? 0 : 1)' "${MACHINE_FILE}" "${ROOT_WEB}" 2>/dev/null; then
+if [ "${JOINING}" = 1 ]; then
   say "This computer joins your account as a machine, and Koala is put on it"
   npx concurrently --names "${ROOT_NAMES}" "${ROOT_PROCESSES[@]}" > "${DEV_DATA}/first-start.log" 2>&1 &
   STARTING=$!
-  trap 'kill ${STARTING} 2>/dev/null || true' EXIT
+  trap 'kill ${STARTING} 2>/dev/null || true; stop_keeping_sudo' EXIT
   npx tsx "${ROOT}/apps/backend/src/scripts/dev-machine.ts"
   kill "${STARTING}" 2>/dev/null || true
   wait "${STARTING}" 2>/dev/null || true
+  stop_keeping_sudo
   trap - EXIT
 fi
 

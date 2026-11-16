@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,10 +14,13 @@ const ROOT_API = `http://localhost:${DEV.rootApiPort}`;
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(os.homedir(), '.config'), 'koala');
 const say = (line: string) => console.log(`  ${line}`);
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const SERVICE = join(process.env.XDG_CONFIG_HOME || join(os.homedir(), '.config'), 'systemd', 'user', 'koala-machine.service');
 const joinedHere = async (rootUrl: string): Promise<boolean> => {
   const config = await readFile(join(CONFIG, 'machine.json'), 'utf8').then((text) => JSON.parse(text) as { rootUrl?: unknown }).catch(ignore('a computer with no machine file has not joined yet'));
-  return config?.rootUrl === rootUrl;
+  const serviceInstalled = (await access(SERVICE).then(() => true).catch(ignore('a computer whose join stopped before its service was installed has not finished joining'))) ?? false;
+  return config?.rootUrl === rootUrl && serviceInstalled;
 };
+const urlsOfDev = async (): Promise<Record<string, string> | undefined> => readFile(join(DATA, 'urls.env'), 'utf8').then(readEnvFile).catch(ignore('a dev stack with no urls written yet has not started, so nothing joined it'));
 
 async function untilRootAnswers(): Promise<void> {
   for (;;) {
@@ -86,7 +89,12 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((err) => {
+async function joinedAlready(): Promise<void> {
+  const urls = await urlsOfDev();
+  process.exit(urls?.ROOT_WEB && await joinedHere(urls.ROOT_WEB) ? 0 : 1);
+}
+
+(process.argv[2] === 'joined' ? joinedAlready() : main()).catch((err) => {
   console.error(`dev: ${(err as Error).message}`);
   process.exit(1);
 });
