@@ -277,7 +277,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'On automatic updates, their Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover.',
         screen: { on: 'nowhere' },
         code: ['apps/backend/src/scripts/self-upgrade.ts#selfUpgrade'],
-        decisions: ['automatic-updates'],
+        decisions: ['automatic-updates', 'cluster-on-demand'],
       },
       {
         id: 'H2',
