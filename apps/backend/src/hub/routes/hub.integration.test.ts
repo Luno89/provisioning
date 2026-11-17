@@ -262,6 +262,7 @@ describe('relaying a member\'s file to and from the owner\'s instance', () => {
     const online = new Promise<void>((resolve) => { connected = resolve; });
     const disconnect = remote.connect({
       connected: () => connected(),
+      disconnected: () => undefined,
       changed: () => undefined,
       call: (call) => {
         void (async () => {

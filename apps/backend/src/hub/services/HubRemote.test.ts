@@ -170,7 +170,7 @@ describe('the hub handing the owner\'s instance what members asked of it', () =>
     const root = mock<Pick<RootHubAccess, 'access'>>();
     let minted = 0;
     root.access.mockImplementation(async () => ({ ...access, token: `token-${(minted += 1)}` }));
-    const line = { connected: vi.fn(), call: vi.fn<(call: InstanceCall) => void>(), changed: vi.fn() };
+    const line = { connected: vi.fn(), disconnected: vi.fn(), call: vi.fn<(call: InstanceCall) => void>(), changed: vi.fn() };
     return { hub: new RemoteHub(root, fetch, socketTo, () => undefined), opened, line, root };
   };
   const tokenOf = (options: Partial<ManagerOptions & SocketOptions>) => new Promise<unknown>((resolve) => (options.auth as (send: (auth: unknown) => void) => void)(resolve));

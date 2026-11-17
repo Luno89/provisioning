@@ -19,6 +19,7 @@ import { RemoteHub } from '../services/HubRemote.js';
 import { HubService } from '../services/HubService.js';
 import { wireHubLines } from './hub-lines.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
+import { reopening } from '@koala/engine-core/reopening';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const closing: (() => Promise<void>)[] = [];
@@ -60,7 +61,7 @@ describe('the owner\'s instance and the hub, over one socket', () => {
     const connected = next<void>();
     let call = next<InstanceCall>();
     const changed = next<string>();
-    const disconnect = remote.connect({ connected: () => connected.hand(), call: (given) => call.hand(given), changed: (projectId) => changed.hand(projectId) });
+    const disconnect = remote.connect({ connected: () => connected.hand(), disconnected: () => undefined, call: (given) => call.hand(given), changed: (projectId) => changed.hand(projectId) });
     closing.push(async () => { disconnect(); });
     await connected.promise;
 
@@ -81,6 +82,36 @@ describe('the owner\'s instance and the hub, over one socket', () => {
     expect([(await unanswered).status, (await unanswered).data]).toEqual([409, { error: 'The owner\'s instance went offline before it answered.' }]);
     const later = await live('extensions');
     expect([later.status, later.data]).toEqual([409, { error: 'The owner\'s instance is offline, so this cannot be read until it is back.' }]);
+  });
+
+  it('a relayed call whose first answer is dropped still reaches the member', async () => {
+    const { url, access } = await hubServer();
+    const db = await testDatabase();
+    const remote = new RemoteHub({ access }, fetch, undefined, () => undefined);
+    const shared = await remote.share({ id: 'ann', email: ann.email }, { id: 'p1', name: 'Shop', group: 'acme' });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' });
+    const work = mock<HubInstanceWork>();
+    work.handle.mockResolvedValue({ kind: 'json', status: 200, body: ['grove'] });
+    let dropped = 0;
+    const answer = remote.answer.bind(remote);
+    remote.answer = async (link, callId, given) => {
+      if (dropped === 0) {
+        dropped += 1;
+        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+      }
+      await answer(link, callId, given);
+    };
+    const connected = next<void>();
+    const connect = remote.connect.bind(remote);
+    remote.connect = (line) => connect({ ...line, connected: () => { line.connected(); connected.hand(); } });
+    const sync = new HubSyncService({ store: db.hub, transport: remote, origin: 'instance:inst-ann', work: () => work, log: () => undefined, again: () => reopening(20) });
+    closing.push(async () => { await sync.stop(); });
+    await sync.start();
+    await connected.promise;
+
+    const live = await axios.get(`${url}/api/hub/projects/${shared.hubProjectId}/live/extensions`, { validateStatus: () => true });
+    expect([live.status, live.data]).toEqual([200, ['grove']]);
+    expect(dropped).toBe(1);
   });
 
   it('refuses a connection root did not vouch for', async () => {
@@ -108,7 +139,7 @@ describe('the owner\'s instance and the hub, over one socket', () => {
     closing.push(async () => { states.stop(); });
     const remote = new RemoteHub({ access: asking }, fetch, undefined, (line) => said.push(line), 1, states);
     let connected = next<void>();
-    const disconnect = remote.connect({ connected: () => connected.hand(), call: () => undefined, changed: () => undefined });
+    const disconnect = remote.connect({ connected: () => connected.hand(), disconnected: () => undefined, call: () => undefined, changed: () => undefined });
     closing.push(async () => { disconnect(); });
 
     await connected.promise;

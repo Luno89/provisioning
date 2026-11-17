@@ -443,6 +443,6 @@ describe('the hub in the same process refusing', () => {
       ...Array<string>(3).fill('404 There is no such project, or you are not on it.'),
       '404 That call is no longer waiting.',
     ]);
-    expect(() => localHubSync(hub, 'i1').connect({ connected: () => undefined, changed: () => undefined, call: () => undefined })).toThrow('This hub relays nothing.');
+    expect(() => localHubSync(hub, 'i1').connect({ connected: () => undefined, disconnected: () => undefined, changed: () => undefined, call: () => undefined })).toThrow('This hub relays nothing.');
   });
 });

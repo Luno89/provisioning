@@ -138,6 +138,7 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
           again(err.message);
         });
         opened.on('disconnect', (reason) => {
+          line.disconnected();
           if (reason !== 'io server disconnect') return;
           opened.close();
           socket = undefined;

@@ -12,6 +12,7 @@ import { HubRelay, type RelayCall } from './HubRelay.js';
 import type { Processes } from '../../platform/lib/processes.js';
 import type { GitEnd } from './HubRepoSync.js';
 import { localHubSync } from '../testing/in-process-hub.js';
+import { reopening } from '@koala/engine-core/reopening';
 import { HubSyncService, type HubLineHandlers, type HubRepoSides, type HubSyncTransport } from './HubSyncService.js';
 import { HubInstanceWork, type HubInstanceWorkDeps, type InstanceCall } from './HubInstanceWork.js';
 
@@ -596,7 +597,7 @@ describe('answering what the hub asks of the owner\'s instance', () => {
     transport.connect.mockImplementation((given) => { line = given; return () => { line = undefined; }; });
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', ...(withWork ? { work: () => work } : {}), log: (logged) => lines.push(logged) }));
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:i1', ...(withWork ? { work: () => work } : {}), log: (logged) => lines.push(logged), again: () => reopening(5) }));
     await sync.start();
     return { db, transport, work, sync, lines, line: () => line };
   }
@@ -631,6 +632,41 @@ describe('answering what the hub asks of the owner\'s instance', () => {
     transport.answer.mockRejectedValue(new Error('hub down'));
     line()!.call(call());
     await vi.waitFor(() => expect(lines).toEqual(['hub sync: an answer to the hub was lost: hub down']));
+  });
+
+  it('an answer the hub refuses for a moment is sent again until it lands', async () => {
+    const { transport, work, lines, line } = await setUp();
+    const answer = { kind: 'json' as const, status: 200, body: ['grove'] };
+    work.handle.mockResolvedValue(answer);
+    const busy = Object.assign(new Error('the hub answered 503: restarting'), { status: 503 });
+    transport.answer.mockReset();
+    transport.answer.mockRejectedValueOnce(busy).mockRejectedValueOnce(busy).mockResolvedValue(undefined);
+    line()!.call(call());
+    await vi.waitFor(() => expect(transport.answer).toHaveBeenCalledTimes(3));
+    expect(transport.answer).toHaveBeenLastCalledWith(objectWith({ projectId: 'p1' }), 'c1', answer);
+    expect(lines.filter((logged) => logged.startsWith('hub sync: the answer to c1 did not reach the hub'))).toHaveLength(2);
+  });
+
+  it('an answer to a call the hub has forgotten is sent once', async () => {
+    const { transport, work, lines, line } = await setUp();
+    work.handle.mockResolvedValue({ kind: 'json', status: 200, body: null });
+    transport.answer.mockRejectedValue(Object.assign(new Error('the hub answered 404: no such call'), { status: 404 }));
+    line()!.call(call());
+    await vi.waitFor(() => expect(lines).toEqual(['hub sync: an answer to the hub was lost: the hub answered 404: no such call']));
+    expect(transport.answer).toHaveBeenCalledTimes(1);
+  });
+
+  it('an answer is not sent again once the connection its call came on has closed', async () => {
+    const { transport, work, lines, line } = await setUp();
+    work.handle.mockResolvedValue({ kind: 'json', status: 200, body: null });
+    let fail!: (err: Error) => void;
+    transport.answer.mockReturnValue(new Promise<void>((_resolve, reject) => { fail = reject; }));
+    line()!.call(call());
+    await vi.waitFor(() => expect(transport.answer).toHaveBeenCalledTimes(1));
+    line()!.disconnected();
+    fail(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }));
+    await vi.waitFor(() => expect(lines.at(-1)).toMatch(/the connection the call came on has closed, so the hub has let go of it/));
+    expect(transport.answer).toHaveBeenCalledTimes(1);
   });
 
   it('hangs up the line when told to stop', async () => {
@@ -729,7 +765,7 @@ describe('the hub in the same process', () => {
       transport.requests(theLink),
       transport.settle(theLink, 'r1', { state: 'done' }),
       transport.status(theLink, status),
-      Promise.resolve().then(() => transport.connect({ connected: () => undefined, call: () => undefined, changed: () => undefined })),
+      Promise.resolve().then(() => transport.connect({ connected: () => undefined, disconnected: () => undefined, call: () => undefined, changed: () => undefined })),
       transport.answer(theLink, 'c1', { kind: 'json', status: 200, body: null }),
       transport.push(theLink, []),
       transport.pull(theLink, 0),
@@ -749,7 +785,7 @@ describe('the hub in the same process', () => {
     const changed: string[] = [];
     let connected!: () => void;
     const said = new Promise<void>((resolve) => { connected = resolve; });
-    const disconnect = transport.connect({ connected: () => connected(), call: (call) => calls.push(call), changed: (projectId) => changed.push(projectId) });
+    const disconnect = transport.connect({ connected: () => connected(), disconnected: () => undefined, call: (call) => calls.push(call), changed: (projectId) => changed.push(projectId) });
     await said;
     given!.call(waiting);
     given!.call({ ...waiting, upload: { stream, type: 'text/plain' } });

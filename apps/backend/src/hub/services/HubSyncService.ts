@@ -6,7 +6,8 @@ import type { HubMemberName } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
 import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
-import { ignore } from '@koala/engine-core/failures';
+import { failureOf, ignore } from '@koala/engine-core/failures';
+import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import type { Watching } from '../../platform/index.js';
 
 export interface HubSyncTransport {
@@ -21,6 +22,7 @@ export interface HubSyncTransport {
 
 export interface HubLineHandlers {
   connected(): void;
+  disconnected(): void;
   call(call: InstanceCall): void;
   changed(hubProjectId: string): void;
 }
@@ -38,6 +40,7 @@ export interface HubSyncDeps {
   git?: Processes | undefined;
   work?: (() => HubInstanceWork | undefined) | undefined;
   log?: ((line: string) => void) | undefined;
+  again?: (() => Reopening) | undefined;
 }
 
 const sameStatus = (a: HubStatus | undefined, b: HubStatus): boolean => {
@@ -61,6 +64,7 @@ export class HubSyncService {
   private parents = new Map<string, SyncedDoc | undefined>();
   private watching: Watching | undefined;
   private disconnect: (() => void) | undefined;
+  private lineOpenings = 0;
 
   constructor(private readonly deps: HubSyncDeps) {}
 
@@ -256,16 +260,43 @@ export class HubSyncService {
     const work = this.deps.work?.();
     const link = (await this.deps.store.getHubLinks()).find((entry) => entry.hubProjectId === call.projectId);
     if (!work || !link) {
-      await this.deps.transport.answer({ hubProjectId: call.projectId } as HubLink, call.id, { kind: 'json', status: 503, body: { error: 'The owner\'s instance is not sharing this project any more.' } })
-        .catch((err: Error) => this.deps.log?.(`hub sync: an answer to the hub was lost: ${err.message}`));
+      const unshared: InstanceAnswer = { kind: 'json', status: 503, body: { error: 'The owner\'s instance is not sharing this project any more.' } };
+      await this.answerUntilTaken({ hubProjectId: call.projectId } as HubLink, call, async () => unshared);
       return;
     }
-    await this.answerCall(work, link, call);
+    await this.answerUntilTaken(link, call, () => work.handle(link, call).catch((err: Error): InstanceAnswer => ({ kind: 'json', status: 502, body: { error: `The owner's instance could not answer: ${err.message}` } })));
   }
 
-  private async answerCall(work: HubInstanceWork, link: HubLink, call: InstanceCall): Promise<void> {
-    const answer = await work.handle(link, call).catch((err: Error): InstanceAnswer => ({ kind: 'json', status: 502, body: { error: `The owner's instance could not answer: ${err.message}` } }));
-    await this.deps.transport.answer(link, call.id, answer).catch((err: Error) => this.deps.log?.(`hub sync: an answer to the hub was lost: ${err.message}`));
+  private async answerUntilTaken(link: HubLink, call: InstanceCall, make: () => Promise<InstanceAnswer>): Promise<void> {
+    const line = this.lineOpenings;
+    const again = (this.deps.again ?? reopening)();
+    let answer = await make();
+    for (;;) {
+      try {
+        await this.deps.transport.answer(link, call.id, answer);
+        return;
+      } catch (err) {
+        const failure = failureOf(err);
+        if (failure.kind === 'final') {
+          this.deps.log?.(`hub sync: an answer to the hub was lost: ${(err as Error).message}`);
+          return;
+        }
+        if (this.lineOpenings !== line) {
+          this.deps.log?.(`hub sync: the answer to ${call.id} did not reach the hub (${failure.reason}), and the connection the call came on has closed, so the hub has let go of it`);
+          return;
+        }
+        this.deps.log?.(`hub sync: the answer to ${call.id} did not reach the hub (${failure.reason}); sending it again in ${again.seconds} s`);
+        await again.after();
+        if (this.lineOpenings !== line) {
+          this.deps.log?.(`hub sync: the connection ${call.id} came on has closed, so the hub has let go of it and its answer is not sent again`);
+          return;
+        }
+        if (answer.kind === 'stream') {
+          answer.stream.destroy();
+          answer = await make();
+        }
+      }
+    }
   }
 
   private async timed<T>(step: string, run: () => Promise<T>): Promise<T> {
@@ -316,6 +347,7 @@ export class HubSyncService {
     await this.watching.ready;
     this.disconnect = this.deps.transport.connect({
       connected: () => this.statusMoved(),
+      disconnected: () => { this.lineOpenings += 1; },
       changed: () => this.kick(),
       call: (call) => { void this.answerFor(call); },
     });
