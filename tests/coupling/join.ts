@@ -6,7 +6,8 @@ export type Level = 'unit' | 'component' | 'contract' | 'container' | 'live' | '
 export const LEVELS: readonly Level[] = ['unit', 'component', 'contract', 'container', 'live', 'vm'];
 
 export interface Covered { test: string; level: Level; withCaller: boolean }
-export interface Near { callerRan: string[]; targetRan: string[]; standIn: string[]; callersOfCallerRan: string[] }
+export interface Untaken { from: number; to: number; test: string }
+export interface Near { callerRan: string[]; targetRan: string[]; standIn: string[]; callersOfCallerRan: string[]; siteRan: string[]; untaken?: Untaken | undefined }
 export interface Judged { edge: Edge; crosses: 'area' | 'none'; covered: Covered[]; lowest?: Level | undefined; withCallerAt?: Level | undefined; near?: Near | undefined }
 
 const before = (a: Position, b: Position): boolean => a.line < b.line || (a.line === b.line && a.column <= b.column);
@@ -42,6 +43,12 @@ function siteRan(ranges: readonly RanRange[] | undefined, at: Position): boolean
   });
 }
 
+function untakenAround(ranges: readonly RanRange[], at: Position): { from: number; to: number } | undefined {
+  const skipped = ranges.filter((range) => range.count === 0 && range.fn === undefined && contains(range, at));
+  const innermost = skipped.reduce<RanRange | undefined>((best, range) => (!best || size(range) < size(best) ? range : best), undefined);
+  return innermost ? { from: innermost.start.line, to: innermost.end.line } : undefined;
+}
+
 function unitRan(ranges: readonly RanRange[] | undefined, unit: Unit): boolean {
   if (!ranges) return false;
   if (unit.name === '(module)') return ranges.some((range) => range.count > 0);
@@ -53,6 +60,18 @@ function unitRan(ranges: readonly RanRange[] | undefined, unit: Unit): boolean {
   }
   const onLine = functions.filter((range) => range.start.line === unit.line);
   return anyRan(onLine, (range) => Math.abs(range.start.column - unit.column));
+}
+
+export function unitsRanBy(graph: Graph, runs: readonly Ran[]): Map<string, string[]> {
+  const byFile = new Map<string, Unit[]>();
+  for (const unit of Object.values(graph.units)) if (!unit.inTest) byFile.set(unit.file, [...(byFile.get(unit.file) ?? []), unit]);
+  const ranBy = new Map<string, string[]>();
+  for (const run of runs) {
+    for (const [file, ranges] of Object.entries(run.files)) {
+      for (const unit of byFile.get(file) ?? []) if (unitRan(ranges, unit)) ranBy.set(unit.id, [...(ranBy.get(unit.id) ?? []), run.testFile]);
+    }
+  }
+  return ranBy;
 }
 
 export function unitLevels(graph: Graph, runs: readonly Ran[], levelOf: (testFile: string) => Level): Map<string, Set<Level>> {
@@ -84,6 +103,8 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
   for (const unit of Object.values(graph.units)) unitsByFile.set(unit.file, [...(unitsByFile.get(unit.file) ?? []), unit]);
   const ranIn = new Map<string, string[]>();
   const startSiteRanAt = new Map<number, Level[]>();
+  const siteRanBy = new Map<number, string[]>();
+  const untaken = new Map<number, Untaken>();
   for (const run of runs) {
     for (const [file, ranges] of Object.entries(run.files)) {
       for (const unit of unitsByFile.get(file) ?? []) if (unitRan(ranges, unit)) ranIn.set(unit.id, [...(ranIn.get(unit.id) ?? []), run.testFile]);
@@ -99,7 +120,14 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
     for (const file of Object.keys(run.files)) {
       for (const index of bySiteFile.get(file) ?? []) {
         const edge = graph.edges[index]!;
-        if (!siteRan(run.files[file], { line: edge.site.line, column: edge.site.column })) continue;
+        const at = { line: edge.site.line, column: edge.site.column };
+        if (!siteRan(run.files[file], at)) {
+          const caller = graph.units[edge.from];
+          const skipped = caller && !untaken.has(index) && unitRan(run.files[caller.file], caller) ? untakenAround(run.files[file] ?? [], at) : undefined;
+          if (skipped) untaken.set(index, { ...skipped, test: run.testFile });
+          continue;
+        }
+        siteRanBy.set(index, [...(siteRanBy.get(index) ?? []), run.testFile]);
         const real = edge.to.some((id) => {
           const unit: Unit | undefined = graph.units[id];
           return unit !== undefined && !unit.inTest && unitRan(run.files[unit.file], unit);
@@ -116,11 +144,13 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
 
   const rank = (level: Level) => LEVELS.indexOf(level);
   const testsThatRan = (ids: readonly string[]): string[] => [...new Set(ids.flatMap((id) => ranIn.get(id) ?? []))].sort();
-  const nearOf = (edge: Edge): Near => ({
+  const nearOf = (edge: Edge, index: number): Near => ({
     callerRan: testsThatRan([edge.from]),
     targetRan: testsThatRan(edge.to.filter((id) => !graph.units[id]?.inTest)),
     standIn: testsThatRan(edge.to.filter((id) => graph.units[id]?.inTest)),
-    callersOfCallerRan: testsThatRan((intoUnit.get(edge.from) ?? []).map((index) => graph.edges[index]!.from)),
+    callersOfCallerRan: testsThatRan((intoUnit.get(edge.from) ?? []).map((into) => graph.edges[into]!.from)),
+    siteRan: [...new Set(siteRanBy.get(index) ?? [])].sort(),
+    ...(untaken.has(index) && !siteRanBy.has(index) ? { untaken: untaken.get(index) } : {}),
   });
   const startedApart = (edge: Edge, lowest: Level | undefined): Level | undefined => {
     if (lowest === undefined) return undefined;
@@ -137,6 +167,6 @@ export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: st
     const lowest = covered.map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
     const together = covered.filter((entry) => entry.withCaller).map((entry) => entry.level).sort((a, b) => rank(a) - rank(b))[0];
     const withCallerAt = together ?? startedApart(edge, lowest);
-    return { edge, crosses, covered, lowest, withCallerAt, ...(withCallerAt === undefined ? { near: nearOf(edge) } : {}) };
+    return { edge, crosses, covered, lowest, withCallerAt, ...(withCallerAt === undefined ? { near: nearOf(edge, index) } : {}) };
   });
 }

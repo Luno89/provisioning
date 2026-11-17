@@ -7,7 +7,7 @@ import { kept, KEPT_RECORDS, lastRan, lastRanLine, ranIn, type RanRecord } from 
 const unit = (id: string): Unit => ({ id, file: `apps/backend/src/x/${id}.ts`, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[]): Edge => ({ from, to, through: 'interface', site: { file: `apps/backend/src/x/${from}.ts`, line: 1, column: 1, start: 0, end: 0 } });
 const graph: Graph = { units: Object.fromEntries(['interpreter', 'workflow', 'store'].map((id) => [id, unit(id)])), edges: [], unresolved: [], unmatched: [], records: [] };
-const run = (judged: Judged[], commit: string): RanRecord => ({ commit, at: `${commit}-at`, ran: ranIn(judged, graph), breaches: {} });
+const run = (judged: Judged[], commit: string): RanRecord => ({ commit, at: `${commit}-at`, ran: ranIn(judged, graph), units: {}, breaches: {} });
 const ranBy = (tests: string[]): Judged => ({ edge: edge('interpreter', ['workflow']), crosses: 'none', covered: tests.map((test) => ({ test, level: 'container', withCaller: true })) });
 const unrun: Judged = { edge: edge('interpreter', ['workflow']), crosses: 'none', covered: [] };
 
@@ -19,6 +19,11 @@ describe('which tests last ran a call for real', () => {
     const history = kept([earlier], now);
     expect(lastRan(history, breach!.key)).toEqual({ commit: 'aaa', at: 'aaa-at', tests: ['AgentRunWorkflow.integration.test.ts', 'grove-run.integration.test.ts'] });
     expect(lastRanLine(history, breach!.key)).toBe('  last run for real at aaa (aaa-at) by: AgentRunWorkflow.integration.test.ts, grove-run.integration.test.ts; this run did not, so what those tests do differs between runs');
+  });
+
+  it('names the tests that last ran a function an R5 breach is about', () => {
+    const record: RanRecord = { commit: 'aaa', at: 'aaa-at', ran: {}, units: { 'apps/backend/src/x/services/Thing.ts#acts': ['Thing.integration.test.ts'] }, breaches: {} };
+    expect(lastRanLine([record], 'R5 apps/backend/src/x/services/Thing.ts#acts')).toBe('  last run for real at aaa (aaa-at) by: Thing.integration.test.ts; this run did not, so what those tests do differs between runs');
   });
 
   it('says so when no audit it keeps ran the call, and keeps only the latest few audits', () => {

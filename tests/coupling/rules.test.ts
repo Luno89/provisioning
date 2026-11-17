@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Graph, Unit } from './graph.js';
 import type { Covered, Judged } from './join.js';
-import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, pruned, sameCallBefore, type Breach } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, neededTest, pruned, sameCallBefore, type Breach } from './rules.js';
 
 const unit = (id: string, file: string): Unit => ({ id, file, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[], through: Edge['through'], line: number): Edge => ({ from, to, through, site: { file: `apps/backend/src/x/${from}.ts`, line, column: 1, start: 0, end: 0 } });
@@ -254,16 +254,28 @@ describe('a function in a service that does nothing a test could observe', () =>
 
 describe('what a breach says about the tests that came close', () => {
   it('names them under the breach, at most a few of each, and says when none did', () => {
-    expect(nearLines({ callerRan: ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'], targetRan: [], standIn: ['s.test.ts'], callersOfCallerRan: ['w.test.ts'] }, 'R1')).toEqual([
+    expect(nearLines({ callerRan: ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'], targetRan: [], standIn: ['s.test.ts'], callersOfCallerRan: ['w.test.ts'], siteRan: [] }, 'R1')).toEqual([
       '  its caller ran in: a.test.ts, b.test.ts, c.test.ts and 1 more',
       '  its real target ran in: no test',
       '  a stand-in answered in its place in: s.test.ts',
     ]);
-    expect(nearLines({ callerRan: ['a.test.ts'], targetRan: ['a.test.ts'], standIn: [], callersOfCallerRan: ['w.test.ts'] }, 'R2')).toEqual([
+    expect(nearLines({ callerRan: ['a.test.ts'], targetRan: ['a.test.ts'], standIn: [], callersOfCallerRan: ['w.test.ts'], siteRan: [] }, 'R2')).toEqual([
       '  its caller ran in: a.test.ts',
       '  its real target ran in: a.test.ts',
       '  what calls its caller ran in: w.test.ts',
     ]);
+  });
+});
+
+describe('what test a breach says would run its call', () => {
+  const breach = (rule: Breach['rule'], near: Breach['near']): Breach => ({ rule, key: `${rule} apps/x/caller.ts#caller -> apps/y/callee.ts#callee (interface)`, at: 'apps/x/caller.ts:5', why: '', near });
+  const near = (over: Partial<NonNullable<Breach['near']>>) => ({ callerRan: [], targetRan: [], standIn: [], callersOfCallerRan: [], siteRan: [], ...over });
+  it('says which side never runs, or that they only run apart, or which branch to take', () => {
+    expect(neededTest(breach('R1', near({ callerRan: ['a.test.ts'] })))).toBe('  needs: a test that runs apps/y/callee.ts#callee for real when apps/x/caller.ts#caller calls it; nothing runs it for real yet');
+    expect(neededTest(breach('R1', near({ targetRan: ['b.test.ts'] })))).toBe('  needs: a test that runs apps/x/caller.ts#caller, which no test runs yet, through to the real apps/y/callee.ts#callee');
+    expect(neededTest(breach('R1', near({ callerRan: ['a.test.ts'], targetRan: ['b.test.ts'], siteRan: ['a.test.ts'], standIn: ['a.test.ts'] })))).toBe('  needs: one test that runs apps/x/caller.ts#caller with the real apps/y/callee.ts#callee, where a.test.ts gives it a stand-in');
+    expect(neededTest(breach('R1', near({ callerRan: ['a.test.ts'], targetRan: ['b.test.ts'], untaken: { from: 4, to: 6, test: 'a.test.ts' } })))).toBe('  needs: a test that takes the branch at apps/x/caller.ts:5 (lines 4-6, which a.test.ts runs past) with the real apps/y/callee.ts#callee');
+    expect(neededTest(breach('R2', near({ callerRan: ['a.test.ts'], targetRan: ['a.test.ts'], callersOfCallerRan: ['w.test.ts'] })))).toBe('  needs: one test that starts where apps/x/caller.ts#caller is called from (as w.test.ts does) and goes on through it to apps/y/callee.ts#callee');
   });
 });
 

@@ -169,6 +169,24 @@ export function nearLines(near: Near, rule: Rule): string[] {
   ];
 }
 
+export function neededTest(breach: Breach): string | undefined {
+  const near = breach.near;
+  const parts = partsOf(breach.key);
+  if (!near || !parts) return undefined;
+  const from = parts.from;
+  const to = parts.to.join(' or ');
+  if (breach.rule === 'R2') {
+    return near.callersOfCallerRan.length
+      ? `  needs: one test that starts where ${from} is called from (as ${listed(near.callersOfCallerRan)} does) and goes on through it to ${to}`
+      : `  needs: a test that reaches ${from} from where it starts and goes on through it to ${to}`;
+  }
+  if (near.untaken) return `  needs: a test that takes the branch at ${breach.at} (lines ${near.untaken.from}-${near.untaken.to}, which ${near.untaken.test} runs past) with the real ${to}`;
+  if (near.callerRan.length === 0) return `  needs: a test that runs ${from}, which no test runs yet, through to the real ${to}`;
+  if (near.targetRan.length === 0) return `  needs: a test that runs ${to} for real when ${from} calls it; nothing runs it for real yet`;
+  if (near.standIn.length > 0) return `  needs: one test that runs ${from} with the real ${to}, where ${listed(near.standIn)} gives it a stand-in`;
+  return `  needs: one test that runs ${from} with the real ${to}; they only run apart`;
+}
+
 export function sameCallBefore(baseline: Baseline, found: readonly Breach[], added: readonly Breach[]): Array<{ key: string; was: string[] }> {
   const now = counted(found);
   const gone = Object.keys(baseline).filter((key) => now[key] === undefined);

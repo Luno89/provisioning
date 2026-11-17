@@ -1,8 +1,9 @@
+import type { Ran } from './collect.js';
 import type { Graph } from './graph.js';
-import type { Judged } from './join.js';
+import { unitsRanBy, type Judged } from './join.js';
 import { callOf } from './rules.js';
 
-export interface RanRecord { commit: string; at: string; ran: Record<string, string[]>; breaches: Record<string, number> }
+export interface RanRecord { commit: string; at: string; ran: Record<string, string[]>; units: Record<string, string[]>; breaches: Record<string, number> }
 
 export const KEPT_RECORDS = 5;
 const TESTS_NAMED = 5;
@@ -17,12 +18,22 @@ export function ranIn(judged: readonly Judged[], graph: Graph): Record<string, s
   return ran;
 }
 
+export function unitsRanIn(graph: Graph, runs: readonly Ran[]): Record<string, string[]> {
+  const units: Record<string, string[]> = {};
+  for (const [id, tests] of unitsRanBy(graph, runs)) {
+    const unit = graph.units[id];
+    if (unit) units[`${unit.file}#${unit.name}`] = [...new Set(tests)].sort().slice(0, TESTS_NAMED);
+  }
+  return units;
+}
+
 export const kept = (history: readonly RanRecord[], latest: RanRecord): RanRecord[] => [latest, ...history].slice(0, KEPT_RECORDS);
 
 export function lastRan(history: readonly RanRecord[], breachKey: string): { commit: string; at: string; tests: string[] } | undefined {
+  const rule = breachKey.slice(0, breachKey.indexOf(' '));
   const call = breachKey.slice(breachKey.indexOf(' ') + 1);
   for (const record of history) {
-    const tests = record.ran[call];
+    const tests = rule === 'R5' ? record.units?.[call] : record.ran[call];
     if (tests) return { commit: record.commit, at: record.at, tests };
   }
   return undefined;

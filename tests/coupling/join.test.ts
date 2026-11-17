@@ -144,6 +144,12 @@ describe('the tests that came close to a call no test runs for real', () => {
 
   it('names the tests that ran its caller, its real target, a stand-in in its place, and what calls its caller', () => {
     const [, call] = judge(near, runs, levelOf);
-    expect(call!.near).toEqual({ callerRan: ['unit.test.ts'], targetRan: ['component.test.ts'], standIn: ['unit.test.ts'], callersOfCallerRan: ['fake.test.ts'] });
+    expect(call!.near).toEqual({ callerRan: ['unit.test.ts'], targetRan: ['component.test.ts'], standIn: ['unit.test.ts'], callersOfCallerRan: ['fake.test.ts'], siteRan: ['unit.test.ts'] });
+  });
+
+  it('names the branch a test ran the caller without taking, where the call sits', () => {
+    const skipped: Ran[] = [{ testFile: 'branch.test.ts', files: { [CALLER]: [ran(1, 1, 10, 'caller'), ran(0, 4, 6)], [CALLEE]: [ran(1, 1, 10, 'callee')] } }];
+    const [, call] = judge(near, skipped, levelOf);
+    expect(call!.near).toMatchObject({ callerRan: ['branch.test.ts'], siteRan: [], untaken: { from: 4, to: 6, test: 'branch.test.ts' } });
   });
 });

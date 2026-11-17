@@ -1,14 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, keptAcrossGathers, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
-import { kept, lastRanLine, ranIn, type RanRecord } from './ran-history.js';
+import { kept, lastRanLine, ranIn, unitsRanIn, type RanRecord } from './ran-history.js';
 import { judge, unitLevels } from './join.js';
 import { builtGraph } from './repo-graph.js';
 import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, pruned, RULES, sameCallBefore, type Baseline, type Breach } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, movedIn, nearLines, neededTest, pruned, RULES, sameCallBefore, type Baseline, type Breach } from './rules.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
 
@@ -79,7 +79,7 @@ if (!existsSync(BASELINE) && !options.seed) {
 
 const commit = commitOf();
 mkdirSync(keptAcrossGathers(), { recursive: true });
-writeFileSync(RAN_HISTORY, JSON.stringify(kept(ranBefore, { commit, at: new Date().toISOString(), ran: ranIn(judged, graph), breaches: counted(belowLive()) })));
+writeFileSync(RAN_HISTORY, JSON.stringify(kept(ranBefore, { commit, at: new Date().toISOString(), ran: ranIn(judged, graph), units: unitsRanIn(graph, runs), breaches: counted(belowLive()) })));
 
 const result = resultOf({
   at: new Date().toISOString(), commit: commitOf(), source, gathered, problems: usable.problems, rules,
@@ -100,8 +100,10 @@ else if (held.kind === 'none') {
   for (const breach of held.added) {
     console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
     for (const line of breach.near ? nearLines(breach.near, breach.rule) : []) console.log(line);
+    const needed = neededTest(breach);
+    if (needed) console.log(needed);
     for (const was of sameCall.get(breach.key) ?? []) console.log(`  the baseline held this call under another target, now gone from it: ${was}`);
-    if (breach.rule !== 'R4' && breach.rule !== 'R5') console.log(lastRanLine(ranBefore, breach.key));
+    if (breach.rule !== 'R4') console.log(lastRanLine(ranBefore, breach.key));
   }
   for (const entry of held.fixed) console.log(`fixed, prune it: ${entry.key} (${entry.was} -> ${entry.now})`);
   if (held.added.length > 0 || held.fixed.length > 0) process.exitCode = 1;
