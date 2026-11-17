@@ -53,6 +53,21 @@ describe('the run grants a person\'s runs work with', () => {
     expect((await grants.revokeGrantsOf({ personId: 'owner', because: 'account-removed' })).map((grant) => grant.runId)).toEqual(['run-release']);
   });
 
+  it('ending a run twice ends its grant once and records one ending', async () => {
+    const db = memoryDatabase();
+    let clock = new Date('2026-10-29T10:00:00Z');
+    const grants = new RunGrantService({ store: db.engine, now: () => clock, newId: () => 'grant-twice' });
+    await grants.issue({ ownerId: 'owner', runId: 'run-twice', principal: asPerson('owner'), startedBy: 'person' });
+
+    const first = await grants.runEnded({ ownerId: 'owner', runId: 'run-twice', agentSlug: 'koala', depth: 0, outcome: 'ok' });
+    clock = new Date('2026-10-29T10:05:00Z');
+    const again = await grants.runEnded({ ownerId: 'owner', runId: 'run-twice', agentSlug: 'koala', depth: 0, outcome: 'ok' });
+
+    expect(again).toEqual(first);
+    expect((await db.engine.getRunGrant('grant-twice'))).toMatchObject({ state: 'ended', endedAt: '2026-10-29T10:00:00.000Z' });
+    expect(await grants.endings('owner', ['run-twice'])).toEqual([expect.objectContaining({ ended: { how: 'finished', at: '2026-10-29T10:00:00.000Z' } })]);
+  });
+
   it('records how every run ended, child runs too, and who stopped one', async () => {
     const { grants } = await service();
     await grants.runEnded({ ownerId: 'owner', runId: 'run-1-research-1', agentSlug: 'research', depth: 1, outcome: 'failed', reason: 'the model went away' });

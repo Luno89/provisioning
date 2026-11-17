@@ -664,7 +664,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
             })());
           }
           const settled = event.kind === 'run-ended'
-            ? await core.runGrants.runEnded(event).catch((err: Error) => { console.warn(`[run-grants] ${event.runId}: ${err.message}`); return undefined; })
+            ? await core.runGrants.runEnded(event)
             : undefined;
           const revokedBecause = settled?.ending.ended?.how === 'revoked' ? settled.ending.ended.revokedBecause : undefined;
           if (event.kind === 'run-ended' && event.depth === 0 && revokedBecause) {

@@ -1,4 +1,4 @@
-import { ignore } from '@koala/engine-core/failures';
+import { failureOf, ignore } from '@koala/engine-core/failures';
 import type { MachineSendRequest, MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
 import type { StoredFilesActivities } from '../../files/index.js';
 import type { BroughtBack } from '../sandboxes/workspace-documents.js';
@@ -152,6 +152,9 @@ export interface StreamActivities extends StoredFilesActivities {
 }
 
 export const NODE_HEARTBEAT_MS = 1_000;
+
+const lifecycleSaid = (event: LifecycleEvent): string =>
+  event.kind === 'conversation-quiet' ? `that conversation ${event.conversationId} went quiet` : `that run ${event.runId} ${event.kind === 'run-started' ? 'started' : 'ended'}`;
 
 function currentActivity(): Context | undefined {
   try {
@@ -471,7 +474,13 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
     EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus, { runCancelled: services.runCancelled }),
 
     async EngineLifecycleActivity(event: LifecycleEvent): Promise<void> {
-      await services.conclude?.(event);
+      try {
+        await services.conclude?.(event);
+      } catch (err) {
+        const failure = failureOf(err);
+        if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`the backend refused to hear ${lifecycleSaid(event)}: ${failure.reason}`, 'LifecycleRefused');
+        throw err;
+      }
     },
 
     async EngineBenchIdleActivity({ ownerId }: { ownerId: string }): Promise<BenchIdleOutcome> {

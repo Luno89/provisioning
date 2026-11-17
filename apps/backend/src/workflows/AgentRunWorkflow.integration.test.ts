@@ -24,7 +24,7 @@ import {
   type Procedure,
 } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal, revokeSignal, stateQuery } from './AgentRunWorkflow.js';
-import { createEngineActivities, createNodeRunner } from '../engine-host/temporal/activities.js';
+import { createEngineActivities, createNodeRunner, createStreamActivities } from '../engine-host/temporal/activities.js';
 import { createEnvironmentResolver } from '../engine-host/sandboxes/environments.js';
 import { createRunEnvironments } from '../engine-host/sandboxes/run-environments.js';
 import { createMachineWorkspaces } from '../engine-host/sandboxes/machine-workspaces.js';
@@ -187,7 +187,7 @@ function activities(options: {
     stream: {
       EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
-      EngineLifecycleActivity: vi.fn(async (_event: LifecycleEvent) => undefined),
+      EngineLifecycleActivity: vi.fn(async (_event: LifecycleEvent): Promise<void> => undefined),
     },
   };
 }
@@ -601,6 +601,44 @@ describe('AgentRunWorkflow', () => {
       { kind: 'run-started', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', depth: 0, conversationId: 'conv-9' },
       { kind: 'run-ended', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', outcome: 'ok', ask: 'We use Cloudflare.', depth: 0, conversationId: 'conv-9' },
     ]);
+  }, 60_000);
+
+  it('a run whose ending cannot be reported yet keeps reporting it until the backend hears it, and is heard once', async () => {
+    const acts = activities({ script: [{ content: 'Done.' }] });
+    const heard: LifecycleEvent[] = [];
+    let refusals = 0;
+    acts.stream.EngineLifecycleActivity = vi.fn(createStreamActivities({
+      conclude: async (event: LifecycleEvent) => {
+        if (event.kind === 'run-ended' && refusals < 5) {
+          refusals += 1;
+          throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:27017'), { code: 'ECONNREFUSED' });
+        }
+        heard.push(event);
+      },
+    } as never).EngineLifecycleActivity);
+    const args = input('research', RESEARCH_V2, 'Find it.');
+
+    const result = await runWorkflow(args, acts);
+
+    expect(result.outcome).toBe('ok');
+    expect(refusals).toBe(5);
+    expect(heard.filter((event) => event.kind === 'run-ended')).toEqual([expect.objectContaining({ runId: args.ticket.runId, outcome: 'ok' })]);
+  }, 60_000);
+
+  it('a run whose ending is refused for good fails, naming why', async () => {
+    const acts = activities({ script: [{ content: 'Done.' }] });
+    acts.stream.EngineLifecycleActivity = vi.fn(createStreamActivities({
+      conclude: async (event: LifecycleEvent) => {
+        if (event.kind === 'run-ended') throw new Error('the run grant store refused the ending');
+      },
+    } as never).EngineLifecycleActivity);
+    const args = input('research', RESEARCH_V2, 'Find it.');
+
+    const failed = await runWorkflow(args, acts).then(() => undefined, (err: unknown) => err as Error & { cause?: Error & { cause?: Error } });
+
+    expect(failed).toBeDefined();
+    expect(`${failed?.cause?.message} ${failed?.cause?.cause?.message}`).toContain('the run grant store refused the ending');
+    expect(acts.stream.EngineLifecycleActivity.mock.calls.filter(([event]) => event.kind === 'run-ended')).toHaveLength(1);
   }, 60_000);
 
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {

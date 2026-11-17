@@ -78,6 +78,8 @@ export class RunGrantService {
       await this.deps.store.saveRunGrant(closed);
       this.settled.set(closed.id, closed);
     }
+    const [known] = await this.deps.store.getRunEndings(event.ownerId, [event.runId]);
+    if (known?.ended) return { ...(closed ? { grant: closed } : {}), ending: known };
     const revokedBecause = event.revokedBecause ?? (closed?.state === 'revoked' ? closed.revokedBecause : undefined);
     const ending: RunEnding = {
       runId: event.runId,

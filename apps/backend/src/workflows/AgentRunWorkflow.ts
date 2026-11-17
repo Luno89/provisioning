@@ -132,6 +132,14 @@ const { EnginePublishActivity, EngineLifecycleActivity } = proxyActivities<{
   ...LIVE_ACTIVITY,
 });
 
+const { EngineLifecycleActivity: reportUntilHeard } = proxyActivities<{
+  EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
+}>({
+  taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+  retry: ACTIVITY_RETRY,
+  ...LIVE_ACTIVITY,
+});
+
 const CONCLUSIONS = 'conclusion-events';
 const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
@@ -145,6 +153,7 @@ const MACHINE_NAMES = 'machine-names';
 const MACHINE_MERGES = 'machine-merges';
 const HANDED_WORK_MERGED = 'handed-work-merged';
 const RUN_GRANTS = 'run-grants';
+const ENDINGS_HEARD = 'endings-heard';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
 
@@ -182,6 +191,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const item = input.inputs.item as { leafId?: unknown } | undefined;
   const leafId = typeof item?.leafId === 'string' ? item.leafId : undefined;
   const conclude = async (event: LifecycleEvent): Promise<void> => {
+    if (patched(ENDINGS_HEARD)) {
+      await reportUntilHeard(event);
+      return;
+    }
     await EngineLifecycleActivity(event).catch((err: unknown) => {
       log.warn('the run could not report how it went, so the memory keeper, the bench and its grant do not hear it', { kind: event.kind, error: err instanceof Error ? err.message : String(err) });
     });
