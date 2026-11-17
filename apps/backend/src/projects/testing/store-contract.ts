@@ -251,6 +251,19 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
     });
   });
 
+  describe('Gitea tokens to revoke', () => {
+    it('keeps each token until it is dropped, apart by user and name', async () => {
+      const store = await make();
+      const token = { name: 'koala-run-1', ownerId: 'owner-1', username: 'person', process: 'backend-a', at: at(0) };
+      await store.saveTokenToRevoke(token);
+      await store.saveTokenToRevoke({ ...token, username: 'other', ownerId: 'owner-2' });
+      await store.saveTokenToRevoke(token);
+      expect((await store.getTokensToRevoke()).sort((a, b) => a.username.localeCompare(b.username))).toEqual([{ ...token, username: 'other', ownerId: 'owner-2' }, token]);
+      await store.dropTokenToRevoke(token);
+      expect(await store.getTokensToRevoke()).toEqual([{ ...token, username: 'other', ownerId: 'owner-2' }]);
+    });
+  });
+
   describe('Gitea accounts', () => {
     const account = { ownerId: 'owner-1', username: 'person', passwordEnc: 'sealed', createdAt: at(0) };
 

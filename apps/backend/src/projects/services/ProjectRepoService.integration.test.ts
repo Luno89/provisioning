@@ -1,5 +1,13 @@
 import { anyOf, matching } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { reopening } from '@koala/engine-core/reopening';
+import { decryptValue } from '../../platform/lib/crypto.js';
+import { GiteaService } from './GiteaService.js';
+import { startRealGitea, type RealGitea } from '../testing/real-gitea.js';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { documentsThroughAnAccountBehaviour } from '../testing/project-repo-behaviour.js';
@@ -163,3 +171,87 @@ describe('making a project with a repository', () => {
 const fresh = await emptiedEachTime();
 
 documentsThroughAnAccountBehaviour(() => fresh());
+
+describe('the Gitea tokens a push makes, on a real Gitea', () => {
+  let realGitea: RealGitea;
+  let gitea: GiteaService;
+  let scratch: string;
+
+  beforeAll(async () => {
+    realGitea = await startRealGitea();
+    scratch = await mkdtemp(path.join(tmpdir(), 'repo-tokens-'));
+    const dataDir = path.join(scratch, 'data');
+    await mkdir(dataDir);
+    await writeFile(path.join(dataDir, '.gitea-admin-password'), realGitea.adminPassword);
+    gitea = new GiteaService(KEY as never, { url: realGitea.url }, { dataDir });
+  }, 0);
+
+  afterAll(async () => {
+    await realGitea.close();
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  const tokensOf = async (db: MongoDB, ownerId: string): Promise<string[]> => {
+    const account = (await db.projects.getGiteaAccount(ownerId))!;
+    const answer = await fetch(`${realGitea.url.replace(/\/$/, '')}/api/v1/users/${account.username}/tokens`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${account.username}:${decryptValue(account.passwordEnc, KEY as never)}`).toString('base64')}` },
+    });
+    return ((await answer.json()) as { name: string }[]).map((token) => token.name);
+  };
+
+  const bundled = async (): Promise<string> => {
+    const work = await mkdtemp(path.join(scratch, 'work-'));
+    const git = (...args: string[]) => execFileSync('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+    git('init', '-q', '-b', 'main');
+    await writeFile(path.join(work, 'notes.md'), 'hello\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'notes');
+    const bundle = path.join(work, 'docs.bundle');
+    git('bundle', 'create', bundle, 'main');
+    return bundle;
+  };
+
+  it('a push token Gitea refuses to revoke is revoked when Gitea answers again', async () => {
+    const db = await testDatabase();
+    let refusals = 0;
+    const flaky = new Proxy(gitea, {
+      get(target, key, receiver) {
+        if (key === 'revokeUserToken') {
+          return async (...args: Parameters<GiteaService['revokeUserToken']>) => {
+            if (refusals < 2) {
+              refusals += 1;
+              throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+            }
+            return target.revokeUserToken(...args);
+          };
+        }
+        const value: unknown = Reflect.get(target, key, receiver);
+        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    const repos = new ProjectRepoService(db, flaky, KEY as never, undefined, { again: () => reopening(20), log: () => undefined });
+
+    const pushed = await repos.pushDocuments({ ownerId: 'tok-1', repo: 'docs', describe: 'Docs', bundle: await bundled() });
+    expect(pushed).toMatchObject({ repo: 'docs' });
+    expect(await tokensOf(db, 'tok-1')).toHaveLength(1);
+
+    await vi.waitFor(async () => expect(await db.projects.getTokensToRevoke()).toEqual([]), { timeout: 30_000 });
+    expect(refusals).toBe(2);
+    expect(await tokensOf(db, 'tok-1')).toEqual([]);
+  }, 120_000);
+
+  it('a token left from a push that failed to revoke is revoked at the next start', async () => {
+    const db = await testDatabase();
+    const repos = new ProjectRepoService(db, gitea, KEY as never);
+    const { username } = await repos.ensureAccountFor('tok-2');
+    const account = (await db.projects.getGiteaAccount('tok-2'))!;
+    const left = await gitea.createPushToken(username, decryptValue(account.passwordEnc, KEY as never));
+    await db.projects.saveTokenToRevoke({ name: left.name, ownerId: 'tok-2', username, process: 'backend-that-stopped', at: new Date().toISOString() });
+    expect(await tokensOf(db, 'tok-2')).toEqual([left.name]);
+
+    expect(await new ProjectRepoService(db, gitea, KEY as never).revokeLeftoverTokens([])).toBe(1);
+
+    expect(await tokensOf(db, 'tok-2')).toEqual([]);
+    expect(await db.projects.getTokensToRevoke()).toEqual([]);
+  }, 120_000);
+});

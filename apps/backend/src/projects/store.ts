@@ -2,6 +2,7 @@ import { type AreaStore, type Identified, fromDoc, toDoc } from '../platform/lib
 import type { Branch, Leaf } from './lib/leaves.js';
 import type { Collection, Db, Document } from 'mongodb';
 import type { GiteaAccount } from './lib/projects.js';
+import { tokenKey, type TokenToRevoke } from './lib/gitea-tokens.js';
 import type { PartialInfo, ProjectMetadata } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
 import type { SecretRequest, SecretRequestFilter } from './lib/secret-requests.js';
@@ -23,6 +24,9 @@ export interface ProjectsStore extends AreaStore {
   getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
   saveGiteaAccount(account: GiteaAccount): Promise<void>;
   claimGiteaAccount(account: GiteaAccount): Promise<GiteaAccount>;
+  saveTokenToRevoke(token: TokenToRevoke): Promise<void>;
+  getTokensToRevoke(): Promise<TokenToRevoke[]>;
+  dropTokenToRevoke(token: Pick<TokenToRevoke, 'username' | 'name'>): Promise<void>;
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;
   deleteTree(id: string): Promise<void>;
@@ -61,6 +65,10 @@ export class MongoProjectsStore implements ProjectsStore {
 
   private get giteaAccounts(): Collection<Stored> {
     return this.db().collection<Stored>('giteaAccounts');
+  }
+
+  private get giteaTokensToRevoke(): Collection<Stored> {
+    return this.db().collection<Stored>('giteaTokensToRevoke');
   }
 
   private get leaves(): Collection<Stored> {
@@ -199,6 +207,18 @@ export class MongoProjectsStore implements ProjectsStore {
     if (!doc) throw new Error(`Mongo kept no Gitea account for ${ownerId} after claiming it`);
     const { _id, ...stored } = doc;
     return { ...stored, ownerId: _id } as GiteaAccount;
+  }
+
+  async saveTokenToRevoke(token: TokenToRevoke): Promise<void> {
+    await this.giteaTokensToRevoke.replaceOne({ _id: tokenKey(token) }, { ...token }, { upsert: true });
+  }
+
+  async getTokensToRevoke(): Promise<TokenToRevoke[]> {
+    return (await this.giteaTokensToRevoke.find({}).toArray()).map(({ _id, ...rest }) => rest as unknown as TokenToRevoke);
+  }
+
+  async dropTokenToRevoke(token: Pick<TokenToRevoke, 'username' | 'name'>): Promise<void> {
+    await this.giteaTokensToRevoke.deleteOne({ _id: tokenKey(token) });
   }
 
   async getLeaves(): Promise<Leaf[]> {

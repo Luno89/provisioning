@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { QUEUES } from './platform/index.js';
+import { QUEUES, liveSince } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
   catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE,
@@ -110,6 +110,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const gitea = new GiteaService(keys.data, giteaAt, { dataDir: settings.dataDir, registryPullHost: tenant.registryPullHost, reportsTo: dependencies });
   const infisical = new InfisicalService(keys.data, tenant.infisical, settings.dataDir, dependencies);
   const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here) });
+  void projectRepos.keepRevokingLeftovers(async () => (await db.platform.processesSeenSince(liveSince(Date.now()))).map((process) => process.id));
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),

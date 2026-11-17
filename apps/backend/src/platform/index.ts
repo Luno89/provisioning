@@ -19,7 +19,7 @@ export { podPlaceFrom } from './lib/drain.js';
 export { answerFailure, DEPENDENCIES, DEPENDENCY_IDS, DependencyDownError, downAcross, failureOf, GONE_STATUSES, isDependencyId, NAME_NOT_FOUND, refusedByServer, reportingFetch, reportStatus, statusFailure, stillDown, temporaryStatus, thrownFor } from './lib/dependencies.js';
 export type { DependencyDown, DependencyId, DependencyReporter, DependencyState, DependencyStateRow, Failure } from './lib/dependencies.js';
 export { emailWayFrom } from './lib/email-way.js';
-export { theFence } from './lib/fence.js';
+export { liveSince, theFence } from './lib/fence.js';
 export type { Closing } from './lib/fence.js';
 export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';

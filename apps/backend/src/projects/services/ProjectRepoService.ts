@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening } from '../../platform/index.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening, keepTrying, theFence, type Reopening } from '../../platform/index.js';
+import { leftOver, type TokenToRevoke } from '../lib/gitea-tokens.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { ignore } from '@koala/engine-core/failures';
 import {
@@ -32,7 +33,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined } = {},
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -286,14 +287,11 @@ export class ProjectRepoService {
     if (created) {
       await this.gitea.createRepoForUser(username, request.repo, { private: true, description: request.describe, empty: true });
     }
-    const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
-    try {
+    return this.withToken(request.ownerId, username, password, () => this.gitea.createPushToken(username, password), async (token) => {
       const commit = await this.gitea.pushBundle({ username, token }, username, request.repo, request.bundle);
       if (created) await this.untilServed(username, request.repo);
       return { owner: username, repo: request.repo, commit };
-    } finally {
-      await this.revoke(username, password, tokenName);
-    }
+    });
   }
 
   private async untilServed(owner: string, repo: string): Promise<void> {
@@ -309,22 +307,14 @@ export class ProjectRepoService {
   async pullDocuments(request: { ownerId: string; repo: string; bundle: string }): Promise<boolean> {
     const { username, password } = await this.ensureAccount(request.ownerId);
     if (!(await this.gitea.findRepo(username, request.repo))) return false;
-    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
-    try {
-      return await this.gitea.pullBundle({ username, token }, username, request.repo, request.bundle);
-    } finally {
-      await this.revoke(username, password, tokenName);
-    }
+    return this.withToken(request.ownerId, username, password, () => this.gitea.createReadToken(username, password),
+      (token) => this.gitea.pullBundle({ username, token }, username, request.repo, request.bundle));
   }
 
   async diffCommits(request: { ownerId: string; owner: string; repo: string; base: string; head: string }): Promise<string> {
     const { username, password } = await this.ensureAccount(request.ownerId);
-    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
-    try {
-      return await this.gitea.diffBetween({ username, token }, request.owner, request.repo, request.base, request.head);
-    } finally {
-      await this.revoke(username, password, tokenName);
-    }
+    return this.withToken(request.ownerId, username, password, () => this.gitea.createReadToken(username, password),
+      (token) => this.gitea.diffBetween({ username, token }, request.owner, request.repo, request.base, request.head));
   }
 
   async pushBranch(request: { ownerId: string; repo: string; describe: string; bundle: string; branch: string }): Promise<string> {
@@ -333,25 +323,18 @@ export class ProjectRepoService {
     if (created) {
       await this.gitea.createRepoForUser(username, request.repo, { private: true, description: request.describe, empty: true });
     }
-    const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
-    try {
+    return this.withToken(request.ownerId, username, password, () => this.gitea.createPushToken(username, password), async (token) => {
       const commit = await this.gitea.pushBranchBundle({ username, token }, username, request.repo, request.bundle, request.branch, { asMain: created });
       if (created) await this.untilServed(username, request.repo);
       return commit;
-    } finally {
-      await this.revoke(username, password, tokenName);
-    }
+    });
   }
 
   async pullBranch(request: { ownerId: string; repo: string; branch: string; bundle: string }): Promise<boolean> {
     const { username, password } = await this.ensureAccount(request.ownerId);
     if (!(await this.gitea.findRepo(username, request.repo))) return false;
-    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
-    try {
-      return await this.gitea.pullBranchBundle({ username, token }, username, request.repo, request.branch, request.bundle);
-    } finally {
-      await this.revoke(username, password, tokenName);
-    }
+    return this.withToken(request.ownerId, username, password, () => this.gitea.createReadToken(username, password),
+      (token) => this.gitea.pullBranchBundle({ username, token }, username, request.repo, request.branch, request.bundle));
   }
 
   async deleteBranch(request: { ownerId: string; repo: string; branch: string }): Promise<void> {
@@ -375,9 +358,53 @@ export class ProjectRepoService {
     return content === null ? null : { owner: username, repo, content };
   }
 
-  private async revoke(username: string, password: string, tokenName: string): Promise<void> {
-    await this.gitea.revokeUserToken(username, password, tokenName).catch((err: unknown) =>
-      console.warn(`[ProjectRepoService] the Gitea token ${tokenName} of ${username} is still valid, since revoking it failed: ${(err as Error).message}`));
+  private async withToken<T>(ownerId: string, username: string, password: string, mint: () => Promise<{ name: string; token: string }>, use: (token: string) => Promise<T>): Promise<T> {
+    const { name, token } = await mint();
+    const kept: TokenToRevoke = { name, ownerId, username, process: theFence().heldBy?.id, at: new Date().toISOString() };
+    try {
+      await this.db.projects.saveTokenToRevoke(kept);
+    } catch (err) {
+      await this.revoke(kept, password);
+      throw err;
+    }
+    try {
+      return await use(token);
+    } finally {
+      await this.revoke(kept, password);
+    }
+  }
+
+  private async revokeNow(kept: TokenToRevoke, password: string): Promise<void> {
+    await this.gitea.revokeUserToken(kept.username, password, kept.name);
+    await this.db.projects.dropTokenToRevoke(kept);
+  }
+
+  private async revoke(kept: TokenToRevoke, password: string): Promise<void> {
+    try {
+      await this.revokeNow(kept, password);
+    } catch (err) {
+      const what = `[ProjectRepoService] the Gitea token ${kept.name} of ${kept.username} is still valid, since revoking it failed`;
+      const log = this.options.log ?? ((message: string) => console.warn(message));
+      const again = this.options.again?.() ?? reopening();
+      log(`${what}: ${(err as Error).message}; trying again in ${again.seconds} s`);
+      again.later(() => { void keepTrying(what, () => this.revokeNow(kept, password), log, again); });
+    }
+  }
+
+  keepRevokingLeftovers(live: () => Promise<readonly string[]>): Promise<boolean> {
+    return keepTrying('[ProjectRepoService] the Gitea tokens a stopped process left are not revoked yet',
+      async () => { await this.revokeLeftoverTokens(await live()); },
+      this.options.log ?? ((message: string) => console.warn(message)), this.options.again?.());
+  }
+
+  async revokeLeftoverTokens(live: readonly string[]): Promise<number> {
+    const left = leftOver(await this.db.projects.getTokensToRevoke(), live);
+    for (const kept of left) {
+      const account = await this.db.projects.getGiteaAccount(kept.ownerId);
+      if (account) await this.gitea.revokeUserToken(kept.username, decryptValue(account.passwordEnc, this.masterKey), kept.name);
+      await this.db.projects.dropTokenToRevoke(kept);
+    }
+    return left.length;
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {

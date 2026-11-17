@@ -6,6 +6,7 @@ import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Col
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { GiteaAccount } from '../lib/projects.js';
+import { tokenKey, type TokenToRevoke } from '../lib/gitea-tokens.js';
 import type { SecretRequest, SecretRequestFilter } from '../lib/secret-requests.js';
 import type { Task } from '../lib/tasks.js';
 import type { Tree } from '../lib/trees.js';
@@ -26,6 +27,7 @@ export class MemoryProjectsStore implements ProjectsStore {
   private readonly projects: MemoryRecords<ProjectMetadata>;
   private readonly treeTypes: Map<string, TreeTypeSpec>;
   private readonly giteaAccounts: Map<string, GiteaAccount>;
+  private readonly tokensToRevoke: Map<string, TokenToRevoke>;
   private readonly trees: MemoryRecords<Tree>;
   private readonly branches: MemoryRecords<Branch>;
   private readonly leaves: MemoryRecords<Leaf>;
@@ -37,6 +39,7 @@ export class MemoryProjectsStore implements ProjectsStore {
     this.projects = new MemoryRecords(collectionIn<ProjectMetadata>(collections, 'projects'));
     this.treeTypes = collectionIn<TreeTypeSpec>(collections, 'treeTypes');
     this.giteaAccounts = collectionIn<GiteaAccount>(collections, 'giteaAccounts');
+    this.tokensToRevoke = collectionIn<TokenToRevoke>(collections, 'giteaTokensToRevoke');
     this.secretRequests = new MemoryRecords(collectionIn<SecretRequest>(collections, 'secretRequests'));
     this.trees = new MemoryRecords(collectionIn<Tree>(collections, 'trees'));
     this.branches = new MemoryRecords(collectionIn<Branch>(collections, 'branches'));
@@ -130,6 +133,18 @@ export class MemoryProjectsStore implements ProjectsStore {
   async claimGiteaAccount(account: GiteaAccount): Promise<GiteaAccount> {
     if (!this.giteaAccounts.has(account.ownerId)) this.giteaAccounts.set(account.ownerId, copied(asStored(account)));
     return copied(this.giteaAccounts.get(account.ownerId)!);
+  }
+
+  async saveTokenToRevoke(token: TokenToRevoke): Promise<void> {
+    this.tokensToRevoke.set(tokenKey(token), copied(asStored(token)));
+  }
+
+  async getTokensToRevoke(): Promise<TokenToRevoke[]> {
+    return [...this.tokensToRevoke.values()].map(copied);
+  }
+
+  async dropTokenToRevoke(token: Pick<TokenToRevoke, 'username' | 'name'>): Promise<void> {
+    this.tokensToRevoke.delete(tokenKey(token));
   }
 
   async getTrees(): Promise<Tree[]> {

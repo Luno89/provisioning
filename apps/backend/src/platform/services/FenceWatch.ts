@@ -24,6 +24,7 @@ export class FenceWatch {
   }
 
   async start(): Promise<void> {
+    this.deps.fence.holdAs(this.deps.process);
     await this.beat();
     this.beating = setInterval(() => { void this.beat().catch(ignore('a beat Mongo refuses is followed by the next one; a process stays live while any beat lands')); }, PROCESS_BEAT_MS);
     this.beating.unref();

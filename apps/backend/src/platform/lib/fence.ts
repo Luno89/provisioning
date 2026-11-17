@@ -45,7 +45,16 @@ const keysOf = (work: WorkFor | undefined): string[] => [
 ];
 
 export class Fence {
+  private holder: KoalaProcess | undefined;
   private readonly closed = new Set<string>();
+
+  holdAs(process: KoalaProcess): void {
+    this.holder = process;
+  }
+
+  get heldBy(): KoalaProcess | undefined {
+    return this.holder;
+  }
   private readonly inFlight = new Map<string, number>();
   private readonly waiting = new Map<string, (() => void)[]>();
 

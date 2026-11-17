@@ -1,6 +1,7 @@
 import { bindChatWithItsFiles } from '../../files/index.js';
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, type Principal, type RoleConfig } from '../../platform/index.js';
+import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, liveSince, type Principal, type RoleConfig } from '../../platform/index.js';
+import { keepUsersPrivate } from '../services/gitea-start.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -159,9 +160,8 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
 
   if (servesTenants(deps.role)) {
-    void gitea.makeUsersPrivate()
-      .then((changed) => { if (changed.length) console.log(`[gitea] made ${changed.length} user(s) private: ${changed.join(', ')}`); })
-      .catch((err: Error) => console.warn(`[gitea] could not make every Gitea user private at startup: ${err.message}`));
+    void keepUsersPrivate(gitea);
+    void projectRepoService.keepRevokingLeftovers(async () => (await db.platform.processesSeenSince(liveSince(Date.now()))).map((process) => process.id));
   }
 
   const projectRemoval = new ProjectRemovalService({
