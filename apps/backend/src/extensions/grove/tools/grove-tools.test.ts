@@ -672,6 +672,19 @@ describe('a conversation about one tree', () => {
     expect(saved.find((entry) => entry.status === 'proposed')?.projectId).toBeUndefined();
   });
 
+  it('tells the planner a new tree\'s service name already belongs to a tree, and what approving it does', async () => {
+    trees = [{ ...trees[0]!, serviceName: 'weather' }, { ...trees[0]!, id: 'tree-2', name: 'Loose', serviceName: 'clock', projectIds: [] }];
+    const leavesOf = [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }];
+    const joined = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'Forecast', type: 'application', goal: 'x', serviceName: 'weather' }, branches: [{ title: 'More', leaves: leavesOf }] });
+    expect(joined.ok, joined.digest).toBe(true);
+    expect(saved.at(-1)?.plan?.tree?.joins).toEqual({ treeId: 'tree-1', treeName: 'The app', projectId: 'project-9' });
+    expect(joined.content).toContain('Its service name weather already belongs to The app, so approving it puts this work into that service\'s existing repository.');
+    const shared = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'Ticker', type: 'application', goal: 'x', serviceName: 'clock' }, branches: [{ title: 'More', leaves: leavesOf }] });
+    expect(shared.content).toContain('Its service name clock already belongs to Loose; two services sharing a name share the prefix on their tools, so rename one unless they are the same service.');
+    const own = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'Solo', type: 'application', goal: 'x', serviceName: 'tides' }, branches: [{ title: 'More', leaves: leavesOf }] });
+    expect(own.content).not.toContain('already belongs');
+  });
+
   it('reads the bound tree without being told which, and refuses another owner\'s', async () => {
     const outcome = await call('conv-tree', 'read_tree', {});
     expect(outcome.ok, outcome.digest).toBe(true);
