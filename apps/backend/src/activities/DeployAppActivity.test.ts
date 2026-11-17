@@ -50,6 +50,7 @@ beforeEach(async () => {
   nodes = '64Gi';
   access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).clusterId}`);
   access.apply.mockImplementation(async (target) => { reached.push(target as Reach); return ''; });
+  access.helm.mockImplementation(async (target, args) => { reached.push(target as Reach); return args[0] === 'list' ? '[]' : ''; });
   access.kubectl.mockImplementation(async (target, args) => {
     reached.push(target as Reach);
     if (args[0] === 'api-resources') return PROBES;

@@ -2,11 +2,15 @@ import crypto from 'crypto';
 import { alertExpression, alertSpec, isAlertKind, RULE_LABEL, ruleResourceName, type AlertSpec, type PromAlert } from './monitoring-alerts.js';
 import { PROBE_NAMESPACE_LABEL, type PoolPlace } from './monitoring-questions.js';
 
-export const POOL_MONITORING = {
+export const MONITORING_CHARTS = {
   namespace: 'monitoring',
   stack: { release: 'kube-prometheus-stack', chart: 'kube-prometheus-stack', version: '91.7.0' },
   blackbox: { release: 'blackbox-exporter', chart: 'prometheus-blackbox-exporter', version: '11.19.1' },
   repo: 'https://prometheus-community.github.io/helm-charts',
+} as const;
+
+export const POOL_MONITORING = {
+  ...MONITORING_CHARTS,
   prometheusService: 'kube-prometheus-stack-prometheus:9090',
   historyDays: 10,
 } as const;

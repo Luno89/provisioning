@@ -111,10 +111,10 @@ export class ClusterAccess {
     }
   }
 
-  async apply(target: Target, manifest: string): Promise<string> {
+  async apply(target: Target, manifest: string, options: { serverSide?: boolean } = {}): Promise<string> {
     const leave = this.admitted();
     try {
-      const run = await this.run(target, this.deps.tools.kubectl, ['apply', '-f', '-'], manifest);
+      const run = await this.run(target, this.deps.tools.kubectl, options.serverSide ? ['apply', '--server-side', '--force-conflicts', '-f', '-'] : ['apply', '-f', '-'], manifest);
       const first = await this.deps.processes.run(run);
       if (first.code === 0) return first.stdout;
       if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);

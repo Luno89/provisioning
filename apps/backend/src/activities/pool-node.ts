@@ -7,6 +7,7 @@ import {
   admissionManifests, backendAccessManifest, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolNamespace, PROXY, proxyCaddyfile,
   proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
 } from '../instances/index.js';
+import { applyChartCrds } from './chart-crds.js';
 import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
@@ -107,6 +108,7 @@ export class PoolNode {
     try {
       const stack = POOL_MONITORING.stack;
       if (await this.deployedVersion(stack.release) !== `${stack.chart}-${stack.version}`) {
+        await applyChartCrds(this.deps.access, this.deps.node, stack, POOL_MONITORING.repo);
         const values = path.join(dir, 'stack.json');
         await fs.writeFile(values, JSON.stringify(poolStackValues()));
         await this.helm(['upgrade', '--install', stack.release, stack.chart, '--repo', POOL_MONITORING.repo, '--version', stack.version,

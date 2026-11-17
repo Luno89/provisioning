@@ -86,6 +86,15 @@ describe('ClusterAccess against a real k3s', () => {
     expect(await access.kubectl(reach, ['get', 'configmap', 'raced', '-n', PLAYGROUND, '-o', 'jsonpath={.data.a}'])).toBe('b');
   });
 
+  it('applies server-side what is too big to apply as kubectl keeps it client-side, as a chart\'s CRDs are', async () => {
+    const access = await door([], { clusters: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    const manifest = `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: large\n  namespace: ${PLAYGROUND}\ndata:\n  big: ${'x'.repeat(300_000)}\n`;
+    await expect(access.apply(reach, manifest)).rejects.toThrow(/Too long|too long/);
+    await access.apply(reach, manifest, { serverSide: true });
+    expect(await access.kubectl(reach, ['get', 'configmap', 'large', '-n', PLAYGROUND, '-o', 'jsonpath={.metadata.managedFields[0].operation}'])).toBe('Apply');
+  });
+
   it('pipes a stream into a pod and follows what kubectl prints', async () => {
     const access = await door([], { clusters: undefined });
     const reach = startedMachine('machine-dev3', k3s.admin);

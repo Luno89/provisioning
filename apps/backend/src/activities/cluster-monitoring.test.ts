@@ -4,6 +4,7 @@ import type { ClusterAccess, InfrastructureService, Reach } from '../infrastruct
 import { ROLLOUT_KINDS } from '../infrastructure/lib/rollout.js';
 import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
 import { koalaClusterMonitoring } from '../monitoring/lib/cluster-monitoring.js';
+import { MONITORING_CHARTS } from '../monitoring/lib/pool-monitoring.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';
@@ -11,17 +12,22 @@ const PROBES = 'probes.monitoring.coreos.com\n';
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1' };
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
 
-function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespace: string) => unknown[] }) {
+function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespace: string) => unknown[]; charts?: Record<string, string>; telemetry?: boolean }) {
   const access = mock<ClusterAccess>();
   const reached: Reach[] = [];
   access.kubectl.mockImplementation(async (target, args) => {
     reached.push(target as Reach);
     if (args[0] === 'api-resources') return seen.operator ? PROBES : '';
-    if (args[0] === 'get' && args[1] === 'service') return args[2] === 'blackbox-exporter' && seen.blackbox ? 'service/blackbox-exporter' : '';
+    if (args[0] === 'get' && args[1] === 'service') return (args[2] === 'blackbox-exporter' && seen.blackbox) || (seen.telemetry && (args[2] === 'otel-collector' || args[2] === 'tempo')) ? `service/${args[2]}` : '';
     if (args[0] === 'get' && args[1] === ROLLOUT_KINDS) return JSON.stringify({ items: seen.rolled?.(args[3]!) ?? [] });
     return '';
   });
   access.apply.mockResolvedValue('');
+  access.helm.mockImplementation(async (_target, args) => {
+    if (args[0] === 'list') return JSON.stringify(Object.entries(seen.charts ?? {}).map(([name, chart]) => ({ name, chart })));
+    if (args[0] === 'show' && args[1] === 'crds') return `# the CRDs of ${args[2]} ${args[args.indexOf('--version') + 1]}`;
+    return '';
+  });
   access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).kind}`);
   const terraform = mock<InfrastructureService>();
   terraform.deploy.mockResolvedValue(undefined as never);
@@ -60,6 +66,19 @@ describe('monitoring a machine\'s cluster', () => {
     await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box', 'shop-box-observability']);
+  });
+});
+
+describe('a cluster whose monitoring is at another version than Koala pins', () => {
+  it('applies the operator\'s CRDs of the pinned stack server-side, then upgrades only the stack that is behind', async () => {
+    const steps = cluster({ operator: true, blackbox: true, telemetry: true, charts: { 'kube-prometheus-stack': 'kube-prometheus-stack-88.6.2', 'blackbox-exporter': `prometheus-blackbox-exporter-${MONITORING_CHARTS.blackbox.version}` } });
+    const order: string[] = [];
+    steps.access.apply.mockImplementation(async () => { order.push('crds'); return ''; });
+    steps.infra.deploy.mockImplementation(async (name) => { order.push(`apply ${name}`); return undefined as never; });
+    await ensureClusterMonitoring(steps, { physicalName: 'machine-desk', reach: OWN, pool: false, koala: true });
+    expect(steps.access.helm).toHaveBeenCalledWith(OWN, ['show', 'crds', 'kube-prometheus-stack', '--repo', MONITORING_CHARTS.repo, '--version', MONITORING_CHARTS.stack.version]);
+    expect(steps.access.apply).toHaveBeenCalledWith(OWN, `# the CRDs of kube-prometheus-stack ${MONITORING_CHARTS.stack.version}`, { serverSide: true });
+    expect(order).toEqual(['crds', 'apply machine-desk']);
   });
 });
 

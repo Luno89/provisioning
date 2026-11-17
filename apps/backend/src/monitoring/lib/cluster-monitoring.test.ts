@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MONITORING_CHARTS } from './pool-monitoring.js';
 import { koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
@@ -25,7 +26,17 @@ describe('monitoringPlan', () => {
 
   it('installs both halves on a bare cluster, keeping the ingress it already has', () => {
     expect(monitoringPlan({ apiResources: '', blackbox: false, ingressClasses: 'ingressclass.networking.k8s.io/traefik\n' }))
-      .toEqual({ stacks: ['cluster', 'observability'], keepIngress: true });
+      .toEqual({ stacks: ['cluster', 'observability'], keepIngress: true, crdsFirst: false });
+  });
+
+  it('brings a stack at another version up to the one Koala pins, its operator\'s CRDs first, and the exporter on its own', () => {
+    const pinned = { 'kube-prometheus-stack': `kube-prometheus-stack-${MONITORING_CHARTS.stack.version}`, 'blackbox-exporter': `prometheus-blackbox-exporter-${MONITORING_CHARTS.blackbox.version}` };
+    const current = { apiResources: operator, blackbox: true, ingressClasses: '', telemetry };
+    expect(monitoringPlan({ ...current, charts: pinned })).toEqual({ stacks: [], keepIngress: false, crdsFirst: false });
+    expect(monitoringPlan({ ...current, charts: { ...pinned, 'kube-prometheus-stack': 'kube-prometheus-stack-88.6.2' } })).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: true });
+    expect(monitoringPlan({ ...current, charts: { ...pinned, 'blackbox-exporter': 'prometheus-blackbox-exporter-11.18.0' } })).toEqual({ stacks: ['observability'], keepIngress: false, crdsFirst: false });
+    expect(monitoringPlan({ ...current, charts: { ...pinned, 'kube-prometheus-stack': 'kube-prometheus-stack-88.6.2' } }, false, true)).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: true });
+    expect(monitoringPlan({ ...current, charts: { ...pinned, 'blackbox-exporter': 'prometheus-blackbox-exporter-11.18.0' } }, false, true)).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: false });
   });
 
   it('brings its own ingress to a cluster with none', () => {
@@ -61,8 +72,8 @@ describe('the cluster of a pool instance', () => {
   const seen = (apiResources: string, ingressClasses: string) => ({ apiResources, blackbox: false, ingressClasses });
 
   it('is watched by root, so it gets only the operator\'s resources and an ingress, never a monitoring stack of its own', () => {
-    expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false });
-    expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true });
+    expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: false });
+    expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true, crdsFirst: false });
     expect(monitoringStackEnv({ physicalName: 'pool-bob', kubeconfigPath: '/k', pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
     const machine = monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } }, false);
     expect(machine).toMatchObject({ INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics' });

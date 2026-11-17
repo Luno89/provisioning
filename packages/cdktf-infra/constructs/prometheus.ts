@@ -47,7 +47,7 @@ export class PrometheusApp extends Construct {
       name: "prometheus",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "kube-prometheus-stack",
-      version: "88.6.2",
+      version: "91.7.0",
       namespace: ns.metadata.name,
       set: helmValues,
     });

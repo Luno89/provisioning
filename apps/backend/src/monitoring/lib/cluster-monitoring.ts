@@ -1,4 +1,5 @@
 import type { Reach } from '../../infrastructure/index.js';
+import { MONITORING_CHARTS } from './pool-monitoring.js';
 
 export const PROBE_RESOURCE = 'probes.monitoring.coreos.com';
 
@@ -9,6 +10,7 @@ export interface MonitoringSeen {
   blackbox: boolean;
   ingressClasses: string;
   telemetry?: TelemetrySeen | undefined;
+  charts?: Record<string, string> | undefined;
 }
 
 export interface TelemetrySeen {
@@ -26,7 +28,13 @@ export const telemetryPresent = (seen: TelemetrySeen | undefined): boolean => Bo
 export interface MonitoringPlan {
   stacks: MonitoringStackPart[];
   keepIngress: boolean;
+  crdsFirst: boolean;
 }
+
+const elsewhere = (charts: Record<string, string> | undefined, part: { release: string; chart: string; version: string }): boolean => {
+  const installed = charts?.[part.release];
+  return installed !== undefined && installed !== `${part.chart}-${part.version}`;
+};
 
 const lines = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
@@ -51,12 +59,14 @@ export const appServiceType = (onPool: boolean): 'ClusterIP' | 'NodePort' => (on
 export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = false): MonitoringPlan {
   const operator = lines(seen.apiResources).includes(PROBE_RESOURCE);
   const keepIngress = lines(seen.ingressClasses).length > 0;
-  if (pool) return { stacks: operator && keepIngress ? [] : ['cluster'], keepIngress };
-  if (machine) return { stacks: operator && seen.blackbox ? [] : ['cluster'], keepIngress };
+  if (pool) return { stacks: operator && keepIngress ? [] : ['cluster'], keepIngress, crdsFirst: false };
+  const stackBehind = elsewhere(seen.charts, MONITORING_CHARTS.stack);
+  const blackboxBehind = elsewhere(seen.charts, MONITORING_CHARTS.blackbox);
+  if (machine) return { stacks: operator && seen.blackbox && !stackBehind && !blackboxBehind ? [] : ['cluster'], keepIngress, crdsFirst: stackBehind };
   const stacks: MonitoringStackPart[] = [];
-  if (!operator) stacks.push('cluster');
-  if (!operator || !seen.blackbox || !telemetryPresent(seen.telemetry)) stacks.push('observability');
-  return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
+  if (!operator || stackBehind) stacks.push('cluster');
+  if (!operator || !seen.blackbox || blackboxBehind || !telemetryPresent(seen.telemetry)) stacks.push('observability');
+  return { stacks, keepIngress, crdsFirst: stackBehind };
 }
 
 export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {

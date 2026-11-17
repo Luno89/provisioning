@@ -17,8 +17,9 @@ export class BlackboxExporterStack extends Construct {
       name: "blackbox-exporter",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "prometheus-blackbox-exporter",
-      version: "11.18.0",
+      version: "11.19.1",
       namespace: "monitoring",
+      reuseValues: true,
       // Chart defaults to naming everything "<release>-prometheus-blackbox-exporter" (confirmed
       // live via `helm template`) — fullnameOverride keeps the Service name short and
       // predictable so lib/app-probe.ts's Probe targets don't need to know the chart's naming

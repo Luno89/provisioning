@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import type { Reach } from '../infrastructure/index.js';
-import { metricsTokenManifests, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { metricsTokenManifests, MONITORING_CHARTS, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { applyChartCrds } from './chart-crds.js';
 import { newMetricsToken } from '../machines/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -24,15 +25,18 @@ const inFlight = new Map<string, Promise<void>>();
 async function install(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, logFile: string | undefined, wait: Pause | undefined): Promise<void> {
   const kubectl = (args: string[]) => steps.access.kubectl(cluster.reach, args);
   const serviceExists = (name: string) => kubectl(['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).then((out) => out.trim() !== '');
-  const [apiResources, blackbox, ingressClasses, collector, tempo] = await Promise.all([
+  const [apiResources, blackbox, ingressClasses, collector, tempo, listed] = await Promise.all([
     kubectl(['api-resources', '--api-group=monitoring.coreos.com', '-o', 'name']),
     serviceExists('blackbox-exporter'),
     kubectl(['get', 'ingressclass', '-o', 'name']),
     serviceExists(TELEMETRY_SERVICES.collector),
     serviceExists(TELEMETRY_SERVICES.tempo),
+    steps.access.helm(cluster.reach, ['list', '-n', MONITORING_CHARTS.namespace, '-o', 'json']),
   ]);
-  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo } }, cluster.pool, Boolean(cluster.machine));
+  const charts = Object.fromEntries((JSON.parse(listed) as { name: string; chart: string }[]).map((release) => [release.name, release.chart]));
+  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo }, charts }, cluster.pool, Boolean(cluster.machine));
   if (plan.stacks.length === 0) return;
+  if (plan.crdsFirst) await applyChartCrds(steps.access, cluster.reach, MONITORING_CHARTS.stack, MONITORING_CHARTS.repo);
   if (cluster.machine) {
     const { token, hash } = newMetricsToken();
     for (const manifest of metricsTokenManifests(token)) await steps.access.apply(cluster.reach, JSON.stringify(manifest));

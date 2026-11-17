@@ -15,7 +15,7 @@ function node() {
   access.kubectl.mockResolvedValue('');
   const slept: number[] = [];
   const pool = new PoolNode({ access, node: NODE, sleep: async (ms) => { slept.push(ms); } });
-  const kinds = () => access.apply.mock.calls.map(([where, docs]) => [where, docs.split('\n---\n').map((doc) => (JSON.parse(doc) as { kind: string }).kind)]);
+  const kinds = () => access.apply.mock.calls.filter(([, , options]) => !options?.serverSide).map(([where, docs]) => [where, docs.split('\n---\n').map((doc) => (JSON.parse(doc) as { kind: string }).kind)]);
   return { access, pool, slept, kinds };
 }
 
@@ -47,6 +47,7 @@ describe('readying the pool\'s node', () => {
     const values: string[] = [];
     access.helm.mockImplementation(async (_at, args) => {
       if (args[0] === 'list') return '[]';
+      if (args[0] === 'show') return '';
       values.push(readFileSync(args[args.indexOf('-f') + 1]!, 'utf8'));
       return '';
     });
@@ -78,6 +79,24 @@ describe('readying the pool\'s node', () => {
     expect(asked).toBe(false);
     expect(access.helm.mock.calls.map(([, args]) => args[0])).toEqual(['list', 'list']);
     expect(kinds().map(([, docs]) => docs)).toEqual([expect.arrayContaining(['Namespace']), ['PrometheusRule']]);
+  });
+
+  it('applies the stack\'s CRDs server-side before upgrading it from another version, since Helm never upgrades CRDs', async () => {
+    const { access, pool } = node();
+    access.kubectl.mockImplementation(async (_at, args) => {
+      if (args[1] === 'runtimeclass') return 'runtimeclass.node.k8s.io/gvisor\n';
+      if (args[0] === 'run') throw new Error('runs under gVisor');
+      return 'daemonset.apps/pool-proxy';
+    });
+    const order: string[] = [];
+    access.helm.mockImplementation(async (_at, args) => {
+      order.push(args.slice(0, 3).join(' '));
+      if (args[0] === 'list') return JSON.stringify([{ chart: args[4] === '^kube-prometheus-stack$' ? 'kube-prometheus-stack-88.6.2' : 'prometheus-blackbox-exporter-11.19.1', status: 'deployed' }]);
+      return args[0] === 'show' ? '# the stack\'s CRDs' : '';
+    });
+    access.apply.mockImplementation(async (_at, manifest, options) => { if (options?.serverSide) order.push(`server-side ${manifest}`); return ''; });
+    await pool.ready({ image: IMAGE, address: '100.64.0.9' }, caddies);
+    expect(order.slice(order.indexOf('show crds kube-prometheus-stack'))).toEqual(['show crds kube-prometheus-stack', 'server-side # the stack\'s CRDs', 'upgrade --install kube-prometheus-stack', 'list -n monitoring']);
   });
 
   it('installs a release that is there but not deployed again', async () => {

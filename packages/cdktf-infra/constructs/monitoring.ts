@@ -25,8 +25,9 @@ export class MonitoringStack extends Construct {
       name: "kube-prometheus-stack",
       repository: "https://prometheus-community.github.io/helm-charts",
       chart: "kube-prometheus-stack",
-      version: "88.6.2",
+      version: "91.7.0",
       namespace: ns.metadata.name,
+      reuseValues: true,
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       set: [
