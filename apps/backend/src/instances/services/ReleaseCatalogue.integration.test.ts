@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { ReleaseCatalogue } from './ReleaseCatalogue.js';
+import { chartDataVersion, ReleaseCatalogue } from './ReleaseCatalogue.js';
 
 const fresh = await emptiedEachTime();
 
@@ -33,14 +33,25 @@ beforeEach(async () => {
   chart = join(root, 'instance-0.1.0.tgz');
   writeFileSync(chart, 'the chart');
   execFileSync('git', ['init', '-q', repo]);
+  execFileSync('mkdir', ['-p', join(repo, 'charts', 'instance')]);
+  writeFileSync(join(repo, 'charts', 'instance', 'values.yaml'), 'image:\n  tag: dev\n');
   commit('one');
 });
 
-const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, imageDigest, chart: async () => chart, inventory: async (release, out) => { inventoried.push({ release, out }); writeFileSync(out, JSON.stringify({ bomFormat: 'CycloneDX', metadata: { component: { version: release } } })); } }, () => new Date(at));
+const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, dataVersion: chartDataVersion(repo), chartsDir, imageTag, imageDigest, chart: async () => chart, inventory: async (release, out) => { inventoried.push({ release, out }); writeFileSync(out, JSON.stringify({ bomFormat: 'CycloneDX', metadata: { component: { version: release } } })); } }, () => new Date(at));
 let inventoried: { release: string; out: string }[] = [];
 const chartSha256 = createHash('sha256').update('the chart').digest('hex');
 
 describe('the releases root has run', () => {
+  it('records the data version its chart declares, so no instance whose data it moved is sent below it, and none for a chart from before', async () => {
+    expect((await catalogue(head(), '2026-11-16T00:00:00.000Z').recordCurrent()).dataVersion).toBeUndefined();
+    writeFileSync(join(repo, 'charts', 'instance', 'values.yaml'), 'dataVersion: 1\nimage:\n  tag: dev\n');
+    const moved = commit('moved');
+    expect(await catalogue(moved, '2026-11-17T00:00:00.000Z').recordCurrent()).toMatchObject({ imageTag: moved, dataVersion: 1 });
+    writeFileSync(join(repo, 'charts', 'instance', 'values.yaml'), 'dataVersion: one\n');
+    await expect(catalogue(commit('broken'), '2026-11-18T00:00:00.000Z').recordCurrent()).rejects.toThrow('the instance chart\'s dataVersion is one, not a whole number');
+  });
+
   it('records a tagged release with its notes, keeps when it was first served, and keeps its chart', async () => {
     const one = head();
     git('tag', '-a', 'v2026.10.25', '-m', `v2026.10.25\n\nHotfix released from ${one} after v2026.10.24 without the gates: typecheck and the image build.`);
@@ -61,7 +72,7 @@ describe('the releases root has run', () => {
 
   it('records the release even when its inventory cannot be written, so instances are still offered it', async () => {
     const one = head();
-    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: one, chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
+    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, dataVersion: chartDataVersion(repo), chartsDir, imageTag: one, chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
     expect((await failing.recordCurrent()).imageTag).toBe(one);
     expect((await failing.releases()).map((release) => release.imageTag)).toContain(one);
     expect(failing.inventoryFile(one)).toBeUndefined();

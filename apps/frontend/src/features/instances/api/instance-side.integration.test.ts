@@ -67,6 +67,7 @@ root.use('/api/instances', instancesRouter({
     domain: DOMAIN,
     pool: { slots: 2, trialDays: 30 },
     releases: new ReleaseCatalogue(rootDb.instances, {
+      dataVersion: async () => 0,
       repoRoot: charts,
       chartsDir: charts,
       imageTag: NEWER,

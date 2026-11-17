@@ -1,5 +1,5 @@
 import { type AccessRevocations, type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
-import type { InstanceRecord, InstanceRelease, InstanceStatus, InstanceWatchRecord } from '../../instances/index.js';
+import { dataHolds, type InstanceRecord, type InstanceRelease, type InstanceStatus, type InstanceWatchRecord } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import { ignore } from '@koala/engine-core/failures';
 import type { AccountsStore } from '../store.js';
@@ -75,6 +75,7 @@ export interface AccountRemovalDeps {
   steps?: readonly RemovalStep[] | undefined;
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
+  currentRelease?: string | undefined;
   watches?: (() => Promise<InstanceWatchRecord[]>) | undefined;
   logouts?: (() => Promise<UndeliveredLogout[]>) | undefined;
   hub?: HubPeople | undefined;
@@ -108,6 +109,7 @@ export interface PersonInstance {
   trialEndsAt?: string | undefined;
   version?: string | undefined;
   versionWithdrawn?: boolean | undefined;
+  heldByData?: { version: string; needs: number } | undefined;
   autoUpdates?: boolean | undefined;
   unreachableSince?: string | undefined;
   signOutsUndelivered?: { since: string; why: string } | undefined;
@@ -122,8 +124,9 @@ export interface PersonEntry {
   removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
 }
 
-function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord, logouts: readonly UndeliveredLogout[] = []): PersonInstance {
+function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord, logouts: readonly UndeliveredLogout[] = [], current?: string): PersonInstance {
   const undelivered = signOutsUndelivered(instance.id, logouts);
+  const [held] = current ? dataHolds([instance], releases, current) : [];
   return {
     ...(instance.name ? { name: instance.name } : {}),
     where: instance.pool ? 'pool' : 'own',
@@ -133,6 +136,7 @@ function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease
     ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
     ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
     ...(releases.some((release) => release.imageTag === instance.running && release.withdrawn) ? { versionWithdrawn: true } : {}),
+    ...(held ? { heldByData: { version: held.release.version, needs: held.needs } } : {}),
     ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
     ...(watch?.reach?.toldDown && !watch.reach.reachable ? { unreachableSince: watch.reach.unreachableSince } : {}),
     ...(undelivered ? { signOutsUndelivered: undelivered } : {}),
@@ -201,7 +205,7 @@ export class AccountRemovalService {
         email: user.email,
         operator: this.operator(user),
         createdAt: user.createdAt,
-        ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id), logouts) } : {}),
+        ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id), logouts, this.deps.currentRelease) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
       };
     }));

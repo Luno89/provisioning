@@ -14,7 +14,8 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 
 export function instanceLine(instance: PersonInstance): string {
   const where = instance.where === 'pool' ? 'on Koala\'s servers' : 'on their own machine'
   const trial = instance.trialEndsAt ? `, trial ends ${day(instance.trialEndsAt)}` : ''
-  const version = instance.version ? ` ${instance.version}${instance.versionWithdrawn ? ' (withdrawn)' : ''}` : ''
+  const held = instance.heldByData ? ` (held: its data cannot run on ${instance.heldByData.version})` : ''
+  const version = instance.version ? ` ${instance.version}${instance.versionWithdrawn ? ' (withdrawn)' : ''}${held}` : ''
   const updates = instance.autoUpdates === undefined ? '' : instance.autoUpdates ? ', updates automatically' : ', updates by hand'
   const reach = instance.unreachableSince ? `, not answering since ${day(instance.unreachableSince)}` : ''
   const signOuts = instance.signOutsUndelivered ? `, signing out has not reached it since ${day(instance.signOutsUndelivered.since)} (${instance.signOutsUndelivered.why})` : ''

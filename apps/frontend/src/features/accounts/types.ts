@@ -21,6 +21,7 @@ export interface PersonInstance {
   trialEndsAt?: string
   version?: string
   versionWithdrawn?: boolean
+  heldByData?: { version: string; needs: number }
   autoUpdates?: boolean
   unreachableSince?: string
   signOutsUndelivered?: { since: string; why: string }

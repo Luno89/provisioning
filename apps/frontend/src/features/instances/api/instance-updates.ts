@@ -32,6 +32,7 @@ export interface UpdatesView {
   current: string
   target: string
   runningWithdrawn?: Withdrawal
+  heldByData?: { version: string; needs: number }
   releases: ReleaseRow[]
   checking?: string
 }

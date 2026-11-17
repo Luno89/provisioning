@@ -16,7 +16,7 @@ const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => pr
 
 const user = (id: string, extra: Partial<UserMetadata> = {}): UserMetadata => ({ id, email: `${id}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', ...extra });
 
-async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; releases?: InstanceRelease[]; watches?: InstanceWatchRecord[]; logouts?: UndeliveredLogout[]; steps?: boolean } = {}) {
+async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; releases?: InstanceRelease[]; current?: string; watches?: InstanceWatchRecord[]; logouts?: UndeliveredLogout[]; steps?: boolean } = {}) {
   const db = memoryDatabase();
   await db.accounts.saveUser(user('ana', { roles: ['operator'] }));
   await db.accounts.saveUser(user('bob'));
@@ -32,6 +32,7 @@ async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; rel
     hub: options.hub,
     instances: options.instances ? async () => options.instances! : undefined,
     releases: options.releases ? async () => options.releases! : undefined,
+    currentRelease: options.current,
     watches: options.watches ? async () => options.watches! : undefined,
     logouts: options.logouts ? async () => options.logouts! : undefined,
     ...(options.steps ? { workflowType: ROOT_REMOVAL_WORKFLOW, steps: ROOT_REMOVAL_STEPS } : {}),
@@ -195,6 +196,15 @@ describe('the people on root', () => {
     expect((await service.people()).find((person) => person.id === 'bob')?.instance).toEqual({
       name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z', version: 'v2026.10.26', versionWithdrawn: true, autoUpdates: false,
     });
+  });
+
+  it('says when an instance stays on its release because the one root runs cannot run its data', async () => {
+    const releases = [
+      { imageTag: 'old', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z' },
+      { imageTag: 'new', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1, withdrawn: { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.30' } },
+    ] as InstanceRelease[];
+    const { service } = await set({ releases, current: 'old', instances: [instance({ running: 'new', dataVersion: 1 })] });
+    expect((await service.people()).find((person) => person.id === 'bob')?.instance).toMatchObject({ version: 'v2026.11.17', heldByData: { version: 'v2026.10.30', needs: 1 } });
   });
 
   it('names a release root does not know by its tag, and does not call it withdrawn', async () => {

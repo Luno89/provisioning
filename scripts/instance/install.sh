@@ -124,6 +124,11 @@ read_joined() {
       INSTANCE_NAME) INSTANCE_NAME="$value" ;;
       INSTANCE_DOMAIN) INSTANCE_DOMAIN="$value" ;;
       INSTANCE_MOVE) INSTANCE_MOVE="$value" ;;
+      INSTANCE_DATA_VERSION)
+        case "$value" in
+          ''|*[!0-9]*) die "root's join reply names data version $value, not a whole number; nothing was installed" ;;
+        esac
+        INSTANCE_DATA_VERSION="$value" ;;
     esac
   done < "$1"
   for required in INSTANCE_ID INSTANCE_OWNER_ID ROOT_URL ROOT_PUBLIC_KEYS_B64 MESH_LOGIN_SERVER MESH_PREAUTH_KEY INSTANCE_REGISTRY INSTANCE_IMAGE INSTANCE_IMAGE_TAG INSTANCE_CHART_URL INSTANCE_CREDENTIAL; do
@@ -168,6 +173,7 @@ report_body() {
   if [ -n "${MESH_IP:-}" ]; then body="${body},\"meshIp\":\"$(json_string "$MESH_IP")\""; fi
   if [ -n "${4:-}" ]; then body="${body},\"moved\":true"; fi
   if [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ]; then body="${body},\"imageTag\":\"$(json_string "$INSTANCE_IMAGE_TAG")\""; fi
+  if [ "$1" = ready ] && [ -n "${INSTANCE_DATA_VERSION:-}" ]; then body="${body},\"dataVersion\":${INSTANCE_DATA_VERSION}"; fi
   printf '%s,"presence":true}' "$body"
 }
 

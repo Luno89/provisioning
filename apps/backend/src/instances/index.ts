@@ -10,6 +10,7 @@ export type { IdentityKeyPair, UsedTokenClaim } from './lib/identity-token.js';
 export { drained, GITEA_DATA, MOVE_STEP_WORDS, MOVED_POSTGRES, movedStateSecrets, PG_RESTORE } from './lib/instance-move.js';
 export type { MovePart } from './lib/instance-move.js';
 export { nameProblem, suggestedGroup } from './lib/instance-names.js';
+export { dataHolds } from './lib/instance-updates.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceWatchRecord } from './lib/instance-watch.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';

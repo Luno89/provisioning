@@ -68,6 +68,18 @@ describe('an instance\'s updates in Settings', () => {
     expect(advisories).toHaveTextContent('seroval@1.6.7: GHSA-x (high) · Update due · fixed in v2026.10.26')
   })
 
+  it('says the instance stays on its release when Koala now runs one that cannot run its data, and offers no move to it', async () => {
+    const withdrawn = { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.30' }
+    const rows = [
+      { imageTag: 'c3', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', running: true, current: false, choosable: false, withdrawn },
+      { imageTag: 'a1', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z', running: false, current: true, choosable: false },
+    ]
+    vi.mocked(api.get).mockResolvedValue({ data: { auto: true, running: 'c3', current: 'a1', target: 'c3', runningWithdrawn: withdrawn, heldByData: { version: 'v2026.10.30', needs: 1 }, releases: rows } })
+    show()
+    expect(await screen.findByTestId('held-by-data')).toHaveTextContent('Your instance stays on v2026.11.17: Koala now runs v2026.10.30, which cannot run this instance\'s data, since a later release moved it forward for good (data version 1). It moves again once Koala runs a release that can.')
+    expect(screen.queryByRole('button', { name: /^Move to v2026.10.30/ })).toBeNull()
+  })
+
   it('says the release it runs was withdrawn, marks it, and offers the one Koala runs', async () => {
     const withdrawn = { at: '2026-10-27T00:00:00.000Z', by: 'root rolled back to v2026.10.24' }
     const rows = [

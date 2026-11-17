@@ -208,14 +208,14 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     it('records a release and gives back what is stored', async () => {
       const store = await make();
       expect(await store.getReleases()).toEqual([]);
-      const recorded = await store.recordRelease(release('t1', { notes: 'first', digest: 'sha256:abc', chartSha256: 'def', hotfix: true }));
-      expect(recorded).toEqual(release('t1', { notes: 'first', digest: 'sha256:abc', chartSha256: 'def', hotfix: true }));
+      const recorded = await store.recordRelease(release('t1', { notes: 'first', digest: 'sha256:abc', chartSha256: 'def', hotfix: true, dataVersion: 1 }));
+      expect(recorded).toEqual(release('t1', { notes: 'first', digest: 'sha256:abc', chartSha256: 'def', hotfix: true, dataVersion: 1 }));
       expect(await store.getReleases()).toEqual([recorded]);
     });
 
     it('records the same release again without moving when it was first served, dropping the optional parts it no longer has', async () => {
       const store = await make();
-      await store.recordRelease(release('t1', { notes: 'n', hotfix: true, digest: 'd', chartSha256: 'c' }));
+      await store.recordRelease(release('t1', { notes: 'n', hotfix: true, digest: 'd', chartSha256: 'c', dataVersion: 1 }));
       const again = await store.recordRelease({ imageTag: 't1', version: 'v2', servedAt: '2026-11-01T00:00:00.000Z', digest: 'd2' });
       expect(again).toEqual({ imageTag: 't1', version: 'v2', servedAt: '2026-10-10T00:00:00.000Z', digest: 'd2' });
       expect(await store.getReleases()).toEqual([again]);

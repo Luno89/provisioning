@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choosable, isWithdrawn, pickProblem, releaseFromTag, rolledBackTo, updateTarget, updatesView, withdrawnBy, type InstanceRelease } from './instance-updates.js';
+import { choosable, dataHeldMail, dataHolds, isWithdrawn, pickProblem, releaseFromTag, rolledBackTo, updateTarget, updatesView, withdrawnBy, type InstanceRelease } from './instance-updates.js';
 
 const releases: InstanceRelease[] = [
   { imageTag: 'c3', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z' },
@@ -94,5 +94,34 @@ describe('a release root rolled back from', () => {
     expect(pickProblem(afterRollback, 'a1', undefined, 'v2026.10.26')).toBe(`v2026.10.26 was withdrawn when ${pulled.by}; pick another release`);
     expect(choosable(afterRollback, 'a1', undefined)).toEqual(['b2']);
     expect(choosable(afterRollback, 'b2', 'c3')).toEqual([]);
+  });
+});
+
+describe('an instance whose data a release moved forward for good', () => {
+  const moved: InstanceRelease[] = [
+    { imageTag: 'old', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z' },
+    { imageTag: 'new', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1, withdrawn: { at: '2026-11-18T00:00:00.000Z', by: rolledBackTo('v2026.10.30') } },
+  ];
+
+  it('stays where it is when root rolls back below its data, on auto or on a pick, rather than run code that cannot read it', () => {
+    expect(updateTarget({ auto: true }, 'new', 'old', moved, 1)).toBe('new');
+    expect(updateTarget({ auto: false, picked: 'old' }, 'new', 'old', moved, 1)).toBe('new');
+    expect(updateTarget({ auto: true }, 'new', 'old', moved, 0)).toBe('old');
+  });
+
+  it('offers no release below its data, and refuses a pick of one saying why', () => {
+    expect(choosable(moved, 'new', 'old', 1)).toEqual([]);
+    expect(pickProblem(moved, 'new', 'old', 'v2026.10.30', 1)).toBe('v2026.10.30 cannot run this instance\'s data: a later release moved it forward for good (data version 1), and v2026.10.30 knows only data version 0');
+  });
+
+  it('says on its updates page what holds it, and is told once by email', () => {
+    expect(updatesView({ auto: true }, 'new', 'old', 'old', moved, 1)).toMatchObject({ target: 'new', heldByData: { version: 'v2026.10.30', needs: 1 } });
+    const instances = [{ id: 'i1', ownerId: 'o1', name: 'luno', running: 'new', dataVersion: 1 }, { id: 'i2', ownerId: 'o2', running: 'old' }];
+    const holds = dataHolds(instances, moved, 'old');
+    expect(holds).toEqual([{ instanceId: 'i1', ownerId: 'o1', name: 'luno', release: moved[0], needs: 1, key: 'i1|old|1' }]);
+    expect(dataHeldMail(holds[0]!)).toEqual({
+      subject: 'luno stays on its release',
+      text: 'Your instance luno stays on the release it runs: root now offers v2026.10.30, which cannot run its data, since a later release moved it forward for good (data version 1). It moves again once root offers a release that can.',
+    });
   });
 });

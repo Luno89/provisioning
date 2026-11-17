@@ -28,7 +28,7 @@ interface StoredSession extends Omit<ClientSession, 'id' | 'expiresAt'> { expire
 
 interface StoredWatch { ownerId: string; reach?: Reach; presence?: boolean; notifyWhenUnreachable?: boolean }
 
-const RELEASE_FIELDS = ['notes', 'hotfix', 'digest', 'chartSha256'] as const;
+const RELEASE_FIELDS = ['notes', 'hotfix', 'digest', 'chartSha256', 'dataVersion'] as const;
 
 export class MemoryInstancesStore implements InstancesStore {
   private readonly handoffs = new Map<string, Date>();

@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ignore } from '@koala/engine-core/failures';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
-import { releaseFromTag, rolledBackTo, withdrawnBy, type InstanceRelease } from '../lib/instance-updates.js';
+import { dataVersionOf, releaseFromTag, rolledBackTo, withdrawnBy, type InstanceRelease } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 import type { ReleaseSource } from './InstanceService.js';
 import { inventoryFileFor } from './release-files.js';
@@ -18,9 +18,13 @@ export interface ReleaseCatalogueSettings {
   imageTag: string;
   imageDigest?: string | undefined;
   chart: () => Promise<string>;
+  dataVersion: () => Promise<number>;
   inventory: (release: string, out: string) => Promise<void>;
   processes?: Processes | undefined;
 }
+
+export const chartDataVersion = (repoRoot: string) => async (): Promise<number> =>
+  dataVersionOf(await readFile(join(repoRoot, 'charts', 'instance', 'values.yaml'), 'utf8'));
 
 export class ReleaseCatalogue implements ReleaseSource {
   private recorded: Promise<unknown> = Promise.resolve();
@@ -50,6 +54,7 @@ export class ReleaseCatalogue implements ReleaseSource {
     const fromHead = (await this.git(['rev-parse', 'HEAD']))?.slice(0, 12) === imageTag;
     const tag = fromHead ? await this.git(['describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD']) : undefined;
     const message = tag ? await this.git(['tag', '--list', '--format=%(contents)', tag]) : undefined;
+    const dataVersion = await this.settings.dataVersion();
     let chartSha256: string | undefined;
     if (IMAGE_TAG.test(imageTag)) {
       await mkdir(this.settings.chartsDir, { recursive: true });
@@ -61,6 +66,7 @@ export class ReleaseCatalogue implements ReleaseSource {
       ...releaseFromTag(imageTag, tag, message, this.now().toISOString()),
       ...(fromHead && imageDigest && DIGEST.test(imageDigest) ? { digest: imageDigest } : {}),
       ...(chartSha256 ? { chartSha256 } : {}),
+      ...(dataVersion ? { dataVersion } : {}),
     });
     if (IMAGE_TAG.test(imageTag)) {
       await this.settings.inventory(tag ?? imageTag, join(this.settings.chartsDir, `${imageTag}.sbom.json`))

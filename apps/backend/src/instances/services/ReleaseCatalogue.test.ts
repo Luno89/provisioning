@@ -42,7 +42,7 @@ beforeEach(() => {
   writeFileSync(chart, 'the chart');
 });
 
-const catalogue = (imageTag: string, at: string, processes: Processes, imageDigest?: string) => new ReleaseCatalogue(db.instances, {
+const catalogue = (imageTag: string, at: string, processes: Processes, imageDigest?: string) => new ReleaseCatalogue(db.instances, { dataVersion: async () => 0,
   repoRoot: repo,
   chartsDir,
   imageTag,
@@ -81,7 +81,7 @@ describe('the releases root has run', () => {
   });
 
   it('records the release even when its inventory cannot be written, so instances are still offered it', async () => {
-    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
+    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, dataVersion: async () => 0, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
     expect((await failing.recordCurrent()).imageTag).toBe(ONE);
     expect((await failing.releases()).map((release) => release.imageTag)).toContain(ONE);
     expect(failing.inventoryFile(ONE)).toBeUndefined();
@@ -144,7 +144,7 @@ describe('the releases root has run', () => {
 describe('the releases root has run, on the real clock', () => {
   it('stamps a release with the moment it was first served when it is given no clock', async () => {
     const before = Date.now();
-    const recorded = await new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => undefined }).recordCurrent();
+    const recorded = await new ReleaseCatalogue(db.instances, { repoRoot: repo, dataVersion: async () => 0, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => undefined }).recordCurrent();
     expect(Date.parse(recorded.servedAt ?? '')).toBeGreaterThanOrEqual(before);
   });
 });

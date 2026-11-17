@@ -5,6 +5,7 @@ describe('a person\'s instance in People', () => {
   it('says when root cannot reach it', () => {
     const base = { name: 'bob', where: 'own' as const, status: 'ready' as const, url: 'https://bob.koala.dev', autoUpdates: true }
     expect(instanceLine(base)).toBe('bob on their own machine: running, updates automatically')
+    expect(instanceLine({ name: 'cy', where: 'own', status: 'ready', url: 'https://cy.koala.dev', version: 'v2026.11.17', heldByData: { version: 'v2026.10.30', needs: 1 } })).toBe('cy on their own machine: running v2026.11.17 (held: its data cannot run on v2026.10.30)')
     expect(instanceLine({ ...base, unreachableSince: '2026-10-29T10:00:00.000Z' })).toMatch(/^bob on their own machine: running, not answering since .*2026, updates automatically$/)
   })
 

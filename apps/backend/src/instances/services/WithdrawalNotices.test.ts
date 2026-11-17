@@ -30,6 +30,20 @@ describe('telling an owner their release was withdrawn', () => {
     expect(await notices.tell()).toBe(1);
   });
 
+  it('emails the owner of an instance held on its release because root now offers one that cannot run its data, once per hold', async () => {
+    const db = memoryDatabase();
+    await db.instances.recordRelease({ imageTag: 'old', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z' });
+    await db.instances.recordRelease({ imageTag: 'new', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1 });
+    await db.instances.withdrawRelease('new', { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.30' });
+    await db.instances.saveInstance({ ...instance('1', { auto: true }, 'new'), dataVersion: 1 } as never);
+    await db.instances.saveInstance(instance('2', { auto: true }, 'new') as never);
+    const sent: { ownerId: string; subject: string }[] = [];
+    const notices = new WithdrawalNotices(db.instances, { toOwner: async (ownerId, message) => { sent.push({ ownerId, subject: message.subject }); } }, 'old');
+    expect(await notices.tell()).toBe(1);
+    expect(sent).toEqual([{ ownerId: 'owner-1', subject: 'name1 stays on its release' }]);
+    expect(await notices.tell()).toBe(0);
+  });
+
   it('tries again next time when the email could not be sent', async () => {
     const db = memoryDatabase();
     await db.instances.recordRelease({ imageTag: 'new', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z' });

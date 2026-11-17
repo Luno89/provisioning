@@ -204,7 +204,7 @@ export class MongoInstancesStore implements InstancesStore {
     const { imageTag, servedAt, ...rest } = release;
     const doc = await this.releases.findOneAndUpdate(
       { _id: imageTag as never },
-      { ...fieldChanges({ notes: undefined, hotfix: undefined, digest: undefined, chartSha256: undefined, ...rest }), $setOnInsert: { servedAt } },
+      { ...fieldChanges({ notes: undefined, hotfix: undefined, digest: undefined, chartSha256: undefined, dataVersion: undefined, ...rest }), $setOnInsert: { servedAt } },
       { upsert: true, returnDocument: 'after' },
     );
     const { _id, ...stored } = doc as Record<string, unknown>;

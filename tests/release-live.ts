@@ -8,6 +8,7 @@ import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
+import { dataVersionOf } from '../apps/backend/src/instances/lib/instance-updates.js';
 import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, type SignInWay, signedInLanding } from './lib/handoff.js';
 
@@ -544,21 +545,32 @@ async function main(): Promise<void> {
     assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), '', 'root kept the split units on a release from before them');
     note('back on a release from before the split, root runs its single unit as root again');
   }
-  const revisions = (JSON.parse(await helm('history instance -o json')) as Array<{ revision: number }>).map((entry) => entry.revision);
-  const history = [];
-  for (const revision of revisions) history.push({ revision, values: JSON.parse(await helm(`get values instance --revision ${revision} -o json`)) as { image?: { tag?: string } } });
-  const target = revisionRunning(history, previousTag);
-  assert.ok(target, `no helm revision ran ${previousTag}`);
-  await helm(`rollback instance ${target} --wait --timeout 720h`);
-  note(`helm rolled the instance back to revision ${target}`);
-  const rolledBack = await checkIn('check-in-rolled-back');
-  assert.ok(rolledBack.ended.includes('Complete'), `the check-in after the rollback did not complete: ${rolledBack.ended}`);
-  assert.deepEqual(rolledBack.trail[rolledBack.trail.length - 1], { status: 'ready', detail: `Running ${previousTag}` });
-  await allOn(previousTag);
-  cookie = await handoff('either');
-  const pulled = updatesNow().releases.find((row) => row.imageTag === candidateTag);
-  assert.ok(pulled?.withdrawn && !pulled.choosable, `root did not withdraw ${candidateTag} when it rolled back: ${JSON.stringify(pulled)}`);
-  note(`root withdrew ${candidateTag} (${pulled.withdrawn.by}), so the instance on automatic updates followed it down and is not offered it`);
+  const dataAt = (ref: string): number => dataVersionOf(run('git', ['show', `${ref}:charts/instance/values.yaml`]));
+  const raised = dataAt(candidate) > dataAt(previous) ? dataAt(candidate) : undefined;
+  if (raised !== undefined) {
+    const held = await checkIn('check-in-held-by-data');
+    assert.ok(held.ended.includes('Failed'), `the check-in offered a release below the instance's data did not refuse it: ${held.ended}`);
+    assert.deepEqual(held.trail[held.trail.length - 1], { status: 'failed', detail: UPGRADE_WORDS.belowData(previousTag, raised) });
+    await allOn(candidateTag);
+    cookie = await handoff('either');
+    note(`${candidateTag} moved the instance's data forward for good (data version ${raised}), so root's rollback to ${previousTag} leaves it on ${candidateTag}: its check-in refused the older release and changed nothing`);
+  } else {
+    const revisions = (JSON.parse(await helm('history instance -o json')) as Array<{ revision: number }>).map((entry) => entry.revision);
+    const history = [];
+    for (const revision of revisions) history.push({ revision, values: JSON.parse(await helm(`get values instance --revision ${revision} -o json`)) as { image?: { tag?: string } } });
+    const target = revisionRunning(history, previousTag);
+    assert.ok(target, `no helm revision ran ${previousTag}`);
+    await helm(`rollback instance ${target} --wait --timeout 720h`);
+    note(`helm rolled the instance back to revision ${target}`);
+    const rolledBack = await checkIn('check-in-rolled-back');
+    assert.ok(rolledBack.ended.includes('Complete'), `the check-in after the rollback did not complete: ${rolledBack.ended}`);
+    assert.deepEqual(rolledBack.trail[rolledBack.trail.length - 1], { status: 'ready', detail: `Running ${previousTag}` });
+    await allOn(previousTag);
+    cookie = await handoff('either');
+    const pulled = updatesNow().releases.find((row) => row.imageTag === candidateTag);
+    assert.ok(pulled?.withdrawn && !pulled.choosable, `root did not withdraw ${candidateTag} when it rolled back: ${JSON.stringify(pulled)}`);
+    note(`root withdrew ${candidateTag} (${pulled.withdrawn.by}), so the instance on automatic updates followed it down and is not offered it`);
+  }
   await appAnswers();
   repositoryWorks(`rolled back to ${previousTag}`);
   await sandboxedRun('release-live-rolled-back');

@@ -33,7 +33,7 @@ export function selfUpgradeClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'ow
 
 export interface SelfUpgradeDeps {
   root: { url: string; instanceId: string; credential: string };
-  release: { name: string; namespace: string; current: string };
+  release: { name: string; namespace: string; current: string; dataVersion: number };
   cluster: SelfUpgradeCluster;
   fetch?: typeof fetch;
   wait?: Reopening;
@@ -42,7 +42,7 @@ export interface SelfUpgradeDeps {
   log?: (line: string) => void;
 }
 
-interface Released { imageTag: string; chartUrl: string; digest?: string; chartSha256?: string }
+interface Released { imageTag: string; chartUrl: string; digest?: string; chartSha256?: string; dataVersion?: number }
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const CEILING = '720h';
@@ -53,16 +53,16 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const log = deps.log ?? ((line: string) => console.log(line));
   const now = deps.now ?? (() => Date.now());
   const headers = { 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${deps.root.credential}` };
-  const { name, namespace, current } = deps.release;
+  const { name, namespace, current, dataVersion: installed } = deps.release;
   const wait = deps.wait ?? reopening();
   const ofRoot = (doing: string, ask: () => Promise<Response>): Promise<Response> =>
     untilAnswered(ask, wait, (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`));
 
-  const report = async (status: string, detail: string, imageTag?: string): Promise<void> => {
+  const report = async (status: string, detail: string, imageTag?: string, dataVersion = installed): Promise<void> => {
     const answer = await ofRoot(`tells it it is ${status}`, () => call(`${deps.root.url}/api/instances/status`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, detail, ...(imageTag ? { imageTag } : {}), presence: true }),
+      body: JSON.stringify({ status, detail, ...(imageTag ? { imageTag } : {}), dataVersion, presence: true }),
     }));
     if (!answer.ok) log(`root refused hearing that this instance is ${status} (${answer.status}): ${await answer.text()}`);
   };
@@ -73,6 +73,11 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   if (wanted.imageTag === current) {
     await report('ready', UPGRADE_WORDS.running(current), current);
     return true;
+  }
+  const wantedData = wanted.dataVersion ?? 0;
+  if (wantedData < installed) {
+    await report('failed', UPGRADE_WORDS.belowData(wanted.imageTag, installed));
+    return false;
   }
 
   await report('installing', UPGRADE_WORDS.upgrading(current, wanted.imageTag));
@@ -96,8 +101,14 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
     const applied = await whileHelmRuns(['upgrade', name, chartFile, '-n', namespace, '--reset-then-reuse-values', '--set', `image.tag=${wanted.imageTag}`, '--set-string', `image.digest=${wanted.digest ?? ''}`, '--timeout', CEILING], since);
     const upgraded = applied.ok ? await rollout() : { state: 'hopeless' as const, reason: applied.reason };
     if (upgraded.state === 'done') {
-      await report('ready', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag);
+      await report('ready', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag, wantedData);
       return true;
+    }
+    if (wantedData > installed) {
+      log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; it is not rolled back to ${current}, which cannot run the data it may have moved forward`);
+      const left = await clearAbandoned(since);
+      await report('failed', withWhy(UPGRADE_WORDS.keptForData(wanted.imageTag, current, wantedData), left ? `${upgraded.reason}; ${left}` : upgraded.reason), undefined, wantedData);
+      return false;
     }
     log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; rolling back to ${current}`);
     const back = await deps.cluster.helm(['rollback', name, '-n', namespace, '--timeout', CEILING])

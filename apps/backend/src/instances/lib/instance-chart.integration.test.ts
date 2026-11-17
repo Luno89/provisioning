@@ -446,7 +446,7 @@ describe('the instance chart', () => {
     const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
     const fresh = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`]);
     const upgrade = selfUpgradeSettingsFrom(environment(fresh, podOf(find(fresh, 'CronJob', 'luno-self-upgrade')), 'self-upgrade'));
-    expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles' } });
+    expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
     expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed')), 'seed')).mongo).toBeDefined();
     expect(loadKey(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-temporal')), 'temporal-jwks'), 'temporal')).toBeDefined();

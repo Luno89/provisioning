@@ -89,6 +89,7 @@ export interface JoinBundle {
   imageDigest?: string | undefined;
   chartUrl: string;
   chartSha256?: string | undefined;
+  dataVersion?: number | undefined;
   credential: string;
   name: string;
   domain: string;
@@ -540,17 +541,18 @@ export class InstanceService {
     return (await this.settings.releases?.releases()) ?? [];
   }
 
-  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartUrl: string; digest?: string; chartSha256?: string }>> {
+  async release(instanceId: unknown, credential: unknown): Promise<Outcome<{ imageTag: string; chartUrl: string; digest?: string; chartSha256?: string; dataVersion?: number }>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     const releases = await this.knownReleases();
-    const imageTag = updateTarget(instance.updates ?? DEFAULT_UPDATES, instance.running, this.settings.imageTag, releases);
-    const { imageDigest, chartSha256 } = pinned(findRelease(releases, imageTag));
-    return { ok: true, value: { imageTag, chartUrl: this.chartUrlFor(imageTag), ...(imageDigest ? { digest: imageDigest } : {}), ...(chartSha256 ? { chartSha256 } : {}) } };
+    const imageTag = updateTarget(instance.updates ?? DEFAULT_UPDATES, instance.running, this.settings.imageTag, releases, instance.dataVersion ?? 0);
+    const release = findRelease(releases, imageTag);
+    const { imageDigest, chartSha256 } = pinned(release);
+    return { ok: true, value: { imageTag, chartUrl: this.chartUrlFor(imageTag), ...(imageDigest ? { digest: imageDigest } : {}), ...(chartSha256 ? { chartSha256 } : {}), ...(release?.dataVersion ? { dataVersion: release.dataVersion } : {}) } };
   }
 
   private async viewOf(instance: InstanceRecord): Promise<UpdatesView> {
-    return updatesView(instance.updates ?? DEFAULT_UPDATES, instance.running, instance.previous, this.settings.imageTag, await this.knownReleases());
+    return updatesView(instance.updates ?? DEFAULT_UPDATES, instance.running, instance.previous, this.settings.imageTag, await this.knownReleases(), instance.dataVersion ?? 0);
   }
 
   async updates(instanceId: unknown, credential: unknown): Promise<Outcome<UpdatesView>> {
@@ -573,7 +575,7 @@ export class InstanceService {
     if (change.auto === true && change.version !== undefined) return { ok: false, status: 400, error: 'a picked version turns automatic updates off; send one or the other' };
     if (typeof change.version === 'string') {
       const releases = await this.knownReleases();
-      const problem = pickProblem(releases, instance.running, instance.previous, change.version);
+      const problem = pickProblem(releases, instance.running, instance.previous, change.version, instance.dataVersion ?? 0);
       if (problem) return { ok: false, status: 409, error: problem };
       const saved = await this.save(instance, { updates: { auto: false, picked: findRelease(releases, change.version)!.imageTag } });
       return { ok: true, value: await this.viewOf(saved) };
@@ -584,7 +586,7 @@ export class InstanceService {
   }
 
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown }): Promise<Outcome<InstanceRecord>> {
+  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown; dataVersion?: unknown }): Promise<Outcome<InstanceRecord>> {
     const moving = await this.mover(instanceId, credential);
     if (moving) return this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
@@ -605,9 +607,11 @@ export class InstanceService {
       url = checked.url;
     }
     if (report.imageTag !== undefined && (typeof report.imageTag !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(report.imageTag))) return { ok: false, status: 400, error: 'imageTag is the image tag the instance runs' };
+    if (report.dataVersion !== undefined && (typeof report.dataVersion !== 'number' || !Number.isInteger(report.dataVersion) || report.dataVersion < 0)) return { ok: false, status: 400, error: 'dataVersion is the data version the instance\'s release brought, a whole number' };
+    const dataVersion = Math.max(instance.dataVersion ?? 0, typeof report.dataVersion === 'number' ? report.dataVersion : 0);
     const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
     const moved = running !== instance.running && instance.running ? { previous: instance.running } : {};
-    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved });
+    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved, ...(dataVersion ? { dataVersion } : {}) });
     if (report.presence !== true && !this.settings.connected?.(instance.id)) await this.store.instances.savePresence(instance, false);
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
     if (saved.status !== instance.status) this.settings.serviceChanged?.(saved);

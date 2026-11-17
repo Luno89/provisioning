@@ -41,6 +41,7 @@ export interface InstanceRecord {
   groups?: InstanceGroup[] | undefined;
   updates?: UpdateSetting | undefined;
   running?: string | undefined;
+  dataVersion?: number | undefined;
   previous?: string | undefined;
   signIn?: SignInKey | undefined;
 }

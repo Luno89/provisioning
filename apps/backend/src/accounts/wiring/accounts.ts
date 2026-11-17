@@ -20,6 +20,7 @@ export interface AccountsWiringDeps {
   clearSession: (res: express.Response) => void;
   devices: Pick<Devices, 'confirmed'>;
   revocations?: AccessRevocations | undefined;
+  currentRelease?: string | undefined;
 }
 
 export function wireAccounts(deps: AccountsWiringDeps): void {
@@ -33,6 +34,7 @@ export function wireAccounts(deps: AccountsWiringDeps): void {
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.instances.getInstances(),
     releases: () => db.instances.getReleases(),
+    currentRelease: deps.currentRelease,
     watches: () => db.instances.getWatches(),
     logouts: () => db.instances.pendingLogouts(),
     hub: deps.hubPeople,

@@ -21,7 +21,7 @@ import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
 import { InstanceChart, releaseInventory } from '../services/InstanceChart.js';
-import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
+import { chartDataVersion, ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { DependencyWatch } from '../services/DependencyWatch.js';
 import { DEPENDENCY_WATCH_ID } from '../lib/dependency-findings.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
@@ -232,6 +232,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     imageTag: root.imageTag,
     imageDigest: root.imageDigest,
     chart: () => instanceChart.path(),
+    dataVersion: chartDataVersion(deps.repoRoot),
     inventory: (release, out) => releaseInventory(deps.repoRoot, release, out),
   });
   const withdrawalNotices = new WithdrawalNotices(db.instances, deps.mail, root.imageTag);

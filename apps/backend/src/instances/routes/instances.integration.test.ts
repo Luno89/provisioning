@@ -24,7 +24,7 @@ describe('what the installer reads from root', () => {
   const bundle = {
     instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(touch ran)\n-----END PUBLIC KEY-----",
     meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`touch ran`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
-    imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com',
+    imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com', dataVersion: 1,
   };
   const readIn = (dir: string, print: string) => spawnSync('sh', ['-c', scriptExcerpt(INSTALLER, ['read_joined'], `die() { echo "refused: $1"; exit 1; }\nread_joined ./join.env\n${print}`)], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...excerptEnv() } });
 
@@ -36,6 +36,15 @@ describe('what the installer reads from root', () => {
     expect(read.stdout.split('\n').slice(0, 2)).toEqual([bundle.preAuthKey, bundle.credential]);
     expect(read.stdout.split('\n').slice(2).join('\n')).toBe(bundle.rootPublicKeys);
     expect(existsSync(join(dir, 'ran'))).toBe(false);
+  });
+
+  it('reads the data version the release brings, and refuses one that is not a whole number', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
+    writeFileSync(join(dir, 'join.env'), bundleAsEnv(bundle));
+    expect(readIn(dir, 'printf "%s" "$INSTANCE_DATA_VERSION"').stdout).toBe('1');
+    const bad = mkdtempSync(join(tmpdir(), 'bundle-'));
+    writeFileSync(join(bad, 'join.env'), `${bundleAsEnv(bundle)}INSTANCE_DATA_VERSION='one'\n`);
+    expect(readIn(bad, 'true').stdout).toMatch(/refused: root's join reply names data version one, not a whole number/);
   });
 
   it('refuses a reply missing a value it needs, or holding a line it cannot read', () => {
@@ -99,9 +108,9 @@ describe('what the installer tells root as it installs', () => {
       'report joined "On the mesh as 100.64.0.9"',
       'report installing "Installing the instance" "https://luno.koala.dev"',
       'report ready "Installed" "https://luno.koala.dev"',
-    ], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9', INSTANCE_IMAGE_TAG: 'abc123' });
+    ], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9', INSTANCE_IMAGE_TAG: 'abc123', INSTANCE_DATA_VERSION: '1' });
     expect(ran.stdout + ran.stderr).toContain('finished');
-    expect(await root.record()).toMatchObject({ status: 'ready', detail: 'Installed', meshIp: '100.64.0.9', url: 'https://luno.koala.dev', running: 'abc123' });
+    expect(await root.record()).toMatchObject({ status: 'ready', detail: 'Installed', meshIp: '100.64.0.9', url: 'https://luno.koala.dev', running: 'abc123', dataVersion: 1 });
   });
 
   it('sends any words root can read, quotes, backslashes and new lines included', async () => {
@@ -437,6 +446,43 @@ describe('Koala\'s dependencies on root', () => {
     expect(seen.headers['cache-control']).toBe('no-store');
     expect(seen.data.check.checkedAt).toBe('2026-10-29T00:00:00.000Z');
     expect((await axios.post(harness.url('/api/instances/dependencies/check'), {}, { validateStatus: () => true })).status).toBe(200);
+  });
+
+  it('after root rolled back below an instance\'s data: keeps it on what it runs, says why, and refuses a pick that cannot run its data', async () => {
+    const withdrawn = { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.24' };
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: async (db) => {
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
+        return instancesRouter({
+          instances: new InstanceService(db, {
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
+            releases: {
+              releases: async () => [
+                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+                { imageTag: 'new222', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1, withdrawn },
+              ],
+              hasChart: () => false,
+            },
+          }, undefined),
+          chart: async () => '',
+          chartOf: () => undefined,
+        });
+      },
+    });
+    const call = (method: 'get' | 'put' | 'post', path: string, data?: unknown) =>
+      axios.request<Record<string, unknown>>({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+
+    expect((await call('post', '/api/instances/status', { status: 'ready', imageTag: 'new222', dataVersion: 1 })).status).toBe(200);
+    expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'new222', dataVersion: 1 });
+    expect((await call('get', '/api/instances/updates')).data).toMatchObject({ target: 'new222', heldByData: { version: 'v2026.10.24', needs: 1 } });
+    const picked = await call('put', '/api/instances/updates', { version: 'v2026.10.24' });
+    expect(picked.status).toBe(409);
+    expect(picked.data.error).toBe('v2026.10.24 cannot run this instance\'s data: a later release moved it forward for good (data version 1), and v2026.10.24 knows only data version 0');
+    expect((await call('post', '/api/instances/status', { status: 'ready', imageTag: 'new222', dataVersion: 0 })).status).toBe(200);
+    expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'new222' });
+    expect((await call('post', '/api/instances/status', { status: 'ready', dataVersion: 'one' })).status).toBe(400);
   });
 
   it('tells an instance, by its credential, what the release it runs carries and what fixes it', async () => {

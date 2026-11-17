@@ -39,6 +39,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
     ['INSTANCE_NAME', bundle.name],
     ['INSTANCE_DOMAIN', bundle.domain],
     ['INSTANCE_MOVE', bundle.move ? 'yes' : ''],
+    ['INSTANCE_DATA_VERSION', String(bundle.dataVersion ?? 0)],
   ];
   return `${lines.map(([key, value]) => `${key}=${shellQuote(value)}`).join('\n')}\n`;
 }
@@ -411,7 +412,7 @@ export function instancesRouter(deps: {
 
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown });
+    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown; dataVersion?: unknown });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
   }));

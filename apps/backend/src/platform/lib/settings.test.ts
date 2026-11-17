@@ -166,8 +166,10 @@ describe('the settings each worker reads once, at start', () => {
 
 describe('the settings of a step run in an instance\'s pod', () => {
   it('gives the self-upgrade the release it upgrades and root to ask, and refuses one that is not named', () => {
-    const env = { ...INSTANCE, RELEASE_NAME: 'instance', RELEASE_NAMESPACE: 'nowrinkles', CURRENT_IMAGE_TAG: 'a1b2c3d4e5f6' };
-    expect(selfUpgradeSettingsFrom(env)).toMatchObject({ root: { url: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' }, release: { name: 'instance', namespace: 'nowrinkles', current: 'a1b2c3d4e5f6' } });
+    const env = { ...INSTANCE, RELEASE_NAME: 'instance', RELEASE_NAMESPACE: 'nowrinkles', CURRENT_IMAGE_TAG: 'a1b2c3d4e5f6', DATA_VERSION: '1' };
+    expect(selfUpgradeSettingsFrom(env)).toMatchObject({ root: { url: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' }, release: { name: 'instance', namespace: 'nowrinkles', current: 'a1b2c3d4e5f6', dataVersion: 1 } });
+    expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, DATA_VERSION: '' }))).toContain('DATA_VERSION is not set: it is the data version the installed release brought, below which this instance never moves');
+    expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, DATA_VERSION: 'one' }))).toContain('DATA_VERSION is one, not a whole number');
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, RELEASE_NAME: '' }))).toContain('RELEASE_NAME is not set: the self-upgrade CronJob names the release it upgrades');
   });
 

@@ -2440,7 +2440,10 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   later move onto one clears it. A withdrawn release is never offered or pickable; an instance on auto that runs one follows root
   down, even when the `running` root recorded is stale; one that picked it keeps it, its Settings → Updates says it was withdrawn and
   offers root's release, and root emails its owner once per withdrawal (`WithdrawalNotices`, `releaseWithdrawalNotices`). People
-  marks it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
+  marks it. **An instance never moves below its data** (owner, 2026-11-16, version-align's concept): the chart declares a `dataVersion`,
+  raised when a release moves an instance's data forward for good (1: Temporal 1.29's schema); root keeps each instance's highest from
+  its check-ins, never offers or lets it pick a release below it, and a rollback leaves it where it is, Updates and People saying why and
+  its owner emailed once; the self-upgrade refuses a release below it and does not roll back a failed upgrade that raised it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
   root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
   check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
   People shows each instance's version and how it updates. **The self-upgrade** (`apps/backend/src/scripts/self-upgrade.ts`, the

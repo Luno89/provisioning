@@ -399,7 +399,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, db, temporal: getTemporalClient, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
+  wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 

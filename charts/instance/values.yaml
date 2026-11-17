@@ -1,3 +1,5 @@
+dataVersion: 1
+
 image:
   repository: nowrinkles/app
   tag: dev

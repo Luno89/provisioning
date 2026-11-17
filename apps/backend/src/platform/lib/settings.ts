@@ -613,7 +613,7 @@ export function podStepSettingsFrom(env: Env): PodStepSettings {
 
 export interface SelfUpgradeSettings extends PodStepSettings {
   root: { url: string; instanceId: string; credential: string };
-  release: { name: string; namespace: string; current: string };
+  release: { name: string; namespace: string; current: string; dataVersion: number };
 }
 
 export function selfUpgradeSettingsFrom(env: Env): SelfUpgradeSettings {
@@ -624,9 +624,12 @@ export function selfUpgradeSettingsFrom(env: Env): SelfUpgradeSettings {
   const name = required(read, 'RELEASE_NAME', why);
   const namespace = required(read, 'RELEASE_NAMESPACE', why);
   const current = required(read, 'CURRENT_IMAGE_TAG', why);
+  const dataText = required(read, 'DATA_VERSION', 'it is the data version the installed release brought, below which this instance never moves');
+  const dataVersion = dataText !== undefined && /^\d+$/.test(dataText) ? Number(dataText) : undefined;
+  if (dataText !== undefined && dataVersion === undefined) read.problems.push(`DATA_VERSION is ${dataText}, not a whole number`);
   const instance = step?.role.instance;
-  return finish(read, 'the self-upgrade', step && instance && credential && name && namespace && current
-    ? { ...step, root: { url: instance.rootUrl, instanceId: instance.id, credential }, release: { name, namespace, current } }
+  return finish(read, 'the self-upgrade', step && instance && credential && name && namespace && current && dataVersion !== undefined
+    ? { ...step, root: { url: instance.rootUrl, instanceId: instance.id, credential }, release: { name, namespace, current, dataVersion } }
     : undefined);
 }
 

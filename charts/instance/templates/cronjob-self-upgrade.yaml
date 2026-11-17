@@ -38,3 +38,5 @@ spec:
                   value: {{ .Release.Namespace }}
                 - name: CURRENT_IMAGE_TAG
                   value: {{ .Values.image.tag | quote }}
+                - name: DATA_VERSION
+                  value: {{ .Values.dataVersion | quote }}

@@ -1,4 +1,4 @@
-import { withdrawalMail, withdrawalsHeld } from '../lib/instance-updates.js';
+import { dataHeldMail, dataHolds, withdrawalMail, withdrawalsHeld } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 
 export interface WithdrawalMail {
@@ -26,6 +26,18 @@ export class WithdrawalNotices {
         continue;
       }
       await this.store.recordWithdrawalTold(held.key, held.ownerId, this.now().toISOString());
+      told += 1;
+    }
+    for (const held of dataHolds(await this.store.getInstances(), releases, this.current)) {
+      const key = `data|${held.key}`;
+      if (await this.store.withdrawalTold(key)) continue;
+      try {
+        await this.mail.toOwner(held.ownerId, dataHeldMail(held));
+      } catch (err) {
+        console.error(`[releases] could not tell the owner of ${held.instanceId} that it stays on its release for its data: ${(err as Error).message}`);
+        continue;
+      }
+      await this.store.recordWithdrawalTold(key, held.ownerId, this.now().toISOString());
       told += 1;
     }
     return told;
