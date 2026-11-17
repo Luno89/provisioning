@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
+import { MailService } from '../../platform/services/MailService.js';
 import { WithdrawalNotices } from './WithdrawalNotices.js';
 
 const instance = (id: string, updates: { auto: boolean; picked?: string }, running: string) =>
@@ -28,6 +29,24 @@ describe('telling an owner their release was withdrawn', () => {
     await db.instances.withdrawRelease('new', undefined);
     await db.instances.withdrawRelease('new', { at: '2026-11-02T00:00:00.000Z', by: 'root rolled back to v2026.10.29' });
     expect(await notices.tell()).toBe(1);
+  });
+
+  it('emails an instance held on its release by its data through the platform\'s mail, once per hold', async () => {
+    const db = await testDatabase();
+    await db.instances.recordRelease({ imageTag: 'old', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00.000Z' });
+    await db.instances.recordRelease({ imageTag: 'new', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1 });
+    await db.instances.withdrawRelease('new', { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.30' });
+    await db.instances.saveInstance({ ...instance('1', { auto: true }, 'new'), dataVersion: 1 } as never);
+    const sent: Array<{ to: string; subject: string }> = [];
+    const mail = new MailService({
+      way: { kind: 'smtp', url: 'smtp://x', from: 'Koala <alerts@koala.dev>' },
+      emailOf: async (id) => (id === 'owner-1' ? 'owner@example.com' : undefined),
+      transport: () => ({ sendMail: async (message) => { sent.push(message); } }),
+    });
+    const notices = new WithdrawalNotices(db.instances, mail, 'old');
+    expect(await notices.tell()).toBe(1);
+    expect(sent).toMatchObject([{ to: 'owner@example.com', subject: 'name1 stays on its release' }]);
+    expect(await new WithdrawalNotices(db.instances, mail, 'old').tell()).toBe(0);
   });
 
   it('tries again next time when the email could not be sent', async () => {

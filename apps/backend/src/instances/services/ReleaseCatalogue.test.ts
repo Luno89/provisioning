@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { matches, mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
 import type { ProcessRun, Processes } from '../../platform/lib/processes.js';
-import { ReleaseCatalogue } from './ReleaseCatalogue.js';
+import { chartDataVersion, ReleaseCatalogue } from './ReleaseCatalogue.js';
 
 let db: Database;
 let repo: string;
@@ -146,5 +146,16 @@ describe('the releases root has run, on the real clock', () => {
     const before = Date.now();
     const recorded = await new ReleaseCatalogue(db.instances, { repoRoot: repo, dataVersion: async () => 0, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => undefined }).recordCurrent();
     expect(Date.parse(recorded.servedAt ?? '')).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe('the data version a release brings', () => {
+  it('is the one its instance chart declares', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'koala-chart-values-'));
+    mkdirSync(join(repo, 'charts', 'instance'), { recursive: true });
+    writeFileSync(join(repo, 'charts', 'instance', 'values.yaml'), 'dataVersion: 3\nimage:\n  tag: abc\n');
+    expect(await chartDataVersion(repo)()).toBe(3);
+    writeFileSync(join(repo, 'charts', 'instance', 'values.yaml'), 'image:\n  tag: abc\n');
+    expect(await chartDataVersion(repo)()).toBe(0);
   });
 });
