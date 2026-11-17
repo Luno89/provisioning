@@ -120,7 +120,7 @@ export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
     case 'worker-cluster':
       return [...always, 'gitea', 'infisical'];
     case 'worker-host':
-      return always;
+      return [...always, ...webDependencies(settings.webTools)];
   }
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type WebToolsDeps } from './web-tools-resolver.js';
+import { corpusEndpointsWith, resolveWebTools, webToolsDepsFrom, type WebToolsDeps } from './web-tools-resolver.js';
+import { CorpusStoreDown } from './corpus-stores.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
 
 const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
@@ -36,12 +37,10 @@ describe('the deps a process builds', () => {
   it('reach a deployment\'s cluster through the proxy by its id', async () => {
     const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
     proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
-    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
-    const crawler = { ...dep({ id: 'c9', name: 'crawler', appType: 'crawl4ai', ownerId: 'u1' }), crawl4aiApiToken: 'tok' };
-    const forCrawl = webToolsDepsFrom({ getDeployments: async () => [crawler] }, proxy);
-    expect(await crawlEndpointWith({ ...forCrawl, settings: {} }, 'u1')).toEqual({ base: 'http://127.0.0.1:41000', token: 'tok' });
-    expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'crawl4ai-c9', { service: 'crawl4ai', namespace: 'crawler', remotePort: 11235 });
-    expect(built.db).toBeDefined();
+    const index = dep({ id: 'q9', name: 'search-index', appType: 'quickwit', ownerId: 'u1' });
+    const built = webToolsDepsFrom({ getDeployments: async () => [index] }, proxy);
+    expect(await corpusEndpointsWith(built, 'u1')).toEqual({ index: { base: 'http://127.0.0.1:41000' } });
+    expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'quickwit-q9', { service: 'quickwit', namespace: 'search-index', remotePort: 7280 });
   });
 
   it('pass on the proxy\'s refusal, which leaves the service out', async () => {
@@ -52,18 +51,26 @@ describe('the deps a process builds', () => {
   });
 });
 
-describe('whose crawl a deployment serves', () => {
-  it('a deployment with no owner is nobody\'s, so it serves no one\'s crawl', async () => {
-    const ownerless = { ...dep({ id: 'c9', appType: 'crawl4ai' }), crawl4aiApiToken: 'tok' };
-    const d = deps([ownerless]);
-    expect(await crawlEndpointWith(d, 'u1')).toBeUndefined();
-    expect(await corpusEndpointsWith(deps([dep({ appType: 'quickwit' })]), 'u1')).toEqual({});
-    expect(d.serviceUrl).not.toHaveBeenCalled();
+describe('the person\'s own corpus services', () => {
+  it('a Quickwit of their own that is deployed but not answering is said to be down, never taken as missing', async () => {
+    const d = deps([dep({ id: 'q9', name: 'search-index', appType: 'quickwit', ownerId: 'u1' })], { serviceUrl: vi.fn<WebToolsDeps['serviceUrl']>(async () => { throw new Error('its pod is not ready'); }) });
+    const failed = await corpusEndpointsWith(d, 'u1').then(() => undefined, (err: unknown) => err);
+    expect(failed).toBeInstanceOf(CorpusStoreDown);
+    expect((failed as Error).message).toBe('Quickwit "search-index" is deployed but not answering: its pod is not ready');
   });
 
-  it('a database that does not answer is said, not read as no deployment', async () => {
-    const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('the database is not answering'); }) } });
-    await expect(crawlEndpointWith(d, 'u1')).rejects.toThrow('the database is not answering');
-    await expect(corpusEndpointsWith(d, 'u1')).rejects.toThrow('the database is not answering');
+  it('the deployments that cannot be read are an error, never no services', async () => {
+    const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('the database is down'); }) } });
+    await expect(corpusEndpointsWith(d, 'u1')).rejects.toThrow('the database is down');
+  });
+
+  it('someone else\'s running Quickwit is not theirs', async () => {
+    expect(await corpusEndpointsWith(deps([dep({ appType: 'quickwit', ownerId: 'someone-else' })]), 'u1')).toEqual({});
+  });
+
+  it('a Quickwit with no owner is nobody\'s, so it serves no one\'s corpus', async () => {
+    const d = deps([dep({ appType: 'quickwit' })]);
+    expect(await corpusEndpointsWith(d, 'u1')).toEqual({});
+    expect(d.serviceUrl).not.toHaveBeenCalled();
   });
 });

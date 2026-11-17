@@ -2,7 +2,7 @@
 import { QUEUES } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
-  catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl,
+  catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE,
 } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
@@ -267,7 +267,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     egressSecret: keys.egress,
     corpus: {
       addressProblem: publicAddressProblem,
-      crawlerReady: async (ownerId) => (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
+      storesProblem: async (ownerId) => storesMissing(await corpusEndpoints(webPlace, ownerId), SEARCHABLE, 'crawling a site into your corpus'),
       start: async (workflowId, args) => {
         await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: QUEUES.host, workflowId, args: [args], ...startedFor(args.ownerId) });
       },

@@ -1,7 +1,7 @@
 import { at, listAt } from '../../platform/lib/json-shapes.js';
 import { collectionConfig, pointId } from '../../engine/lib/corpus-backend.js';
 import { embed } from '../../engine/lib/corpus-client.js';
-import { answered, HELD, SEARCHABLE, withStores } from '../../engine/lib/corpus-stores.js';
+import { answered, bothOf, HELD, refusal, SEARCHABLE, withStores } from '../../engine/lib/corpus-stores.js';
 import {
   MEMORY_INDEX, MEMORY_COLLECTION, MEMORY_SEARCH_LIMIT, buildMemoryQuery, memoryIndexConfig,
   fuseRRF, type FusedHit, type MemoryDoc,
@@ -34,7 +34,7 @@ export async function ensureMemoryIndex(base: string): Promise<void> {
   if (res.ok) { indexes.add(base); return; }
   const body = await res.text();
   if (/already exist/i.test(body)) { indexes.add(base); return; }
-  throw new Error(`Could not create the memory index: HTTP ${res.status} ${body.slice(0, 300)}`);
+  throw refusal('Quickwit', res, body);
 }
 
 export async function ensureMemoryCollection(base: string, apiKey: string): Promise<void> {
@@ -47,7 +47,7 @@ export async function ensureMemoryCollection(base: string, apiKey: string): Prom
   if (res.ok) { collections.add(base); return; }
   const body = await res.text();
   if (/already exist/i.test(body)) { collections.add(base); return; }
-  throw new Error(`Could not create the memory collection: HTTP ${res.status} ${body.slice(0, 300)}`);
+  throw refusal('Qdrant', res, body);
 }
 
 export const bodyOf = (m: MemoryItem) => `${m.title}. ${m.text}`;
@@ -71,13 +71,6 @@ export async function indexMemories(
 
   const [vectors, documents] = await bothOf(embedMemories(stores, items), writeMemoryDocs(stores, items));
   return { vectors, documents };
-}
-
-async function bothOf<A, B>(a: Promise<A>, b: Promise<B>): Promise<[A, B]> {
-  const [first, second] = await Promise.allSettled([a, b]);
-  if (first.status === 'rejected') throw first.reason;
-  if (second.status === 'rejected') throw second.reason;
-  return [first.value, second.value];
 }
 
 type Searchable = MemoryEndpoints & Required<MemoryEndpoints>;

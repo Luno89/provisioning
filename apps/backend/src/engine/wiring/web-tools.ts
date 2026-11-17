@@ -1,6 +1,6 @@
 import { dependencyFetch } from '@koala/engine-core/http';
 import { publicAddressProblem, type Database, type DependencyReporter, type WebToolSettings } from '../../platform/index.js';
-import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type ProxyTarget, type WebToolsDeps } from '../lib/web-tools-resolver.js';
+import { corpusEndpointsWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type ProxyTarget, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
 
 export type { CorpusEndpoints };
@@ -21,9 +21,6 @@ export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
 });
 
 export const buildWebTools = (place: WebToolsPlace): Promise<WebTools> => resolveWebTools(webToolsDeps(place));
-
-export const crawlEndpoint = (place: WebToolsPlace, ownerId: string): Promise<{ base: string; token: string } | undefined> =>
-  crawlEndpointWith(webToolsDeps(place), ownerId);
 
 export const corpusEndpoints = (place: WebToolsPlace, ownerId: string): Promise<CorpusEndpoints> =>
   corpusEndpointsWith(webToolsDeps(place), ownerId);

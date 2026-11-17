@@ -8,6 +8,7 @@ import { testDataDir } from '../platform/testing/data-dir.js';
 import { smtpSink, textOf, type SmtpSink } from '../platform/testing/smtp-sink.js';
 import { startDependencySourcesStandIn, type DependencySourcesStandIn } from '../platform/testing/dependency-sources-stand-in.js';
 import { giveHostActivities, hostClusterAccess } from './host-settings.js';
+import { dependencyStatesFor } from '../platform/wiring/dependencies.js';
 import { DependencyWatchActivity } from './DependencyWatchActivity.js';
 
 const TAG = 'watched';
@@ -45,7 +46,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
       HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
       MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: sources.url,
     });
-    giveHostActivities(settings, hostClusterAccess(settings));
+    giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
 
     expect(await DependencyWatchActivity()).toEqual({ findings: 1, due: 1 });
 
@@ -75,7 +76,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
         HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
         MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: down.url,
       });
-      giveHostActivities(settings, hostClusterAccess(settings));
+      giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
 
       expect(await DependencyWatchActivity()).toEqual({ findings: 2, due: 2 });
 
@@ -106,7 +107,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
         HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
         MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: registry.url,
       });
-      giveHostActivities(settings, hostClusterAccess(settings));
+      giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
 
       await DependencyWatchActivity();
       await DependencyWatchActivity();

@@ -3,6 +3,7 @@ import { createWebTools, type WebTools } from './web-tools.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
 import { reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';
+import { CorpusStoreDown } from './corpus-stores.js';
 
 export interface ProxyTarget {
   service: string;
@@ -38,21 +39,21 @@ export function liveDeployment(deployments: DeploymentMetadata[], appType: strin
     && d.ownerId === ownerId);
 }
 
+const SERVICE_NAMES: Record<string, string> = { minio: 'MinIO', quickwit: 'Quickwit', qdrant: 'Qdrant', tei: 'TEI' };
+
 async function baseUrlFor(
   deps: WebToolsDeps,
   dep: DeploymentMetadata,
   service: string,
   remotePort: number,
-): Promise<string | undefined> {
+): Promise<string> {
   try {
-    const ns = namespaceOf(dep);
     const url = await deps.serviceUrl(dep.clusterId, `${service}-${dep.id}`, {
-      service, namespace: ns, remotePort,
+      service, namespace: namespaceOf(dep), remotePort,
     });
-    return url.replace(/\/$/, '');
+    return url.replace(/\/+$/, '');
   } catch (err) {
-    console.warn(`[web-tools] could not reach ${service} deployment "${dep.name}": ${(err as Error).message}`);
-    return undefined;
+    throw new CorpusStoreDown(`${SERVICE_NAMES[service] ?? service} "${dep.name}" is deployed but not answering: ${(err as Error).message}`, { cause: err });
   }
 }
 
@@ -72,14 +73,6 @@ export async function resolveWebTools(deps: WebToolsDeps): Promise<WebTools> {
   });
 }
 
-export async function crawlEndpointWith(deps: WebToolsDeps, ownerId: string): Promise<{ base: string; token: string } | undefined> {
-  const deployments = await deps.db.getDeployments();
-  const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
-  if (!dep?.crawl4aiApiToken) return undefined;
-  const url = await baseUrlFor(deps, dep, 'crawl4ai', 11235);
-  return url ? { base: url.replace(/\/+$/, ''), token: dep.crawl4aiApiToken } : undefined;
-}
-
 export interface CorpusEndpoints {
   storage?: { base: string; accessKey: string; secretKey: string; bucket: string };
   index?: { base: string };
@@ -92,9 +85,7 @@ export async function corpusEndpointsWith(deps: WebToolsDeps, ownerId: string): 
 
   const forward = async (appType: string, service: string, port: number) => {
     const dep = liveDeployment(deployments, appType, ownerId);
-    if (!dep) return undefined;
-    const url = await baseUrlFor(deps, dep, service, port);
-    return url ? { dep, base: url.replace(/\/+$/, '') } : undefined;
+    return dep ? { dep, base: await baseUrlFor(deps, dep, service, port) } : undefined;
   };
 
   const [minio, quickwit, qdrant, tei] = await Promise.all([

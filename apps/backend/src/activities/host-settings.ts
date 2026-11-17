@@ -1,10 +1,10 @@
-import type { HostWorkerSettings } from '../platform/index.js';
+import type { DependencyReporter, HostWorkerSettings } from '../platform/index.js';
 import { clusterAccessFrom, type ClusterAccess } from '../infrastructure/index.js';
 
-let given: { settings: HostWorkerSettings; access: ClusterAccess } | undefined;
+let given: { settings: HostWorkerSettings; access: ClusterAccess; dependencies: DependencyReporter } | undefined;
 
-export function giveHostActivities(settings: HostWorkerSettings, access: ClusterAccess): void {
-  given = { settings, access };
+export function giveHostActivities(settings: HostWorkerSettings, access: ClusterAccess, dependencies: DependencyReporter): void {
+  given = { settings, access, dependencies };
 }
 
 export function hostSettings(): HostWorkerSettings {
@@ -15,6 +15,11 @@ export function hostSettings(): HostWorkerSettings {
 export function hostAccess(): ClusterAccess {
   hostSettings();
   return given!.access;
+}
+
+export function hostDependencies(): DependencyReporter {
+  hostSettings();
+  return given!.dependencies;
 }
 
 export const hostClusterAccess = (settings: HostWorkerSettings): ClusterAccess => clusterAccessFrom(settings.clusters, { role: settings.role.role });

@@ -5,18 +5,10 @@ import {
 } from './corpus-backend.js';
 import { SNIPPET_CHARS } from './corpus.js';
 import type { CorpusEndpoints } from './web-tools-resolver.js';
+import { answered, bothOf, HELD, refusal, withStores } from './corpus-stores.js';
 
 export const INDEX_ID = 'koala-corpus';
 export const COLLECTION_ID = 'koala-corpus';
-
-async function ok(res: Response, what: string): Promise<unknown> {
-  if (!res.ok) {
-    throw new Error(`${what}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-  }
-  const text = await res.text();
-  const parsed: unknown = text ? JSON.parse(text) : {};
-  return parsed;
-}
 
 const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
@@ -35,7 +27,7 @@ export async function ensureIndex(base: string): Promise<void> {
   if (res.ok) { created.add(base); return; }
   const body = await res.text();
   if (/already exist/i.test(body)) { created.add(base); return; }
-  throw new Error(`Could not create the corpus index: HTTP ${res.status} ${body.slice(0, 300)}`);
+  throw refusal('Quickwit', res, body);
 }
 
 export async function indexPages(base: string, docs: CorpusDoc[]): Promise<number> {
@@ -46,7 +38,7 @@ export async function indexPages(base: string, docs: CorpusDoc[]): Promise<numbe
     headers: { 'content-type': 'application/x-ndjson' },
     body: ndjson,
   });
-  await ok(res, 'Quickwit refused the batch');
+  await answered(res, 'Quickwit');
   return docs.length;
 }
 
@@ -58,7 +50,7 @@ export async function searchIndex(
 ): Promise<CorpusHit[]> {
   const query = buildIndexQuery(phrase, scope);
   const url = `${base}/api/v1/${INDEX_ID}/search?query=${encodeURIComponent(query)}&max_hits=${limit}`;
-  const body = await ok(await fetch(url), 'Quickwit refused the search');
+  const body = await answered(await fetch(url), 'Quickwit');
   return listOf(fieldsOf(body).hits).map(fieldsOf).map((h) => ({
     url: String(h.url ?? ''),
     snippet: snippetAround(String(h.body ?? ''), phrase),
@@ -85,7 +77,7 @@ export async function embed(base: string, inputs: string[]): Promise<number[][]>
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ inputs: inputs.slice(at, at + EMBED_BATCH), truncate: true }),
     });
-    const body = await ok(res, 'The embedding service refused the batch');
+    const body = await answered(res, 'TEI');
     if (!Array.isArray(body)) continue;
     if (!body.every(isVector)) throw new Error('The embedding service answered with something that is not a list of vectors');
     out.push(...body);
@@ -103,19 +95,20 @@ export async function ensureCollection(base: string, apiKey: string): Promise<vo
   if (res.ok) { collections.add(base); return; }
   const body = await res.text();
   if (/already exist/i.test(body)) { collections.add(base); return; }
-  throw new Error(`Could not create the vector collection: HTTP ${res.status} ${body.slice(0, 300)}`);
+  throw refusal('Qdrant', res, body);
 }
 
 export async function embedPages(
   ends: Pick<CorpusEndpoints, 'vectors' | 'embeddings'>,
   docs: CorpusDoc[],
 ): Promise<number> {
-  if (!ends.vectors || !ends.embeddings || !docs.length) return 0;
+  const stores = withStores(ends, ['vectors', 'embeddings'], 'embedding crawled pages');
+  if (!docs.length) return 0;
 
   const chunks = docs.flatMap((d) => chunksFor(d.url, d.body).map((c) => ({ ...c, doc: d })));
   if (!chunks.length) return 0;
 
-  const vectors = await embed(ends.embeddings.base, chunks.map((c) => c.text));
+  const vectors = await embed(stores.embeddings.base, chunks.map((c) => c.text));
   if (vectors.length !== chunks.length) {
     throw new Error(`Embedding returned ${vectors.length} vectors for ${chunks.length} chunks.`);
   }
@@ -133,36 +126,29 @@ export async function embedPages(
     },
   }));
 
-  const res = await fetch(`${ends.vectors.base}/collections/${COLLECTION_ID}/points?wait=true`, {
+  const res = await fetch(`${stores.vectors.base}/collections/${COLLECTION_ID}/points?wait=true`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json', 'api-key': ends.vectors.apiKey },
+    headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },
     body: JSON.stringify({ points }),
   });
-  await ok(res, 'Qdrant refused the points');
+  await answered(res, 'Qdrant');
   return points.length;
 }
 
 export async function purgeCorpus(ends: CorpusEndpoints, ingestId: string): Promise<void> {
-  await Promise.all([
-    (async () => {
-      if (!ends.index) return;
-      const res = await fetch(`${ends.index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
-      });
-      if (!res.ok) console.warn(`[Corpus] could not schedule index deletion: HTTP ${res.status}`);
-    })(),
-    (async () => {
-      if (!ends.vectors) return;
-      const res = await fetch(`${ends.vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'api-key': ends.vectors.apiKey },
-        body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
-      });
-      if (!res.ok) console.warn(`[Corpus] could not delete vectors: HTTP ${res.status}`);
-    })(),
-  ]);
+  const stores = withStores(ends, HELD, 'purging a crawl');
+  await bothOf(
+    fetch(`${stores.index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
+    }).then((res) => answered(res, 'Quickwit')),
+    fetch(`${stores.vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },
+      body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
+    }).then((res) => answered(res, 'Qdrant')),
+  );
 }
 
 export async function searchVectors(
@@ -190,7 +176,7 @@ export async function searchVectors(
       params: { quantization: { rescore: true } },
     }),
   });
-  const body = await ok(res, 'Qdrant refused the search');
+  const body = await answered(res, 'Qdrant');
   return listOf(fieldsOf(body).result).map((p) => fieldsOf(fieldsOf(p).payload)).map((payload) => ({
     url: String(payload.url ?? ''),
     snippet: String(payload.text ?? '').slice(0, SNIPPET_CHARS).trim(),

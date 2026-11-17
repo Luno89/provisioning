@@ -15,7 +15,7 @@ import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectT
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorEndpoint, collectorSink } from './monitoring/index.js';
-import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
+import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
@@ -50,13 +50,14 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
   const dependencies = workerDependencies(settings, settings.mongo);
   reportCollectorTo(telemetry, dependencies);
+  checkServices(dependencies, { webTools: settings.webTools });
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
   const fences = await holdFencesIn('worker-host', settings.mongo);
-  giveHostActivities(settings, access);
+  giveHostActivities(settings, access, dependencies);
   void dependencies.start();
   const queue = QUEUES.host;
   const { address } = settings.temporal;

@@ -116,7 +116,11 @@ describe('dependenciesOf', () => {
     expect(dependenciesOf({ koalaProcess: 'worker-engine', telemetry, clusters: noCluster, tenant: { webTools: { searxngUrl: 'http://searxng:8080' } } } as unknown as EngineWorkerSettings))
       .toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'searxng']);
     expect(dependenciesOf({ koalaProcess: 'worker-cluster', telemetry, clusters: noCluster } as unknown as ClusterWorkerSettings)).toEqual(['mongo', 'temporal', 'gitea', 'infisical']);
-    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal']);
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: {} } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal']);
+  });
+
+  it('describes the instance\'s own Crawl4AI for its host worker, which crawls sites into a person\'s corpus with it', () => {
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: { crawl4aiUrl: 'http://crawl4ai:11235', crawl4aiToken: 't' } } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal', 'crawl4ai']);
   });
 });
 

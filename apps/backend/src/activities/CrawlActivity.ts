@@ -1,38 +1,36 @@
-import { createDatabase, frontierRow, followsLinks, type Database, type FrontierClaim } from '../platform/index.js';
+import { createDatabase, failureOf, frontierRow, followsLinks, reportingFetch, type Database, type DependencyReporter, type FrontierClaim, type HostWorkerSettings } from '../platform/index.js';
 import {
-  buildWebTools, corpusEndpoints, crawlEndpoint, liveDeployment, type CorpusEndpoints, ensureIndex, indexPages,
-  ensureCollection, embedPages, searchCorpus, purgeCorpus, buildBatchPayload, readCrawlResults, canonical,
-  hostOf, usableLinks, toPage, type CorpusPage,
+  buildWebTools, corpusEndpoints, type CorpusEndpoints, ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus,
+  purgeCorpus, crawlPages, canonical, hostOf, usableLinks, toPage, withStores, CorpusStoresMissing, CorpusStoreDown, SEARCHABLE,
+  type CorpusPage, type Crawler,
 } from '../engine/index.js';
 import { ApplicationFailure } from '@temporalio/common';
+import { dependencyFetch } from '@koala/engine-core/http';
 import { v4 as uuidv4 } from 'uuid';
 import { messageOf } from './failure-reasons.js';
-import { sharedClusterProxy } from '../infrastructure/index.js';
-import { hostAccess, hostSettings } from './host-settings.js';
+import { sharedClusterProxy, type ClusterAccess } from '../infrastructure/index.js';
+import { hostAccess, hostDependencies, hostSettings } from './host-settings.js';
 
-const openDatabase = (): Database => {
-  const { mongo, keys } = hostSettings();
-  return createDatabase({ mongo, dataKey: keys.data });
-};
+export interface CrawlPlace {
+  withDatabase<T>(work: (db: Database) => Promise<T>): Promise<T>;
+  crawler(): Crawler;
+  endpoints(db: Database, ownerId: string): Promise<CorpusEndpoints>;
+}
 
-const webPlace = (db: Database) => ({ db, proxy: sharedClusterProxy(hostAccess()), settings: hostSettings().webTools });
+const CRAWLING = 'crawling a site into your corpus';
 
-async function endpoint(ownerId: string) {
-  const db = openDatabase();
-  await db.init();
+function asActivityFailure(err: unknown): unknown {
+  if (err instanceof CorpusStoresMissing) return ApplicationFailure.nonRetryable(err.message, err.name);
+  if (err instanceof CorpusStoreDown || err instanceof ApplicationFailure) return err;
+  const failure = failureOf(err);
+  return failure.kind === 'final' ? ApplicationFailure.nonRetryable(messageOf(err), 'CorpusRefused') : err;
+}
+
+async function failingAsActivity<T>(work: () => Promise<T>): Promise<T> {
   try {
-    const found = await crawlEndpoint(webPlace(db), ownerId);
-    if (found) return found;
-    const deployed = liveDeployment(await db.infrastructure.getDeployments(), 'crawl4ai', ownerId);
-    if (!deployed) {
-      throw ApplicationFailure.nonRetryable(
-        `No running Crawl4AI deployment belongs to owner ${ownerId}, so nothing can be ingested.`,
-        'NoCrawler',
-      );
-    }
-    throw new Error(`Crawl4AI deployment "${deployed.name}" is deployed but not reachable right now.`);
-  } finally {
-    await db.close();
+    return await work();
+  } catch (err) {
+    throw asActivityFailure(err);
   }
 }
 
@@ -54,16 +52,6 @@ export interface SeedFrontierArgs {
   keywords: string[];
 }
 
-export async function SeedFrontierActivity(args: SeedFrontierArgs): Promise<{ queued: number }> {
-  const db = openDatabase();
-  await db.init();
-  try {
-    return { queued: await db.engine.enqueueFrontier([frontierRow(args.ingestId, args.seed, 0, args.keywords)]) };
-  } finally {
-    await db.close();
-  }
-}
-
 export interface NextBatchArgs {
   ingestId: string;
   limit: number;
@@ -72,17 +60,6 @@ export interface NextBatchArgs {
 export interface NextBatchResult {
   batch: FrontierClaim[];
   remaining: number;
-}
-
-export async function NextBatchActivity(args: NextBatchArgs): Promise<NextBatchResult> {
-  const db = openDatabase();
-  await db.init();
-  try {
-    const batch = await db.engine.claimFrontier(args.ingestId, args.limit);
-    return { batch, remaining: await db.engine.countFrontier(args.ingestId) };
-  } finally {
-    await db.close();
-  }
 }
 
 export interface CrawlBatchArgs {
@@ -103,135 +80,144 @@ export interface CrawlBatchResult {
   hosts: string[];
 }
 
-export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBatchResult> {
-  if (!args.batch.length) return { stored: 0, bytes: 0, failed: 0, queued: 0, hosts: [] };
-
-  const { base, token } = await endpoint(args.ownerId);
-  const urls = args.batch.map((b) => b.url);
-  const res = await fetch(`${base}/crawl`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify(buildBatchPayload(urls)),
-  });
-  if (!res.ok) {
-    throw new Error(`Crawl4AI refused the batch: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+export function crawlActivities(place: CrawlPlace) {
+  async function SeedFrontierActivity(args: SeedFrontierArgs): Promise<{ queued: number }> {
+    return place.withDatabase(async (db) => ({ queued: await db.engine.enqueueFrontier([frontierRow(args.ingestId, args.seed, 0, args.keywords)]) }));
   }
-  const fetched = readCrawlResults(await res.json());
 
-  const db = openDatabase();
-  await db.init();
-  try {
-    const usable = fetched.filter((p) => !p.error && p.markdown.trim());
-    const stored: CorpusPage[] = usable.map((p) => toPage(p, {
-      id: `${args.ingestId}:${p.url}`,
-      ownerId: args.ownerId,
-      ingestId: args.ingestId,
-      projectId: args.projectId,
-    }));
-
-    let indexed = 0;
-    let embedded = 0;
-    try {
-      const ends = await corpusEndpoints(webPlace(db), args.ownerId);
-      if (ends.index) {
-        await ensureIndex(ends.index.base);
-        const docs = stored.map((p) => toDoc(p));
-        indexed = await indexPages(ends.index.base, docs);
-        if (ends.vectors && ends.embeddings) {
-          await ensureCollection(ends.vectors.base, ends.vectors.apiKey);
-          embedded = await embedPages(ends, docs);
-        }
-      }
-    } catch (err) {
-      console.warn(`[Crawl] corpus services unavailable, stored to the database only: ${messageOf(err)}`);
-    }
-
-    await db.engine.saveCorpusPages(stored);
-
-    const depthOf = new Map(args.batch.map((b) => [b.url, b.depth]));
-    const toQueue = [];
-    for (const page of usable) {
-      const depth = depthOf.get(page.url) ?? depthOf.get(canonical(page.url) ?? '') ?? 0;
-      if (!followsLinks(depth, args.maxDepth)) continue;
-      for (const link of usableLinks(page.links, args.allowed, new Set())) {
-        toQueue.push(frontierRow(args.ingestId, link, depth + 1, args.keywords));
-      }
-    }
-    const queued = await db.engine.enqueueFrontier(toQueue);
-
-    await db.engine.completeFrontier(args.ingestId, urls);
-
-    const bytes = stored.reduce((n, p) => n + p.bytes, 0);
-    const failed = args.batch.length - stored.length;
-    console.log(`[Crawl] stored ${stored.length} page(s), ${bytes} bytes, ${failed} failed, `
-      + `queued ${queued}, indexed ${indexed}, embedded ${embedded} chunk(s)`);
-    return {
-      stored: stored.length,
-      bytes,
-      failed,
-      queued,
-      hosts: [...new Set(stored.map((p) => p.host).filter(Boolean))],
-    };
-  } finally {
-    await db.close();
-  }
-}
-
-export async function SearchCorpusActivity(
-  args: { ownerId: string; query: string; ingestId?: string; projectId?: string },
-): Promise<{ hits: { url: string; snippet: string }[] }> {
-  const db = openDatabase();
-  await db.init();
-  try {
-    const ends: CorpusEndpoints = await corpusEndpoints(webPlace(db), args.ownerId).catch((err: unknown) => {
-      console.warn(`[Crawl] corpus services could not be found, searching the stored pages only: ${messageOf(err)}`);
-      return {};
+  async function NextBatchActivity(args: NextBatchArgs): Promise<NextBatchResult> {
+    return place.withDatabase(async (db) => {
+      const batch = await db.engine.claimFrontier(args.ingestId, args.limit);
+      return { batch, remaining: await db.engine.countFrontier(args.ingestId) };
     });
-    if (ends.index || ends.vectors) {
-      const hits = await searchCorpus(ends, args.query, {
+  }
+
+  async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBatchResult> {
+    if (!args.batch.length) return { stored: 0, bytes: 0, failed: 0, queued: 0, hosts: [] };
+
+    return place.withDatabase((db) => failingAsActivity(async () => {
+      const ends = withStores(await place.endpoints(db, args.ownerId), SEARCHABLE, CRAWLING);
+      const urls = args.batch.map((b) => b.url);
+      const fetched = await crawlPages(place.crawler(), urls);
+
+      const usable = fetched.filter((p) => !p.error && p.markdown.trim());
+      const stored: CorpusPage[] = usable.map((p) => toPage(p, {
+        id: `${args.ingestId}:${p.url}`,
         ownerId: args.ownerId,
         ingestId: args.ingestId,
         projectId: args.projectId,
+      }));
+
+      const docs = stored.map((p) => toDoc(p));
+      await ensureIndex(ends.index.base);
+      const indexed = await indexPages(ends.index.base, docs);
+      await ensureCollection(ends.vectors.base, ends.vectors.apiKey);
+      const embedded = await embedPages(ends, docs);
+
+      await db.engine.saveCorpusPages(stored);
+
+      const depthOf = new Map(args.batch.map((b) => [b.url, b.depth]));
+      const toQueue = [];
+      for (const page of usable) {
+        const depth = depthOf.get(page.url) ?? depthOf.get(canonical(page.url) ?? '') ?? 0;
+        if (!followsLinks(depth, args.maxDepth)) continue;
+        for (const link of usableLinks(page.links, args.allowed, new Set())) {
+          toQueue.push(frontierRow(args.ingestId, link, depth + 1, args.keywords));
+        }
+      }
+      const queued = await db.engine.enqueueFrontier(toQueue);
+
+      await db.engine.completeFrontier(args.ingestId, urls);
+
+      const bytes = stored.reduce((n, p) => n + p.bytes, 0);
+      const failed = args.batch.length - stored.length;
+      console.log(`[Crawl] stored ${stored.length} page(s), ${bytes} bytes, ${failed} failed, `
+        + `queued ${queued}, indexed ${indexed}, embedded ${embedded} chunk(s)`);
+      return {
+        stored: stored.length,
+        bytes,
+        failed,
+        queued,
+        hosts: [...new Set(stored.map((p) => p.host).filter(Boolean))],
+      };
+    }));
+  }
+
+  async function SearchCorpusActivity(
+    args: { ownerId: string; query: string; ingestId?: string; projectId?: string },
+  ): Promise<{ hits: { url: string; snippet: string }[] }> {
+    return place.withDatabase(async (db) => {
+      const ends: CorpusEndpoints = await place.endpoints(db, args.ownerId).catch((err: unknown) => {
+        console.warn(`[Crawl] corpus services could not be found, searching the stored pages only: ${messageOf(err)}`);
+        return {};
       });
-      if (hits.length) return { hits: hits.map((h) => ({ url: h.url, snippet: h.snippet })) };
-    }
+      if (ends.index || ends.vectors) {
+        const hits = await searchCorpus(ends, args.query, {
+          ownerId: args.ownerId,
+          ingestId: args.ingestId,
+          projectId: args.projectId,
+        });
+        if (hits.length) return { hits: hits.map((h) => ({ url: h.url, snippet: h.snippet })) };
+      }
 
-    const { search } = await import('../engine/index.js');
-    const pages = await db.engine.getCorpusPages({
-      ownerId: args.ownerId,
-      ...(args.ingestId ? { ingestId: args.ingestId } : {}),
-      ...(args.projectId ? { projectId: args.projectId } : {}),
+      const { search } = await import('../engine/index.js');
+      const pages = await db.engine.getCorpusPages({
+        ownerId: args.ownerId,
+        ...(args.ingestId ? { ingestId: args.ingestId } : {}),
+        ...(args.projectId ? { projectId: args.projectId } : {}),
+      });
+      return { hits: search(pages, args.query) };
     });
-    return { hits: search(pages, args.query) };
-  } finally {
-    await db.close();
   }
+
+  async function DiscardFrontierActivity(args: { ingestId: string }): Promise<void> {
+    await place.withDatabase((db) => db.engine.deleteFrontier(args.ingestId));
+  }
+
+  async function PurgeCorpusActivity(args: { ownerId: string; ingestId: string }): Promise<void> {
+    await place.withDatabase((db) => failingAsActivity(async () => {
+      await purgeCorpus(await place.endpoints(db, args.ownerId), args.ingestId);
+      await db.engine.deleteCorpus(args.ingestId);
+    }));
+  }
+
+  async function NewIngestIdActivity(): Promise<{ ingestId: string }> {
+    return { ingestId: uuidv4() };
+  }
+
+  return { SeedFrontierActivity, NextBatchActivity, CrawlBatchActivity, SearchCorpusActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity };
 }
 
-export async function DiscardFrontierActivity(args: { ingestId: string }): Promise<void> {
-  const db = openDatabase();
-  await db.init();
-  try {
-    await db.engine.deleteFrontier(args.ingestId);
-  } finally {
-    await db.close();
-  }
+export function crawlPlaceFor(settings: HostWorkerSettings, access: ClusterAccess, dependencies: DependencyReporter): CrawlPlace {
+  return {
+    withDatabase: async (work) => {
+      const db = createDatabase({ mongo: settings.mongo, dataKey: settings.keys.data });
+      await db.init();
+      try {
+        return await work(db);
+      } finally {
+        await db.close();
+      }
+    },
+    crawler: () => {
+      const { crawl4aiUrl, crawl4aiToken } = settings.webTools;
+      if (!crawl4aiUrl || !crawl4aiToken) throw ApplicationFailure.nonRetryable('this Koala has no Crawl4AI of its own set (CRAWL4AI_URL and CRAWL4AI_API_TOKEN), so nothing can be crawled', 'NoCrawler');
+      return { base: crawl4aiUrl, token: crawl4aiToken, fetch: reportingFetch(dependencies, 'crawl4ai', dependencyFetch) };
+    },
+    endpoints: (db, ownerId) => corpusEndpoints({ db, proxy: sharedClusterProxy(access), settings: settings.webTools }, ownerId),
+  };
 }
 
-export async function PurgeCorpusActivity(args: { ownerId: string; ingestId: string }): Promise<void> {
-  const db = openDatabase();
-  await db.init();
-  try {
-    const ends = await corpusEndpoints(webPlace(db), args.ownerId);
-    await purgeCorpus(ends, args.ingestId);
-    await db.engine.deleteCorpus(args.ingestId);
-  } finally {
-    await db.close();
-  }
-}
+const onThisHost = (): CrawlPlace => crawlPlaceFor(hostSettings(), hostAccess(), hostDependencies());
 
-export async function NewIngestIdActivity(): Promise<{ ingestId: string }> {
-  return { ingestId: uuidv4() };
-}
+const hostPlace: CrawlPlace = {
+  withDatabase: (work) => onThisHost().withDatabase(work),
+  crawler: () => onThisHost().crawler(),
+  endpoints: (db, ownerId) => onThisHost().endpoints(db, ownerId),
+};
+
+export const {
+  SeedFrontierActivity, NextBatchActivity, CrawlBatchActivity, SearchCorpusActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity,
+} = crawlActivities(hostPlace);
 
 export { buildWebTools, hostOf };
