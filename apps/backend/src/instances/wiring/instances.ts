@@ -123,7 +123,7 @@ export interface MoveExportDeps {
   app: Routes;
   dataDir: string;
   mongo: ReturnType<typeof mongoTarget>;
-  running: () => Promise<string[] | 'unknown'>;
+  running: (ownerId: string) => Promise<string[] | 'unknown'>;
   claim: UsedTokenClaim;
 }
 
@@ -132,6 +132,7 @@ export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport |
   if (!(role.role === 'instance' && deps.pool && moved && role.trusted && role.instance)) return undefined;
   const moveExport = new MoveExport({
     instanceId: role.instance.id,
+    ownerId: role.instance.ownerId,
     cluster: moveClusterOn(deps.access),
     trusted: role.trusted,
     dataDir: deps.dataDir,

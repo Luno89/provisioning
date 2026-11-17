@@ -294,10 +294,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
-  let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
+  let runningNow: ((ownerId: string) => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
     role, pool: Boolean(settings.clusters.here.poolName), moved: settings.instance?.move, app, dataDir: settings.dataDir, mongo: settings.mongo, access: clusterService.access,
-    running: async () => (runningNow ? runningNow() : 'unknown'),
+    running: async (ownerId) => (runningNow ? runningNow(ownerId) : 'unknown'),
     claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
   });
 
@@ -439,8 +439,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() },
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });
-  runningNow = async () => {
-    const view = await running.view(role.instance?.ownerId ?? '');
+  runningNow = async (ownerId) => {
+    const view = await running.view(ownerId);
     if (!view.ok) return 'unknown';
     return view.value.items.map((item) => item.title);
   };

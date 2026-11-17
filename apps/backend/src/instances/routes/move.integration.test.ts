@@ -66,7 +66,7 @@ beforeEach(async () => {
     prefix: '/api/move', user: TEST_USER,
     router: async (db) => {
       const move = new MoveExport({
-        instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
+        instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
         mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, moved: movedSettingsFrom(KEYS), running: async () => running, cluster, spawn: recordingSpawn,
         claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
       });

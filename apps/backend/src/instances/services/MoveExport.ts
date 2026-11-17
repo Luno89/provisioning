@@ -43,12 +43,13 @@ export function moveClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'own' | 's
 
 export interface MoveExportDeps {
   instanceId: string;
+  ownerId: string;
   cluster: MoveCluster;
   trusted: ReadonlyMap<string, crypto.KeyObject>;
   dataDir: string;
   mongo: { uri: string; dbName: string };
   moved: MovedSettings;
-  running: () => Promise<string[] | 'unknown'>;
+  running: (ownerId: string) => Promise<string[] | 'unknown'>;
   claim: UsedTokenClaim;
   spawn?: typeof spawnProcess;
   now?: () => number;
@@ -84,7 +85,7 @@ export class MoveExport {
 
   async freeze(): Promise<MoveRefusal | undefined> {
     if (this.frozen) return undefined;
-    const running = await this.deps.running();
+    const running = await this.deps.running(this.deps.ownerId);
     if (running === 'unknown') return { status: 503, error: 'the instance is still starting; ask again shortly' };
     if (running.length) return { status: 409, error: `finish or stop what runs first, then start the move again: ${running.join('; ')}` };
     const notPaused = await this.selfUpgrade(false).then(() => undefined, (err: Error) => err.message);

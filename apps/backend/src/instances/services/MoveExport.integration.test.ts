@@ -43,6 +43,7 @@ describe('a pool instance stopping for a move and taking work again, on a real c
     await access.apply(own, manifests);
     const move = new MoveExport({
       instanceId: 'inst-bo',
+      ownerId: 'owner-bo',
       trusted: trustedKeys([]),
       dataDir: mkdtempSync(join(tmpdir(), 'koala-move-data-')),
       mongo: { uri: 'mongodb://unused', dbName: 'unused' },

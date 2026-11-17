@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
 import { mock } from 'vitest-mock-extended';
@@ -45,6 +45,7 @@ const kubectlSays = (asked: string): string | undefined => {
 
 const makeMove = (env: NodeJS.ProcessEnv = KEYS): MoveExport => new MoveExport({
   instanceId: 'inst-bo',
+  ownerId: 'owner-bo',
   trusted: trustedKeys([publicKeyPem(root.publicKey)]),
   dataDir,
   mongo: { uri: 'mongodb://unused', dbName: 'provisioning' },
@@ -108,7 +109,7 @@ describe('a pool instance deciding whether root may have a part of it', () => {
 
   it('judges a token by the clock it is given', async () => {
     const later = new MoveExport({
-      instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS),
+      instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS),
       running: async () => [], cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
     });
     expect(await later.check(issueMoveToken(root, 'inst-bo', 'keys'), 'keys')).toMatchObject({ status: 401 });
@@ -139,6 +140,17 @@ describe('a pool instance stopping for a move', () => {
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 
+  it('refuses to export while the instance owner\'s work runs', async () => {
+    const workOf = vi.fn(async (ownerId: string) => (ownerId === 'owner-bo' ? ['Koala chat: plan the shop'] : []));
+    const owned = new MoveExport({
+      instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'mongodb://unused', dbName: 'provisioning' },
+      moved: movedSettingsFrom(KEYS), running: workOf, cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
+    });
+    expect(await owned.freeze()).toEqual({ status: 409, error: 'finish or stop what runs first, then start the move again: Koala chat: plan the shop' });
+    expect(workOf).toHaveBeenCalledWith('owner-bo');
+    expect(owned.isFrozen()).toBe(false);
+  });
+
   it('says it is still starting, without stopping work, while it cannot yet tell what runs', async () => {
     running = 'unknown';
     expect(await move.freeze()).toMatchObject({ status: 503 });
@@ -154,7 +166,7 @@ describe('a pool instance stopping for a move', () => {
   });
 
   it('fails to load when the mark cannot be looked for', async () => {
-    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
+    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
     await fs.promises.writeFile(path.join(dataDir, MOVING_FILE), 'x');
     await expect(broken.load()).rejects.toThrow();
   });
@@ -196,7 +208,7 @@ describe('a pool instance taking work again', () => {
 
   it('reports a program of its own that cannot be started at all', async () => {
     const missing = new MoveExport({
-      instanceId: 'inst-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true,
+      instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true,
       spawn: (() => {
         const failing = Object.assign(new EventEmitter(), { stderr: new PassThrough(), stdout: new PassThrough() });
         setImmediate(() => failing.emit('error', new Error('spawn tar ENOENT')));
