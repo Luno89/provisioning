@@ -74,6 +74,8 @@ metadata:
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels: {{- include "instance.selector" (dict "root" . "component" "temporal") | nindent 6 }}
   template:
@@ -107,9 +109,67 @@ spec:
             periodSeconds: 1
             failureThreshold: 600
         {{- end }}
+        - name: temporal-plan
+          image: {{ .Values.temporal.postgresImage }}
+          command: [sh, /steps-script/temporal-steps.sh, plan]
+          {{- include "instance.resources" (dict "root" . "component" "temporalJwks") | nindent 10 }}
+          env:
+            - name: POSTGRES_USER
+              value: temporal
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" . }}-keys
+                  key: TEMPORAL_DB_PASSWORD
+            - name: POSTGRES_SEEDS
+              value: {{ include "instance.name" . }}-temporal-db
+            - name: DB_PORT
+              value: "5432"
+            - name: NEWEST_MAIN
+              value: {{ .Values.temporal.schema.main | quote }}
+            - name: NEWEST_VISIBILITY
+              value: {{ .Values.temporal.schema.visibility | quote }}
+          volumeMounts:
+            - name: temporal-steps
+              mountPath: /steps
+            - name: temporal-steps-script
+              mountPath: /steps-script
+        {{- range .Values.temporal.steps }}
+        - name: temporal-step-{{ splitList ":" . | last | replace "." "-" }}
+          image: {{ . }}
+          command: [sh, /steps-script/temporal-steps.sh, step]
+          {{- include "instance.resources" (dict "root" $ "component" "temporal") | nindent 10 }}
+          env:
+            - name: DB
+              value: postgres12
+            - name: DB_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: temporal
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" $ }}-keys
+                  key: TEMPORAL_DB_PASSWORD
+            - name: POSTGRES_SEEDS
+              value: {{ include "instance.name" $ }}-temporal-db
+            - name: BIND_ON_IP
+              value: 127.0.0.1
+          volumeMounts:
+            - name: temporal-steps
+              mountPath: /steps
+            - name: temporal-steps-script
+              mountPath: /steps-script
+        {{- end }}
       volumes:
         - name: temporal-keys
           emptyDir: {}
+        - name: temporal-steps
+          emptyDir: {}
+        - name: temporal-steps-script
+          configMap:
+            name: {{ include "instance.name" . }}-temporal-steps
+            defaultMode: 0555
         - name: temporal-tls
           secret:
             secretName: {{ include "instance.name" . }}-temporal-tls
@@ -175,3 +235,12 @@ spec:
               port: 7233
             initialDelaySeconds: 20
             periodSeconds: 10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "instance.name" . }}-temporal-steps
+  labels: {{- include "instance.labels" . | nindent 4 }}
+data:
+  temporal-steps.sh: |
+{{ .Files.Get "files/temporal-steps.sh" | indent 4 }}

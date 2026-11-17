@@ -199,7 +199,7 @@ describe('the instance chart', () => {
 
   it('serves Temporal\'s keys beside it as an ordinary container on a cluster too old for native sidecars', () => {
     const pod = podOf(find(render([], '1.28.8'), 'Deployment', 'luno-temporal'));
-    expect(pod.initContainers?.map((container) => container.name)).toEqual(['temporal-jwks']);
+    expect(pod.initContainers?.map((container) => container.name)).toEqual(['temporal-jwks', 'temporal-plan', 'temporal-step-1-25-2', 'temporal-step-1-26-3', 'temporal-step-1-27-4', 'temporal-step-1-28-4']);
     expect(pod.containers.map((container) => container.name)).toEqual(['temporal-keys', 'temporal']);
     expect(pod.containers[0]!.restartPolicy).toBeUndefined();
   });

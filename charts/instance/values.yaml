@@ -56,6 +56,14 @@ minio:
 temporal:
   namespace: default
   image: temporalio/auto-setup:1.29.3
+  schema:
+    main: "1.18"
+    visibility: "1.9"
+  steps:
+    - temporalio/auto-setup:1.25.2
+    - temporalio/auto-setup:1.26.3
+    - temporalio/auto-setup:1.27.4
+    - temporalio/auto-setup:1.28.4
   keysImage: busybox:1.37
   postgresImage: postgres:12-alpine
 
