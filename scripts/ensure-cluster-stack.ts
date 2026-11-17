@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const dataDir = process.env.DATA_DIR?.trim();
   if (!dataDir) throw new Error('DATA_DIR names no data folder for root; root-telemetry.sh passes the one root\'s settings name');
   const infra = new InfrastructureService(terraformPlacesFor({ kind: 'local' }, dataDir));
-  const access = clusterAccessFrom({ here: { root: true }, serviceAccount: undefined, rootKubeconfig }, { role: 'root' });
+  const access = clusterAccessFrom({ here: { root: true }, serviceAccount: undefined, rootKubeconfig, chartSources: undefined }, { role: 'root' });
   const reach = access.own();
   const logFile = infra.getLogPath(`cluster-stack-${reach.clusterId}`);
   console.log(`  ▶  root's cluster's monitoring, ingress and telemetry: applying whatever is missing, as the cluster worker does when it starts (log: ${logFile})`);

@@ -65,6 +65,16 @@ describe('ClusterAccess: running kubectl and helm with a reach, wherever it was 
     expect(statSync(where).mode & 0o777).toBe(0o600);
   });
 
+  it('reads a chart from the repository standing in for every one when CHART_SOURCES is set, and from the pinned one otherwise', async () => {
+    const args = ['upgrade', '--install', 'kps', 'kube-prometheus-stack', '--repo', 'https://prometheus-community.github.io/helm-charts', '--version', '91.7.0'];
+    const pinned = await door({ clusters: undefined, dataKey: undefined });
+    await pinned.access.helm(startedMachine('machine-dev2', ADMIN), args);
+    expect(pinned.processes.run).toHaveBeenCalledWith({ command: '/bin/helm', args: ['--kubeconfig', join(pinned.folder, 'kubeconfig-machine-machine-dev2'), ...args], input: undefined });
+    const stood = await door({ clusters: undefined, dataKey: undefined, chartSources: 'http://127.0.0.1:4100' });
+    await stood.access.helm(startedMachine('machine-dev2', ADMIN), args);
+    expect(stood.processes.run).toHaveBeenCalledWith({ command: '/bin/helm', args: ['--kubeconfig', join(stood.folder, 'kubeconfig-machine-machine-dev2'), 'upgrade', '--install', 'kps', 'kube-prometheus-stack', '--repo', 'http://127.0.0.1:4100/prometheus-community.github.io/helm-charts', '--version', '91.7.0'], input: undefined });
+  });
+
   it('reaches Koala\'s own cluster through its pod\'s account, and refuses in a process outside any pod', async () => {
     const inPod = await door({ serviceAccount: { host: '10.43.0.1', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } });
     await inPod.access.helm({ clusterId: 'machine-dev1', kind: 'koala' }, ['list', '-A']);

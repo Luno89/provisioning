@@ -2,6 +2,7 @@ import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release";
 import { Namespace } from "../.gen/providers/kubernetes/namespace";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export class MonitoringStack extends Construct {
   /**
@@ -23,7 +24,7 @@ export class MonitoringStack extends Construct {
 
     this.prometheusRelease = new Release(this, "prometheus-stack", {
       name: "kube-prometheus-stack",
-      repository: "https://prometheus-community.github.io/helm-charts",
+      repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "kube-prometheus-stack",
       version: "91.7.0",
       namespace: ns.metadata.name,

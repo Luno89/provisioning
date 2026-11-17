@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 /**
  * Installed once per cluster into the `monitoring` namespace (co-located with
@@ -15,7 +16,7 @@ export class BlackboxExporterStack extends Construct {
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       name: "blackbox-exporter",
-      repository: "https://prometheus-community.github.io/helm-charts",
+      repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "prometheus-blackbox-exporter",
       version: "11.19.1",
       namespace: "monitoring",

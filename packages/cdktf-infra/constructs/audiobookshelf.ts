@@ -5,6 +5,7 @@ import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export interface AudiobookshelfConfig {
   readonly namespace?: string;
@@ -49,7 +50,7 @@ export class AudiobookshelfApp extends Construct {
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       name: "audiobookshelf",
-      repository: "https://charts.christianhuth.de",
+      repository: chartRepository("https://charts.christianhuth.de"),
       chart: "audiobookshelf",
       namespace: ns.metadata.name,
       set: helmValues,

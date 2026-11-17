@@ -2,6 +2,7 @@ import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { BlackboxExporterStack } from "./blackbox-exporter.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export const METRICS_TOKEN_SECRET = "koala-metrics";
 
@@ -30,7 +31,7 @@ export class AgentMonitoringStack extends Construct {
     super(scope, id);
     this.prometheusRelease = new Release(this, "prometheus-agent", {
       name: "kube-prometheus-stack",
-      repository: "https://prometheus-community.github.io/helm-charts",
+      repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "kube-prometheus-stack",
       version: "91.7.0",
       namespace: "monitoring",

@@ -195,7 +195,7 @@ async function restoreTerraformState(): Promise<void> {
 async function restoreApps(): Promise<void> {
   const cluster = ownCluster();
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService(terraformPlacesFor(settings().terraform, settings().dataDir)) }, koalaClusterMonitoring(Boolean(settings().clusters.here.poolName), cluster.own()));
+  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService(terraformPlacesFor(settings().terraform, settings().dataDir, settings().clusters.chartSources)) }, koalaClusterMonitoring(Boolean(settings().clusters.here.poolName), cluster.own()));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
   const pullHost = await new GiteaService(settings().dataKey, settings().gitea, { dataDir: settings().dataDir, registryPullHost: settings().registryPullHost }).getRegistryHost();
   for (const entry of manifest.namespaces) {

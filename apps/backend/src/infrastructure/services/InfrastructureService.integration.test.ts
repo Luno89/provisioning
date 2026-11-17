@@ -56,7 +56,7 @@ async function standUp(home: 'local' | 'kubernetes'): Promise<Stand> {
     'const app = new App();',
     'for (const id of ["desk", "shelf"]) {',
     '  const stack = new TerraformStack(app, id);',
-    '  new TerraformResource(stack, "thing", { terraformResourceType: "terraform_data" }).addOverride("input", process.env.INPUT ?? "one");',
+    '  new TerraformResource(stack, "thing", { terraformResourceType: "terraform_data" }).addOverride("input", process.env.INPUT ?? process.env.CHART_SOURCES ?? "one");',
     '  if (process.env.HANG) new TerraformResource(stack, "slow", { terraformResourceType: "terraform_data" }).addOverride("provisioner", [{ "local-exec": { command: "sleep 600" } }]);',
     `  if (process.env.CDKTF_STATE_NAMESPACE) new LocalBackend(stack, { path: ${JSON.stringify(cluster)} + "/" + process.env.CDKTF_STATE_NAMESPACE + "-" + id + ".tfstate" });`,
     '}',
@@ -90,6 +90,13 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     await service.destroy('desk', { logFile: path.join(stand.root, 'desk.log') });
     expect(await resourcesIn(state)).toEqual([]);
     expect(await readdir(stand.places.runsDir)).toEqual([]);
+  }, 180_000);
+
+  it('hands a run the repository standing in for every chart, when this process was given one', async () => {
+    await new InfrastructureService({ ...stand.places, chartSources: 'http://127.0.0.1:4100' }).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    const state = path.join(stand.places.stateDir, 'terraform.shelf.tfstate');
+    expect((await resourcesIn(state))[0]?.instances[0]?.attributes.input.value).toBe('http://127.0.0.1:4100');
+    await new InfrastructureService(stand.places).destroy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
   }, 180_000);
 
   it('runs two stacks at once, each in its own output, neither touching the other', async () => {

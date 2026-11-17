@@ -1129,15 +1129,15 @@
         },
         {
           "file": "packages/cdktf-infra/constructs/monitoring.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"kube-prometheus-stack\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"kube-prometheus-stack\""
         },
         {
           "file": "packages/cdktf-infra/constructs/monitoring-agent.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"kube-prometheus-stack\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"kube-prometheus-stack\""
         },
         {
           "file": "packages/cdktf-infra/constructs/prometheus.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"kube-prometheus-stack\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"kube-prometheus-stack\""
         }
       ]
     },
@@ -1162,7 +1162,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/blackbox-exporter.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"prometheus-blackbox-exporter\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"prometheus-blackbox-exporter\""
         }
       ]
     },
@@ -1182,7 +1182,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/operator-crds.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"prometheus-operator-crds\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"prometheus-operator-crds\""
         }
       ]
     },
@@ -1202,7 +1202,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/logging.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"loki\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"loki\""
         }
       ]
     },
@@ -1222,7 +1222,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/logging.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"promtail\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"promtail\""
         }
       ]
     },
@@ -1250,11 +1250,11 @@
         },
         {
           "file": "packages/cdktf-infra/constructs/ingress.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"traefik\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"traefik\""
         },
         {
           "file": "packages/cdktf-infra/constructs/traefik.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"traefik\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"traefik\""
         }
       ]
     },
@@ -1274,7 +1274,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/telemetry.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"tempo\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"tempo\""
         }
       ]
     },
@@ -1294,7 +1294,7 @@
       "sourceUses": [
         {
           "file": "packages/cdktf-infra/constructs/telemetry.ts",
-          "pattern": "repository: \"([^\"]+)\",\\s+chart: \"opentelemetry-collector\""
+          "pattern": "repository: chartRepository\\(\"([^\"]+)\"\\),\\s+chart: \"opentelemetry-collector\""
         }
       ]
     },

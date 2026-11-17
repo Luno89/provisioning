@@ -2,6 +2,7 @@ import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export const OPERATOR_CRDS_VERSION = "32.0.1";
 
@@ -15,7 +16,7 @@ export class OperatorCrdsStack extends Construct {
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       name: "prometheus-operator-crds",
-      repository: "https://prometheus-community.github.io/helm-charts",
+      repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "prometheus-operator-crds",
       version: OPERATOR_CRDS_VERSION,
       namespace: ns.metadata.name,

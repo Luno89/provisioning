@@ -135,6 +135,9 @@ describe('the settings a backend reads once, at start', () => {
     expect(backendSettingsFrom(ROOT).tests.dependencySources).toEqual({ osv: 'https://api.osv.dev/v1', npm: 'https://registry.npmjs.org', github: 'https://api.github.com', ghcr: 'https://ghcr.io', dockerHub: 'https://registry-1.docker.io', dockerAuth: 'https://auth.docker.io' });
     expect(backendSettingsFrom({ ...ROOT, DEPENDENCY_SOURCES: 'http://127.0.0.1:4100/' }).tests.dependencySources).toEqual({ osv: 'http://127.0.0.1:4100/osv', npm: 'http://127.0.0.1:4100/npm', github: 'http://127.0.0.1:4100/github', ghcr: 'http://127.0.0.1:4100/ghcr', dockerHub: 'http://127.0.0.1:4100/docker-hub', dockerAuth: 'http://127.0.0.1:4100/docker-auth' });
     expect(problemsOf(() => backendSettingsFrom({ ...ROOT, DEPENDENCY_SOURCES: 'somewhere' })).some((problem) => problem.includes('DEPENDENCY_SOURCES'))).toBe(true);
+    expect(backendSettingsFrom(ROOT).clusters.chartSources).toBeUndefined();
+    expect(backendSettingsFrom({ ...ROOT, CHART_SOURCES: 'http://127.0.0.1:4100' }).clusters.chartSources).toBe('http://127.0.0.1:4100');
+    expect(problemsOf(() => backendSettingsFrom({ ...ROOT, CHART_SOURCES: 'somewhere' })).some((problem) => problem.includes('CHART_SOURCES'))).toBe(true);
   });
 });
 

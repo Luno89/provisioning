@@ -3,6 +3,7 @@ import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export interface TraefikConfig {
   readonly namespace?: string;
@@ -52,7 +53,7 @@ export class TraefikApp extends Construct {
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       name: "traefik",
-      repository: "https://traefik.github.io/charts",
+      repository: chartRepository("https://traefik.github.io/charts"),
       chart: "traefik",
       version: "41.4.0",
       namespace: ns.metadata.name,

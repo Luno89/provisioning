@@ -34,6 +34,7 @@ export interface TerraformPlaces {
   home: TerraformStateHome | { off: string };
   mirrorDir?: string | undefined;
   runsDir?: string | undefined;
+  chartSources?: string | undefined;
 }
 
 async function adoptStateFromBefore(stackName: string, places: TerraformPlaces): Promise<void> {
@@ -88,9 +89,9 @@ function terraformQuietly(args: string[], cwd: string, extra: Record<string, str
   });
 }
 
-export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, dataDir: string): TerraformPlaces => {
+export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, dataDir: string, chartSources?: string): TerraformPlaces => {
   const stateDir = path.join(dataDir, 'terraform');
-  return { cdktfDir: CDKTF_DIR, stateDir, logDir: path.join(dataDir, 'logs'), home: 'off' in state ? state : stateHomeIn(state, stateDir) };
+  return { cdktfDir: CDKTF_DIR, stateDir, logDir: path.join(dataDir, 'logs'), home: 'off' in state ? state : stateHomeIn(state, stateDir), ...(chartSources ? { chartSources } : {}) };
 };
 
 export class InfrastructureService {
@@ -118,7 +119,7 @@ export class InfrastructureService {
     const run = await fs.mkdtemp(path.join(this.terraform.runsDir ?? os.tmpdir(), 'koala-cdktf-'));
     try {
       const output = path.join(run, 'cdktf.out');
-      const env = { ...options.env, ...cdktfStateEnv(home), ...(await this.providerConfig(run)) };
+      const env = { ...options.env, ...cdktfStateEnv(home), ...(await this.providerConfig(run)), ...(this.terraform.chartSources ? { CHART_SOURCES: this.terraform.chartSources } : {}) };
       const runOptions = { ...options, env };
       const kept = path.join(this.terraform.stateDir, stateFilesOf(stackName)[0]!);
       const moving = home.kind === 'kubernetes' && existsSync(kept);

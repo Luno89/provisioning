@@ -3,6 +3,7 @@ import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.j
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
+import { chartRepository } from "../lib/chart-source.js";
 
 export interface PrometheusConfig {
   readonly namespace?: string;
@@ -45,7 +46,7 @@ export class PrometheusApp extends Construct {
       wait: false,
       timeout: HELM_CEILING_SECONDS,
       name: "prometheus",
-      repository: "https://prometheus-community.github.io/helm-charts",
+      repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "kube-prometheus-stack",
       version: "91.7.0",
       namespace: ns.metadata.name,

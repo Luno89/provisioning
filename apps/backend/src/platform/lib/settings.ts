@@ -61,6 +61,7 @@ export interface ClusterSettings {
   here: Here;
   serviceAccount: ServiceAccount | undefined;
   rootKubeconfig: string | Off;
+  chartSources: string | undefined;
 }
 
 export interface TestParameters {
@@ -242,6 +243,11 @@ function folderSetting(read: Reading, name: string, why: string): string | undef
   return undefined;
 }
 
+function chartSourcesFrom(read: Reading): string | undefined {
+  const base = settingIn(read.env, 'CHART_SOURCES');
+  return base === undefined ? undefined : read.take(() => wholeUrl('CHART_SOURCES', base));
+}
+
 function dependencySourcesFrom(read: Reading): DependencySources {
   const base = settingIn(read.env, 'DEPENDENCY_SOURCES');
   if (base === undefined) return DEPENDENCY_SOURCES;
@@ -358,6 +364,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
       here,
       serviceAccount: serviceAccountFrom(env, SERVICE_ACCOUNT_DIR),
       rootKubeconfig: rootKubeconfig ?? { off: role.role === 'root' ? 'POOL_KUBECONFIG is not set, so root reaches no cluster of its own' : 'only root reaches root\'s own cluster' },
+      chartSources: chartSourcesFrom(read),
     },
     tests: {
       unreachableAfterMs: read.take(() => unreachableAfterMs(env)) ?? 0,
@@ -603,7 +610,7 @@ function podStep(read: Reading): PodStepSettings | undefined {
   if (role && role.role !== 'instance') read.problems.push(`this step runs only in an instance's pod, and ROLE is ${role.role}`);
   const here = hereFrom(read.env, false);
   if (!here.koalaMachineId && !here.poolName) read.problems.push('neither INSTANCE_MACHINE_ID nor POOL with INSTANCE_NAME is set, so this step does not know the cluster it runs in');
-  return role ? { role, clusters: { here, serviceAccount: serviceAccountFrom(read.env, SERVICE_ACCOUNT_DIR), rootKubeconfig: { off: 'only root reaches root\'s own cluster' } } } : undefined;
+  return role ? { role, clusters: { here, serviceAccount: serviceAccountFrom(read.env, SERVICE_ACCOUNT_DIR), rootKubeconfig: { off: 'only root reaches root\'s own cluster' }, chartSources: chartSourcesFrom(read) } } : undefined;
 }
 
 export function podStepSettingsFrom(env: Env): PodStepSettings {
@@ -674,7 +681,7 @@ export function clusterSettingsFrom(env: Env): PodStepSettings {
   const root = role?.role === 'root';
   const rootKubeconfig = root ? settingIn(read.env, 'POOL_KUBECONFIG') : undefined;
   return finish(read, 'this program', role
-    ? { role, clusters: { here: hereFrom(env, root), serviceAccount: serviceAccountFrom(env, SERVICE_ACCOUNT_DIR), rootKubeconfig: rootKubeconfig ?? { off: root ? 'POOL_KUBECONFIG is not set, so root reaches no cluster of its own' : 'only root reaches root\'s own cluster' } } }
+    ? { role, clusters: { here: hereFrom(env, root), serviceAccount: serviceAccountFrom(env, SERVICE_ACCOUNT_DIR), rootKubeconfig: rootKubeconfig ?? { off: root ? 'POOL_KUBECONFIG is not set, so root reaches no cluster of its own' : 'only root reaches root\'s own cluster' }, chartSources: chartSourcesFrom(read) } }
     : undefined);
 }
 

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { decryptValue, nodeProcesses, nodeStreams, theFence, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
+import { helmArgsFor } from '../lib/chart-sources.js';
 import { machineToStart, ownReach, placeOf, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
 
@@ -30,6 +31,7 @@ export interface ClusterAccessDeps {
   dataKey?: SecretKey | undefined;
   serviceAccount?: ServiceAccount | undefined;
   rootKubeconfig?: string | undefined;
+  chartSources?: string | undefined;
 }
 
 export type Target = Reach | string;
@@ -105,7 +107,7 @@ export class ClusterAccess {
   async helm(target: Target, args: readonly string[]): Promise<string> {
     const leave = this.admitted();
     try {
-      return await this.ran(target, await this.run(target, this.deps.tools.helm, args));
+      return await this.ran(target, await this.run(target, this.deps.tools.helm, helmArgsFor(args, this.deps.chartSources)));
     } finally {
       leave();
     }
@@ -223,5 +225,6 @@ export function clusterAccessFrom(settings: ClusterSettings, from: ClusterAccess
     dataKey: from.dataKey,
     serviceAccount: settings.serviceAccount,
     rootKubeconfig: root && typeof settings.rootKubeconfig === 'string' ? settings.rootKubeconfig : undefined,
+    chartSources: settings.chartSources,
   });
 }

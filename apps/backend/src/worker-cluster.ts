@@ -60,7 +60,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const dataKey = settings.keys.data;
   const steps: ClusterSteps = {
     access,
-    infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir)),
+    infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources)),
     gitea: new GiteaService(dataKey, settings.gitea, { dataDir: settings.dataDir, registryPullHost: settings.registryPullHost, reportsTo: dependencies }),
     infisical: new InfisicalService(dataKey, settings.infisical, settings.dataDir, dependencies),
     database: { mongo: settings.mongo, dataKey },
