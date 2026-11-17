@@ -119,10 +119,7 @@ spec:
           args:
             - "--context=${yamlDoubleQuoted(workspacePath(pipeline.config?.context))}"
             - "--dockerfile=${yamlDoubleQuoted(workspacePath(dockerfilePath))}"
-            - "--destination=${forPushing(imageTag, registry)}"
-            - "--insecure"
-            - "--insecure-pull"
-            - "--skip-tls-verify"${kanikoRegistryArgs(registry).map((arg) => `\n            - "${arg}"`).join('')}${buildArgFlags.length ? '\n' + buildArgFlags.map((f) => `            - "${f}"`).join('\n') : ''}
+            - "--destination=${forPushing(imageTag, registry)}"${kanikoRegistryArgs(registry).map((arg) => `\n            - "${arg}"`).join('')}${buildArgFlags.length ? '\n' + buildArgFlags.map((f) => `            - "${f}"`).join('\n') : ''}
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
             - { name: docker-config, mountPath: /kaniko/.docker }

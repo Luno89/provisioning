@@ -19,9 +19,19 @@ describe('the registry an instance pushes to and pulls from', () => {
     expect(forPushing('10.0.0.130:31737/koala-u1/shop:abc', one)).toBe('10.0.0.130:31737/koala-u1/shop:abc');
   });
 
+  it('kaniko is told only Koala\'s own registry is plain http, whether the pull and push hosts are one or two', () => {
+    expect(kanikoRegistryArgs(one)).toEqual(['--insecure-registry=10.0.0.130:31737', '--skip-tls-verify-registry=10.0.0.130:31737']);
+    expect(kanikoRegistryArgs(pool)).toEqual([
+      '--insecure-registry=gitea-http.gitea.svc.cluster.local:3000',
+      '--skip-tls-verify-registry=gitea-http.gitea.svc.cluster.local:3000',
+      '--insecure-registry=127.0.0.1:35010',
+      '--skip-tls-verify-registry=127.0.0.1:35010',
+      '--registry-map=127.0.0.1:35010=gitea-http.gitea.svc.cluster.local:3000',
+    ]);
+    expect([...kanikoRegistryArgs(one), ...kanikoRegistryArgs(pool)].filter((arg) => ['--insecure', '--insecure-pull', '--skip-tls-verify'].includes(arg))).toEqual([]);
+  });
+
   it('lets Kaniko read a base image named for pulling from the push address, and signs in at both', () => {
-    expect(kanikoRegistryArgs(one)).toEqual([]);
-    expect(kanikoRegistryArgs(pool)).toEqual(['--registry-map=127.0.0.1:35010=gitea-http.gitea.svc.cluster.local:3000', '--insecure-registry=gitea-http.gitea.svc.cluster.local:3000']);
     expect(registryAuths(one, 'A')).toEqual({ '10.0.0.130:31737': { auth: 'A' } });
     expect(registryAuths(pool, 'A')).toEqual({ 'gitea-http.gitea.svc.cluster.local:3000': { auth: 'A' }, '127.0.0.1:35010': { auth: 'A' } });
   });

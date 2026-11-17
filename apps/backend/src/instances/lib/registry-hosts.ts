@@ -16,8 +16,12 @@ export function forPushing(reference: string, hosts: RegistryHosts): string {
     : reference;
 }
 
+const plainHttp = (host: string): string[] => [`--insecure-registry=${host}`, `--skip-tls-verify-registry=${host}`];
+
 export function kanikoRegistryArgs(hosts: RegistryHosts): string[] {
-  return hosts.pull === hosts.push ? [] : [`--registry-map=${hosts.pull}=${hosts.push}`, `--insecure-registry=${hosts.push}`];
+  return hosts.pull === hosts.push
+    ? plainHttp(hosts.push)
+    : [...plainHttp(hosts.push), ...plainHttp(hosts.pull), `--registry-map=${hosts.pull}=${hosts.push}`];
 }
 
 export function registryAuths(hosts: RegistryHosts, auth: string): Record<string, { auth: string }> {

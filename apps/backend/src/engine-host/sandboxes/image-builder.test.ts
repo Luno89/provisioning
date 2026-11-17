@@ -115,6 +115,16 @@ describe('building what does', () => {
     }
   });
 
+  it('a build verifies TLS for every registry but the instance\'s own', async () => {
+    const { run, calls } = kube();
+    await createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    const args = (JSON.parse(applied.split('\n---\n').at(-1)!) as { spec: { template: { spec: { containers: { args: string[] }[] } } } }).spec.template.spec.containers[0]!.args;
+    expect(args.filter((arg) => ['--insecure', '--insecure-pull', '--skip-tls-verify'].includes(arg))).toEqual([]);
+    expect(args).toContain(`--insecure-registry=${HOSTS.push}`);
+    expect(args).toContain(`--skip-tls-verify-registry=${HOSTS.push}`);
+  });
+
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {
     const { run, calls } = kube();
     await createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
