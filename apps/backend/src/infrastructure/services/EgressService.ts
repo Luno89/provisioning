@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import { failureOf } from '@koala/engine-core/failures';
 import type { Reopening } from '@koala/engine-core/reopening';
-import { keepTrying } from '../../platform/lib/keep-trying.js';
+import { keepTrying } from '../../platform/index.js';
 
 export interface EgressStore {
   getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
