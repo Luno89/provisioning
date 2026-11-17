@@ -88,13 +88,19 @@ describe('/api/memories', () => {
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
   });
 
-  it('a memory is kept when the person has no Qdrant of their own, and they are told so', async () => {
+  it('a person with no Quickwit or Qdrant of their own forgets a memory, since nothing of it is in an index', async () => {
+    const made = await axios.post<{ id: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Gone', text: 'A lesson.', scope: 'global' });
+
+    expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
+    expect(await harness.db.memory.getMemories(TEST_USER.id)).toEqual([]);
+  });
+
+  it('a person with only Quickwit has the memory taken out of Quickwit as it is forgotten', async () => {
     await harness.db.infrastructure.saveDeployment(deployed('quickwit'));
-    const made = await axios.post<{ id: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
+    const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
+    await indexMemories(standIn.endpoints, [made.data]);
 
-    const refused = await axios.delete(harness.url(`/api/memories/${made.data.id}`), { validateStatus: () => true });
-
-    expect([refused.status, refused.data]).toEqual([409, { error: 'forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first' }]);
-    expect(await harness.db.memory.getMemories(TEST_USER.id)).toHaveLength(1);
+    expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
+    expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
   });
 });

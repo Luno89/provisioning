@@ -34,8 +34,15 @@ describe('taking memories out of the index', () => {
     await expect(removeMemories(ends, ['m1'])).rejects.toThrow('Quickwit refused: HTTP 404 index not found');
   });
 
-  it('a person with no Quickwit or Qdrant of their own is told what is missing, and nothing is asked', async () => {
-    await expect(removeMemories({ index: { base: QUICKWIT } }, ['m1'])).rejects.toThrow('forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first');
+  it('a person with no Quickwit or Qdrant of their own has nothing in an index, so forgetting goes ahead and nothing is asked', async () => {
+    await expect(removeMemories({}, ['m1'])).resolves.toBeUndefined();
+  });
+
+  it('a person with only Quickwit has the memory taken out of Quickwit, and Qdrant, which they do not have, is not asked', async () => {
+    const asked: string[] = [];
+    server.use(http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => { asked.push(await request.text()); return HttpResponse.json({ opstamp: 1 }); }));
+    await removeMemories({ index: { base: QUICKWIT } }, ['m1']);
+    expect(asked).toEqual([JSON.stringify({ query: 'memory_id:"m1"' })]);
   });
 });
 

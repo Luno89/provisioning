@@ -37,8 +37,15 @@ describe('purging an ingest', () => {
     expect(failureOf(failed)).toEqual({ kind: 'temporary', reason: 'it answered 503' });
   });
 
-  it('a person with no Qdrant of their own is told so, and nothing is asked', async () => {
-    await expect(purgeCorpus({ index: { base: QUICKWIT } }, 'i1')).rejects.toThrow('purging a crawl needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first');
+  it('a person with no Quickwit or Qdrant of their own has nothing indexed, so the purge goes ahead and nothing is asked', async () => {
+    await expect(purgeCorpus({}, 'i1')).resolves.toBeUndefined();
+  });
+
+  it('a person with only Quickwit has the crawl purged from Quickwit, and Qdrant, which they do not have, is not asked', async () => {
+    const asked: string[] = [];
+    server.use(http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => { asked.push(await request.text()); return HttpResponse.json({ opstamp: 1 }); }));
+    await purgeCorpus({ index: { base: QUICKWIT } }, 'i1');
+    expect(asked).toEqual([JSON.stringify({ query: 'ingest_id:"i1"' })]);
   });
 });
 

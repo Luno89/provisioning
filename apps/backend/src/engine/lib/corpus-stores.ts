@@ -10,8 +10,6 @@ const LABELS: { readonly [S in CorpusStore]: string } = {
 
 export const SEARCHABLE = ['index', 'vectors', 'embeddings'] as const satisfies readonly CorpusStore[];
 
-export const HELD = ['index', 'vectors'] as const satisfies readonly CorpusStore[];
-
 export class CorpusStoresMissing extends Error {
   readonly status = 409;
 

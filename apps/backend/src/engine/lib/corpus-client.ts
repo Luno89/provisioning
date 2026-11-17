@@ -5,7 +5,7 @@ import {
 } from './corpus-backend.js';
 import { SNIPPET_CHARS } from './corpus.js';
 import type { CorpusEndpoints } from './web-tools-resolver.js';
-import { answered, bothOf, HELD, refusal, withStores } from './corpus-stores.js';
+import { answered, bothOf, refusal, withStores } from './corpus-stores.js';
 
 export const INDEX_ID = 'koala-corpus';
 export const COLLECTION_ID = 'koala-corpus';
@@ -136,18 +136,22 @@ export async function embedPages(
 }
 
 export async function purgeCorpus(ends: CorpusEndpoints, ingestId: string): Promise<void> {
-  const stores = withStores(ends, HELD, 'purging a crawl');
+  const { index, vectors } = ends;
   await bothOf(
-    fetch(`${stores.index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
-    }).then((res) => answered(res, 'Quickwit')),
-    fetch(`${stores.vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },
-      body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
-    }).then((res) => answered(res, 'Qdrant')),
+    index
+      ? fetch(`${index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
+      }).then((res) => answered(res, 'Quickwit'))
+      : Promise.resolve(),
+    vectors
+      ? fetch(`${vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
+        body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
+      }).then((res) => answered(res, 'Qdrant'))
+      : Promise.resolve(),
   );
 }
 

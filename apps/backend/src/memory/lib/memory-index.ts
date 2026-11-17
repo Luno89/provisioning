@@ -1,7 +1,7 @@
 import { at, listAt } from '../../platform/lib/json-shapes.js';
 import { collectionConfig, pointId } from '../../engine/lib/corpus-backend.js';
 import { embed } from '../../engine/lib/corpus-client.js';
-import { answered, bothOf, HELD, refusal, SEARCHABLE, withStores } from '../../engine/lib/corpus-stores.js';
+import { answered, bothOf, refusal, SEARCHABLE, withStores } from '../../engine/lib/corpus-stores.js';
 import {
   MEMORY_INDEX, MEMORY_COLLECTION, MEMORY_SEARCH_LIMIT, buildMemoryQuery, memoryIndexConfig,
   fuseRRF, type FusedHit, type MemoryDoc,
@@ -112,19 +112,23 @@ async function writeMemoryDocs(ends: Searchable, items: MemoryItem[]): Promise<n
 }
 
 export async function removeMemories(ends: MemoryEndpoints, ids: string[]): Promise<void> {
-  const stores = withStores(ends, HELD, 'forgetting a memory');
   if (!ids.length) return;
+  const { index, vectors } = ends;
   await bothOf(
-    fetch(`${stores.index.base}/api/v1/${MEMORY_INDEX}/delete-tasks`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: ids.map((id) => `memory_id:"${id}"`).join(' OR ') }),
-    }).then((res) => answered(res, 'Quickwit')),
-    fetch(`${stores.vectors.base}/collections/${MEMORY_COLLECTION}/points/delete?wait=true`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },
-      body: JSON.stringify({ points: ids.map(pointId) }),
-    }).then((res) => answered(res, 'Qdrant')),
+    index
+      ? fetch(`${index.base}/api/v1/${MEMORY_INDEX}/delete-tasks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: ids.map((id) => `memory_id:"${id}"`).join(' OR ') }),
+      }).then((res) => answered(res, 'Quickwit'))
+      : Promise.resolve(),
+    vectors
+      ? fetch(`${vectors.base}/collections/${MEMORY_COLLECTION}/points/delete?wait=true`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
+        body: JSON.stringify({ points: ids.map(pointId) }),
+      }).then((res) => answered(res, 'Qdrant'))
+      : Promise.resolve(),
   );
 }
 

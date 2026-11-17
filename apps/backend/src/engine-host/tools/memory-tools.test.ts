@@ -159,8 +159,8 @@ describe('forget_memory', () => {
   });
 
   it('keeps a memory the index will not let go of current, and says why', async () => {
-    indexRefuses = 'forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first';
-    await expect(call('forget_memory', { id: 'm1', why: 'wrong' })).rejects.toThrow('you have no running Qdrant');
+    indexRefuses = 'Qdrant "vectors" is deployed but not answering: its pod is not ready';
+    await expect(call('forget_memory', { id: 'm1', why: 'wrong' })).rejects.toThrow('Qdrant "vectors" is deployed but not answering');
 
     expect(bank.get('m1')!.invalidAt).toBeUndefined();
   });
