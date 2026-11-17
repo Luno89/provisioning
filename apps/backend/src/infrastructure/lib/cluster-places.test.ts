@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOT_CLUSTER_ID, appServiceType, hereFrom, koalasClusterId, machineToStart, ownReach, placedOnPool, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
+import { ROOT_CLUSTER_ID, appServiceType, hereFrom, koalaPlace, koalasClusterId, machineToStart, ownReach, placedOnPool, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
 
 const unsealed = (overrides: Partial<KnownCluster> = {}): KnownCluster =>
   ({ id: 'machine-dev2', name: 'machine-dev2', provider: 'machine', machineId: 'dev2', status: 'healthy', ...overrides });
@@ -47,6 +47,14 @@ describe('the cluster this Koala runs in', () => {
     expect(ownReach({ poolName: 'bob', root: false })).toEqual({ clusterId: 'pool-bob', kind: 'koala' });
     expect(ownReach({ root: false })).toBeUndefined();
     expect(ownReach({ root: true })).toEqual({ clusterId: ROOT_CLUSTER_ID, kind: 'root' });
+  });
+
+  it('holds Koala\'s own pods in the namespace it keeps its state in, and nowhere when it runs in no cluster of its own', () => {
+    expect(koalaPlace(instance, { kind: 'kubernetes', namespace: 'nowrinkles' })).toEqual({ clusterId: 'machine-dev1', namespace: 'nowrinkles' });
+    expect(koalaPlace({ poolName: 'bob', root: false }, { kind: 'kubernetes', namespace: 'koala' })).toEqual({ clusterId: 'pool-bob', namespace: 'koala' });
+    expect(koalaPlace(instance, { kind: 'local' })).toBeUndefined();
+    expect(koalaPlace(instance, undefined)).toBeUndefined();
+    expect(koalaPlace({ root: true }, { kind: 'local' })).toBeUndefined();
   });
 
   it('is reached as Koala\'s own by the pool place\'s name only in that pool instance', () => {

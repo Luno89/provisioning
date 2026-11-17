@@ -75,13 +75,13 @@ export interface WorkloadScope {
   ownsCluster: boolean;
   viewerLabel: string;
   apps: ReadonlyArray<{ id: string; name: string; namespace: string; mine: boolean }>;
+  koalaNamespace?: string | undefined;
 }
 
 export const PLATFORM_NAMESPACES: ReadonlySet<string> = new Set([
   'kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'monitoring', 'traefik', 'ingress-nginx',
-  'cert-manager', 'infisical', 'infisical-operator-system', 'gitea', 'koala-egress', 'koala-registry', 'headscale',
+  'cert-manager', 'infisical', 'infisical-operator-system', 'gitea', 'koala-egress', 'koala-registry', 'headscale', 'searxng', 'crawl4ai',
 ]);
-export const PLATFORM_WORKLOADS: ReadonlyArray<{ namespace: string; name: string }> = [{ namespace: 'default', name: 'provisioning-worker' }];
 export const BUILD_NAMESPACES: ReadonlySet<string> = new Set(['pipeline-builds']);
 
 export const CHECK_SPACE_PREFIX = 'space-';
@@ -174,7 +174,7 @@ export function podVerdict(pod: PodJson, now: number): PodVerdict {
   return { ...base, state: 'ok' };
 }
 
-function aboutOf(namespace: string, name: string, labels: Record<string, string>, scope: WorkloadScope): { group: WorkloadGroup; about: WorkloadAbout } {
+function aboutOf(namespace: string, labels: Record<string, string>, scope: WorkloadScope): { group: WorkloadGroup; about: WorkloadAbout } {
   const app = scope.apps.find((entry) => entry.namespace === namespace);
   if (app) return { group: 'apps', about: { kind: 'app', id: app.id, name: app.name, mine: app.mine } };
   const owner = labels['koala.dev/owner'];
@@ -188,7 +188,7 @@ function aboutOf(namespace: string, name: string, labels: Record<string, string>
   const project = labels['koala.dev/project'];
   if (project) return { group: 'koala', about: { kind: 'project', id: project, mine, ...check } };
   if (BUILD_NAMESPACES.has(namespace)) return { group: 'koala', about: { kind: 'builds' } };
-  if (PLATFORM_NAMESPACES.has(namespace) || PLATFORM_WORKLOADS.some((entry) => entry.namespace === namespace && entry.name === name)) return { group: 'platform', about: { kind: 'platform' } };
+  if (PLATFORM_NAMESPACES.has(namespace) || namespace === scope.koalaNamespace) return { group: 'platform', about: { kind: 'platform' } };
   return { group: 'other', about: { kind: 'other' } };
 }
 
@@ -273,7 +273,7 @@ export function clusterWorkloads(
       namespace,
       kind: owner.kind,
       name: owner.name,
-      ...aboutOf(namespace, owner.name, labelsOf.get(namespace) ?? {}, scope),
+      ...aboutOf(namespace, labelsOf.get(namespace) ?? {}, scope),
       ...(release ? { release } : {}),
       pods: { total: live.length, ready: live.filter(({ verdict }) => verdict.ready).length },
       state,

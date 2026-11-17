@@ -74,8 +74,11 @@ export interface ClusterContentsDeps {
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
   labelOf(ownerId: string): string;
+  koala?: KoalaPlace | undefined;
   now?: () => Date;
 }
+
+export interface KoalaPlace { clusterId: string; namespace: string }
 
 export const READ_FRESH_MS = 20_000;
 
@@ -158,6 +161,7 @@ export class ClusterContentsService {
       ownsCluster: this.deps.monitoring.ownsCluster(viewer, cluster),
       viewerLabel: this.deps.labelOf(viewer.id),
       apps: deployments.map((dep) => ({ id: dep.id, name: dep.name, namespace: namespaceOf(dep), mine: dep.ownerId === viewer.id })),
+      ...(this.deps.koala?.clusterId === cluster.id ? { koalaNamespace: this.deps.koala.namespace } : {}),
     };
   }
 

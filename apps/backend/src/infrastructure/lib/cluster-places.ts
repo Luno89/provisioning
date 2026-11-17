@@ -1,6 +1,7 @@
 import type { ClusterMetadata } from '../../platform/index.js';
 import type { MachineOfCluster } from './app-destroy.js';
 import { machineClusterId, poolClusterId } from './cluster-name.js';
+import type { TerraformStateKind } from './terraform-state.js';
 
 export const ROOT_CLUSTER_ID = 'root';
 
@@ -38,6 +39,11 @@ export function koalasClusterId(here: Here): string | undefined {
   if (here.root) return undefined;
   if (here.koalaMachineId) return machineClusterId(here.koalaMachineId);
   return here.poolName ? poolClusterId(here.poolName) : undefined;
+}
+
+export function koalaPlace(here: Here, state: TerraformStateKind | undefined): { clusterId: string; namespace: string } | undefined {
+  const clusterId = koalasClusterId(here);
+  return clusterId && state?.kind === 'kubernetes' ? { clusterId, namespace: state.namespace } : undefined;
 }
 
 export function ownReach(here: Here): Reach | undefined {

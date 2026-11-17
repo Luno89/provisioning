@@ -12,6 +12,7 @@ import { testNamespaces } from '../testing/test-namespaces.js';
 const k3s = inject('k3s');
 const namespaces = testNamespaces(k3s.admin);
 const SHOP = namespaces.name('shop');
+const KOALA = namespaces.name('koala');
 
 afterAll(async () => { await namespaces.removeAll(); }, 0);
 const KEY = 'contents-key' as never;
@@ -47,5 +48,26 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
 
     const unreached = await contents.contents(asPerson('bo'), resting.id);
     expect(unreached).toMatchObject({ reachable: false, problem: 'it does not answer (resting is stopped until something runs on it)' });
+  }, 300_000);
+
+  it('shows Koala\'s own pods as the platform on the cluster Koala runs in, and nowhere else', async () => {
+    const db = await testDatabase();
+    await db.infrastructure.saveCluster(desk);
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-contents-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    await access.kubectl(desk.id, ['create', 'namespace', KOALA]);
+    await access.kubectl(desk.id, ['create', 'deployment', 'instance-backend', '-n', KOALA, '--image=registry.k8s.io/pause:3.9']);
+    await access.kubectl(desk.id, ['rollout', 'status', 'deployment/instance-backend', '-n', KOALA, '--timeout=720h']);
+    const contentsWith = (koala: { clusterId: string; namespace: string } | undefined) => new ClusterContentsService({
+      monitoring: { clustersOf: async () => [desk], ownsCluster: () => true, reach: async () => ({}) },
+      deployments: async () => [],
+      ...runnersByRecord(access),
+      labelOf: (id) => id,
+      koala,
+    });
+
+    const onKoalas = await contentsWith({ clusterId: desk.id, namespace: KOALA }).contents(asPerson('bo'), desk.id);
+    expect(onKoalas.workloads.find((workload) => workload.namespace === KOALA)).toMatchObject({ group: 'platform', name: 'instance-backend', state: 'ok' });
+    const elsewhere = await contentsWith({ clusterId: 'machine-other', namespace: KOALA }).contents(asPerson('bo'), desk.id);
+    expect(elsewhere.workloads.find((workload) => workload.namespace === KOALA)).toMatchObject({ group: 'other' });
   }, 300_000);
 });

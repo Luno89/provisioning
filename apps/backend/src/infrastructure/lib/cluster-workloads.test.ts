@@ -85,13 +85,15 @@ describe('the workloads on a cluster', () => {
         pod('other-thing', 'x', undefined, running()),
         pod('monitoring', 'prom-0', { kind: 'StatefulSet', name: 'prom' }, running(), { labels: { 'app.kubernetes.io/instance': 'kube-prometheus-stack' } }),
         pod('koala-run-tree-t1', 'workspace', undefined, running()),
-        pod('default', 'provisioning-worker-abc-1', { kind: 'ReplicaSet', name: 'provisioning-worker-abc' }, running(), { labels: { 'pod-template-hash': 'abc' } }),
+        pod('nowrinkles', 'instance-backend-abc-1', { kind: 'ReplicaSet', name: 'instance-backend-abc' }, running(), { labels: { 'pod-template-hash': 'abc' } }),
+        pod('searxng', 'searxng-1', undefined, running()),
+        pod('crawl4ai', 'crawl4ai-1', undefined, running()),
         pod('shop', 'web', undefined, running()),
       ],
-      namespaces: [ns('other-thing'), ns('monitoring'), ns('koala-run-tree-t1', { 'koala.dev/run': 'tree-t1', 'koala.dev/owner': 'me' }), ns('default'), ns('shop')],
-    }, owner, NOW);
+      namespaces: [ns('other-thing'), ns('monitoring'), ns('koala-run-tree-t1', { 'koala.dev/run': 'tree-t1', 'koala.dev/owner': 'me' }), ns('nowrinkles'), ns('searxng'), ns('crawl4ai'), ns('shop')],
+    }, { ...owner, koalaNamespace: 'nowrinkles' }, NOW);
     expect(workloads.map((workload) => [workload.group, workload.namespace])).toEqual([
-      ['apps', 'shop'], ['koala', 'koala-run-tree-t1'], ['platform', 'default'], ['platform', 'monitoring'], ['other', 'other-thing'],
+      ['apps', 'shop'], ['koala', 'koala-run-tree-t1'], ['platform', 'crawl4ai'], ['platform', 'monitoring'], ['platform', 'nowrinkles'], ['platform', 'searxng'], ['other', 'other-thing'],
     ]);
     expect(workloads[1]!.about).toEqual({ kind: 'tree', id: 't1', mine: true });
     expect(workloads.find((workload) => workload.namespace === 'monitoring')!.release).toBe('kube-prometheus-stack');

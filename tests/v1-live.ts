@@ -3,7 +3,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../apps/backend/src/infrastructure/lib/model-images.js';
-import { devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
+import { DEV_NAMESPACE, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
@@ -269,6 +269,10 @@ async function main(): Promise<void> {
     const card = page.getByTestId('cluster-card').filter({ hasText: cluster.name });
     await expect(card.getByText(/^GPUs: 2 × .+ GiB each$/)).toBeVisible({ timeout: 60_000 });
     await expect(card.getByText(/not usable yet|could not be read/)).toHaveCount(0);
+    const contents = (await api.get(`/api/infrastructure/clusters/${clusterId}`)).data as { workloads: Array<{ namespace: string; name: string; group: string }>; services?: Array<{ id: string; state: string }> };
+    const koalasOwn = contents.workloads.filter((workload) => workload.namespace === DEV_NAMESPACE);
+    assert.ok(koalasOwn.length > 0, `the cluster page lists none of Koala's own pods in ${DEV_NAMESPACE}`);
+    assert.deepEqual(koalasOwn.filter((workload) => workload.group !== 'platform').map((workload) => `${workload.name} (${workload.group})`), [], 'Koala\'s own pods are listed as something other than the platform');
     console.log(`  ${device.name} online; ${gpusOnMyMachines}, on My Machines and its cluster card`);
     nothingWentWrong(watching, 'My Machines and the cluster card');
 

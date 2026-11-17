@@ -49,7 +49,7 @@ import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHtt
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, vpsCatalogAdapters,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, vpsCatalogAdapters,
   savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
@@ -66,6 +66,7 @@ if (startsHere) dotenv.config({ quiet: true });
 
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database; settings: BackendSettings }> {
   const settings = backendSettingsFrom(process.env);
+
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-backend'));
   const dependencies = dependencyStatesFor(settings, { where: settings.role.instance ? { root: settings.role.instance.rootUrl } : {} });
   reportCollectorTo(telemetry, dependencies);
@@ -435,7 +436,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
-    bench, keeper: memoryKeeper, access: clusterAccess,
+    bench, keeper: memoryKeeper, access: clusterAccess, koala: koalaPlace(settings.clusters.here, isOff(settings.terraform) ? undefined : settings.terraform),
     dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() },
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });

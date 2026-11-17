@@ -5,7 +5,7 @@ import { DEFAULT_BENCH_SETTINGS, type Level2Service, type BenchService } from '.
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
 import { WorkFailureService } from '../services/WorkFailureService.js';
 import { RunningService } from '../services/RunningService.js';
-import { ClusterContentsService } from '../services/ClusterContentsService.js';
+import { ClusterContentsService, type KoalaPlace } from '../services/ClusterContentsService.js';
 import { InfrastructureViewService, type InfrastructureViewDeps } from '../services/InfrastructureViewService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/index.js';
@@ -62,6 +62,7 @@ export interface RunningWiringDeps {
   bench: { service?: BenchService };
   keeper: MemoryKeeperService;
   access: Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>;
+  koala?: KoalaPlace | undefined;
   dependencies?: InfrastructureViewDeps['dependencies'];
   signals?: InfrastructureViewDeps['signals'];
 }
@@ -104,6 +105,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
     deployments: () => db.infrastructure.getDeployments(),
     ...runnersByRecord(deps.access),
     labelOf: labelValue,
+    koala: deps.koala,
   });
   tenant.use('/api/infrastructure', infrastructureRouter({
     infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, dependencies: deps.dependencies, signals: deps.signals }),
