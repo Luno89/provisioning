@@ -1,6 +1,7 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
@@ -19,15 +20,33 @@ interface Doc { kind: string; metadata: { name: string }; spec?: { strategy?: { 
 const docker = (...args: string[]): string => execFileSync('docker', args, { encoding: 'utf8' });
 const made: string[] = [];
 
+const logsOf = (container: string): string => {
+  const logs = spawnSync('docker', ['logs', '--tail', '40', container], { encoding: 'utf8' });
+  return `${logs.stdout}${logs.stderr}`;
+};
+
+function healthy(container: string): Promise<void> {
+  const created = docker('inspect', '-f', '{{.Created}}', container).trim();
+  const events = spawn('docker', ['events', '--since', created, '--filter', `container=${container}`, '--filter', 'event=health_status', '--filter', 'event=die', '--format', '{{.Action}} {{index .Actor.Attributes "exitCode"}}']);
+  return new Promise((resolve, reject) => {
+    createInterface({ input: events.stdout }).on('line', (line) => {
+      if (line.startsWith('health_status: healthy')) { events.kill(); resolve(); }
+      if (line.startsWith('die')) { events.kill(); reject(new Error(`${container} stopped (exit ${line.slice('die '.length)}):\n${logsOf(container)}`)); }
+    });
+    events.on('error', reject);
+  });
+}
+
 const temporalPod = (): Doc => parseAllDocuments(execFileSync(TOOLS.helm, [
   'template', 'luno', CHART, '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com',
   '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
 ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc).find((doc) => doc?.kind === 'Deployment' && doc.metadata.name === 'luno-temporal')!;
 
-function database(): string {
+async function database(): Promise<string> {
   const name = `koala-temporal-db-${STAMP}-${made.length}`;
-  docker('run', '-d', '--name', name, '--network', NETWORK, '-e', 'POSTGRES_USER=temporal', '-e', `POSTGRES_PASSWORD=${PASSWORD}`, 'postgres:12-alpine');
+  docker('run', '-d', '--name', name, '--network', NETWORK, '--health-cmd', 'pg_isready -h 127.0.0.1 -U temporal', '--health-interval', '1s', '-e', 'POSTGRES_USER=temporal', '-e', `POSTGRES_PASSWORD=${PASSWORD}`, 'postgres:12-alpine');
   made.push(name);
+  await healthy(name);
   return name;
 }
 
@@ -43,12 +62,12 @@ function run(container: Container, seeds: string, steps: string): { code: number
 const schema = (db: string): string => ['temporal', 'temporal_visibility']
   .map((name) => docker('exec', db, 'psql', '-U', 'temporal', '-d', name, '-tAc', `SELECT curr_version FROM schema_version WHERE version_partition = 0 AND db_name = '${name}'`).trim()).join(' ');
 
-function setUpAt(image: string, db: string): void {
+async function setUpAt(image: string, db: string): Promise<void> {
   const old = `koala-temporal-old-${STAMP}-${made.length}`;
-  docker('run', '-d', '--name', old, '--network', NETWORK, '-e', 'DB=postgres12', '-e', 'DB_PORT=5432', '-e', 'POSTGRES_USER=temporal', '-e', `POSTGRES_PWD=${PASSWORD}`,
+  docker('run', '-d', '--name', old, '--network', NETWORK, '--health-cmd', 'temporal operator cluster health --address 127.0.0.1:7233 | grep -q SERVING', '--health-interval', '2s', '-e', 'DB=postgres12', '-e', 'DB_PORT=5432', '-e', 'POSTGRES_USER=temporal', '-e', `POSTGRES_PWD=${PASSWORD}`,
     '-e', `POSTGRES_SEEDS=${db}`, '-e', 'BIND_ON_IP=127.0.0.1', image);
   made.push(old);
-  while (spawnSync('docker', ['exec', old, 'temporal', 'operator', 'cluster', 'health', '--address', '127.0.0.1:7233'], { encoding: 'utf8' }).stdout.includes('SERVING') === false) execFileSync('sleep', ['2']);
+  await healthy(old);
   docker('rm', '-f', old);
 }
 
@@ -82,9 +101,9 @@ describe('an instance\'s Temporal stepped up one minor version at a time before 
     expect(plan.env.filter((entry) => entry.name.startsWith('NEWEST_')).map((entry) => entry.value)).toEqual(brought);
   });
 
-  it('takes a database Temporal 1.24 set up through every minor version up to the one before its own, and does nothing the second time', () => {
-    const db = database();
-    setUpAt('temporalio/auto-setup:1.24.2', db);
+  it('takes a database Temporal 1.24 set up through every minor version up to the one before its own, and does nothing the second time', async () => {
+    const db = await database();
+    await setUpAt('temporalio/auto-setup:1.24.2', db);
     expect(schema(db)).toBe('1.12 1.6');
     const at = volume();
     const planned = run(plan, db, at);
@@ -100,16 +119,16 @@ describe('an instance\'s Temporal stepped up one minor version at a time before 
     for (const step of steps) expect(run(step, db, again).said).toContain('already at schema 1.17');
   });
 
-  it('leaves a new database to the Temporal that runs it', () => {
-    const db = database();
+  it('leaves a new database to the Temporal that runs it', async () => {
+    const db = await database();
     const at = volume();
     expect(run(plan, db, at).said).toContain('holds no schema yet');
     for (const step of steps) expect(run(step, db, at).said).toContain('a new database goes straight to the Temporal that runs it');
   });
 
-  it('refuses a database a newer Temporal ran on, saying so, and starts nothing', () => {
-    const db = database();
-    setUpAt('temporalio/auto-setup:1.24.2', db);
+  it('refuses a database a newer Temporal ran on, saying so, and starts nothing', async () => {
+    const db = await database();
+    await setUpAt('temporalio/auto-setup:1.24.2', db);
     docker('exec', db, 'psql', '-U', 'temporal', '-d', 'temporal', '-c', "UPDATE schema_version SET curr_version = '1.99' WHERE db_name = 'temporal'");
     const refused = run(plan, db, volume());
     expect(refused.code).not.toBe(0);
