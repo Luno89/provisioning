@@ -239,7 +239,7 @@ export async function resolveTreeType<T extends { id: string; ownerId?: string |
   id: string | undefined,
 ): Promise<T | undefined> {
   if (!id) return undefined;
-  const all = await store.getTreeTypes(ownerId).catch(() => [] as T[]);
+  const all = await store.getTreeTypes(ownerId);
   return all.find((t) => t.id === id && t.ownerId === ownerId) ?? all.find((t) => t.id === id && t.ownerId === undefined);
 }
 
@@ -360,7 +360,7 @@ export interface TreeTypeSeedStore extends TreeTypeStore {
 }
 
 export async function seedTreeTypes(store: TreeTypeSeedStore): Promise<number> {
-  const stored = await store.getTreeTypes().catch(() => [] as TreeTypeSpec[]);
+  const stored = await store.getTreeTypes();
   const shipped = new Map(stored.filter((t) => t.ownerId === undefined).map((t) => [t.id, t]));
 
   let seeded = 0;

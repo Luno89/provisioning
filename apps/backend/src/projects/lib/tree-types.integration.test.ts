@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../../engine/lib/workspace-image-seeds.js';
@@ -206,6 +206,14 @@ describe('seeding the shipped types', () => {
 
     expect(await seedTreeTypes(db.projects)).toBe(1);
     expect((await shippedPaper(db))?.agent).toBe('grove-paper');
+  });
+
+  it('seeding over a store that fails to read writes nothing', async () => {
+    const db = await testDatabase();
+    vi.spyOn(db.projects, 'getTreeTypes').mockRejectedValueOnce(new Error('the database is not answering'));
+
+    await expect(seedTreeTypes(db.projects)).rejects.toThrow('the database is not answering');
+    expect(await db.projects.getTreeTypes()).toEqual([]);
   });
 
   it('writes nothing on a second run, so provenance does not move', async () => {
