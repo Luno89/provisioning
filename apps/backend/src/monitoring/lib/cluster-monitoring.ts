@@ -1,4 +1,5 @@
 import type { Reach } from '../../infrastructure/index.js';
+import { appServiceType, placedOnPool } from '../../infrastructure/lib/cluster-places.js';
 import { MONITORING_CHARTS } from './pool-monitoring.js';
 
 export const PROBE_RESOURCE = 'probes.monitoring.coreos.com';
@@ -38,8 +39,6 @@ const elsewhere = (charts: Record<string, string> | undefined, part: { release: 
 
 const lines = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
-export const placedOnPool = (pool: boolean, reach: Pick<Reach, 'kind'>): boolean => pool && reach.kind === 'koala';
-
 export interface KoalaClusterMonitoring {
   physicalName: string;
   reach: Reach;
@@ -53,8 +52,6 @@ export const koalaClusterMonitoring = (pool: boolean, reach: Reach): KoalaCluste
   pool: placedOnPool(pool, reach),
   koala: true,
 });
-
-export const appServiceType = (onPool: boolean): 'ClusterIP' | 'NodePort' => (onPool ? 'ClusterIP' : 'NodePort');
 
 export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = false): MonitoringPlan {
   const operator = lines(seen.apiResources).includes(PROBE_RESOURCE);

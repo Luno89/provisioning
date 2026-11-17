@@ -8,7 +8,7 @@ import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, placedOnPool } from '../monitoring/index.js';
+import { appServiceType, placedOnPool } from '../infrastructure/index.js';
 
 export type { DestroyAppArgs } from '../infrastructure/index.js';
 

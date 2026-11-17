@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MONITORING_CHARTS } from './pool-monitoring.js';
-import { koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };
@@ -85,11 +85,6 @@ describe('the cluster of a pool instance', () => {
     expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', koala: true }, false)).toMatchObject({ KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' });
   });
 
-  it('is only the instance\'s own cluster, and only in pool mode', () => {
-    expect(placedOnPool(true, { kind: 'koala' })).toBe(true);
-    expect(placedOnPool(true, { kind: 'machine' })).toBe(false);
-    expect(placedOnPool(false, { kind: 'koala' })).toBe(false);
-  });
 });
 
 describe('the stacks that monitor Koala\'s own cluster, named for that cluster\'s id', () => {

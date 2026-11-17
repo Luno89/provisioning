@@ -10,7 +10,7 @@ export { bindingFiles, resolveBindings } from './lib/binding-resolve.js';
 export type { ResolvedBinding } from './lib/binding-resolve.js';
 export { seedBindingTypes } from './lib/binding-type-seeds.js';
 export type { ClusterCapacity } from './lib/cluster-capacity.js';
-export { ROOT_CLUSTER_ID, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, startedMachine } from './lib/cluster-places.js';
+export { ROOT_CLUSTER_ID, appServiceType, koalasClusterId, machineToStart, ownReach, placedOnPool, placeOf, serviceAccountFrom, serviceAccountKubeconfig, startedMachine } from './lib/cluster-places.js';
 export type { ClusterPlace, HandOver, Here, Reach, ServiceAccount, WhyUnreachable } from './lib/cluster-places.js';
 export { PLATFORM_NAMESPACES } from './lib/cluster-workloads.js';
 export { declareDependency } from './lib/declare-dependency.js';

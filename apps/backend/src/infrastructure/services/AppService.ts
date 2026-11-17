@@ -4,7 +4,7 @@ import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { StorageAdapter } from './StorageAdapter.js';
-import { appServiceType, placedOnPool } from '../../monitoring/index.js';
+import { appServiceType, placedOnPool } from '../lib/cluster-places.js';
 import { listingOf, namespaceOf, namespacesByName, removeNamespace, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
 
 export type ListedApp = DeploymentMetadata & { listing: AppListing };

@@ -3,7 +3,7 @@ import {
 } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, placedOnPool } from '../monitoring/index.js';
+import { appServiceType, placedOnPool } from '../infrastructure/index.js';
 import { applyWatched } from './watched-apply.js';
 
 export interface ResizeDiskArgs {

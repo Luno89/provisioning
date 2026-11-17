@@ -12,7 +12,7 @@ import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, placedOnPool } from '../monitoring/index.js';
+import { appServiceType, placedOnPool } from '../infrastructure/index.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 

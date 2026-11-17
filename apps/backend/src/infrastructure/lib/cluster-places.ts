@@ -108,3 +108,7 @@ export function serviceAccountKubeconfig(account: ServiceAccount): string {
     '',
   ].join('\n');
 }
+
+export const placedOnPool = (pool: boolean, reach: Pick<Reach, 'kind'>): boolean => pool && reach.kind === 'koala';
+
+export const appServiceType = (onPool: boolean): 'ClusterIP' | 'NodePort' => (onPool ? 'ClusterIP' : 'NodePort');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOT_CLUSTER_ID, hereFrom, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
+import { ROOT_CLUSTER_ID, appServiceType, hereFrom, koalasClusterId, machineToStart, ownReach, placedOnPool, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
 
 const unsealed = (overrides: Partial<KnownCluster> = {}): KnownCluster =>
   ({ id: 'machine-dev2', name: 'machine-dev2', provider: 'machine', machineId: 'dev2', status: 'healthy', ...overrides });
@@ -91,5 +91,18 @@ describe('the kubeconfig a pod reaches its own cluster with', () => {
 
   it('brackets an IPv6 address', () => {
     expect(serviceAccountKubeconfig({ host: 'fd00::1', port: '443', caFile: 'c', tokenFile: 't' })).toContain('server: https://[fd00::1]:443');
+  });
+});
+
+describe('where an app on a cluster is placed', () => {
+  it('is on the pool only on the instance\'s own cluster, and only in pool mode', () => {
+    expect(placedOnPool(true, { kind: 'koala' })).toBe(true);
+    expect(placedOnPool(true, { kind: 'machine' })).toBe(false);
+    expect(placedOnPool(false, { kind: 'koala' })).toBe(false);
+  });
+
+  it('is reached by name on the pool and through a node port anywhere else', () => {
+    expect(appServiceType(true)).toBe('ClusterIP');
+    expect(appServiceType(false)).toBe('NodePort');
   });
 });
