@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from '../platform/testing/handoff.js';
 import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { providerCallbackUrl } from '../accounts/lib/sign-in-providers.js';
-import { startStandInIssuer, type StandInIssuer } from '../accounts/services/sign-in/stand-in-issuer.js';
+import { startStandInIssuer, type StandInIssuer } from '../accounts/testing/stand-in-issuer.js';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import type { SmtpSink } from '../platform/testing/smtp-sink.js';
 

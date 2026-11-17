@@ -15,7 +15,7 @@ import { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import { GITHUB_ISSUER, providerCallbackUrl, signInProvidersFrom, type SignInProvider } from '../lib/sign-in-providers.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { signJWT } from '../../platform/lib/auth.js';
-import { startStandInIssuer, type StandInIssuer } from '../services/sign-in/stand-in-issuer.js';
+import { startStandInIssuer, type StandInIssuer } from '../testing/stand-in-issuer.js';
 
 const fresh = await emptiedEachTime();
 

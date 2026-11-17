@@ -4,7 +4,7 @@ import { duplexPair } from 'node:stream';
 import { createLocalJWKSet, decodeJwt, jwtVerify } from 'jose';
 import { http } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { interceptHttp } from '../../../platform/testing/http.js';
+import { interceptHttp } from '../../platform/testing/http.js';
 import { startStandInIssuer, type StandInIssuer } from './stand-in-issuer.js';
 
 const served = vi.hoisted(() => ({ server: undefined as Server | undefined, port: 40123 }));
