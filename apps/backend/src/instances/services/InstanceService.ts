@@ -59,6 +59,7 @@ export interface InstanceSettings {
   siteNames?: readonly string[] | undefined;
   pool?: { slots: number; trialDays: number } | { off: string } | undefined;
   releases?: ReleaseSource | undefined;
+  notices?: { tell(): Promise<number> } | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
   connected?: ((instanceId: string) => boolean) | undefined;
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
@@ -615,6 +616,7 @@ export class InstanceService {
     if (report.presence !== true && !this.settings.connected?.(instance.id)) await this.store.instances.savePresence(instance, false);
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
     if (saved.status !== instance.status) this.settings.serviceChanged?.(saved);
+    if (dataVersion > (instance.dataVersion ?? 0)) await this.settings.notices?.tell().catch((err: Error) => console.error(`[releases] could not tell the owner of ${instance.id} where its data holds it: ${err.message}`));
     return { ok: true, value: saved };
   }
 

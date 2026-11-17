@@ -294,6 +294,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     registry: root.registry,
     imageTag: root.imageTag,
     releases: releaseCatalogue,
+    notices: withdrawalNotices,
     domain: routingDomain,
     siteNames,
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },

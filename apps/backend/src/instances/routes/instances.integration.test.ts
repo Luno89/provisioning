@@ -13,6 +13,8 @@ import { bundleAsEnv, instancesRouter } from './instances.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
+import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
+import { MailService } from '../../platform/services/MailService.js';
 import { excerptEnv, scriptExcerpt } from '../../../../../tests/coupling/shell-trace.js';
 
 const including = (items: unknown[]): unknown => expect.arrayContaining(items);
@@ -483,6 +485,41 @@ describe('Koala\'s dependencies on root', () => {
     expect((await call('post', '/api/instances/status', { status: 'ready', imageTag: 'new222', dataVersion: 0 })).status).toBe(200);
     expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'new222' });
     expect((await call('post', '/api/instances/status', { status: 'ready', dataVersion: 'one' })).status).toBe(400);
+  });
+
+  it('emails the owner once when a check-in brings data the release root runs cannot run', async () => {
+    const sent: Array<{ to: string; subject: string }> = [];
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: async (db) => {
+        await db.instances.recordRelease({ imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' });
+        await db.instances.recordRelease({ imageTag: 'new222', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1 });
+        await db.instances.withdrawRelease('new222', { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.24' });
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' } as never);
+        const mail = new MailService({
+          way: { kind: 'smtp', url: 'smtp://x', from: 'Koala <alerts@koala.dev>' },
+          emailOf: async (id) => (id === 'u1' ? 'alice@example.com' : undefined),
+          transport: () => ({ sendMail: async (message) => { sent.push(message); } }),
+        });
+        return instancesRouter({
+          instances: new InstanceService(db, {
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
+            releases: { releases: () => db.instances.getReleases(), hasChart: () => false },
+            notices: new WithdrawalNotices(db.instances, mail, 'old111'),
+          }, undefined),
+          chart: async () => '',
+          chartOf: () => undefined,
+        });
+      },
+    });
+    const report = (dataVersion: number) => axios.post(harness!.url('/api/instances/status'), { status: 'ready', imageTag: 'new222', dataVersion }, { headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+    expect((await report(0)).status).toBe(200);
+    expect(sent).toEqual([]);
+    expect((await report(1)).status).toBe(200);
+    expect(sent).toMatchObject([{ to: 'alice@example.com', subject: 'alice stays on its release' }]);
+    expect((await report(1)).status).toBe(200);
+    expect(sent).toHaveLength(1);
   });
 
   it('tells an instance, by its credential, what the release it runs carries and what fixes it', async () => {
