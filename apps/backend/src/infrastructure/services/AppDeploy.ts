@@ -2,7 +2,7 @@ import { withWorkFor } from '@koala/engine-core/work-for'
 import path from 'path';
 import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
-import { deploymentIdFor } from '../lib/deployment-id.js';
+import { appStackOf, deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
 import { savedHuggingFaceToken } from './hugging-face-token.js';
 import {
@@ -197,12 +197,13 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
   const absoluteLogPath = path.join(deps.logDir, logFileName)
   const deploymentId = deploymentIdFor(dep.deploymentId, dep.id || dep.name);
   dep.deploymentId = deploymentId;
+  const stack = appStackOf(dep, targetCluster);
 
     const activityArgs = {
       name: dep.name,
       namespace: dep.namespace,
       ...handed,
-      clusterName: targetCluster?.name || 'unknown',
+      clusterName: stack.clusterName,
       ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
       ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
       ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),

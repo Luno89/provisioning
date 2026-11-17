@@ -120,7 +120,7 @@ describe('the steps that delete a project', () => {
       deploymentId: 'odoo-p1',
       workflowId: expect.stringMatching(/^app-destroy-shop-p1-/) as unknown,
       taskQueue: 'cluster-ops-queue',
-      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
     }]);
     expect((await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')?.status).toBe('destroying');
 

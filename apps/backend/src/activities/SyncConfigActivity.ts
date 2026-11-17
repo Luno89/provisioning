@@ -5,7 +5,8 @@ import { namespacedOn, waitUntilRolledOut } from './cluster-jobs.js';
 import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, placedOnPool } from '../infrastructure/index.js';
+import { appServiceType, appStackName, NO_STACK_ID, placedOnPool } from '../infrastructure/index.js';
+import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
 
 export interface SyncConfigArgs {
@@ -85,7 +86,8 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const kubeconfigPath = await steps.access.kubeconfigOf(reach);
 
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage || {});
-  const deploymentId = args.deploymentId || 'default';
+  if (!args.deploymentId) throw ApplicationFailure.nonRetryable(`${args.name} ${NO_STACK_ID}`);
+  const deploymentId = args.deploymentId;
 
   const env = buildAppEnv({
     modelPreDownloaded: args.modelPreDownloaded === true,
@@ -140,7 +142,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     storageEnv,
   });
 
-  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
+  await applyWatched(steps, appStackName(physicalName, deploymentId), { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
   await kubectl(['rollout', 'restart', 'deployment', '-n', namespace]);
 
   if (args.appType === 'openwebui') {

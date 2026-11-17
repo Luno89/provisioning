@@ -2,10 +2,10 @@ import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata,
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
-import type { TemporalBridge } from './TemporalBridge.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { appServiceType, placedOnPool } from '../lib/cluster-places.js';
-import { listingOf, namespaceOf, namespacesByName, removeNamespace, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
+import { AppStackUnknown, appStackName, appStackOf } from '../lib/deployment-id.js';
+import { listingOf, namespaceOf, namespacesByName, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
 
 export type ListedApp = DeploymentMetadata & { listing: AppListing };
 import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
@@ -15,17 +15,12 @@ export class AppService extends BaseService {
   private infra: InfrastructureService;
   private clusters: ClusterService;
   private builder: BuilderService;
-  private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
   constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, builder: BuilderService) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
     this.builder = builder;
-  }
-
-  setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
-    this.temporalBridge = temporalBridge;
   }
 
   async getById(id: string, userId: string) {
@@ -53,17 +48,15 @@ export class AppService extends BaseService {
     const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     if (!cluster) throw new Error('Cluster not found');
 
+    const stack = appStackOf(dep, cluster);
+    const { appType, webRepo, webTag, dbRepo, dbTag } = dep;
+    if (!appType || !webRepo || !webTag || !dbRepo || !dbTag) throw new AppStackUnknown(`${dep.name} records no image to build its modules on, so they cannot be added`);
+
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
     await this.db.infrastructure.saveDeployment(updatedMetadata);
 
     const sanitizedName = namespaceOf(dep);
     const logFile = this.infra.getLogPath(`${dep.name}-update-modules`);
-
-    const appType = dep.appType || 'odoo';
-    const webRepo = dep.webRepo || (appType === 'odoo' ? 'library/odoo' : `library/${appType}`);
-    const webTag = dep.webTag || (appType === 'odoo' ? '18.0' : 'latest');
-    const dbRepo = dep.dbRepo || 'library/postgres';
-    const dbTag = dep.dbTag || 'latest';
 
     (async () => {
         try {
@@ -78,7 +71,7 @@ export class AppService extends BaseService {
             CLUSTER_NAME: physicalName,
             DEPLOYMENT_STRATEGY: dep.strategy,
             DEPLOYMENT_NAME: sanitizedName,
-            DEPLOYMENT_ID: id.slice(0, 8),
+            DEPLOYMENT_ID: stack.deploymentId,
             KUBECONFIG: kubeconfigPath,
             KUBECONFIG_CONTEXT: '',
             APP_SERVICE_TYPE: appServiceType(placedOnPool(Boolean(this.clusters.access.here.poolName), await this.clusters.access.reach(cluster.id))),
@@ -98,7 +91,7 @@ export class AppService extends BaseService {
             ...storageEnv
           };
   
-          await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
+          await this.infra.deploy(appStackName(physicalName, stack.deploymentId), { logFile, io, resourceId: id, env });
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
         } catch (err) {
           this.logger.error(`Module update failed: ${(err as Error).message}`);
@@ -141,35 +134,5 @@ export class AppService extends BaseService {
     const pods = await this.clusters.access.kubectl(dep.clusterId, ['get', 'pods', '-n', namespace, '-o', 'wide']);
     const events = await this.clusters.access.kubectl(dep.clusterId, ['get', 'events', '-n', namespace, '--sort-by=.lastTimestamp', '-o', 'wide']);
     return `--- POD STATUS (Namespace: ${namespace}) ---\n${pods}\n\n--- RECENT EVENTS ---\n${events}`;
-  }
-
-  async abort(id: string, userId: string, io?: SocketServer) {
-    const dep = await this.getById(id, userId);
-    if (!dep) throw new Error('Deployment not found');
-
-    const logFile = this.infra.getLogPath(`${dep.name}-abort`);
-    await this.db.infrastructure.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
-
-    (async () => {
-      try {
-        if (dep.temporalWorkflowId) {
-          if (!this.temporalBridge) throw new Error('this app service was given no Temporal bridge, so the deploy\'s workflow cannot be stopped');
-          await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
-        }
-        await removeNamespace((args) => this.clusters.access.kubectl(dep.clusterId, args), namespaceOf(dep));
-        await this.db.infrastructure.deleteDeployment(id);
-        await this.db.accounts.forgetDefaultModels([id]);
-        if (io) {
-          io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
-          io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
-          io.emit('deployment:updated');
-        }
-      } catch (err) {
-        const reason = (err as Error).message;
-        this.logger.error(`Abort failed for deployment ${dep.name}: ${reason}`);
-        await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed', healthReason: `stopping it failed: ${reason}`, lastLogPath: logFile });
-        if (io) io.emit('deployment:updated');
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during deployment abort: ${(err as Error).message}`));
   }
 }

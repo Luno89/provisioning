@@ -3,7 +3,8 @@ import {
 } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, placedOnPool } from '../infrastructure/index.js';
+import { appServiceType, appStackName, NO_STACK_ID, placedOnPool } from '../infrastructure/index.js';
+import { ApplicationFailure } from '@temporalio/common';
 import { applyWatched } from './watched-apply.js';
 
 export interface ResizeDiskArgs {
@@ -28,7 +29,8 @@ export interface ResizeDiskResult {
 export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<ResizeDiskResult> {
   const reach = handedReach(args);
   const physicalName = args.clusterName;
-  const deploymentId = args.deploymentId || 'default';
+  if (!args.deploymentId) throw ApplicationFailure.nonRetryable(`${args.name} ${NO_STACK_ID}`);
+  const deploymentId = args.deploymentId;
 
   const env: Record<string, string> = {
     STACK_TYPE: 'app',
@@ -42,7 +44,7 @@ export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSte
     ...StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage),
   };
 
-  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile: args.logFile, env }, { what: args.name, reach, namespaces: [namespaceOf(args)], signal });
+  await applyWatched(steps, appStackName(physicalName, deploymentId), { logFile: args.logFile, env }, { what: args.name, reach, namespaces: [namespaceOf(args)], signal });
 
   return { status: 'resize_complete', msg: `Disk resize requested for ${args.name}` };
 }

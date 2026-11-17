@@ -198,17 +198,17 @@ describe('the steps that delete a project', () => {
 describe('planning the destroy of apps', () => {
   it('names a workflow for each app asked about, with its cluster found by id, and skips the rest', async () => {
     const deployments = [
-      { id: 'a', name: 'one', clusterId: 'system', strategy: 'helm', appType: 'wordpress', status: 'running' },
-      { id: 'b', name: 'two', clusterId: 'gone', strategy: 'helm', appType: 'wordpress', status: 'running' },
+      { id: 'a', name: 'one', clusterId: 'system', strategy: 'helm', appType: 'wordpress', status: 'running', deploymentId: 'one1' },
+      { id: 'b', name: 'two', clusterId: 'gone', strategy: 'helm', appType: 'wordpress', status: 'running', deploymentId: 'two2' },
     ] as never[];
-    const planned = await planAppDestroys(deployments, ['b'], { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/l', taskQueue: 'q' }, () => 'abc123');
+    const planned = await planAppDestroys(deployments, ['b'], { clusterById: async (id: string) => ({ id, name: id }) as never, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/l', taskQueue: 'q' }, () => 'abc123');
     expect(planned).toHaveLength(1);
     expect(planned[0]).toMatchObject({ deploymentId: 'b', taskQueue: 'q', args: { reach: { clusterId: 'gone', kind: 'koala' } } });
     expect(planned[0]!.workflowId).toMatch(/abc123$/);
   });
 
   it('hands a machine\'s app over as the machine to start, naming the app that leaves it, and no reach', async () => {
-    const deployments = [{ id: 'books', name: 'books', clusterId: 'machine-desk', strategy: 'native', appType: 'nginx', status: 'running' }] as never[];
+    const deployments = [{ id: 'books', name: 'books', clusterId: 'machine-desk', strategy: 'native', appType: 'nginx', status: 'running', deploymentId: 'books1' }] as never[];
     const planned = await planAppDestroys(deployments, ['books'], {
       clusterById: async () => ({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped' }) as never,
       handOver: async (clusterId) => ({ clusterId, machine: { deviceId: 'desk' } }),

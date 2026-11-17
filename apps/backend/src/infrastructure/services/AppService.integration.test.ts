@@ -43,21 +43,3 @@ describe('listing apps', () => {
   });
 });
 
-describe('aborting an app', () => {
-  it('removes its namespace from the real cluster and its record, and the model it would have served is nobody\'s default any more', async () => {
-    const db = await testDatabase();
-    const aborted = namespaces.name('aborted');
-    await db.infrastructure.saveCluster({ id: 'machine-abort', name: 'machine-abort', provider: 'machine', machineId: 'machine-abort', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-abort-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
-    await access.kubectl('machine-abort', ['create', 'namespace', aborted]);
-    await db.infrastructure.saveDeploymentInfo({ id: 'model', name: 'model', namespace: aborted, clusterId: 'machine-abort', strategy: 'native', appType: 'vllm', ownerId: 'bo', status: 'deploying', createdAt: 't' } as DeploymentMetadata);
-    await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 't', defaultModelId: 'model' });
-    const apps = new AppService(db, { getLogPath: (name: string) => join(tmpdir(), `${name}.log`) } as never, { access } as never, {} as never);
-
-    await apps.abort('model', 'bo');
-
-    await expect.poll(async () => (await db.accounts.getUserById('bo'))?.defaultModelId, { timeout: 60_000 }).toBeUndefined();
-    expect(await db.infrastructure.getDeployments()).toEqual([]);
-    expect(await access.kubectl('machine-abort', ['get', 'namespace', aborted, '--ignore-not-found', '-o', 'name'])).toBe('');
-  }, 90_000);
-});

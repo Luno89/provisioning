@@ -104,7 +104,7 @@ describe('settling the work the bridge itself starts', () => {
     const followings: Promise<void>[] = [];
     const follow = bridge.follow.bind(bridge);
     vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
-    const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'u1', temporalWorkflowId: 'done', ...extra });
+    const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'u1', temporalWorkflowId: 'done', appType: 'wordpress', deploymentId: `${id}-stack`, ...extra });
 
     await db.infrastructure.saveCluster({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     for (const id of ['gone', 'grown', 'synced']) await db.infrastructure.saveDeployment(app(id));

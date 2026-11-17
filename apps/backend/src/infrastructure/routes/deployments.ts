@@ -65,28 +65,15 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    try {
-      const dep = await appService.getById(idOf(req), userOf(req).id);
-      if (!dep) return res.status(404).json({ error: 'Deployment not found' });
-      if (dep.status === 'deploying') {
-        await appService.abort(idOf(req), userOf(req).id, io);
-        return res.json({ success: true, message: 'Deployment aborted' });
-      }
-      const info = await temporalBridge.destroyApp(idOf(req));
-      res.status(202).json({
-        message: 'Destroying app',
-        deploymentId: idOf(req),
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err) {
-      try {
-        await appService.abort(idOf(req), userOf(req).id, io);
-        res.json({ success: true, message: 'Deployment deleted' });
-      } catch (fallbackErr) {
-        res.status(503).json({ error: `Deployment destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
-      }
-    }
+    const dep = await appService.getById(idOf(req), userOf(req).id);
+    if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+    const info = await temporalBridge.destroyApp(idOf(req));
+    return res.status(202).json({
+      message: 'Destroying app',
+      deploymentId: idOf(req),
+      workflowId: info.id,
+      state: 'running',
+    });
   }));
 
   router.get('/:id/sign-in', asyncRoute(async (req, res) => {

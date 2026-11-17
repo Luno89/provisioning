@@ -118,12 +118,6 @@ describe('reading workflows for the Temporal page', () => {
     await expect(instance.getWorkflowHistory('w1')).rejects.toThrow('deadline on the frontend');
   });
 
-  it('raises a failure to stop a workflow with its reason, so nothing removes what the workflow is still making', async () => {
-    const { workflow, ready } = bridge();
-    workflow.getHandle.mockReturnValue(mock<ReturnType<WorkflowClient['getHandle']>>({ terminate: vi.fn().mockRejectedValue(new Error('the frontend is unavailable')) }));
-    await expect(ready().terminateWorkflow('w1', 'User aborted deployment')).rejects.toThrow('the frontend is unavailable');
-  });
-
   it('describes a workflow, and answers a workflow Temporal does not have as missing', async () => {
     const { workflow, ready } = bridge();
     const found = mock<ReturnType<WorkflowClient['getHandle']>>();
@@ -205,7 +199,7 @@ describe('a push to a project', () => {
 });
 
 describe('changing an app\'s config', () => {
-  const stored = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id: 'd1', name: 'model', clusterId: 'c1', strategy: 'helm', status: 'running', appType: 'tabbyapi', ownerId: 'ann', ...over });
+  const stored = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id: 'd1', name: 'model', clusterId: 'c1', strategy: 'helm', status: 'running', appType: 'tabbyapi', ownerId: 'ann', deploymentId: 'd1a2b3c4', ...over });
 
   it('says the deployment is not found when there is none', async () => {
     const { ready } = bridge();
@@ -449,7 +443,7 @@ describe('checking each app on its cluster', () => {
 
 describe('the work the bridge starts on an app\'s cluster is handed how to reach it', () => {
   const DESK = { clusterId: 'machine-desk', kind: 'machine' as const, kubeconfig: 'apiVersion: v1' };
-  const app = { id: 'shop', name: 'shop', namespace: 'shop-1a2b3c', clusterId: 'machine-desk', strategy: 'native', appType: 'wordpress', ownerId: 'u1', status: 'running' } as DeploymentMetadata;
+  const app = { id: 'shop', name: 'shop', namespace: 'shop-1a2b3c', clusterId: 'machine-desk', strategy: 'native', appType: 'wordpress', ownerId: 'u1', status: 'running', deploymentId: 'shop1a2b' } as DeploymentMetadata;
 
   function starting() {
     const access = mock<ClusterAccess>();
@@ -457,6 +451,8 @@ describe('the work the bridge starts on an app\'s cluster is handed how to reach
     access.handOver.mockResolvedValue({ clusterId: 'machine-desk', machine: { deviceId: 'desk' } });
     const clusterService = mock<ClusterService>();
     Object.assign(clusterService, { access });
+    clusterService.isKoalasCluster.calledWith('machine-desk').mockReturnValue(true);
+    clusterService.ownCluster.mockResolvedValue({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'u1' } as never);
     const made = bridge({ clusterService });
     made.workflow.start.mockResolvedValue(mock<Awaited<ReturnType<WorkflowClient['start']>>>());
     return { ...made, access };
@@ -469,6 +465,31 @@ describe('the work the bridge starts on an app\'s cluster is handed how to reach
     expect(access.handOver).toHaveBeenCalledWith('machine-desk');
     expect(startedWith(workflow)?.args[0]).toMatchObject({ clusterId: 'machine-desk', machine: { deviceId: 'desk', leaving: 'shop' } });
     expect(startedWith(workflow)?.args[0]).not.toHaveProperty('kubeconfigPath');
+  });
+
+  it('destroys an app still deploying by cancelling its deploy, waiting for it to end, then destroying it as any app is', async () => {
+    const { db, ready, workflow } = starting();
+    const order: string[] = [];
+    const deploy = {
+      cancel: vi.fn(async () => { order.push('cancel'); }),
+      result: vi.fn(async () => { throw Object.assign(new Error('Workflow execution cancelled'), { name: 'WorkflowFailedError' }); }),
+      describe: vi.fn(async () => ({ status: { name: order.includes('cancel') ? 'CANCELLED' : 'RUNNING' } })),
+    };
+    workflow.getHandle.mockImplementation(((id: string) => (id === 'wf-deploy' ? deploy : mock())) as never);
+    workflow.start.mockImplementation((async () => { order.push(`start, the app ${(await db.infrastructure.getDeployments())[0]?.status}`); return mock(); }) as never);
+    await db.infrastructure.saveDeploymentInfo({ ...app, status: 'deploying', temporalWorkflowId: 'wf-deploy' });
+    await ready().destroyApp('shop');
+    expect(order).toEqual(['cancel', 'start, the app failed']);
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ deploymentId: 'shop1a2b', clusterName: 'desk' });
+    expect((await db.infrastructure.getDeployments())[0]?.status).toBe('destroying');
+  });
+
+  it('keeps an app as it was when its destroy cannot be started, and says why', async () => {
+    const { db, ready, workflow } = starting();
+    workflow.start.mockRejectedValue(new Error('Temporal is not answering'));
+    await db.infrastructure.saveDeploymentInfo(app);
+    await expect(ready().destroyApp('shop')).rejects.toThrow('Temporal is not answering');
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'running' });
   });
 
   it('hands a disk resize and a settings sync the machine to start, as a deploy and a removal are, so a machine stopped until something runs on it is started for them', async () => {
@@ -486,6 +507,11 @@ describe('the work the bridge starts on an app\'s cluster is handed how to reach
     const { db, ready, workflow } = starting();
     const seen: unknown[] = [];
     workflow.start.mockImplementation((async () => { seen.push(workFor()); return mock(); }) as never);
+    workflow.getHandle.mockReturnValue({
+      cancel: vi.fn(async () => undefined),
+      result: vi.fn(async () => { throw Object.assign(new Error('Workflow execution cancelled'), { name: 'WorkflowFailedError' }); }),
+      describe: vi.fn(async () => ({ status: { name: 'CANCELLED' } })),
+    } as never);
     await db.infrastructure.saveDeploymentInfo({ ...app, gitappProjectId: 'p1' });
     await ready().resizeDisk('shop', { data: '20Gi' });
     await ready().syncConfig('shop');

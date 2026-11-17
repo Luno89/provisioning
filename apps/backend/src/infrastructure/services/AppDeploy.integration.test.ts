@@ -87,7 +87,7 @@ describe('two people can each have an app called shop', () => {
 
   it('stores a new app under the cluster\'s own id, however the request named it', async () => {
     const { deps: d } = await deps();
-    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
+    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' || id === CLUSTER.id ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
     expect((await d.db.infrastructure.getDeployments()).find((entry) => entry.id === named.deployment.id)?.clusterId).toBe('c1');
   });
 });

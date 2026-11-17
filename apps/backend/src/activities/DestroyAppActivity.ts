@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import { ApplicationFailure } from '@temporalio/common';
 
 import {
-  type DestroyAppArgs, namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES, removeNamespace,
+  appStackName, type DestroyAppArgs, namespaceOf, NO_STACK_ID, platformNamespaceProblem, PLATFORM_NAMESPACES, removeNamespace,
 } from '../infrastructure/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -33,15 +33,16 @@ export async function DestroyAppActivity(args: DestroyAppArgs, steps: ClusterSte
     return { status: 'destroyed', msg: `App ${args.name} destroyed` };
   }
 
+  if (!args.deploymentId) throw ApplicationFailure.nonRetryable(`${args.name} ${NO_STACK_ID}`);
   const physicalName = args.clusterName;
-  await steps.infra.destroy(`app-${physicalName}-${args.deploymentId || 'default'}`, {
+  await steps.infra.destroy(appStackName(physicalName, args.deploymentId), {
     logFile,
     env: {
       STACK_TYPE: 'app',
       CLUSTER_NAME: physicalName,
       DEPLOYMENT_STRATEGY: args.strategy,
       DEPLOYMENT_NAME: namespace,
-      DEPLOYMENT_ID: args.deploymentId || 'default',
+      DEPLOYMENT_ID: args.deploymentId,
       KUBECONFIG: await steps.access.kubeconfigOf(reach),
       APP_SERVICE_TYPE: appServiceType(placedOnPool(Boolean(steps.access.here.poolName), reach)),
     },

@@ -102,7 +102,7 @@ describe('starting a deploy', () => {
 
   it('records a new app under the cluster\'s own id, however the request named it', async () => {
     const { deps: d } = await deps();
-    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
+    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' || id === CLUSTER.id ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
     expect(named.deployment.clusterId).toBe(CLUSTER.id);
   });
 

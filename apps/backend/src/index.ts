@@ -187,7 +187,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const toolCallParsers = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
   const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers });
-  appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
       await temporalBridge.start();

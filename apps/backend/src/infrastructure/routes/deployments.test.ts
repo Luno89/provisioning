@@ -8,6 +8,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { DeployRequestProblem } from '../lib/deploy-request.js';
 import { DependencyDownError } from '../../platform/lib/dependencies.js';
+import { AppStackUnknown } from '../lib/deployment-id.js';
 import { UnreadableCredential } from '../services/CredentialService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
@@ -147,11 +148,13 @@ describe('destroying', () => {
     expect(answer.data).toEqual({ message: 'Destroying app', deploymentId: 'd1', workflowId: 'w2', state: 'running' });
   });
 
-  it('aborts a deployment that is still deploying instead of destroying it', async () => {
+  it('destroys an app still deploying the way any app is destroyed', async () => {
     const { appService, temporalBridge, call } = setup();
     appService.getById.mockResolvedValue(deployment({ status: 'deploying' }));
-    expect((await call('/d1', 'DELETE')).data).toEqual({ success: true, message: 'Deployment aborted' });
-    expect(temporalBridge.destroyApp).not.toHaveBeenCalled();
+    temporalBridge.destroyApp.calledWith('d1').mockResolvedValue(deal('w3'));
+    const answer = await call('/d1', 'DELETE');
+    expect(answer.status).toBe(202);
+    expect(answer.data).toEqual({ message: 'Destroying app', deploymentId: 'd1', workflowId: 'w3', state: 'running' });
   });
 
   it('says the deployment is not found when it is not the person\'s', async () => {
@@ -159,14 +162,16 @@ describe('destroying', () => {
     expect((await call('/elsewhere', 'DELETE')).status).toBe(404);
   });
 
-  it('deletes the record when Temporal cannot be asked, and says both reasons when that fails too', async () => {
-    const { appService, temporalBridge, call } = setup();
-    temporalBridge.destroyApp.mockRejectedValue(new Error('no worker'));
-    expect((await call('/d1', 'DELETE')).data).toEqual({ success: true, message: 'Deployment deleted' });
-    appService.abort.mockRejectedValue(new Error('database down'));
-    const both = await call('/d1', 'DELETE');
-    expect(both.status).toBe(503);
-    expect((both.data as { error: string }).error).toBe('Deployment destruction unavailable: no worker; deleting its record failed too: database down');
+  it('keeps the app and says why when its destroy cannot be started', async () => {
+    const { temporalBridge, call } = setup();
+    temporalBridge.destroyApp.mockRejectedValue(new DependencyDownError('temporal', '2026-11-17T10:00:00Z', 'it refused the connection (ECONNREFUSED)'));
+    const answer = await call('/d1', 'DELETE');
+    expect(answer.status).toBe(503);
+    expect((answer.data as { error: string }).error).toContain('Temporal isn\'t answering');
+    temporalBridge.destroyApp.mockRejectedValue(new AppStackUnknown('shop was deployed before Koala recorded which Terraform state is its, so it cannot be destroyed, resized or changed through Koala'));
+    const refused = await call('/d1', 'DELETE');
+    expect(refused.status).toBe(409);
+    expect((refused.data as { error: string }).error).toContain('cannot be destroyed, resized or changed through Koala');
   });
 });
 

@@ -208,6 +208,13 @@ describe('removing an app', () => {
     expect(infra.destroy).not.toHaveBeenCalled();
   });
 
+  it('is refused, touching nothing, when it was handed no stack id', async () => {
+    const { deploymentId: _id, ...unnamed } = base;
+    await expect(DestroyAppActivity(unnamed as typeof base, steps())).rejects.toThrow('handed no stack id');
+    expect(infra.destroy).not.toHaveBeenCalled();
+    expect(access.kubectl).not.toHaveBeenCalled();
+  });
+
   it('fails with the cluster\'s reason when it cannot be reached, and removes nothing', async () => {
     access.kubeconfigOf.mockRejectedValue(new ClusterUnreachable('machine-dev1', 'no-account', 'this process is not running inside Koala\'s cluster, so it has no account there to reach it with'));
     await expect(DestroyAppActivity({ ...base, reach: KOALA }, steps())).rejects.toThrow('no account there to reach it with');
@@ -224,7 +231,16 @@ describe('resizing an app\'s disk', () => {
   });
 
   it('is refused when it was handed no way to reach the cluster', async () => {
-    await expect(ResizeDiskActivity({ name: 'shop', clusterId: 'c', clusterName: 'c', strategy: 'native', appType: 'wordpress', storage: {}, logFile: LOG }, steps())).rejects.toThrow('handed no way to reach c');
+    await expect(ResizeDiskActivity({ name: 'shop', clusterId: 'c', clusterName: 'c', strategy: 'native', appType: 'wordpress', storage: {}, logFile: LOG, deploymentId: 'd1' }, steps())).rejects.toThrow('handed no way to reach c');
+    expect(infra.deploy).not.toHaveBeenCalled();
+  });
+});
+
+describe('an app handed no stack id', () => {
+  it('is neither resized nor synced, so no other app\'s state is applied over', async () => {
+    const unnamed = { name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'koala', strategy: 'native', appType: 'wordpress', logFile: LOG };
+    await expect(ResizeDiskActivity({ ...unnamed, storage: { db: '20Gi' } } as never, steps())).rejects.toThrow('handed no stack id');
+    await expect(SyncConfigActivity(unnamed as never, steps())).rejects.toThrow('handed no stack id');
     expect(infra.deploy).not.toHaveBeenCalled();
   });
 });

@@ -14,7 +14,7 @@ export { ROOT_CLUSTER_ID, appServiceType, koalaPlace, koalasClusterId, machineTo
 export type { ClusterPlace, HandOver, Here, Reach, ServiceAccount, WhyUnreachable } from './lib/cluster-places.js';
 export { PLATFORM_NAMESPACES } from './lib/cluster-workloads.js';
 export { declareDependency } from './lib/declare-dependency.js';
-export { deploymentIdFor } from './lib/deployment-id.js';
+export { AppStackUnknown, appStackName, appStackOf, deploymentIdFor, NO_STACK_ID } from './lib/deployment-id.js';
 export {
   caddyEnvLines, certificateProblems, challengeLeftovers, challengeNameIn, checkWildcardIn, issueCheckCaddyfile, issueCheckTlsSnippet,
   secretValuesIn, STAGING_CA, zoneChanges,

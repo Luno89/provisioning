@@ -33,6 +33,7 @@ export type GroveRunStatus =
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
+import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
 import { consolidateMemories, type ConsolidationReport, indexMemories, similarTo } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
@@ -188,6 +189,11 @@ export const connectToTemporal = async (address: string, connect: TemporalConnec
   const c = await getDefaultClient(address, connect)
   return c
 }
+
+const appTypeOf = (dep: Pick<DeploymentMetadata, 'name' | 'appType'>): string => {
+  if (!dep.appType) throw new AppStackUnknown(`${dep.name} records no app type, so Koala cannot tell how to apply it again`);
+  return dep.appType;
+};
 
 export class TemporalBridge {
   db!: Database
@@ -627,11 +633,6 @@ export class TemporalBridge {
     return 'cancelled';
   }
 
-  async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<void> {
-    await this.client.workflow.getHandle(wfId).terminate(reason);
-    console.log(`[TemporalBridge] Terminated workflow ${wfId}: ${reason}`);
-  }
-
   async deployApp(config: Record<string, unknown>, userId?: string): Promise<ResourceDeal> {
     const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), deployRequestOf(config), userId)
     void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, deployment)
@@ -647,8 +648,10 @@ export class TemporalBridge {
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
-    const deployments = await this.db.infrastructure.getDeployments()
-    const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
+    const found = (await this.db.infrastructure.getDeployments()).find((d: DeploymentMetadata) => d.id === deploymentId)
+    if (!found) throw new Error('DeploymentMetadata not found (destroyApp)')
+    if (found.status === 'deploying' && found.temporalWorkflowId) await this.stopDeploy(found)
+    const dep = (await this.db.infrastructure.getDeployments()).find((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (destroyApp)')
 
     const cluster = await this.getClusterById(dep.clusterId)
@@ -658,13 +661,6 @@ export class TemporalBridge {
 
     const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath, await this.clusterAccess().handOver(dep.clusterId))
 
-    await this.db.infrastructure.saveDeploymentInfo({
-      id: dep.id,
-      status: 'destroying',
-      temporalWorkflowId: '',
-      lastLogPath: absoluteLogPath,
-    })
-
     await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeDestroyAppWorkflow, {
       workflowId: wfId,
       taskQueue: CLUSTER_QUEUE,
@@ -672,13 +668,26 @@ export class TemporalBridge {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     }))
 
+    await this.db.infrastructure.saveDeploymentInfo({
+      id: dep.id,
+      status: 'destroying',
+      temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
+    })
     void this.follow(wfId, 'app-destroy', dep.id, dep.name, dep)
-    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
       event: 'app-destroy',
     }
+  }
+
+  private async stopDeploy(dep: DeploymentMetadata): Promise<void> {
+    const wfId = dep.temporalWorkflowId!
+    await this.client!.workflow.getHandle(wfId).cancel().catch((err: unknown) => {
+      if (!(err instanceof WorkflowNotFoundError)) throw err
+    })
+    await this.follow(wfId, 'app-deploy', dep.id, dep.name, dep)
   }
 
   async resizeDisk(deploymentId: string, storage: Record<string, string>): Promise<WorkflowDeal> {
@@ -696,12 +705,11 @@ export class TemporalBridge {
       name: dep.name,
       namespace: dep.namespace,
       ...handed,
-      clusterName: cluster?.name || 'unknown',
+      ...appStackOf(dep, cluster),
       strategy: dep.strategy || 'helm',
-      appType: dep.appType || 'odoo',
+      appType: appTypeOf(dep),
       storage,
       logFile: absoluteLogPath,
-      deploymentId: dep.deploymentId || 'default',
     }
 
     await this.db.infrastructure.saveDeploymentInfo({
@@ -756,19 +764,18 @@ export class TemporalBridge {
       name: dep.name,
       namespace: dep.namespace,
       ...handed,
-      clusterName: cluster?.name || 'unknown',
+      ...appStackOf(dep, cluster),
       ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
       ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
       ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
       strategy: dep.strategy || 'helm',
-      appType: dep.appType || 'odoo',
+      appType: appTypeOf(dep),
       webRepo: dep.webRepo,
       webTag: dep.webTag,
       dbRepo: dep.dbRepo,
       dbTag: dep.dbTag,
       storage: dep.storage || {},
       logFile: absoluteLogPath,
-      deploymentId: dep.deploymentId || 'default',
       vllmModel: dep.vllmModel,
       vllmGpuCount: dep.vllmGpuCount,
       vllmGpuVendor: dep.vllmGpuVendor,

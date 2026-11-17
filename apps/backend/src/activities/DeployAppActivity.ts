@@ -4,7 +4,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
+  parseQuantity, type HostMemoryPlan, appStackName, NO_STACK_ID, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, failureOf, type DatabaseSettings } from '../platform/index.js';
 
@@ -225,7 +225,8 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     ? 'http://localhost:8080'
     : 'http://localhost:80';
 
-  const deploymentId = deploymentIdFor(args.deploymentId, args.name);
+  if (!args.deploymentId) throw ApplicationFailure.nonRetryable(`${args.name} ${NO_STACK_ID}`);
+  const deploymentId = args.deploymentId;
 
   let tabbyModelSizeBytes: number | undefined;
   if (args.appType === 'tabbyapi' && !args.tabbyModel) throw ApplicationFailure.nonRetryable('TabbyAPI was given no model to serve');
@@ -427,7 +428,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     ...(reach.kind === 'koala' ? { koala: true } : {}),
     ...(reach.kind === 'machine' ? { machine: { metricsUrl: metricsUrlOf(steps.machineMetricsUrl), remember: (tokenHash: string) => rememberMetricsToken(steps.database, args.clusterId, tokenHash) } } : {}),
   }, logFile);
-  await applyWatched(steps, `app-${physicalName}-${deploymentId}`, { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
+  await applyWatched(steps, appStackName(physicalName, deploymentId), { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
 
   if (args.appType === 'gitapp') {
     const { gitea } = steps;

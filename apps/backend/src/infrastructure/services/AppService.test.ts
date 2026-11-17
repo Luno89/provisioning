@@ -1,13 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { containing } from '../../platform/lib/test-matchers.js';
 import { AppService } from './AppService.js';
 import type { BuilderService } from './BuilderService.js';
 import type { ClusterService } from './ClusterService.js';
 import type { InfrastructureService } from './InfrastructureService.js';
-import type { TemporalBridge } from './TemporalBridge.js';
 import type { ClusterAccess } from './ClusterAccess.js';
 
 const at = 'then';
@@ -65,62 +63,6 @@ describe('listing apps', () => {
   });
 });
 
-describe('aborting an app', () => {
-  it('stops the workflow that deploys it once a bridge is set, then removes its namespace and record', async () => {
-    const { db, infra, apps, access } = setup(['wordpress']);
-    const bridge = mock<Pick<TemporalBridge, 'terminateWorkflow'>>();
-    bridge.terminateWorkflow.mockResolvedValue();
-    apps.setTemporalBridge(bridge);
-    infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress', status: 'deploying', temporalWorkflowId: 'wf-1' }));
-    await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at, defaultModelId: 'wp' });
-    await apps.abort('wp', 'bo');
-    await vi.waitFor(async () => expect((await db.accounts.getUserById('bo'))?.defaultModelId).toBeUndefined());
-    expect(await db.infrastructure.getDeployments()).toEqual([]);
-    expect(bridge.terminateWorkflow).toHaveBeenCalledWith('wf-1', 'User aborted deployment');
-    expect(access.kubectl.mock.calls).toEqual([
-      ['c1', ['delete', 'namespace', 'wordpress', '--ignore-not-found=true', '--wait=false']],
-      ['c1', ['wait', '--for=delete', 'namespace/wordpress', '--timeout=720h']],
-    ]);
-  });
-
-  it('keeps the app, saying why, and removes nothing when its deploy cannot be stopped', async () => {
-    const { db, infra, apps, access } = setup(['wordpress']);
-    const bridge = mock<Pick<TemporalBridge, 'terminateWorkflow'>>();
-    bridge.terminateWorkflow.mockRejectedValue(new Error('Temporal isn\'t answering since 23:10 UTC'));
-    apps.setTemporalBridge(bridge);
-    infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress', status: 'deploying', temporalWorkflowId: 'wf-1' }));
-    await apps.abort('wp', 'bo');
-    await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'failed', healthReason: 'stopping it failed: Temporal isn\'t answering since 23:10 UTC' }));
-    expect(access.kubectl).not.toHaveBeenCalled();
-  });
-
-  it('says the deployment is not found when it is not the person\'s', async () => {
-    const { apps } = setup();
-    await expect(apps.abort('nope', 'bo')).rejects.toThrow('Deployment not found');
-  });
-
-  it('keeps the app\'s record, failed with why, when its namespace cannot be removed, rather than deleting it on a guess', async () => {
-    const { db, infra, apps, access } = setup();
-    apps.setTemporalBridge(mock<Pick<TemporalBridge, 'terminateWorkflow'>>());
-    infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    access.kubectl.mockRejectedValue(new Error('the cluster refused: Forbidden'));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress' }));
-    await apps.abort('wp', 'bo');
-    await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ id: 'wp', status: 'failed', healthReason: 'stopping it failed: the cluster refused: Forbidden' }));
-  });
-
-  it('will not stop a deploy\'s workflow it was given no bridge for, and says so on the app', async () => {
-    const { db, infra, apps, access } = setup();
-    infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', temporalWorkflowId: 'wf-1' }));
-    await apps.abort('wp', 'bo');
-    await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'failed', healthReason: containing('no Temporal bridge') }));
-    expect(access.kubectl).not.toHaveBeenCalled();
-  });
-});
-
 describe('reading an app on its cluster', () => {
   it('reads its pods, Helm status and diagnostics through the cluster\'s one door, by the app\'s cluster', async () => {
     const { db, access, apps } = setup();
@@ -147,5 +89,41 @@ describe('reading an app on its cluster', () => {
     const { db, apps } = setup();
     await db.infrastructure.saveDeploymentInfo(app({ id: 'x', name: 'Mystery' }));
     await expect(apps.getHelmStatus('x', 'bo')).rejects.toThrow('Mystery records no app type, so its Helm release cannot be named');
+  });
+});
+
+describe('updating an Odoo app\'s modules', () => {
+  const odoo = app({ id: 'd1', name: 'shop', appType: 'odoo', deploymentId: 'shop1a2b', namespace: 'shop-1a2b3c', webRepo: 'library/odoo', webTag: '18.0', dbRepo: 'library/postgres', dbTag: '16' });
+
+  it('builds the modules on the image the app records and applies them to the app\'s own stack', async () => {
+    const { db, infra, apps } = setup();
+    const builder = mock<BuilderService>();
+    builder.buildCustomImage.mockResolvedValue('registry/shop:mods');
+    const updating = new AppService(db, infra, (apps as unknown as { clusters: ClusterService }).clusters, builder);
+    const applied = new Promise<unknown[]>((settle) => { infra.deploy.mockImplementation(async (...args: unknown[]) => { settle(args); return { stdout: '', logFile: '' }; }); });
+    await db.infrastructure.saveDeploymentInfo(odoo);
+    await updating.updateModules('d1', ['sale'], 'bo');
+    const [stack, options] = await applied as [string, { env: Record<string, string> }];
+    expect(stack).toBe('app-desk-shop1a2b');
+    expect(options.env).toMatchObject({ DEPLOYMENT_ID: 'shop1a2b', APP_TYPE: 'odoo', DB_IMAGE_TAG: '16' });
+    expect(builder.buildCustomImage).toHaveBeenCalledWith('library/odoo:18.0', ['sale'], 'odoo', expect.anything());
+  });
+
+  it('refuses an app recorded without its stack id, changing nothing', async () => {
+    const { db, infra, apps } = setup();
+    const { deploymentId: _stack, ...unrecorded } = odoo;
+    await db.infrastructure.saveDeploymentInfo(unrecorded as DeploymentMetadata);
+    await expect(apps.updateModules('d1', ['sale'], 'bo')).rejects.toThrow('cannot be destroyed, resized or changed through Koala');
+    expect((await apps.getById('d1', 'bo'))?.status).toBe('running');
+    expect(infra.deploy).not.toHaveBeenCalled();
+  });
+
+  it('refuses an app that records no image to build its modules on, rather than guessing one', async () => {
+    const { db, infra, apps } = setup();
+    const { webTag: _tag, ...untagged } = odoo;
+    await db.infrastructure.saveDeploymentInfo(untagged as DeploymentMetadata);
+    await expect(apps.updateModules('d1', ['sale'], 'bo')).rejects.toThrow('shop records no image to build its modules on');
+    expect((await apps.getById('d1', 'bo'))?.status).toBe('running');
+    expect(infra.deploy).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,7 @@
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import type { HandOver, Reach } from './cluster-places.js';
+import { appStackOf } from './deployment-id.js';
+import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
 
 export interface DestroyAppArgs {
   name: string;
@@ -26,13 +28,13 @@ export function destroyAppArgs(
   logFile: string,
   handed: HandOver,
 ): DestroyAppArgs {
+  const stack = deployment.appType === ODOO_PROJECT_APP ? { clusterName: cluster?.name ?? deployment.clusterId } : appStackOf(deployment, cluster);
   return {
     name: deployment.name,
     clusterId: deployment.clusterId,
-    clusterName: cluster?.name || 'unknown',
+    ...stack,
     strategy: deployment.strategy || 'helm',
     logFile,
-    deploymentId: deployment.deploymentId || 'default',
     ...(deployment.appType ? { appType: deployment.appType } : {}),
     ...(deployment.namespace ? { namespace: deployment.namespace } : {}),
     ...('machine' in handed
