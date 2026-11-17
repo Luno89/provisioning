@@ -10,21 +10,11 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
+import { until } from './lib/until.js';
 
 const BASE = process.env.BENCH_LIVE_URL ?? 'http://localhost:3001/api';
 const ORIGIN = BASE.replace(/\/api$/, '');
 const OWNER = process.env.BENCH_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, limitMs: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + limitMs;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5_000);
-  }
-}
 
 interface Run { id: string; state: string; startedAt: string; trigger?: { kind: string; agents?: string[] }; results: { scenarioId: string; passed: boolean; checks: { what: string; passed: boolean; detail: string }[] }[]; regressions?: string[] }
 
@@ -50,9 +40,9 @@ async function main(): Promise<void> {
   });
   const runsOf = async () => ((await http.get('/evals/level2/runs')).data.runs as Run[]).filter((run) => run.trigger?.kind === 'changed' && run.trigger.agents?.includes(slug));
   const benchRun = async (what: string, after: number) => {
-    const started = await until(`the bench to start on its own (${what})`, 10 * 60_000, async () => (await runsOf()).find((run) => Date.parse(run.startedAt) > after));
+    const started = await until(`the bench to start on its own (${what})`, async () => (await runsOf()).find((run) => Date.parse(run.startedAt) > after), async () => (((await http.get('/evals/level2/bench')).data as { settings: { enabled: boolean } }).settings.enabled ? undefined : 'the bench was switched off, so it will not start'));
     console.log(`  bench run ${started.id} started on its own (${started.trigger?.kind}: ${started.trigger?.agents?.join(', ')})`);
-    return until(`bench run ${started.id} to finish`, 30 * 60_000, async () => {
+    return until(`bench run ${started.id} to finish`, async () => {
       const run = (await http.get(`/evals/level2/runs/${started.id}`)).data as Run;
       return run.state === 'running' ? undefined : run;
     });
@@ -91,7 +81,7 @@ async function main(): Promise<void> {
     assert.deepEqual(second.regressions, [scenarioId], 'the bench did not name the broken scenario as a regression');
 
     console.log('[4/4] the owner is told');
-    await until('the regression notice', 60_000, async () => (regressionsSeen.some((event) => event.runId === second.id) ? true : undefined));
+    await until('the regression notice', async () => (regressionsSeen.some((event) => event.runId === second.id) ? true : undefined), async () => (socket.connected ? undefined : 'the socket to Koala closed, so the notice cannot arrive'));
     console.log(`  notice: ${JSON.stringify(regressionsSeen.find((event) => event.runId === second.id))}`);
     console.log('bench live — PASS');
   } finally {

@@ -11,9 +11,10 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { PlanProposal } from '../apps/backend/src/projects/lib/plan-proposals.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { until } from './lib/until.js';
+import { runEndedAtAll } from './lib/dead-states.js';
 
 const BASE = process.env.CLAIM_LIVE_URL ?? 'http://localhost:3001/api';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main(): Promise<void> {
   const db = createDatabase(databaseSettingsFrom(process.env));
@@ -36,15 +37,10 @@ async function main(): Promise<void> {
     const goal = `New api-service tree named "Forecast v2" with serviceName ${service}: a tiny HTTP API returning a fixed forecast string. Exactly one branch with one leaf and one task. No research needed.`;
     const { runId } = (await http.post('/engine/runs', { agent: 'planner', message: goal, conversationId, inputs: { conversationId, goal } })).data as { runId: string };
     console.log(`  run ${runId}`);
-    const plan = await (async () => {
-      const deadline = Date.now() + 15 * 60_000;
-      for (;;) {
-        const found = (await db.projects.getPlanProposals(ownerId, conversationId)).find((entry) => entry.status === 'proposed' && entry.plan?.tree);
-        if (found) return found as PlanProposal;
-        if (Date.now() > deadline) throw new Error('no plan was proposed');
-        await sleep(5_000);
-      }
-    })();
+    const plan = await until('the planner to propose a plan', async () => {
+      const found = (await db.projects.getPlanProposals(ownerId, conversationId)).find((entry) => entry.status === 'proposed' && entry.plan?.tree);
+      return found ? found as PlanProposal : undefined;
+    }, () => runEndedAtAll(http, runId, 'without proposing a plan'));
     const tree = plan.plan!.tree!;
     console.log(`  the planner proposed "${tree.name}" with service ${tree.serviceName ?? '(none)'}`);
     assert.equal(tree.serviceName, service, 'the plan did not carry the service name');

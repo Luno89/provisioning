@@ -9,30 +9,21 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
+import { until } from './lib/until.js';
+import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PROPOSALS_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.PROPOSALS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, limitMs: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + limitMs;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5_000);
-  }
-}
 
 interface Trace { kind: string; finish?: { outcome: string }; outputs?: { results?: { name: string; ok: boolean; digest: string }[] } }
 interface Proposal { id: string; status: string; why: string; proposedBy?: string; createdAt: string; scenario: { id: string; agent: string; name: string; input: { message: string }; expect: Record<string, unknown> } }
 interface Run { id: string; state: string; results: { scenarioId: string; passed: boolean; calls: { name: string }[]; checks: { what: string; passed: boolean; detail: string }[] }[] }
 
-const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, 15 * 60_000, async () => {
+const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, async () => {
   const traces = ((await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[]) ?? [];
   return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
-});
+}, () => runEndedBadly(http, runId));
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set PROPOSALS_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the runs use');
@@ -58,11 +49,11 @@ async function main(): Promise<void> {
     await chat(conversationId, 'That was wrong — you guessed. Whenever I ask what I have deployed, always check with list_infrastructure first and answer from what it shows. Never answer that from memory.');
 
     console.log(`[2/4] the chat goes quiet; after ${QUIET_MS / 60_000} minutes the memory keeper runs on it`);
-    const keeperRun = await until('the memory keeper to run on the conversation', QUIET_MS + 5 * 60_000, async () => {
+    const keeperRun = await until('the memory keeper to run on the conversation', async () => {
       const length = (await db.engine.getConversation(OWNER, conversationId))?.messages.length ?? 0;
       const id = `memory-conversation-${conversationId}-${length}`;
       return (((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? []).length > 0 ? id : undefined;
-    });
+    }, async () => ((await db.engine.getConversation(OWNER, conversationId)) ? keeperPaused(http) : 'the conversation is gone, so the keeper has nothing to read'));
     touched.add(keeperRun);
     const kept = await finished(http, keeperRun);
     const calls = kept.filter((trace) => trace.kind === 'run-tool-calls').flatMap((trace) => trace.outputs?.results ?? []);
@@ -80,7 +71,7 @@ async function main(): Promise<void> {
     const scenario = (await http.post(`/evals/level2/proposals/${chosen.id}/accept`, {})).data.scenario as { id: string };
     accepted = scenario.id;
     const run = (await http.post('/evals/level2/runs', { only: [scenario.id] })).data as Run;
-    const done = await until(`scenario run ${run.id}`, 20 * 60_000, async () => {
+    const done = await until(`scenario run ${run.id}`, async () => {
       const current = (await http.get(`/evals/level2/runs/${run.id}`)).data as Run;
       return current.state === 'running' ? undefined : current;
     });

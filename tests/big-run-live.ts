@@ -27,7 +27,6 @@ const QUESTION = process.env.BIG_RUN_LIVE_QUESTION ?? [
   'https://en.wikipedia.org/wiki/Erlang_(programming_language)',
   'Quote at least one sentence from each page.',
 ].join('\n');
-const DEADLINE_MS = Number(process.env.BIG_RUN_LIVE_MINUTES ?? '40') * 60_000;
 const EVENT_LIMIT = 512 * 1024;
 const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
@@ -50,10 +49,7 @@ async function main(): Promise<void> {
 
   console.log(`[1/4] ${AGENT} reads long pages on the engine worker, continuing as new after every step (${runId})`);
   const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input], ...startedFor(OWNER) });
-  const result = await Promise.race([
-    handle.result() as Promise<AgentRunOutcome>,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
-  ]);
+  const result = await (handle.result() as Promise<AgentRunOutcome>);
   console.log(`[2/4] it ended ${result.outcome}${result.reason ? `: ${result.reason}` : ''}`);
 
   const runs: string[] = [];

@@ -8,6 +8,8 @@ import axios from 'axios';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { ACP_STUB, HOLD_SESSION, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
 import { ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
+import { until } from './lib/until.js';
+import { containerNotRunning } from './lib/dead-states.js';
 
 const NAME = `machine-live-${Date.now().toString(36)}`;
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -97,15 +99,12 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
   const http = axios.create({ baseURL: `${stack.instanceUrl}/api`, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: session } });
   const machines = async (): Promise<Machine[]> => (await http.get('/mesh/local-agents')).data;
   const mine = async (): Promise<Machine | undefined> => (await machines()).find((machine) => machine.name === NAME);
-  const until = async <T>(what: string, minutes: number, check: () => Promise<T | undefined>): Promise<T> => {
-    const ends = Date.now() + minutes * 60_000;
-    while (Date.now() < ends) {
-      const found = await check();
-      if (found !== undefined) return found;
-      await sleep(3000);
-    }
-    throw new Error(`${what} did not happen within ${minutes} minutes`);
+  const gone = async (): Promise<string | undefined> => (await vm?.gone()) ?? (await containerNotRunning(stack.names.containers.root)) ?? (await containerNotRunning(stack.names.containers.instance));
+  const updateFailed = async (): Promise<string | undefined> => {
+    const found = await mine();
+    return found?.agentUpdate?.state === 'failed' ? `the agent's update failed${found.agentUpdate.reason ? `: ${found.agentUpdate.reason}` : ''}` : undefined;
   };
+  const goneOr = (more: () => Promise<string | undefined>) => async (): Promise<string | undefined> => (await gone()) ?? more();
   const projectOf = async (deviceId: string): Promise<{ id: string } | undefined> => {
     const { db, close } = await stack.instanceDb();
     try {
@@ -160,38 +159,38 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     assert.match(installed, /✓ Gemini CLI \(Stub Agent\) 1\.2\.3/);
     assert.match(installed, /Install Claude Code, Codex later with Install adapter on My Machines\./);
 
-    const joined = await until('the machine connecting', 3, async () => {
+    const joined = await until('the machine connecting', async () => {
       const found = await mine();
       return found?.online && found.agents.some((agent) => agent.state !== 'checking') && found.agents.length >= 3 ? found : undefined;
-    });
+    }, gone);
     assert.equal(joined.os, 'Linux x86_64');
     assert.deepEqual(joined.agents.map((agent) => [agent.id, agent.state]).sort(), [['claude', 'needs-adapter'], ['codex', 'needs-adapter'], ['gemini', 'ready']]);
     assert.equal(joined.agents.find((agent) => agent.id === 'gemini')?.version, '1.2.3');
     console.log('    connected: gemini ready (1.2.3, confirmed over ACP), claude and codex need their adapters');
     const first = await served();
     assert.equal((await agentOnVm()).bundle, first, 'the install did not record the bundle it installed');
-    const upToDate = await until('My Machines saying its agent is up to date', 1, updateIs('current'));
+    const upToDate = await until('My Machines saying its agent is up to date', updateIs('current'), goneOr(updateFailed));
     assert.deepEqual(upToDate.agentUpdate, { state: 'current', current: first, running: first });
     console.log(`    its agent is ${first.slice(0, 12)}, the bundle Koala serves, and My Machines says it is up to date`);
 
     console.log('[4] after the machine restarts, nobody logs in, and it connects again on its own');
     const before = joined.connectedAt;
     await ssh(vm, 'sudo systemctl reboot').catch(() => undefined);
-    await until('the machine going offline', 2, async () => ((await mine())?.online ? undefined : true));
-    const back = await until('the machine coming back', 5, async () => {
+    await until('the machine going offline', async () => ((await mine())?.online ? undefined : true), gone);
+    const back = await until('the machine coming back', async () => {
       const found = await mine();
       return found?.online && found.connectedAt !== before ? found : undefined;
-    });
+    }, gone);
     console.log(`    back at ${back.connectedAt}, with nobody signed in`);
 
     console.log('[5] Install adapter installs Claude Code\'s ACP adapter, the package the ACP registry names, on the machine, which then finds it');
     const answer = await http.post(`/mesh/local-agents/${back.id}/agents/claude/install`, {});
     assert.equal(answer.status, 200, JSON.stringify(answer.data));
     assert.equal((answer.data as { ok: boolean; output: string }).ok, true, (answer.data as { output: string }).output);
-    const claude = await until('claude being looked at again', 3, async () => {
+    const claude = await until('claude being looked at again', async () => {
       const agent = (await mine())?.agents.find((candidate) => candidate.id === 'claude');
       return agent && agent.state !== 'needs-adapter' && agent.state !== 'checking' ? agent : undefined;
-    });
+    }, gone);
     assert.equal(claude.state, 'ready', `the adapter installed but ${claude.state}: ${claude.reason ?? ''}`);
     console.log(`    claude ready through its adapter${claude.version ? ` (${claude.version})` : ''}`);
 
@@ -199,11 +198,11 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     const old = agentBefore(BEFORE_SELF_UPDATE);
     await ssh(vm, 'cat > /tmp/old-agent.tgz', old.toString('base64'));
     await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && PATH="$(dirname ${NODE_ON_VM}):$PATH" npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
-    const tooOld = await until('My Machines showing the machine offline', 3, async () => ((await mine())?.online === false ? (await mine()) : undefined));
-    const oldSaid = await until('the old agent saying what to do', 2, async () => {
+    const tooOld = await until('My Machines showing the machine offline', async () => ((await mine())?.online === false ? (await mine()) : undefined), gone);
+    const oldSaid = await until('the old agent saying what to do', async () => {
       const log = await onVm('journalctl --user -u koala-machine --no-pager -o cat -n 40 2>/dev/null || true');
       return /run the command from My Machines/.test(log) ? log : undefined;
-    });
+    }, gone);
     assert.equal((await agentOnVm()).bundle, 'none');
     console.log(`    offline; it said: ${oldSaid.split('\n').find((line) => /run the command from My Machines/.test(line))?.trim()}`);
 
@@ -212,14 +211,14 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     assert.equal(remade.status, 201, JSON.stringify(remade.data));
     const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes --no-cluster`)).replace(/\x1b\[[0-9;]*m/g, '');
     assert.match(again, /✓ Codex[^\n]*, through @agentclientprotocol\/codex-acp/, again);
-    const rejoined = await until('the machine connecting again', 3, async () => {
+    const rejoined = await until('the machine connecting again', async () => {
       const found = (await machines()).filter((machine) => machine.name === NAME);
       return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== tooOld.connectedAt ? found[0] : undefined;
-    });
+    }, gone);
     assert.equal(rejoined.id, back.id);
-    const codex = await until('codex showing ready', 3, async () => (await mine())?.agents.find((agent) => agent.id === 'codex' && agent.state === 'ready'));
+    const codex = await until('codex showing ready', async () => (await mine())?.agents.find((agent) => agent.id === 'codex' && agent.state === 'ready'), gone);
     console.log(`    codex ready through its adapter${codex.version ? ` (${codex.version})` : ''}; still one machine, ${rejoined.id}`);
-    assert.deepEqual((await until('its agent up to date again', 3, updateIs('current'))).agentUpdate, { state: 'current', current: first, running: first });
+    assert.deepEqual((await until('its agent up to date again', updateIs('current'), goneOr(updateFailed))).agentUpdate, { state: 'current', current: first, running: first });
     console.log('    the command installed the current agent in place of the old one, and it is up to date');
 
     console.log('[8] Koala names a bundle its download does not match: the agent refuses it, keeps running as it is, and My Machines says why');
@@ -227,7 +226,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     const named = 'f'.repeat(64);
     stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/backend/data/machine-agent/machine-agent.tgz.sha256`);
     await onVm('systemctl --user restart koala-machine');
-    const refused = await until('My Machines saying the update failed', 3, updateIs('failed'));
+    const refused = await until('My Machines saying the update failed', updateIs('failed'), gone);
     assert.equal(refused.agentUpdate?.current, named);
     assert.equal(refused.agentUpdate?.running, first);
     assert.match(refused.agentUpdate?.reason ?? '', /the agent Koala sent is not the one it named \(its sha256 is [0-9a-f]{12}, Koala named f{12}\)/);
@@ -250,13 +249,13 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     const holding = await http.post('/engine/runs', { agent: 'koala', message: `${HOLD_SESSION}, please.`, conversationId: heldId, modelId: gemini });
     assert.equal(holding.status, 201, JSON.stringify(holding.data));
     const heldRun = (holding.data as { runId: string }).runId;
-    await until('the session holding on the machine', 3, async () => ((await onVm('test -e ~/koala-held && echo held || echo not')) === 'held' ? true : undefined));
+    await until('the session holding on the machine', async () => ((await onVm('test -e ~/koala-held && echo held || echo not')) === 'held' ? true : undefined), gone);
     stack.exec('instance', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
     await stack.restart('instance');
     const newer = await served();
     assert.notEqual(newer, first);
     const seen = new Set<string>();
-    const waiting = await until('My Machines saying the newer agent waits for the session', 3, updateIs('waiting', seen));
+    const waiting = await until('My Machines saying the newer agent waits for the session', updateIs('waiting', seen), goneOr(updateFailed));
     assert.equal(waiting.agentUpdate?.current, newer);
     assert.ok(waiting.agentUpdate?.busyWith?.includes('a session of gemini'), JSON.stringify(waiting.agentUpdate));
     await sleep(10_000);
@@ -266,10 +265,10 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
 
     console.log('[10] the run is terminated, so it never closes its own session: Koala hears it closed and tells the machine, which closes the session, stops taking work, finds itself idle, updates itself and comes back as its service on the newer agent, up to date');
     stack.terminate(heldRun, 'machine-live ends the run without its ending');
-    const updated = await until('the machine on the newer agent', 5, async () => {
+    const updated = await until('the machine on the newer agent', async () => {
       const found = await updateIs('current', seen)();
       return found?.agentUpdate?.running === newer ? found : undefined;
-    });
+    }, goneOr(updateFailed));
     assert.deepEqual(updated.agentUpdate, { state: 'current', current: newer, running: newer });
     const after = await agentOnVm();
     assert.equal(after.bundle, newer);
@@ -296,13 +295,13 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     const project = await projectOf(rejoined.id);
     assert.ok(project, 'the machine was added without a project');
     assert.equal((await http.delete(`/mesh/local-agents/${rejoined.id}`)).status, 200);
-    const stopped = await until('the agent stopping', 2, async () => {
+    const stopped = await until('the agent stopping', async () => {
       const state = (await ssh(vm!, 'systemctl --user is-active koala-machine; test -e ~/.config/koala/machine.json && echo token-kept || echo token-gone; test -e ~/.config/systemd/user/koala-machine.service && echo unit-kept || echo unit-gone').catch((err: { stdout?: string }) => err.stdout ?? '')).trim();
       return /^(inactive|failed|unknown)/.test(state) ? state : undefined;
-    });
+    }, gone);
     assert.match(stopped, /token-gone/, stopped);
     assert.match(stopped, /unit-gone/, stopped);
-    await until('its project deleted', 1, async () => ((await projectOf(rejoined.id)) ? undefined : true));
+    await until('its project deleted', async () => ((await projectOf(rejoined.id)) ? undefined : true), gone);
     assert.equal(await mine(), undefined, 'it is still listed');
     console.log(`    ${stopped.split('\n').join(', ')}; its project and listing gone`);
 

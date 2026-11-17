@@ -7,6 +7,8 @@ import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } f
 import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { until } from './until.js';
+import { containerNotRunning } from './dead-states.js';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -28,14 +30,6 @@ export interface OwnStack {
 }
 
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-
-async function until(what: string, probe: () => Promise<true | undefined>, logs: () => string): Promise<void> {
-  for (let tries = 1; ; tries += 1) {
-    if (await probe().catch(() => undefined)) return;
-    if (tries === 600) throw new Error(`${what} never happened\n${logs()}`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
 
 export async function startOwnStack(suite: string, log: (line: string) => void = console.log): Promise<OwnStack> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
@@ -84,12 +78,12 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     docker(['run', '-d', '--name', container[process], '--network', 'host', '--restart', 'on-failure', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...envArgs({ ...env, ...extra }), image, command]);
     started.push(container[process]);
   };
-  const backendAnswers = () => until('the backend answering', () => answers(`${url}/api/auth/sign-in`), () => logs('backend'));
+  const backendAnswers = () => until('the backend answering', () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(container.backend));
   try {
     temporal(['namespace', 'create', '--namespace', namespace, '--retention', '24h']);
     docker(['run', '-d', '--name', container.files, ...files.args]);
     started.push(container.files);
-    await until('its MinIO being ready', () => minioReady(filesPort), () => logs('files'));
+    await until('its MinIO being ready', () => minioReady(filesPort), () => containerNotRunning(container.files));
     run('backend', 'backend');
     run('engine', 'worker-engine', { HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(engineMetrics) });
     await backendAnswers();

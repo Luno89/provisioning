@@ -7,11 +7,11 @@ import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
 import { noAppHoldsAGpu } from './lib/gpus-free.js';
+import { until, Hopeless } from './lib/until.js';
 
 const STAMP = Date.now().toString(36);
 const LOCAL_PORT = 19124;
 const ASKED = 'In one short sentence, what are you?';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const literally = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
@@ -20,24 +20,6 @@ interface Gpu { vendor: string; model: string; count: number; runtime: boolean }
 interface Cluster { id: string; name: string; gpus?: Gpu[]; gpuProblems?: string[] }
 interface Device { id: string; name: string; online: boolean }
 interface TurnEvent { type: string; runId: string; outcome?: string; reason?: string }
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`  still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
-  }
-}
-
 
 const client = (cookie: string): AxiosInstance => axios.create({ baseURL: devKoalaApi, proxy: false, maxRedirects: 0, headers: { Cookie: cookie }, validateStatus: () => true });
 const mine = async (api: AxiosInstance): Promise<Deployment[]> => (await api.get('/api/deployments')).data as Deployment[];
@@ -175,7 +157,10 @@ async function main(): Promise<void> {
 
     const generation = await served.generated(running.namespace ?? NAME);
     stopWatching = generation.stop;
-    const tokensBefore = await until('the model\'s generation count', async () => generation.tokens());
+    const tokensBefore = await until('the model\'s generation count', async () => generation.tokens(), async () => {
+      const found = (await mine(api)).find((entry) => entry.id === deploymentId);
+      return found && found.status !== 'failed' ? undefined : `${NAME} is ${found ? 'failed' : 'gone'}, so it will not report tokens`;
+    });
 
     step('Studio → Models offers the running model by itself, and the owner makes it the default');
     await page.goto(`${devKoalaPage}/#/studio/models`);
@@ -225,7 +210,10 @@ async function main(): Promise<void> {
     await page.goto(`${devKoalaPage}/#/infrastructure`);
     await appRow.getByRole('button', { name: `Destroy ${NAME}` }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();
-    await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true));
+    await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true), async () => {
+      const found = (await mine(api)).find((entry) => entry.id === deploymentId);
+      return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
+    });
     await expect(appRow).toHaveCount(0, { timeout: 60_000 });
     await page.getByRole('button', { name: 'Close dashboard' }).click();
     await expect(page.getByRole('button', { name: 'Close dashboard' })).toHaveCount(0);
@@ -297,7 +285,10 @@ async function main(): Promise<void> {
     if (deploymentId) {
       const gone = await api.delete(`/api/deployments/${deploymentId}`);
       console.log(`  ${current} destroyed after the failure: ${gone.status}`);
-      await until(`${current} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true));
+      await until(`${current} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true), async () => {
+      const found = (await mine(api)).find((entry) => entry.id === deploymentId);
+      return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
+    });
     }
     const restored = await api.put('/api/models/default', { modelId: previousDefault });
     console.log(restored.status === 200 ? `  the default is back to ${previousDefault ?? 'none'}` : `  THE DEFAULT COULD NOT BE PUT BACK to ${previousDefault}: ${JSON.stringify(restored.data)}`);

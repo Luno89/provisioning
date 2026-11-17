@@ -20,6 +20,7 @@ import { renderStarterFiles, versionVars } from '../apps/backend/src/projects/li
 import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/projects/lib/tree-type-seeds.js';
 import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 import { channelIdFor } from '../apps/backend/src/engine/lib/conversations.js';
+import { until } from './lib/until.js';
 
 const run = promisify(execFile);
 const BASE = process.env.ODOO_IMPORT_LIVE_URL ?? 'http://localhost:3001/api';
@@ -30,7 +31,6 @@ const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const STAMP = Date.now().toString(36);
 const APP_PORT = 18569 + Math.floor(Math.random() * 400);
 const ATTACHED = 'Delivery notes the client kept as a file.';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const env = { ...process.env, KUBECONFIG };
 
 const ODOO_TYPE = TREE_TYPE_SEEDS.find((type) => type.id === ODOO_TREE_TYPE)!;
@@ -86,25 +86,18 @@ async function main(): Promise<void> {
   };
   const seed = (entry: Made) => gitea.getRegistryHost().then((registryHost) => gitea.seedTemplate(entry.giteaOwner, entry.giteaRepo, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: entry.name, registryHost, ...ODOO_VERSION }), ...PROBE]));
   const releases = async (entry: Made): Promise<Release[]> => (await http.get(`/projects/${entry.id}/releases`)).data.releases;
-  const waitFor = async <T>(what: string, check: () => Promise<T | undefined>, minutes: number): Promise<T> => {
-    const until = Date.now() + minutes * 60_000;
-    while (Date.now() < until) {
-      const found = await check();
-      if (found !== undefined) return found;
-      await sleep(10_000);
-    }
-    throw new Error(`no ${what} within ${minutes} minutes`);
+  const releaseFailed = async (entry: Made, before: ReadonlySet<string> = new Set()): Promise<string | undefined> => {
+    const failed = (await releases(entry)).filter((release) => !before.has(release.id)).find((release) => release.state === 'failed');
+    return failed ? `${entry.name}'s release failed: ${failed.reason}` : undefined;
   };
   const live = async (entry: Made) => {
     const before = new Set((await releases(entry)).map((release) => release.id));
     return liveAfter(entry, before);
   };
-  const liveAfter = (entry: Made, before: ReadonlySet<string>) => waitFor(`live release of ${entry.name}`, async () => {
+  const liveAfter = (entry: Made, before: ReadonlySet<string>) => until(`live release of ${entry.name}`, async () => {
     const all = (await releases(entry)).filter((release) => !before.has(release.id));
-    const failed = all.find((release) => release.state === 'failed');
-    if (failed) throw new Error(`${entry.name}'s release failed: ${failed.reason}`);
     return all.find((release) => release.state === 'live');
-  }, 30);
+  }, () => releaseFailed(entry, before));
   const importOf = async (entry: Made) => (await http.get(`/projects/${entry.id}/import`)).data as { open: boolean; why?: string; import?: { state: string; mode: string; version?: string; modules?: string[]; missing?: string[]; reason?: string } };
   const upload = async (entry: Made, file: string, mode: 'copy' | 'live') => http.put(`/projects/${entry.id}/import`, createReadStream(file), {
     params: { mode },
@@ -120,7 +113,7 @@ async function main(): Promise<void> {
     const signIn = ((await http.get(`/projects/${client.id}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0]!;
     const forward = spawn(KUBECTL, ['-n', client.place.namespace, 'port-forward', `svc/${client.place.release}-live`, `${APP_PORT}:8069`], { env, stdio: 'ignore' });
     try {
-      for (let tries = 0; tries < 30 && !(await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)); tries += 1) await sleep(1_000);
+      await until('the live Odoo answering through the port-forward', async () => ((await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)) ? true : undefined), async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
         const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
         if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
@@ -172,10 +165,10 @@ async function main(): Promise<void> {
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.data));
     assert.equal(uploaded.data.state, 'uploaded');
     await seed(copy);
-    const refused = await waitFor('the restore to refuse it', async () => {
+    const refused = await until('the restore to refuse it', async () => {
       const entry = (await importOf(copy)).import;
       return entry?.state === 'refused' && entry.missing ? entry : undefined;
-    }, 30);
+    }, async () => (await releaseFailed(copy)) ?? ((await releases(copy)).some((release) => release.state === 'live') ? 'something went live from a refused backup' : undefined));
     assert.deepEqual(refused.missing, ['web_studio']);
     assert.equal((await releases(copy)).some((release) => release.state === 'live'), false, 'something went live from a refused backup');
     console.log(`    ${refused.reason}`);
@@ -188,7 +181,10 @@ async function main(): Promise<void> {
     assert.ok((accepted.data.modules as string[]).includes(MODULE));
     const restored = await liveAfter(copy, refusedReleases);
     assert.equal(restored.slot, 'a');
-    await waitFor('the import to be recorded as done', async () => ((await importOf(copy)).import?.state === 'imported' ? true : undefined), 2);
+    await until('the import to be recorded as done', async () => ((await importOf(copy)).import?.state === 'imported' ? true : undefined), async () => {
+      const state = (await importOf(copy)).import;
+      return state && (state.state === 'refused' || state.state === 'failed') ? `the import is ${state.state}${state.reason ? `: ${state.reason}` : ''}` : undefined;
+    });
     assert.equal(await psql(copy, "select string_agg(name || ':' || note, ',' order by name) from koala_probe"), 'first:leave at the back door,second:ring twice');
     const stored = await psql(copy, "select store_fname from ir_attachment where name = 'notes.txt'");
     assert.equal(await kubectl(copy.place.namespace, 'exec', `deploy/${copy.place.release}-odoo-a`, '--', 'cat', `/var/lib/odoo/filestore/odoo_a/${stored}`), ATTACHED, 'the client\'s file did not come with the database');
@@ -222,7 +218,11 @@ async function main(): Promise<void> {
     for (const entry of made.splice(0)) {
       const removing = await http.delete(`/projects/${entry.id}`, { data: { confirm: entry.name } });
       assert.ok(removing.status < 300, JSON.stringify(removing.data));
-      await waitFor(`${entry.place.namespace} to go`, async () => ((await run(KUBECTL, ['get', 'namespace', entry.place.namespace, '--ignore-not-found', '-o', 'name'], { env })).stdout.trim() === '' ? true : undefined), 10);
+      await until(`${entry.place.namespace} to go`, async () => ((await run(KUBECTL, ['get', 'namespace', entry.place.namespace, '--ignore-not-found', '-o', 'name'], { env })).stdout.trim() === '' ? true : undefined), async () => {
+        const removal = await http.get(`/projects/${entry.id}/removal`, { validateStatus: () => true });
+        const state = (removal.data as { state?: { state: string; reason?: string } }).state;
+        return state?.state === 'failed' ? `deleting ${entry.name} failed: ${state.reason}` : undefined;
+      });
     }
     console.log('odoo import live — PASS');
   } finally {

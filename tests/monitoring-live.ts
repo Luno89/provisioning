@@ -10,6 +10,8 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { until, Hopeless } from './lib/until.js';
+import { deploymentFailed } from './lib/dead-states.js';
 
 const run = promisify(execFile);
 const BASE = process.env.MONITORING_LIVE_URL ?? 'http://localhost:3001/api';
@@ -18,25 +20,7 @@ const CLUSTER = 'provisioning-lunorica';
 const KUBECONFIG = `/tmp/kubeconfig-${CLUSTER}`;
 const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const NAME = `alert-live-${Date.now().toString(36)}`;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`  still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
-  }
-}
 
 interface Episode { id: string; ruleId?: string; summary: string; startedAt: string; resolvedAt?: string }
 interface Notice { role: string; content: string; notice?: { kind: string; refs: { deploymentId?: string } } }
@@ -72,7 +56,7 @@ async function main(): Promise<void> {
   const namespace = await until('its namespace', async () => {
     const view = (await api.get(`/monitoring/apps/${deploymentId}`)).data as { app: { state: string } };
     return view.app.state === 'ok' ? NAME : undefined;
-  });
+  }, () => deploymentFailed(api, NAME));
   console.log(`  Monitoring calls it healthy`);
 
   step('Koala, on the person\'s own model, reads it and proposes an alert for when it stops answering');
@@ -112,12 +96,12 @@ async function main(): Promise<void> {
   const fired = await until('the alert firing', async () => {
     const episodes = ((await api.get('/monitoring/alerts')).data as { episodes: Episode[] }).episodes;
     return episodes.find((episode) => episode.ruleId === rule.id && !episode.resolvedAt);
-  });
+  }, async () => (((await api.get(`/monitoring/apps/${deploymentId}`)).data as { rules?: { id: string }[] }).rules?.some((entry) => entry.id === rule.id) ? undefined : 'the alert rule is gone from the app'));
   console.log(`  fired: ${fired.summary}`);
   const firedNotice = await until('the notice', async () => {
     const messages = ((await api.get(`/conversations/${conversationId}`)).data as { messages: Notice[] }).messages;
     return messages.find((entry) => entry.role === 'notice' && entry.notice?.kind === 'alert-firing' && entry.notice.refs.deploymentId === deploymentId);
-  });
+  }, async () => ((await api.get(`/conversations/${conversationId}`)).status === 404 ? 'the conversation is gone' : undefined));
   console.log(`  notice: ${firedNotice.content}`);
   const overview = (await api.get('/monitoring')).data as { attention: { subject: { id: string }; state: string }[] };
   assert.ok(overview.attention.some((item) => item.subject.id === deploymentId && item.state === 'down'), 'the app is not among what needs attention');
@@ -127,11 +111,11 @@ async function main(): Promise<void> {
   await until('the alert resolving', async () => {
     const episodes = ((await api.get('/monitoring/alerts')).data as { episodes: Episode[] }).episodes;
     return episodes.find((episode) => episode.id === fired.id && episode.resolvedAt);
-  });
+  }, async () => (((await api.get(`/monitoring/apps/${deploymentId}`)).data as { rules?: { id: string }[] }).rules?.some((entry) => entry.id === rule.id) ? undefined : 'the alert rule is gone from the app'));
   const resolvedNotice = await until('the resolved notice', async () => {
     const messages = ((await api.get(`/conversations/${conversationId}`)).data as { messages: Notice[] }).messages;
     return messages.find((entry) => entry.role === 'notice' && entry.notice?.kind === 'alert-resolved' && entry.notice.refs.deploymentId === deploymentId);
-  });
+  }, async () => ((await api.get(`/conversations/${conversationId}`)).status === 404 ? 'the conversation is gone' : undefined));
   console.log(`  notice: ${resolvedNotice.content}`);
 
   step('removing the alert takes it off the cluster');
@@ -147,7 +131,10 @@ async function teardown(): Promise<void> {
   const api = http;
   if (deploymentId) {
     await api.delete(`/deployments/${deploymentId}`);
-    await until('the app gone', async () => (((await api.get('/deployments')).data as { id: string }[]).some((entry) => entry.id === deploymentId) ? undefined : true));
+    await until('the app gone', async () => (((await api.get('/deployments')).data as { id: string }[]).some((entry) => entry.id === deploymentId) ? undefined : true), async () => {
+      const found = ((await api.get('/deployments')).data as { id: string; status: string }[]).find((entry) => entry.id === deploymentId);
+      return found?.status === 'failed' ? 'destroying the app failed' : undefined;
+    });
   }
   if (conversationId) await api.delete(`/conversations/${conversationId}`);
 }

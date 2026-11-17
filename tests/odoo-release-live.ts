@@ -10,6 +10,8 @@ import { releaseRunWorkflowId } from '../apps/backend/src/releases/lib/release-r
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 import { madeHere } from './lib/made-here.js';
+import { groveRunWorkflowId } from '../apps/backend/src/engine-host/temporal/contracts.js';
+import { until } from './lib/until.js';
 
 const BASE = process.env.ODOO_RELEASE_LIVE_URL ?? `${devKoalaApi}/api`;
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
@@ -76,6 +78,11 @@ interface BrowserTests { state: string; startedAt: string; summary?: string; rea
 interface ReleaseFiles { against?: { releaseId: string; commit: string; state: string }; files: { path: string; status: string; added: number; removed: number; patch: string; inApp: boolean }[]; note?: string }
 interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
 interface RepoEntry { path: string; type: 'file' | 'dir' }
+
+async function removalFailed(http: AxiosInstance, projectId: string): Promise<string | undefined> {
+  const state = ((await http.get(`/projects/${projectId}/removal`, { validateStatus: () => true })).data as { state?: { state: string; reason?: string } }).state;
+  return state?.state === 'failed' ? `deleting the project failed: ${state.reason}` : undefined;
+}
 
 async function commit(http: AxiosInstance, projectId: string, entries: { path: string; content: string }[], message: string): Promise<string> {
   const dropped = await http.post(`/projects/${projectId}/files/drop`, dropBody({ dir: '', message }, entries.map((entry) => ({ path: entry.path, bytes: Buffer.from(entry.content) }))), { headers: { 'Content-Type': DROP_TYPE } });
@@ -160,27 +167,22 @@ async function main(): Promise<void> {
     assert.equal(made.data.targetClusterId, koalas.id, 'a project with no cluster picked deploys to Koala\'s own cluster');
 
     const releases = async (): Promise<Release[]> => (await http.get(`/projects/${projectId}/releases`)).data.releases;
-    const waitFor = async (what: string, ok: (all: Release[]) => Release | undefined, minutes: number): Promise<Release> => {
-      const until = Date.now() + minutes * 60_000;
-      let last = '';
-      while (Date.now() < until) {
-        const all = await releases();
-        const now = all.map((release) => `${release.state}${release.slot ? `/${release.slot}` : ''}`).join(', ');
-        if (now !== last) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now || 'no release yet'}`); last = now; }
-        const failed = all.find((release) => release.state === 'failed');
-        if (failed) throw new Error(`a release failed: ${failed.reason}`);
-        const found = ok(all);
-        if (found) return found;
-        await sleep(10_000);
-      }
-      throw new Error(`no ${what} within ${minutes} minutes`);
-    };
+    let lastSeen = '';
+    const waitFor = (what: string, ok: (all: Release[]) => Release | undefined): Promise<Release> => until(what, async () => {
+      const all = await releases();
+      const now = all.map((release) => `${release.state}${release.slot ? `/${release.slot}` : ''}`).join(', ');
+      if (now !== lastSeen) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now || 'no release yet'}`); lastSeen = now; }
+      return ok(all);
+    }, async () => {
+      const failed = (await releases()).find((release) => release.state === 'failed');
+      return failed ? `a release failed: ${failed.reason}` : undefined;
+    });
 
     console.log('[2] the Odoo starter and a module, dropped on the repository, land on main in one commit: it builds and releases into slot a');
     const registryHost = devKoalaEnv().REGISTRY_PULL_HOST;
     assert.ok(registryHost, 'your Koala names no REGISTRY_PULL_HOST for its images');
     await commit(http, project.id, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost, ...ODOO_VERSION }), ...PROBE], 'Scaffold the Odoo project with the probe module');
-    const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'), 30);
+    const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'));
     assert.equal(first.slot, 'a');
     assert.equal((await db.projects.getProjects()).find((entry) => entry.id === projectId)?.releaseName, place.release, 'the project does not keep the name its release was given');
     const labels = JSON.parse(await devKubectlCluster('get', 'namespace', place.namespace, '-o', 'jsonpath={.metadata.labels}')) as Record<string, string>;
@@ -197,7 +199,7 @@ async function main(): Promise<void> {
     assert.ok(signIn, 'the project has no sign-in for its app');
     const forward = devPortForward(place.namespace, `svc/${place.release}-live`, `${APP_PORT}:8069`);
     try {
-      for (let tries = 0; tries < 30 && !(await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)); tries += 1) await sleep(1_000);
+      await until('the live Odoo answering through the port-forward', async () => ((await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)) ? true : undefined), async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
         const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
         if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
@@ -232,7 +234,7 @@ async function main(): Promise<void> {
 
     console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
     await commit(http, project.id, [...COLOUR, ...PROBE_WITHOUT_NOTE, ...SAVES], 'Add the colour module and a browser test that saves a contact, and the probe no longer keeps a note');
-    const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
+    const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'));
     assert.equal(preview.slot, 'b');
     assert.match(await columns('odoo_b'), /colour/, 'slot b\'s copy has no colour column');
     assert.doesNotMatch(await columns('odoo_a'), /colour/, 'the live database changed before the cutover');
@@ -267,7 +269,7 @@ async function main(): Promise<void> {
     assert.equal(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the preview still runs scheduled jobs');
     assert.equal(await psql('odoo_b', 'select count(*) from ir_mail_server where active'), '0', 'the preview can still send mail');
     assert.notEqual(await psql('odoo_a', 'select count(*) from ir_cron where active'), '0', 'the live database lost its scheduled jobs');
-    const tested = await waitFor('browser tests on the preview', (all) => all.find((release) => release.id === preview.id && release.e2e && release.e2e.state !== 'running'), 15);
+    const tested = await waitFor('browser tests on the preview', (all) => all.find((release) => release.id === preview.id && release.e2e && release.e2e.state !== 'running'));
     assert.equal(tested.e2e!.state, 'passed', JSON.stringify(tested.e2e));
     assert.equal(tested.e2e!.summary, '2 passed, 0 failed');
     assert.deepEqual(tested.e2e!.tests!.map((test) => [test.title, test.status]).sort(), [['a person saves a new contact', 'passed'], ['a person signs in and reaches the Odoo home', 'passed']]);
@@ -296,7 +298,7 @@ async function main(): Promise<void> {
     console.log('[3c] a spec that cannot pass, pushed alone: the waiting preview runs it, with no new build released, and shows the failure and what the browser saw');
     const pushedAt = new Date().toISOString();
     const testsCommit = await commit(http, project.id, FAILING, 'Add a browser test that cannot pass');
-    const failing = await waitFor('the waiting preview\'s browser tests from the pushed commit', (all) => all.find((release) => release.id === preview.id && release.testsFrom === testsCommit && release.e2e && release.e2e.startedAt > pushedAt && release.e2e.state !== 'running'), 30);
+    const failing = await waitFor('the waiting preview\'s browser tests from the pushed commit', (all) => all.find((release) => release.id === preview.id && release.testsFrom === testsCommit && release.e2e && release.e2e.startedAt > pushedAt && release.e2e.state !== 'running'));
     const after = await releases();
     assert.deepEqual(after.filter((release) => release.commit === testsCommit), [], 'a release was made for a push that changed only the browser tests');
     assert.equal(failing.state, 'preview', 'the waiting preview was set aside for a push that changed only its tests');
@@ -318,8 +320,8 @@ async function main(): Promise<void> {
     console.log('[3d] running the tests again from the card');
     const again = await http.post(`/projects/${projectId}/releases/${failing.id}/retest`, {});
     assert.equal(again.status, 202, JSON.stringify(again.data));
-    await waitFor('the second run to start', (all) => all.find((release) => release.id === failing.id && release.e2e?.state === 'running'), 2);
-    const rerun = await waitFor('the second run to finish', (all) => all.find((release) => release.id === failing.id && release.e2e && release.e2e.state !== 'running'), 15);
+    await waitFor('the second run to start', (all) => all.find((release) => release.id === failing.id && release.e2e?.state === 'running'));
+    const rerun = await waitFor('the second run to finish', (all) => all.find((release) => release.id === failing.id && release.e2e && release.e2e.state !== 'running'));
     assert.equal(rerun.e2e!.state, 'failed');
     console.log(`    ran again: ${rerun.e2e!.summary}`);
 
@@ -328,7 +330,7 @@ async function main(): Promise<void> {
     assert.equal(releasedAgain.status, 202, JSON.stringify(releasedAgain.data));
     const repeat = (releasedAgain.data as { release: Release }).release;
     assert.deepEqual([repeat.again, repeat.image, repeat.commit], [preview.id, preview.image, preview.commit]);
-    const candidate = await waitFor('the build released again to be tested', (all) => all.find((release) => release.id === repeat.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
+    const candidate = await waitFor('the build released again to be tested', (all) => all.find((release) => release.id === repeat.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'));
     assert.equal((await releases()).find((release) => release.id === failing.id)?.state, 'superseded', 'the waiting preview was not set aside');
     assert.equal(candidate.slot, 'b');
     assert.equal(candidate.e2e!.summary, '2 passed, 0 failed', JSON.stringify(candidate.e2e));
@@ -343,16 +345,14 @@ async function main(): Promise<void> {
     console.log('[3b] the live app and its preview each answer on their own host through the cluster\'s Traefik, which an app address on this Koala forwards to');
     const traefik = JSON.parse(await devKubectl('traefik', 'get', 'service', 'traefik', '-o', 'json')) as { spec: { clusterIP: string; ports: { name?: string; port: number }[] } };
     const web = traefik.spec.ports.find((port) => port.name === 'web') ?? traefik.spec.ports[0]!;
-    const through = async (host: string, expected: RegExp): Promise<string> => {
-      let page = '';
-      for (let tries = 0; tries < 20; tries += 1) {
-        page = await axios.get(`http://${traefik.spec.clusterIP}:${web.port}/web/login`, { headers: { Host: host }, proxy: false, timeout: 5_000, validateStatus: () => true })
-          .then((answer) => String(answer.data), (err: Error) => err.message);
-        if (expected.test(page)) return page;
-        await sleep(1_000);
-      }
-      return page.slice(0, 200);
-    };
+    const through = (host: string, expected: RegExp): Promise<string> => until(`${host} reaching an Odoo`, async () => {
+      const page = await axios.get(`http://${traefik.spec.clusterIP}:${web.port}/web/login`, { headers: { Host: host }, proxy: false, timeout: 5_000, validateStatus: () => true })
+        .then((answer) => String(answer.data), (err: Error) => err.message);
+      return expected.test(page) ? page : undefined;
+    }, async () => {
+      const failed = (await releases()).find((release) => release.state === 'failed');
+      return failed ? `a release failed: ${failed.reason}` : undefined;
+    });
     const LOGIN = /name="login"/;
     assert.match(await through(place.host, LOGIN), LOGIN, 'the live host does not reach an Odoo');
     assert.match(await through(place.previewHost, LOGIN), LOGIN, 'the preview host does not reach an Odoo');
@@ -365,7 +365,7 @@ async function main(): Promise<void> {
     console.log(`    refused without a confirm: ${(refused.data as { error: string }).error}`);
     const cut = await http.post(`/projects/${projectId}/releases/${candidate.id}/cut-over`, { confirm: true });
     assert.equal(cut.status, 202, JSON.stringify(cut.data));
-    await waitFor('cutover', (all) => all.find((release) => release.id === candidate.id && release.state === 'live'), 20);
+    await waitFor('cutover', (all) => all.find((release) => release.id === candidate.id && release.state === 'live'));
     releaseIds.push(preview.id, failing.id, candidate.id);
     assert.equal(await psql('odoo_b', "select count(*) from res_users where login = 'koala-e2e'"), '0', 'the test user came along into the live database');
     assert.notEqual(await psql('odoo_b', 'select count(*) from ir_cron where active'), '0', 'the live database came over quiet');
@@ -380,18 +380,15 @@ async function main(): Promise<void> {
 
     console.log('[4a] rolling back returns the app to slot a exactly as it was at the cutover');
     await psql('odoo_b', "insert into koala_probe (name, create_date, write_date) values ('entered after the cutover', now(), now())");
-    const offer = await (async () => {
-      for (;;) {
-        const found = (await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined;
-        if (found) return found;
-        await new Promise((done) => setTimeout(done, 3000));
-      }
-    })();
+    const offer = await until('the rollback offer', async () => ((await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined), async () => {
+      const failed = (await releases()).find((release) => release.state === 'failed');
+      return failed ? `a release failed: ${failed.reason}` : undefined;
+    });
     assert.deepEqual(offer && { from: offer.from, to: offer.to }, { from: candidate.id, to: first.id }, `the rollback offer is wrong: ${JSON.stringify(offer)}`);
     assert.ok(offer?.liveSince, 'the offer does not say when the cutover was');
     const back = await http.post(`/projects/${projectId}/releases/${candidate.id}/roll-back`, {});
     assert.equal(back.status, 202, JSON.stringify(back.data));
-    await waitFor('rollback', (all) => (all.find((release) => release.id === first.id && release.state === 'live') && all.find((release) => release.id === candidate.id && release.state === 'rolled-back')) || undefined, 10);
+    await waitFor('rollback', (all) => (all.find((release) => release.id === first.id && release.state === 'live') && all.find((release) => release.id === candidate.id && release.state === 'rolled-back')) || undefined);
     assert.equal(await kubectl('get', 'svc', `${place.release}-live`, '-o', 'jsonpath={.spec.selector.koala\\.dev/slot}'), 'a');
     assert.equal(await health(`${place.release}-live`), '200', 'the live slot does not answer after the rollback');
     assert.doesNotMatch(await columns('odoo_a'), /colour/, 'the rolled-back slot has the newer module\'s field');
@@ -409,24 +406,20 @@ async function main(): Promise<void> {
       assert.equal(card.status, 201, JSON.stringify(card.data));
       const approved = await http.post(`/plans/${card.data.id}/approve`, {});
       assert.ok(approved.status < 300, JSON.stringify(approved.data));
-      let treeId: string | undefined;
-      for (let tries = 0; tries < 120 && !treeId; tries += 1) {
-        const plan = (await http.get(`/plans/${card.data.id}`)).data as { status: string; reason?: string; adopted?: { treeId: string } };
-        if (plan.status === 'failed') throw new Error(`the card's plan failed: ${plan.reason}`);
-        treeId = plan.adopted?.treeId;
-        if (!treeId) await sleep(5_000);
-      }
-      assert.ok(treeId, 'the card was never adopted');
+      const treeId = await until('the card to be adopted', async () => ((await http.get(`/plans/${card.data.id}`)).data as { adopted?: { treeId: string } }).adopted?.treeId, async () => {
+        const plan = (await http.get(`/plans/${card.data.id}`)).data as { status: string; reason?: string };
+        return plan.status === 'failed' ? `the card's plan failed: ${plan.reason}` : undefined;
+      });
       console.log(`    the card made tree ${treeId} for the project, with the story that brings them in`);
       const storyEnded = async () => {
         const branches = ((await http.get('/branches')).data as { id: string; treeId: string }[]).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
         return ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string; landed?: { outcome: string } }[]).find((leaf) => branches.includes(leaf.branchId) && (['failed', 'cancelled'].includes(leaf.status) || (leaf.status === 'succeeded' && leaf.landed)));
       };
-      let story: Awaited<ReturnType<typeof storyEnded>>;
-      for (let tries = 0; tries < 720 && !story; tries += 1) {
-        story = await storyEnded();
-        if (!story) await sleep(10_000);
-      }
+      const temporalForTree = await devKoalaTemporal();
+      const story = await until('the story to end', storyEnded, async () => {
+        const described = await temporalForTree.client.workflow.getHandle(groveRunWorkflowId(treeId)).describe();
+        return described.closeTime ? `the tree's run ended ${described.status.name.toLowerCase()} with the story still unfinished` : undefined;
+      }).finally(() => temporalForTree.close());
       assert.equal(story?.status, 'succeeded', `the story did not ship: ${JSON.stringify(story)}`);
       assert.equal(story?.landed?.outcome, 'merged', `the story did not land: ${JSON.stringify(story?.landed)}`);
       assert.notEqual(await repoFile(http, project.id, `addons/${drift.module}/adopt.json`, 'main'), null, 'the module did not land on main');
@@ -439,7 +432,7 @@ async function main(): Promise<void> {
       const adopted = await waitFor('the release that brings them in', (all) => {
         for (const release of all) if (!holdsModule.has(release.commit)) void bringsThemIn(release.commit).catch(() => undefined);
         return all.find((release) => holdsModule.get(release.commit) && release.state === 'preview' && release.e2e && release.e2e.state !== 'running' && release.changes !== undefined && !releaseIds.includes(release.id));
-      }, 40);
+      });
       console.log(`    ${JSON.stringify({ lost: adopted.changes!.lost, items: adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`) })}`);
       const adoptedStates = adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort();
       if (adoptedStates.join() !== 'edited-view: kept,field: kept') {
@@ -452,7 +445,7 @@ async function main(): Promise<void> {
       assert.deepEqual(adoptedStates, ['edited-view: kept', 'field: kept']);
       const adoptCut = await http.post(`/projects/${projectId}/releases/${adopted.id}/cut-over`, { confirm: true });
       assert.equal(adoptCut.status, 202, JSON.stringify(adoptCut.data));
-      await waitFor('the cut-over that keeps them', (all) => all.find((release) => release.id === adopted.id && release.state === 'live'), 20);
+      await waitFor('the cut-over that keeps them', (all) => all.find((release) => release.id === adopted.id && release.state === 'live'));
       releaseIds.push(adopted.id);
       const liveSlot = adopted.slot === 'a' ? 'odoo_a' : 'odoo_b';
       assert.equal(await psql(liveSlot, "select count(*) from ir_model_fields where model = 'koala.probe' and name = 'x_koala_note'"), '1', 'the field made in the app is not there exactly once');
@@ -466,8 +459,7 @@ async function main(): Promise<void> {
     assert.deepEqual(removal.apps, [NAME], `the deletion does not say the app goes with it: ${JSON.stringify(removal)}`);
     const removing = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
     assert.equal(removing.status, 202, JSON.stringify(removing.data));
-    for (let tries = 0; tries < 60 && (await http.get(`/projects/${projectId}/removal`)).status !== 404; tries += 1) await sleep(5_000);
-    assert.equal((await http.get(`/projects/${projectId}/removal`)).status, 404, 'the project was not deleted within five minutes');
+    await until('the project to be deleted', async () => ((await http.get(`/projects/${projectId}/removal`)).status === 404 ? true : undefined), () => removalFailed(http, projectId!));
     const gone = projectId;
     projectId = undefined;
     assert.equal(await namespaceThere(), false, 'the app\'s namespace outlived the project');
@@ -477,12 +469,8 @@ async function main(): Promise<void> {
     assert.notEqual(workflow.status.name, 'RUNNING', 'the release run outlived the project');
     console.log(`    the app, its namespace ${place.namespace} and its release run (${workflow.status.name.toLowerCase()}) went with the project`);
     if (releaseIds.length > 0) {
-      let left = -1;
-      for (let tries = 0; tries < 60 && left !== 0; tries += 1) {
-        left = (await Promise.all(releaseIds.map((id) => db.files.storedFilesIn(OWNER, { kind: 'run', id })))).flat().length;
-        if (left !== 0) await sleep(5_000);
-      }
-      assert.equal(left, 0, 'the release artifacts outlived the project');
+      const filesLeft = async () => (await Promise.all(releaseIds.map((id) => db.files.storedFilesIn(OWNER, { kind: 'run', id })))).flat().length;
+      await until('the release artifacts to go', async () => ((await filesLeft()) === 0 ? true : undefined), async () => 'the project is deleted and its release artifacts are still there');
       console.log('    the browser tests\' files went with the project');
     }
     await projects.untouched();
@@ -495,7 +483,7 @@ async function main(): Promise<void> {
       console.log('[6] the run stopped early: removing what it made');
       const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
       console.log(`    deleting the project, its app with it: ${removed.status} ${removed.status >= 300 ? JSON.stringify(removed.data) : ''}`);
-      for (let tries = 0; tries < 60 && (await http.get(`/projects/${projectId}/removal`)).status !== 404; tries += 1) await sleep(5_000);
+      await until('the project to be deleted', async () => ((await http.get(`/projects/${projectId}/removal`)).status === 404 ? true : undefined), () => removalFailed(http, projectId!)).catch((err: Error) => console.log(`    ${err.message}`));
       const namespaceLeft = await namespaceThere();
       console.log(`    namespace ${place.namespace} ${namespaceLeft ? 'is still there' : 'is gone'}`);
     }

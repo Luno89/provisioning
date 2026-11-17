@@ -14,6 +14,8 @@ import { unreachedPlatformServices } from '../../apps/backend/src/platform/testi
 import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
+import { until } from './until.js';
+import { containerNotRunning } from './dead-states.js';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
@@ -90,21 +92,6 @@ export interface SplitStack {
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 export { temporal, temporalContainer } from './suite-root.js';
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?: () => string): Promise<T> {
-  let last = '';
-  for (let tries = 1; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      last = (err as Error).message;
-    }
-    if (tries % 60 === 0) console.log(`    still waiting for ${what}${last ? ` (${last.slice(0, 160)})` : ''}`);
-    if (tries === 600) throw new Error(`${what} never happened${last ? `: ${last}` : ''}${logs ? `\n${logs()}` : ''}`);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
-  }
-}
 
 export const answers = async (url: string): Promise<true | undefined> => {
   const response = await fetch(url, { redirect: 'manual' }).catch(() => undefined);
@@ -185,7 +172,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     run('mailbox', ['-p', `127.0.0.1:${ports.smtp}:1025`, '-p', `127.0.0.1:${ports.mailApi}:8025`, MAILPIT_IMAGE]);
     const files = minioRun(ports.files);
     run('files', files.args);
-    await until('the instance\'s MinIO being ready', () => minioReady(ports.files), () => logs('files'));
+    await until('the instance\'s MinIO being ready', () => minioReady(ports.files), () => containerNotRunning(names.containers['files']));
 
     const setupCode = randomBytes(12).toString('base64url');
     const instanceCredential = randomBytes(32).toString('base64url');
@@ -215,7 +202,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
     backend('root', rootEnv);
     backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
-    await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => logs('root'));
+    await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => containerNotRunning(names.containers['root']));
 
     const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, namespace: names.namespace, metricsPort: ports.metrics, env: [] });
     const plan = draft(owner);
@@ -227,11 +214,11 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
     if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
     backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...unreachedPlatformServices(place.hubUrl) });
-    await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));
-    await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => logs('hub'));
+    await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['instance']));
+    await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['hub']));
     const asOwner = fetchSide(place.rootUrl, owner.cookie);
     await until('the hub naming its sign-in key to root', async () =>
-      ((await asOwner('/api/identity/go?to=hub')).location === `${place.hubUrl}/api/auth/oidc/start` ? true : undefined), () => logs('hub'));
+      ((await asOwner('/api/identity/go?to=hub')).location === `${place.hubUrl}/api/auth/oidc/start` ? true : undefined), () => containerNotRunning(names.containers['hub']));
 
     const instanceDb = async () => {
       const client = new MongoClient(withDatabase(mongoUri, names.databases.instance));
@@ -244,7 +231,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       restart: async (process) => {
         docker(['restart', names.containers[process]]);
         const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : process === 'hub' ? place.hubUrl : undefined;
-        if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => logs(process));
+        if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(names.containers[process]));
       },
       terminate: (workflowId, reason) => { docker(['exec', temporalContainer(), 'temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
       names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl, hubUrl: place.hubUrl,
@@ -261,7 +248,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
 export async function ownerOnInstance(stack: SplitStack): Promise<string> {
   const root = fetchSide(stack.rootUrl, stack.owner.cookie);
   await until('root sending the owner to the instance\'s OpenID sign-in', async () =>
-    ((await root('/api/identity/go')).location === `${stack.instanceUrl}/api/auth/oidc/start` ? true : undefined), () => stack.logs('instance'));
+    ((await root('/api/identity/go')).location === `${stack.instanceUrl}/api/auth/oidc/start` ? true : undefined), () => containerNotRunning(stack.names.containers.instance));
   const handed = await handOff(root, fetchSide(stack.instanceUrl), '/api/identity/go');
   const session = sessionFrom(handed.exchange.setCookies);
   if (!signedInLanding(handed.exchange) || !session) throw new Error(`the instance did not sign its owner in: ${handed.exchange.status} ${handed.exchange.body.slice(0, 300)}`);

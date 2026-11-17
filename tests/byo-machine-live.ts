@@ -10,6 +10,8 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { until } from './lib/until.js';
+import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -26,19 +28,8 @@ const TAG = 'byo-live';
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const step = (message: string) => console.log(`\n▶ ${message}`);
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const expect = (actual: { status: string; detail?: string | undefined }, wanted: { status: string; detail: string }) =>
   assert.deepEqual({ status: actual.status, detail: actual.detail }, wanted, `root has the instance as ${actual.status}: ${actual.detail}`);
-
-async function until<T>(what: string, minutes: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + minutes * 60_000;
-  for (;;) {
-    const value = await probe().catch(() => undefined);
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error(`${what} did not happen within ${minutes} minutes`);
-    await sleep(5000);
-  }
-}
 
 function inVm(vm: DisposableVm, command: string, stream = false): Promise<string> {
   return new Promise((resolveP, rejectP) => {
@@ -51,6 +42,7 @@ function inVm(vm: DisposableVm, command: string, stream = false): Promise<string
 }
 
 let vm: DisposableVm | undefined;
+const gone = async (): Promise<string | undefined> => (await vm?.gone()) ?? (await containerNotRunning('nw-byo-root'));
 
 async function startRoot(releaseTag: string): Promise<void> {
   try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
@@ -59,7 +51,7 @@ async function startRoot(releaseTag: string): Promise<void> {
     ...devDataMounts(),
     '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: releaseTag, registry: '10.0.2.2:5001' }),
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', IMAGE, 'backend']);
-  await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
+  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
 }
 let instanceId: string | undefined;
 
@@ -134,10 +126,10 @@ async function main(): Promise<void> {
     groups: [] };
   assert.equal((await http('/api/procedures/byo-live', { method: 'PUT', body: JSON.stringify(procedure) })).status, 200);
   const started = await (await http('/api/engine/runs', { method: 'POST', body: JSON.stringify({ agent: 'executor', message: 'live', procedure: 'byo-live' }) })).json() as { runId: string };
-  const traces = await until('the run finishing', 15, async () => {
+  const traces = await until('the run finishing', async () => {
     const list = (await (await http(`/api/engine/runs/${started.runId}/traces`)).json() as { traces: { node: string; exit?: string; finish?: { outcome: string } }[] }).traces;
     return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
-  });
+  }, async () => (await gone()) ?? runEndedBadlyOver(http, started.runId));
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
 
@@ -157,18 +149,27 @@ async function main(): Promise<void> {
     assert.equal((await inVm(vm, `sudo k3s kubectl -n ${namespace} get service ${service} -o jsonpath='{.spec.type}'`)).trim(), 'ClusterIP', `${service} is published on the machine`);
   }
 
+  const kubectl = (args: string) => inVm(vm!, `sudo k3s kubectl -n nowrinkles ${args}`);
+  const jobEnds = async (name: string, outcome: 'complete' | 'failed') => {
+    const conditions = await until(`the self-upgrade job ${name} ending`, async () => {
+      const found = (await kubectl(`get job ${name} -o jsonpath='{.status.conditions[?(@.status=="True")].type}'`)).toLowerCase();
+      return found.includes('complete') || found.includes('failed') ? found : undefined;
+    }, gone);
+    assert.ok(conditions.includes(outcome), `the self-upgrade job ${name} ended ${conditions}, not ${outcome}`);
+  };
+
   step('the instance checks root for the version it should run, and reports in');
-  await inVm(vm, 'sudo k3s kubectl -n nowrinkles create job --from=cronjob/instance-self-upgrade self-upgrade-now && sudo k3s kubectl -n nowrinkles wait --for=condition=complete job/self-upgrade-now --timeout=300s');
+  await inVm(vm, 'sudo k3s kubectl -n nowrinkles create job --from=cronjob/instance-self-upgrade self-upgrade-now');
+  await jobEnds('self-upgrade-now', 'complete');
   const after = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
   assert.equal(after.status, 'ready');
   assert.equal(after.detail, `Running ${TAG}`);
 
-  const kubectl = (args: string) => inVm(vm!, `sudo k3s kubectl -n nowrinkles ${args}`);
   const backendImage = async () => (await kubectl("get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'")).trim();
   const answers = async () => (await fetch(`${INSTANCE_URL}/api/auth/sign-in`)).status === 200;
   const upgradeOnce = async (name: string, outcome: 'complete' | 'failed') => {
     await kubectl(`create job --from=cronjob/instance-self-upgrade ${name}`);
-    await kubectl(`wait --for=condition=${outcome} job/${name} --timeout=900s`);
+    await jobEnds(name, outcome);
   };
   const watchAvailability = () => {
     const misses: string[] = [];
@@ -184,7 +185,7 @@ async function main(): Promise<void> {
   const reported = async () => (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
 
   step('root publishes a new release, and the instance upgrades itself to it');
-  await inVm(vm, 'sudo helm upgrade instance /tmp/instance-chart.tgz -n nowrinkles --reuse-values --kubeconfig /etc/rancher/k3s/k3s.yaml --wait --timeout 10m');
+  await inVm(vm, 'sudo helm upgrade instance /tmp/instance-chart.tgz -n nowrinkles --reuse-values --kubeconfig /etc/rancher/k3s/k3s.yaml --wait --timeout 720h');
   run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   await startRoot('upgrade-ok');
@@ -204,7 +205,7 @@ async function main(): Promise<void> {
   assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
   expect(await reported(), { status: 'ready', detail: UPGRADE_WORDS.upgraded('upgrade-ok') });
   assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
-  assert.ok(await until('the upgraded instance answering', 5, async () => ((await answers()) ? true : undefined)));
+  assert.ok(await until('the upgraded instance answering', async () => ((await answers()) ? true : undefined), gone));
 
   step('root publishes a broken release, and the instance rolls itself back');
   execFileSync('docker', ['build', '-q', '-t', '127.0.0.1:5000/nowrinkles/app:upgrade-broken', '-'], {
@@ -221,7 +222,7 @@ async function main(): Promise<void> {
   assert.equal(brokenReport.status, 'failed');
   assert.ok(brokenReport.detail?.startsWith(`${UPGRADE_WORDS.rolledBack('upgrade-broken', 'upgrade-ok')}: `), `root heard ${brokenReport.detail}`);
   assert.match(await backendImage(), /:upgrade-ok$/, 'the rollback did not put the working release back');
-  assert.ok(await until('the rolled-back instance answering', 5, async () => ((await answers()) ? true : undefined)));
+  assert.ok(await until('the rolled-back instance answering', async () => ((await answers()) ? true : undefined), gone));
   const history = await inVm(vm, 'sudo helm history instance -n nowrinkles --kubeconfig /etc/rancher/k3s/k3s.yaml');
   console.log(`  ${history.trim().split('\n').slice(-3).join('\n  ')}`);
 

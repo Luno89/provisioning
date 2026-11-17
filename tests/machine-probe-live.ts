@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
+import { until } from './lib/until.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const STAMP = Date.now().toString(36);
@@ -84,14 +85,15 @@ const kubectlAsPerson = (args: string) => asPerson(`KUBECONFIG=/etc/rancher/k3s/
 
 const DNS_READY = `{.items[0].status.conditions[?(@.type=="Ready")].status} {.items[0].status.conditions[?(@.type=="Ready")].lastTransitionTime}`;
 
+const k3sFailed = (vm: DisposableVm) => async (): Promise<string | undefined> => (await vm.gone())
+  ?? ((await inVm(vm, 'systemctl is-failed k3s || true')).trim() === 'failed' ? `k3s on ${vm.host}:${vm.port} failed:\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -40').catch(() => '')}` : undefined);
+
 async function nodeReady(vm: DisposableVm, since: number): Promise<void> {
-  for (let tries = 0; ; tries += 1) {
+  await until(`k3s on ${vm.host}:${vm.port} to answer DNS after its start`, async () => {
     const dns = await inVm(vm, kubectlAsPerson(`-n kube-system get pod -l k8s-app=kube-dns -o jsonpath='${DNS_READY}'`)).catch(() => '');
     const [status, at] = dns.trim().split(' ');
-    if (status === 'True' && at && Date.parse(at) / 1000 >= since && await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s'))) return;
-    if (tries > 120) throw new Error(`k3s on ${vm.host}:${vm.port} never answered DNS after its start:\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -40').catch(() => '')}`);
-    await new Promise((done) => setTimeout(done, 2000));
-  }
+    return status === 'True' && at && Date.parse(at) / 1000 >= since && await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s')) ? true : undefined;
+  }, k3sFailed(vm));
 }
 
 interface PodShape { runAs?: number; folder?: string }
@@ -107,17 +109,21 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
     },
   });
   await inVm(vm, `echo ${Buffer.from(manifest).toString('base64')} | base64 -d | ${kubectlAsPerson('apply -f -')}`);
-  for (let tries = 0; tries < 90; tries += 1) {
-    const phase = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.phase}`))).trim();
-    if (phase === 'Succeeded' || phase === 'Failed') {
-      const logs = await inVm(vm, kubectlAsPerson(`logs ${name}`));
-      if (phase === 'Succeeded') await inVm(vm, kubectlAsPerson(`delete pod ${name} --wait=false`));
-      if (phase === 'Failed') throw new Error(`pod ${name} failed:\n${logs}\n── the pod ──\n${await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.containerStatuses}`)).catch(() => '')}`);
-      return logs;
-    }
-    await new Promise((done) => setTimeout(done, 2000));
-  }
-  throw new Error(`pod ${name} never finished:\n${await inVm(vm, kubectlAsPerson(`describe pod ${name}`))}`);
+  const phase = await until(`pod ${name} to finish`, async () => {
+    const now = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.phase}`))).trim();
+    return now === 'Succeeded' || now === 'Failed' ? now : undefined;
+  }, async () => (await vm.gone()) ?? stuckPod(vm, name));
+  const logs = await inVm(vm, kubectlAsPerson(`logs ${name}`));
+  if (phase === 'Succeeded') await inVm(vm, kubectlAsPerson(`delete pod ${name} --wait=false`));
+  if (phase === 'Failed') throw new Error(`pod ${name} failed:\n${logs}\n── the pod ──\n${await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.containerStatuses}`)).catch(() => '')}`);
+  return logs;
+}
+
+const NEVER_STARTS = /^(ImagePullBackOff|InvalidImageName|CreateContainerConfigError)$/;
+
+async function stuckPod(vm: DisposableVm, name: string): Promise<string | undefined> {
+  const reason = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.containerStatuses[*].state.waiting.reason}`)).catch(() => '')).trim().split(' ').find((one) => NEVER_STARTS.test(one));
+  return reason ? `pod ${name} cannot start (${reason}):\n${await inVm(vm, kubectlAsPerson(`describe pod ${name}`)).catch(() => '')}` : undefined;
 }
 
 async function startsK3s(vm: DisposableVm): Promise<void> {

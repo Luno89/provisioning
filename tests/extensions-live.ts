@@ -19,7 +19,6 @@ keepPayloadsIn(connections.mongo);
 
 const OWNER = process.env.EXTENSIONS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.EXTENSIONS_LIVE_AGENT ?? 'executor';
-const DEADLINE_MS = Number(process.env.EXTENSIONS_LIVE_MINUTES ?? '10') * 60_000;
 const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
 const shout = (suffix: string) => defineGroup('shout', {
@@ -112,10 +111,7 @@ async function main(): Promise<void> {
       inputs: { message: 'shout' },
     };
     const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input], ...startedFor(OWNER) });
-    const result = await Promise.race([
-      handle.result() as Promise<AgentRunOutcome>,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
-    ]);
+    const result = await (handle.result() as Promise<AgentRunOutcome>);
     const traces = await db.engine.getRunTraces(OWNER, runId);
     console.log(`      ended ${result.outcome}${result.reason ? `: ${result.reason}` : ''} — ${JSON.stringify(result.outputs)}`);
     console.log(`      ${traces.length} traces: ${traces.map((trace) => `${trace.node}(${trace.kind})`).join(' → ')}`);

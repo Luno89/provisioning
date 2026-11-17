@@ -9,10 +9,11 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { until } from './lib/until.js';
+import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.KUBE_LIVE_URL ?? 'http://localhost:3001/api';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Result { name: string; ok: boolean; digest: string; content?: string }
 interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
@@ -20,17 +21,13 @@ interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
 async function turn(http: AxiosInstance, conversationId: string, message: string): Promise<Result[]> {
   const { runId } = (await http.post('/engine/runs', { agent: 'koala', message, conversationId, inputs: { conversationId } })).data as { runId: string };
   console.log(`  run ${runId}`);
-  const deadline = Date.now() + 8 * 60_000;
-  for (;;) {
-    const traces = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    if (traces.some((trace) => trace.finish !== undefined)) {
-      const seen = new Map<string, Result>();
-      for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
-      return [...seen.values()];
-    }
-    if (Date.now() > deadline) throw new Error(`run ${runId} did not finish`);
-    await sleep(3_000);
-  }
+  const traces = await until(`run ${runId}`, async () => {
+    const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
+    return all.some((trace) => trace.finish !== undefined) ? all : undefined;
+  }, () => runEndedBadly(http, runId));
+  const seen = new Map<string, Result>();
+  for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
+  return [...seen.values()];
 }
 
 async function main(): Promise<void> {

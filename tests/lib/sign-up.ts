@@ -1,3 +1,5 @@
+import { until } from './until.js';
+
 export interface SignUpAccount {
   email: string;
   password: string;
@@ -10,8 +12,6 @@ export interface SignedUp {
   cookies: string[];
   user?: { id: string; email: string };
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const errorOf = (body: unknown): string | undefined =>
   body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : undefined;
@@ -33,18 +33,15 @@ export function codeHandedOut(stack: StackUnderTest, devCode: unknown, what: str
 }
 
 export async function codeFromMailpit(mailpitApi: string, email: string, after: number, subject = 'Your Koala sign-up code'): Promise<string> {
-  for (;;) {
+  return until(`the email "${subject}" to ${email}`, async () => {
     const listed = await (await fetch(`${mailpitApi}/api/v1/messages`)).json() as { messages: Array<{ ID: string; Created: string; Subject: string; To: Array<{ Address: string }> }> };
     const sent = listed.messages.find((message) => message.Subject === subject
       && Date.parse(message.Created) >= after - 1000
       && message.To.some((to) => to.Address.toLowerCase() === email.toLowerCase()));
-    if (sent) {
-      const message = await (await fetch(`${mailpitApi}/api/v1/message/${sent.ID}`)).json() as { Text: string };
-      const code = /\b(\d{6})\b/.exec(message.Text)?.[1];
-      if (code) return code;
-    }
-    await sleep(500);
-  }
+    if (!sent) return undefined;
+    const message = await (await fetch(`${mailpitApi}/api/v1/message/${sent.ID}`)).json() as { Text: string };
+    return /\b(\d{6})\b/.exec(message.Text)?.[1];
+  }, async () => ((await fetch(`${mailpitApi}/api/v1/messages`).then(() => true, () => false)) ? undefined : `the test mailbox at ${mailpitApi} is not answering`));
 }
 
 export async function signUp(apiBase: string, account: SignUpAccount, stack: StackUnderTest, options: { headers?: Record<string, string> } = {}): Promise<SignedUp> {

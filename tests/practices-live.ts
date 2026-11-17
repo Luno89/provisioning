@@ -11,30 +11,21 @@ import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
+import { until } from './lib/until.js';
+import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PRACTICES_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.PRACTICES_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, limitMs: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + limitMs;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5_000);
-  }
-}
 
 interface Trace { kind: string; finish?: { outcome: string }; outputs?: { memories?: { title: string; text: string }[]; results?: { name: string; ok: boolean; digest: string }[] } }
 interface Practice { id: string; agent?: string; title: string; text: string; status?: string; createdAt: string; trial?: { runId?: string; scenarios?: string[]; regressions?: string[]; unchecked?: boolean } }
 interface Run { id: string; state: string; results: { scenarioId: string; passed: boolean; calls: { name: string }[] }[]; regressions?: string[] }
 
-const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, 15 * 60_000, async () => {
+const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, async () => {
   const traces = ((await http.get(`/engine/runs/${runId}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? [];
   return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
-});
+}, () => runEndedBadly(http, runId));
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set PRACTICES_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the runs use');
@@ -52,7 +43,7 @@ async function main(): Promise<void> {
   };
   const scenarioRun = async (only: string[]) => {
     const run = (await http.post('/evals/level2/runs', { only })).data as Run;
-    return until(`scenario run ${run.id}`, 30 * 60_000, async () => {
+    return until(`scenario run ${run.id}`, async () => {
       const current = (await http.get(`/evals/level2/runs/${run.id}`)).data as Run;
       return current.state === 'running' ? undefined : current;
     });
@@ -87,11 +78,11 @@ async function main(): Promise<void> {
     await chat(conversationId, 'That was wrong — you guessed. From now on, whenever I ask what I have deployed, always check with list_infrastructure first and answer from what it shows. Never answer that from memory, even if I tell you not to bother checking.');
 
     console.log(`[3/5] after ${QUIET_MS / 60_000} quiet minutes the memory keeper proposes a practice for koala`);
-    const keeperRun = await until('the memory keeper to run on the conversation', QUIET_MS + 5 * 60_000, async () => {
+    const keeperRun = await until('the memory keeper to run on the conversation', async () => {
       const length = (await db.engine.getConversation(OWNER, conversationId))?.messages.length ?? 0;
       const id = `memory-conversation-${conversationId}-${length}`;
       return ((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]).length > 0 ? id : undefined;
-    });
+    }, async () => ((await db.engine.getConversation(OWNER, conversationId)) ? keeperPaused(http) : 'the conversation is gone, so the keeper has nothing to read'));
     touched.add(keeperRun);
     const kept = await finished(http, keeperRun);
     console.log(`  ${keeperRun} called: ${kept.filter((trace) => trace.kind === 'run-tool-calls').flatMap((trace) => trace.outputs?.results ?? []).map((call) => `${call.name}${call.ok ? '' : ' (refused)'} — ${call.digest}`).join('; ')}`);
@@ -101,9 +92,13 @@ async function main(): Promise<void> {
     console.log(`  ${proposed.id} (${proposed.status}): ${proposed.text}`);
 
     console.log('[4/5] at the next idle moment the bench tries it on koala\'s scenarios, and settles it');
-    const settled = await until('the practice to be settled', 45 * 60_000, async () => {
+    const settled = await until('the practice to be settled', async () => {
       const now = ((await http.get('/evals/level2/practices')).data.practices as Practice[]).find((practice) => practice.id === practiceId);
       return now && now.status !== 'trial' ? now : undefined;
+    }, async () => {
+      const now = ((await http.get('/evals/level2/practices')).data.practices as Practice[]).find((practice) => practice.id === practiceId);
+      if (!now) return 'the practice is gone';
+      return ((await http.get('/evals/level2/bench')).data as { settings: { enabled: boolean } }).settings.enabled ? undefined : 'the bench was switched off, so the trial will not run';
     });
     console.log(`  ${settled.status === 'active' ? 'LIVE' : 'HELD'} — trial run ${settled.trial?.runId}: ${settled.trial?.scenarios?.length ?? 0} scenarios, regressions: ${(settled.trial?.regressions ?? []).join(', ') || 'none'}`);
     assert.ok(settled.trial?.runId, 'it was settled without a bench run');

@@ -11,22 +11,11 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { slugify } from '../apps/backend/src/engine/lib/mcp-tools.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { io as connect } from 'socket.io-client';
+import { until } from './lib/until.js';
+import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.MCP_LIVE_URL ?? 'http://localhost:3001/api';
 const ORIGIN = BASE.replace(/\/api$/, '');
-const LIMIT_MS = 8 * 60_000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + LIMIT_MS;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(3_000);
-  }
-}
 
 interface Trace { finish?: unknown; outputs?: { results?: { name: string; ok: boolean }[]; refused?: { name: string; ok: boolean }[] } }
 
@@ -34,7 +23,7 @@ async function finished(http: AxiosInstance, runId: string): Promise<Trace[]> {
   return until(`run ${runId} to finish`, async () => {
     const traces = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
     return traces.some((trace) => trace.finish !== undefined) ? traces : undefined;
-  });
+  }, () => runEndedBadly(http, runId));
 }
 
 const called = (traces: Trace[], prefix: string) => traces
@@ -109,7 +98,7 @@ async function main(): Promise<void> {
       const traces = (await http.get(`/engine/runs/${gatedRun}/traces`)).data.traces as Trace[];
       if (traces.some((trace) => trace.finish !== undefined)) finishedTraces = traces;
       return finishedTraces;
-    });
+    }, () => runEndedBadly(http, gatedRun));
     assert.ok(answered.size > 0, 'nothing asked before a tool the server does not describe ran');
     const gatedTraces = finishedTraces!;
     const refused = gatedTraces.flatMap((trace) => trace.outputs?.refused ?? []).filter((result) => result.name.startsWith(prefix));
@@ -137,7 +126,7 @@ async function main(): Promise<void> {
     const request = await until('the switch-on request', async () => {
       const list = (await http.get('/mcp/requests', { params: { conversationId: asked } })).data as { id: string; server: string; status: string }[];
       return list.find((entry) => entry.server === server.name && entry.status === 'requested');
-    });
+    }, async () => 'the turn that was to ask for it has ended without a request');
     await http.post(`/mcp/requests/${request.id}/enable`);
     const after = called(await turn(http, 'koala', 'Thanks, it is on now. List my repositories — just the names.', asked), prefix);
     assert.ok(after.some((result) => result.ok), 'the tools did not arrive after the request was approved');

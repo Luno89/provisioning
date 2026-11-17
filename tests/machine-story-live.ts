@@ -25,6 +25,8 @@ import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { until } from './lib/until.js';
+import { agentWillNotBeReady, runEndedBadly } from './lib/dead-states.js';
 
 const run = promisify(execFile);
 const BASE = process.env.MACHINE_STORY_LIVE_URL ?? 'http://localhost:3001/api';
@@ -32,21 +34,11 @@ const AGENT = 'koala-script';
 const SCRIPT_AGENT = fileURLToPath(new URL('../apps/local-agent/src/acp-script-agent.ts', import.meta.url));
 const TSX_LOADER = new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 const LABEL = 'Axial Concepts';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
 interface ManualAgent { id: string; title?: string; command: string; args: string[] }
 interface Device { id: string; name: string; online: boolean; agents: { id: string; state: string; reason?: string }[]; manualAgents: ManualAgent[] }
 interface Leaf { id: string; title: string; state?: string; status?: string; branchId: string }
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  for (let tries = 1; ; tries += 1) {
-    const value = await probe().catch(() => undefined);
-    if (value !== undefined) return value;
-    if (tries % 12 === 0) console.log(`  still waiting for ${what}`);
-    await sleep(5000);
-  }
-}
 
 let api: AxiosInstance | undefined;
 let device: Device | undefined;
@@ -111,7 +103,7 @@ async function main(): Promise<void> {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
     if (found && found.state !== 'ready') console.log(`  ${AGENT}: ${found.state}${found.reason ? `, ${found.reason}` : ''}`);
     return found?.state === 'ready' ? true : undefined;
-  });
+  }, () => agentWillNotBeReady(api!, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
   step('the planner, on the machine, proposes a one-story tree through Koala\'s propose_plan');
@@ -122,7 +114,7 @@ async function main(): Promise<void> {
   const proposal = await until('the plan', async () => {
     const plans = (await api!.get('/plans', { params: { conversationId } })).data as { id: string; status: string }[] | { plans: { id: string; status: string }[] };
     return (Array.isArray(plans) ? plans : plans.plans).find((entry) => entry.status === 'proposed');
-  });
+  }, () => runEndedBadly(api!, plannerRun));
   console.log(`  planner run ${plannerRun} proposed plan ${proposal.id}`);
 
   step('the plan is approved, and the tree is made');

@@ -16,6 +16,8 @@ import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
+import { until } from './lib/until.js';
+import { runEndedBadly } from './lib/dead-states.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
 const connections = connectionSettingsFrom(process.env);
@@ -25,7 +27,6 @@ keepPayloadsIn(connections.mongo);
 const OWNER = process.env.GROVE_LIVE_OWNER;
 const GOAL = process.env.GROVE_LIVE_GOAL
   ?? 'New Grove project "greeter": a tiny Node.js command-line greeter. Exactly one branch and two leaves. Leaf 1: greet.js prints "hello, <name>" for the name given as its first argument (and "hello, world" without one). Leaf 2, which waits on leaf 1: test.sh runs greet.js with and without a name and exits 0 only when both outputs are right. A couple of tasks per leaf. Use only node and sh — nothing to install.';
-const DEADLINE_MS = Number(process.env.GROVE_LIVE_MINUTES ?? '60') * 60_000;
 const EXPECT_STOPPED = process.env.GROVE_LIVE_EXPECT_STOPPED === '1';
 const IN_PROJECT = process.env.GROVE_LIVE_PROJECT === '1';
 
@@ -59,14 +60,11 @@ async function main(): Promise<void> {
     inputs: { goal: GOAL, conversationId, ...(project ? { projectId: project.id } : {}) },
   })).data as { runId: string };
   console.log(`      planner run ${plannerRun} in conversation ${conversationId} — watch it in the run view`);
-  const planned = await (async () => {
-    for (;;) {
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
-      const entries = ((await http.get(`/turns/${plannerRun}`, { params: { after: 0 } })).data as { entries: { events: { type: string; runId: string; outcome?: string; reason?: string }[] }[] }).entries;
-      const finished = entries.flatMap((entry) => entry.events).find((event) => event.runId === plannerRun && event.type === 'run.finished');
-      if (finished) return { outcome: finished.outcome ?? 'unknown', reason: finished.reason };
-    }
-  })();
+  const planned = await until('the planner to finish', async () => {
+    const entries = ((await http.get(`/turns/${plannerRun}`, { params: { after: 0 } })).data as { entries: { events: { type: string; runId: string; outcome?: string; reason?: string }[] }[] }).entries;
+    const finished = entries.flatMap((entry) => entry.events).find((event) => event.runId === plannerRun && event.type === 'run.finished');
+    return finished ? { outcome: finished.outcome ?? 'unknown', reason: finished.reason } : undefined;
+  }, () => runEndedBadly(http, plannerRun));
   const proposal = (await db.projects.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
   assert.ok(proposal?.plan, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
   for (const branch of proposal.plan.branches) {
@@ -119,13 +117,9 @@ async function main(): Promise<void> {
   let result: GroveRunResult | undefined;
   let failure: string | undefined;
   try {
-    result = await Promise.race([
-      (run.result() as Promise<AgentRunOutcome>).then((outcome) => {
-        if (outcome.outcome !== 'ok') throw new Error(`the run ended ${outcome.outcome}: ${outcome.reason ?? ''}`);
-        return outcome.outputs as unknown as GroveRunResult;
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
-    ]);
+    const outcome = await (run.result() as Promise<AgentRunOutcome>);
+    if (outcome.outcome !== 'ok') throw new Error(`the run ended ${outcome.outcome}: ${outcome.reason ?? ''}`);
+    result = outcome.outputs as unknown as GroveRunResult;
   } catch (err) {
     failure = (err as Error).message;
   } finally {
@@ -202,8 +196,13 @@ async function main(): Promise<void> {
   await http.delete(`/trees/${encodeURIComponent(treeId)}`);
   const kube = createKubeRunner(devKoalasCluster());
   const namespace = workspaceName(treeWorkspaceRunId(treeId));
-  const lingering = await kube(['wait', '--for=delete', `namespace/${namespace}`, '--timeout=180s'], undefined, 200_000);
-  assert.ok(lingering.exitCode === 0 || /not found/i.test(lingering.stderr), `the tree's workspace ${namespace} is still there: ${lingering.stderr}`);
+  await until(`the tree's workspace ${namespace} to go`, async () => {
+    const listed = await kube(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']);
+    return listed.exitCode === 0 && listed.stdout.trim() === '' ? true : undefined;
+  }, async () => {
+    const status = (await client.workflow.getHandle(`conclude-workspace-tree-${treeId}`).describe()).status.name;
+    return status === 'RUNNING' || status === 'COMPLETED' ? undefined : `its workspace's conclusion ${status.toLowerCase()}`;
+  });
   const after = await client.workflow.getHandle(`conclude-workspace-tree-${treeId}`).describe();
   console.log(`  ${after.workflowId} ${after.status.name}; the workspace is gone, and Gitea still holds PLAN.md`);
   assert.equal(after.status.name, 'COMPLETED');

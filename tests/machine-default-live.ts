@@ -19,13 +19,14 @@ import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/setting
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { until } from './lib/until.js';
+import { agentWillNotBeReady } from './lib/dead-states.js';
 
 const BASE = process.env.MACHINE_DEFAULT_LIVE_URL ?? 'http://localhost:3001/api';
 const AGENT = 'koala-default-script';
 const SCRIPT_AGENT = fileURLToPath(new URL('../apps/local-agent/src/acp-script-agent.ts', import.meta.url));
 const TSX_LOADER = new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 const ANSWER = 'Answered on the machine, as the account default.';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
 interface ManualAgent { id: string; title?: string; command: string; args: string[] }
@@ -73,11 +74,10 @@ async function main(): Promise<void> {
   const agent: ManualAgent = { id: AGENT, title: 'Scripted agent (machine-default-live)', command: process.execPath, args: ['--import', TSX_LOADER, SCRIPT_AGENT, scriptPath] };
   const added = await api.put(`/mesh/local-agents/${deviceId}/agents`, { agents: [...device.manualAgents.filter((entry) => entry.id !== AGENT), agent] });
   assert.equal(added.status, 200, JSON.stringify(added.data));
-  for (;;) {
-    const found = ((await api.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
-    if (found?.state === 'ready') break;
-    await sleep(3000);
-  }
+  await until(`${AGENT} to be ready on ${device.name}`, async () => {
+    const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
+    return found?.state === 'ready' ? true : undefined;
+  }, () => agentWillNotBeReady(api!, deviceId, AGENT));
 
   step('the agent on the machine becomes the account default, and a machine that is not theirs is refused');
   previousDefault = ((await api.get('/models/default')).data as { defaultModelId: string | null }).defaultModelId;

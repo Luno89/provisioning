@@ -21,6 +21,8 @@ import { call, envArgs, minioRun, ownerOnInstance, startSplitStack, type SplitSt
 import { firstAdmin, withDatabase } from './lib/suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
+import { until } from './lib/until.js';
+import { containerNotRunning } from './lib/dead-states.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const STAMP = Date.now().toString(36);
@@ -34,27 +36,19 @@ const POOL_PORTS = { backend: 35000, edge: 35001, registry: 35002 };
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const quietly = (args: string[]): void => { spawnSync('docker', args, { stdio: 'ignore' }); };
+const anyDown = async (...names: string[]): Promise<string | undefined> => {
+  for (const name of names) {
+    const reason = await containerNotRunning(name);
+    if (reason) return reason;
+  }
+  return undefined;
+};
 const containers: string[] = [];
 const databases: string[] = [];
 const run = (name: string, args: string[]): void => {
   docker(['run', '-d', '--name', name, ...args]);
   containers.push(name);
 };
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?: () => string): Promise<T> {
-  let last = '';
-  for (let tries = 1; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      last = (err as Error).message;
-    }
-    if (tries % 60 === 0) console.log(`    still waiting for ${what}${last ? ` (${last.slice(0, 160)})` : ''}`);
-    if (tries === 600) throw new Error(`${what} never happened${last ? `: ${last}` : ''}${logs ? `\n${logs()}` : ''}`);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
-  }
-}
 
 interface Seen { ip: string; forwardedFor: string | null; peer: string }
 
@@ -114,17 +108,16 @@ async function clientAddresses(image: string): Promise<void> {
       '-v', `${join(caddyDir, 'apps')}:/etc/caddy/apps:ro`, '-v', `${join(caddyDir, 'instances')}:/etc/caddy/instances:ro`, '-v', `${join(caddyDir, 'instance-sites')}:/etc/caddy/instance-sites:ro`,
       '-v', `${join(caddyDir, 'admin')}:/run/caddy-admin`, '-v', `${join(caddyDir, 'log')}:/var/log/caddy`, ROOT_CADDY_IMAGE]);
 
-    const logs = () => [NAMES.caddy, NAMES.pool, NAMES.echo].map((name) => `── ${name} ──\n${(() => { try { return execFileSync('docker', ['logs', '--tail', '20', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (err) { return String((err as { stderr?: string }).stderr ?? ''); } })()}`).join('\n');
-    const own = await until('an own-machine instance answering through root\'s Caddy', () => askThroughRoot(tlsPort, `ownbox.${DOMAIN}`, '6.6.6.6'), logs);
+    const own = await until('an own-machine instance answering through root\'s Caddy', () => askThroughRoot(tlsPort, `ownbox.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.pool, NAMES.echo));
     const visitor = own.ip;
     assert.notEqual(visitor, '6.6.6.6', 'root\'s Caddy passed on an address the visitor made up');
     assert.notEqual(visitor, `${SUBNET}.2`, 'an own-machine instance saw root\'s Caddy instead of the visitor');
     console.log(`  an instance on its owner's machine sees the visitor (${visitor}), not root's Caddy (${SUBNET}.2) nor the made-up 6.6.6.6`);
 
     step('a pool instance, two hops behind root\'s Caddy, sees the same visitor');
-    const pooled = await until('a pool instance answering through root\'s Caddy and the pool\'s proxy', () => askThroughRoot(tlsPort, `hardpool.${DOMAIN}`, '6.6.6.6'), logs);
+    const pooled = await until('a pool instance answering through root\'s Caddy and the pool\'s proxy', () => askThroughRoot(tlsPort, `hardpool.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.pool, NAMES.echo));
     assert.equal(pooled.ip, visitor, `a pool instance saw ${pooled.ip} (forwarded for ${pooled.forwardedFor}) instead of the visitor ${visitor}`);
-    const before = await until('the proxy as it was before answering', () => askThroughRoot(tlsPort, `oldpool.${DOMAIN}`, '6.6.6.6'), logs);
+    const before = await until('the proxy as it was before answering', () => askThroughRoot(tlsPort, `oldpool.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.oldPool, NAMES.echo));
     assert.equal(before.ip, `${SUBNET}.2`, `the proxy as it was before showed ${before.ip}`);
     console.log(`  it sees ${pooled.ip}; the proxy as it was before made every visitor ${before.ip}, root's own address`);
 
@@ -143,7 +136,7 @@ async function refusesToStart(image: string, what: string, env: Record<string, s
   const name = `${NAMES.refused}-${command}-${randomBytes(3).toString('hex')}`;
   run(name, ['--network', 'host', '--env-file', devFile('apps/backend/.env'), ...extra, ...envArgs(env), image, command]);
   const said = (): string => execFileSync('sh', ['-c', `docker logs ${name} 2>&1`], { encoding: 'utf8' });
-  await until(`${what} stopping`, async () => (docker(['inspect', '-f', '{{.State.Running}}', name]) === 'false' ? true : undefined), said);
+  await until(`${what} stopping`, async () => (docker(['inspect', '-f', '{{.State.Running}}', name]) === 'false' ? true : undefined));
   const exit = docker(['inspect', '-f', '{{.State.ExitCode}}', name]);
   const text = said();
   assert.notEqual(exit, '0', `${what} ended well: ${text.slice(-400)}`);
@@ -201,8 +194,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
     ROLE: 'root', PORT: String(port), PUBLIC_URL: rootUrl, MONGO_URI: mongoUri, ADMIN_SETUP_CODE: setupCode, TEMPORAL_NAMESPACE: stack.names.namespace,
     MACHINE_GATEWAY_PORT: String(await portToHandOn()), MAIL_SMTP_URL: `smtp://127.0.0.1:${stack.ports.smtp}`, MAIL_FROM: 'koala@hardening.test',
   }), image, 'backend']);
-  const logs = () => { try { return execFileSync('sh', ['-c', `docker logs --tail 40 ${NAMES.root} 2>&1`], { encoding: 'utf8' }); } catch { return ''; } };
-  await until('the root answering', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), logs);
+  await until('the root answering', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), () => containerNotRunning(NAMES.root));
   const owner = await firstAdmin(rootUrl, { suite: 'hardening', database, mongoUri, setupCode, namespace: stack.names.namespace, metricsPort: 0, env: [] });
 
   let heard = 0;
@@ -235,7 +227,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
       const delivery = await until('root trying to tell the instance', async () => {
         const [pending] = await db.instances.pendingLogouts();
         return pending?.lastError ? pending : undefined;
-      }, logs);
+      }, () => containerNotRunning(NAMES.root));
       assert.match(delivery.lastError!, /Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/);
       assert.equal(heard, 0, 'root called the made-up address');
       console.log(`  root sent the owner to OpenID sign-in without asking, and its logout stayed undelivered: ${delivery.lastError}`);

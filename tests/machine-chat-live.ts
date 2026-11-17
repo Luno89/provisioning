@@ -21,6 +21,8 @@ import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/setting
 import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { until } from './lib/until.js';
+import { agentWillNotBeReady } from './lib/dead-states.js';
 
 const run = promisify(execFile);
 const BASE = process.env.MACHINE_CHAT_LIVE_URL ?? 'http://localhost:3001/api';
@@ -29,7 +31,6 @@ const SCRIPT_AGENT = fileURLToPath(new URL('../apps/local-agent/src/acp-script-a
 const TSX_LOADER = new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 const LABEL = 'Axial Concepts';
 const PAST_THE_JOB_CUTOFF_MS = 170_000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
 interface ManualAgent { id: string; title?: string; command: string; args: string[] }
@@ -37,15 +38,6 @@ interface Device { id: string; name: string; online: boolean; agents: { id: stri
 interface TurnEvent { type: string; runId: string; callId?: string; name?: string; ok?: boolean; digest?: string; level?: string; message?: string; outcome?: string; reason?: string; parentRunId?: string }
 interface StoredCall { id: string; name: string; ok: boolean; digest: string; child?: { runId: string; agentId: string; outcome: string; steps: { callId: string; name: string; ok?: boolean }[] } }
 interface Told { cwd: string; prompt: string; servers: { server: string; tools: { name: string }[] }[] }
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  for (let tries = 1; ; tries += 1) {
-    const value = await probe().catch(() => undefined);
-    if (value !== undefined) return value;
-    if (tries % 12 === 0) console.log(`  still waiting for ${what}`);
-    await sleep(5000);
-  }
-}
 
 let api: AxiosInstance | undefined;
 let device: Device | undefined;
@@ -116,7 +108,7 @@ async function main(): Promise<void> {
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
     return found?.state === 'ready' ? true : undefined;
-  });
+  }, () => agentWillNotBeReady(api!, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
   await script([
@@ -206,7 +198,10 @@ async function main(): Promise<void> {
   step('a chat not in auto mode asks before research runs something on the machine, naming the machine, and a decline is answered');
   const second = await newChat('Machine chat live, asking');
   const secondRun = await turn(second, 'koala', 'Ask research the second question.');
-  const ask = await until('research to ask', async () => (await events(secondRun)).find((event) => event.type === 'notice' && event.level === 'warn' && event.callId?.startsWith('ext-')));
+  const ask = await until('research to ask', async () => (await events(secondRun)).find((event) => event.type === 'notice' && event.level === 'warn' && event.callId?.startsWith('ext-')), async () => {
+    const status = (await temporal.workflow.getHandle(secondRun).describe()).status.name;
+    return status === 'RUNNING' ? undefined : `the run ended ${status.toLowerCase()} without asking`;
+  });
   assert.ok(ask.message?.includes(`on ${device.name}`), `the ask does not name ${device.name}: ${ask.message}`);
   const declined = await api.post(`/engine/runs/${ask.runId}/approve`, { callId: ask.callId, allowed: false });
   assert.equal(declined.status, 200, JSON.stringify(declined.data));

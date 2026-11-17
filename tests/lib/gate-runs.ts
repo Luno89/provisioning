@@ -116,12 +116,21 @@ export function githubSlug(repo: string): string {
   return slug;
 }
 
+export function releaseWorkflowFailure(slug: string, version: string): string | undefined {
+  const listed = spawnSync('gh', ['run', 'list', '--repo', slug, '--workflow', 'release.yml', '--branch', version, '--limit', '1', '--json', 'status,conclusion,url'], { encoding: 'utf8' });
+  if (listed.status !== 0) return undefined;
+  const [latest] = JSON.parse(listed.stdout) as { status: string; conclusion: string; url: string }[];
+  return latest && latest.status === 'completed' && latest.conclusion !== 'success' ? `the Release workflow for ${version} ended ${latest.conclusion}: ${latest.url}` : undefined;
+}
+
 export function waitForRelease(slug: string, version: string, log: (line: string) => void): void {
   const started = Date.now();
   let told = 0;
   for (;;) {
     const answered = spawnSync('curl', ['-fsS', '-o', '/dev/null', `https://api.github.com/repos/${slug}/releases/tags/${version}`], { stdio: 'ignore' });
     if (answered.status === 0) return;
+    const failure = releaseWorkflowFailure(slug, version);
+    if (failure) throw new Error(`GitHub will not have release ${version}: ${failure}`);
     const minutes = Math.floor((Date.now() - started) / 60_000);
     if (minutes >= told + 10) {
       told = minutes;
@@ -286,11 +295,13 @@ export function publishedImageOf(repo: string): string {
   return `ghcr.io/${owner.toLowerCase()}/nowrinkles/app`;
 }
 
-export function waitForPublished(image: string, log: (line: string) => void): void {
+export function waitForPublished(image: string, log: (line: string) => void, ended: () => string | undefined): void {
   const started = Date.now();
   let told = 0;
   for (;;) {
     if (spawnSync('docker', ['manifest', 'inspect', image], { stdio: 'ignore' }).status === 0) return;
+    const reason = ended();
+    if (reason) throw new Error(`${image} will not be published: ${reason}`);
     const minutes = Math.floor((Date.now() - started) / 60_000);
     if (minutes >= told + 5) {
       told = minutes;

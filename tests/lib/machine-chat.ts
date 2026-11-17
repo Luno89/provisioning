@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { until } from './until.js';
 
 export const HOLD_SESSION = 'HOLD-THIS-SESSION';
 
@@ -38,19 +39,16 @@ export interface Api {
 interface Message { role: string; content: string; runId?: string; interruptedReason?: string }
 interface Conversation { messages: Message[]; liveTurn?: unknown; machineSessions?: Record<string, string> }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function turn(api: Api, conversationId: string, modelId: string, message: string): Promise<Message> {
   const started = await api('POST', '/engine/runs', { agent: 'koala', message, conversationId, modelId });
   assert.equal(started.status, 201, JSON.stringify(started.data));
   const { runId } = started.data as { runId: string };
-  for (;;) {
+  return until(`the answer to run ${runId}`, async () => {
     const { data } = await api('GET', `/conversations/${conversationId}`);
     const conversation = data as Conversation;
     const answer = conversation.messages.find((one) => one.role === 'assistant' && one.runId === runId);
-    if (answer && !conversation.liveTurn) return answer;
-    await sleep(2000);
-  }
+    return answer && !conversation.liveTurn ? answer : undefined;
+  });
 }
 
 export async function chatsOnTheMachine(api: Api, deviceId: string, agent = 'gemini'): Promise<string[]> {

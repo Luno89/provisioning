@@ -10,20 +10,10 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { ActionProposal } from '../apps/backend/src/engine/lib/action-proposals.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { until } from './lib/until.js';
+import { deploymentFailed, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PLATFORM_LIVE_URL ?? 'http://localhost:3001/api';
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, limitMs: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + limitMs;
-  for (;;) {
-    const found = await probe().catch(() => undefined);
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5_000);
-  }
-}
 
 interface Result { name: string; ok: boolean; digest: string; content?: string }
 interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
@@ -31,10 +21,10 @@ interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
 async function turn(http: AxiosInstance, conversationId: string, message: string): Promise<Result[]> {
   const { runId } = (await http.post('/engine/runs', { agent: 'koala', message, conversationId, inputs: { conversationId } })).data as { runId: string };
   console.log(`  run ${runId}`);
-  const traces = await until(`run ${runId}`, 8 * 60_000, async () => {
+  const traces = await until(`run ${runId}`, async () => {
     const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
     return all.some((trace) => trace.finish !== undefined) ? all : undefined;
-  });
+  }, () => runEndedBadly(http, runId));
   const seen = new Map<string, Result>();
   for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
   return [...seen.values()];
@@ -67,11 +57,10 @@ async function main(): Promise<void> {
 
     const applied = (await http.post(`/actions/${proposal.id}/apply`)).data as ActionProposal;
     assert.equal(applied.status, 'applied', `applying failed: ${applied.reason}`);
-    const running = await until(`${name} to run`, 15 * 60_000, async () => {
+    const running = await until(`${name} to run`, async () => {
       const dep = ((await http.get('/deployments')).data as { name: string; status: string }[]).find((entry) => entry.name === name);
-      if (dep?.status === 'failed') throw new Error(`${name} failed`);
       return dep?.status === 'running' ? dep : undefined;
-    });
+    }, () => deploymentFailed(http, name));
     console.log(`  applying the card deployed ${running.name}: ${running.status}`);
     console.log('platform live — PASS');
   } finally {

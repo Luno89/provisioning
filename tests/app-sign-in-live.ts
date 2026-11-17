@@ -3,10 +3,10 @@ import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devOwner, devPortForward } from './lib/dev-stack.js';
+import { until, Hopeless } from './lib/until.js';
 
 const NAME = `hermes-${Date.now().toString(36)}`;
 const LOCAL_PORT = 19119;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Deployment { id: string; name: string; namespace?: string; status: string; [field: string]: unknown }
 interface SignIn { describe: string; login?: string; password: string }
@@ -23,23 +23,6 @@ async function stage<T>(name: string, work: () => Promise<T>): Promise<T> {
   } catch (err) {
     console.log(`    FAILED at "${name}": ${(err as Error).message}`);
     throw err;
-  }
-}
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`    still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
   }
 }
 
@@ -102,7 +85,7 @@ async function main(): Promise<void> {
       const providers = await until('the dashboard answering through the port-forward', async () => {
         const answer = await hermes.get('/api/auth/providers');
         return answer.status === 200 ? answer.data as unknown : undefined;
-      });
+      }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the dashboard exited'));
       const listed = JSON.stringify(providers);
       const provider = /"(?:id|name)":"(basic[^"]*)"/.exec(listed)?.[1] ?? 'basic';
       const signedOut = (await hermes.get('/api/auth/me')).status;
@@ -123,7 +106,10 @@ async function main(): Promise<void> {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);
         if (gone.status >= 300 && gone.status !== 404) console.log(`    destroying answered ${gone.status}: ${JSON.stringify(gone.data)}`);
-        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true));
+        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true), async () => {
+          const found = (await mine(api)).find((entry) => entry.id === id);
+          return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
+        });
       });
     }
   }

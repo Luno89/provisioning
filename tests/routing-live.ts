@@ -12,6 +12,8 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { until, Hopeless } from './lib/until.js';
+import { startedContainerStopped } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -36,28 +38,11 @@ const MAILPIT_SMTP = 11025;
 const MAILPIT_API = 18026;
 const WATCH_MINUTES = 1;
 const NAME = `rt${Date.now().toString(36)}`;
+let rootStoppedOnPurpose = false;
 const CONTAINERS = { root: 'nw-route-root', worker: 'nw-route-worker', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const step = (message: string) => console.log(`\n▶ ${message}`);
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 24 === 0) console.log(`  still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
-  }
-}
 
 function inVm(vm: DisposableVm, command: string, stream = false): Promise<string> {
   return new Promise((resolveP, rejectP) => {
@@ -71,6 +56,7 @@ function inVm(vm: DisposableVm, command: string, stream = false): Promise<string
 
 let work = '';
 let vm: DisposableVm | undefined;
+const gone = async (): Promise<string | undefined> => (await vm?.gone()) ?? startedContainerStopped(Object.values(CONTAINERS).filter((name) => !rootStoppedOnPurpose || name !== CONTAINERS.root));
 let instanceId: string | undefined;
 
 interface Answer { status: number; body: string; headers: Record<string, string>; cookies: string[] }
@@ -147,7 +133,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', CONTAINERS.mesh, '--cap-add', 'NET_ADMIN', '--device', '/dev/net/tun', '-p', `127.0.0.1:${TLS_PORT}:443`,
     '-e', `TS_AUTHKEY=${platformKey()}`, '-e', `TS_EXTRA_ARGS=--login-server=http://${BRIDGE}:${RELAY_PORT} --accept-dns=false`,
     '-e', 'TS_HOSTNAME=nw-route-root', '-e', 'TS_USERSPACE=false', '-e', 'TS_STATE_DIR=/var/lib/tailscale', TAILSCALE_IMAGE]);
-  const rootMeshIp = await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined);
+  const rootMeshIp = await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined, gone);
   console.log(`  root is ${rootMeshIp} on the mesh`);
   run('docker', ['run', '-d', '--name', CONTAINERS.caddy, '--network', `container:${CONTAINERS.mesh}`,
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-v', `${join(caddyDir, 'tls')}:/etc/caddy/tls:ro`,
@@ -161,8 +147,8 @@ async function main(): Promise<void> {
     }
     run('docker', ['cp', `${CONTAINERS.caddy}:/data/caddy/pki/authorities/local/root.crt`, join(work, 'ca.crt')]);
     return existsSync(join(work, 'ca.crt')) ? true : undefined;
-  });
-  await until('Caddy answering a name nobody has with nothing', async () => (https(`nobody-${NAME}.${DOMAIN}`, '/').status === 404 ? true : undefined));
+  }, gone);
+  await until('Caddy answering a name nobody has with nothing', async () => (https(`nobody-${NAME}.${DOMAIN}`, '/').status === 404 ? true : undefined), gone);
 
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
@@ -176,7 +162,7 @@ async function main(): Promise<void> {
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, '-v', `${join(work, 'ca.crt')}:/etc/koala/lab-ca.crt:ro`, '-e', 'NODE_EXTRA_CA_CERTS=/etc/koala/lab-ca.crt',
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', `WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES}`, IMAGE, 'backend']);
-  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
+  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
@@ -205,11 +191,11 @@ async function main(): Promise<void> {
   assert.equal(mine.url, `https://${NAME}.${DOMAIN}`);
 
   step(`https://${NAME}.${DOMAIN} answers through root's Caddy, over the mesh`);
-  await until('root\'s route to the instance', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? true : undefined));
+  await until('root\'s route to the instance', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? true : undefined), gone);
   const signInPage = await until('the instance through Caddy', async () => {
     const answer = https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in');
     return answer.status === 200 ? answer : undefined;
-  });
+  }, gone);
   console.log(`  ${signInPage.status} from the instance`);
 
   step('signing in at root lands on the instance at its own address');
@@ -237,7 +223,7 @@ async function main(): Promise<void> {
   const delivered = await until('the email at the test mailbox', async () => {
     const listed = await (await fetch(`http://127.0.0.1:${MAILPIT_API}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
     return listed.messages.find((message) => message.Subject === 'Koala can email you');
-  });
+  }, gone);
   assert.equal(delivered.To[0]?.Address, address);
   console.log(`  delivered to ${address}`);
 
@@ -251,7 +237,7 @@ async function main(): Promise<void> {
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
     return found.status === 'running' ? found : undefined;
-  });
+  }, gone);
   assert.match(books.namespace ?? '', /^books-[a-f0-9]{6}$/, 'the app has a namespace of its own');
   step(`the instance's cluster got monitoring before the app, and the app has its probe in ${books.namespace}`);
   const monitoring = await inVm(vm, `sudo kubectl get probe app -n ${books.namespace} -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q`);
@@ -265,7 +251,7 @@ async function main(): Promise<void> {
   const app = await until('the app at its address', async () => {
     const answer = https(`books-${NAME}.${DOMAIN}`, '/');
     return answer.status < 400 ? answer : undefined;
-  });
+  }, gone);
   console.log(`  ${app.status} from books-${NAME}.${DOMAIN}`);
   assert.equal(https(`books-nobody${NAME}.${DOMAIN}`, '/').status, 404, 'another person\'s name gets nothing');
 
@@ -278,34 +264,34 @@ async function main(): Promise<void> {
   assert.equal(ownName.ok, false, 'the instance\'s own name is not a group');
   const claimed = await asInstance('/api/instances/groups', { method: 'PUT', body: JSON.stringify({ projectId: 'shared-project', name: group }) });
   assert.equal(claimed.status, 200, await claimed.clone().text());
-  await until(`root's matcher for ${group}`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? true : undefined));
+  await until(`root's matcher for ${group}`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? true : undefined), gone);
   const viaGroup = await until(`${group} routed to the edge`, async () => {
     const answer = https(`books-${group}.${DOMAIN}`, '/');
     return answer.status === 404 && answer.headers['x-koala-edge'] === NAME ? answer : undefined;
-  });
+  }, gone);
   console.log(`  ${viaGroup.status} from books-${group}.${DOMAIN}, answered by the edge of ${NAME}`);
   const freed = await asInstance('/api/instances/groups/shared-project', { method: 'DELETE' });
   assert.equal(freed.status, 200, await freed.clone().text());
-  await until(`root's matcher for ${group} gone`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? undefined : true));
+  await until(`root's matcher for ${group} gone`, async () => (readFileSync(join(caddyDir, 'instances', `${NAME}.caddy`), 'utf8').includes(`@apps_${group}`) ? undefined : true), gone);
   await until(`${group} answering nothing again`, async () => {
     const answer = https(`books-${group}.${DOMAIN}`, '/');
     return answer.status === 404 && answer.headers['x-koala-edge'] === undefined ? true : undefined;
-  });
+  }, gone);
 
   step('the owner switches to nested addresses: issuing, then ready, and both addresses answer');
   const switched = onInstance('/api/instance-addresses', { method: 'PUT', body: { nested: true } });
   assert.equal(switched.status, 200, switched.body);
   assert.deepEqual(json<{ nested: boolean; state: string }>(switched), { nested: true, state: 'issuing', name: NAME, domain: DOMAIN });
-  await until('the nested certificate', async () => (json<{ state?: string }>(onInstance('/api/instance-addresses')).state === 'ready' ? true : undefined));
+  await until('the nested certificate', async () => (json<{ state?: string }>(onInstance('/api/instance-addresses')).state === 'ready' ? true : undefined), gone);
   const shown = await until('the app showing its nested address', async () => {
     const found = json<Array<{ id: string; publicExposureUrl?: string }>>(onInstance('/api/deployments')).find((entry) => entry.id === deploymentId);
     return found?.publicExposureUrl === `https://books.${NAME}.${DOMAIN}` ? found.publicExposureUrl : undefined;
-  });
+  }, gone);
   console.log(`  the app shows ${shown}`);
   const nested = await until('the app at its nested address', async () => {
     const answer = https(`books.${NAME}.${DOMAIN}`, '/');
     return answer.status < 400 ? answer : undefined;
-  });
+  }, gone);
   assert.ok(nested.status < 400);
   assert.ok(https(`books-${NAME}.${DOMAIN}`, '/').status < 400, 'the flat address still answers');
 
@@ -313,17 +299,17 @@ async function main(): Promise<void> {
   const mailTo = async (subject: RegExp) => until(`an email "${subject.source}" at the test mailbox`, async () => {
     const listed = await (await fetch(`http://127.0.0.1:${MAILPIT_API}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
     return listed.messages.find((message) => subject.test(message.Subject));
-  });
+  }, gone);
   const backend = 'sudo kubectl -n nowrinkles';
   await inVm(vm, `${backend} set env deployment/instance-backend WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES} && ${backend} rollout status deployment/instance-backend`);
-  await until('the instance through Caddy after its threshold changed', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
+  await until('the instance through Caddy after its threshold changed', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
   await inVm(vm, `${backend} scale deployment/instance-backend --replicas=0`);
   const down = await mailTo(new RegExp(`Your instance ${NAME} .* has not answered for \\d+ minutes`));
   assert.equal(down.To[0]?.Address, address, 'root told someone other than the owner');
   const downSince = await until('root\'s page saying the instance is not answering', async () => {
     const answer = await (await asOwner('/api/identity/instance')).json() as { instance?: { unreachableSince?: string } | null };
     return answer.instance?.unreachableSince;
-  });
+  }, gone);
   console.log(`  ${down.Subject}; root's page says not answering since ${downSince}`);
   await inVm(vm, `${backend} scale deployment/instance-backend --replicas=1 && ${backend} rollout status deployment/instance-backend`);
   const back = await mailTo(new RegExp(`Your instance ${NAME} .* answers again`));
@@ -331,23 +317,25 @@ async function main(): Promise<void> {
   await until('root\'s page no longer saying it is down', async () => {
     const answer = await (await asOwner('/api/identity/instance')).json() as { instance?: { unreachableSince?: string } | null };
     return answer.instance && !answer.instance.unreachableSince ? true : undefined;
-  });
+  }, gone);
   console.log(`  ${back.Subject}`);
 
   step('the instance shows root not answering under Needs attention, and clears it when root answers again');
-  await until('the instance through Caddy before root stops', async () => (onInstance('/api/auth/me').status === 200 ? true : undefined));
+  await until('the instance through Caddy before root stops', async () => (onInstance('/api/auth/me').status === 200 ? true : undefined), gone);
+  rootStoppedOnPurpose = true;
   run('docker', ['stop', CONTAINERS.root]);
   const rootDown = await until('the instance to call root down', async () => {
     const overview = json<{ dependencies?: { dependency: string; since: string }[] }>(onInstance('/api/infrastructure'));
     return overview.dependencies?.find((down) => down.dependency === 'root');
-  });
+  }, gone);
   console.log(`  root not answering since ${rootDown.since}`);
   run('docker', ['start', CONTAINERS.root]);
-  await until('root answering again', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined));
+  rootStoppedOnPurpose = false;
+  await until('root answering again', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), gone);
   await until('the instance to clear root down', async () => {
     const overview = json<{ dependencies?: { dependency: string }[] }>(onInstance('/api/infrastructure'));
     return overview.dependencies && !overview.dependencies.some((down) => down.dependency === 'root') ? true : undefined;
-  });
+  }, gone);
   console.log('  cleared once root answers again');
 
   step('signing out everywhere at root ends the session on the instance at once');
@@ -360,7 +348,7 @@ async function main(): Promise<void> {
     if (failing && /CERT|certificate|ENOTFOUND|EAI_AGAIN/i.test(failing.lastError!)) throw new Hopeless(`root cannot tell the instance at ${failing.url}: ${failing.lastError}`);
     if (failing) throw new Error(`root has tried ${failing.attempts} times to tell the instance at ${failing.url}: ${failing.lastError}`);
     return undefined;
-  });
+  }, gone);
   console.log('  the instance refuses the session root revoked');
 
   console.log('\nrouting live — PASS');

@@ -4,11 +4,11 @@ import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 import { noAppHoldsAGpu } from './lib/gpus-free.js';
+import { until, Hopeless } from './lib/until.js';
 
 const NAME = `gpu-${Date.now().toString(36)}`;
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
 const LOCAL_PORT = 19123;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Deployment { id: string; name: string; clusterId: string; appType?: string; namespace?: string; status: string; vllmGpuCount?: number; tabbyGpuCount?: number; [field: string]: unknown }
 interface Gpu { vendor: string; model: string; memoryMiB: number; count: number; runtime: boolean }
@@ -27,23 +27,6 @@ async function stage<T>(name: string, work: () => Promise<T>): Promise<T> {
   } catch (err) {
     console.log(`    FAILED at "${name}": ${(err as Error).message}`);
     throw err;
-  }
-}
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`    still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
   }
 }
 
@@ -123,7 +106,7 @@ async function main(): Promise<void> {
       const served = await until('the model listing its name', async () => {
         const listed = await vllm.get('/v1/models');
         return listed.status === 200 ? (listed.data as { data: { id: string }[] }).data[0]?.id : undefined;
-      });
+      }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the model\'s service exited'));
       const answer = await vllm.post('/v1/chat/completions', { model: served, messages: [{ role: 'user', content: 'Reply with the single word: ready' }], max_tokens: 8, temperature: 0 });
       assert.equal(answer.status, 200, JSON.stringify(answer.data));
       const said = (answer.data as { choices: { message: { content: string } }[] }).choices[0]?.message.content ?? '';
@@ -143,7 +126,10 @@ async function main(): Promise<void> {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);
         if (gone.status >= 300 && gone.status !== 404) console.log(`    destroying answered ${gone.status}: ${JSON.stringify(gone.data)}`);
-        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true));
+        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true), async () => {
+          const found = (await mine(api)).find((entry) => entry.id === id);
+          return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
+        });
       });
     }
   }

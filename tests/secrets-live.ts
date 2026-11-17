@@ -13,22 +13,11 @@ import { infisicalSettingsFrom } from '../apps/backend/src/infrastructure/lib/in
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
 import { devDataDir } from './lib/dev-stack.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { until } from './lib/until.js';
+import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
 const PROJECT = process.env.SECRETS_LIVE_PROJECT;
-const TURN_TIMEOUT_MS = 8 * 60_000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + TURN_TIMEOUT_MS;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(3_000);
-  }
-}
 
 async function turn(http: AxiosInstance, conversationId: string, message: string): Promise<string> {
   const before = (await http.get(`/conversations/${conversationId}`)).data.messages.length as number;
@@ -38,7 +27,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
   await until('the turn to be saved', async () => {
     const after = (await http.get(`/conversations/${conversationId}`)).data.messages.length as number;
     return after > before + 1 ? true : undefined;
-  });
+  }, () => runEndedBadly(http, runId));
   return runId;
 }
 
@@ -73,7 +62,7 @@ async function main(): Promise<void> {
     const request = await until('the secret request', async () => {
       const list = (await http.get('/secret-requests', { params: { conversationId } })).data as SecretRequest[];
       return list.find((entry) => entry.key === key);
-    });
+    }, async () => 'the turn that was to ask for it was saved without a request');
     assert.equal(request.status, 'requested');
     assert.equal(request.projectId, project.id);
     console.log(`  koala asked for ${key}: ${request.secretReference}`);

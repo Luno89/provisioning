@@ -27,6 +27,8 @@ import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { until } from './lib/until.js';
+import { agentWillNotBeReady, runEndedBadly } from './lib/dead-states.js';
 
 const run = promisify(execFile);
 const BASE = process.env.MACHINE_ODOO_LIVE_URL ?? 'http://localhost:3001/api';
@@ -35,7 +37,6 @@ const SCRIPT_AGENT = fileURLToPath(new URL('../apps/local-agent/src/acp-script-a
 const TSX_LOADER = new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url).href;
 const KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
 const NO_TEST = 'MARK_NO_TEST';
@@ -59,15 +60,6 @@ interface Task { id: string; title: string; status: string; leafId?: string; evi
 interface Proposal { id: string; status: string; leafPlan?: { leafId: string; mode: string; why: string } }
 interface Release { id: string; state: string; slot?: string; reason?: string }
 interface TurnEvent { type: string; runId?: string; delta?: string; args?: unknown }
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  for (let tries = 1; ; tries += 1) {
-    const value = await probe().catch(() => undefined);
-    if (value !== undefined) return value;
-    if (tries % 12 === 0) console.log(`  still waiting for ${what}`);
-    await sleep(5000);
-  }
-}
 
 let api: AxiosInstance | undefined;
 let device: Device | undefined;
@@ -111,9 +103,13 @@ async function main(): Promise<void> {
   const leaves = async (): Promise<Leaf[]> => (await http.get('/leaves')).data as Leaf[];
   const tasksOf = async (leafId: string): Promise<Task[]> => ((await http.get('/engine/tasks')).data as Task[]).filter((task) => task.leafId === leafId);
   const runTreeToEnd = async (): Promise<string> => {
+    const waitingSince = Date.now();
     const started = await until('the tree to start running', async () => {
       const state = (await http.get(`/trees/${treeId}/run`)).data as { state: string; turnId?: string };
       return state.state === 'running' && state.turnId ? state.turnId : undefined;
+    }, async () => {
+      const described = await temporal.workflow.getHandle(groveRunWorkflowId(treeId!)).describe();
+      return described.closeTime && described.closeTime.getTime() >= waitingSince - 1000 ? `the tree's run ended ${described.status.name.toLowerCase()} before it was seen running` : undefined;
     });
     const ended = await temporal.workflow.getHandle(groveRunWorkflowId(treeId!)).result() as { outcome?: string; reason?: string };
     console.log(`  run ${started} ended ${ended.outcome ?? JSON.stringify(ended).slice(0, 200)}`);
@@ -128,7 +124,7 @@ async function main(): Promise<void> {
   const replanCard = async (leafId: string, after: Set<string>): Promise<Proposal> => until('the planner\'s replan card', async () => {
     const plans = (await http.get('/plans', { params: { treeId } })).data as Proposal[];
     return plans.find((plan) => plan.status === 'proposed' && plan.leafPlan?.leafId === leafId && !after.has(plan.id));
-  });
+  }, async () => (((await http.get('/trees/' + treeId + '/run')).data as { state: string }).state === 'running' ? undefined : 'the tree\'s run ended without a replan card'));
 
   step('a scripted ACP agent is added by hand to the person\'s machine, and the machine finds it ready');
   device = ((await http.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId);
@@ -161,17 +157,18 @@ async function main(): Promise<void> {
     const found = ((await http.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
     if (found && found.state !== 'ready') console.log(`  ${AGENT}: ${found.state}${found.reason ? `, ${found.reason}` : ''}`);
     return found?.state === 'ready' ? true : undefined;
-  });
+  }, () => agentWillNotBeReady(http, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
   step('the planner, on the machine, proposes an Odoo tree with one story of two tasks');
   conversationId = ((await http.post('/conversations', { title: `Machine Odoo live ${stamp}` })).data as { id: string }).id;
   const planned = await http.post('/engine/runs', { agent: 'planner', message: 'Plan the machine Odoo check.', conversationId, inputs: { conversationId, goal: plan.tree.goal }, modelId: choice });
   assert.equal(planned.status, 201, JSON.stringify(planned.data));
+  const plannerRun = (planned.data as { runId: string }).runId;
   const proposal = await until('the plan', async () => {
     const plans = (await http.get('/plans', { params: { conversationId } })).data as Proposal[] | { plans: Proposal[] };
     return (Array.isArray(plans) ? plans : plans.plans).find((entry) => entry.status === 'proposed');
-  });
+  }, () => runEndedBadly(http, plannerRun));
 
   step('the plan is approved: the tree, its project and its Odoo 20 starter are made; every agent of the tree is put on the machine');
   const approved = await http.post(`/plans/${proposal.id}/approve`);

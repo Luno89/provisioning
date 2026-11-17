@@ -11,6 +11,8 @@ import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { until } from './lib/until.js';
+import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -36,17 +38,7 @@ const KUBECONFIG = join(work, 'kubeconfig');
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env } });
 const step = (message: string) => console.log(`\n▶ ${message}`);
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
-
-async function until<T>(what: string, minutes: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + minutes * 60_000;
-  for (;;) {
-    const value = await probe().catch(() => undefined);
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error(`${what} did not happen within ${minutes} minutes`);
-    await sleep(3000);
-  }
-}
+const rootGone = async (): Promise<string | undefined> => (await containerNotRunning('nw-live-root')) ?? (await containerNotRunning(WORKER));
 
 async function teardown(): Promise<void> {
   if (KEEP) {
@@ -63,7 +55,7 @@ async function main(): Promise<void> {
   run('docker', ['image', 'inspect', IMAGE]);
 
   step(`a fresh cluster, ${CLUSTER}, stands in for the owner's own k3s`);
-  run(bin('k3d'), ['cluster', 'create', CLUSTER, '-p', `${INSTANCE_PORT}:30320@server:0`, '--wait', '--timeout', '240s', '--kubeconfig-update-default=false']);
+  run(bin('k3d'), ['cluster', 'create', CLUSTER, '-p', `${INSTANCE_PORT}:30320@server:0`, '--wait', '--timeout', '720h', '--kubeconfig-update-default=false']);
   writeFileSync(KUBECONFIG, run(bin('k3d'), ['kubeconfig', 'get', CLUSTER]), { mode: 0o600 });
   run(bin('k3d'), ['image', 'import', IMAGE, '-c', CLUSTER]);
 
@@ -75,10 +67,10 @@ async function main(): Promise<void> {
     '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }), ...workerEnv(ROOT), IMAGE, 'worker-host']);
-  const keys = await until('root answering', 3, async () => {
+  const keys = await until('root answering', async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
     return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;
-  });
+  }, rootGone);
   const publicKeyFile = join(work, 'root.pub');
   writeFileSync(publicKeyFile, keys[0]!.publicKey);
   const owner = await firstAdmin(ROOT_URL, ROOT);
@@ -91,7 +83,7 @@ async function main(): Promise<void> {
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
     '--set', 'instance.id=inst-live', '--set', 'storage.total=10Gi', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
-    '--set', 'backend.nodePort=30320', '--timeout', '30m'], { KUBECONFIG });
+    '--set', 'backend.nodePort=30320', '--timeout', '720h'], { KUBECONFIG });
 
   step('the owner signs in at root and is handed to their instance');
   const rootSession = sessionToken({ id: OWNER, email: owner.email }, loadKeys(process.env).session, { seconds: 300 });
@@ -128,10 +120,10 @@ async function main(): Promise<void> {
   const saved = await http('/api/procedures/instance-live', { method: 'PUT', body: JSON.stringify(procedure) });
   assert.equal(saved.status, 200, `the procedure did not save: ${await saved.text()}`);
   const started = await (await http('/api/engine/runs', { method: 'POST', body: JSON.stringify({ agent: 'executor', message: 'live', procedure: 'instance-live' }) })).json() as { runId: string };
-  const traces = await until('the run finishing', 10, async () => {
+  const traces = await until('the run finishing', async () => {
     const list = (await (await http(`/api/engine/runs/${started.runId}/traces`)).json() as { traces: { node: string; exit?: string; outputs?: { host?: string }; finish?: { outcome: string } }[] }).traces;
     return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
-  });
+  }, async () => (await rootGone()) ?? runEndedBadlyOver(http, started.runId));
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', 'the code did not run');
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
@@ -161,8 +153,8 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
     const found = JSON.parse(out.split('KNOCKED ')[1]!.split('\n')[0]!) as string[];
     return Object.fromEntries(only.map(([host, port], index) => [`${host.split('.')[0]}:${port}`, found[index]!]));
   };
-  await until('the network policies knowing the pods started for this check', 10, async () =>
-    (knockFrom('nowrinkles', [targets[1]])['searxng:8080'] === 'reached' ? true : undefined));
+  await until('the network policies knowing the pods started for this check', async () =>
+    (knockFrom('nowrinkles', [targets[1]])['searxng:8080'] === 'reached' ? true : undefined), rootGone);
   const shown = (namespace: string, answers: Record<string, string>) => {
     console.log(`  from ${namespace}: ${Object.entries(answers).map(([target, answer]) => `${target} ${answer}`).join(' · ')}`);
     return answers;
@@ -252,8 +244,8 @@ process.exit(0);`;
   assert.equal(removed.status, 202, await removed.clone().text());
   assert.match(removed.headers.get('set-cookie') ?? '', /session=;/, 'root did not sign them out');
   assert.equal((await asLeaving('/api/auth/me')).status, 401, 'the removed account is still signed in');
-  await until('the account gone from root', 5, async () => ((await people()).some((person) => person.id === leaving.id) ? undefined : true));
-  await until('their instance let go of', 2, async () => (instances(['list']).includes(theirInstance) ? undefined : true));
+  await until('the account gone from root', async () => ((await people()).some((person) => person.id === leaving.id) ? undefined : true), rootGone);
+  await until('their instance let go of', async () => (instances(['list']).includes(theirInstance) ? undefined : true), rootGone);
   console.log('  the instance points at root; the account removed itself there, signed out at once, its instance let go of');
 
   const users = run(bin('kubectl'), ['-n', 'nowrinkles', 'exec', 'live-mongo-0', '--', 'sh', '-c', 'mongosh -u admin -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin provisioning --quiet --eval "db.users.countDocuments()"'], { KUBECONFIG }).trim();

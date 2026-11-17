@@ -1,14 +1,13 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { devPortForward } from './dev-stack.js';
+import { until } from './until.js';
 import { callerLines, failuresUnder, flowsThrough, spansOf, whereLines, type CodeSite, type FlowSnapshot } from './failure-trace.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '../..');
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
-const TEMPO_TRIES = 6;
 
 interface Failed { scenarioId: string; trace?: { traceId: string; spanId: string } | undefined }
 
@@ -21,26 +20,19 @@ const freePort = (): Promise<number> => new Promise((done, fail) => {
   });
 });
 
-async function traceFrom(base: string, traceId: string, spanId: string): Promise<{ lines: string[]; sites: CodeSite[] } | string> {
-  let last = '';
-  for (let tried = 1; tried <= TEMPO_TRIES; tried += 1) {
-    try {
-      const answer = await fetch(`${base}/api/traces/${traceId}`);
-      if (answer.ok) {
-        const spans = spansOf(await answer.json() as Parameters<typeof spansOf>[0]);
-        if (spans.some((span) => span.spanId === spanId)) {
-          const failures = failuresUnder(spans, spanId);
-          if (failures.length > 0) return { lines: whereLines(failures), sites: failures.flatMap((failure) => failure.sites) };
-          last = 'its trace holds no request or step that failed, so it failed in what the check runner judged itself';
-        } else last = `Tempo does not hold its span ${spanId} yet`;
-      } else last = `Tempo answered ${answer.status}`;
-    } catch (err) {
-      last = `Tempo could not be asked: ${(err as Error).message}`;
-    }
-    if (last.startsWith('its trace')) return last;
-    await sleep(5_000);
-  }
-  return `${last} (asked ${TEMPO_TRIES} times, 5 s apart; spans reach Tempo in batches)`;
+async function traceFrom(base: string, traceId: string, spanId: string, forward: ChildProcess): Promise<{ lines: string[]; sites: CodeSite[] } | string> {
+  return until(`Tempo to hold the trace ${traceId}`, async () => {
+    const answer = await fetch(`${base}/api/traces/${traceId}`);
+    if (!answer.ok) return undefined;
+    const spans = spansOf(await answer.json() as Parameters<typeof spansOf>[0]);
+    if (!spans.some((span) => span.spanId === spanId)) return undefined;
+    const failures = failuresUnder(spans, spanId);
+    return failures.length > 0 ? { lines: whereLines(failures), sites: failures.flatMap((failure) => failure.sites) } : 'its trace holds no request or step that failed, so it failed in what the check runner judged itself';
+  }, async () => {
+    if (forward.exitCode !== null) return 'the port-forward to Tempo exited';
+    const answer = await fetch(`${base}/api/traces/${traceId}`).catch(() => undefined);
+    return answer && answer.status >= 400 && answer.status < 500 && answer.status !== 404 ? `Tempo answered ${answer.status}` : undefined;
+  });
 }
 
 function toolsOn(sites: readonly CodeSite[]): string[] {
@@ -84,7 +76,7 @@ export async function whereItFailed(failed: readonly Failed[]): Promise<string[]
         lines.push('      its result carries no trace: it ran with no telemetry, or before checks carried their trace');
         continue;
       }
-      const found = await traceFrom(base, result.trace.traceId, result.trace.spanId);
+      const found = await traceFrom(base, result.trace.traceId, result.trace.spanId, forward);
       if (typeof found === 'string') lines.push(`      ${found}; trace ${result.trace.traceId}`);
       else {
         lines.push(...found.lines.map((line) => `      ${line}`), `      trace ${result.trace.traceId} in Tempo`);

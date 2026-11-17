@@ -12,6 +12,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
+import { until } from './lib/until.js';
 
 const run = promisify(execFile);
 const BASE = process.env.TREE_LIVE_URL ?? 'http://localhost:3001/api';
@@ -41,15 +42,6 @@ async function main(): Promise<void> {
     const found = (await db.projects.getProjects()).find((entry) => entry.id === id) as Project | undefined;
     assert.ok(found, `there is no project ${id}`);
     return found;
-  };
-  const waitFor = async <T>(what: string, minutes: number, probe: () => Promise<T | undefined>): Promise<T> => {
-    const until = Date.now() + minutes * 60_000;
-    while (Date.now() < until) {
-      const found = await probe();
-      if (found !== undefined) return found;
-      await sleep(10_000);
-    }
-    throw new Error(`no ${what} within ${minutes} minutes`);
   };
   const runsOf = async (projectId: string) => (await http.get(`/projects/${projectId}/runs`)).data as { status: string; imageTag?: string; errorMessage?: string; releaseRefused?: string }[];
   const madeProjects: Project[] = [];
@@ -83,14 +75,14 @@ async function main(): Promise<void> {
     console.log(`    project ${odoo.id}: ${odoo.giteaOwner}/${odoo.giteaRepo}, webhook, cluster ${CLUSTER}, deploys itself, starter on main`);
 
     console.log('[2] its starter builds and is released into slot a with nobody touching it');
-    const live = await waitFor('live release', 30, async () => {
-      const runs = await runsOf(odoo.id);
-      const broken = runs.find((entry) => entry.status === 'failed' || entry.releaseRefused);
-      if (broken) throw new Error(`the starter's build did not reach a release: ${broken.errorMessage ?? broken.releaseRefused}`);
+    const live = await until('live release', async () => {
       const releases = (await http.get(`/projects/${odoo.id}/releases`)).data.releases as { state: string; slot?: string; reason?: string }[];
-      const failed = releases.find((entry) => entry.state === 'failed');
-      if (failed) throw new Error(`the release failed: ${failed.reason}`);
       return releases.find((entry) => entry.state === 'live');
+    }, async () => {
+      const broken = (await runsOf(odoo.id)).find((entry) => entry.status === 'failed' || entry.releaseRefused);
+      if (broken) return `the starter's build did not reach a release: ${broken.errorMessage ?? broken.releaseRefused}`;
+      const failed = ((await http.get(`/projects/${odoo.id}/releases`)).data.releases as { state: string; reason?: string }[]).find((entry) => entry.state === 'failed');
+      return failed ? `the release failed: ${failed.reason}` : undefined;
     });
     assert.equal(live.slot, 'a');
     const released = (await db.projects.getProjects()).find((entry) => entry.id === odoo.id) as Project | undefined;
@@ -121,10 +113,13 @@ async function main(): Promise<void> {
     const edited = await http.put(`/projects/${odoo.id}/files/content`, { path: 'README.md', content: `${readme.content}\nA line about nothing the app is built from.\n`, sha: readme.sha });
     assert.equal(edited.status, 200, JSON.stringify(edited.data));
     const releasesBefore = ((await http.get(`/projects/${odoo.id}/releases`)).data.releases as unknown[]).length;
-    const docsBuild = await waitFor('the README build', 15, async () => {
-      const latest = (await db.releases.getPipelineRuns()).filter((entry) => entry.projectId === odoo.id).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
-      if (latest?.status === 'failed') throw new Error(`the README build failed: ${latest.errorMessage}`);
+    const latestBuild = async () => (await db.releases.getPipelineRuns()).filter((entry) => entry.projectId === odoo.id).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
+    const docsBuild = await until('the README build', async () => {
+      const latest = await latestBuild();
       return latest && latest.status === 'succeeded' && latest.releaseSkipped ? latest : undefined;
+    }, async () => {
+      const latest = await latestBuild();
+      return latest?.status === 'failed' ? `the README build failed: ${latest.errorMessage}` : undefined;
     });
     assert.match(docsBuild.releaseSkipped ?? '', /^only README\.md changed since [0-9a-f]{8}, none of which the app is built from$/);
     await sleep(15_000);
@@ -133,13 +128,14 @@ async function main(): Promise<void> {
 
     console.log(`[3] a new API tree gets a project too, and its starter builds and deploys: ${API}`);
     const api = await homed(await newTree(API, 'api-service'), ['Dockerfile', 'package.json', 'src/server.js']);
-    const deployed = await waitFor('running deployment', 15, async () => {
-      const runs = await runsOf(api.id);
-      const broken = runs.find((entry) => entry.status === 'failed');
-      if (broken) throw new Error(`the API starter's build failed: ${broken.errorMessage}`);
+    const deployed = await until('running deployment', async () => {
       const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === api.id);
-      if (deployment?.status === 'failed' || deployment?.status === 'unhealthy') throw new Error(`the API's deployment is ${deployment.status}: ${deployment.healthReason ?? ''}`);
       return deployment?.status === 'running' ? deployment : undefined;
+    }, async () => {
+      const broken = (await runsOf(api.id)).find((entry) => entry.status === 'failed');
+      if (broken) return `the API starter's build failed: ${broken.errorMessage}`;
+      const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === api.id);
+      return deployment?.status === 'failed' || deployment?.status === 'unhealthy' ? `the API's deployment is ${deployment.status}: ${deployment.healthReason ?? ''}` : undefined;
     });
     console.log(`    built and running as ${deployed.name} on ${deployed.clusterId}`);
 
@@ -155,19 +151,21 @@ async function main(): Promise<void> {
       const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
       if (deployment) {
         console.log(`    destroying ${deployment.name}: ${(await http.delete(`/deployments/${deployment.id}`)).status}`);
-        for (let tries = 0; tries < 60; tries += 1) {
-          if (!(await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id)) break;
-          await sleep(5_000);
-        }
+        await until(`${deployment.name} to be destroyed`, async () => ((await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id) ? undefined : true), async () => {
+          const left = (await db.infrastructure.getDeployments()).find((entry) => entry.id === deployment.id);
+          return left?.status === 'failed' ? `destroying ${deployment.name} failed` : undefined;
+        }).catch((err: Error) => console.log(`    ${err.message}`));
       }
       const removed = await http.delete(`/projects/${project.id}`, { data: { confirm: project.name } });
       console.log(`    deleting project ${project.name}: ${removed.status}${removed.status >= 300 ? ` ${JSON.stringify(removed.data)}` : ''}`);
     }
-    for (let tries = 0; tries < 60; tries += 1) {
-      const left = (await db.projects.getProjects()).filter((entry) => madeProjects.some((made) => made.id === entry.id));
-      if (left.length === 0) break;
-      await sleep(5_000);
-    }
+    await until('the projects to be deleted', async () => ((await db.projects.getProjects()).some((entry) => madeProjects.some((made) => made.id === entry.id)) ? undefined : true), async () => {
+      for (const project of madeProjects) {
+        const state = ((await http.get(`/projects/${project.id}/removal`, { validateStatus: () => true })).data as { state?: { state: string; reason?: string } }).state;
+        if (state?.state === 'failed') return `deleting ${project.name} failed: ${state.reason}`;
+      }
+      return undefined;
+    }).catch((err: Error) => console.log(`    ${err.message}`));
     for (const id of madeTrees) {
       if ((await db.projects.getTrees()).some((tree) => tree.id === id)) {
         const gone = await http.delete(`/trees/${id}`);

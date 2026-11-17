@@ -8,27 +8,13 @@ import { devKoalaApi, devKoalaDatabase, devKoalaTemporal, devOwner } from './lib
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DROP_TYPE, dropBody } from '../apps/backend/src/files/lib/drops.js';
+import { until } from './lib/until.js';
 
 const BASE = process.env.FILES_LIVE_URL ?? `${devKoalaApi}/api`;
 const STAMP = Date.now().toString(36);
 const TOKEN = `KOALA-FILES-LIVE-${STAMP.toUpperCase()}`;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex').slice(0, 16);
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`  still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
-  }
-}
 
 interface Project { id: string; name: string; giteaOwner: string; giteaRepo: string }
 
@@ -77,8 +63,10 @@ async function deleteProject(project: Project): Promise<void> {
     const answer = await api!.get(`/projects/${project.id}/removal`);
     if (answer.status === 404) return true;
     const state = (answer.data as { state?: { state: string; reason?: string } }).state;
-    if (state?.state === 'failed') throw new Error(`deleting ${project.name} failed: ${state.reason}`);
     return state?.state === 'finished' ? true : undefined;
+  }, async () => {
+    const state = ((await api!.get(`/projects/${project.id}/removal`)).data as { state?: { state: string; reason?: string } }).state;
+    return state?.state === 'failed' ? `deleting ${project.name} failed: ${state.reason}` : undefined;
   });
   projects.splice(projects.indexOf(project), 1);
 }

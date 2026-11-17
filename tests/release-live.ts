@@ -11,6 +11,7 @@ import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js
 import { dataVersionOf } from '../apps/backend/src/instances/lib/instance-updates.js';
 import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, type SignInWay, signedInLanding } from './lib/handoff.js';
+import { until, Hopeless } from './lib/until.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
@@ -42,25 +43,7 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env } });
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const note = (message: string) => console.log(`  ${message}`);
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const minutes = (since: number) => `${((Date.now() - since) / 60_000).toFixed(1)} min`;
-
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 24 === 0) note(`still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5000);
-  }
-}
 
 const sshArgs = (vm: DisposableVm) => ['-i', vm.privateKeyPath, '-p', String(vm.port), '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', '-o', 'ServerAliveInterval=30', `${vm.username}@${vm.host}`];
 
@@ -87,6 +70,7 @@ interface UpdatesSeen { auto: boolean; picked?: string; running?: string; target
 let work = '';
 let root: DisposableVm | undefined;
 let instance: DisposableVm | undefined;
+const gone = async (): Promise<string | undefined> => (await root?.gone()) ?? (await instance?.gone());
 let previousTag = '';
 
 const httpsSide = (host: string): Side => (path, init = {}) => {
@@ -239,7 +223,7 @@ async function main(): Promise<void> {
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
   const rootAnswers = async () => https(`app.${DOMAIN}`, '/api/identity/keys').status === 200;
-  await until('root answering through its Caddy', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering through its Caddy', async () => ((await rootAnswers()) ? true : undefined), gone);
   note(`https://app.${DOMAIN} answers through Caddy with a certificate from its own authority`);
 
   step('the first account signs up on root with the setup code bootstrap made, and becomes its admin');
@@ -285,7 +269,7 @@ async function main(): Promise<void> {
   assert.equal(mine().status, 'ready', `root sees the instance as ${mine().status}: ${mine().detail}`);
   assert.equal(mine().url, `https://${NAME}.${DOMAIN}`);
   const instanceHost = `${NAME}.${DOMAIN}`;
-  await until(`https://${instanceHost} through root's Caddy over the mesh`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined));
+  await until(`https://${instanceHost} through root's Caddy over the mesh`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
 
   const kubectl = (args: string) => sh(instance!, `sudo kubectl -n ${NAMESPACE} ${args}`);
   const helm = (args: string) => sh(instance!, `sudo helm -n ${NAMESPACE} --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
@@ -331,7 +315,7 @@ async function main(): Promise<void> {
     const answer = onInstance(`/api/projects/${project.id}/files`);
     const entries = answer.status === 200 ? json<{ entries: Array<{ path: string; type: string }> }>(answer).entries.filter((entry) => entry.type === 'file') : [];
     return entries.length ? entries : undefined;
-  });
+  }, gone);
   const repoFile = listing[0]!.path;
   const repositoryWorks = (mark: string) => {
     const opened = json<{ content: string; sha: string }>(onInstance(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(repoFile)}`));
@@ -349,12 +333,12 @@ async function main(): Promise<void> {
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
     return found.status === 'running' ? found : undefined;
-  });
+  }, gone);
   const exposed = onInstance(`/api/deployments/${deploymentId}/expose`, { method: 'POST', body: { mode: 'public' } });
   assert.equal(exposed.status, 200, exposed.body);
   const appHost = `books-${NAME}.${DOMAIN}`;
   assert.equal(json<{ publicExposureUrl: string }>(exposed).publicExposureUrl, `https://${appHost}`);
-  const appAnswers = () => until(`the app at https://${appHost}`, async () => (https(appHost, '/').status < 400 ? true : undefined));
+  const appAnswers = () => until(`the app at https://${appHost}`, async () => (https(appHost, '/').status < 400 ? true : undefined), gone);
   await appAnswers();
   note(`https://${appHost} answers through root's Caddy and the instance's edge`);
   const sandboxedRun = async (id: string) => {
@@ -364,7 +348,7 @@ async function main(): Promise<void> {
     const traces = await until(`the sandboxed run ${id} finishing`, async () => {
       const list = json<{ traces: Array<{ node: string; exit?: string; outputs?: { host?: string }; finish?: { outcome: string } }> }>(onInstance(`/api/engine/runs/${started.runId}/traces`)).traces;
       return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
-    });
+    }, gone);
     assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', 'the code did not run');
     assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
     assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
@@ -380,7 +364,7 @@ async function main(): Promise<void> {
   const jobEnds = (name: string) => until(`the self-upgrade job ${name} ending`, async () => {
     const conditions = (await kubectl(`get job ${name} -o jsonpath='{.status.conditions[*].type}'`)).trim();
     return conditions.includes('Complete') || conditions.includes('Failed') ? conditions : undefined;
-  });
+  }, gone);
   const checkIn = async (name: string) => {
     const stop = watchReports();
     await kubectl(`create job --from=cronjob/instance-self-upgrade ${name}`);
@@ -394,7 +378,7 @@ async function main(): Promise<void> {
     await until(`every deployment ready on ${tag}`, async () => {
       const ready = (await kubectl(`get deploy -o jsonpath='{range .items[*]}{.metadata.name}={.status.readyReplicas}{"\\n"}{end}'`)).trim().split('\n');
       return ready.filter((line) => line.startsWith('instance-')).every((line) => line.endsWith('=1')) ? true : undefined;
-    });
+    }, gone);
   };
   const checkedIn = await checkIn('check-in-before');
   assert.ok(checkedIn.ended.includes('Complete'), `the first check-in did not complete: ${checkedIn.ended}`);
@@ -408,7 +392,7 @@ async function main(): Promise<void> {
   await until('root\'s Temporal listing the workflow in flight', async () => {
     const listed = await sh(root!, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 --query 'WorkflowId="release-live-in-flight" AND ExecutionStatus="Running"'`);
     return /\brelease-live-in-flight\b/.test(listed) ? true : undefined;
-  });
+  }, gone);
   const refused = await inVm(root, `sudo bash ${UPDATE_SH} ${candidate}`);
   assert.notEqual(refused.code, 0, `update.sh went ahead with a workflow in flight:\n${refused.out.slice(-1500)}`);
   assert.ok(refused.out.includes(inFlightRefusal(1)), `update.sh did not refuse with the expected words:\n${refused.out.slice(-800)}`);
@@ -426,7 +410,7 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), candidate, 'root is not on the candidate');
   assert.equal(await rootReleaseTag(), candidateTag, 'root does not offer instances the candidate image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
-  await until('root answering on the candidate', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering on the candidate', async () => ((await rootAnswers()) ? true : undefined), gone);
   keepRootSession(candidateTag);
   const tags = JSON.parse(await sh(root, `curl -fsS http://127.0.0.1:5000/v2/${IMAGE_REPO}/tags/list`)) as { tags: string[] };
   assert.ok(tags.tags.includes(candidateTag), `root's registry holds ${tags.tags.join(', ')}, not ${candidateTag}`);
@@ -437,7 +421,7 @@ async function main(): Promise<void> {
   const recorded = await until(`root recording ${candidateTag} with its digest and chart`, async () => {
     const found = JSON.parse((await sh(root!, `sudo docker exec $(sudo docker ps --filter label=com.docker.compose.service=mongodb --format '{{.Names}}' | head -1) mongosh --quiet "mongodb://admin:$(sudo grep '^MONGO_ROOT_PASSWORD=' ${REPO_DIR}/.env | cut -d= -f2-)@127.0.0.1:27017/provisioning?authSource=admin" --eval 'JSON.stringify(db.instanceReleases.findOne({ _id: "${candidateTag}" }) ?? {})'`)).trim()) as { digest?: string; chartSha256?: string };
     return found.chartSha256 ? found : undefined;
-  });
+  }, gone);
   assert.deepEqual({ digest: recorded.digest, chartSha256: recorded.chartSha256 }, { digest: registryDigest, chartSha256: chartSha }, 'root does not hand instances the digest and chart sha256 it released');
   note(`root offers ${candidateTag} as ${registryDigest}, its chart as sha256 ${chartSha.slice(0, 12)}…`);
   assert.equal(mine().status, 'ready', 'root lost sight of the instance across the update');
@@ -458,12 +442,12 @@ async function main(): Promise<void> {
   const routeFile = `${routes}/${(await sh(root, `sudo ls ${routes}`)).split('\n').map((name) => name.trim()).find((name) => name.includes(NAME))}`;
   const since = Number((await sh(root, 'date +%s')).trim());
   await sh(root, `sudo rm ${routeFile}`);
-  await until("the backend writing the instance's route again, as koala", async () => ((await sh(root!, `sudo stat -c %U ${routeFile} 2>/dev/null || true`)).trim() === 'koala' ? true : undefined));
+  await until("the backend writing the instance's route again, as koala", async () => ((await sh(root!, `sudo stat -c %U ${routeFile} 2>/dev/null || true`)).trim() === 'koala' ? true : undefined), gone);
   await until("Caddy taking the backend's reload on its admin socket", async () => {
     const loads = (await sh(root!, `sudo grep '"uri":"/load"' /var/log/koala-caddy/caddy.log || true`)).trim().split('\n').filter(Boolean);
     return loads.some((line) => (JSON.parse(line) as { ts: number }).ts >= since) ? true : undefined;
-  });
-  await until(`https://${instanceHost} through root's Caddy again`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined));
+  }, gone);
+  await until(`https://${instanceHost} through root's Caddy again`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
   note('root runs its backend as koala, without Docker, beside its workers as root; Caddy\'s admin API is off localhost, the backend reloads it through its socket, and its cluster account reaches the pool\'s Prometheus but not Gitea\'s secrets');
 
   step(`the instance upgrades itself through the real check-in, from ${previousTag} to ${candidateTag}`);
@@ -493,7 +477,7 @@ async function main(): Promise<void> {
   assert.deepEqual({ auto: held.auto, picked: held.picked, checking: held.checking }, { auto: false, picked: candidateTag, checking: undefined });
   const nothing = `nothing-${STAMP}`;
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the newer release', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering with the newer release', async () => ((await rootAnswers()) ? true : undefined), gone);
   await sh(instance, `curl -fsSL ${ROOT_URL}/api/instances/chart.tgz -o /tmp/current-chart.tgz`);
   await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --wait --timeout 720h');
   const stayed = await checkIn('check-in-held');
@@ -523,7 +507,7 @@ async function main(): Promise<void> {
   const helmHistory = await helm('history instance');
   note(helmHistory.trim().split('\n').slice(-4).join('\n  '));
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${candidateTag}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the candidate release again', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering with the candidate release again', async () => ((await rootAnswers()) ? true : undefined), gone);
   const following = changeUpdates({ auto: true });
   assert.deepEqual({ auto: following.auto, target: following.target, checking: following.checking }, { auto: true, target: candidateTag, checking: undefined }, 'automatic updates back on moved the instance off the release root runs');
   note(`automatic updates are back on, following root's ${candidateTag} without another check-in`);
@@ -534,7 +518,7 @@ async function main(): Promise<void> {
   note(`update.sh ${PREVIOUS_LABEL} took ${minutes(back)}`);
   assert.equal(await rootHead(), previous, 'root is not back on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
-  await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined));
+  await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined), gone);
   keepRootSession(previousTag);
   const previousSplits = run('git', ['ls-tree', '--name-only', previous, 'scripts/root-node/units.sh']).trim() !== ''
     && run('git', ['show', `${previous}:scripts/root-node/units.sh`]).includes('nowrinkles-workers');

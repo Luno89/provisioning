@@ -12,6 +12,7 @@
  * Requires `qemu-kvm`, `cloud-utils` (cloud-localds), and `genisoimage` to be installed, and
  * /dev/kvm to be accessible — fails fast with a clear message otherwise.
  */
+import { until } from './until.js';
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -48,6 +49,7 @@ export interface DisposableVm {
   privateKeyPath: string;
   privateKey: string;
   forward: (hostPort: number, guestPort: number) => Promise<void>;
+  gone: () => Promise<string | undefined>;
   destroy: () => Promise<void>;
 }
 
@@ -250,10 +252,18 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   };
 
   console.log(`  ⏳ Waiting for ${name} to finish booting and accept SSH...`);
-  const deadline = Date.now() + 5 * 60 * 1000;
-  let ready = false;
-  while (Date.now() < deadline) {
+  const gone = async (): Promise<string | undefined> => {
+    const pid = Number((await fs.readFile(pidPath, 'utf8').catch(() => '')).trim());
+    if (!pid) return `${name}'s QEMU left no process id; see ${serialLogPath} for boot console output`;
     try {
+      process.kill(pid, 0);
+      return undefined;
+    } catch {
+      return `${name}'s QEMU process ${pid} is gone; see ${serialLogPath} for boot console output`;
+    }
+  };
+  try {
+    await until(`${name} to finish booting and accept SSH`, async () => {
       await execFileAsync('ssh', [
         '-i', keyPath,
         '-p', String(sshPort),
@@ -264,15 +274,11 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
         'ubuntu@127.0.0.1',
         'cloud-init status --wait',
       ]);
-      ready = true;
-      break;
-    } catch {
-      await new Promise((r) => setTimeout(r, 3000));
-    }
-  }
-  if (!ready) {
+      return true;
+    }, gone);
+  } catch (err) {
     await destroy();
-    throw new Error(`${name} did not become SSH-reachable within 5 minutes — see ${serialLogPath} for boot console output`);
+    throw err;
   }
   console.log(`  ✅ ${name} is up and SSH-reachable`);
   for (const forward of options.loopback ?? []) {
@@ -297,6 +303,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
       const answer = await monitorCommand(monitorPath, `hostfwd_add tcp:127.0.0.1:${hostPort}-:${guestPort}`);
       if (/could not|error|invalid/i.test(answer.split('hostfwd_add').slice(1).join(''))) throw new Error(`${name} would not forward 127.0.0.1:${hostPort} to its port ${guestPort}: ${answer.trim()}`);
     },
+    gone,
     destroy,
   };
 }

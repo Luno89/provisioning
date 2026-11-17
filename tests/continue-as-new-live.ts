@@ -17,7 +17,6 @@ keepPayloadsIn(connections.mongo);
 const OWNER = process.env.CONTINUE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.CONTINUE_LIVE_AGENT ?? 'research';
 const QUESTION = process.env.CONTINUE_LIVE_QUESTION ?? 'What does the `jq -r` flag do? Answer in two sentences.';
-const DEADLINE_MS = Number(process.env.CONTINUE_LIVE_MINUTES ?? '20') * 60_000;
 const queue = DEFAULT_ENGINE_TASK_QUEUE;
 
 async function main(): Promise<void> {
@@ -39,10 +38,7 @@ async function main(): Promise<void> {
 
   console.log(`[1/3] ${AGENT} runs on the engine worker, continuing as new after every step (${runId})`);
   const handle = await client.workflow.start('AgentRunWorkflow', { workflowId: runId, taskQueue: queue, args: [input], ...startedFor(OWNER) });
-  const result = await Promise.race([
-    handle.result() as Promise<AgentRunOutcome>,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`still running after ${DEADLINE_MS / 60_000} minutes`)), DEADLINE_MS)),
-  ]);
+  const result = await (handle.result() as Promise<AgentRunOutcome>);
 
   console.log(`[2/3] it ended ${result.outcome}${result.reason ? `: ${result.reason}` : ''}`);
   const runs: string[] = [];

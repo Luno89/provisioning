@@ -9,9 +9,11 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { devKoalaTemporal } from './lib/dev-stack.js';
+import { until } from './lib/until.js';
+import { deploymentFailed, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.CORPUS_LIVE_URL ?? 'http://localhost:3001/api';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface Result { name: string; ok: boolean; digest: string; content?: string }
 interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
@@ -19,17 +21,13 @@ interface Trace { finish?: unknown; outputs?: { results?: Result[] } }
 async function turn(http: AxiosInstance, conversationId: string, message: string): Promise<Result[]> {
   const { runId } = (await http.post('/engine/runs', { agent: 'koala', message, conversationId, inputs: { conversationId } })).data as { runId: string };
   console.log(`  run ${runId}`);
-  const deadline = Date.now() + 8 * 60_000;
-  for (;;) {
-    const traces = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    if (traces.some((trace) => trace.finish !== undefined)) {
-      const seen = new Map<string, Result>();
-      for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
-      return [...seen.values()];
-    }
-    if (Date.now() > deadline) throw new Error(`run ${runId} did not finish`);
-    await sleep(3_000);
-  }
+  const traces = await until(`run ${runId}`, async () => {
+    const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
+    return all.some((trace) => trace.finish !== undefined) ? all : undefined;
+  }, () => runEndedBadly(http, runId));
+  const seen = new Map<string, Result>();
+  for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
+  return [...seen.values()];
 }
 
 async function main(): Promise<void> {
@@ -58,13 +56,10 @@ async function main(): Promise<void> {
         .find((entry) => entry.kind === 'deploy_app' && entry.params.name === crawler);
       assert.ok(card, 'koala did not propose deploying crawl4ai');
       await http.post(`/actions/${card.id}/apply`);
-      const deadline = Date.now() + 15 * 60_000;
-      for (;;) {
+      await until('crawl4ai to run', async () => {
         const dep = ((await http.get('/deployments')).data as { name: string; status: string }[]).find((entry) => entry.name === crawler);
-        if (dep?.status === 'running') break;
-        if (dep?.status === 'failed' || Date.now() > deadline) throw new Error(`crawl4ai did not come up: ${dep?.status}`);
-        await sleep(10_000);
-      }
+        return dep?.status === 'running' ? dep : undefined;
+      }, () => deploymentFailed(http, crawler!));
       console.log(`  deployed ${crawler} through its card`);
     }
 
@@ -74,16 +69,18 @@ async function main(): Promise<void> {
     assert.ok(id, 'no crawl id came back');
     console.log(`  started ${id}`);
 
-    await (async () => {
-      const deadline = Date.now() + 5 * 60_000;
-      for (;;) {
+    const temporal = await devKoalaTemporal();
+    try {
+      ingestId = await until('the crawl to store a page', async () => {
         const pages = await db.engine.getCorpusPages({ ownerId });
-        const mine = pages.filter((entry) => entry.url.includes('example.com'));
-        if (mine.length > 0) { ingestId = mine[0]!.ingestId; return; }
-        if (Date.now() > deadline) throw new Error('the crawl stored no page');
-        await sleep(5_000);
-      }
-    })();
+        return pages.find((entry) => entry.url.includes('example.com'))?.ingestId;
+      }, async () => {
+        const status = (await temporal.client.workflow.getHandle(id).describe()).status.name;
+        return status === 'RUNNING' ? undefined : `the crawl ${status.toLowerCase()} without storing a page`;
+      });
+    } finally {
+      await temporal.close();
+    }
     console.log('  the crawl stored example.com in the corpus');
 
     const searched = await turn(http, conversationId, `The crawl ${id} has finished. Check its status, then search the corpus for "illustrative examples" and tell me which URL it came from.`);

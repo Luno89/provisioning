@@ -16,6 +16,8 @@ import { conversationConclusionId } from '../apps/backend/src/engine-host/tempor
 import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
 import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
+import { until } from './lib/until.js';
+import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
 
@@ -23,26 +25,16 @@ const BASE = process.env.MEMORY_LIVE_URL ?? 'http://localhost:3001/api';
 const OWNER = process.env.MEMORY_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function until<T>(what: string, limitMs: number, probe: () => Promise<T | undefined>): Promise<T> {
-  const deadline = Date.now() + limitMs;
-  for (;;) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(5_000);
-  }
-}
-
 interface Trace { kind: string; finish?: { outcome: string }; outputs?: { text?: string; content?: string; memories?: { title: string; text: string }[]; results?: { name: string; ok: boolean; digest: string }[] } }
 
 const traces = async (http: AxiosInstance, runId: string): Promise<Trace[]> =>
   ((await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[]) ?? [];
 
-const finished = (http: AxiosInstance, runId: string, limitMs = 15 * 60_000) =>
-  until(`run ${runId} to finish`, limitMs, async () => {
+const finished = (http: AxiosInstance, runId: string) =>
+  until(`run ${runId} to finish`, async () => {
     const found = await traces(http, runId).catch(() => []);
     return found.some((trace) => trace.finish && trace.kind === 'finish') ? found : undefined;
-  });
+  }, () => runEndedBadly(http, runId));
 
 const touched = new Set<string>();
 
@@ -89,10 +81,10 @@ async function main(): Promise<void> {
     assert.equal(await startedAt(await keeperRunId()), undefined, 'it concluded on the first message\'s countdown, ignoring the newer one');
 
     console.log(`[4/5] ${QUIET_MS / 60_000} quiet minutes after the last turn, the memory keeper runs`);
-    const keeperRun = await until('the memory keeper to start on that conversation', QUIET_MS + 5 * 60_000, async () => {
+    const keeperRun = await until('the memory keeper to start on that conversation', async () => {
       const id = await keeperRunId();
       return (await startedAt(id)) ? id : undefined;
-    });
+    }, () => keeperPaused(http));
     const waited = Date.now() - secondEnded;
     console.log(`  it started ${(waited / 60_000).toFixed(1)} minutes after the last turn ended`);
     assert.ok(waited >= QUIET_MS - 30_000, 'it started before the quiet time had passed since the last turn');

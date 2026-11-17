@@ -14,6 +14,9 @@ import { TRACE_ID_HEADER } from '../apps/backend/src/platform/services/MetricsSe
 import { TURN_PROCEDURE_ID } from '../apps/backend/src/checks/lib/turn-check.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { signUp } from './lib/sign-up.js';
+import { until } from './lib/until.js';
+import { devKoalaTemporal } from './lib/dev-stack.js';
+import { removeAccountWorkflowId } from '../apps/backend/src/accounts/lib/account-removal.js';
 
 const run = promisify(execFile);
 const ROOT = process.env.TELEMETRY_LIVE_ROOT ?? 'http://localhost:3001';
@@ -23,7 +26,6 @@ const KUBECONFIG = process.env.TELEMETRY_LIVE_KUBECONFIG ?? `/tmp/kubeconfig-${C
 const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
 const SCENARIO = `telemetry-live-${Date.now().toString(36)}`;
 const SAID = 'Hello from the scripted model, for the telemetry live test.';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let stageCount = 0;
 async function stage<T>(name: string, body: () => Promise<T>): Promise<T> {
@@ -40,23 +42,6 @@ async function stage<T>(name: string, body: () => Promise<T>): Promise<T> {
   }
 }
 
-class Hopeless extends Error {}
-
-async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
-  let last = '';
-  for (let tries = 0; ; tries += 1) {
-    try {
-      const value = await probe();
-      if (value !== undefined) return value;
-    } catch (err) {
-      if (err instanceof Hopeless) throw err;
-      last = (err as Error).message;
-    }
-    if (tries > 0 && tries % 12 === 0) console.log(`    still waiting for ${what}${last ? ` (${last.slice(0, 200)})` : ''}`);
-    await sleep(5_000);
-  }
-}
-
 const kubectl = async (...args: string[]) => (await run(KUBECTL, ['--kubeconfig', KUBECONFIG, ...args])).stdout.trim();
 const serviceExists = async (name: string) => (await kubectl('get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name')) !== '';
 
@@ -64,6 +49,7 @@ const client = (cookie?: string): AxiosInstance => axios.create({ baseURL: ROOT,
 const sessionOf = (headers: Record<string, unknown>): string | undefined => ([] as string[]).concat((headers['set-cookie'] as string[] | undefined) ?? []).map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('session='));
 
 const forwards: ChildProcess[] = [];
+const forwardGone = async () => (forwards.some((child) => child.exitCode !== null) ? 'a port-forward into the monitoring namespace exited' : undefined);
 function portForward(service: string, port: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(KUBECTL, ['--kubeconfig', KUBECONFIG, '-n', 'monitoring', 'port-forward', '--address', '127.0.0.1', `svc/${service}`, `0:${port}`], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -167,10 +153,11 @@ async function main(): Promise<void> {
       const names = await until(`the trace ${traceId} with ${wanted.join(', ')}`, async () => {
         const answer = await http.get(`/api/traces/${traceId}`);
         if (answer.status === 404) return undefined;
+        if (answer.status >= 500) throw new Error(`Tempo answered ${answer.status}`);
         assert.ok(answer.status === 200, `Tempo answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
         const names = spanNames(answer.data);
         return wanted.every((name) => names.includes(name)) ? names : undefined;
-      });
+      }, forwardGone);
       const activities = names.filter((name) => name.startsWith('activity ')).length;
       console.log(`    ${names.length} spans, ${activities} of them activities; the model call: ${names.filter((name) => name === 'model.call').length}`);
       assert.ok(activities > 0, 'no activity span joined the trace');
@@ -185,6 +172,7 @@ async function main(): Promise<void> {
       const http = axios.create({ baseURL: prometheus, proxy: false, validateStatus: () => true });
       const query = async (expr: string) => {
         const answer = await http.get('/api/v1/query', { params: { query: expr } });
+        if (answer.status >= 500) throw new Error(`Prometheus answered ${answer.status}`);
         assert.ok(answer.status === 200 && answer.data?.status === 'success', `Prometheus answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
         return (answer.data.data.result as { metric: Record<string, string>; value: [number, string] }[]);
       };
@@ -199,7 +187,7 @@ async function main(): Promise<void> {
         const found = await until(`${metric} from ${service}`, async () => {
           const result = await query(`${metric}{service_name="${service}"}`);
           return result.length ? result : undefined;
-        });
+        }, forwardGone);
         console.log(`    ${metric}{service_name="${service}"}: ${found.length} series`);
       }
     });
@@ -226,7 +214,15 @@ async function main(): Promise<void> {
       await forgetWhatRunsLeft(db, myId, runIds).catch(() => undefined);
       const removed = await me.delete('/api/account', { data: { confirm: email, password } });
       if (removed.status === 202) {
-        for (let tries = 0; tries < 150 && await db.accounts.getUserById(myId); tries += 1) await sleep(2_000);
+        const temporal = await devKoalaTemporal();
+        try {
+          await until('the account to be removed', async () => ((await db.accounts.getUserById(myId!)) ? undefined : true), async () => {
+            const status = (await temporal.client.workflow.getHandle(removeAccountWorkflowId(myId!)).describe()).status.name;
+            return status === 'RUNNING' || status === 'COMPLETED' ? undefined : `the removal workflow ${status.toLowerCase()}`;
+          });
+        } finally {
+          await temporal.close();
+        }
         console.log((await db.accounts.getUserById(myId)) ? `    ${email} is still being removed` : '    removed the test account');
       } else {
         console.log(`    could not remove ${email}: ${removed.status} ${JSON.stringify(removed.data)}`);
