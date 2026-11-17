@@ -22,8 +22,8 @@ export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
 
 export const buildWebTools = (place: WebToolsPlace): Promise<WebTools> => resolveWebTools(webToolsDeps(place));
 
-export const crawlEndpoint = (place: WebToolsPlace, ownerId?: string): Promise<{ base: string; token: string } | undefined> =>
+export const crawlEndpoint = (place: WebToolsPlace, ownerId: string): Promise<{ base: string; token: string } | undefined> =>
   crawlEndpointWith(webToolsDeps(place), ownerId);
 
-export const corpusEndpoints = (place: WebToolsPlace, ownerId?: string): Promise<CorpusEndpoints> =>
+export const corpusEndpoints = (place: WebToolsPlace, ownerId: string): Promise<CorpusEndpoints> =>
   corpusEndpointsWith(webToolsDeps(place), ownerId);

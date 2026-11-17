@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type WebToolsDeps } from './web-tools-resolver.js';
+import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type WebToolsDeps } from './web-tools-resolver.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
 
 const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
@@ -37,9 +37,9 @@ describe('the deps a process builds', () => {
     const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
     proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
     const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
-    const crawler = { ...dep({ id: 'c9', name: 'crawler', appType: 'crawl4ai' }), crawl4aiApiToken: 'tok' };
+    const crawler = { ...dep({ id: 'c9', name: 'crawler', appType: 'crawl4ai', ownerId: 'u1' }), crawl4aiApiToken: 'tok' };
     const forCrawl = webToolsDepsFrom({ getDeployments: async () => [crawler] }, proxy);
-    expect(await crawlEndpointWith({ ...forCrawl, settings: {} })).toEqual({ base: 'http://127.0.0.1:41000', token: 'tok' });
+    expect(await crawlEndpointWith({ ...forCrawl, settings: {} }, 'u1')).toEqual({ base: 'http://127.0.0.1:41000', token: 'tok' });
     expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'crawl4ai-c9', { service: 'crawl4ai', namespace: 'crawler', remotePort: 11235 });
     expect(built.db).toBeDefined();
   });
@@ -49,5 +49,21 @@ describe('the deps a process builds', () => {
     proxy.serviceUrl.mockRejectedValue(new Error('there is no cluster c1'));
     const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
     await expect(built.serviceUrl('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 })).rejects.toThrow('there is no cluster c1');
+  });
+});
+
+describe('whose crawl a deployment serves', () => {
+  it('a deployment with no owner is nobody\'s, so it serves no one\'s crawl', async () => {
+    const ownerless = { ...dep({ id: 'c9', appType: 'crawl4ai' }), crawl4aiApiToken: 'tok' };
+    const d = deps([ownerless]);
+    expect(await crawlEndpointWith(d, 'u1')).toBeUndefined();
+    expect(await corpusEndpointsWith(deps([dep({ appType: 'quickwit' })]), 'u1')).toEqual({});
+    expect(d.serviceUrl).not.toHaveBeenCalled();
+  });
+
+  it('a database that does not answer is said, not read as no deployment', async () => {
+    const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('the database is not answering'); }) } });
+    await expect(crawlEndpointWith(d, 'u1')).rejects.toThrow('the database is not answering');
+    await expect(corpusEndpointsWith(d, 'u1')).rejects.toThrow('the database is not answering');
   });
 });

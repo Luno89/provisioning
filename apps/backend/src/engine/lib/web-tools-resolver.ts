@@ -30,12 +30,12 @@ export function webToolsDepsFrom(
   };
 }
 
-export function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId?: string): DeploymentMetadata | undefined {
+export function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId: string): DeploymentMetadata | undefined {
   return deployments.find((d) =>
     d.appType === appType
     && d.status === 'running'
     && d.clusterId
-    && (!ownerId || !d.ownerId || d.ownerId === ownerId));
+    && d.ownerId === ownerId);
 }
 
 async function baseUrlFor(
@@ -72,8 +72,8 @@ export async function resolveWebTools(deps: WebToolsDeps): Promise<WebTools> {
   });
 }
 
-export async function crawlEndpointWith(deps: WebToolsDeps, ownerId?: string): Promise<{ base: string; token: string } | undefined> {
-  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+export async function crawlEndpointWith(deps: WebToolsDeps, ownerId: string): Promise<{ base: string; token: string } | undefined> {
+  const deployments = await deps.db.getDeployments();
   const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
   if (!dep?.crawl4aiApiToken) return undefined;
   const url = await baseUrlFor(deps, dep, 'crawl4ai', 11235);
@@ -87,8 +87,8 @@ export interface CorpusEndpoints {
   embeddings?: { base: string };
 }
 
-export async function corpusEndpointsWith(deps: WebToolsDeps, ownerId?: string): Promise<CorpusEndpoints> {
-  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+export async function corpusEndpointsWith(deps: WebToolsDeps, ownerId: string): Promise<CorpusEndpoints> {
+  const deployments = await deps.db.getDeployments();
 
   const forward = async (appType: string, service: string, port: number) => {
     const dep = liveDeployment(deployments, appType, ownerId);
