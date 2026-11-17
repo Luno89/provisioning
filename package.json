@@ -131,6 +131,7 @@
   },
   "overrides": {
     "seroval": "1.6.11",
-    "decode-uri-component": "$decode-uri-component"
+    "decode-uri-component": "$decode-uri-component",
+    "fast-xml-parser": "5.12.0"
   }
 }
