@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { clusterUrl } from './cluster-dns.js';
+import { namespaceOf } from './app-namespace.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
 
 export interface AppEnvArgs {
@@ -145,10 +146,29 @@ export function resolveQuickwitDefaults(
   const minio = deployments.find((d) =>
     d.appType === 'minio'
     && !GONE.has(d.status)
+    && Boolean(d.minioRootUser)
     && Boolean(d.minioRootPassword)
     && (!dep.ownerId || !d.ownerId || d.ownerId === dep.ownerId));
 
-  if (!minio && !dep.quickwitS3SecretKey) {
+  if (minio) {
+    return Object.assign({}, dep, {
+      quickwitBucket: dep.quickwitBucket || 'koala-corpus',
+      quickwitS3AccessKey: dep.quickwitS3AccessKey || minio.minioRootUser,
+      quickwitS3SecretKey: dep.quickwitS3SecretKey || minio.minioRootPassword,
+      quickwitS3Endpoint: dep.quickwitS3Endpoint || clusterUrl({ service: 'minio', namespace: namespaceOf(minio), port: 9000 }),
+    });
+  }
+
+  const own = [
+    ['access key', dep.quickwitS3AccessKey],
+    ['secret key', dep.quickwitS3SecretKey],
+    ['endpoint', dep.quickwitS3Endpoint],
+  ] as const;
+  const missing = own.filter(([, value]) => !value).map(([what]) => what);
+  if (missing.length && missing.length < own.length) {
+    throw new Error(`Quickwit with no MinIO of yours beside it needs its own store's access key, secret key and endpoint, and is missing its ${missing.join(' and ')}`);
+  }
+  if (missing.length) {
     const anyMinio = deployments.some((d) => d.appType === 'minio' && !GONE.has(d.status));
     throw new Error(
       anyMinio
@@ -159,13 +179,7 @@ export function resolveQuickwitDefaults(
     );
   }
 
-  return Object.assign({}, dep, {
-    quickwitBucket: dep.quickwitBucket || 'koala-corpus',
-    quickwitS3AccessKey: dep.quickwitS3AccessKey || minio?.minioRootUser || 'koala',
-    quickwitS3SecretKey: dep.quickwitS3SecretKey || minio?.minioRootPassword || '',
-    quickwitS3Endpoint: dep.quickwitS3Endpoint
-      || clusterUrl({ service: 'minio', namespace: minio?.name ?? 'minio', port: 9000 }),
-  });
+  return Object.assign({}, dep, { quickwitBucket: dep.quickwitBucket || 'koala-corpus' });
 }
 
 export function resolveVllmDefaults(dep: DeploymentMetadata): DeploymentMetadata {

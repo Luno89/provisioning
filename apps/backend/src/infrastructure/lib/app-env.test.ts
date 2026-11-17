@@ -77,10 +77,21 @@ describe('Quickwit, whose credentials are not its own', () => {
 
   it('keeps explicit settings, so a corpus can point at storage outside the cluster', () => {
     const out = resolveQuickwitDefaults(
-      dep({ appType: 'quickwit', quickwitS3Endpoint: 'https://s3.example', quickwitS3SecretKey: 'mine' }),
+      dep({ appType: 'quickwit', quickwitS3Endpoint: 'https://s3.example', quickwitS3AccessKey: 'me', quickwitS3SecretKey: 'mine' }),
       [],
     );
     expect(out.quickwitS3Endpoint).toBe('https://s3.example');
+  });
+
+  it('points Quickwit at the namespace the MinIO beside it actually runs in', () => {
+    const placed = { ...minio, namespace: 'koala-store-m1a2b3' } as DeploymentMetadata;
+    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [placed]).quickwitS3Endpoint)
+      .toBe('http://minio.koala-store-m1a2b3.svc.cluster.local:9000');
+  });
+
+  it('refuses Quickwit given only some of its own store\'s keys, naming the missing ones', () => {
+    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit', quickwitS3SecretKey: 'mine' }), []))
+      .toThrow('Quickwit with no MinIO of yours beside it needs its own store\'s access key, secret key and endpoint, and is missing its access key and endpoint');
   });
 });
 
