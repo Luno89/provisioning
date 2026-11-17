@@ -404,6 +404,7 @@ export class TemporalBridge {
       } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
         await this.db.infrastructure.deleteDeployment(resourceId)
         await this.db.accounts.forgetDefaultModels([resourceId])
+        if (this.io && meta?.ownerId) this.io.to(`user:${meta.ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
       }
       if (this.io) this.io.emit('deployment-updated')
     } else if (action === 'app-resize') {

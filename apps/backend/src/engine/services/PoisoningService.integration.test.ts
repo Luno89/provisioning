@@ -51,7 +51,7 @@ describe('the findings a person sees and acts on', () => {
     const now = testKeys('now').data;
     const poisoning = new PoisoningService({
       store: db.engine,
-      memories: { list: async () => [], save: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
       unseal: (sealed) => decryptValue(sealed, now),
       log: () => undefined,
     });

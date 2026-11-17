@@ -275,8 +275,11 @@ describe('following work to its end', () => {
     expect(stored).not.toHaveProperty('failure');
   });
 
-  it('removes an app once the workflow destroying it ends, and a model it served is nobody\'s default any more', async () => {
-    const { db, workflow, ready } = bridge();
+  it('removes an app once the workflow destroying it ends, tells its owner\'s browsers, and a model it served is nobody\'s default any more', async () => {
+    const io = mock<SocketServer>();
+    const told = mock<ReturnType<SocketServer['to']>>();
+    io.to.mockReturnValue(told);
+    const { db, workflow, ready } = bridge({ io });
     const person = { email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z' };
     await db.accounts.saveUser({ id: 'u1', ...person, defaultModelId: 'd1' });
     await db.accounts.saveUser({ id: 'u2', ...person, email: 'u2@example.com', defaultModelId: 'd2' });
@@ -284,6 +287,8 @@ describe('following work to its end', () => {
     workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
     await ready().follow('wf-1', 'app-destroy', 'd1', 'shop', deploying);
     expect(await statusOf(db, 'd1')).toBeUndefined();
+    expect(io.to).toHaveBeenCalledWith('user:u1');
+    expect(told.emit).toHaveBeenCalledWith('resource-destroyed', { id: 'd1', type: 'deployment', name: 'shop' });
     expect((await db.accounts.getUserById('u1'))?.defaultModelId).toBeUndefined();
     expect((await db.accounts.getUserById('u2'))?.defaultModelId).toBe('d2');
   });

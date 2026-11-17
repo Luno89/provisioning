@@ -33,7 +33,7 @@ describe('the findings a person sees and acts on', () => {
     const db = memoryDatabase();
     const poisoning = new PoisoningService({
       store: db.engine,
-      memories: { list: async () => [], save: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
       unseal: () => { throw new Error('no key v2:old in the keyring'); },
       log: () => undefined,
     });

@@ -36,7 +36,7 @@ const backend = await startBackend(async (site) => {
 
 const owner = await backend.signIn()
 await backend.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: owner.id, machineId: 'desk', gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }] })
-const app = (id: string, over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id, name: id, namespace: `${id}-abcdef`, clusterId: 'machine-desk', strategy: 'native', status: 'running', modules: [], storage: {}, ownerId: owner.id, ...over } as DeploymentMetadata)
+const app = (id: string, over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id, name: id, namespace: `${id}-abcdef`, clusterId: 'machine-desk', strategy: 'native', status: 'running', modules: [], storage: {}, ownerId: owner.id, deploymentId: `${id}-stack`, ...over } as DeploymentMetadata)
 await backend.db.infrastructure.saveDeployment(app('hermes', { appType: 'hermes', hermesDashboardPassword: 'a-made-password' }))
 await backend.db.infrastructure.saveDeployment(app('qwen', { appType: 'tabbyapi', tabbyModel: 'turboderp/Qwen3-exl3', tabbyGpuCount: 1 }))
 await backend.db.infrastructure.saveDeployment(app('pals', { appType: 'palworld' }))

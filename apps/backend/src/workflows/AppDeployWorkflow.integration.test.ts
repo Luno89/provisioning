@@ -82,7 +82,7 @@ afterAll(async () => { await env?.teardown(); });
 
 const deploy = (args: Partial<DeployAppArgs>) => env.client.workflow.execute<typeof executeDeployAppWorkflow>('executeDeployAppWorkflow', {
   taskQueue: QUEUE, workflowId: `deploy-${Math.random().toString(36).slice(2, 8)}`, ...startedFor('bo'),
-  args: [{ name: 'shop', namespace: 'shop-1a2b3c', clusterId: KOALA.clusterId, clusterName: 'own', provider: 'machine', strategy: 'native', appType: 'wordpress', odooRepo: '', odooTag: '', dbRepo: '', dbTag: '', logFile: LOG, ...args } as DeployAppArgs],
+  args: [{ name: 'shop', namespace: 'shop-1a2b3c', deploymentId: 'shop', clusterId: KOALA.clusterId, clusterName: 'own', provider: 'machine', strategy: 'native', appType: 'wordpress', odooRepo: '', odooTag: '', dbRepo: '', dbTag: '', logFile: LOG, ...args } as DeployAppArgs],
 });
 
 const destroy = (args: Partial<DestroyAppArgs>) => env.client.workflow.execute<typeof executeDestroyAppWorkflow>('executeDestroyAppWorkflow', {
