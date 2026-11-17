@@ -29,17 +29,17 @@ export class PoisoningService {
     return (this.deps.now ?? (() => new Date().toISOString()))();
   }
 
-  private unsealed(sealed: string | undefined): string | undefined {
+  private unsealed(sealed: string | undefined): { matched: string } | { unreadable: string } | undefined {
     if (!sealed) return undefined;
     try {
-      return this.deps.unseal(sealed);
-    } catch {
-      return undefined;
+      return { matched: this.deps.unseal(sealed) };
+    } catch (error) {
+      return { unreadable: (error as Error).message };
     }
   }
 
   private view(signal: PoisoningSignal): SignalView {
-    const matched = this.unsealed(signal.sealedMatch);
+    const match = this.unsealed(signal.sealedMatch);
     return {
       id: signal.id,
       kind: signal.kind,
@@ -50,7 +50,8 @@ export class PoisoningService {
       tool: signal.tool,
       said: signal.said,
       ...(signal.agentSlug ? { agentSlug: signal.agentSlug } : {}),
-      ...(matched ? { matched } : {}),
+      ...(match && 'matched' in match && match.matched ? { matched: match.matched } : {}),
+      ...(match && 'unreadable' in match ? { matchUnreadable: `the match was sealed under a key this Koala no longer holds: ${match.unreadable}` } : {}),
       ...(signal.host ? { host: signal.host } : {}),
       ...(signal.path ? { path: signal.path } : {}),
       ...(signal.conversationId ? { conversationId: signal.conversationId } : {}),

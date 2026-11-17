@@ -29,6 +29,20 @@ async function service() {
 }
 
 describe('the findings a person sees and acts on', () => {
+  it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
+    const db = memoryDatabase();
+    const poisoning = new PoisoningService({
+      store: db.engine,
+      memories: { list: async () => [], save: async () => undefined },
+      unseal: () => { throw new Error('no key v2:old in the keyring'); },
+      log: () => undefined,
+    });
+    await db.engine.savePoisoningSignal(signal({}));
+    const [listed] = await poisoning.list('owner');
+    expect(listed).not.toHaveProperty('matched');
+    expect(listed?.matchUnreadable).toBe('the match was sealed under a key this Koala no longer holds: no key v2:old in the keyring');
+  });
+
   it('lists only the person\'s own, worst first, with what was matched unsealed for them', async () => {
     const { db, poisoning } = await service();
     await db.engine.savePoisoningSignal(signal({ id: 'low', kind: 'unvouched-host', severity: 'low', sealedMatch: undefined }));

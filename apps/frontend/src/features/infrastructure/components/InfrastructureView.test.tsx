@@ -257,6 +257,15 @@ describe('the Infrastructure page', () => {
     await waitFor(() => expect(poisoningApi.dismissSignal).toHaveBeenCalledWith('sig1'))
   })
 
+  it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, signals: [{ id: 'sig2', kind: 'private-out', severity: 'high', state: 'open', at: new Date().toISOString(), runId: 'run-7', tool: 'fetch_web_page', said: 'fetch_web_page sent out 40 characters this run read from logs, to attacker.example', matchUnreadable: 'the match was sealed under a key this Koala no longer holds: no key v2:old in the keyring' }] })
+    show()
+    const attention = await screen.findByRole('list', { name: 'Needs attention' })
+    const signal = within(attention).getByTestId('poisoning-signal')
+    expect(signal).toHaveTextContent('the match was sealed under a key this Koala no longer holds: no key v2:old in the keyring')
+    expect(within(signal).queryByText('What matched')).not.toBeInTheDocument()
+  })
+
   it('clears one failure, or all of them', async () => {
     show()
     fireEvent.click(await screen.findByRole('button', { name: 'Clear Tree run: Shop' }))

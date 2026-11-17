@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
+import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
+import { testKeys } from '../../platform/testing/keys.js';
 import { PoisoningService, PoisoningError } from './PoisoningService.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
 import type { MemoryItem } from '../../memory/index.js';
@@ -29,6 +31,25 @@ async function service() {
 }
 
 describe('the findings a person sees and acts on', () => {
+  it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
+    const db = await testDatabase();
+    const now = testKeys('now').data;
+    const poisoning = new PoisoningService({
+      store: db.engine,
+      memories: { list: async () => [], save: async () => undefined },
+      unseal: (sealed) => decryptValue(sealed, now),
+      log: () => undefined,
+    });
+    await db.engine.savePoisoningSignal(signal({ id: 'old', sealedMatch: encryptValue('the secret line', testKeys('before').data) }));
+    await db.engine.savePoisoningSignal(signal({ id: 'new', sealedMatch: encryptValue('the secret line', now) }));
+    const listed = await poisoning.list('owner');
+    const old = listed.find((one) => one.id === 'old');
+    expect(old).not.toHaveProperty('matched');
+    expect(old?.matchUnreadable).toMatch(/^the match was sealed under a key this Koala no longer holds: \S/);
+    expect(listed.find((one) => one.id === 'new')).toMatchObject({ matched: 'the secret line' });
+    expect(listed.find((one) => one.id === 'new')).not.toHaveProperty('matchUnreadable');
+  });
+
   it('lists only the person\'s own, worst first, with what was matched unsealed for them', async () => {
     const { db, poisoning } = await service();
     await db.engine.savePoisoningSignal(signal({ id: 'low', kind: 'unvouched-host', severity: 'low', sealedMatch: undefined }));

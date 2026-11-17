@@ -274,6 +274,7 @@ export interface SignalView {
   tool: string;
   said: string;
   matched?: string | undefined;
+  matchUnreadable?: string | undefined;
   host?: string | undefined;
   path?: string | undefined;
   conversationId?: string | undefined;

@@ -16,6 +16,7 @@ export interface SignalView {
   tool: string
   said: string
   matched?: string
+  matchUnreadable?: string
   host?: string
   path?: string
   conversationId?: string
