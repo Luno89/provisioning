@@ -2412,20 +2412,6 @@
       ]
     },
     {
-      "name": "vllm/vllm-openai",
-      "how": "not a download: latest is the marker model-images.ts reads as the pinned image (vllm/vllm-openai, pinned above), shown to the person as \"latest\"",
-      "usedIn": [
-        "apps/backend/src/infrastructure/lib/app-spec.ts"
-      ]
-    },
-    {
-      "name": "ghcr.io/theroyallab/tabbyapi",
-      "how": "not a download: latest is the marker the app spec carries; model-images.ts runs the pinned build (theroyallab/tabbyapi, pinned above)",
-      "usedIn": [
-        "apps/backend/src/infrastructure/lib/app-spec.ts"
-      ]
-    },
-    {
       "name": "nginx",
       "how": "floating tag alpine: the static site starter's Dockerfile, written into a person's repository",
       "usedIn": [

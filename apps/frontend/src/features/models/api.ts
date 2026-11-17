@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api, errorMessage } from '../../api/client'
 import { useDebounce } from '../../shared/lib/use-debounce'
+import { tabbyImageOptions } from './lib/tabby-image-tags'
 
 export interface HfModelSize {
   totalBytes: number
@@ -99,17 +100,6 @@ export function useModelSearch(appType: string, query: string, enabled: boolean)
 
 export const TABBY_IMAGE_REPO = 'ghcr.io/theroyallab/tabbyapi';
 
-const TABBY_IMAGE_TAG_HINTS: Record<string, string> = {
-  latest: 'CUDA 12.8',
-  cu13: 'CUDA 13.x',
-};
-
-export interface TabbyImageTag {
-  tag: string
-  cached: boolean
-  label: string
-}
-
 export function useTabbyImageTags(enabled: boolean) {
   const tabbyQuery: TagQuery = { pageSize: 100 }
   const remote = useQuery({
@@ -125,12 +115,7 @@ export function useTabbyImageTags(enabled: boolean) {
     enabled,
   })
 
-  const options: TabbyImageTag[] = Array.from(new Set([...(remote.data ?? []), ...(local.data ?? [])]))
-    .map((tag) => ({
-      tag,
-      cached: (local.data ?? []).includes(tag),
-      label: TABBY_IMAGE_TAG_HINTS[tag] ? `${tag} — ${TABBY_IMAGE_TAG_HINTS[tag]}` : tag,
-    }))
+  const options = tabbyImageOptions(remote.data ?? [], local.data ?? [])
 
   return { options, loading: remote.isLoading, ...(remote.error ? { unread: errorMessage(remote.error) } : {}) }
 }

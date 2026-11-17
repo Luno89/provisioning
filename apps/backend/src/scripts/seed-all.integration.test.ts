@@ -14,9 +14,10 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, ...counts } = await seedAll(db, SEED_KEY);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, vllmLatestPinned, ...counts } = await seedAll(db, SEED_KEY);
     expect(signInLinksMoved).toBe(0);
     expect(clusterProvidersDropped).toBe(0);
+    expect(vllmLatestPinned).toBe(0);
     expect(githubCredentialsDropped).toBe(0);
     expect(unkeptAttachmentsDropped).toBe(0);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);

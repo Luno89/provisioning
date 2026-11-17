@@ -16,7 +16,7 @@ export interface ModelApp {
 export function modelImageOf(app: ModelApp): string | undefined {
   if (app.appType === 'vllm') {
     const repo = app.vllmGpuVendor === 'amd' ? 'vllm/vllm-openai-rocm' : 'vllm/vllm-openai';
-    if (app.webTag && app.webTag !== 'latest') return `${repo}:${app.webTag}`;
+    if (app.webTag && app.webTag !== VLLM_VERSION) return `${repo}:${app.webTag}`;
     return app.vllmGpuVendor === 'amd' ? VLLM_ROCM_IMAGE : VLLM_IMAGE;
   }
   if (app.appType === 'tabbyapi') return app.tabbyImageTag ? `ghcr.io/theroyallab/tabbyapi:${app.tabbyImageTag}` : TABBYAPI_IMAGE;

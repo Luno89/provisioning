@@ -447,7 +447,7 @@ export default function AppDashboard({
                            <TypedTag why={tabbyTagsUnread} value={configInputs.tabbyImageTag} onChange={tabbyImageTag => setConfigInputs(prev => ({ ...prev, tabbyImageTag }))} />
                          ) : (
                            <select value={configInputs.tabbyImageTag} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyImageTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
-                             {tabbyImageTagOptions.length === 0 && <option value={configInputs.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : configInputs.tabbyImageTag}</option>}
+                             {!tabbyImageTagOptions.some((opt) => opt.tag === configInputs.tabbyImageTag) && <option value={configInputs.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : configInputs.tabbyImageTag}</option>}
                              {tabbyImageTagOptions.map(opt => (
                                <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
                              ))}

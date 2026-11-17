@@ -24,7 +24,7 @@ const catalogueFixture: CatalogueEntry[] = [
     deploysFromSpec: false,
     uiDefaults: {
       helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
-      native: { webRepo: 'vllm/vllm-openai', webTag: 'latest', dbRepo: '', dbTag: '' },
+      native: { webRepo: 'vllm/vllm-openai', webTag: 'v0.32.0', dbRepo: '', dbTag: '' },
       hasDatabase: false,
       strategies: ['native'],
       gpuOnly: true,
@@ -35,7 +35,7 @@ const catalogueFixture: CatalogueEntry[] = [
     deploysFromSpec: false,
     uiDefaults: {
       helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
-      native: { webRepo: 'ghcr.io/theroyallab/tabbyapi', webTag: 'latest', dbRepo: '', dbTag: '' },
+      native: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
       hasDatabase: false,
       strategies: ['native'],
       gpuOnly: true,

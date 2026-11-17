@@ -1,4 +1,5 @@
 import { withBuiltIns } from '../../platform/lib/ownership.js';
+import { VLLM_VERSION } from './model-images.js';
 
 export interface SpecPort {
   name: string;
@@ -555,14 +556,14 @@ export const NATIVE_APP_UI_DEFAULTS: Record<string, AppUiDefaults> = {
   },
   vllm: {
     helm: BLANK_IMAGE,
-    native: { webRepo: 'vllm/vllm-openai', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'vllm/vllm-openai', webTag: VLLM_VERSION, dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['native'],
     gpuOnly: true,
   },
   tabbyapi: {
     helm: BLANK_IMAGE,
-    native: { webRepo: 'ghcr.io/theroyallab/tabbyapi', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: BLANK_IMAGE,
     hasDatabase: false,
     strategies: ['native'],
     gpuOnly: true,

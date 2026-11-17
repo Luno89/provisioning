@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createDatabase, databaseSettingsFrom, type Database, inviteExpiry, runOnce, type MigrationLedger, type SecretKey } from '../platform/index.js';
-import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/index.js';
+import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, VLLM_VERSION } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
@@ -26,6 +26,7 @@ export async function seedAll(db: Database, dataKey: SecretKey) {
   counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
   counts.releasesMarkedTold = (await runOnce(ledger, 'release-told-at', now, async () => ({ marked: await db.releases.markOdooReleasesTold() }))).marked ?? 0;
   counts.deploymentSecretsSealed = (await runOnce(ledger, 'deployment-secrets-sealed', now, async () => ({ sealed: await db.infrastructure.sealDeploymentSecrets() }))).sealed ?? 0;
+  counts.vllmLatestPinned = (await runOnce(ledger, 'vllm-latest-pinned', now, async () => ({ pinned: await db.infrastructure.pinVllmLatest(VLLM_VERSION) }))).pinned ?? 0;
   counts.shareTokensSealed = (await runOnce(ledger, 'share-tokens-sealed', now, async () => ({ sealed: await db.files.sealShareTokens() }))).sealed ?? 0;
   counts.signInLinksMoved = (await runOnce(ledger, 'sign-in-links', now, async () => ({ moved: await db.accounts.moveProviderIdsToLinks() }))).moved ?? 0;
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;

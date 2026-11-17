@@ -203,6 +203,16 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       expect((await store.getDeployments()).map((stored) => stored.id)).toEqual(['c']);
     });
 
+    it('moves a vLLM that followed the pin as latest onto the pinned version, and leaves every other tag and app as it was', async () => {
+      const store = await make();
+      await store.saveDeployment(deployment('a', { appType: 'vllm', webTag: 'latest' }));
+      await store.saveDeployment(deployment('b', { appType: 'vllm', webTag: 'v0.8.0' }));
+      await store.saveDeployment(deployment('c', { appType: 'tabbyapi', webTag: 'latest' }));
+      expect(await store.pinVllmLatest('v0.32.0')).toBe(1);
+      expect(await store.pinVllmLatest('v0.32.0')).toBe(0);
+      expect(Object.fromEntries((await store.getDeployments()).map((stored) => [stored.id, stored.webTag]))).toEqual({ a: 'v0.32.0', b: 'v0.8.0', c: 'latest' });
+    });
+
     it('has nothing left to seal when everything was saved through it', async () => {
       const store = await make();
       await store.saveDeployment(deployment('a', { minioRootPassword: 'pw' }));

@@ -140,6 +140,12 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
     return 0;
   }
 
+  async pinVllmLatest(version: string): Promise<number> {
+    const latest = this.deployments.all().filter((deployment) => deployment.appType === 'vllm' && deployment.webTag === 'latest');
+    for (const deployment of latest) await this.saveDeployment({ ...deployment, webTag: version });
+    return latest.length;
+  }
+
   async sealDeploymentSecrets(): Promise<number> {
     const plain = this.deployments.all().filter((deployment) => hasPlainSecret(deployment));
     for (const deployment of plain) await this.saveDeployment(deployment);

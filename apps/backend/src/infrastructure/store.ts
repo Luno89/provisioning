@@ -31,6 +31,7 @@ export interface InfrastructureStore extends AreaStore {
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
   sealDeploymentSecrets(): Promise<number>;
   dropClusterProviders(): Promise<number>;
+  pinVllmLatest(version: string): Promise<number>;
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
   deleteAppSpec(id: string): Promise<void>;
@@ -169,6 +170,10 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     const rows = await this.db().collection(RETIRED_CLUSTER_PROVIDERS).countDocuments();
     await this.db().dropCollection(RETIRED_CLUSTER_PROVIDERS);
     return rows;
+  }
+
+  async pinVllmLatest(version: string): Promise<number> {
+    return (await this.deployments.updateMany({ appType: 'vllm', webTag: 'latest' }, { $set: { webTag: version } })).modifiedCount;
   }
 
   async sealDeploymentSecrets(): Promise<number> {

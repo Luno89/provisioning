@@ -505,7 +505,7 @@ export default function AppDeployWizard({
                         <TypedTag why={tabbyTagsUnread} value={wizardData.tabbyImageTag} onChange={tabbyImageTag => setWizardData({...wizardData, tabbyImageTag})} />
                       ) : (
                         <select id="wizard-image-variant" value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
-                          {tabbyImageTagOptions.length === 0 && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
+                          {!tabbyImageTagOptions.some((opt) => opt.tag === wizardData.tabbyImageTag) && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
                           {tabbyImageTagOptions.map(opt => (
                             <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
                           ))}

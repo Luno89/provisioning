@@ -29,7 +29,7 @@ export const EMPTY_WIZARD_DATA = {
   tabbyRevision: '',
   tabbyGpuCount: '2',
   tabbyHfToken: '',
-  tabbyImageTag: 'latest',
+  tabbyImageTag: '',
   tabbyCacheMode: 'Q8',
   tabbyMaxSeqLen: '32768',
   tabbyMaxBatchSize: '',

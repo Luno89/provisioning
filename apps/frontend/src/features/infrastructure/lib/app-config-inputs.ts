@@ -7,7 +7,7 @@ export const EMPTY_CONFIG_INPUTS = {
   vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '',
   vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false,
   tabbyModel: '', tabbyRevision: '', tabbyGpuCount: '1', tabbyHfToken: '',
-  tabbyImageTag: 'latest', tabbyCacheMode: '', tabbyMaxSeqLen: '', tabbyMaxBatchSize: '',
+  tabbyImageTag: '', tabbyCacheMode: '', tabbyMaxSeqLen: '', tabbyMaxBatchSize: '',
   tabbyReasoning: false, tabbyToolFormat: '', tabbyInlineModelLoading: false,
   tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '', tabbyExtraEnv: '',
   openWebuiTargetId: '',
