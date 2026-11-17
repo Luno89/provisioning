@@ -59,7 +59,7 @@ export class VpnService {
 
     const sidecarContainer: DeploymentSpecTemplateSpecContainer = {
       name: "vpn-sidecar",
-      image: "alpine:3.19",
+      image: "alpine:3.20",
       securityContext: {
         capabilities: {
           add: ["NET_ADMIN"],

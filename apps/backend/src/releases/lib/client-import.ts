@@ -23,7 +23,7 @@ export interface BackupManifest {
 
 export const IMPORT_MOUNT = '/import';
 export const IMPORT_FILE = `${IMPORT_MOUNT}/backup.zip`;
-export const HOLDER_IMAGE = 'busybox:1.36.1';
+export const HOLDER_IMAGE = 'busybox:1.37';
 export const MISSING_MARK = 'missing modules: ';
 export const VERSION_MARK = 'wrong version: ';
 

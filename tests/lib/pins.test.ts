@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ciToolLine, ciTools } from '../../scripts/pin.mjs';
+import { pinsWritten } from '../../scripts/pins-write.mjs';
 
 interface Use { file: string; pattern: string; arch?: string }
 interface Component {
@@ -15,6 +16,7 @@ interface Component {
   released?: string;
   uses?: Use[];
   shaUses?: Use[];
+  sourceUses?: Use[];
 }
 interface Pins { components: Component[]; unpinned: { name: string; how: string; usedIn: string[] }[] }
 
@@ -48,6 +50,10 @@ describe('the pins file', () => {
         expect(new Set(found(use)), `${component.name}'s ${use.arch ?? ''} checksum in ${use.file}`).toEqual(new Set([wanted]));
       }
     }
+  });
+
+  it('is what every file says, sources included, so npm run pins:write would change nothing', () => {
+    expect([...pinsWritten(pins, read).keys()]).toEqual([]);
   });
 
   it('hands ci-tools.sh each tool, which holds no version or checksum of its own', () => {

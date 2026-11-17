@@ -2376,8 +2376,11 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   `-- --no-push` stops before the push.
 - **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
   in `dependencies.pins.json` with its version, checksum and the files that name it, and one from GitHub or a chart repository with when it was released (`node scripts/pin-dates.mjs` fills it, from the tag or the repository's index), so the daily check asks nobody for it; `scripts/ci-tools.sh` reads its tools from it
-  (`scripts/pin.mjs`), and `tests/lib/pins.test.ts` fails when a file names a version or checksum the pins file does not. Its
-  `unpinned` list is empty: no `curl | sh` is left, and every installer checks a sha256 before it runs. `npm run deps:inventory`
+  (`scripts/pin.mjs`). **A version, checksum or chart repository is edited only in the pins file** (owner, 2026-11-17: "reconcile them
+  into that dependencies.pins.json file"): each pin records every place that names it, `npm run pins:write` writes them all from it, and the
+  pins tests fail when a file says otherwise or names an image or chart repository the pins file does not account for. What Koala cannot
+  pin yet is in its `unpinned` list with why (floating tags of the apps outside v1, the two charts with no version, `latest` markers that
+  name a pinned image). No `curl | sh` is left, and every installer checks a sha256 before it runs. `npm run deps:inventory`
   (`scripts/deps-inventory.mjs`, node only) writes a CycloneDX inventory: npm from the lockfile (development-only marked), the machine
   agent's packages as Node resolves them, and every pinned or unpinned component; the Release workflow attaches it to each release
   as `sbom-<version>.cdx.json`, and root keeps one per release it runs beside its chart (`ReleaseCatalogue`, `<image tag>.sbom.json`).
