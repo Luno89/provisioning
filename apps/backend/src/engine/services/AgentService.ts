@@ -19,7 +19,7 @@ import {
 } from '@koala/agent-engine';
 import type { AgentDirectory, GrantMeta } from '../../engine-host/registries/agent-directory.js';
 import { sameSeededRow } from '../../platform/index.js';
-import { missingGrants, type Procedure } from '@koala/agent-engine/procedure';
+import { missingGrants, type GroupDefinition, type Procedure } from '@koala/agent-engine/procedure';
 import type { ImageStanding } from '../../engine-host/sandboxes/image-builder.js';
 import { platformGroups } from '../../extensions/installed.js';
 import { usesNode } from '../lib/procedure-reach.js';
@@ -51,6 +51,7 @@ export interface AgentServiceOptions {
   };
   tools(ownerId: string): Promise<ToolDefinition[]>;
   procedures(ownerId: string): Promise<readonly Procedure[]>;
+  published?: ((ownerId: string) => Promise<readonly GroupDefinition[]>) | undefined;
   servers?: ((ownerId: string) => Promise<readonly McpServerRecord[]>) | undefined;
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
   images?: {
@@ -74,6 +75,7 @@ export function agentProblems(
     agents: ReadonlySet<string>;
     personas?: readonly Persona[] | undefined;
     servers?: readonly string[] | undefined;
+    groups?: readonly GroupDefinition[] | undefined;
   },
 ): string[] {
   if (typeof value !== 'object' || value === null) return ['an agent has to be an object'];
@@ -90,11 +92,15 @@ export function agentProblems(
   if (typeof agent.procedure !== 'string' || !agent.procedure.trim()) problems.push('the agent has to name the procedure it runs');
   else if (!runs) problems.push(`there is no procedure called "${agent.procedure}"`);
 
-  for (const missing of missingGrants(runs, { tools: agent.tools, agents: agent.agents }, platformGroups())) {
-    problems.push(
-      `${agent.procedure} needs it to have ${missing.kind === 'agent' ? 'the agent' : 'the tool'} `
-      + `"${missing.name}" — ${missing.why}`,
-    );
+  try {
+    for (const missing of missingGrants(runs, { tools: agent.tools, agents: agent.agents }, [...platformGroups(), ...(known.groups ?? [])])) {
+      problems.push(
+        `${agent.procedure} needs it to have ${missing.kind === 'agent' ? 'the agent' : 'the tool'} `
+        + `"${missing.name}" — ${missing.why}`,
+      );
+    }
+  } catch (error) {
+    problems.push(`its procedure ${agent.procedure} cannot be read: ${(error as Error).message}`);
   }
 
   const EFFECTS = ['read', 'propose', 'write'];
@@ -254,11 +260,12 @@ export class AgentService {
   }
 
   async save(ownerId: string, input: unknown, granter?: Principal | undefined): Promise<SaveAgentOutcome> {
-    const [tools, procedures, { agents }, servers] = await Promise.all([
+    const [tools, procedures, { agents }, servers, groups] = await Promise.all([
       this.options.tools(ownerId),
       this.options.procedures(ownerId),
       this.all(ownerId),
       this.servers(ownerId),
+      this.options.published?.(ownerId) ?? [],
     ]);
 
     const problems = agentProblems(input, {
@@ -267,6 +274,7 @@ export class AgentService {
       agents: new Set(agents.map((agent) => agent.slug)),
       personas: agents,
       servers: servers.map((server) => server.name),
+      groups,
     });
     if (problems.length > 0) return { saved: false, problems };
     const wanted: Persona = { ...(input as Persona), ownerId };

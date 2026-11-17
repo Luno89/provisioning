@@ -528,6 +528,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
+      published: (ownerId: string) => extensions.groups(ownerId),
       treeTypes: async (ownerId: string) => treeTypeChoices(await db.projects.getTreeTypes(ownerId), ownerId),
       servers: (ownerId: string) => db.engine.getMcpServers(ownerId),
       dependencies: dependenciesOf,

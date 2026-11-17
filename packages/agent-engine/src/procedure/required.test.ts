@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { missingGrants, requiredGrants, stepNeeds, stepNeedsFrom } from './required.js';
 import { DO_ONE_TASK_V2, TOOL_ROUNDS_V2 } from './seeds/procedures.js';
 import { BUILT_IN_GROUPS } from './seeds/groups.js';
+import { PROCEDURE_SCHEMA, type GroupDefinition, type Procedure } from './schema.js';
 
 describe('what a procedure requires of whoever runs it', () => {
   it('names every tool it calls and every persona it hands work to', () => {
@@ -80,5 +81,33 @@ describe('what a procedure\'s steps need in the workspace', () => {
   it('is nothing for a procedure with no such step, or none at all', () => {
     expect(stepNeeds(TOOL_ROUNDS_V2, operations, BUILT_IN_GROUPS)).toEqual([]);
     expect(stepNeeds(undefined, operations)).toEqual([]);
+  });
+});
+
+describe('a procedure that uses a group', () => {
+  const loudCall: GroupDefinition = {
+    id: 'loud.call@1', title: 'Call', describe: 'Calls mark_done.', inputs: [], outputs: [],
+    exits: [{ name: 'done', describe: 'Called.', from: { node: 'call', exit: 'ok' } }],
+    start: 'call', wires: [], flow: [],
+    nodes: [{ id: 'call', kind: 'call-tool', settings: { tool: 'mark_done' }, position: { x: 0, y: 0 } }],
+  };
+  const using = (group: string): Procedure => ({
+    schema: PROCEDURE_SCHEMA, id: 'caller', version: '1', name: 'Caller', describe: 'calls', budget: {}, start: 'step', groups: [],
+    nodes: [
+      { id: 'step', kind: 'group', group, settings: {}, position: { x: 0, y: 0 } },
+      { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 260, y: 0 } },
+    ],
+    wires: [],
+    flow: [{ from: 'step', exit: 'done', to: 'done' }],
+  });
+
+  it('finds what a published group\'s steps drive', () => {
+    expect(requiredGrants(using('loud.call@1'), [loudCall]).map((grant) => [grant.name, grant.kind, grant.node])).toEqual([['mark_done', 'tool', 'step']]);
+  });
+
+  it('says why a group cannot be expanded, rather than reading only its top level', () => {
+    expect(() => requiredGrants(using('ghost.gone@1'), [loudCall])).toThrow('uses group "ghost.gone@1", which does not exist');
+    expect(() => missingGrants(using('ghost.gone@1'), {}, [loudCall])).toThrow('uses group "ghost.gone@1", which does not exist');
+    expect(() => stepNeedsFrom(using('ghost.gone@1'), [], [loudCall])).toThrow('uses group "ghost.gone@1", which does not exist');
   });
 });

@@ -23,12 +23,8 @@ function nodesOf(
   procedure: Procedure,
   shared: readonly GroupDefinition[],
 ): { nodes: PlacedNode[]; origin: ReadonlyMap<string, string> } {
-  try {
-    const expanded = expandGroups(procedure, groupLibrary(procedure, shared));
-    return { nodes: expanded.body.nodes, origin: expanded.origin };
-  } catch {
-    return { nodes: procedure.nodes, origin: new Map() };
-  }
+  const expanded = expandGroups(procedure, groupLibrary(procedure, shared));
+  return { nodes: expanded.body.nodes, origin: expanded.origin };
 }
 
 export function requiredGrants(

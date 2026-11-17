@@ -177,4 +177,22 @@ describe('a person\'s procedures', () => {
     expect(JSON.stringify(refused.problems)).toMatch(/loud.shout@1, from an extension that is switched off/);
     expect(JSON.stringify(await service.check(OWNER, greeter))).toMatch(/switched off/);
   });
+
+  it('lists a procedure whose group cannot be expanded among the unreadable, saying why, rather than with what its top level needs', async () => {
+    const broken = {
+      schema: PROCEDURE_SCHEMA, id: 'broken', version: '1', name: 'Broken', describe: 'uses a group that is gone', budget: {}, start: 'step', groups: [],
+      nodes: [
+        { id: 'step', kind: 'group', group: 'ghost.gone@1', settings: {}, position: { x: 0, y: 0 } },
+        { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 260, y: 0 } },
+      ],
+      wires: [],
+      flow: [{ from: 'step', exit: 'done', to: 'done' }],
+    };
+    const service = serviceOn(memoryDatabase(), {
+      procedures: { list: async () => [{ ...broken, ownerId: OWNER }], problems: async () => [] },
+    });
+    const listed = await service.list(OWNER);
+    expect(listed.procedures).toEqual([]);
+    expect(listed.unreadable).toEqual([{ id: 'broken', report: 'uses group "ghost.gone@1", which does not exist' }]);
+  });
 });

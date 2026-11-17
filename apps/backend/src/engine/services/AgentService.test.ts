@@ -2,6 +2,7 @@ import { arrayWith, objectWith } from '../../platform/lib/test-matchers.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 import { describe, it, expect, vi } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
+import { PROCEDURE_SCHEMA, type GroupDefinition, type Procedure } from '@koala/agent-engine/procedure';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { directoryFromDatabase } from '../../engine-host/registries/agent-directory.js';
 import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
@@ -31,7 +32,7 @@ const agent = (over: Partial<Persona> = {}): Persona => ({
 
 const known = () => ({ tools: tools(), procedures: PROCEDURES, agents: AGENTS });
 
-async function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[] } = {}) {
+async function service(over: { image?: ImageStanding; treeTypes?: { id: string; label: string; agent?: string }[]; servers?: McpServerRecord[]; procedures?: Procedure[]; published?: GroupDefinition[] } = {}) {
   const db = memoryDatabase();
   const stored = () => db.engine.getEnginePersonas();
   const started: string[] = [];
@@ -56,7 +57,8 @@ async function service(over: { image?: ImageStanding; treeTypes?: { id: string; 
         remove: (ownerId, slug) => db.engine.deleteEnginePersona(ownerId, slug),
       },
       tools: async () => tools(),
-      procedures: async () => [...PROCEDURES],
+      procedures: async () => [...PROCEDURES, ...(over.procedures ?? [])],
+      ...(over.published ? { published: async () => over.published! } : {}),
       treeTypes: async () => over.treeTypes ?? [],
       ...(over.servers ? { servers: async () => over.servers! } : {}),
       images,
@@ -326,6 +328,37 @@ describe('agents you can edit', () => {
     const { agents } = await service();
 
     expect(await agents.remove('user-1', 'research')).toBe(false);
+  });
+});
+
+describe('an agent whose procedure uses a published group', () => {
+  const loudCall: GroupDefinition = {
+    id: 'loud.call@1', title: 'Call', describe: 'Calls mark_done.', inputs: [], outputs: [],
+    exits: [{ name: 'done', describe: 'Called.', from: { node: 'call', exit: 'ok' } }],
+    start: 'call', wires: [], flow: [],
+    nodes: [{ id: 'call', kind: 'call-tool', settings: { tool: 'mark_done', says: 'It marks the task done.' }, position: { x: 0, y: 0 } }],
+  };
+  const using = (id: string, group: string): Procedure => ({
+    schema: PROCEDURE_SCHEMA, id, version: '1', name: id, describe: 'calls', budget: {}, start: 'step', groups: [],
+    nodes: [
+      { id: 'step', kind: 'group', group, settings: {}, position: { x: 0, y: 0 } },
+      { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 260, y: 0 } },
+    ],
+    wires: [],
+    flow: [{ from: 'step', exit: 'done', to: 'done' }],
+  });
+
+  it('refuses an agent whose procedure\'s group cannot be expanded, and finds a missing grant inside a published group', async () => {
+    const { agents, stored } = await service({ procedures: [using('caller', 'loud.call@1'), using('broken', 'ghost.gone@1')], published: [loudCall] });
+
+    const broken = await agents.save('user-1', agent({ procedure: 'broken' }));
+    expect(broken).toEqual({ saved: false, problems: ['its procedure broken cannot be read: uses group "ghost.gone@1", which does not exist'] });
+
+    const missing = await agents.save('user-1', agent({ procedure: 'caller', tools: [] }));
+    expect(missing).toEqual({ saved: false, problems: ['caller needs it to have the tool "mark_done" — It marks the task done.'] });
+
+    expect((await agents.save('user-1', agent({ procedure: 'caller', tools: ['mark_done'] }))).saved).toBe(true);
+    expect((await stored()).map((record) => record.procedure)).toEqual(['caller']);
   });
 });
 

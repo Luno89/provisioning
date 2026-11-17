@@ -59,25 +59,34 @@ export class ProcedureService {
   }
 
   async list(ownerId: string): Promise<{ procedures: ProcedureSummary[]; unreadable: UnreadableProcedure[] }> {
-    const [procedures, unreadable] = await Promise.all([
+    const [procedures, problems, published] = await Promise.all([
       this.options.procedures.list(ownerId),
       this.options.procedures.problems(ownerId),
+      this.options.published?.(ownerId) ?? [],
     ]);
+    const groups = [...platformGroups(), ...published];
+    const unreadable = [...problems];
+    const summaries: ProcedureSummary[] = [];
+    for (const procedure of procedures) {
+      let requires: RequiredGrant[];
+      try {
+        requires = requiredGrants(procedure, groups);
+      } catch (error) {
+        unreadable.push({ id: procedure.id, report: (error as Error).message });
+        continue;
+      }
+      summaries.push({
+        id: procedure.id,
+        version: procedure.version,
+        name: procedure.name,
+        describe: procedure.describe,
+        mine: procedure.ownerId === ownerId,
+        ofBuiltIn: this.builtIns.has(procedure.id),
+        requires,
+      });
+    }
 
-    return {
-      procedures: procedures
-        .map((procedure) => ({
-          id: procedure.id,
-          version: procedure.version,
-          name: procedure.name,
-          describe: procedure.describe,
-          mine: procedure.ownerId === ownerId,
-          ofBuiltIn: this.builtIns.has(procedure.id),
-          requires: requiredGrants(procedure, platformGroups()),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-      unreadable,
-    };
+    return { procedures: summaries.sort((a, b) => a.name.localeCompare(b.name)), unreadable };
   }
 
   async get(ownerId: string, id: string): Promise<{ procedure: Procedure; mine: boolean } | undefined> {
