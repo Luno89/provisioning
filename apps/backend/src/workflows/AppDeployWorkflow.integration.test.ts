@@ -53,7 +53,7 @@ const placedRefused = async (args: DeployAppArgs) => {
   await access.kubectl(reach, ['create', 'namespace', namespace]);
   await access.kubectl(reach, ['create', 'quota', 'none', '-n', namespace, '--hard=pods=0']);
   await access.kubectl(reach, ['create', 'deployment', args.name, '-n', namespace, '--image=registry.k8s.io/pause:3.9']);
-  while (!(await access.kubectl(reach, ['get', 'replicasets', '-n', namespace, '-o', 'jsonpath={.items[*].status.conditions[*].reason}'])).includes('FailedCreate'));
+  await access.kubectl(reach, ['wait', `deployment/${args.name}`, '-n', namespace, '--for=condition=ReplicaFailure', '--timeout=720h']);
   return { status: 'running', msg: 'deployed', displayUrl: '' };
 };
 

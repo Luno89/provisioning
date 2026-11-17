@@ -104,6 +104,8 @@ describe('an app exposed on this computer through the instance\'s real edge', ()
     const nodeAddress = (await access.kubectl('machine-desk', ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'])).trim();
     const nodePort = (await access.kubectl('machine-desk', ['get', 'service', 'traefik', '-n', 'traefik', '-o', 'jsonpath={.spec.ports[0].nodePort}'])).trim();
     while ((await nodeProcesses.run({ command: 'docker', args: ['exec', edgeName, 'wget', '-q', '-T', '5', '-O', '-', `http://${nodeAddress}:${nodePort}/`] })).stdout !== 'from-the-app\n') {
+      const edgeState = (await nodeProcesses.run({ command: 'docker', args: ['inspect', '-f', '{{.State.Status}}', edgeName] })).stdout.trim();
+      if (edgeState !== 'running') throw new Error(`the edge ${edgeName} is ${edgeState}`);
       await new Promise((done) => setTimeout(done, 200));
     }
     await db.infrastructure.saveCluster({ ...machine, meshIp: nodeAddress });

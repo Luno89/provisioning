@@ -84,14 +84,16 @@ describe('an instance\'s clients against root\'s own routes', () => {
   it('reads and switches nested addresses through root, republishing the apps only when they become ready or stop, and asking again while they are issued', async () => {
     const { instance, harness, record } = await rootWithAnInstance();
     let republished = 0;
-    const addresses = new InstanceAddresses({ ...instance, name: 'luno' }, async () => { republished += 1; }, undefined, 25);
+    let firstRepublish!: () => void;
+    const republishedOnce = new Promise<void>((done) => { firstRepublish = done; });
+    const addresses = new InstanceAddresses({ ...instance, name: 'luno' }, async () => { republished += 1; firstRepublish(); }, undefined, 25);
     try {
       expect(await addresses.refresh()).toMatchObject({ nested: false, name: 'luno', domain: 'koala.dev' });
       expect(addresses.nestedReady()).toBe(false);
       expect(await addresses.set(true)).toMatchObject({ nested: true, state: 'issuing' });
       expect(republished).toBe(0);
       await harness.db.instances.saveInstance({ ...(await record()), addresses: { nested: true, state: 'ready' } });
-      for (let waited = 0; republished === 0 && waited < 200; waited += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+      await republishedOnce;
       expect(addresses.nestedReady()).toBe(true);
       expect(republished).toBe(1);
       expect(await addresses.set(false)).toMatchObject({ nested: false });

@@ -26,14 +26,21 @@ const open = async (script: AgentScript, answer: (ask: PermissionAsk) => Promise
   await writeFile(scriptPath, JSON.stringify(script));
   const events: AgentEvent[] = [];
   const asks: PermissionAsk[] = [];
+  const watching: Array<() => void> = [];
+  const changed = () => { for (const look of watching) look(); };
+  const heard = (seen: () => boolean): Promise<void> => new Promise((done) => {
+    const look = () => { if (seen()) done(); };
+    watching.push(look);
+    look();
+  });
   session = await openAcpSession({
     launch: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] },
     cwd: path.join(dir, 'work'),
-    onEvent: (event) => events.push(event),
-    onPermission: (ask) => { asks.push(ask); return answer(ask); },
+    onEvent: (event) => { events.push(event); changed(); },
+    onPermission: (ask) => { asks.push(ask); changed(); return answer(ask); },
     ...extra,
   });
-  return { session, events, asks };
+  return { session, events, asks, heard };
 };
 
 const script = (steps: AgentScript['turns'][number]['steps'], more: Partial<AgentScript> = {}): AgentScript => ({ name: 'scripted', version: '1.2.3', turns: [{ steps }], ...more });
@@ -94,18 +101,18 @@ describe('a session with an ACP agent', () => {
   });
 
   it('stops a turn when cancelled, and answers a permission still waiting as cancelled', async () => {
-    const { session } = await open({ name: 'scripted', version: '1', turns: [
+    const { session, events, asks, heard } = await open({ name: 'scripted', version: '1', turns: [
       { steps: [{ say: 'working' }, { wait: 60_000 }, { say: 'never' }] },
       { steps: [{ tool: { id: 'ask', title: 'deploy', kind: 'execute' }, ask: true }] },
     ] }, () => new Promise<PermissionAnswer>(() => {}));
 
     const turn = session.prompt('go');
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await Promise.race([heard(() => events.some((event) => event.type === 'text' && event.delta === 'working')), turn]);
     await session.cancel();
     expect(await turn).toEqual({ stopReason: 'cancelled' });
 
     const asking = session.prompt('deploy');
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await Promise.race([heard(() => asks.length === 1), asking]);
     await session.cancel();
     expect(await asking).toEqual({ stopReason: 'cancelled' });
   });
@@ -126,9 +133,9 @@ describe('a session with an ACP agent', () => {
   });
 
   it('switches the agent\'s mode', async () => {
-    const { session, events } = await open(script([], { modes: { current: 'ask', available: [{ id: 'ask', name: 'Ask' }, { id: 'auto', name: 'Auto' }] } }));
+    const { session, events, heard } = await open(script([], { modes: { current: 'ask', available: [{ id: 'ask', name: 'Ask' }, { id: 'auto', name: 'Auto' }] } }));
     await session.setMode('auto');
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await heard(() => events.some((event) => event.type === 'mode'));
     expect(events).toContainEqual({ type: 'mode', modeId: 'auto' });
   });
 

@@ -368,8 +368,10 @@ describe('what an instance does when the sign-in does not go through', () => {
     instance.up = true;
     root.up = false;
     const said: string[] = [];
-    signIn.keepAnnouncing((message) => said.push(message), reopening(5));
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    let first!: () => void;
+    const saidOnce = new Promise<void>((done) => { first = done; });
+    signIn.keepAnnouncing((message) => { said.push(message); first(); }, reopening(5));
+    await saidOnce;
     expect(said.length).toBeGreaterThanOrEqual(1);
     expect(said[0]).toMatch(/^root has not taken this instance's sign-in key yet: .*; trying again in 0 s$/);
     root.up = true;

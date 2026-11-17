@@ -30,7 +30,7 @@ const startScaffold = async (): Promise<string> => {
   child.stderr?.on('data', (chunk: Buffer) => { said += chunk.toString(); });
   child.once('exit', (code, signal) => { ended = `it exited with ${signal ?? code}`; });
   const url = `http://127.0.0.1:${port}/mcp`;
-  for (let i = 0; i < 60 && ended === undefined; i++) {
+  while (ended === undefined) {
     try {
       await fetch(`http://127.0.0.1:${port}/health`);
       return url;

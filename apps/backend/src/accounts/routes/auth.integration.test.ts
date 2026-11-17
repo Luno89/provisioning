@@ -499,7 +499,6 @@ describe('auth router', () => {
     const unknown = await (await post('/api/auth/password/forgot', { email: 'nobody@example.com' })).json() as Record<string, unknown>;
     expect(Object.keys(known)).toEqual(['reset']);
     expect(Object.keys(unknown)).toEqual(['reset']);
-    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(sent.map((message) => message.to)).toEqual(['first@example.com']);
     const code = /\b(\d{6})\b/.exec(sent[0]!.text)![1];
     expect((await post('/api/auth/password/reset', { id: known.reset, code, password: 'a-brand-new-password' })).status).toBe(200);

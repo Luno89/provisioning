@@ -88,9 +88,11 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     expect(heard).toMatchObject({ deviceToken: 'program-device-token', workToken: 'program-work-token', agents: { agents: [] } });
 
     toRoot[0]!.emit('machine:koala', { url: koala.url, workToken: 'program-work-token-2' });
-    while (!said.join('').includes('took a new work token')) await new Promise((done) => setTimeout(done, 100));
+    while (child.exitCode === null && !said.join('').includes('took a new work token')) await new Promise((done) => setTimeout(done, 100));
+    expect(child.exitCode, said.join('')).toBeNull();
     for (const socket of koala.io.of('/agent').sockets.values()) socket.conn.close();
-    while (heard.workToken !== 'program-work-token-2') await new Promise((done) => setTimeout(done, 100));
+    while (child.exitCode === null && heard.workToken !== 'program-work-token-2') await new Promise((done) => setTimeout(done, 100));
+    expect(child.exitCode, said.join('')).toBeNull();
 
     child.kill('SIGTERM');
     expect(await ended).toBe(0);

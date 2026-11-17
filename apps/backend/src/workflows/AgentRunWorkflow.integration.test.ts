@@ -105,6 +105,8 @@ function activities(options: {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
   const seen: ChatMessage[][] = [];
+  let calledOnce!: () => void;
+  const called = new Promise<void>((done) => { calledOnce = done; });
   const aborted: string[] = [];
   let turn = 0;
   const launched: { runId: string; modelId?: string | undefined }[] = [];
@@ -128,6 +130,7 @@ function activities(options: {
 
   const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
     seen.push(structuredClone(inputs.messages as ChatMessage[]));
+    calledOnce();
     launched.push({ runId: run.identity.runId, modelId: run.launch.modelId });
     const next = options.script[Math.min(turn, options.script.length - 1)]!;
     turn += 1;
@@ -158,6 +161,7 @@ function activities(options: {
 
   return {
     seen,
+    called,
     launched,
     aborted,
     efforts,
@@ -382,7 +386,11 @@ describe('AgentRunWorkflow', () => {
 
     let waitedOn: string[] | undefined;
     const result = await runWorkflow(input('executor', TOOL_ROUNDS_V2), acts, async (handle) => {
-      while (!(await handle.query(stateQuery)).asking) await new Promise((resolve) => setTimeout(resolve, 50));
+      while (!(await handle.query(stateQuery)).asking) {
+        const { status } = await handle.describe();
+        if (status.name !== 'RUNNING') throw new Error(`the run ended ${status.name} without asking`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       waitedOn = (await handle.query(stateQuery)).asking;
       await handle.signal(approveSignal, { callId: 'c1', allowed: true });
     });
@@ -573,8 +581,7 @@ describe('AgentRunWorkflow', () => {
     const args = input('koala', delegating('research'));
 
     const result = await runWorkflow(args, acts, async (handle) => {
-      const deadline = Date.now() + 20_000;
-      while (acts.seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+      await Promise.race([acts.called, handle.result()]);
       await handle.signal(cancelSignal);
     });
 

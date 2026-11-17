@@ -454,8 +454,10 @@ describe('a command that may run long', () => {
     const run = execFileAsync;
     const id = `test-${Date.now()}`;
     const marker = `koala-grandchild-${Date.now()}`;
-    const started = run('sh', ['-c', GROUPED_EXEC, 'sh', id, `sh -c 'sleep 30; echo ${marker}' & sleep 30`]).catch((err: { code?: number }) => err);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    let finished = false;
+    const started = run('sh', ['-c', GROUPED_EXEC, 'sh', id, `sh -c 'sleep 30; echo ${marker}' & sleep 30`]).catch((err: { code?: number }) => err).finally(() => { finished = true; });
+    while (!finished && !(await run('ps', ['-eo', 'args'])).stdout.includes(`echo ${marker}`)) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
     await run('sh', ['-c', STOP_GROUPED_EXEC, 'sh', id]);
     await started;
     const { stdout } = await run('ps', ['-eo', 'args']);
