@@ -6,7 +6,7 @@ import { ago } from '../../projects'
 import { EpisodeList, FiringList, RuleList, Section, StateBadge } from '../../monitoring'
 import { useAlerts } from '../../monitoring'
 import { hashFor } from '../lib/opens'
-import { dependencyLines } from '../lib/dependency-lines'
+import { dependencyLines, egressBehindLine } from '../lib/dependency-lines'
 import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
 import { KoalaSection } from './KoalaSection'
@@ -27,9 +27,9 @@ function NeedsAttention() {
   if (view.isPending) return <Section title="Needs attention"><div className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading every cluster and what runs…</div></Section>
   if (view.isError) return <Section title="Needs attention"><p className="text-[12px] text-rose-300">{errorMessage(view.error)}</p></Section>
 
-  const { monitoring, workloads, unreadClusters, waiting, failures, runningProblem, dependencies, dependenciesUnread, signals = [] } = view.data
+  const { monitoring, workloads, unreadClusters, waiting, failures, runningProblem, dependencies, dependenciesUnread, egressBehind, signals = [] } = view.data
   const notAnswering = dependencyLines(dependencies)
-  const nothing = !notAnswering.length && !dependenciesUnread && !signals.length && !waiting.length && !monitoring.attention.length && !workloads.length && !unreadClusters.length && !failures.length && !monitoring.firing.length
+  const nothing = !notAnswering.length && !dependenciesUnread && !egressBehind && !signals.length && !waiting.length && !monitoring.attention.length && !workloads.length && !unreadClusters.length && !failures.length && !monitoring.firing.length
 
   return (
     <Section title="Needs attention" right={<span className="text-[11px] text-slate-500">checked {ago(monitoring.checkedAt)}</span>}>
@@ -50,6 +50,13 @@ function NeedsAttention() {
               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-300"><XCircle size={11} /> Not known</span>
               <span className="font-semibold text-slate-100">What the workers see of their dependencies</span>
               <span className="text-slate-400">It could not be read, so a dependency they cannot reach would not show here: {dependenciesUnread}</span>
+            </li>
+          )}
+          {egressBehind && (
+            <li className={row} data-testid="attention-egress-behind">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-300"><XCircle size={11} /> Not synced</span>
+              <span className="font-semibold text-slate-100">Sandboxes' egress proxy</span>
+              <span className="text-slate-400">{egressBehindLine(egressBehind)}</span>
             </li>
           )}
           {signals.map((signal) => (

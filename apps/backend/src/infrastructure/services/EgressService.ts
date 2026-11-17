@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
+import { failureOf } from '@koala/engine-core/failures';
+import type { Reopening } from '@koala/engine-core/reopening';
+import { keepTrying } from '../../platform/lib/keep-trying.js';
 
 export interface EgressStore {
   getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
@@ -17,8 +20,47 @@ export type EgressDecision =
   | { ok: true; request?: EgressRequest | undefined; grant?: EgressGrantRecord | undefined }
   | { ok: false; status: 404 | 409 | 502; error: string };
 
+export interface ProxyBehind {
+  since: string;
+  reason: string;
+}
+
+export interface EgressDeps {
+  store: EgressStore;
+  proxy: EgressProxy;
+  now?: () => string;
+  newId?: () => string;
+  again?: () => Reopening;
+  log?: (message: string) => void;
+}
+
 export class EgressService {
-  constructor(private readonly deps: { store: EgressStore; proxy: EgressProxy; now?: () => string; newId?: () => string }) {}
+  private behind: ProxyBehind | undefined;
+  private retrying = false;
+
+  constructor(private readonly deps: EgressDeps) {}
+
+  proxyBehindSince(): ProxyBehind | undefined {
+    return this.behind;
+  }
+
+  keepSynced(): Promise<boolean> {
+    if (this.retrying) return Promise.resolve(false);
+    return keepTrying('[egress] the proxy does not hold the current grants yet', async () => {
+      try {
+        await this.syncProxy();
+      } catch (err) {
+        this.fellBehind(err);
+        this.retrying = true;
+        throw err;
+      }
+      this.retrying = false;
+    }, this.deps.log ?? ((message) => console.warn(message)), this.deps.again?.());
+  }
+
+  private fellBehind(err: unknown): void {
+    this.behind ??= { since: this.now(), reason: failureOf(err).reason };
+  }
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
@@ -34,6 +76,7 @@ export class EgressService {
 
   async syncProxy(): Promise<void> {
     await this.deps.proxy.sync(await this.deps.store.getEgressGrants());
+    this.behind = undefined;
   }
 
   private async open(ownerId: string, id: string): Promise<{ opened: EgressRequest } | EgressDecision> {
@@ -87,6 +130,8 @@ export class EgressService {
     try {
       await this.syncProxy();
     } catch (err) {
+      this.fellBehind(err);
+      void this.keepSynced();
       return { ok: false, status: 502, error: `Revoked, but the proxy could not be updated yet: ${(err as Error).message}` };
     }
     return { ok: true, grant: revoked };

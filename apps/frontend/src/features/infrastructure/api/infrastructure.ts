@@ -148,7 +148,14 @@ export interface InfrastructureOverview {
   failures: WorkFailure[]
   dependencies: DependencyDown[]
   dependenciesUnread?: string
+  egressBehind?: EgressBehind
   signals: SignalView[]
+}
+
+/** ── DUPLICATED, KNOWINGLY ── `ProxyBehind` in apps/backend/src/infrastructure/services/EgressService.ts is the authority. */
+export interface EgressBehind {
+  since: string
+  reason: string
 }
 
 /**

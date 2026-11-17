@@ -35,7 +35,7 @@ export interface ActionsWiringDeps {
   clusters: { getById(id: string, principal: Principal, action: 'deploy-to'): Promise<unknown> };
 }
 
-export function wireActions(deps: ActionsWiringDeps): void {
+export function wireActions(deps: ActionsWiringDeps): { egress: EgressService } {
   const { tenant, db, role, agentsHolder } = deps;
   const viewerOf = async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(role));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db.projects, vault: deps.infisical }) }));
@@ -67,7 +67,6 @@ export function wireActions(deps: ActionsWiringDeps): void {
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));
   tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
-  if (!deps.underTest && servesTenants(role)) {
-    egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
-  }
+  if (!deps.underTest && servesTenants(role)) void egressService.keepSynced();
+  return { egress: egressService };
 }

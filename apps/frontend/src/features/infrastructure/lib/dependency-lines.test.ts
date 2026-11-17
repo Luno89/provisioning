@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dependencyLines } from './dependency-lines'
+import { dependencyLines, egressBehindLine } from './dependency-lines'
 import type { DependencyDown } from '../api/infrastructure'
 
 const at = (iso: string) => `at ${iso}`
@@ -49,5 +49,12 @@ describe('the item Needs attention shows for a dependency that is down', () => {
   it('puts root first, then the rest by how long they have been down', () => {
     const temporal: DependencyDown = { ...gitea, dependency: 'temporal', name: 'Temporal', since: '2026-11-08T09:00:00.000Z', process: 'backend' }
     expect(dependencyLines([gitea, root, temporal], at).map((line) => line.key)).toEqual(['root', 'temporal', 'gitea'])
+  })
+})
+
+describe('the item Needs attention shows while sandboxes\' egress proxy is behind', () => {
+  it('says the proxy still holds grants from before when, and why it has not taken the current ones', () => {
+    expect(egressBehindLine({ since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' }, at))
+      .toBe('Sandboxes\' egress proxy still holds grants from before at 2026-11-17T10:00:00.000Z: it refused the connection (ECONNREFUSED)')
   })
 })

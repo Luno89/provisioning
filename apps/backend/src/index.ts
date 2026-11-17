@@ -433,11 +433,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, sharing: () => hub.sharingService, getOwnedProject,
   });
+  const { egress } = wireActions({
+    tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
+    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
+  });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
     bench, keeper: memoryKeeper, access: clusterAccess, koala: koalaPlace(settings.clusters.here, isOff(settings.terraform) ? undefined : settings.terraform),
     dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() },
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
+    egress,
   });
   runningNow = async (ownerId) => {
     const view = await running.view(ownerId);
@@ -451,11 +456,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       itemChats, runs: engineRuns, procedures: procedureService, extensions, files: files.fileService, revocations,
     }));
   }
-
-  wireActions({
-    tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
-    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
-  });
 
   if (!settings.underTest && gitea && tenants) {
     runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(

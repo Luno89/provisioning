@@ -65,6 +65,7 @@ export interface RunningWiringDeps {
   koala?: KoalaPlace | undefined;
   dependencies?: InfrastructureViewDeps['dependencies'];
   signals?: InfrastructureViewDeps['signals'];
+  egress?: InfrastructureViewDeps['egress'];
 }
 
 export function wireRunning(deps: RunningWiringDeps): { running: RunningService } {
@@ -108,7 +109,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
     koala: deps.koala,
   });
   tenant.use('/api/infrastructure', infrastructureRouter({
-    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, dependencies: deps.dependencies, signals: deps.signals }),
+    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, dependencies: deps.dependencies, signals: deps.signals, egress: deps.egress }),
   }));
   return { running };
 }

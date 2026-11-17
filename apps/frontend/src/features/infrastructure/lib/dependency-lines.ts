@@ -1,4 +1,4 @@
-import type { DependencyDown, KoalaProcess } from '../api/infrastructure'
+import type { DependencyDown, EgressBehind, KoalaProcess } from '../api/infrastructure'
 
 export interface DependencyLine {
   key: string
@@ -59,3 +59,6 @@ export function dependencyLines(downs: readonly DependencyDown[], when: (at: str
     .sort((a, b) => Number(b[0]!.dependency === 'root') - Number(a[0]!.dependency === 'root') || since(a).localeCompare(since(b)))
     .map((group) => lineFor(group, when))
 }
+
+export const egressBehindLine = (behind: EgressBehind, when: (at: string) => string = shownTime): string =>
+  `Sandboxes' egress proxy still holds grants from before ${when(behind.since)}: ${behind.reason}`

@@ -96,6 +96,18 @@ describe('InfrastructureViewService', () => {
     expect((await new InfrastructureViewService(all).overview(member)).dependencies).toEqual([]);
   });
 
+  it('tells whoever runs this Koala that sandboxes\' egress proxy still holds grants from before, and since when, until it is synced', async () => {
+    const { all } = deps();
+    let behind: { since: string; reason: string } | undefined = { since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' };
+    const view = new InfrastructureViewService({ ...all, egress: { proxyBehindSince: () => behind } });
+    const owner: Principal = { kind: 'person', id: 'owner', claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }] };
+    const member: Principal = { kind: 'person', id: 'member', claims: [{ role: 'person' }] };
+    expect((await view.overview(owner)).egressBehind).toEqual({ since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' });
+    expect((await view.overview(member)).egressBehind).toBeUndefined();
+    behind = undefined;
+    expect((await view.overview(owner)).egressBehind).toBeUndefined();
+  });
+
   it('says the workers\' dependencies could not be read instead of showing them all answering, keeping what this backend sees', async () => {
     const root: DependencyDown = { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend' };
     const { all } = deps({ dependencies: { own: [root], workers: new Error('connection to 127.0.0.1:27017 closed') } });

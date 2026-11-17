@@ -4,6 +4,7 @@ import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenAcrossClusters, BrokenWorkload, ClusterContents, UnreadCluster } from './ClusterContentsService.js';
 import type { KoalaView, Overview, Viewer } from '../../monitoring/index.js';
 import type { RunningOutcome, RunningView } from './RunningService.js';
+import type { ProxyBehind } from './EgressService.js';
 import { allowed, downAcross, type DependencyDown, type DependencyStateRow } from '../../platform/index.js';
 
 export interface InfrastructureOverview {
@@ -17,6 +18,7 @@ export interface InfrastructureOverview {
   failures: WorkFailure[];
   dependencies: DependencyDown[];
   dependenciesUnread?: string | undefined;
+  egressBehind?: ProxyBehind | undefined;
   signals: SignalView[];
 }
 
@@ -27,6 +29,7 @@ export interface InfrastructureViewDeps {
   failures: { shown(ownerId: string): Promise<WorkFailure[]>; clear(ownerId: string, ids: readonly string[] | 'all'): Promise<number> };
   dependencies?: { own(): DependencyDown[]; workers(): Promise<DependencyStateRow[]> } | undefined;
   signals?: { open(ownerId: string): Promise<SignalView[]> } | undefined;
+  egress?: { proxyBehindSince(): ProxyBehind | undefined } | undefined;
 }
 
 export const waitingOnPerson = (items: readonly RunningItem[]): RunningItem[] =>
@@ -43,7 +46,9 @@ export class InfrastructureViewService {
   constructor(private readonly deps: InfrastructureViewDeps) {}
 
   async overview(viewer: Viewer): Promise<InfrastructureOverview> {
-    const seesDependencies = this.deps.dependencies && allowed(viewer, 'see-platform-dependencies', { kind: 'install' });
+    const seesPlatform = (): boolean => allowed(viewer, 'see-platform-dependencies', { kind: 'install' });
+    const seesDependencies = this.deps.dependencies && seesPlatform();
+    const egressBehind = this.deps.egress && seesPlatform() ? this.deps.egress.proxyBehindSince() : undefined;
     const [monitoring, koala, broken, running, failures, signals, dependencies] = await Promise.all([
       this.deps.monitoring.overview(viewer),
       this.deps.monitoring.koala(viewer),
@@ -66,6 +71,7 @@ export class InfrastructureViewService {
       failures,
       dependencies: dependencies.down,
       ...(dependencies.unread ? { dependenciesUnread: dependencies.unread } : {}),
+      ...(egressBehind ? { egressBehind } : {}),
       signals,
     };
   }

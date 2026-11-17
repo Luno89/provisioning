@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { reopening } from '@koala/engine-core/reopening';
 import { mock } from 'vitest-mock-extended';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -20,7 +21,7 @@ export function egressBehaviour(make: () => Promise<Database>): void {
       db = await make();
       proxy = mock<EgressProxy>();
       proxy.sync.mockResolvedValue(undefined);
-      egress = new EgressService({ store: db.infrastructure, proxy, now: () => NOW, newId: () => 'g1' });
+      egress = new EgressService({ store: db.infrastructure, proxy, now: () => NOW, newId: () => 'g1', again: () => reopening(5), log: () => undefined });
       await db.infrastructure.saveEgressRequest(asked());
     });
 
@@ -86,6 +87,21 @@ export function egressBehaviour(make: () => Promise<Database>): void {
       await egress.allow(OWNER, 'r1');
       proxy.sync.mockRejectedValueOnce(new Error('proxy down'));
       expect(await egress.revoke(OWNER, 'g1')).toEqual({ ok: false, status: 502, error: 'Revoked, but the proxy could not be updated yet: proxy down' });
+    });
+
+    it('a revoke the proxy refuses is synced again until the proxy holds it', async () => {
+      await egress.allow(OWNER, 'r1');
+      proxy.sync.mockReset();
+      proxy.sync.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+      proxy.sync.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+      proxy.sync.mockResolvedValue(undefined);
+
+      expect(await egress.revoke(OWNER, 'g1')).toMatchObject({ ok: false, status: 502 });
+      expect(egress.proxyBehindSince()).toEqual({ since: NOW, reason: 'it refused the connection (ECONNREFUSED)' });
+
+      await vi.waitFor(() => expect(egress.proxyBehindSince()).toBeUndefined());
+      expect(proxy.sync).toHaveBeenCalledTimes(3);
+      expect(proxy.sync.mock.calls.at(-1)![0]).toEqual([expect.objectContaining({ id: 'g1', revokedAt: NOW })]);
     });
 
     it('syncs the proxy with every grant, whoever\'s, and stamps decisions with the current time when no clock is given', async () => {
