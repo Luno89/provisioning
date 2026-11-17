@@ -97,7 +97,7 @@ npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, fron
 npm run dev:split    # the same stack as root and your instance: root at http://koala.localhost:5175 (sign in there), your instance at http://dev.localhost:5173
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
-npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
+npm run ship         # a fresh dev stack (reset, setup, dev, asking for your password once, for the join), G1 + G2 on this commit, then push main (Releases, below); run in your own terminal
 npm run gate -- <step> # one of ship's steps alone (unit, lint, integration:coupled, coupling, checks-live, …), its pass kept for this commit; ship then runs only what is left
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing

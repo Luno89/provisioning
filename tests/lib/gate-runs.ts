@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
@@ -7,6 +7,7 @@ import { imageTagOf } from './release-lab.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, type Failures } from './audits.js';
 import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
 import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
+import { until } from './until.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -170,6 +171,25 @@ export async function devStackProblem(repo: string): Promise<string | undefined>
   try { koalaFrom = devKoalaCheckout(); } catch (err) { return `cannot tell which checkout your Koala's pods run: ${(err as Error).message}`; }
   if (koalaFrom !== repo) return `your Koala's pods run ${koalaFrom || 'no checkout'}, not this checkout (${repo}), so they are not running this commit`;
   return undefined;
+}
+
+export const DEV_STACK_LOG = 'tests/.dev-stack.log';
+
+export async function freshDevStack(repo: string): Promise<void> {
+  console.log('\n━━ a fresh dev stack: reset, set up from this checkout, then npm run dev, which asks for your password once for the join');
+  for (const script of ['dev:reset', 'setup']) {
+    const done = spawnSync('npm', ['run', script], { cwd: repo, stdio: 'inherit' });
+    if (done.status !== 0) throw new Error(`npm run ${script} failed (${done.status ?? done.signal})`);
+  }
+  const log = join(repo, DEV_STACK_LOG);
+  const out = openSync(log, 'w');
+  const dev = spawn('npm', ['run', 'dev'], { cwd: repo, stdio: ['ignore', out, out] });
+  let ended: string | undefined;
+  dev.on('exit', (code, signal) => { ended = `npm run dev stopped (${signal ?? code})`; });
+  dev.unref();
+  console.log(`  npm run dev runs on after ship, its output in ${DEV_STACK_LOG}`);
+  await until('the dev stack running this checkout', async () => ((await devStackProblem(repo)) ? undefined : true), async () => (ended ? `${ended}; its last lines:\n${readFileSync(log, 'utf8').trimEnd().split('\n').slice(-20).join('\n')}` : undefined));
+  console.log('━━ ✓ the dev stack is fresh and runs this checkout');
 }
 
 export function checkoutProblem(repo: string, commit: string): string | undefined {

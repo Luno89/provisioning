@@ -119,3 +119,4 @@ packages/cdktf-infra/lib/*.js
 /sbom.cdx.json
 /tests/.coupling/
 tests/.gate-checks.json
+/tests/.dev-stack.log

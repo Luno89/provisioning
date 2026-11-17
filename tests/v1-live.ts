@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import axios, { type AxiosInstance } from 'axios';
 import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
+import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../apps/backend/src/infrastructure/lib/model-images.js';
 import { devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
@@ -41,6 +42,7 @@ interface Served {
   app: 'vLLM' | 'TabbyAPI';
   name: string;
   model: string;
+  image: string;
   wizard: (page: Page, name: string, clusterId: string) => Promise<void>;
   generated: (namespace: string) => Promise<{ tokens: () => Promise<number>; stop: () => void }>;
 }
@@ -49,6 +51,7 @@ const VLLM: Served = {
   app: 'vLLM',
   name: `v1-${STAMP}`,
   model: 'Qwen/Qwen2.5-0.5B-Instruct',
+  image: VLLM_IMAGE,
   wizard: async (page, name, clusterId) => {
     await page.getByLabel('Application Type').selectOption('vllm');
     await page.getByLabel('Instance Name').fill(name);
@@ -81,6 +84,7 @@ const TABBY: Served = {
   app: 'TabbyAPI',
   name: `v1t-${STAMP}`,
   model: 'turboderp/Qwen3.5-9B-exl3',
+  image: TABBYAPI_IMAGE,
   wizard: async (page, name, clusterId) => {
     await page.getByLabel('Application Type').selectOption('tabbyapi');
     await page.getByLabel('Instance Name').fill(name);
@@ -153,6 +157,9 @@ async function main(): Promise<void> {
     await expect(page.getByText(NAME).first()).toBeVisible();
     await close.click();
     console.log(`  ${NAME} is running in ${running.namespace ?? NAME}, shown on Infrastructure and its page`);
+    const images = (await devKubectl(running.namespace ?? NAME, 'get', 'pods', '-o', 'jsonpath={.items[*].spec.containers[*].image}')).split(/\s+/);
+    assert.ok(images.includes(served.image), `${served.app} runs ${images.join(', ')}, not the build Koala pins, ${served.image}`);
+    console.log(`  it runs the build Koala pins: ${served.image}`);
     nothingWentWrong(seen, 'deploying');
 
     const generation = await served.generated(running.namespace ?? NAME);
