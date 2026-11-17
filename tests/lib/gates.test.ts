@@ -84,6 +84,10 @@ describe('the gates', () => {
     expect(existsSync(new URL('../../apps/backend/src/hub/members-on-hub.integration.test.ts', import.meta.url))).toBe(true);
     expect(existsSync(new URL('../../apps/backend/src/accounts/account-hardening.integration.test.ts', import.meta.url))).toBe(true);
   });
+
+  it('prove v1 end to end before main', () => {
+    expect(SHIP_STEPS.map((step) => step.script)).toContain('test:v1-live');
+  });
 });
 
 describe('a hotfix', () => {
