@@ -169,6 +169,15 @@ describe('loading a conversation into a run', () => {
     expect(outcome.outputs.messages).toEqual([{ role: 'user', content: 'how many?' }]);
   });
 
+  it('keeps a run with no conversation under its own run id, so its turn is still saved and found again', async () => {
+    const { kept } = store();
+    const asked = request('save-conversation', { values: {}, asked: 'alone?', reply: reply() }, { id: '{{values.conversationId}}' });
+    await nodes(kept).save.run(asked);
+    const again = await nodes(kept).load.run(request('load-conversation', { values: {} }, { id: '{{values.conversationId}}' })) as { outputs: Record<string, unknown> };
+    expect(again.outputs.found).toBe(true);
+    expect(await kept.get('user-1', 'r')).toBeDefined();
+  });
+
   it('starts empty when there is nothing stored yet, rather than failing', async () => {
     const { kept } = store();
 

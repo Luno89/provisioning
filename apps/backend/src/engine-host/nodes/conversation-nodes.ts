@@ -5,6 +5,7 @@ import {
   valueImplementation,
   stepImplementation,
   fillTemplate,
+  MissingValue,
   type ChatMessage,
   type ModelReply,
   type NodeImplementation,
@@ -42,8 +43,9 @@ export const idFrom = (request: NodeRequest): string => {
     }, request.node.id);
 
     return String(filled.id ?? '').trim() || request.run.identity.runId;
-  } catch {
-    return request.run.identity.runId;
+  } catch (err) {
+    if (err instanceof MissingValue) return request.run.identity.runId;
+    throw err;
   }
 };
 

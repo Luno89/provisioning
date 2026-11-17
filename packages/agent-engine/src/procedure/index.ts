@@ -55,7 +55,7 @@ export {
   expandGroups,
   type Expanded,
 } from './groups.js';
-export { fillTemplate } from './template.js';
+export { fillTemplate, MissingValue } from './template.js';
 export { checkProcedure, procedureErrors, type ProcedureProblem, type CheckOptions } from './validate.js';
 export { requiredGrants, missingGrants, stepNeeds, stepNeedsFrom, type RequiredGrant } from './required.js';
 export { handledSteps, handledTools, describeHandles, describeHandledSteps, type HandledStep, type HandledTools } from './handled.js';
