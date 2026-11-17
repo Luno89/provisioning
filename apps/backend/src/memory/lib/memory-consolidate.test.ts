@@ -202,10 +202,15 @@ describe('memories nothing can ever read', () => {
 describe('a whole pass', () => {
   const setup = (memories: MemoryItem[], leaves: PromotableLeaf[] = []) => {
     const store = new Map(memories.map((m) => [m.id, m]));
+    const unindexed: { ids: string[]; liveThen: boolean[] }[] = [];
     let n = 0;
     return {
       store,
+      unindexed,
       deps: {
+        unindex: async (retired: MemoryItem[]) => {
+          unindexed.push({ ids: retired.map((m) => m.id), liveThen: retired.map((m) => !store.get(m.id)?.invalidAt) });
+        },
         db: {
           memory: {
             getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
@@ -284,6 +289,28 @@ describe('a whole pass', () => {
 
     expect(report.deduped).toBe(1);
     expect(report.indexed).toBe(0);
+  });
+
+  it('takes what a pass retires out of the index before marking it retired', async () => {
+    const { deps, unindexed } = setup([
+      mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1), lastUsedAt: daysBefore(1) }),
+      mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2), lastUsedAt: daysBefore(2) }),
+      mem({ id: 'stale', title: 'Stale', createdAt: daysBefore(200), lastUsedAt: daysBefore(200) }),
+    ]);
+
+    await consolidateMemories(deps);
+
+    expect(unindexed).toEqual([{ ids: ['b'], liveThen: [true] }, { ids: ['stale'], liveThen: [true] }]);
+  });
+
+  it('retires nothing when the index will not let go, and the pass fails saying why', async () => {
+    const { deps, store } = setup([
+      mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1) }),
+      mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
+    ]);
+
+    await expect(consolidateMemories({ ...deps, unindex: async () => { throw new Error('Qdrant refused: HTTP 503 overloaded'); } })).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
+    expect(store.get('b')!.invalidAt).toBeUndefined();
   });
 
   it('leaves the review backlog out of the index', async () => {

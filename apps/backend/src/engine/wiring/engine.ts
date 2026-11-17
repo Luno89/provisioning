@@ -35,7 +35,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, unindexerFrom } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -57,7 +57,7 @@ import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandb
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
-import { buildWebTools, type WebToolsPlace } from './web-tools.js';
+import { buildWebTools, corpusEndpoints, type WebToolsPlace } from './web-tools.js';
 import type { Mounts } from '../../hub/index.js';
 import { proceduresRouter } from '../routes/procedures.js';
 import { engineRouter } from '../routes/engine.js';
@@ -306,6 +306,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   });
 
   const evalWeb = await buildWebTools(deps.webTools);
+  const unindexMemories = unindexerFrom((ownerId) => corpusEndpoints(deps.webTools, ownerId));
   const evalHost = createEngineHost({
     dependencies: dependenciesOf,
     customizations: { drift: (...args) => deps.customizations.drift(...args), propose: (...args) => deps.customizations.propose(...args), exportItems: (...args) => deps.customizations.exportItems(...args) },
@@ -331,7 +332,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models: deps.models,
-    stores: storesFromDatabase(db),
+    stores: storesFromDatabase(db, unindexMemories),
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,
@@ -350,8 +351,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     efforts: { save: (effort) => db.engine.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey) },
   });
 
-  const practiceService = new PracticeService({ store: db.memory });
-  const toolNoteService = new PracticeService({ store: db.memory, category: 'tool_note' });
+  const practiceService = new PracticeService({ store: db.memory, unindex: unindexMemories });
+  const toolNoteService = new PracticeService({ store: db.memory, unindex: unindexMemories, category: 'tool_note' });
   const agentChanges = new AgentChangeService({
     store: db.checks,
     savePrompt: async (ownerId, slug, prompt) => {
@@ -562,10 +563,10 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   });
   tenant.use('/api/documents', documentsRouter({ documents: documentService }));
   tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) } }));
-  tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
+  tenant.use('/api/memories', memoriesRouter({ db, temporalBridge, unindex: unindexMemories }));
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: unindexMemories },
     unseal: (sealed) => decryptValue(sealed, deps.dataKey),
     ...(deps.push ? { push: (ownerId: string, message: PushMessage) => deps.push!.toPerson(ownerId, message) } : {}),
     ...(deps.mail ? { mail: (ownerId: string, message: { subject: string; text: string }) => deps.mail!.toOwner(ownerId, message) } : {}),

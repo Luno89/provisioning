@@ -8,6 +8,8 @@ import { ENGINE_TOOL_SEEDS } from './tools/engine-tool-seeds.js';
 import { createEnvironmentNodes } from './nodes/environment-nodes.js';
 import type { NodeImplementation } from '@koala/agent-engine/procedure';
 
+const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+
 describe('the engine host', () => {
   it('has a handler for every tool grove and workspace offer through their runtimes, so none is granted with nothing behind it', async () => {
     const db = await testDatabase();
@@ -15,7 +17,7 @@ describe('the engine host', () => {
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this test builds no workspace images' },
-      stores: storesFromDatabase(db),
+      stores: storesFromDatabase(db, noMemoryIndex),
       publishedWorkspaces: { get: async () => undefined, save: async () => undefined },
       readRepoFile: async () => undefined,
       writeRepoFile: async () => ({ changed: false }),
@@ -37,7 +39,7 @@ describe('a run whose workspace image cannot be had yet', () => {
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this Koala has no registry to build workspace images in' },
-      stores: storesFromDatabase(db),
+      stores: storesFromDatabase(db, noMemoryIndex),
       mcpHostedUrl: async () => undefined,
     });
   };

@@ -1,13 +1,19 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
+import { unindexerFrom } from '../../memory/lib/memory-index.js';
+import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+
+const memoryIndex = await startCorpusStandIn();
+afterAll(async () => { await memoryIndex.stop(); });
+const unindex = unindexerFrom(async () => memoryIndex.endpoints);
 
 const fresh = await emptiedEachTime();
 
 let db: MongoDB;
-const practices = () => new PracticeService({ store: db.memory, now: () => 'now' });
+const practices = () => new PracticeService({ store: db.memory, unindex, now: () => 'now' });
 const practice = (over: Partial<MemoryItem>): MemoryItem => ({
   id: 'p1', ownerId: 'u1', category: 'practice', agent: 'koala', status: 'trial', title: 'Check before answering', text: 'Call list_infrastructure first.', createdAt: 'then', updatedAt: 'then', ...over,
 });
@@ -42,7 +48,7 @@ describe('practices', () => {
 });
 
 describe('tool notes', () => {
-  const notes = () => new PracticeService({ store: db.memory, category: 'tool_note', now: () => 'now' });
+  const notes = () => new PracticeService({ store: db.memory, unindex, category: 'tool_note', now: () => 'now' });
   const note = (over: Partial<MemoryItem>): MemoryItem => ({ id: 'n1', ownerId: 'u1', category: 'tool_note', status: 'trial', title: 'Note', text: 'A note.', createdAt: 'then', updatedAt: 'then', ...over });
 
   beforeEach(async () => {

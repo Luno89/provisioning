@@ -7,6 +7,8 @@ import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
 
 let bank: Map<string, MemoryItem>;
 let ids: number;
+let unindexed: { ownerId: string; ids: string[]; liveThen: boolean[] }[];
+let indexRefuses: string | undefined;
 
 const memory = (over: Partial<MemoryItem>): MemoryItem => ({
   id: 'm1', ownerId: 'u1', category: 'environment_facts', scope: 'global', status: 'active',
@@ -20,6 +22,10 @@ const tools = () => createMemoryTools({
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
+    unindex: async (ownerId, gone) => {
+      if (indexRefuses) throw new Error(indexRefuses);
+      unindexed.push({ ownerId, ids: gone, liveThen: gone.map((id) => !bank.get(id)?.invalidAt) });
+    },
   },
   sourcesOf: async (runId) => (runId === 'run-web' ? { classes: ['web'], hosts: ['some.example'], runs: ['run-web'] } : undefined),
   now: () => 'now',
@@ -32,6 +38,8 @@ const call = (name: string, parsed: Record<string, unknown>, caller: Record<stri
 beforeEach(() => {
   bank = new Map([['m1', memory({})], ['m2', memory({ id: 'm2', ownerId: 'someone-else', title: 'Their DNS', text: 'Cloudflare for them too.' })]]);
   ids = 0;
+  unindexed = [];
+  indexRefuses = undefined;
 });
 
 describe('search_memories', () => {
@@ -82,6 +90,20 @@ describe('save_memory', () => {
     expect(bank.get('m1')).toMatchObject({ invalidAt: 'now', supersededBy: 'new-1' });
   });
 
+  it('takes the memory it replaces out of the index before retiring it', async () => {
+    await call('save_memory', { title: 'DNS moved to Route 53', text: 'The person moved DNS from Cloudflare to Route 53.', replaces: 'm1' });
+
+    expect(unindexed).toEqual([{ ownerId: 'u1', ids: ['m1'], liveThen: [true] }]);
+  });
+
+  it('saves nothing when the index will not let go of the memory it replaces, and says why', async () => {
+    indexRefuses = 'Qdrant refused: HTTP 503 overloaded';
+    await expect(call('save_memory', { title: 'DNS moved', text: 'Route 53 now.', replaces: 'm1' })).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
+
+    expect(bank.get('m1')!.invalidAt).toBeUndefined();
+    expect(bank.has('new-1')).toBe(false);
+  });
+
   it('refuses to replace a memory that is not the person\'s, and saves nothing', async () => {
     expect((await call('save_memory', { text: 'x', replaces: 'm2' })).ok).toBe(false);
     expect(bank.size).toBe(2);
@@ -130,8 +152,22 @@ describe('forget_memory', () => {
     expect(bank.get('m1')!.text).toContain('(retired: they said they never used Cloudflare)');
   });
 
+  it('takes a memory out of the index before retiring it, so it is never found again', async () => {
+    await call('forget_memory', { id: 'm1', why: 'they said they never used Cloudflare' });
+
+    expect(unindexed).toEqual([{ ownerId: 'u1', ids: ['m1'], liveThen: [true] }]);
+  });
+
+  it('keeps a memory the index will not let go of current, and says why', async () => {
+    indexRefuses = 'forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first';
+    await expect(call('forget_memory', { id: 'm1', why: 'wrong' })).rejects.toThrow('you have no running Qdrant');
+
+    expect(bank.get('m1')!.invalidAt).toBeUndefined();
+  });
+
   it('will not touch someone else\'s memory', async () => {
     expect((await call('forget_memory', { id: 'm2', why: 'no' })).ok).toBe(false);
+    expect(unindexed).toEqual([]);
   });
 });
 

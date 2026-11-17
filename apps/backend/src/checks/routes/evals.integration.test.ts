@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import axios from 'axios';
 import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -9,6 +9,12 @@ import { BenchService } from '../services/BenchService.js';
 import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import { seededPersonas } from '../../extensions/seeds.js';
+import { unindexerFrom } from '../../memory/lib/memory-index.js';
+import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+
+const memoryIndex = await startCorpusStandIn();
+afterAll(async () => { await memoryIndex.stop(); });
+const unindex = unindexerFrom(async () => memoryIndex.endpoints);
 
 const quiet = { validateStatus: () => true };
 
@@ -36,7 +42,7 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       builtIn: [SCENARIO],
       newId: () => 'run-2',
     }),
-    notes: new PracticeService({ store: db.memory, category: 'tool_note' }),
+    notes: new PracticeService({ store: db.memory, unindex, category: 'tool_note' }),
     bench: new BenchService({
       store: db,
       scenarios: async () => [],

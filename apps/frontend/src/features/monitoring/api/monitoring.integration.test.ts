@@ -5,6 +5,7 @@ import { startBackend } from '../../../test/backend/site'
 import { DATA_KEY } from '../../../test/backend/machines'
 import { infrastructureOf, type Infrastructure } from '../../../test/backend/infrastructure'
 import { outsideThisTier } from '../../../test/backend/outside'
+import { standInMemoryIndex } from '../../../test/backend/memory-index'
 import type { Wire } from '../../../test/backend/wire'
 import { monitoringRouter } from '../../../../../backend/src/monitoring/routes/monitoring'
 import { infrastructureRouter } from '../../../../../backend/src/infrastructure/routes/infrastructure'
@@ -48,7 +49,7 @@ const backend = await startBackend(async (site) => {
   })
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: standInMemoryIndex() },
     unseal: (sealed) => decryptValue(sealed, DATA_KEY),
   })
   site.api.use('/monitoring', monitoringRouter({ monitoring }))

@@ -1,4 +1,5 @@
 import type { MemoryItem, PracticeTrial } from '../lib/memory-store.js';
+import type { MemoryUnindexer } from '../lib/memory-index.js';
 
 export interface PracticeStore {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
@@ -6,7 +7,7 @@ export interface PracticeStore {
 }
 
 export class PracticeService {
-  constructor(private readonly deps: { store: PracticeStore; category?: 'practice' | 'tool_note'; now?: () => string }) {}
+  constructor(private readonly deps: { store: PracticeStore; unindex: MemoryUnindexer; category?: 'practice' | 'tool_note'; now?: () => string }) {}
 
   private get category(): 'practice' | 'tool_note' {
     return this.deps.category ?? 'practice';
@@ -48,6 +49,7 @@ export class PracticeService {
 
   async forgetServer(ownerId: string, name: string): Promise<number> {
     const gone = (await this.list(ownerId)).filter((entry) => entry.server === name);
+    await this.deps.unindex(ownerId, gone.map((entry) => entry.id));
     for (const entry of gone) await this.deps.store.saveMemory({ ...entry, invalidAt: this.now(), updatedAt: this.now() });
     return gone.length;
   }
@@ -55,6 +57,7 @@ export class PracticeService {
   async retire(ownerId: string, id: string): Promise<boolean> {
     const practice = (await this.list(ownerId)).find((entry) => entry.id === id);
     if (!practice) return false;
+    await this.deps.unindex(ownerId, [practice.id]);
     await this.deps.store.saveMemory({ ...practice, invalidAt: this.now(), updatedAt: this.now() });
     return true;
   }

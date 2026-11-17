@@ -23,6 +23,7 @@ import type { ScenarioProposal as BackendProposal } from '../../../../backend/sr
 import type { AgentChange as BackendChange } from '../../../../backend/src/engine/lib/agent-changes'
 import type { Level2Run as BackendLevel2Run } from '../../../../backend/src/checks/services/Level2Service'
 import type { MemoryItem } from '../../../../backend/src/memory/lib/memory-store'
+import { standInMemoryIndex } from '../../test/backend/memory-index'
 
 let side: ProjectsSide | undefined
 const idleTimers: { ownerId: string; idleMs: number }[] = []
@@ -38,8 +39,9 @@ const backend = await startBackend(async (site) => {
     procedures: async (ownerId) => (await side!.registry.procedures(ownerId)).map((procedure) => procedure.id),
     store: db.checks,
   })
-  const practices = new PracticeService({ store: db.memory })
-  const notes = new PracticeService({ store: db.memory, category: 'tool_note' })
+  const unindex = standInMemoryIndex()
+  const practices = new PracticeService({ store: db.memory, unindex })
+  const notes = new PracticeService({ store: db.memory, unindex, category: 'tool_note' })
   const changes = new AgentChangeService({
     store: db.checks,
     savePrompt: () => { throw new Error('saving an agent\'s prompt is the Studio\'s, not mounted in this file') },

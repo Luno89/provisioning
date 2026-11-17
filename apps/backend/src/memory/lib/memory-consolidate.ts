@@ -138,6 +138,7 @@ export interface ConsolidateDeps {
       getLeaves(): Promise<PromotableLeaf[]>;
     };
   };
+  unindex: (retired: MemoryItem[]) => Promise<void>;
   index?: (items: MemoryItem[]) => Promise<{ vectors: number; documents: number }>;
   similar?: (ids: string[]) => Promise<Map<string, { id: string; score: number }[]>>;
   now?: () => string;
@@ -151,8 +152,14 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
 
   let memories = await deps.db.memory.getMemories(deps.ownerId);
 
+  const retire = async (retiring: MemoryItem[]): Promise<void> => {
+    if (!retiring.length) return;
+    await deps.unindex(retiring);
+    for (const m of retiring) await deps.db.memory.saveMemory(m);
+  };
+
   const unreachable = planUnreachable(memories, now);
-  for (const m of unreachable) await deps.db.memory.saveMemory(m);
+  await retire(unreachable);
   const unreachableIds = new Set(unreachable.map((m) => m.id));
   memories = memories.map((m) => (unreachableIds.has(m.id) ? { ...m, invalidAt: now } : m));
 
@@ -173,11 +180,11 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
     : [];
 
   const deduped = [...byTitle, ...bySimilarity];
-  for (const m of deduped) await deps.db.memory.saveMemory(m);
+  await retire(deduped);
   for (const m of deduped) retiredIds.add(m.id);
 
   const decayed = planDecay(memories.filter((m) => !retiredIds.has(m.id)), now);
-  for (const m of decayed) await deps.db.memory.saveMemory(m);
+  await retire(decayed);
   for (const m of decayed) retiredIds.add(m.id);
 
   const survivors = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id) && m.status !== 'pending_review');

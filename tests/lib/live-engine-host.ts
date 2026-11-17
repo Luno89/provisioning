@@ -9,17 +9,22 @@ import { clusterSettingsFrom } from '../../apps/backend/src/platform/lib/setting
 import { InfrastructureService, terraformPlacesFor } from '../../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { ProjectRepoService } from '../../apps/backend/src/projects/services/ProjectRepoService.js';
 import { createWorkspaceRepoResolver } from '../../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
+import { clusterAccessFrom, sharedClusterProxy } from '../../apps/backend/src/infrastructure/index.js';
+import { corpusEndpoints } from '../../apps/backend/src/engine/wiring/web-tools.js';
+import { unindexerFrom } from '../../apps/backend/src/memory/index.js';
 
 export function liveEngineHost(db: Database) {
   const keys = loadKeys(process.env);
   const extensions = extensionServiceFor(db);
+  const clusters = clusterSettingsFrom(process.env);
+  const webPlace = { db, proxy: sharedClusterProxy(clusterAccessFrom(clusters.clusters, { role: clusters.role.role, clusters: db.infrastructure, dataKey: keys.data })), settings: {} };
   const gitea = new GiteaService(keys.data, { url: devGiteaUrl }, { dataDir: devDataDir });
   const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   return createEngineHost({
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
     repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
-    models: createModelService({ db, dataKey: keys.data, ...clusterSettingsFrom(process.env), infra: new InfrastructureService(terraformPlacesFor({ off: 'the live engine host runs no Terraform' }, devDataDir)), mesh: { off: 'the live engine host reaches no mesh' }, endpointRules: { lab: false }, dataDir: devDataDir }),
-    stores: storesFromDatabase(db),
+    models: createModelService({ db, dataKey: keys.data, ...clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the live engine host runs no Terraform' }, devDataDir)), mesh: { off: 'the live engine host reaches no mesh' }, endpointRules: { lab: false }, dataDir: devDataDir }),
+    stores: storesFromDatabase(db, unindexerFrom((ownerId) => corpusEndpoints(webPlace, ownerId))),
     cluster: devKoalasCluster(),
     registry: devRegistry(),
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),

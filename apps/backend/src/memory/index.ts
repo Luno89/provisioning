@@ -1,6 +1,7 @@
 export { consolidateMemories } from './lib/memory-consolidate.js';
 export type { ConsolidationReport } from './lib/memory-consolidate.js';
-export { indexMemories, searchMemories, similarTo } from './lib/memory-index.js';
+export { indexMemories, removeMemories, searchMemories, similarTo, unindexerFrom } from './lib/memory-index.js';
+export type { MemoryUnindexer } from './lib/memory-index.js';
 export { recallMemories, recallQuery } from './lib/memory-recall.js';
 export { buildMemoryContext } from './lib/memory-store.js';
 export type { MemoryItem, PracticeTrial } from './lib/memory-store.js';

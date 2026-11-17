@@ -5,6 +5,7 @@ import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';
 import { memoryCategoryIn, memoryChangesIn } from '../lib/memory-input.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { isToolNote } from '../../engine/index.js';
+import type { MemoryUnindexer } from '../lib/memory-index.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -22,10 +23,11 @@ const userOf = (req: Request): { id: string; email: string } =>
 export interface MemoriesRouterDeps {
   db: Database;
   temporalBridge: Pick<TemporalBridge, 'lastConsolidation'>;
+  unindex: MemoryUnindexer;
 }
 
 export function memoriesRouter(deps: MemoriesRouterDeps): Router {
-  const { db, temporalBridge } = deps;
+  const { db, temporalBridge, unindex } = deps;
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
@@ -121,7 +123,8 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
     const ownerId = userOf(req).id;
     const existing = (await db.memory.getMemories(ownerId)).find((m) => m.id === idOf(req));
     if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    await db.memory.deleteMemory(idOf(req));
+    await unindex(ownerId, [existing.id]);
+    await db.memory.deleteMemory(existing.id);
     res.json({ deleted: true });
   }));
   return router;

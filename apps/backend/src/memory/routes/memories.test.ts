@@ -6,14 +6,17 @@ import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes
 import type { ConsolidationReport } from '../lib/memory-consolidate.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { memoriesRouter } from './memories.js';
+import { CorpusStoresMissing } from '../../engine/lib/corpus-stores.js';
 
 const report: ConsolidationReport = { at: '2026-10-31T00:00:00.000Z', indexed: 0, deduped: 0, promoted: 0, decayed: 0, unreachable: 0, live: 3 };
 
 let db: Database;
 let lastConsolidation: ConsolidationReport | undefined;
+let unindexed: string[][];
+let indexRefuses: Error | undefined;
 
 const call = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) => {
-  const routes = await routesInProcess({ prefix: '/api/memories', router: () => memoriesRouter({ db, temporalBridge: lastConsolidation ? { lastConsolidation } : {} }), user: user ?? PERSON, db });
+  const routes = await routesInProcess({ prefix: '/api/memories', router: () => memoriesRouter({ db, temporalBridge: lastConsolidation ? { lastConsolidation } : {}, unindex: async (_ownerId, ids) => { if (indexRefuses) throw indexRefuses; unindexed.push(ids); } }), user: user ?? PERSON, db });
   return routes.request(method, `/api/memories${path}`, { body });
 };
 
@@ -27,6 +30,8 @@ const made = async (body: Record<string, unknown> = {}) =>
 beforeEach(() => {
   db = memoryDatabase();
   lastConsolidation = report;
+  unindexed = [];
+  indexRefuses = undefined;
 });
 
 describe('/api/memories', () => {
@@ -74,6 +79,19 @@ describe('/api/memories', () => {
     expect(await call('/', 'POST', { category: 'lessons_learned', title: 'T' })).toMatchObject({ status: 400, data: { error: 'category, title, and text are required' } });
     expect(await call('/', 'POST', { category: 'gossip', title: 'T', text: 'X' })).toMatchObject({ status: 400, data: { error: 'gossip is not a kind of memory' } });
     expect(await mine()).toEqual([]);
+  });
+
+  it('takes a deleted memory out of the index, so recall never finds it again', async () => {
+    const item = await made();
+    await call(`/${item.id}`, 'DELETE');
+    expect(unindexed).toEqual([[item.id]]);
+  });
+
+  it('keeps a memory the index will not let go of, saying why', async () => {
+    const item = await made();
+    indexRefuses = new CorpusStoresMissing('forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first');
+    expect(await call(`/${item.id}`, 'DELETE')).toMatchObject({ status: 409, data: { error: 'forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first' } });
+    expect(await mine()).toHaveLength(1);
   });
 
   it('refuses a scope or state of memory that does not exist rather than storing it', async () => {

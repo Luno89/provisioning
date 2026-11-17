@@ -1,10 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { PoisoningService, PoisoningError } from './PoisoningService.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
 import type { MemoryItem } from '../../memory/index.js';
+import { indexMemories, unindexerFrom } from '../../memory/lib/memory-index.js';
+import { MEMORY_INDEX } from '../../memory/lib/memory-rank.js';
+import { corpusEndpointsWith } from '../lib/web-tools-resolver.js';
+import { startCorpusStandIn, type CorpusStandIn } from '../testing/corpus-stand-in.js';
+
+let standIn: CorpusStandIn;
+beforeAll(async () => { standIn = await startCorpusStandIn(); });
+afterAll(async () => { await standIn.stop(); });
 
 const at = '2026-10-29T10:00:00.000Z';
 const signal = (over: Partial<PoisoningSignal>): PoisoningSignal => ({
@@ -21,10 +29,17 @@ async function service() {
   const mail = vi.fn(async () => undefined);
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+    memories: {
+      list: (ownerId) => db.memory.getMemories(ownerId),
+      save: (item) => db.memory.saveMemory(item),
+      unindex: unindexerFrom((ownerId) => corpusEndpointsWith({ db: db.infrastructure, serviceUrl: async () => standIn.base }, ownerId)),
+    },
     unseal: (sealed) => sealed.replace(/^sealed:/, ''),
     push, mail, now: () => '2026-10-29T11:00:00.000Z', log: () => undefined,
   });
+  for (const appType of ['quickwit', 'qdrant', 'tei']) {
+    await db.infrastructure.saveDeployment({ id: `${appType}-1`, name: appType, appType, status: 'running', clusterId: 'c1', strategy: 'helm', ownerId: 'owner', ...(appType === 'qdrant' ? { qdrantApiKey: 'stand-in-key' } : {}) });
+  }
   await db.engine.openRunReads('grant-1', 'owner', 'run-1', 'k', at);
   await db.engine.openRunReads('grant-1', 'owner', 'child-1', 'k', at);
   return { db, poisoning, push, mail };
@@ -81,6 +96,19 @@ describe('the findings a person sees and acts on', () => {
     const left = (await db.memory.getMemories('owner')).filter((item) => !item.invalidAt).map((item) => item.id);
     expect(left).toEqual(['unrelated']);
     expect((await db.memory.getMemories('owner')).find((item) => item.id === 'from-host')!.text).toMatch(/retired with everything learned from attacker\.example/);
+  });
+
+  it('takes everything learned from the host out of the person\'s own index, so nothing finds it again', async () => {
+    const { db, poisoning } = await service();
+    await db.engine.savePoisoningSignal(signal({}));
+    const tainted = memory('tainted', { provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } });
+    await db.memory.saveMemory(tainted);
+    await indexMemories(standIn.endpoints, [tainted]);
+
+    await poisoning.retire('owner', 's1', 'source');
+
+    expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === 'tainted')).toEqual([]);
+    expect(standIn.points('koala-memory').filter((point) => point.memory_id === 'tainted')).toEqual([]);
   });
 
   it('refuses to retire by source when the finding names no host', async () => {

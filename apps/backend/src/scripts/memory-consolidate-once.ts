@@ -1,5 +1,5 @@
 import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
-import { consolidateMemories, indexMemories, similarTo, type MemoryItem } from '../memory/index.js';
+import { consolidateMemories, indexMemories, removeMemories, similarTo, type MemoryItem } from '../memory/index.js';
 import { corpusEndpoints } from '../engine/index.js';
 import { clusterAccessFrom, sharedClusterProxy } from '../infrastructure/index.js';
 import { clusterSettingsFrom, type Database } from '../platform/index.js';
@@ -28,6 +28,12 @@ async function main(): Promise<void> {
 
     const written: MemoryItem[] = [];
     const report = await consolidateMemories({
+      unindex: async (retired: MemoryItem[]) => {
+        if (!apply) return;
+        for (const owner of new Set(retired.map((m) => m.ownerId))) {
+          await removeMemories(await corpusEndpoints(webPlace(db), owner), retired.filter((m) => m.ownerId === owner).map((m) => m.id));
+        }
+      },
       db: {
         memory: {
           getMemories: () => db.memory.getMemories(),

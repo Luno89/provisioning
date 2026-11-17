@@ -12,6 +12,7 @@ export interface KnownTools {
 export interface MemoryToolStore {
   list(ownerId: string): Promise<MemoryItem[]>;
   save(item: MemoryItem): Promise<void>;
+  unindex(ownerId: string, ids: string[]): Promise<void>;
 }
 
 const CATEGORIES = new Set<MemoryItem['category']>(['lessons_learned', 'environment_facts', 'prompt_guidance']);
@@ -134,6 +135,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const unreachable = unreachableMemory(item);
       if (unreachable) return refuse(unreachable);
 
+      if (old) await store.unindex(ownerId, [old.id]);
       await store.save(item);
       if (old) await store.save({ ...old, invalidAt: at, supersededBy: item.id, updatedAt: at });
       return {
@@ -226,6 +228,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if (!id || !why) return refuse('give the id to retire and why it is no longer true');
       const target = (await store.list(ownerId)).filter(current).find((memory) => memory.id === id);
       if (!target) return refuse(`there is no current memory ${id}`);
+      await store.unindex(ownerId, [target.id]);
       const at = now();
       await store.save({ ...target, invalidAt: at, updatedAt: at, text: `${target.text}\n(retired: ${why})` });
       return { ok: true, digest: `retired ${target.title}`, content: `Retired ${id}.` };

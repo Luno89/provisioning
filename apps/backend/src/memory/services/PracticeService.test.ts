@@ -5,13 +5,18 @@ import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
 
 let db: Database;
-const practices = () => new PracticeService({ store: db.memory, now: () => 'now' });
+let unindexed: string[][];
+let indexRefuses: Error | undefined;
+const unindex = async (_ownerId: string, ids: string[]) => { if (indexRefuses) throw indexRefuses; unindexed.push(ids); };
+const practices = () => new PracticeService({ store: db.memory, unindex, now: () => 'now' });
 const practice = (over: Partial<MemoryItem>): MemoryItem => ({
   id: 'p1', ownerId: 'u1', category: 'practice', agent: 'koala', status: 'trial', title: 'Check before answering', text: 'Call list_infrastructure first.', createdAt: 'then', updatedAt: 'then', ...over,
 });
 
 beforeEach(async () => {
   db = memoryDatabase();
+  unindexed = [];
+  indexRefuses = undefined;
   await db.memory.saveMemory(practice({}));
   await db.memory.saveMemory(practice({ id: 'fact', category: 'environment_facts', status: 'active' }));
   await db.memory.saveMemory(practice({ id: 'theirs', ownerId: 'someone-else' }));
@@ -52,6 +57,17 @@ describe('practices', () => {
     expect(await practices().list('u1')).toEqual([]);
   });
 
+  it('are taken out of the index before they are retired', async () => {
+    await practices().retire('u1', 'p1');
+    expect(unindexed).toEqual([['p1']]);
+  });
+
+  it('stay as they are when the index will not let go, saying why', async () => {
+    indexRefuses = new Error('Quickwit refused: HTTP 500 split store unavailable');
+    await expect(practices().retire('u1', 'p1')).rejects.toThrow('Quickwit refused: HTTP 500 split store unavailable');
+    expect((await practices().list('u1')).map((entry) => entry.id)).toEqual(['p1']);
+  });
+
   it('cannot be made live or retired by someone else, or when there is no such practice', async () => {
     expect(await practices().makeLive('u1', 'theirs')).toBeUndefined();
     expect(await practices().retire('u1', 'theirs')).toBe(false);
@@ -60,7 +76,7 @@ describe('practices', () => {
   });
 
   it('are stamped with the clock when none is given', async () => {
-    const service = new PracticeService({ store: db.memory });
+    const service = new PracticeService({ store: db.memory, unindex });
     await service.retire('u1', 'p1');
     const [retired] = (await db.memory.getMemories('u1')).filter((entry) => entry.id === 'p1');
     expect(Date.parse(retired!.invalidAt!)).not.toBeNaN();
@@ -68,7 +84,7 @@ describe('practices', () => {
 });
 
 describe('tool notes', () => {
-  const notes = () => new PracticeService({ store: db.memory, category: 'tool_note', now: () => 'now' });
+  const notes = () => new PracticeService({ store: db.memory, unindex, category: 'tool_note', now: () => 'now' });
   const note = (over: Partial<MemoryItem>): MemoryItem => ({ id: 'n1', ownerId: 'u1', category: 'tool_note', status: 'trial', title: 'Note', text: 'A note.', createdAt: 'then', updatedAt: 'then', ...over });
 
   beforeEach(async () => {
@@ -89,6 +105,7 @@ describe('tool notes', () => {
     expect((await notes().list('u1')).filter((entry) => entry.server === 'browser').map((entry) => entry.id).sort()).toEqual(['n1', 'n2']);
     expect(await notes().forgetServer('u1', 'browser')).toBe(2);
     expect((await notes().list('u1')).map((entry) => entry.id)).toEqual(['n3']);
+    expect(unindexed.flat().sort()).toEqual(['n1', 'n2']);
   });
 
   it('leave other servers\' notes alone when one is renamed or forgotten', async () => {

@@ -8,6 +8,8 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../engine/lib/conversations.js';
 
+const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+
 const said = (over: Partial<ConversationMessage> & Pick<ConversationMessage, 'role' | 'content'>): ConversationMessage => ({
   at: '2026-09-20T00:00:00.000Z',
   ...over,
@@ -500,7 +502,7 @@ describe('the store a run reads conversations from', () => {
     await db.engine.saveConversation({ id: 'c-2', ownerId: 'someone-else', title: 'Theirs', createdAt: 'x', updatedAt: 'x', messages: [] } as Conversation);
     const listed = vi.spyOn(db.engine, 'getConversations');
 
-    const stores = storesFromDatabase(db);
+    const stores = storesFromDatabase(db, noMemoryIndex);
 
     expect(await stores.conversations.get('user-1', 'c-1')).toMatchObject({ id: 'c-1', ownerId: 'user-1' });
     expect(await stores.conversations.get('user-1', 'c-2')).toBeUndefined();

@@ -13,13 +13,13 @@ const memory = (id: string, over: Partial<MemoryItem>): MemoryItem => ({
   id, ownerId: 'owner', category: 'lessons_learned', scope: 'global', status: 'active', title: id, text: id, createdAt: at, updatedAt: at, ...over,
 });
 
-async function service() {
+async function service(unindex: (ownerId: string, ids: string[]) => Promise<void> = async () => undefined) {
   const db = memoryDatabase();
   const push = vi.fn(async () => 1);
   const mail = vi.fn(async () => undefined);
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex },
     unseal: (sealed) => sealed.replace(/^sealed:/, ''),
     push, mail, now: () => '2026-10-29T11:00:00.000Z', log: () => undefined,
   });
@@ -74,6 +74,24 @@ describe('the findings a person sees and acts on', () => {
     const left = (await db.memory.getMemories('owner')).filter((item) => !item.invalidAt).map((item) => item.id);
     expect(left).toEqual(['unrelated']);
     expect((await db.memory.getMemories('owner')).find((item) => item.id === 'from-host')!.text).toMatch(/retired with everything learned from attacker\.example/);
+  });
+
+  it('takes what it retires out of the index first, so recall never finds it again', async () => {
+    const unindexed: string[][] = [];
+    const { db, poisoning } = await service(async (_ownerId, ids) => { unindexed.push(ids); });
+    await db.engine.savePoisoningSignal(signal({}));
+    await db.memory.saveMemory(memory('from-host', { provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } }));
+    await poisoning.retire('owner', 's1', 'source');
+    expect(unindexed).toEqual([['from-host']]);
+  });
+
+  it('retires nothing and leaves the finding open when the index will not let go, saying why', async () => {
+    const { db, poisoning } = await service(async () => { throw new Error('Qdrant refused: HTTP 503 overloaded'); });
+    await db.engine.savePoisoningSignal(signal({}));
+    await db.memory.saveMemory(memory('from-host', { provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } }));
+    await expect(poisoning.retire('owner', 's1', 'source')).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
+    expect((await db.memory.getMemories('owner'))[0]!.invalidAt).toBeUndefined();
+    expect((await poisoning.list('owner', { open: true })).map((one) => one.id)).toEqual(['s1']);
   });
 
   it('refuses to retire by source when the finding names no host', async () => {

@@ -7,6 +7,8 @@ import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../engin
 import { seedAll } from '../scripts/seed-all.js';
 import { testKeys } from '../platform/testing/keys.js';
 
+const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://127.0.0.1:1/mcp' };
 const GITEA: McpServerRecord = {
   id: 'd1', ownerId: 'bo', name: 'gitea', runs: HOSTED, createdAt: 't0', updatedAt: 't0',
@@ -18,7 +20,7 @@ const hostFor = async (enabled: string[]) => {
   await seedAll(db, testKeys('mcp-on-host').data);
   await db.engine.saveMcpServer(GITEA);
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], mcpServers: enabled, createdAt: 't0', updatedAt: 't0' });
-  const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, stores: storesFromDatabase(db), mcpHostedUrl: async () => undefined });
+  const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });
   const call = (name: string, args: Record<string, unknown>) => host.tools.run({ ticket: { runId: 'r1', depth: 0, ownerId: 'bo', agentSlug: 'koala', trigger: 'user', conversationId: 'c1' }, nodeId: 'n', name, arguments: JSON.stringify(args) }, 1);
   return { db, call };
 };

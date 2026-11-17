@@ -91,6 +91,7 @@ export interface EngineHostStores {
   memories: {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
+    unindex(ownerId: string, ids: string[]): Promise<void>;
   };
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
   mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
@@ -581,7 +582,7 @@ const memorySourcesFrom = (reads: NonNullable<EngineHostStores['runReads']>) => 
   return sourcesFrom(own, read);
 };
 
-export function storesFromDatabase(db: Database): EngineHostStores {
+export function storesFromDatabase(db: Database, unindexMemories: (ownerId: string, ids: string[]) => Promise<void>): EngineHostStores {
   return {
     runReads: { ofRuns: (runIds) => db.engine.getRunReadsOfRuns(runIds) },
     agentRecords: { list: (ownerId: string) => db.engine.getEnginePersonas(ownerId) },
@@ -619,7 +620,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
-    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item) },
+    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item), unindex: unindexMemories },
     egress: {
       grants: (ownerId: string) => db.infrastructure.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.infrastructure.getEgressRequests(ownerId), save: (request) => db.infrastructure.saveEgressRequest(request) },

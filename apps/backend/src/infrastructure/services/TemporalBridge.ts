@@ -34,7 +34,7 @@ export type GroveRunStatus =
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
-import { consolidateMemories, type ConsolidationReport, indexMemories, similarTo } from '../../memory/index.js'
+import { consolidateMemories, type ConsolidationReport, indexMemories, removeMemories, similarTo } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import type { Reach } from '../lib/cluster-places.js'
@@ -580,10 +580,12 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
+          const reach = () => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId)
+          const ends = await reach().catch(ignore('an owner with no search service has their memories consolidated without an index'))
           const report = await consolidateMemories({
             db: this.db,
             ownerId,
+            unindex: async (retired) => removeMemories(await reach(), retired.map((memory) => memory.id)),
             ...(ends ? {
               index: (items) => indexMemories(ends, items),
               similar: async (ids: string[]) => {

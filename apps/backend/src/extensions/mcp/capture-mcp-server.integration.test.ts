@@ -9,6 +9,8 @@ import { platformCatalogue } from '../installed.js';
 import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';
 
+const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+
 const TOOLS = [{ name: 'list_repos', description: 'List repositories', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } }];
 let server: http.Server;
 let url = '';
@@ -35,7 +37,7 @@ const nothingToBuild = async (): Promise<never> => { throw new Error('a hosted s
 
 async function captured(reachable: boolean) {
   const db = await testDatabase();
-  const stores = storesFromDatabase(db);
+  const stores = storesFromDatabase(db, noMemoryIndex);
   const record: McpServerRecord = { id: 's1', ownerId: 'bo', name: 'gitea', runs: { where: 'hosted', url }, capturing: { runId: 'mcp-capture-s1', at: 't0' }, createdAt: 't0', updatedAt: 't0' };
   await stores.mcpServers!.save(record);
   const operations = createMcpOperations({

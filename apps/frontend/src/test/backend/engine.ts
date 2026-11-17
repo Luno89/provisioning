@@ -2,6 +2,7 @@ import type { PersonaRecord } from '@koala/agent-engine'
 import type { Site } from './site'
 import { DATA_KEY } from './machines'
 import { outsideThisTier } from './outside'
+import { standInMemoryIndex } from './memory-index'
 import { ownedBy } from '../../../../backend/src/platform/lib/ownership'
 import { decryptValue } from '../../../../backend/src/platform/lib/crypto'
 import { extensionServiceFor } from '../../../../backend/src/engine/services/ExtensionService'
@@ -58,6 +59,7 @@ export interface EngineSite {
 
 export function mountEngine({ api, db }: Site): EngineSite {
   const started: StartedEngineWorkflow[] = []
+  const unindex = standInMemoryIndex()
   const extensions = extensionServiceFor(db)
   const agentDirectory = directoryFromDatabase(db.engine, { hidden: (ownerId) => extensions.hidden(ownerId) })
   const registry = createStoredAgentRegistry({
@@ -88,7 +90,7 @@ export function mountEngine({ api, db }: Site): EngineSite {
   const turns = new ConversationTurnService({ store: db.engine, log: db.engine, running: async () => true })
   const runs = createRunStarter({ registry, turns, workflows: () => workflows, binding: conversationBinding(db) })
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) })
-  const toolNotes = new PracticeService({ store: db.memory, category: 'tool_note' })
+  const toolNotes = new PracticeService({ store: db.memory, unindex, category: 'tool_note' })
   const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId)
   const ownedConversations = async (userId: string) => (await db.engine.getConversations()).filter((conversation) => conversation.ownerId === userId)
   const agents = new AgentService({
@@ -165,7 +167,7 @@ export function mountEngine({ api, db }: Site): EngineSite {
   api.use('/poisoning', poisoningRouter({
     poisoning: new PoisoningService({
       store: db.engine,
-      memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+      memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex },
       unseal: (sealed) => decryptValue(sealed, DATA_KEY),
     }),
   }))
@@ -193,6 +195,6 @@ export function mountEngine({ api, db }: Site): EngineSite {
     }),
   }))
   api.use('/pending-approvals', pendingApprovalsRouter({ db }))
-  api.use('/memories', memoriesRouter({ db, temporalBridge: {} }))
+  api.use('/memories', memoriesRouter({ db, temporalBridge: {}, unindex }))
   return { started }
 }

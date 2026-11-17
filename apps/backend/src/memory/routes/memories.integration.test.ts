@@ -1,8 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { memoriesRouter } from './memories.js';
 import type { ConsolidationReport } from '../lib/memory-consolidate.js';
+import { indexMemories, searchMemories, unindexerFrom } from '../lib/memory-index.js';
+import { MEMORY_INDEX } from '../lib/memory-rank.js';
+import { corpusEndpointsWith } from '../../engine/lib/web-tools-resolver.js';
+import { startCorpusStandIn, type CorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
+
+let standIn: CorpusStandIn;
+beforeAll(async () => { standIn = await startCorpusStandIn(); });
+afterAll(async () => { await standIn.stop(); });
+
+const deployed = (appType: string, over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
+  id: `${appType}-1`, name: appType, appType, status: 'running', clusterId: 'c1', strategy: 'helm', ownerId: TEST_USER.id, ...over,
+});
 
 describe('/api/memories', () => {
   let harness: Harness;
@@ -11,7 +24,11 @@ describe('/api/memories', () => {
   beforeEach(async () => {
     harness = await mountRouter({
       prefix: '/api/memories',
-      router: (db) => memoriesRouter({ db, temporalBridge: { lastConsolidation: report } }),
+      router: (db) => memoriesRouter({
+        db,
+        temporalBridge: { lastConsolidation: report },
+        unindex: unindexerFrom((ownerId) => corpusEndpointsWith({ db: db.infrastructure, serviceUrl: async () => standIn.base }, ownerId)),
+      }),
     });
   });
 
@@ -56,5 +73,28 @@ describe('/api/memories', () => {
   it('keeps one for every model when no model is given', async () => {
     const made = await axios.post<{ id: string }>(harness.url('/api/memories'), { category: 'environment_facts', title: 'DNS', text: 'Cloudflare.', scope: 'global', model: '' });
     expect(made.data).not.toHaveProperty('model');
+  });
+
+  it('a retired memory is gone from the index, so nothing searching it finds it again', async () => {
+    for (const appType of ['quickwit', 'tei']) await harness.db.infrastructure.saveDeployment(deployed(appType));
+    await harness.db.infrastructure.saveDeployment({ ...deployed('qdrant'), qdrantApiKey: 'stand-in-key' });
+    const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Retries', text: 'The retry budget is three attempts.', scope: 'global' });
+    await indexMemories(standIn.endpoints, [made.data]);
+    expect((await searchMemories(standIn.endpoints, 'retry budget', { ownerId: TEST_USER.id })).map((hit) => hit.id)).toEqual([made.data.id]);
+
+    expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
+
+    expect(await searchMemories(standIn.endpoints, 'retry budget', { ownerId: TEST_USER.id })).toEqual([]);
+    expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
+  });
+
+  it('a memory is kept when the person has no Qdrant of their own, and they are told so', async () => {
+    await harness.db.infrastructure.saveDeployment(deployed('quickwit'));
+    const made = await axios.post<{ id: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
+
+    const refused = await axios.delete(harness.url(`/api/memories/${made.data.id}`), { validateStatus: () => true });
+
+    expect([refused.status, refused.data]).toEqual([409, { error: 'forgetting a memory needs your own Quickwit and Qdrant running, and you have no running Qdrant: deploy it as an app first' }]);
+    expect(await harness.db.memory.getMemories(TEST_USER.id)).toHaveLength(1);
   });
 });
