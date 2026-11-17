@@ -1155,20 +1155,6 @@
       "released": "2026-09-23T10:32:45Z"
     },
     {
-      "kind": "chart",
-      "name": "secrets-operator",
-      "version": "v0.11.10",
-      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
-      "github": "Infisical/kubernetes-operator",
-      "uses": [
-        {
-          "file": "apps/backend/src/projects/services/ProjectSecretSync.ts",
-          "pattern": "OPERATOR_VERSION = '(v[0-9.]+)'"
-        }
-      ],
-      "released": "2026-09-23T22:42:02Z"
-    },
-    {
       "kind": "action",
       "name": "actions/checkout",
       "version": "v4.4.0",
@@ -1502,13 +1488,17 @@
       "kind": "chart",
       "name": "secrets-operator",
       "version": "v0.11.15",
-      "where": "the management cluster's Infisical",
+      "where": "every cluster Koala syncs a project's secrets on, and the instance's own Infisical",
       "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
       "github": "Infisical/kubernetes-operator",
       "uses": [
         {
           "file": "scripts/ensure-infisical.sh",
           "pattern": "OPERATOR_CHART=(v[0-9.]+)"
+        },
+        {
+          "file": "apps/backend/src/projects/services/ProjectSecretSync.ts",
+          "pattern": "OPERATOR_VERSION = '(v[0-9.]+)'"
         }
       ],
       "released": "2026-10-24T03:07:32Z"

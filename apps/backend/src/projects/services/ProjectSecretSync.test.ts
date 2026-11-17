@@ -1,18 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
-import { syncProjectSecrets } from './ProjectSecretSync.js';
+import { OPERATOR_VERSION, syncProjectSecrets } from './ProjectSecretSync.js';
 import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 
 const MASTER = 'test-master-key-that-is-at-least-32-characters';
 
-function world(operatorInstalled: boolean, readerAlive = true) {
+function world(operatorInstalled: boolean | string, readerAlive = true) {
   const helm: string[][] = [];
   const applied: string[] = [];
   const kubectl: string[][] = [];
   const infra = {
     runHelm: vi.fn(async (args: string[]) => {
       helm.push(args);
-      if (args[0] === 'status' && !operatorInstalled) throw new Error('release: not found');
+      if (args[0] === 'list') {
+        if (!operatorInstalled) return '[]';
+        return JSON.stringify([{ name: 'infisical-operator', chart: `secrets-operator-${operatorInstalled === true ? OPERATOR_VERSION : operatorInstalled}` }]);
+      }
       return '';
     }),
     runKubectl: vi.fn(async (args: string[]) => { kubectl.push(args); return ''; }),
@@ -46,6 +49,15 @@ describe('syncProjectSecrets', () => {
     expect(w.applied[0]).toContain('kind: Secret');
     expect(w.applied[1]).toContain('kind: InfisicalSecret');
     expect(JSON.stringify(w.kubectl)).not.toContain('reader-secret-sentinel');
+  });
+
+  it('leaves an operator already at the version Koala pins, and upgrades one at any other to it', async () => {
+    const current = world(true);
+    expect((await syncProjectSecrets({ ...current, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: '/tmp/k', reach })).operator).toBe('present');
+    expect(current.helm.filter((args) => args[0] === 'upgrade')).toEqual([]);
+    const older = world('v0.11.10');
+    expect((await syncProjectSecrets({ ...older, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: '/tmp/k', reach })).operator).toBe('upgraded');
+    expect(older.helm.find((args) => args[0] === 'upgrade')).toEqual(expect.arrayContaining(['upgrade', '--install', 'infisical-operator', 'secrets-operator', '--version', OPERATOR_VERSION]));
   });
 
   it('reuses the reader stored on the project instead of minting another', async () => {

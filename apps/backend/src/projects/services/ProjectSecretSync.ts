@@ -5,11 +5,11 @@ import {
   readerSecretManifest, type VaultReach,
 } from '../../releases/index.js';
 
-export const OPERATOR_VERSION = 'v0.11.10';
+export const OPERATOR_VERSION = 'v0.11.15';
 
 export interface SecretSyncInfra {
   runKubectl(args: string[], kubeconfig?: string): Promise<unknown>;
-  runHelm(args: string[], kubeconfig?: string): Promise<unknown>;
+  runHelm(args: string[], kubeconfig?: string): Promise<string>;
   applyManifest(manifest: string, kubeconfig?: string): Promise<unknown>;
 }
 
@@ -24,10 +24,10 @@ export interface SecretSyncProjects {
   saveProject(project: ProjectMetadata): Promise<void>;
 }
 
-export async function ensureInfisicalOperator(infra: Pick<SecretSyncInfra, 'runHelm'>, kubeconfig: string): Promise<'present' | 'installed'> {
-  const present = await infra.runHelm(['status', OPERATOR_RELEASE, '-n', OPERATOR_NAMESPACE], kubeconfig)
-    .then(() => true, ignore('helm status fails while the operator is not installed, and installing it below fails with the reason when the cluster cannot be reached'));
-  if (present) return 'present';
+export async function ensureInfisicalOperator(infra: Pick<SecretSyncInfra, 'runHelm'>, kubeconfig: string): Promise<'present' | 'installed' | 'upgraded'> {
+  const listed = JSON.parse(await infra.runHelm(['list', '-n', OPERATOR_NAMESPACE, '--filter', `^${OPERATOR_RELEASE}$`, '-o', 'json'], kubeconfig)) as { chart?: string }[];
+  const chart = listed[0]?.chart;
+  if (chart === `secrets-operator-${OPERATOR_VERSION}`) return 'present';
   await infra.runHelm([
     'upgrade', '--install', OPERATOR_RELEASE, 'secrets-operator',
     '--repo', OPERATOR_REPO,
@@ -35,7 +35,7 @@ export async function ensureInfisicalOperator(infra: Pick<SecretSyncInfra, 'runH
     '-n', OPERATOR_NAMESPACE, '--create-namespace',
     '--wait', '--timeout', CLI_CEILING,
   ], kubeconfig);
-  return 'installed';
+  return chart ? 'upgraded' : 'installed';
 }
 
 const readerFrom = (value: unknown): { clientId: string; clientSecret: string } | undefined => {
@@ -48,7 +48,7 @@ const readerFrom = (value: unknown): { clientId: string; clientSecret: string } 
 export async function syncProjectSecrets(
   deps: { infra: SecretSyncInfra; vault: SecretSyncVault; projects: SecretSyncProjects; masterKey: SecretKey },
   args: { project: ProjectMetadata; namespace: string; kubeconfig: string; reach: VaultReach; secretName?: string | undefined },
-): Promise<{ hostAPI: string; operator: 'present' | 'installed' }> {
+): Promise<{ hostAPI: string; operator: 'present' | 'installed' | 'upgraded' }> {
   const host = infisicalHostFor(args.reach, { url: await deps.vault.resolveBaseUrl() });
   if ('problem' in host) throw new Error(host.problem);
 
