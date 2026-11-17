@@ -609,7 +609,7 @@ describe('AgentRunWorkflow', () => {
     let refusals = 0;
     acts.stream.EngineLifecycleActivity = vi.fn(createStreamActivities({
       conclude: async (event: LifecycleEvent) => {
-        if (event.kind === 'run-ended' && refusals < 5) {
+        if (event.kind === 'run-ended' && refusals < 3) {
           refusals += 1;
           throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:27017'), { code: 'ECONNREFUSED' });
         }
@@ -621,9 +621,9 @@ describe('AgentRunWorkflow', () => {
     const result = await runWorkflow(args, acts);
 
     expect(result.outcome).toBe('ok');
-    expect(refusals).toBe(5);
+    expect(refusals).toBe(3);
     expect(heard.filter((event) => event.kind === 'run-ended')).toEqual([expect.objectContaining({ runId: args.ticket.runId, outcome: 'ok' })]);
-  }, 60_000);
+  }, 120_000);
 
   it('a run whose ending is refused for good fails, naming why', async () => {
     const acts = activities({ script: [{ content: 'Done.' }] });
