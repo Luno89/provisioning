@@ -15,6 +15,24 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 ok()  { echo -e "  ${GREEN}✅${NC} $1"; }
 die() { echo -e "  ${RED}❌${NC} $1" >&2; exit 1; }
 
+restart_headscale() {
+  [ "$HEADSCALE_STOPPED" = 1 ] || return 0
+  local said
+  if said="$(docker start "$HEADSCALE" 2>&1 >/dev/null)"; then
+    HEADSCALE_STOPPED=0
+    return 0
+  fi
+  die "Headscale did not start again after the backup: ${said}; the private network takes no new machines until it does"
+}
+
+copy_headscale() {
+  HEADSCALE_STOPPED=1
+  docker stop "$HEADSCALE" >/dev/null
+  docker cp "$HEADSCALE:/var/lib/headscale" - > "$1/headscale.tar"
+  restart_headscale
+  ok "Headscale's database and noise key copied while it was stopped"
+}
+
 record_success() {
   local dir="$1" at="$2"
   install -d -m 755 "$dir"
@@ -55,7 +73,7 @@ MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2
 
 rm -rf "$STAGE"
 install -d -m 700 "$STAGE"
-restart_headscale() { docker start "$HEADSCALE" >/dev/null 2>&1 || true; }
+HEADSCALE_STOPPED=0
 trap restart_headscale EXIT
 
 printf 'password: %s\n' "$MONGO_ROOT_PASSWORD" | docker exec -i "$MONGO" sh -c 'cat > /tmp/koala-backup.yaml && chmod 600 /tmp/koala-backup.yaml'
@@ -67,10 +85,7 @@ for db in temporal temporal_visibility; do
 done
 ok "Temporal's databases dumped"
 
-docker stop "$HEADSCALE" >/dev/null
-docker cp "$HEADSCALE:/var/lib/headscale" - > "$STAGE/headscale.tar"
-docker start "$HEADSCALE" >/dev/null
-ok "Headscale's database and noise key copied while it was stopped"
+copy_headscale "$STAGE"
 
 docker cp "$CADDY:/data" - > "$STAGE/caddy-data.tar"
 ok "Caddy's certificates and keys copied"

@@ -18,13 +18,14 @@ die()  { echo -e "  ${RED}❌${NC} $1"; exit 1; }
 write_if_changed() {
   local path="$1" wanted
   wanted="$(cat)"
-  [ -f "$path" ] && [ "$(cat "$path")" = "$wanted" ] && return 1
-  install -d -m 755 "$(dirname "$path")"
-  printf '%s\n' "$wanted" > "$path"
-  return 0
+  CHANGED=0
+  if [ -f "$path" ] && [ "$(cat "$path")" = "$wanted" ]; then return 0; fi
+  install -d -m 755 "$(dirname "$path")" 2>/dev/null || die "could not write ${path}: its folder could not be made"
+  printf '%s\n' "$wanted" > "$path" 2>/dev/null || die "could not write ${path}"
+  CHANGED=1
 }
 
-write_if_changed /etc/sysctl.d/90-koala.conf <<'CONF' || true
+write_if_changed /etc/sysctl.d/90-koala.conf <<'CONF'
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 net.ipv4.conf.all.accept_redirects = 0
@@ -69,16 +70,16 @@ fi
 ok "restic $RESTIC_VERSION, from its release with a pinned checksum"
 REBOOT=true
 [ "$LAB" -eq 1 ] && REBOOT=false
-write_if_changed /etc/apt/apt.conf.d/20auto-upgrades <<'CONF' || true
+write_if_changed /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 CONF
-write_if_changed /etc/apt/apt.conf.d/52koala-unattended <<CONF || true
+write_if_changed /etc/apt/apt.conf.d/52koala-unattended <<CONF
 Unattended-Upgrade::Automatic-Reboot "${REBOOT}";
 Unattended-Upgrade::Automatic-Reboot-Time "04:30";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
 CONF
-write_if_changed /etc/needrestart/conf.d/90-koala.conf <<'CONF' || true
+write_if_changed /etc/needrestart/conf.d/90-koala.conf <<'CONF'
 $nrconf{restart} = 'a';
 $nrconf{override_rc}{qr(^(docker|containerd|k3s.*|nowrinkles|tailscaled)\.service$)} = 0;
 CONF
@@ -88,12 +89,15 @@ else
   ok "security updates install daily; a lab never restarts itself for one"
 fi
 
-write_if_changed /etc/systemd/journald.conf.d/90-koala.conf <<'CONF' && { install -d /var/log/journal; systemctl restart systemd-journald; } || true
+write_if_changed /etc/systemd/journald.conf.d/90-koala.conf <<'CONF'
 [Journal]
 Storage=persistent
 SystemMaxUse=1G
 MaxRetentionSec=14day
 CONF
+if [ "$CHANGED" = 1 ]; then
+  install -d /var/log/journal && systemctl restart systemd-journald || die "journald did not restart with Koala's settings"
+fi
 ok "the journal is kept on disk, at most 1 GB and 14 days"
 
 DAEMON=/etc/docker/daemon.json
@@ -142,7 +146,7 @@ ADMIN_HOME="$(getent passwd "$ADMIN" | cut -d: -f6)"
 [ -s "${ADMIN_HOME}/.ssh/authorized_keys" ] || die "${ADMIN} has no SSH key in ${ADMIN_HOME}/.ssh/authorized_keys, so turning passwords off would lock everyone out"
 install -d -m 755 /etc/koala
 [ -f "$ADMIN_RECORD" ] || echo "$ADMIN" > "$ADMIN_RECORD"
-if write_if_changed /etc/ssh/sshd_config.d/90-koala.conf <<CONF; then
+write_if_changed /etc/ssh/sshd_config.d/90-koala.conf <<CONF
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -152,6 +156,7 @@ MaxAuthTries 3
 X11Forwarding no
 AllowAgentForwarding no
 CONF
+if [ "$CHANGED" = 1 ]; then
   sshd -t || { rm -f /etc/ssh/sshd_config.d/90-koala.conf; die "the SSH settings do not parse; nothing was changed"; }
   systemctl reload ssh
 fi
@@ -164,10 +169,11 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; the
 fi
 
 K3S_UNIT=k3s-provisioning-lunorica.service
-if write_if_changed /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml <<'CONF'; then
+write_if_changed /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml <<'CONF'
 kube-proxy-arg+:
   - nodeport-addresses=127.0.0.1/32,100.64.0.0/10
 CONF
+if [ "$CHANGED" = 1 ]; then
   if systemctl is-active --quiet "$K3S_UNIT"; then
     systemctl restart "$K3S_UNIT"
     ok "k3s restarted, so kube-proxy takes the node port addresses"

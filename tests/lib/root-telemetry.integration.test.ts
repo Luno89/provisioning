@@ -171,3 +171,40 @@ describe('backup.sh recording its last success', () => {
     expect(existsSync(join(dir, '.backup.json.next'))).toBe(false);
   });
 });
+
+describe('backup.sh copying Headscale while it is stopped', () => {
+  const copying = (startRefused: boolean, stopsIt: boolean) => {
+    const dir = scratch('backup-headscale-');
+    writeFileSync(join(dir, 'docker'), [
+      '#!/usr/bin/env bash',
+      `echo "docker $*" >> "${dir}/calls"`,
+      `if [ "$1" = start ] && [ "${startRefused ? 'yes' : 'no'}" = yes ]; then echo "Error response from daemon: no space left on device" >&2; exit 1; fi`,
+      'exit 0',
+      '',
+    ].join('\n'));
+    chmodSync(join(dir, 'docker'), 0o755);
+    const body = stopsIt ? `copy_headscale ${dir}` : 'true';
+    const ran = spawnSync('bash', ['-c', scriptExcerpt(join(ROOT_NODE, 'backup.sh'), ['copy_headscale', 'restart_headscale'],
+      `set -euo pipefail\nok() { echo "$1"; }\ndie() { echo "$1" >&2; exit 1; }\nHEADSCALE=headscale\nHEADSCALE_STOPPED=0\ntrap restart_headscale EXIT\n${body}\n`)],
+    { encoding: 'utf8', env: { ...process.env, ...excerptEnv(), PATH: `${dir}:${process.env.PATH}` } });
+    return { ran, calls: existsSync(join(dir, 'calls')) ? readFileSync(join(dir, 'calls'), 'utf8') : '' };
+  };
+
+  it('starts Headscale again once its database is copied', () => {
+    const { ran, calls } = copying(false, true);
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(calls.trim().split('\n')).toEqual(['docker stop headscale', 'docker cp headscale:/var/lib/headscale -', 'docker start headscale']);
+  });
+
+  it('fails the backup, saying Headscale did not start again and what docker said, when it cannot be started', () => {
+    const { ran } = copying(true, true);
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('Headscale did not start again after the backup: Error response from daemon: no space left on device; the private network takes no new machines until it does');
+  });
+
+  it('leaves alone a Headscale the backup never stopped', () => {
+    const { ran, calls } = copying(true, false);
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(calls).toBe('');
+  });
+});
