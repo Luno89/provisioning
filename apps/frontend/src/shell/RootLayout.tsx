@@ -118,7 +118,7 @@ export function RootLayout() {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
   }, [placement.data, adminPage, removalPage, joinPage]);
 
-  const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && (placement.data?.servesTenants ?? true);
+  const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && placement.data.servesTenants;
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000, enabled: tenant });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000, enabled: tenant });
   const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders, enabled: tenant });
@@ -236,6 +236,21 @@ export function RootLayout() {
       <HubShell email={user.email} onLogout={() => void handleLogout()}>
         {hubPage ? <Outlet /> : <Navigate to="/shared" replace />}
       </HubShell>
+    );
+  }
+
+  if (placement.isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans p-6">
+        <div className="max-w-md space-y-4 text-center">
+          <AlertTriangle className="mx-auto w-8 h-8 text-amber-400" />
+          <p className="text-sm">Koala could not tell whether this server holds your work: {errorMessage(placement.error)}</p>
+          <div className="flex justify-center gap-3">
+            <button type="button" onClick={() => void placement.refetch()} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Try again</button>
+            <button type="button" onClick={() => void handleLogout()} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Sign out</button>
+          </div>
+        </div>
+      </div>
     );
   }
 

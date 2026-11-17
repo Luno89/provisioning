@@ -6,7 +6,12 @@ import * as clustersApi from '../features/infrastructure/api/clusters';
 import * as deploymentsApi from '../features/infrastructure/api/deployments';
 import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
+import * as identityApi from '../features/instances/api/identity';
 
+vi.mock('../features/instances/api/identity', async (importOriginal) => ({
+  ...(await importOriginal<typeof identityApi>()),
+  getMyInstance: vi.fn().mockResolvedValue({ instance: null, servesTenants: true }),
+}));
 vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
   listClusters: vi.fn(),

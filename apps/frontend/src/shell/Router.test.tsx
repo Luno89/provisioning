@@ -8,11 +8,16 @@ import * as clustersApi from '../features/infrastructure/api/clusters';
 import * as deploymentsApi from '../features/infrastructure/api/deployments';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as groveApi from '../features/projects/api/grove';
+import * as identityApi from '../features/instances/api/identity';
 
 vi.mock('../features/platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof authApi>()),
   getMe: vi.fn(),
   logout: vi.fn(),
+}));
+vi.mock('../features/instances/api/identity', async (importOriginal) => ({
+  ...(await importOriginal<typeof identityApi>()),
+  getMyInstance: vi.fn().mockResolvedValue({ instance: null, servesTenants: true }),
 }));
 vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
