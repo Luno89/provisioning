@@ -3,6 +3,26 @@ import { E2E_LOGIN, LOGIN_SCRIPT } from '../../releases/lib/release-e2e.js';
 
 export const ODOO_E2E_HELPERS_AT = '/usr/local/share/koala/odoo.ts';
 
+export const ODOO_E2E_LOGIN_STEP = [
+  "if [ \"$reused\" = 0 ] || [ ! -f \"$state/login\" ]; then",
+  "  login_status=0",
+  "  E2E_LOGIN=" + E2E_LOGIN + " E2E_PASSWORD=" + E2E_LOGIN + " odoo shell $common --no-http >\"$state/login.log\" 2>&1 <<'KOALA_LOGIN' || login_status=$?",
+  ...LOGIN_SCRIPT.split('\n'),
+  "KOALA_LOGIN",
+  "  if [ \"$login_status\" -ne 0 ]; then",
+  "    tail -20 \"$state/login.log\"",
+  "    echo \"odoo-e2e: FAILED \u2014 the test login " + E2E_LOGIN + " could not be made (odoo shell exited $login_status)\"",
+  "    exit 1",
+  "  fi",
+  "  if ! grep -q 'the test login is ready' \"$state/login.log\"; then",
+  "    tail -20 \"$state/login.log\"",
+  "    echo \"odoo-e2e: FAILED \u2014 the test login " + E2E_LOGIN + " could not be made\"",
+  "    exit 1",
+  "  fi",
+  "  touch \"$state/login\"",
+  "fi",
+].join('\n');
+
 export const ODOO_E2E_SCRIPT = [
   "#!/bin/sh",
   "set -eu",
@@ -102,17 +122,7 @@ export const ODOO_E2E_SCRIPT = [
   "  echo \"$fingerprint\" > \"$state/fingerprint\"",
   "  serve",
   "fi",
-  "if [ \"$reused\" = 0 ] || [ ! -f \"$state/login\" ]; then",
-  "  E2E_LOGIN=" + E2E_LOGIN + " E2E_PASSWORD=" + E2E_LOGIN + " odoo shell $common --no-http >\"$state/login.log\" 2>&1 <<'KOALA_LOGIN' || true",
-  ...LOGIN_SCRIPT.split('\n'),
-  "KOALA_LOGIN",
-  "  if ! grep -q 'the test login is ready' \"$state/login.log\"; then",
-  "    tail -20 \"$state/login.log\"",
-  "    echo \"odoo-e2e: FAILED \u2014 the test login " + E2E_LOGIN + " could not be made\"",
-  "    exit 1",
-  "  fi",
-  "  touch \"$state/login\"",
-  "fi",
+  ODOO_E2E_LOGIN_STEP,
   E2E_IGNORED,
   "mkdir -p \"$PWD/e2e-results\"",
   "rm -rf \"$PWD/e2e-results/artifacts\"",
