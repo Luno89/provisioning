@@ -1,2641 +1,373 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Rules and decisions for working in this repository. How the code carries them out lives in the code and its tests, not here
+(owner, 2026-11-11: "I really don't think its important to update the claude.md with specific implmentation details that are
+going to drift if the code changes"). When a change lands, add only the rule a future change must respect, in a sentence.
 
-## Read this first: v1 and the backend plan (owner, 2026-11-05)
+## Where the work stands
 
-**The work is `~/.claude/plans/backend.md`** (approved 2026-11-05, every decision answered, evidence in
-`~/.claude/plans/backend-audit/`). Owner: "I'm looking for structual changes in how we work cause its been like three months and
-we haven't really gotten anywhere", then "yes, the GPU machine story is v1, and your going to do all the structural changes first
-right?"
+- **The plan is `~/.claude/plans/backend.md`** (approved 2026-11-05, evidence in `~/.claude/plans/backend-audit/`), progress in
+  `~/.claude/plans/now.md`. Owner: "I'm looking for structual changes in how we work cause its been like three months and we
+  haven't really gotten anywhere", then "yes, the GPU machine story is v1, and your going to do all the structural changes first
+  right?"
+- **v1 is done (2026-11-17)**: a person joins their GPU machine, Koala runs on it, they deploy TabbyAPI or vLLM and chat with their
+  own model, signed in through root. The areas frozen during v1 (the hub, Odoo releases, the pool, the marketplace, payments, checks
+  and the bench, memory, telemetry extras) are open again. The plan's phases 3 to 5 now cover every area, and its deferred list is
+  taken up as each area is worked.
+- **Staying aligned** (owner, 2026-11-06: "I feel like its important we don't drift from each others understand, and that you ask me
+  about inconsitances before we keep developing any more"; plan `~/.claude/plans/alignment.md`):
+  - Before asking the owner anything, find what they already said with `npm run said -- <words>` and quote it. Never restate a
+    decision in other words.
+  - Product questions are settled first by "always side with the user and whatever decision makes it easier and less invasive to
+    them" (the user being whoever uses Koala).
+  - What we agreed lives in `tests/alignment/`: each decision once, in the owner's words with when, and each v1 step. `npm run
+    decisions` holds every quote to the transcripts.
+  - Before each development step run `npm run drift`. Every finding for the owner is asked before code and recorded as asked, or as
+    noted with why. Ship refuses while one is neither. "Decided, not done" findings are the work list, not questions.
+- **A change list comes from the coding tools, never from grep** (owner, 2026-11-08: "grep isn't the right tool most of time why do
+  you keep using it"). The `change-list` skill is the procedure: each affected flow from its frontend action to every way it ends
+  (`npm run flows`), and every symbol touched through `npm run refs` and LSP, tests included. Grep is for literals, logs and plans.
 
-- **v1**: a person joins their GPU machine, Koala runs on it, they deploy TabbyAPI or vLLM and chat with their own model, signed
-  in through root. Everything outside v1 (the hub, Odoo releases, the pool, the marketplace, payments, checks and the bench,
-  memory, telemetry extras) is frozen: no new work, nothing deleted, touched only where v1's flow passes through.
-- **Order**: (1) flow maps generated from the coupling graph, so every flow and every implementation of a concept is visible;
-  (2) tests a signal again; (3) one module per cross-cutting concept (`ClusterAccess` the only way to reach, start, stop or check a
-  cluster and the only caller of kubectl and helm; configuration validated per role with no defaults; where work runs), held by
-  the import boundaries; (4) v1 in vertical slices, each real and checked against its flow map.
-- **The model**: root keeps one k3s cluster of its own; a machine is exactly one cluster (made with native k3s for GPU
-  passthrough, or k3d in Docker without it); an instance is the chart's pods on one of the person's machines or on the pool. There
-  is no other kind of cluster. The `combined` role, the `provisioning-lunorica` system cluster, Hetzner, DigitalOcean, mock
-  cloud mode, the `k3d` provider and Provision a cluster are gone (step 3 B, 2026-11-08): Koala makes no clusters.
-- **Much of this file still describes the old topology** (k3d as Koala's cluster, `dev:split`, the old GPU path, ship's old
-  step list, the live suites that still name `provisioning-lunorica`). Where it disagrees with the
-  plan, the plan wins; this file is rewritten section by section as each phase lands.
-- **Staying aligned** (owner, 2026-11-06: "I feel like its important we don't drift from each others understand, and that you
-  ask me about inconsitances before we keep developing any more"; plan `~/.claude/plans/alignment.md`). Before asking the
-  owner anything, find what they already said: `npm run said -- <words>` searches their own messages in every session
-  transcript of this project (typed, sent while work ran, answers to questions, words given when refusing an action, and
-  what they told sub-agents), with date and session. Quote what it finds; never restate a decision in other words. Product
-  questions are settled first by "always side with the user and whatever decision makes it easier and less invasive to them"
-  (the user being whoever uses Koala). `npm run refs -- <file> <Symbol>` finds every reference to a symbol across the workspaces.
-  What we agreed lives in `tests/alignment/`: `decisions.ts` (each decision once, in the owner's words with when they said them,
-  and a reading marked as mine) and `v1-flows.ts` (each v1 step: what the person does and sees, on which screen, the call its
-  action makes, and the decisions it rests on). `npm run decisions` holds every quote to the transcripts and every step to the
-  register and the repository (`-- --page <file>` writes the register's page). **Before each development step run
-  `npm run drift`**: it traces every step through the code and lists where agreement and code part (no code, two paths for one
-  job, code branching on what a decision removes or on what no decision settles, the owner misquoted, a step resting on my
-  assumption). Every finding for the owner is asked before code, and recorded in `tests/alignment/answers.ts` as `asked`, or
-  as `noted` with why when it is not a question; the owner's answer becomes a decision in the register. Ship refuses while any is
-  neither (`npm run drift -- --check`). "Decided, not done" findings are the work list, not questions.
-- **A change list comes from the coding tools, never from grep** (owner, 2026-11-08: "grep isn't the right tool most of time why
-  do you keep using it"). The `change-list` skill (`.claude/skills/change-list/`) is the procedure: each affected flow named from
-  its frontend action to every way it ends, `npm run flows` for the path and the concept index, `npm run refs` and LSP for every
-  symbol touched, tests included. A project hook (`.claude/hooks/symbol-search-reminder.sh`) answers a text search of the source
-  with the same reminder.
+## What Koala is
 
-## What this is
+A person's own Koala on their own machines. It deploys apps (vLLM and TabbyAPI first, then Odoo, WordPress, Nextcloud,
+Audiobookshelf, Open WebUI and others) and runs agents that work on the person's projects.
 
-A person's own Koala on their own machines: every cluster is a machine's own (added under My Machines, made there with native
-k3s, or k3d where the person has Docker and wants no GPU), or the pool's place on Koala's servers; Koala makes no clusters. It deploys apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) exposed through each instance's edge: on this computer at `<app>.localhost:8000`, and publicly at `<app>-<name>.<domain>` through root's Caddy where the instance has a domain.
+- **Root** holds accounts and signs people in (it is the OpenID provider for everything else), routes addresses through its Caddy,
+  runs the mesh (Headscale), sends mail, keeps the release catalogue and offers trials on the pool. It keeps one k3s cluster of its
+  own.
+- **A machine** is one of a person's computers, added to their account at root, and is exactly one cluster: native k3s (needed for
+  GPU passthrough) or k3d in Docker without it. It starts its cluster when something runs on it and stops it when idle. Its agent
+  also runs coding agents (Claude Code, Codex, Gemini, Antigravity, Goose) over ACP.
+- **An instance** is a person's Koala: the instance chart's pods on one of their machines, or on the pool. It serves one owner and
+  signs people in only through root.
+- **The hub** holds projects shared between people; the owner's instance keeps the working copy.
+- **The pool** is Koala's servers, where someone without a machine tries Koala in a sandboxed vcluster and can move to their own
+  machine later.
 
-```
-React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CDKTF (Terraform) → a machine's cluster, through ClusterAccess
-```
+Koala makes no clusters (owner, 2026-11-08): a cluster comes with a machine and goes with it. There is no other kind of cluster. The
+`combined` role, mock cloud, Hetzner, DigitalOcean and "Provision a cluster" are gone (owner, 2026-11-08: "Ok I think those are all
+good, sweet").
 
-npm workspaces: `apps/*`, `packages/*`.
+npm workspaces: `apps/*` (backend, frontend, local-agent: the machine agent) and `packages/*` (engine-core, agent-engine,
+context-engine, harness-types, cdktf-infra).
 
 ## Agent Rules & Standards
 
-1. **Zero Half-Implementations**: NEVER half-implement any feature, view, route, or subsystem. Every feature must be 100% implemented end-to-end across the entire stack — backend services, persistence, API contracts, frontend UI, real-time events, and operational tests. Never leave half-wired buttons, superficial veneers, stubbed callbacks, or partial capabilities.
+1. **Zero half-implementations.** Every feature is implemented end to end: backend, persistence, API, UI, real-time events and
+   tests. Each of these shipped in this repo and passed its tests:
+   - a control the server never reads;
+   - a fake that passes by construction;
+   - canned tool handlers standing in for real ones;
+   - an invented placeholder shown as real;
+   - data kept only in memory when it is history the user comes back to;
+   - a field sent in a shape its consumer silently ignores.
 
-   Every one of these shipped in this repo and passed its tests:
-   - **A control the server never reads.** Level 2's "sandbox" toggle was sent and stored, but nothing branched on it.
-   - **A fake that passes by construction.** A mock model that calls exactly the tools the case expects, scored by checking those same tools, cannot fail.
-   - **Canned tool handlers standing in for real ones.** `run_command` "succeeded" unless the command contained the word `fail`.
-   - **An invented placeholder shown as real.** The studio displayed a made-up three-node graph for any case naming a built-in procedure, then ran it.
-   - **Data kept only in memory** when the feature is a list of history the user comes back to.
-   - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
-
-   Test doubles belong in tests. The product-level mock modes this file used to allow (mock cloud mode on a dev box, now gone, and the Twilio
-   fallback) are being removed under rule 4.
-2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
-3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
-
-   A live check must go through the real path. A run in a mock mode proves the mock. When reporting, name what was exercised live and what was not.
-4. **No silent fallbacks** (owner, 2026-11-05): "you need to never do half assed shit like "skip" or fallback without making it
-   explicit to me first, everything needs to be implemted cleanly". No skip, fallback, "else the old way" branch, guessed default
-   for missing config, warn-and-carry-on, quiet degrade (CPU for GPU, missing as empty, an error read as "not running") or second
-   path for one job without asking the owner first. A missing dependency is an error with its reason or a state the person sees.
-5. **Fix the model, not the symptom.** Before fixing what broke, find every other place the same wrong model lives and fix them
-   together; a fix in one place while the same mistake stays elsewhere is the patch this rule forbids. One path per job: a new
+   Test doubles belong in tests.
+2. **Ask when not sure.** If requirements, terms, trade-offs or boundaries are unclear, check the plans, CLAUDE.md and the owner's
+   words first, then ask with your reading in the question. Architectural decisions and UX shifts get the owner's sign-off. Bring
+   proposals with their trade-offs, never "shall I".
+3. **Live end-to-end verification.** Nothing is done on unit tests and typechecks alone: prove the user's flow against the running
+   app through the real path. A run in a mock mode proves the mock. Say what was exercised live and what was not.
+4. **No silent fallbacks** (owner, 2026-11-05: "you need to never do half assed shit like "skip" or fallback without making it explicit
+   to me first, everything needs to be implemted cleanly"). No skip, fallback, "else the old way", guessed default for missing
+   config, warn-and-carry-on, quiet degrade (CPU for GPU, missing as empty, an error read as "not running") or second path for one
+   job without asking first. A missing dependency is an error with its reason or a state the person sees.
+5. **Fix the model, not the symptom.** Find every place the same wrong model lives and fix them together. One path per job: a new
    feature that overlaps an existing one refactors it into one path ("There shouldn't be two paths").
-6. **Map before code.** Read the flow map of the flow you change before changing it, and show the owner the flow before and
-   after. Before each step of the plan the owner gets its exact list of changes and removals.
-7. **Never weaken a test to get green.** No deleted test or suite, removed assertion, relaxed check, dropped gate step, grown
-   coupling baseline or loosened coupling rule without the owner's yes. A test that fails is the code's problem; one that fails
-   twice gets its audit and a code fix.
+6. **Map before code.** Read the flow map of the flow you change, and show the owner the flow before and after. Before each step the
+   owner gets its exact list of changes and removals.
+7. **Never weaken a test to get green.** No deleted test or suite, removed assertion, relaxed check, dropped gate step, grown coupling
+   baseline or loosened coupling rule without the owner's yes. A test that fails is the code's problem; one that fails twice gets its
+   audit and a code fix. A new test is watched failing first.
+
+Also: no code comments; remove proven leftovers of an old model without asking (say so in the change list); never print or read
+secrets; commit as work lands, and push only on the owner's say.
 
 ## Commands
 
 ```bash
-sudo bash scripts/setup-root.sh # once, on Linux: Docker, the docker group, firewalld
+sudo bash scripts/setup-root.sh  # once, on Linux: Docker, the docker group, firewalld
 npm run setup        # from a clean clone: binaries, packages, CDKTF bindings, the platform keys
-npm run dev:reset    # dev is disposable: removes this computer as a machine (its k3s and Koala), root's and the hub's databases, Temporal and Headscale; npm run dev then starts it fresh
-npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, frontend, host-worker, cluster-worker
-npm run dev:split    # the same stack as root and your instance: root at http://koala.localhost:5175 (sign in there), your instance at http://dev.localhost:5173
-npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
+npm run dev:reset    # dev is disposable: removes this computer as a machine (its k3s and Koala), dev's databases, Temporal and Headscale
+npm run dev          # root, its worker and the hub on this computer; the first time, this computer joins as a machine (one sudo prompt) and Koala installs on its k3s
 
-npm run ship         # a fresh dev stack (reset, setup, dev, asking for your password once, for the join), G1 + G2 on this commit, then push main (Releases, below); run in your own terminal
-npm run gate -- <step> # one of ship's steps alone (unit, lint, integration:coupled, coupling, checks-live, …), its pass kept for this commit; ship then runs only what is left
-npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
-npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
-npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
-npm run test:all     # test → test:synth:palworld
-npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
-npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, a Temporal dev server, sockets, git and sh on this machine, ~5.5 min
-npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
-npm run test:coupling # the coupling rules R1-R5 over the unit and integration tiers, against their baseline; ship's fourth step
-npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tests/lib/gates.ts) against the running dev stack, with MECHANICS_ADMIN set
-npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
-npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose selectors have rotted (plans/testing-pyramid.md); in no gate
-npm run test:browser-live # in ship: its own root, instance (with its engine worker) and hub from this commit's image (split-stack), driven in Chromium → the owner signs in on root's page and lands on their instance, asked for a first model → Studio → Models connects a model stand-in on this machine (allowed in a lab) and makes it the default → a chat answers through the engine → Infrastructure shows its sections, none of the mesh only root has → Settings, then Log Out ends the session; every failed request, console error and uncaught error on the page fails it, ~4 min
-npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
-npm run test:root-metrics-live    # throwaway Mongo, Postgres and registry as root's compose files define them → root-telemetry.sh makes their monitoring accounts, which may watch and not write → the pinned exporters on loopback → root's host collector with its real config relays to a stand-in with the cluster collector's own pipeline: up{service=…} for every service, mail up and down with its port, the backup's last success outliving the one-minute expiry, a stopped Mongo down; ~3 min
-npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → root's mail check asks Spamhaus ZEN, Barracuda and UCEPROTECT through this computer's resolver: each list's own test address 127.0.0.2 is listed, loopback is on none → a host it does not trust is refused, ~2 min
-npm run test:monitoring-live      # a throwaway app on the cluster Koala runs in → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
-npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the cluster Koala runs in (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
-npm run test:infrastructure-live   # Infrastructure reads the cluster Koala runs in → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
-npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), the instance offers no cluster providers, lists no cloud credentials for making clusters, and finds no route to make or remove a cluster of any provider, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
-npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → root, given a stand-in OpenID provider through OIDC_*, offers it and not GitHub, refuses a sign-up through it without an invite, makes the account with the owner's invite and signs it in again by its subject → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
-npm run test:hub-live              # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
-npm run test:project-sharing-live  # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
-npm run test:account-hardening-live # its own root, instance and hub (split-stack, production containers, a mailbox): a short or leaked password is refused and no sign-up hands a code back → asking a reset answers alike for an address with no account and mails only one that has → signing out on the instance ends that session there and closes the connection made with it → the emailed code resets the owner's password, root's and the instance's sessions ending and the instance's open connection closed → changing a password asks the current one and ends every other session → two-factor goes on only with the password, then turning it off, deleting the account and changing the password are refused without a current code and the emailed one lets the change through → a sixth confirmation code in fifteen minutes is refused → signing out on root makes the cookie useless and closes its connection → wrong codes over two sign-ins lock the account's codes, which a password sign-in does not reset → ten wrong passwords lock it and email its person once, ending none of their sessions or connections, and the lock and the signed-out cookie survive root restarting; in ship, ~3 min
-npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
-npm run test:app-sign-in-live         # against the running dev stack, as its owner: a Hermes deploys on the cluster of the machine Koala runs on with a password Koala made for it, Terraform waiting on nothing and Koala judging the rollout → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it; in ship, ~2 min
-npm run test:gpu-live                 # against the running dev stack and this computer's GPUs: the machine Koala runs on reports its NVIDIA GPUs → a deploy asking for more than it has is refused with what to do → no app on the machine asks for its GPUs, as a reset leaves it → vLLM serving a small model on one GPU deploys through Koala, which readies the device plugin, the node advertises the GPUs and the model answers → it is destroyed; in ship
-npm run test:v1-live                 # v1 end to end, against the running dev stack and this computer's GPUs, in Chromium as its owner: signed in on root's page and handed to their Koala → My Machines shows this computer online with its two NVIDIA GPUs, usable, as its cluster card does (the join itself is proved by machine-live on a VM, since running it here would replace the dev machine) → no app on the machine asks for its GPUs, as a reset leaves it → Deploy an app: vLLM serving a small model on one GPU through the wizard, running on Infrastructure and its page → Studio → Models offers it by itself, named with its app, and it becomes the default → a chat answers from it, the model generating the tokens → destroyed from Infrastructure; the default and the chat put back however it ends; in ship
-npm run test:openrouter-connect-live # on its own root and instance (split-stack): signed in through root, Connect OpenRouter sends you to OpenRouter's sign-in with a PKCE challenge and a state → a state Koala did not make is refused before OpenRouter is asked → OpenRouter's refusal of a made-up code is told in plain words → nothing changed; approving on OpenRouter is yours; in ship, ~2 min
-npm run test:hub-split-live         # on its own root, instance (with its engine worker) and hub (split-stack, the hub making repositories in the dev Gitea): a project on the owner's instance is shared to the hub under a group, the instance calling the hub with a service token → a client and a collaborator are invited, sign up on root with the emailed code and join through root's sign-in → the client's Ask Koala starts a run on the owner's instance holding the client's role, and its engine worker takes it → the client removed on the hub: the run's grant is revoked on the instance (removed-from-shared-project), the run ends and the hub's channel says so, the client reads nothing → taken back by its name, the hub's copy gone; ~2 min
-npm run test:machine-story-live    # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine by hand → the planner, on it, proposes a one-story tree through propose_plan → approved, the first run stopped → every agent in the tree's work put on the machine → the story is worked in a checkout on the machine, checked with run_in_workspace and its task check in the tree's workspace, judged and settled by the scripted judges → it succeeds, label.txt is on main and no machine branch is left; removes the tree, the conversation and the agent, retires what the memory keeper kept, ~30 min (most of it the keeper)
-npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
-npm run test:machine-chat-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine → a chat in auto mode on it hands work to research, which works a checkout of the chat's documents on the machine, runs run_in_workspace, writes label.md and outlives the cut-off where a served call becomes a job the agent follows with wait_for; nothing asks, label.md is in the chat's workspace, the saved reply keeps research's steps and no machine branch is left → a chat not in auto mode asks before research runs something, naming the machine, and the test declines it → research with no conversation works in its own folder, search_web running for it, no run_in_workspace → two research hand-offs at once write the same file, and the one whose work comes back second is told the conflict in its session and keeps both; removes the chats and the agent, ~6 min
-npm run test:machine-default-live  # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and made your account default (another machine is refused) → a chat turn with no model picked runs on it and answers from it → a run that cannot be handed to a machine fails saying to add a model; your previous default, the agent and the chat are put back or removed however it ends, ~1 min
-npm run test:files-live            # code dropped on a throwaway project's repository is committed whole (binary bytes included) → the project's other files are kept on the instance's own MinIO: a PDF and a JSON file come back byte for byte, a folder moves, a file goes, an empty folder is made, a search finds a file two folders down → a share link opens with no session, still opens after a new version of the file, and stops once the file is moved or the link revoked → a file attached in a chat with no project is kept in the chat's own files and Koala, on FILES_LIVE_MODEL (else your default), reads it with read_stored_file → deleting the project leaves none of its files, ~5 min
-npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
-npm run test:root-smoke -- <root domain> <people domain> [--ssh-public]  # read-only, against a live root from outside: certificate, sign-in page and its headers, identity keys, metrics guarded, Headscale, the people wildcard's 404, mail records, the PTR naming `mail.<domain>`, the blocklists (through your resolver), only 80/443 (and 22 if public) answering among the common ports and every NodePort (30000–32767), on IPv6 too when `app.` has an AAAA
-npm run test:release-live         # the release rehearsal (gate G4 of plans/release-pipeline.md): the image is built at the previous tag and at the candidate → root on a disposable VM, bootstrapped by the real bootstrap.sh in lab mode (CERTIFICATES=internal), the previous release's ROOT_TLS rewritten once by the candidate's update.sh, and moved onto the previous tag by update.sh → an instance on a second VM on the lab network installs from it through install.sh, with an account, a project with a repository, an app at <app>-<name>.<domain> through root's Caddy and a sandboxed run → update.sh refuses with its exact words while a workflow runs on root's Temporal, then updates root to the candidate, which its registry then holds → the instance upgrades itself through its real check-in (root hears installing → ready), and sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in still work → with both on the candidate, a release that does not exist fails on the instance, which rolls itself back, tells root and stays at its addresses with sign-in working → update.sh <previous> rolls root back and helm rollback the instance, everything working again; ~1 h, cleans up
-npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
-npm run test:machine-probe-live  # two disposable VMs of one person on the dev mesh, k3s installed from the pins but not started (plans/machines.md stage 0) → the person starts and stops it through one sudoers rule and nothing else, no shim left after a stop, readiness judged only from conditions changed since the start → 6443 and 10250 closed to the machine's network, nothing on 80/443, its own pods still reach its API → a pod on one machine lists the other's pods over the mesh, the certificate naming its mesh address → a pod mounts only the person's folder as their uid and what it writes is theirs; `PROBE_KEEP=1` keeps the VMs after a failure, ~10 min
-npm run test:machine-live        # its own Koala from this commit's image (a backend and an engine worker, a database and a Temporal namespace of its own, `tests/lib/own-stack.ts`) → a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service, records its bundle and shows up to date, and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → an agent from before agents updated themselves shows as too old to update itself → the command run again with `--yes` installs Codex's adapter and the current agent → a download that is not the bundle Koala named is refused, the agent left as it was and My Machines saying why → Koala serving a newer agent while a chat turn holds a session on the machine, it waits and says so → the run terminated, Koala tells the machine, which closes the session and, idle, updates itself and comes back as its service on the newer agent, up to date → a two-turn chat runs on it; removes the machine, its project, the VM and its Koala, ~15 min
-npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → the join installed k3s on the machine, stopped, and the instance shows its cluster stopped → an app deployed to it starts k3s, runs on the machine and its ingress answers over the mesh where the instance's edge reaches it → with the machine offline a deploy waits and Needs attention says so, and goes ahead when it connects → destroying the apps stops k3s → a third VM, another person's, reaches neither, nor the machine's cluster → removing the machine uninstalls its k3s and forgets its cluster; ~35 min, removes everything
-npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
-npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
-npm run test:bench-live           # throwaway agent passes on an idle-started bench run, is broken, and the next idle bench names the regression, ~10 min
-npm run test:proposals-live       # Koala corrected in chat → the memory keeper proposes a test → accepted and run, ~25 min
-npm run test:practices-live       # a correction → a practice on trial → the bench tries it → live or held → recalled, ~45 min
-npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
-npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
-npm run test:odoo-release-live     # a throwaway project on the cluster Koala runs in: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~26 min
-npm run test:odoo-customizations-live # the same run, plus what was made in the live app brought into git by a story on your model and kept by the next release; in the release gate, not ship, ~30 min
-npm run test:restore-live          # two lab roots on VMs: the first backs up to a MinIO standing in for object storage, the second is bootstrapped fresh and restore.sh makes it the first again (owner, session, instance, Headscale node, mesh address, Temporal history); on the first root, every node port that answers on its loopback answers on its mesh address and says nothing to this computer through the VM's own address (a forward added through QEMU's monitor, `vm.forward`), answers again once `koala-node-ports.yaml` is removed and closes again when `harden-host.sh` puts it back, and `mail-check.ts` on root finds the blocklists' test address listed through root's resolver, ~15 min
-npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
-npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
-npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run → the instance removes no account and points at root, where a throwaway account removes itself and its instance is let go of, ~10 min, cleans up
+npm run ship         # a fresh dev stack, then every ship step on this commit, then push main; run in your own terminal, once a day
+npm run gate -- <step>  # one ship step alone against the running stack, its pass kept for this commit
+npm run release      # the release gates on a shipped commit, then a signed tag; GitHub builds and publishes the image
+npm run release:check   # the release gates on any commit, without tagging
+
+npm run test         # the three tiers in order, each only once the one below passes
+npm run test:unit    # typecheck and every workspace's unit tier (*.test.ts)
+npm run test:integration  # every workspace's integration tier (*.integration.test.ts)
+npm run test:integration:coupled  # the same, gathering what each test file runs for the coupling rules
+npm run test:coupling   # the coupling rules over the unit and integration tiers, against their baseline
+npm run test:e2e     # the live suites ship runs, against the running dev stack
+npm run test:<name>-live  # one live suite (tests/<name>-live.ts); every run records its pass or failure
+npm run test:vm-live [suite…]  # the VM suites, packed into rounds by free memory
+npm run lint
+
+npm run flows        # flow maps and the concept index from the coupling graph
+npm run refs -- <file> <Symbol>  # every reference to a symbol across the workspaces
+npm run said -- <words>  # the owner's own words across every session
+npm run decisions    # the decisions register held to the transcripts
+npm run drift        # where agreement and code part
+
+npm run pins:write   # write every pinned version and checksum from dependencies.pins.json into the files that name it
+npm run deps:update -- <package>  # take a vulnerability fix that is due
 ```
 
-Every `test:*-live` script runs through `tests/lib/run-live.ts`, which records when it last passed and last failed in
-`tests/last-passed.json` and the table `tests/LAST-PASSED.md`; a script nobody has run for weeks shows there.
-
-Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (8 tests, the three that provisioned and destroyed a k3d cluster gone with it, `testDir: './tests'`), run by `npm run test:browser`
-and by no gate.
-
-Per-workspace scripts (`test`, `lint`, `dev`, `dev:worker`, `dev:worker:cluster`) run the standard
-way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for what they invoke.
-
-Run a single test file: `npx vitest run <path>` from the relevant workspace dir, or `npx playwright test <file>` from repo root.
-
-### In dev, everything hot-reloads — and a reload kills what is running
-
-`npm run dev` runs the backend and all three workers (host, cluster, engine) under `tsx watch`, so
-an edit to anything they import restarts them within a few seconds. You no longer restart by hand.
-
-Workflow files are not imported: Temporal bundles them from `workflowsPath`. The workers' dev scripts watch them
-with `--include 'src/workflows/**'`; without that, a change to a workflow does nothing until the worker restarts
-for another reason — a fix can look applied and not be.
-
-The cost is that **a restart kills every activity that worker is running.** Temporal retries an
-idempotent node on the new worker once its heartbeat lapses, so a model turn or a sandbox
-provision just resumes. A node that is *not* idempotent — Code, Start Leaf, File Claim, anything
-whose definition says `idempotent: false` — gets exactly one attempt (`engineNodesOnce` in
-`AgentRunWorkflow.ts`), so the run fails at that node. **Saving a file during a live grove or
-agent run can fail the run.** Wait for it to finish, or expect to start it again.
-
-Production does not watch: `npm run start` (what the root node's systemd unit runs) uses plain
-`tsx`, which is why `update.sh` restarts through the unit. `npm run dev:steady` is the dev stack with the three
-workers on plain `tsx` too (the backend still reloads), for a long live run that a save must not kill.
-
-Note `npm run dev` uses `concurrently --kill-others`, so a worker that crashes rather than reloads
-takes the whole stack down with it.
-
-### E2E Monitor
-
-Interactive dashboard for debugging E2E runs in real time:
-```bash
-npm run dev &                    # start dev stack first
-npx tsx scripts/e2e-monitor.ts
-```
-Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod status, Temporal workflow status, k3d cluster list, worker health. Menu: `0-9,a` run a specific Playwright test, `r` run all, `t` terminate workflows, `c` clean Mongo test collections, `d` full teardown, `l` last log lines, `q` quit.
-
-## Repo structure
-
-| Path | What |
-|---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits the DB, keys, role and the platform services, then calls each area's `wire*` (`src/<area>/wiring/`), which constructs that area's services and mounts its routers. 437 lines. Three routes are inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design) and `/api/metrics` (its own token). `index.test.ts` guards the route order; `npm run test:routes-live` proves every router is mounted |
-| `apps/backend/src/<area>/` | **The backend is laid out by area, each with `lib/` (pure rules), `services/`, `routes/` (one router per URL prefix, a factory taking its deps) `wiring/` (what constructs the area from the platform deps and mounts it), `store.ts` (its records) and `index.ts` (all another area may import).** The areas: `platform` (database, keys, crypto, the Temporal client and payload storage, auth middleware, mail, notices, metrics, migrations, the shared record types), `accounts` (sign-in, invites, admin, account removal), `instances` (root, instance, addresses, the pool, moves), `hub` (shared projects), `projects` (projects, repositories, channels, item chats, trees, branches, leaves, plans, secrets, tree types), `releases` (A/B releases, customizations, client imports, what is live), `files` (MinIO files, drops, artifacts, share links), `machines` (a person's machines, their agents, the sockets), `monitoring` (health, alerts, notifications), `models` (providers, the default model, OpenRouter), `memory` (the keeper, recall, practices), `checks` (Level 2, the bench, scripted models), `infrastructure` (clusters, apps, deploys, exposure, egress, credentials, backups, running work, the Temporal bridge), `engine` (runs, conversations, agents, procedures, tools, MCP, workspaces, auto mode). `engine-host/`, `extensions/`, `activities/`, `workflows/` and `eval/` stay where they were. Find a file by area first: `git ls-files apps/backend/src/hub` is the hub |
-| `apps/backend/src/platform/lib/db-interface.ts` | `Database` is `init`, `close` and one store per area (`db.projects`, `db.engine`, …); `createDatabase()` is always MongoDB |
-| `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
-| `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
-| `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
-| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for stored credentials: OVHcloud and the DNS providers user-stored → `process.env` (the operator only) → `none`; a Hugging Face token only user-stored |
-| `apps/backend/src/platform/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
-| `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
-| `apps/backend/src/worker-host.ts` | Host-side Temporal worker — root's work: the pool, server orders, account removals at root, the dependency watch, the crawl |
-| `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
-| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / the router provider. Nothing else sits at `src/` root but `index.css` |
-| `apps/frontend/src/shell/` | The shell: the router (`router.tsx`), `RootLayout.tsx` (sign-in, the socket wiring, the modals), the sidebar, the shell routes and Settings, which composes several areas' sections. The only code that may import every feature; nothing imports it but `App.tsx` |
-| `apps/frontend/src/features/<area>/` | **The frontend is laid out by area, named as the backend's**: `platform` (the session API, the route and toast helpers, the `shell` and `socket` stores), `accounts`, `instances`, `hub`, `projects`, `releases`, `files`, `machines`, `monitoring`, `models`, `memory`, `checks`, `infrastructure` and `engine` (chat, the Studio, runs). Each has `api.ts` (or `api/<domain>.ts` when it has several), `types.ts` (or `types/`), `components/`, `hooks/`, `lib/` (pure, tested), `stores/` where it keeps client state, `shared.ts`, and `index.ts`, **the only thing another area imports**. Find a screen by area first: `ls src/features/hub` is the hub |
-| `apps/frontend/src/shared/` | UI that belongs to no area: Koala, `KoalaLoading`, `Markdown` and its chat parser, `AnsiText`, `ConfirmDelete`, the debounce hook, Monaco's setup. Imports no feature |
-| `apps/frontend/src/api/client.ts` | The one axios client. Only a feature's `api` modules call it. **No component contains a URL.** |
-| `packages/cdktf-infra/main.ts` | CDKTF entry — stack type selected via `STACK_TYPE=cluster\|app` env var |
-| `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
-| `bin/` | Pre-downloaded kubectl, helm and terraform (and k3d, which only dev and `test:instance-live` use on this computer; the image carries none) |
-| `k8s/` | K8s manifests for the in-cluster worker pod (ServiceAccount, ClusterRoleBinding, Deployment) and GPU device plugin DaemonSets |
-| `scripts/` | Setup, cluster lifecycle (`ensure-cluster.sh`, `alive.sh`, `cleanup-all.sh`), GPU setup, E2E monitor |
-
-## Backend service layer
-
-Services live in their area's `services/` folder (`apps/backend/src/<area>/services/`), most extend `BaseService` (`platform/services/`). Each area's `wiring/` constructs them, called from `bootstrap()` (`apps/backend/src/index.ts`):
-
-- `InfrastructureService` — Terraform (CDKTF deploy and destroy of a stack, its state), image builds and other commands that reach no cluster
-- `ClusterAccess` — the only way to reach a cluster and the only starter of `kubectl` and `helm` (the backend lint rule `clusters/one-door` refuses either anywhere else; the machine agent, `apps/local-agent`, is a separate program that runs k3s on the person's machine and is not held to it)
-- `ClusterService` — the person's clusters: Koala's own cluster first, then their machines' records; capacity and GPU status, through `ClusterAccess`
-- `AppService` — app deployment CRUD, depends on `ClusterService` + `BuilderService`
-- `BuilderService` — image build orchestration
-- `RegistryService` — container registry operations
-- `GitModuleService` — Odoo module git integration
-- `AppExposureService` — exposes deployed apps through the instance's edge (a Caddy beside its backend): `<app>.localhost` on this computer's loopback port 8000 (the chart's `<release>-local-apps` forwarder, a hostPort on 127.0.0.1 kept off the backend pod so its rolling upgrade never waits on the port) and `<app>-<name>.<domain>` where the instance has a domain; reaches an app's cluster through `ClusterAccess` (Koala's own cluster: Traefik by service name; another machine: its mesh address and Traefik's node port); emits socket.io events
-- `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus) and services (models, the collector): a service's ClusterIP when this process reaches it, else a `kubectl port-forward` started through `ClusterAccess.follow`; it asks the cluster through `ClusterAccess` by its id, one proxy per `ClusterAccess` (`sharedClusterProxy(access)`)
-- `GiteaService`, `InfisicalService` — reach Gitea and Infisical only at the address their setting names (`GITEA_URL`, and `GITEA_REACHES_KOALA_AT`, where Gitea sends pushes; `INFISICAL_URL`), read once at start by the role's reader (**Configuration**, below), which folds in `giteaSettingsFrom` and `infisicalSettingsFrom`; there is no node-IP, NodePort or loopback lookup. A process that serves tenants needs all three, the hub the Gitea two, and one missing stops it naming it; root reaches neither and its services say so if asked (`{ none: … }`). The instance chart sets them by service name; dev's hub gets `GITEA_URL=http://127.0.0.1:31737` (the instance's Gitea's node port on this computer) and `GITEA_REACHES_KOALA_AT=http://10.42.0.1:3003` (the hub on the pod network), written by `devRootPlan`. Workspace images go to the registry `registrySettingsFrom` reads for the reader (`KOALA_REGISTRY` pulled from, `KOALA_REGISTRY_PUSH` pushed to; `REGISTRY_PULL_HOST` is where a cluster pulls what Koala built, required on an instance), and a deployed MCP server is found through `ClusterAccess` (`mcpReachFrom`: its `gitapp` Service by name on Koala's own cluster, the machine's mesh address and node port elsewhere)
-- `AuthService` — user auth (JWT sessions, 2FA, GitHub/Google OAuth)
-- `CredentialService` — per-user cloud provider credentials, AES-256-GCM encrypted at rest, live validation against provider APIs
-- `TemporalBridge` — bridges Express routes ↔ Temporal workflow execution; mutating routes go through this, reads hit the DB directly
-- `WorkerService` — manages the in-cluster worker pod lifecycle
-
-## Auth
-
-All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, `/auth/password/forgot`, `/auth/password/forgot/resend`, `/auth/password/reset`, `/auth/sign-in` and the provider sign-in routes (`/auth/provider/:id`, `/auth/provider/:id/callback`). When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. 2FA SMS falls back to a logged warning when Twilio env vars are blank.
-
-**Who may sign in, and for how long** (security audit W2, owner 2026-10-26). The first account needs the setup code
-(`ADMIN_SETUP_CODE`, which `bootstrap.sh` writes and prints; a dev box without one makes a code at start and logs it while
-there is no account; production without one lets nobody sign up) in the invite field, and is claimed by inserting one
-record (`claimFirstAdmin`), so only one can be first. Every later sign-up needs an invite: 128 bits, shown once when made and
-stored only as `codeHash`, working for `INVITE_DAYS` (14), claimed in one conditional update (`platform/lib/invite-codes.ts`).
-**A sign-up confirms its email before it is an account** (security audit W2, owner 2026-10-28): `/auth/register` checks the address
-(`emailProblem`) and the invite without spending it, emails a six-digit code and keeps a pending sign-up (`pendingSignUps`: the
-password's hash, the invite's hash, the code's hash, gone after 30 minutes by a TTL index; `accounts/lib/sign-up.ts`), answering
-`{ verify }`; `/auth/register/verify` spends the invite, makes the account with `emailVerified: true` and signs it in, five wrong codes
-ending the sign-up, and `/auth/register/resend` sends a new code, five codes at most. Where no email can be sent, production refuses
-the sign-up and anywhere else the code is logged and handed back as `devCode`, which the live suites on the dev stack use
-(`tests/lib/sign-up.ts`, told which stack it tests: one in production containers reads the code from its test mailbox and fails on any
-`devCode`, and `test:account-hardening-live` checks no answer carries one). A sign-up of an address that already has an account answers
-exactly as a new one, and that address is emailed that it has an account instead of a code (`takenAddressMail`), so nobody learns who
-has one; sign-in checks a dummy hash when the account is missing (`passwordMatches`). The first account, made with the setup code, still signs up at once
-(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. A provider
-joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
-**Every signed token says what it is for** (`signJWT(purpose, …)`/`verifyJWT(token, purpose, …)`: `session`, `client-session`,
-`two-factor`, `device`, `oauth-state`, `root-sign-in`), so one is never taken as another. A session (`sessionToken`) carries its own
-id (`jti`) and when it began (`sessionAt`); one without either is refused (`signedSession`), and `sessionsEndedAt` on the user refuses older
-ones (Settings → Signed in elsewhere, `POST /api/auth/sessions/end-others`, a password or two-factor change, a reset). **Signing out ends
-that session on the server** (`/auth/logout`, `Auth.endSession`): its id (an instance's or the hub's `sid`, whose client session is
-dropped too) goes into `endedSessions` until it would have expired, and `requireAuth` and the socket handshake refuse it from a set kept in
-memory (`SessionEnds`: loaded at start, added to as sessions end, read again every 30 s), so the check costs no read. **An open connection
-ends with its session**: the Socket.IO handshake (`signSocketsIn`, `platform/middleware/socket-sign-in.ts`) records which session and person
-each connection came from (`SessionSockets`), and a session signed out of closes its connections, while an event that ends a person's
-sessions (signing out everywhere, a password or two-factor change, a reset, a revocation from root) closes every connection of theirs from a
-session begun before it (`endsSocket`); the browser opens a connection the server closed once more with the cookie it holds now
-(`tryAgainAfter`), which a session that ended is refused. **Passwords** are 12
-characters or more and not on a list of leaked passwords (`accounts/lib/passwords.ts`; the list, the 30k of twelve characters or more from
-SecLists' NCSC top 100k and Pwdb top million at a pinned commit, lowercased, is `apps/backend/assets/breached-passwords.txt.gz`, built by
-`node scripts/breached-passwords.mjs` from the two `data` entries in `dependencies.pins.json`, `--check` proving it; nothing is fetched at
-sign-in); a password set before still signs in. **A forgotten password** is reset by a six-digit emailed code as a sign-up is confirmed
-(`PasswordService`, `/api/auth/password/forgot` → `{ reset }`, `/forgot/resend`, five codes at most, `/reset` with the code and the new
-password, five wrong codes ending it, `passwordResets` gone after 30 minutes); an address with no account gets the same answer and no email,
-production without email refuses it, and a reset ends every session of the account and fires `password-or-2fa`, so the instances and the
-hub drop theirs; it signs nobody in. **Changing a password** (Settings → Password, `POST /api/auth/password`) asks the current one, and a
-current code too with two-factor on. **Risky changes ask for proof** (owner, 2026-10-30): turning two-factor on or off or changing how it
-sends, changing the password and starting the account's removal take a current code (`POST /api/auth/confirm/code` sends one, at most five
-an account in fifteen minutes, counted in `signInAttempts` and answered 429 with why past that (`CONFIRM_CODES`); an account with
-no password and two-factor off gets it by email) or, with two-factor off, the password (`confirmWith` on `/api/auth/me`,
-`AuthService.confirmProblem`); removal asks it only once nothing else refuses. Koala has no way to change an account's email. **2FA** answers a
-login with a signed five-minute challenge (never a session); its codes (`sign-in` and `confirm`) are kept hashed in `twoFactorCodes` and
-**wrong ones count per account**, across challenges: five in fifteen minutes refuse every code and every new one for fifteen minutes, and a
-correct password does not start the count again (`TWO_FACTOR_LOCKOUT`). Codes go by the platform's mail or Twilio, and are logged only
-outside production. `IS_E2E` signs nobody in under `NODE_ENV=production`, which refuses to start with it.
-
-**Signing in with Google, GitHub or an organisation's own OpenID provider** (owner, 2026-10-30; only where accounts are held,
-on root). Every provider is one description and one client, as DNS providers are:
-- `accounts/lib/sign-in-providers.ts` describes each (`SIGN_IN_PROVIDERS`: id, label, kind `oidc` with its issuer or `github`
-  with GitHub's addresses, scopes, and the env names its credentials come from) and holds the pure rules: `signInProvidersFrom`
-  (a provider is offered only when its credentials are all set; a half-set one is left out and logged), `offeredProviders`,
-  `providerCallbackUrl`, `identityFromIdToken`. Google is `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` at `https://accounts.google.com`;
-  GitHub is `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`; an organisation's own is `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
-  `OIDC_CLIENT_SECRET` and `OIDC_LABEL` (the button's words). An issuer is https, or plain http only on this machine's loopback.
-- `accounts/services/sign-in/` holds the clients (`SignInClient`: `authorizationUrl`, `identify`), registered by kind in
-  `SIGN_IN_CLIENTS`, and `SignInProviders`, the service the routes call (`offered`, `start`, `finish`). `oidc.ts` is
-  `openid-client`: discovery, the code flow with PKCE (S256), a state and a nonce, and the ID token's signature checked against the
-  issuer's keys (`enableNonRepudiationChecks`), with its issuer, audience, nonce and expiry; who it is comes from `sub`, `email` and
-  `email_verified`, scopes `openid email profile` only. `github.ts` is OAuth with PKCE (GitHub's web flow takes S256), then the
-  account id and the primary address with whether GitHub verified it.
-- The browser reads `GET /api/auth/sign-in` (`{ url: null, providers }`), and the Login page shows a button for each and nothing
-  else. `GET /api/auth/provider/:id` starts one (`?invite=` carried), answering 404 for one not configured; the state, the PKCE
-  verifier, the nonce and the provider's id ride in the signed ten-minute `oauth_state` cookie (`platform/lib/oauth-state.ts`, the
-  Drive connection too), so a callback from another browser, with another state or at another provider's callback is refused.
-  The redirect URI to register with each provider is `<PUBLIC_URL>/api/auth/provider/<id>/callback`.
-- An account holds its providers as `signInLinks` (issuer and subject; the startup migration `sign-in-links` moved the old
-  `googleId`/`githubId`). A new account needs an invite, as any sign-up; a provider links an existing account only when it says
-  the email is verified and the account confirmed that address; later sign-ins match by the link alone; an email whose account is
-  linked to another subject at that issuer is refused; and the account's second factor is asked too
-  (`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page).
-  `npm run accounts -w apps/backend -- prepare-provider-link <user-id> <email>` sets an account's address, confirmed, and forgets
-  its links, so the next provider sign-in naming that address joins it.
-- There is no pretend provider. Tests run a real `oidc-provider` on loopback as the issuer
-  (`accounts/services/sign-in/stand-in-issuer.ts`, which can also forge a bad signature, audience, nonce or issuer), and
-  `test:dev-split-live` gives its root one through `OIDC_*` and signs up, is refused and signs in again through it.
-
-**Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
-(`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
-against the address, since a guess fails and a person succeeds, so a run of live suites signing up throwaway accounts
-never trips it, while every opening of a share link counts), **a request's JSON is read only after the guard** has said who sent it:
-20 MB for someone signed in and for the scripted model and the hub's instances, which check their own keys, 256 KB for anyone else
-(`jsonLimitFor`, `index.test.ts` guards the order), **an address on the open internet may have only so many requests open at once**
-(owner 2026-10-28, in place of an idle timeout, which would be a deadline; `inFlightLimit` mounted first, rules in
-`platform/lib/in-flight-limits.ts`): past the cap it gets a 429 and nothing is cut off; the cap starts at 50, grows by its square
-root while responses come back (time to their headers) no slower than twice their long-run average and shrinks when they slow past
-it, Netflix's gradient limit, between 10 and 200; loopback, private and mesh addresses (the host's own processes, pods, machines) are
-not limited, nor an instance's relay long-poll, `index.test.ts` guards its place, an account is locked for fifteen minutes after ten wrong
-passwords (`lockedUntil`) to every browser but one it signed in on before: a full sign-in leaves a signed `device` cookie naming the account
-(`deviceToken`), and that browser's failures are counted on their own (`attemptsKeyFor`, `SignInAttemptLog`), so
-nobody can lock a person out of their own browser by guessing; the counts live in `signInAttempts` (one atomic update a failure, gone by TTL
-once they can no longer lock), so a restart keeps a lockout, and when an account is locked to strangers its person is emailed and pushed once,
-saying someone tried their password ten times from that address, the account is locked to other browsers for fifteen minutes and they may
-want to change their password (`lockNotice`, owner 2026-10-30); a lock ends no session and stops no run, since anyone can lock an account by
-guessing, every response carries `helmet`'s headers, and the proxy is trusted in production
-(`trustProxyFor`: the one hop in front, so `req.ip` is the visitor). **Every hop in front of a backend says who the visitor is**: root's
-Caddy, on the host's network, sets `X-Forwarded-For` to its peer and ignores what a visitor claims, and that is the one hop in front
-of root and of an instance on its owner's machine (reached over the mesh through a NodePort); a pool instance is two hops behind, so
-the pool node's proxy (`proxyCaddyfile` in `instances/lib/pool.ts`) trusts only the mesh's `tag:platform` nodes, root's Caddy, read from
-Headscale when root writes its config (`taggedAddresses`), and hands the instance `{client_ip}`, the visitor root's Caddy named, or the
-caller's own address when anyone else reaches it; before, every visitor of a pool instance was root's mesh address, which the in-flight
-cap never limits and the rate limits held in one bucket. `npm run test:hardening-live` proves both paths with real Caddy. **The SPA's
-content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
-media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`
-instead, `CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one
-line each. **A link the server sent is opened only through `safeHref`** (`frontend/src/shared/lib/safe-href.ts`: http(s), a path or a
-hash, never `javascript:` or `data:`), an app's, a preview's, an artifact's and a sign-in redirect alike. **Nothing next door can act as you** (W3/D1, owner 2026-10-25): people's instances and apps are under a registered
-domain of their own (`INGRESS_DOMAIN`, `nowrinkles.app`), never root's (`bootstrap.sh` refuses one sharing root's outside a lab);
-over https the session and OAuth state cookies are `__Host-` cookies (`cookieNamed`), which no other host can set, and the plain
-name is not read there (an instance decides by how the request arrived, `securedFor`); and a write to `/api` or a socket
-handshake whose `Origin` (or, without one, `Sec-Fetch-Site`) is neither this host nor `PUBLIC_URL`/`APP_URL` is refused
-(`platform/lib/same-site.ts`; any loopback page outside production), while a program, which sends neither, is not. **Koala reports on itself** at `GET /api/metrics` (`MetricsService`, prom-client: process metrics, request
-times by route and status, failed work by kind), read with `Authorization: Bearer <METRICS_TOKEN>`; unset, nothing is
-served. The same request times and failures, and everything else Koala measures, also leave every process as
-OpenTelemetry to the collector on the cluster Koala runs in (**Koala's own telemetry**, below), and each response carries its
-trace id in `x-trace-id`. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
-it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
-
-**Nobody reaches another person's things on an instance either** (security audit W5): a project builds only from the
-person's own existing repository and deploys only to a cluster of their own (`targetClusterProblem`), and with none picked to the
-cluster Koala runs in (`koalasClusterFor`; none where it runs in none, which the project shows as a gap); only a run's
-owner answers, approves or cancels it; a conversation is saved only over its own owner's; a deploy request names no namespace
-or id and is never a `gitapp` or `odoo-project` (`deployRequestFrom`), and destroying an app never deletes a platform namespace
-(`platformNamespaceProblem`); a model cache is a folder name (`cacheFolderProblem`); a pod's logs come only from the app's own
-namespace (`podLogTarget`); a build's log only to its project's owner; a remote host's kubeconfig is rebuilt from its server,
-authority and sign-in (`cleanKubeconfig`); the dashboard proxy signs in as the platform's Gitea and Infisical only on the
-cluster Koala runs in (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
-backups and binding type changes are an admin's.
-**What Koala fetches for a person stays on the open internet** (W6): `publicFetch` and `publicAddressProblem`
-(`platform/services/public-fetch.ts`) refuse private, loopback, mesh, link-local and tunnelled addresses, at connect time and on
-every redirect; fetch_web_page, a crawl's start, a model endpoint's host (the person's own mesh node excepted, and anything on this machine in a lab, `labFrom`, owner 2026-11-03, so the browser suite chats with a stand-in) and a hosted MCP
-server's URL go through them. Root takes an instance's mesh address only from its owner's Headscale nodes, and Headscale's
-`/api` is not served on the mesh's public name. **Root never calls an address an instance made up** (`InstanceReach`,
-`instances/lib/instance-reach.ts`): the url an instance reports (`/api/instances/status`, a move's too) is taken only when it is the
-address root gave it (`https://<name>.<INGRESS_DOMAIN>`), its own mesh address, or resolves to public addresses only
-(`publicAddressProblem`), and every call root makes to an instance (asking how it signs in, back-channel logouts) goes through the same
-rule at connect time, `publicFetch` for anything but the first two; outside production, and in a lab (`labFrom`: `CERTIFICATES=internal`
-in the process's env with `DOMAIN` and `INGRESS_DOMAIN`, when set, under `.internal` or `.localhost`), root calls anything, which is how
-the split stack's and the VM suites' roots (`tests/lib/split-stack.ts`, `suite-root.ts`) reach instances on loopback.
-**Only an instance's own pods reach its Temporal, Temporal's database and Mongo** (W7, `charts/instance/templates/networkpolicy.yaml`,
-enforced by k3s's network policy controller; a pool vcluster copies it to the host, `sync.toHost.networkPolicies`), so an app,
-a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`. An instance's
-SearXNG and Crawl4AI are ClusterIP only and answer only its own namespace (`scripts/instance/platform-services.sh`, run with
-`POD_NAMESPACE` by the setup job; `scripts/dev.sh` runs it without, leaving the dev box's NodePorts). `test:instance-live` knocks
-on each from another namespace and from the instance's. **Temporal answers only what Koala's own processes sign** (W7, owner 2026-10-27; Temporal Cloud's model, the stock server, no
-fork): every Temporal runs its default JWT authorizer and claim mapper, and each process connects with an ES256 token it signs
-itself from `TEMPORAL_KEY` (`platform/lib/temporal-auth.ts`: `temporalToken`, renewed by `temporalApiKey` 20 minutes before its hour
-is up), granting one role on one namespace: `write` for the backend's client, the three workers, the stream worker
-(`connectTemporalWorker`) and the machine gateway's upstream (which sends its own token, never the machine's), and an `admin`
-token only for registering `KoalaOwner`. Temporal's stock authorizer compares roles as numbers, so its `worker` permission
-allows nothing a worker needs; nothing narrower than a namespace exists, which is why machines go through the gateway. Every
-connection to Temporal is TLS (owner, 2026-10-27), to a certificate signed by a CA of the install's own: `scripts/temporal-keys.sh`
-makes it once under `apps/backend/data/temporal-tls/` (the CA's key thrown away after signing, the server's key readable only by
-Temporal's uid 1000), the chart generates it into `<release>-temporal-tls` with `genCA`/`genSignedCert` for its service names and
-keeps it across upgrades; processes trust it through `temporalTls` (`TEMPORAL_TLS_CA`, required, naming that file; dev's root and hub are given that folder's `ca.crt`), and the
-machine gateway's upstream too. In production the backend and every worker refuse to start without that CA (`temporalTlsProblem`)
-rather than talk to Temporal in plaintext; a dev box without one still connects as before. Payloads were already sealed by the codec; TLS also hides tokens and workflow names on the wire. Temporal reads the public key (`temporalJwks`, also served at
-`/.well-known/temporal-jwks.json`) from a file beside it, never from the backend, so it has it from its first moment: on an
-instance an init container (`temporal-keys` in the entrypoint, `src/scripts/temporal-keys.ts`) writes it and a native busybox
-sidecar serves it before Temporal starts (`charts/instance/templates/temporal.yaml`); under compose `scripts/temporal-keys.sh`
-writes `apps/backend/data/temporal-keys/temporal-jwks.json` (`ensure-temporal.sh`, `bootstrap.sh`, `update.sh`, which also adds a
-missing `TEMPORAL_KEY` and puts Temporal back as it was on a rollback) and the `temporal-keys` service serves it. Temporal's own
-setup and the operator CLI use its internal frontend (`127.0.0.1:7236`, `USE_INTERNAL_FRONTEND`, `SERVICES` naming
-`internal-frontend`), which checks nothing, so only Temporal's own pod reaches it: the instance's `<release>-temporal`
-NetworkPolicy lets its pods in on 7233 alone (`docker exec <temporal> temporal ... --address 127.0.0.1:7236` on root and a dev
-box). A worker Temporal refuses (its keys missing) fails and stays failed; keys served beside Temporal make that a
-misconfiguration, and creating a worker is retried by every worker. `test:instance-live` proves an unsigned call and another
-key's token refused, the instance's own token answered and the internal frontend closed from the backend's pod.
-**On the owner's machine nothing of the instance answers on its network
-address**: `install.sh` writes `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml`, so every NodePort on that k3s answers only on
-127.0.0.1 and the mesh (`nodeport-addresses`; the person's own NodePorts too), Infisical, SearXNG, Crawl4AI and Gitea's SSH are
-ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing images there and pulling them through
-`127.0.0.1:31737` (`registry.pullHost`), as the pool does. Every test VM pulls Docker Hub, GHCR, Quay, registry.k8s.io and GCR images through pull-through caches on this computer
-(`tests/lib/image-cache.ts`: `registry:2` containers `koala-image-cache-*` on 127.0.0.1:5101–5105, started by `createDisposableVm`,
-which writes them into the VM's `registries.yaml` before k3s is installed; `install.sh` and `pool-node.sh` add root's registry to a
-`registries.yaml` that already has mirrors rather than replacing it), so only the first run downloads them. Each VM suite (`instance-live`, `byo-live`, `routing-live`, `mesh-live`, `pool-live`) starts its root
-container with a database of its own (`MONGO_URI` naming `koala_<suite>_<stamp>`, dropped when the suite ends), its own setup code, a
-host worker of its own in a Temporal namespace of its own (`makeSuiteNamespace`, so root's removals and pool work never land on the dev
-worker and its database), and the image under a tag named for the suite; the owner is the first admin, signed up through the real
-setup-code sign-up (`tests/lib/suite-root.ts`). So the suites run at once: `npm run test:vm-live [suite…]` builds the image from HEAD
-once and runs them in rounds packed by `MemAvailable` (the VM memory each needs is the table in `tests/lib/vm-rounds.ts`), each suite's
-output timestamped under `tests/.vm-logs/`, every fixed port and container name distinct per suite. The VM suites reach the instance through an SSH tunnel to the VM's
-loopback (`loopback` in `createDisposableVm`); `test:byo-live` checks the backend and Gitea answer there and not on the VM's address.
-**A pattern a model, the memory keeper or a person writes runs on RE2** (`platform/lib/linear-patterns.ts`, `re2js` pinned): a task
-check's `contentPattern`, a check script's `asked`/`system`/`said` and a turn check's `matches`. It finishes in time linear in what it
-reads, so a pattern cannot freeze the engine worker; lookarounds and backreferences are refused as not a pattern Koala runs, and every
-shipped check's patterns are compiled under it by `linear-patterns.test.ts`.
-**No Gitea token outlives what it was made for**: a git-built app's namespace pulls with the bot's read-only package login
-(`registryLogin`, the secret `gitea-registry`), a pipeline build revokes its token when it ends, and a workspace image build's
-secret names its token (`koala.dev/push-token`), which is revoked once its job has finished or is gone, whichever process sees
-it (`releaseFinishedTokens` in `engine-host/sandboxes/image-builder.ts`: when a build is seen to end, when its image is ready,
-and before every new build). The tokens left from before are revoked once per instance after the backend starts (`build-tokens-revoked`,
-`cleanUpBuildTokens`, through the migrations ledger): every git-built app's pull secret is rewritten to the read-only login
-first (`gitappPullSecretArgs`, the same secret a deploy writes), and it waits for a later start, revoking nothing, while a build
-runs in `pipeline-builds` or an app's cluster cannot be found (through `ClusterService.getByIdUnscoped`, which knows the system
-cluster the stored records leave out) or reached.
-
-**Who may do what is decided in one place** (`~/.claude/plans/claims-authorization.md`, step 1 built 2026-10-28). `platform/lib/permissions.ts`
-holds a **permissions table** (resource kind × action → who may, and whether a refusal hides the record as a 404 or says why as a
-403) and `authorize(principal, action, resource)`, which every route, socket handler, service and tool call asks; `allowed` is its
-boolean. A **principal** is a person with **claims**, each a role on a scope: `person`; `operator` of this install (from the account's stored
-`roles: ['operator']` on root, read only by `claimsOf`; on an instance from `INSTANCE_OWNER_ID`, never from a stored role;
-the first account and the setup code write it, and the startup migration `operators-from-admins` moved every old `isAdmin` onto it); `instance-owner`;
-and `shared` with a role (`owner`, `collaborator`, `client`) on one shared project, which the hub puts on from its membership
-(`withSharedRole`). `requireAuth` puts the principal on each request (`principalFrom(req)`); `requireOperator(action)` and
-`requireAllowed(action, resource)` are the middlewares; a service that has only an owner id uses `asPerson(id)`. A resource carries what
-the row needs from the record the route already loaded (`ownerId`, the shared project's id), so a check costs no read; a
-cluster becomes one with `clusterResource`. The rows: the install's `administer`, `manage-accounts`, `see-all-work`,
-`use-operator-credentials` and `open-platform-namespaces` are the operator's; an instance's settings its owner's; an account is removed by
-itself or the operator; every cluster, the machine's an instance runs in included (its record is the machine's owner's, and before
-the machine reports it, the instance owner's), deployment, project and record is its owner's alone, operator included, and one with no
-owner is nobody's (the startup
-migration `projects-owned` and `migrateLegacyOwnership` give such records to the first operator once); a workflow is seen and cancelled by
-its owner or the operator; a shared project's thirteen actions are each role's exactly, `ask-koala` an owner's or a client's. **Adding a
-permission** is a row in `PERMISSIONS` and a call to `authorize` where the action happens; `permissions.test.ts` checks every row allowed
-and refused. The backend lint refuses `.roles` and `.isAdmin` reads and `can(` anywhere but `permissions.ts` and the stores, and
-`permissions-reach.test.ts` fails on a route that decides on its own. **The browser asks the same answers** (step 6, 2026-10-29): sign-in and
-`/api/auth/me` send the `claims` and `permissions` (`sessionPermissions`: `administer`, `manage-accounts`, `see-all-work`,
-`open-platform-namespaces`, `change-instance-settings`, `manage-own-account`, each from `authorize`), a record that may be acted on
-carries its own `can` list (a shared project's, cluster contents', a cluster's history), and every gate in the frontend is
-`useCan()(action)` or `useCan()(action, record)` from `features/platform`; the frontend lint refuses `.isAdmin` and `.holdsAccounts`. Asking before a tool call, auto mode and "Allow for this run" are a
-separate layer: they decide whether a person is asked about an allowed call, never whether it is allowed. **Tools go through the same function** (step 2, 2026-10-28): `engine/lib/tool-access.ts` declares what every shipped tool reaches
-(`TOOL_ACCESS`: nothing, the install, the person's own records, a deployment, a cluster, or a project at `see`, `propose`, `change` or
-`see-secrets`, with the project found from the call's `projectId`/`project`/`treeId`/`branchId`/`leafId`/`leafIds`/`taskId` or the run's own
-project, tree or chat by `engine/lib/project-resolver.ts`; an MCP tool reaches the project, `see` when it reads; a person's own tool is theirs
-alone), and `tool-access.test.ts` fails on a shipped tool with no declaration. A run's ticket carries its starter's **principal** (the owner's
-claims, or for a hub member's ask `memberPrincipal` from their role; children copy it), the tool runtime asks `authorize` with it before any
-handler runs and `resolve-tools` offers only what it could allow (`offerable`), so a client's ask reads and answers while a collaborator
-changes; a refusal to a member names nothing outside the project. The member allow-list (`MEMBER_REACH`) is gone. A hub member reaches an
-MCP server only when its owner **attached it to the project** (`projects` on the server, a project's Settings → MCP servers, the Studio's
-"Used by projects"; a workspace server is reached in the project's workspace without attaching), at their role's level (a hosted server's tools
-are changes until the person marks one read-only). Agent and tree auto mode never apply to member work. Granting a tool an agent
-you could not use yourself is refused (`grantProblem`), applying a deploy card checks the cluster again with the person's principal, and
-`run_in_workspace` asks through the same rule as any call (`callNeedsAsking`).
-
-**Every run works with a grant, ended with the run or on revocation** (step 3, 2026-10-29; `engine/lib/run-grants.ts`,
-`RunGrantService`). The run starter issues each top-level run a grant (`runGrants`, `grantId` on the ticket and launch, so children copy it):
-its starter's claims as they were, narrowed to the run's project only where access stops there (a member's ask, a kept-to run, a tree run; never an owner's chat because it is bound to a project),
-`startedBy` `person` (a chat turn, a tree run, an ask on the hub) or `platform`. The tool runtime asks it before every call
-(`callProblem`: a revoked grant refuses all but `leave_handover_note`, an ended one everything, a call on another project is refused; a
-settled grant is cached, a live one read once a call). It ends when the run ends (the `run-ended` event, which also records how every run
-ended in `runEndings`: finished, failed with its reason, stopped by whom, revoked and why). **Revocation is one event**
-(`AccessRevoked { personId, because, at, sharedProjectId? }`, `platform/lib/revocations.ts`) told through one `AccessRevocations` per
-process. On root "sign out everywhere", a 2FA change (`password-or-2fa`) and an account's removal starting fire it, and root's
-provider (below) revokes the person's tokens and sends each client a back-channel logout, which the client fires on its own
-`AccessRevocations`; root acts only on an event that ends sessions (`endsSessions`, never a shared project's). A hub member's removal or
-leaving (`removed-from-shared-project`, with the shared project's id) becomes a `member-removed` request the owner's instance carries out (`HubInstanceWork`), kept off the members' board and
-taken from nobody but the hub. The engine core listens and revokes that person's
-live grants (what they started; every one on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
-and gets one last model turn (`EngineHandoverActivity`, behind the `run-grants` patch) offering only `leave_handover_note`, which keeps the
-note with the run and writes `handover/<run>.md` in its workspace, marked as written after access was revoked; a model that cannot answer
-leaves none and the run says so. How a run ended shows on the run card, Watch it work (relayed to hub members, `endings`), a story's card
-on the board and failed work, and a revoked run posts `run-revoked` in its project's channel (or its chat). `mechanics-run-revoked`
-proves it through the real sign-out route.
-
-The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
-that could exempt itself is a router that can quietly stop being protected, so adding a route that
-must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share
-`userFromSessionCookie` for the same reason: a socket must never be able to resolve a user the HTTP
-API would reject.
-
-## Account removal
-
-`RemoveAccountWorkflow` (engine worker) removes an account and everything it owns: it stops the account's
-workflows (its projects' release workflows and running builds too), destroys its apps on their clusters, deletes its workspace namespaces (by the `koala.dev/owner` label, which release namespaces carry too), project secrets, mesh machines,
-Gitea user and repositories, then every record, the account last. A person removes their own account from
-Settings (typing their email), an admin removes anyone's from Settings → People. It is refused while the account
-still has clusters or deployed apps, and for the only admin. The moment it starts, the account's sessions and
-sign-in are refused (`userFromSessionCookie`), and no run can start for it (`closing` in the run starter).
-
-**On root and an instance, an account is root's.** An instance removes no account (it mounts no `/api/account`): its
-Settings → Delete account links to root's `/#/remove-account` (`GET /api/auth/account-removal`, `IdentityService.removalUrl`).
-That page (`accounts/components/RemoveAccountPage.tsx`, also linked from the no-instance page) shows what goes, their instance
-included (`preview`'s `instance`: a pool one deleted with everything in it, one on their own machine let go of while it
-keeps running there), takes the typed email, and starts `RootAccountRemovalWorkflow` through root's own `DELETE /api/account`,
-the same removal an admin's is.
-
-Removal, project deletion and tree deletion stop workflows by **cancelling** them (`platform/lib/stop-workflow.ts`), never by
-terminating: a cancelled agent run still runs its own ending — it ends `interrupted` and hands its claimed tasks
-back. Only one that has not closed within `STOP_WAIT_MS` of being cancelled is terminated. Terminating skips all of
-that, so a task the run was working on would stay `running` forever.
-
-A closed workflow does not stop an activity already in flight (engine activities are abandoned on cancel), so removal
-and project deletion **fence** what they remove before they stop anything (owner, 2026-11-13: "C sounds right", "with the
-confirmation step"): they mark it closing, raise its fence, and go on only once every live Koala process has said it holds
-the fence and nothing that got past it is still writing; no timer is waited on. Every piece of work carries whose it is
-(its owner, and its project where it has one) from the start that named it to every activity and workflow it leads to,
-and every write a fenced owner's or project's work makes, to Mongo, MinIO, Infisical or a cluster, is refused. Removal's
-own steps name nobody and are never fenced, whatever project they touch. A fence outlives its removal until every process
-live when the removal ended has started again or stopped (owner, 2026-11-13: "drop them after every process restarts"),
-so a step that hears it was stopped only later still writes nothing; that is decided as a process starts and as a
-removal ends. Dropping takes it from the store only, so no process starting later loads it: a process keeps refusing every
-fence it held until it exits, and a clean stop takes it off the live list at once. A start that works for a project names it, a workflow from the moment its project exists. Gitea goes first, so a late push is refused. It finds runs through the turn
-logs, and each run's memory keeper by name (`memoryRunId`); the memory keeper never runs for a check's space.
-
-**Project deletion** (`RemoveProjectWorkflow`, the "Delete project" popup on a project's page, which lists what
-goes before anything does) deletes the trees whose home is the project, with their leaves, conversations, workspaces
-and repos; the project's repo (and its build webhook), Infisical workspace and reader identities, builds and
-records. A tree only also linked to it, and a conversation or memory that only mentions it, are kept and unlinked.
-An app built from the project goes with it: once the project's workflows (its release workflow among them) are stopped, each of its deployments is destroyed on its own cluster through `executeDestroyAppWorkflow` on the cluster worker, and the popup lists the app among what goes. A project being deleted ignores pushes.
-
-`ACCOUNT_DATA` in `accounts/lib/account-removal.ts` classifies every Mongo collection as removed by owner, by id, through
-what it relates to, or shared; a test fails when a collection in any `src/*/store.ts` is missing from it, so **a new
-collection has to say how it is removed**.
-
-## A person's own machines
-
-**A machine is added to the account at root** (plan `~/.claude/plans/machines.md`, stage 1): My Machines → Add a machine gives
-`curl -fsSL <root>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served with root's `PUBLIC_URL`; the code is single-use
-and lasts an hour, `MachineAccounts.createJoinCode` on root, reached from an instance through `RootMachines` with a service token). The
-agent holds its account token at root (root's `/machine-account` socket, `wireMachineAccounts`), and root names the person's Koala to it
-with a **work token** (`machines/lib/work-tokens.ts`: EdDSA, `sub` the machine, `owner`, `aud` the instance, 30 days) that the
-instance's `/agent` socket, gateway and git proxy check against root's keys; the agent's link to root is `apps/local-agent/src/root-link.ts`.
-An instance mirrors root's list (`MachineMirror`, read again on `machines:changed` over the presence socket), and its machines from before
-were copied to root once (`machines-to-root`). Run as the
-person, it needs Node 20+, asks which folder Koala may work in (never `/`, their home or a folder above it; the agent refuses
-one too, `folderProblem`, and every scope a run names stays inside it, absolute or climbing ones refused by `scopedPath`), trades the code at root's public `POST /api/machines/join`
-for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed; Koala keeps only its SHA-256,
-`tokenHash`, and the startup migration `device-tokens-hashed` turned the encrypted ones from before into hashes). **A device token
-lives 90 days** (`machines/lib/device-tokens.ts`; `device-token-lifetimes` dated the ones from before): in its last 30 days the backend
-mints the next one on connect and sends it over the authenticated socket (`machine:token`), the agent writes it to machine.json
-(atomically, mode 600), moves its worker's and git's credential onto it and acknowledges, and only then is the old one retired;
-until then both are taken, on the socket, the git proxy and the gateway alike, so an agent that crashed mid-rotation reconnects with
-whichever it kept. An expired token is refused everywhere with "its token expired while it was offline; run the command from My
-Machines again", which My Machines shows; running the command again still replaces that machine. It joins the mesh
-when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
-`apps/local-agent/scripts/bundle-machine.mjs` with a `package-lock.json` for its runtime packages, which `npm ci --omit=dev
---ignore-scripts` installs on the machine, protobufjs 8 among them so Temporal's packages share one copy and an offloaded payload can
-be read; the join reply carries the bundle's sha256, also served at `agent.tgz.sha256`, and the script refuses a download that differs)
-and starts it as a user
-service (systemd `--user`, launchd). The device worker reaches Temporal only through the **machine gateway**
-(`MachineTemporalGateway`, rules in `machines/lib/temporal-gateway.ts`, port `MACHINE_GATEWAY_PORT`, 7234; on an instance
-the node port 30322 on its mesh address, Temporal itself no longer published), at `MACHINE_TEMPORAL_ADDRESS` (the chart sets it from
-`mesh.address`; without it no machine can take the instance's work, and the backend says so at start), which the backend also hands the agent on every connect with the payload ring, so a machine added before
-moves over. The agent signs the connection with its device token; the gateway serves only the calls an activity worker makes
-(probed in `~/.claude/plans/machine-gateway.md`: start, polling its own `device-<id>` queue, heartbeats, answers, shutdown),
-seals each task token it hands out to that machine (an HMAC under the data key, checked and stripped on every heartbeat and
-answer, at the protobuf wire level so no field of Temporal's is dropped) and refuses everything else, and calls Temporal with the gateway's own signed token, so a machine never lists,
-reads, signals, starts or answers anyone else's work. Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
-Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
-by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
-with Install adapter, which asks the machine to install it (`agent-install.ts`) as the ACP registry lists it now
-(`claude-acp`, `codex-acp`, `antigravity-acp`; the adapters moved from `@zed-industries` to `@agentclientprotocol`, and
-an adapter under its old name is still found): its build for this machine when it has one, otherwise its npm package with
-`npm install --global --engine-strict` (the current Claude and Codex adapters need Node 22, and a refusal says so). For
-Antigravity (found by its sign-in in `~/.gemini/antigravity-acp` or the IDE), that is Google's ACP server, downloaded from the
-ACP registry's listing into `~/.local/share/koala/agents/antigravity-acp`. The script offers the same before it starts
-the service (`agent.mjs agents`, `agent-setup.ts`): it lists what it found and asks, on the terminal, whether to install
-each missing adapter; `--adapters all|none` answers for every one (`--yes` means all), and with no terminal it installs
-nothing. Running the command again on a machine already
-added replaces that machine (the script sends the old token from `machine.json`, on stdin) instead of adding a second.
-**Removing a machine** (My Machines, confirmed) deletes its record at root, so its token stops working, and root tells the agent
-`machine:removed`: the agent uninstalls its k3s (below), deletes `machine.json` and its service file and disables its own service
-(`machine-removal.ts`). Root takes the machine's node off the mesh by the address the agent reports to it (`machine:mesh`, `meshIp`). The project the machine was added with (`appType: 'local'` on that
-device) is deleted, unlinked from any tree. A machine offline when removed keeps its token file and is refused when it next
-connects.
-
-**A machine's own cluster** (plan `~/.claude/plans/machines.md`, stage 2). On Linux the join asks once, with sudo, to install pinned k3s
-**stopped** (`INSTALL_K3S_SKIP_START`/`SKIP_ENABLE`; Traefik and servicelb off, `tls-san` its mesh address, the kubeconfig readable by the
-person's group, NodePorts on loopback and the mesh only), a firewall run before k3s starts (`/usr/local/lib/koala/k3s-firewall.sh` as a
-systemd `ExecStartPre`: 6443 and 10250 answer only on loopback, the mesh and its own pods), a sudo rule for exactly starting, stopping and
-removing it (`/etc/sudoers.d/koala-k3s`, `koala/machine-uninstall.sh` removing everything Koala added), and a marker
-(`/etc/koala/machine-k3s`): a k3s of the person's own, without it, is left alone and Koala runs no apps there (`--no-cluster` skips it all).
-The agent reports its cluster when it connects (`machine:cluster`), and the instance keeps it as a cluster record, provider `machine`,
-`machine-<device>`, `stopped` (`MachineClusters`, rules in `machines/lib/machine-clusters.ts`). **It starts on demand and stops when idle**:
-a deploy to it first runs `MachineClusterActivity` (`start`) on the machine's own `device-<id>` queue (`workflows/machine-cluster.ts`), so
-on an offline machine it simply waits, which Needs attention says (`machineOnline`); the agent starts k3s and judges it ready only from
-conditions changed since that start (`apps/local-agent/src/machine-cluster.ts`), and hands back a kubeconfig on its mesh address, which the
-stream worker seals on the record (`kubeconfigEnc`) and the workflow hands to each cluster activity (`handedKubeconfig`), since the cluster
-worker holds no data key. A destroy starts it too and, once no app is left on it, stops it. The agent remembers that its cluster should run
-and starts it again when it next connects after a reboot (`startIfWanted`). At rest it shows as `stopped` ("stopped until something runs on
-it"), never unreachable, and is neither read for alerts nor in Needs attention. Removing the machine uninstalls k3s and every app with it,
-and the instance forgets the cluster and its apps' records. Its ingress is Traefik on a NodePort (the join turns servicelb off), which the instance's edge reaches over the mesh. An app's stack reaches
-the cluster its kubeconfig names; the in-cluster worker's own service account (`K8S_HOST`) is used only for the cluster Koala runs in
-(`providerConfigFrom` in `packages/cdktf-infra/lib/k8s-provider-service.ts`). **A machine is monitored from its instance** (plan stage 2b):
-its cluster gets only collectors, kube-prometheus-stack in agent mode and a blackbox exporter (`CLUSTER_MONITORING=agent`,
-`constructs/monitoring-agent.ts`), remote-writing to the instance's backend at `MACHINE_METRICS_URL` (the chart's mesh address and backend
-node port) with a token made for that cluster (a Secret `koala-metrics` on the machine, only its hash,
-`metricsTokenHash`, on the cluster record). `POST /api/machines/metrics` (`MachineMetricsRelay`, `machines/lib/machine-metrics.ts`) sets
-`koala_cluster=<cluster id>` on every series from the token alone, at the protobuf wire level, and passes it to the Prometheus of the
-cluster Koala runs in, whose remote-write receiver the chart switches on (`applyReceiver` on the alert watcher's pass for an install from
-before). Every query asked of that Prometheus is scoped by `koala_cluster` on each selector (`inCluster` in
-`monitoring/lib/cluster-scope.ts`, through Prometheus's own PromQL parser; the series of the cluster Koala runs in have none), alerts go to
-the cluster whose series raised them, a machine app's alert rule lives in `monitoring` on the cluster Koala runs in held to its series,
-and a machine keeps that cluster's history. Not yet: workspaces and sandboxes on it, the registry relay
-and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
-
-**A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
-(`bundle.sha256` in `~/.local/share/koala/machine`), and that is the agent's version: it sends it in its socket handshake
-(`bundle`), kept on the machine's record (`agentBundle`), and on every connect the backend names the bundle it serves
-(`machine:bundle`, `MachineBundle.sha256()`). An agent running another one updates itself (`SelfUpdate`,
-`apps/local-agent/src/self-update.ts`) only while the machine is idle: its `IdleGate` is held by every device activity, every open
-ACP session (a held tool call lives in one), every command and container the socket started and an adapter install. While anything
-holds it the agent keeps taking work and reports `waiting` with what it is busy with, and it moves on the moment the last hold is let
-go, an event, never a timer. **A session never outlives its run**: the agent tells Koala which runs hold its sessions
-(`machine:runs`, sent as they change and on every connect); Koala follows each in Temporal (`MachineRunWatch` over `runLifeVia` and
-`runClosedVia`, which waits on the workflow's result, so a run that was terminated and never ran its own ending counts) and tells the
-machine the moment one closes (`machine:run-ended`), which closes that run's sessions (`closeRun`); another person's run is never
-followed. Once idle the agent downloads `/api/machines/agent.tgz`, refuses it unless its sha256 is the one named, unpacks it into
-`<dir>.next`, runs `npm ci --omit=dev --ignore-scripts` there and proves it starts (`node agent.mjs version` must name the new bundle).
-Then it stops taking work (`DeviceWorkerHost.pause`: the device worker stops polling and any task it took runs to its end, its
-`shutdownGraceTime` the 720h ceiling), and only then, finding the machine idle in the same tick, moves the running agent to
-`<dir>.previous` (kept for going back by hand) and the new one in (`agent-bundle.ts`) and exits, so its service starts the new one;
-work that left it busy puts the worker back to polling and the update waits for the next idle moment. **The bundle's sha256 changes
-only when its contents do**: `bundle-machine.mjs` writes its lockfile from the repository's own (`machine-lock.mjs`: the versions the
-local-agent workspace resolves in `package-lock.json`, laid out from the workspace, the repository's dev and peer marks dropped,
-refusing a layout it cannot keep), and archives in name order with owner, group, modes and times fixed and gzip carrying no
-timestamp, so the same commit gives the same bundle on any day (`machine-lock.integration.test.mjs` builds it twice). It restarts itself only under the service the install made
-(`serviceManagerOf`: systemd's `INVOCATION_ID` with `koala-machine.service` in its cgroup, or launchd's `XPC_SERVICE_NAME` of
-`dev.koala.machine`); started any other way it changes nothing and logs once how to get the newer one. A failure at any step changes
-nothing, is logged and reported (`machine:update`, kept as `agentUpdate`), and is tried again only when the backend next names a
-bundle, on the next connect. My Machines says where each machine's agent stands (`agentUpdateView` in `machines/lib/agent-updates.ts`,
-`MachineAgentUpdate`): up to date, a newer one it takes when it next connects, waiting for it to be idle, updating, failed and why,
-not running as its service, or too old to update itself, which is any agent that connected without naming its bundle (one installed
-before this), whose person runs the command again. `npm run test:machine-live` proves it on a VM.
-
-**A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,
-so on every connect the agent asks for the payload keyring over its socket (`machine:payloads`, only where tenants are
-served; `machines/lib/machine-payloads.ts`), holds it in memory only, and starts its device worker with the same converter as
-every platform worker (`buildDataConverter` in `@koala/engine-core/payloads`, one codec shared by the backend and the
-machine). Payloads over 128 KB go through the backend over that socket (`payloads:put`/`payloads:get`, `remote-blobs.ts`),
-since a machine never reaches Mongo, and a machine is given only those of a workflow the gateway handed it a task of, and
-those it stored itself (`handedTo` on each chunk, stamped by `handTo` as the gateway hands the task; `getHanded`, `putFrom`,
-which never adds to a payload already stored). A new keyring restarts the worker (`DeviceWorkerHost`), and a worker that cannot start or stops on its own (Temporal or
-the gateway restarting) is started again, after 5 s doubling to a minute, while the agent runs. Without this nothing sent to
-`device-<id>` could be read; `machine-live` and `mesh-live` now run a two-turn chat on the machine to prove it.
-
-**Picking an agent on a machine.** Every model picker except Checks has a "My machines" section:
-one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choice.ts`). A run picked that way runs the
-`external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
-`MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). A run under another run is held to the same
-check when its agent is resolved (`machineProblem` in `EngineResolveAgentActivity`): a machine that is not the run's owner's fails
-it, so a check's space, which owns no machine, never drives the person's own. An agent whose "Runs on" (Studio) is a
-machine always runs there. A chat's own model reaches as far as the person says in the model drawer (`modelReach` on
-the conversation, sent with each run, carried on the ticket): **this chat and the agents it hands work to** (the default)
-hands it down the runs it starts, a machine only to an agent whose procedure branches at Where It Runs (`handedDown` in
-`EngineResolveAgentActivity`; any other keeps its own model); **this chat only** leaves them on their own; following the
-account default reaches nothing. **The account default can be an agent on a machine** (Studio → Models, or the first-model dialog; `PUT /api/models/default`
-checks the machine is the person's and its agent ready): a run that names no model and whose agent has none of its own (or the default overrides it)
-goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `machines/lib/machine-runs.ts`, read by the registry's `runnable`
-through `accountDefault`); anything else that would need a model fails with `MACHINE_DEFAULT_NEEDS_MODEL` from `ModelService.route`. A check's space
-never takes it. **The first-model dialog** (`models/components/FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
-(add it under My Machines, then TabbyAPI or vLLM on its cluster) and a subscription agent through My Machines, and lists ready machine agents to pick.
-`npm run test:machine-default-live` proves it. A conversation keeps one
-session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
-
-**An agent on a machine does a tree's work** (external-cli-agents step 4). A procedure branches at **Where It Runs**
-(`where-it-runs`: machine when the run's model or the agent's "Runs on" is a machine, else model): `agentLoop` (tool-rounds,
-planning, research) and `do-one-task` hand their Model Turn and Tool Loop to the **External Agent** node on the machine
-branch, and `do-one-task` asks its verdict question with **Ask the Machine Agent**; every step around them (claim, check,
-judge, record) is unchanged. An agent on a machine keeps its own procedure when it branches (`machineRunFor`'s `inPlace`,
-carried on the ticket and the run's launch), otherwise it gets `external-agent-task` as before. **Where it works follows
-from that:** a run that keeps its procedure gets the environment it would get on a model (what it was handed, else the
-conversation's workspace in a chat, else its agent's own; `describe` in `environments.ts`, the provision step). An
-`external-agent-task` or `-chat` run for a conversation works the conversation's workspace too (its documents checked out on
-the machine, `run_in_workspace` served, the documents saved when the turn ends by its release step), so what research or any
-other hand-off writes there reaches it: when a served call that handed work on answers, the workspace is merged into the
-agent's folder and it is told so (behind the `handed-work-merged` patch; owner, 2026-11-05, after a machine chat spent 4
-minutes of a turn looking for research's `findings.md`). Only one with no conversation gets the bare machine folder, which
-`runChild` never hands to a child. A workspace says
-what it keeps in git (`repository` on the workspace, `repositoryOf`: a tree's the project's repository, a conversation's its
-documents, made in Gitea the first time work goes to a machine, `pushBranch`). Given a workspace that keeps one,
-External Agent works a checkout of that folder (a story's worktree, a judge's checkout, the repo root): the folder's work is
-committed and sent to Gitea as `machine/<device>/<run step>` (`EngineMachineSendActivity`, `sendBranch` in
-`workspace-documents.ts`), the machine fetches it into its own folder for that step, `<root>/koala-trees/<workspace>/<folder>@<run step>` (`MachineGitActivity`,
-`apps/local-agent/src/machine-git.ts`), so agents working the same folder at once never share a checkout, and the session works
-there; `run_in_workspace` brings its work in and runs a command in the workspace; when the turn ends the machine commits and
-pushes, and the work is laid over the folder (fast-forward, anything uncommitted in the way set aside in a stash), merged in when
-the folder moved on (another agent's work landed first), and **never refused**: when it conflicts, the workspace as it is now is
-merged into the agent's checkout on the machine and the agent, still in its session, is told which files conflict and resolves
-them (`mergeIn`, `toMerge`; mid-turn this is `run_in_workspace`'s answer, at the end a follow-up `prompt`), repeating while it
-makes progress. A push is refused while conflict markers remain. When the agent will not or cannot resolve them, its work is
-pushed as it is and kept as the branch `machine/<device>/<run step>` in the workspace, with a notice (`keepWork`,
-`keepBranchScript`). Then the session closes, the branch is deleted from Gitea and the machine's folder removed. Behind the
-`machine-merges` patch. In a sandbox that
-keeps no repository (a run's own) the agent works in its own folder on the machine, Koala's tools it calls run in the
-sandbox, and there is no `run_in_workspace`, since nothing carries its files across; it is told so (`describeOnMachine`). The machine reaches
-Gitea only through the backend (`/api/machines/git/<repo>.git`, `MachineGitService`, its device token; the person's own
-repositories only, pushes only to its own `machine/<device>/` branches, git never prompting). A tree's Models offer
-machines for every agent whose procedure branches (`treeModelProblem`, the picker's My machines in `TreeModels`), and
-`propose_tree_model` may name one. `npm run test:machine-story-live` proves it.
-
-**An agent on a machine is told everything a model is.** The machine branch builds its context from the same steps as
-Model Turn (the persona's prompt, Describe Environment, Describe Procedure, Describe Tools, Recall Memory, Describe Outputs)
-and hands it over with the opening (the task and its inputs) once. Wired with Where It Runs' `machine`, Describe Environment
-first says **how it works there** (`describeOnMachine` in `runtime/context.ts`): its folder is a checkout of the workspace's
-folder at the same commit; the project runs in the workspace, reached with run_in_workspace; the workspace text that follows
-is written for an agent inside it, so its commands are run_in_workspace's; what is in the folder goes back when the turn
-ends; Koala's tools are on the MCP server `koala`. Describe Tools lists what is served (the persona's tools not bound to an
-environment, and run_in_workspace) and names the environment tools it has for itself on the machine. `AgentRunWorkflow.integration.test.ts`
-("what an agent on a machine is told") checks every section and that the MCP server serves exactly the tools listed.
-
-**Asks from an agent on a machine** are checked against the tree's workspace, so a tree on auto mode lets them through. The
-approval box on a run or story also offers **Auto mode for <agent>** and, on a tree's or a story's page, **Auto mode for this tree**:
-`POST /api/engine/runs/:id/approve` with `auto: 'agent' | 'tree'` switches auto mode on (the run's agent from its turn log,
-`runOrigin`; its tree from the tree run's id) and allows the call.
-
-**An agent on a machine gets its persona's tools, and runs on the model picked.** The external-agent procedures resolve the
-persona's tools (Resolve Tools) and hand them to the `external-agent` step, which serves every one not bound to an
-environment (the agent has its own shell and files) through the machine's local MCP server, named `koala`, and tells the
-agent to call them there. A call the agent makes is held on the machine and handed back to the run (`state: 'calls'`):
-`runExternal` runs it the way a model's call runs (`runOne`: the turn log, cards, hand-offs), asking the person first when
-the tool is destructive, then answers the machine (`op: 'result'`); a cancelled run answers held calls as cancelled. Discovery
-opens a session (no prompt) to read each agent's `model` config option (ACP `configOptions`), reported as `models` with
-`agents:found`; the picker offers one row per model (`machine:<device>:<agent>:<model>`), a run sets it with
-`setSessionConfigOption` before its first prompt (a model the agent no longer offers is refused), and the model it ran on
-comes back on the step (`model`), in the trace summary and so on the run's rounds. Every call the agent makes at once is
-handed to the run together (`state: 'calls'` carries `calls`) and run together, `run_in_workspace` ones one at a time,
-each answer going back as it comes (`op: 'results'`). Some agents give up on a tool call: Antigravity's own harness cuts
-every MCP call off at 3 minutes, whatever the server does (progress messages, which the machine sends on a streamed answer,
-do not help, and nothing in ACP sets it). So a served call not answered within 2½ minutes answers the agent with a job id
-and keeps running in the run; the machine's own `wait_for` tool waits for the job and hands over its result
-(`external-agents.ts`, told to the agent in `TOOLS_LINE`).
-
-## Configuration
-
-What a process is told about its place (root, an instance, the hub, and which worker) comes from one place: **its reader in
-`platform/lib/settings.ts`**, pure (it takes an env object and returns typed settings, or throws `SettingsError` listing every
-problem at once). `backendSettingsFrom` (root, instance and hub: `role.role` decides which parts it reads), `hostWorkerSettingsFrom`,
-`clusterWorkerSettingsFrom`, `engineWorkerSettingsFrom`; for the steps run in an instance's pod `selfUpgradeSettingsFrom`,
-`moveImportSettingsFrom` and `podStepSettingsFrom`; for programs that only need Mongo or Temporal `databaseSettingsFrom`,
-`connectionSettingsFrom`, `clusterSettingsFrom` and `operatorCredentialsFrom`. The reader folds in the area readers it calls
-(`roleFromEnv`, `loadKeys`, `minioSettingsFrom`, `giteaSettingsFrom`, `infisicalSettingsFrom`, `registrySettingsFrom`,
-`poolSettingsFrom`, `edgeSettingsFrom`, `signInProvidersFrom`, `emailWayFrom`, `terraformStateFrom`, …), which nothing else calls.
-Each entry point (`src/index.ts`, `src/worker-*.ts`, the scripts the chart runs: `seed-all`, `self-upgrade`, `move-import`,
-`temporal-keys`) passes `process.env` to its reader once and hands the typed settings on through its wiring; the process-wide
-clients take theirs at start (`connectTemporalAs`, `keepPayloadsIn`, the host worker's `giveHostActivities`). The backend lint
-(`no-restricted-properties`, `apps/backend/eslint.config.js`) refuses `process.env` anywhere else; exempt are tests, `testing/`,
-the entry points, `src/scripts/**` (the operator's and dev's CLIs read their env themselves) and `platform/services/child-env.ts`,
-the one place a child process inherits the OS's environment (`childEnv`, `inheritedEnv`).
-
-A setting is one of four things:
-- **required**: the process stops at start naming it (what the role needs and nothing can stand in for: the five platform keys
-  and root's `ROOT_IDENTITY_KEY` in every mode (**Platform keys**), `MONGO_URI`,
-  `TEMPORAL_CONNECTION_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TLS_CA`, `DATA_DIR` (the folder the process keeps its files in; nothing finds it from where its code or working directory is), `PORT`, `PUBLIC_URL`, `APP_URL`, `TERRAFORM_STATE`, root's
-  `INSTANCE_IMAGE_TAG` and `INSTANCE_REGISTRY`, an instance's services and `INSTANCE_CREDENTIAL`, a worker's `HEALTH_PORT` and
-  Temporal metrics port, `HUB_DATABASE`, …). Listen ports are required and set once in the chart, the same value for the process
-  and its `containerPort`; 0 means any free port, or for `HEALTH_PORT` no health endpoint.
-- **off with a reason**: a feature that may be absent is a `{ off }` the person sees (`METRICS_TOKEN`, mail, the mesh without
-  `MESH_LOGIN_SERVER`, root's routing without `INGRESS_DOMAIN`, the pool, Twilio, Google Drive, `OVH_SUBSIDIARY`, an instance's edge,
-  `MACHINE_TEMPORAL_ADDRESS`, `MACHINE_METRICS_URL`, `INSTANCE_MACHINE_ID`: an instance on no machine has no cluster of its own).
-  Half of a feature (one of Twilio's three, Caddy's settings without the rest) is a problem, never off.
-- **a constant** in code, for what no install changes (the Kaniko image, the machine gateway's bind host `MACHINE_GATEWAY_HOST`).
-- **a test parameter**: `WATCH_UNREACHABLE_MINUTES`, `OPENROUTER_URL` (a stand-in OpenRouter), `HUGGING_FACE_URL` and
-  `DEPENDENCY_SOURCES` (one address standing in for OSV, npm and GitHub, so the integration tier never reaches them), read by the
-  reader into `settings.tests`, the product's own value when unset; and `CHART_SOURCES` (one address standing in for every chart
-  repository, each under its own host and path), read into the cluster settings, since every process that reaches a cluster has them,
-  and taken by helm through `ClusterAccess` and by Terraform's charts alike.
-
-Where work runs is no setting: every queue is named once in `platform/lib/work-places.ts` (`QUEUES`), with the places each role runs
-(`placesOf`: root only the host queue, an instance all four, the hub none) and the host activities each role's host worker serves
-(`HOST_ACTIVITIES`); `TEMPORAL_TASK_QUEUE`, `TEMPORAL_ENGINE_TASK_QUEUE` and `POOL_TASK_QUEUE` are gone (owner, 2026-11-10), a VM
-suite's root keeping its work apart in a Temporal namespace of its own. Left as they were: decision 13's `IS_E2E`, `MONGO_TEST_URI` and
-the dev setup code. The operator's own credentials (`operatorCredentialsFrom`: OVHcloud's keys and each DNS provider's, read
-into `settings.operator.env` by root's backend and host worker only) are the only cloud credentials a process takes from its
-environment; Hugging Face and GitHub tokens are not among them. **Adding a setting**: read it in the role's reader (required, off with a reason, or a test parameter, with a
-reason a person can act on), add it to the reader's settings type, hand it on through the wiring, set it in every writer (the
-chart's `configmap-env.yaml`, `devRootPlan`, `devSplitPlan`, `scripts/root-node/root-settings.sh` for root, the test stacks), and
-extend the writer tests that feed each writer's environment to its reader (`instance-chart.integration.test.ts`,
-`dev-root.test.ts`, `dev-split.test.ts`, `tests/lib/root-settings.integration.test.ts`).
-
-## Roles: root, instance, hub
-
-`ROLE` (read by `platform/lib/platform-role.ts`, through the role's reader) decides what a backend is, and every process needs it: a process started
-without it, or with anything but these three, stops saying so (`roleNamed`, `RoleConfigError`; the `combined` role, everything
-in one process, was removed on 2026-11-08, owner: "Ok I think those are all good, sweet"). Each role is exactly one thing
-(`servesTenants` is the instance, `holdsAccounts` root, `servesHub` the hub):
-- **`root`** holds accounts and the Ed25519 signing key (`ROOT_IDENTITY_KEY`), and mounts no tenant
-  route — every tenant router is mounted on `tenant` in `bootstrap()`, which is the app only on an instance;
-- **`instance`** serves one owner (`INSTANCE_ID`, `INSTANCE_OWNER_ID`, `ROOT_URL`, `ROOT_PUBLIC_KEYS`),
-  has no account routes, and signs people in only through root;
-- **`hub`** holds shared projects (below).
-
-**Both on one machine: `npm run dev:split`** (`scripts/dev.sh --split`, setup in `src/scripts/dev-split.ts`, rules in
-`instances/lib/dev-split.ts`). Your usual stack becomes the instance: same database, Temporal, workers, port 3001, at
-`http://<DEV_INSTANCE_NAME, default dev>.localhost:5173`. Root is one more backend (port 3002) with its own database
-`koala_root`, holding only your account (identity fields, never your credentials or settings) and the instance's
-registration with a credential, at `http://koala.localhost:5175`. Each has its own Vite forwarding `/api` and
-`/socket.io` to its backend (`KOALA_BACKEND`), so each host keeps its own session cookie; port 5174 is avoided because
-the app treats it as the E2E port and signs everyone in. The env each process gets is written to
-`apps/backend/data/dev-split/` (gitignored); the owner is the first admin, or `DEV_INSTANCE_OWNER`.
-
-**Sign-in on an instance or the hub is OpenID Connect, with root as the provider** (`oidc-provider` at `/oidc` on root,
-`instances/services/RootProvider.ts`; the client is `openid-client`, `RootSignIn.ts`; rules in `instances/lib/oidc.ts`). The provider always answers as root's
-`PUBLIC_URL`: every request reaches it with the issuer's own host and scheme put over whatever it named (`asIssuerRequest`), so
-the issuer, the addresses discovery and redirects hand out, and the tokens' `iss` are the same however a host reaches root. At start each
-instance and the hub names an Ed25519 key, derived from its session key, to root with its credential (`PUT /api/instances/sign-in-key`,
-`PUT /api/hub-link/sign-in-key`, `keepAnnouncing`) and from then authenticates to root's token endpoint with `private_key_jwt`. A
-signed-out person is sent to its own `GET /api/auth/oidc/start` (code flow, PKCE, state and nonce in a signed ten-minute
-`koala_sign_in` cookie, `prompt=login`); root finishes the login from its own session at `/oidc/interaction/<uid>` (signed out, root's
-page signs them in and `resumePathFrom` sends them back), takes only an instance's owner (`signInRefusal`), and `GET
-/api/auth/oidc/callback` exchanges the code, checks root's ID token against `ROOT_PUBLIC_KEYS`, keeps the refresh token sealed in
-`clientSessions`, and gives the browser the instance's own session token carrying root's claims (`koala_claims`, from `claimsFor` →
-`claimsOf`). `requireAuth` checks it locally (no database, no call to root) and renews it through the refresh token once the claims are
-20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate** (the one event in
-"Who may do what"): root forgets the person's grants, sessions and tokens and sends each client a back-channel logout token
-(`logoutDeliveries`, retried on the layer's backoff until the client answers, People showing since when and why not, the reason in `koala_why`); the client records it (`sessionRevocations`,
-the in-memory `RevocationList`), drops the person's sessions and fires the event on its own `AccessRevocations`, which ends its runs' grants. **Only over https in
-production**: an instance or the hub refuses to start when its `ROOT_URL` is plain http to the open internet (`plaintextProblem` in
-`platform/lib/lab.ts`, from `roleFromEnv`); a lab, loopback, a private or mesh address and a name under `.internal` or `.localhost`
-are allowed, which is what the split stack, the VM suites and the rehearsal's `http://app.koala.internal:3001` use. **An instance and the hub call root with service tokens** (client credentials, five minutes,
-`RootSignIn.serviceToken`), which root takes wherever it takes the instance's credential (`InstanceService.authenticated`,
-`/api/hub-link/invite`); the credential remains for naming the key and for the shell scripts. **An instance on an older release**
-still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
-OIDC start only once the instance has named its key and its own `/api/auth/sign-in` answers with it (`handoffServedFor`), so a rollback
-past this release falls back by itself.
-`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance by hand with `npm run instances -w apps/backend -- add <id> <owner> <url>`, which prints the credential its chart takes as `instance.credential` (without one an instance cannot sign anyone in).
-
-**Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
-3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own
-machine" with `GET /api/instances/name-check`). With `INGRESS_DOMAIN` set, root's `InstanceRoutes` writes the routes of each
-instance in service (`inService` in `instances/lib/instances.ts`: ready, or ready once, which the store stamps as `servedAt`,
-and now upgrading itself or back from a failed upgrade it rolled back; sign-in through root follows the same rule, so a
-self-upgrade never takes a person's addresses or sign-in away) from its record (name, `meshIp` from the installer's reports) into `data/caddy/instances/` and
-`data/caddy/instance-sites/` and reloads Caddy (a reload that fails is tried again on every pass until one succeeds, and the first pass after a start always reloads): `<name>.<domain>` → the instance's backend over the mesh (`:30320`), and
-`<app>-<name>.<domain>` → its **edge** (`:30321`), a Caddy beside the instance's backend that serves the apps it publishes
-(`AppExposureService` in edge mode writes the same per-app blocks, plain http, and reloads it through its admin API; an app on
-the instance's own k3s is reached through that cluster's Traefik by service name). Root also routes `<app>-<group>.<domain>`
-to the edge of the instance holding that group (`groups` on the instance record, one `@apps_<group>` matcher each in
-`instanceRouteFiles`; a shared project's apps are addressed under its group, below). Root's Caddyfile holds one `*.<INGRESS_DOMAIN>`
-site (root's own `app.` and `mesh.` are under `DOMAIN`, a different registered domain) with every instance's matchers (anything else is a 404) under a wildcard certificate over DNS-01 at
-the people's domain's DNS provider (**DNS providers**, below), or Caddy's local authority with `CERTIFICATES=internal`.
-A person can switch to nested addresses (instance Settings → Addresses, `PUT /api/instance-addresses` → root's
-`PUT /api/instances/addresses`): root adds a `*.<name>.<domain>` site with its own certificate and probes it until it is
-served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit included); only then does the instance show
-`<app>.<name>.<domain>`, and the flat addresses keep answering. `npm run test:routing-live` proves it with a VM, root's
-Caddy on the mesh as `tag:platform`, an app deployed on the instance, and the switch.
-
-**The hub: projects shared between people** (plan `~/.claude/plans/project-hub.md`; step 1, its people, is built). A
-`hub` role (`ROLE=hub`, needing `ROOT_URL`, `ROOT_PUBLIC_KEYS` and `HUB_CREDENTIAL`; `servesHub`) holds
-shared projects: a registry database (`HUB_DATABASE`, default `koala_hub`: `shared_projects`, `shared_memberships`,
-`shared_invites` token → project, `shared_people`, `shared_handoffs`) and **one database per project** (`hub_<id>`, its
-`members` and `invites`; `hub/lib/hub-store.ts`, `hub/lib/hub-mongo.ts`). `HubService` reads the person's membership from the
-project's own database before anything, and answers 404 to anyone not on it. Roles (`can` in `hub/lib/hub.ts`): **owner**
-(everything; several allowed, the last cannot leave or be demoted, and whoever shared it from their instance stays one and on it,
-`sharerOf`, since it syncs only from there: they take it back to stop sharing), **collaborator** (works stories, approves, moves and
-removes files), **client** (pins, comments, asks Koala; its changes wait for an owner's or collaborator's approval). Every
-member sees everything in the project, the code and every file included (owner, 2026-10-26: "we can pair it down later").
-`/api/hub/*`: projects (made from a project's
-Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
-the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
-with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`) and the inviting member's own access token from root (`RootSignIn.personToken`, kept sealed with their client session),
-from which root reads who invites (`RootProvider.personAtHub`: a live token root issued to the hub), never from what the hub says, so the
-hub cannot name an operator to skip the limits below; root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
-`<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. **Project invites are limited**
-(security audit D4, owner 2026-10-26): root counts each person's invites that would make an account (`makesAccount`; inviting
-someone who already has one counts nothing) while used or unexpired, and refuses past their allowance (10 by default, or their
-own) or past 20 invites an hour (`projectInviteRefusal` in `accounts/lib/project-invite-limits.ts`); an admin sets both, and
-each person's allowance, under Project invites on root's admin page (`ProjectInviteLimitsService`, `/api/admin/project-invites`,
-`/api/admin/people/:id/project-invites`); admins are not limited. A refusal comes back as a 429 with its reason and the hub
-keeps no invite for it. Root's join page
-(`hub/components/RootJoinPage.tsx`) shows the invite signed out (`/api/hub-link/invitation`), signs them up, remembers the invite
-across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` sends them to the hub's own sign-in through root's provider
-(`/api/auth/oidc/start?next=…`), and the hub takes anyone root signs in (never an admin there), going on to `next`. The hub's own
-frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An instance links to it through root
-(`hub` on `/api/auth/sign-in`). `dev:split` runs the hub as a third process at `http://hub.localhost:5176` (API :3003).
-**Removing an account lets the person go from the hub first** (`HubPeople`: root's
-signed requests to the hub's `/api/hub-root/people/:id`, a token for audience `hub` and that person and step,
-`issueMoveToken`, each taken once). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
-`hub/lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
-taken off, with the invites they sent; the hub forgets its copy of them. Not yet: the board, channel and repository on the
-hub (step 2's member screens), members working stories (3), the View tab (4).
-
-**Sharing a project (step 2).** A project stays entirely on its owner's instance until they share it from its Settings →
-People, which first lists what goes (the board, the channel and story and feature chats with their history, the
-repository) and what stays (other chats, secrets, builds and releases, the app; `ProjectSharingService`,
-`/api/project-sharing/:id`). Sharing makes the hub's copy (`HubService.share`, only from an instance, through
-`/api/hub-instance/*` with a token root signs for the instance and its owner, `POST /api/instances/hub-token`,
-`RemoteHub`, a new one for every request and each taken once, `moveTokenOnce`) and a repository in the project's own Gitea organisation (`shared-<id>/project`, a bot with write access whose
-token only the owner's instance holds; `HubRepos`). **The sharer names a group** when sharing (one per shared project, the
-instance-name rules through `nameProblem`, suggested from the project's name by `suggestedGroup`, checked as typed at
-`GET /api/project-sharing/:id/group-check`), and the project's apps are addressed `<app>-<group>.<domain>` instead of under
-the owner's name (`<app>-<instance name>`, so an app is published only on an instance with a name). The group is kept on the link (`HubLink.group`)
-and the hub's project (`SharedProject.group`, shown to its members), fixed while the project is shared, and freed when it is
-taken back, its apps returning to the owner's addresses. Root holds the groups for routing (`PUT`/`DELETE
-/api/instances/groups`, `GET /api/instances/groups/check`, the instance's credential, `InstanceGroups`; a group is refused when
-it is any instance's name or another project's group). Sharing or
-taking back republishes the apps (`syncExposedApps`): `AppExposureService` asks `groupOf` (the hub link of the app's
-project), and `addressScope` in `instances/lib/edge-addresses.ts` decides the scope, so a stored address outside it is
-recomputed. A group's addresses are flat only; nested addresses cover the owner's own name. A project shared before groups
-has none and keeps the owner's addressing. **The owner's instance keeps a working copy** and the engine is
-unchanged: every write to a tree, branch, leaf, task, conversation or plan proposal marks it (`markingHubWrites` wraps
-`createDatabase()`, so every process does; `hubDirty`, only while anything is shared), and `HubSyncService` (on events: a record marked, heard
-through a change stream on `hubDirty`; the hub saying a project changed; a push to either repository's `main`, by webhook)
-sends a shared project's records as field patches against what the hub last agreed (`hubSnapshots`; chat messages one by
-one, `hub/lib/hub-sync.ts`), pulls what others changed (applied without marking), and syncs `main` with git (`HubRepoSync`:
-fast-forward whichever is behind, merge when both moved, on a conflict neither changes, the hub's main is kept as
-`hub/main-<time>` and the channel is told). The hub orders changes per project (`changes`, `board_*` in `hub_<id>`) and
-takes them only from the sharer's own instance. **Taking it back** (typing its name) deletes the hub's copy and
-repository; a project deleted on the hub stops being shared on its instance at its next sync, and deleting a shared
-project on its instance takes it back first (the delete popup says so).
-
-**Members work a shared project on the hub** (step 2's second half). The hub's `/shared/:id` is Board · Files · People,
-the board the same screens as the instance's (`ProjectBoard` reads through a `WorkSource`, `features/projects/lib/work-source.ts`;
-the hub's is `features/hub/lib/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). Every member
-sees every record whole (`recordFor` in `hub/lib/hub-board.ts` drops only the owner's id), the status as the owner's
-instance sent it, and the run feed, relayed from the owner's instance (`HubRelay`: the instance
-holds one socket.io connection to the hub's `/hub-instances` namespace, dialled as it dials root for presence, over which the
-hub hands it calls and tells it a project changed; it answers `POST /api/hub-instance/relay/:callId[/stream]`; a call fails at once
-when its connection closes). Members' writes are **requests** (`POST /api/hub/projects/:id/requests`:
-approve or reject a plan, order stories or features, accept or drop a task, open a story or feature chat, ask Koala)
-that `HubSyncService` on the owner's instance carries out as the owner once the messages they refer to have synced
-(`HubInstanceWork`), and settles done or refused; the board shows what waits and why. Posting in a chat
-(`POST .../conversations/:id/messages`) syncs down like any message, named by the member's email (`authorName` on
-messages the viewer did not write, in both UIs); Koala answers owners and clients on the owner's instance (an
-`ask-koala` request starting the turn), collaborators from their own instance in step 3.
-
-**Koala acts for the member who asked** (security audit D3, plan `~/.claude/plans/acting-for.md`). A member's ask
-(anyone but the instance's owner) starts a run with `actingFor` (the member, their role, the shared project and its hub id) on
-its ticket and launch, which every child run keeps. The run is pinned to that project; Koala is told who is asking
-(`memberAsking`); the member may ask only about their own note (`noteAt` checks the author). Every tool call goes through
-`memberCallProblem` in `engine/lib/acting-for.ts` in the tool runtime, which fails closed: a tool `MEMBER_REACH` does not list is
-refused, a `project` tool is refused when an argument names a project, tree, feature, story or task outside the shared project
-(`memberScopeOf`), and a refusal names nothing outside it; `resolve-tools` offers only what will be allowed, hand-offs and MCP
-tools included (an MCP server is a tool, owner 2026-10-26). Every member reaches everything in the project and nothing outside
-it (owner 2026-10-26: "we can pair it down later"); `acting-for.test.ts` fails on a shipped tool nobody classified. A
-member's run never goes to the owner's machine: a machine picked for the chat gives way to the owner's default, a default on a
-machine is refused in plain words (`MEMBERS_OFF_MACHINES`), and a child that would run on one fails. Chat auto mode and per-chat
-allowances do not apply to it (agent and tree auto mode do), and an ask names who asked. Recall gives only the project's
-memories and nothing is saved from the turn. The memory keeper, concluding a conversation people other than the owner talked
-in (`heardOthers`), runs `keptTo` that project: project memories only, nothing replaced or forgotten, nothing proposed
-(`keptToProblem`), and such a conversation with no project is not remembered. `mechanics-member-asks` proves it. The owner's instance sends a
-**status** (`PUT .../status`: releases, builds, tree runs) when it connects, when the project moved, and when a release or build
-record changes (`watchReleaseWork`). **Files**: the hub
-relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, reads only the procedures a run of the
-project used (`procedureRanIn` over that run's turn log), and only owners and
-collaborators move, remove or replace one (`change-files`, `relayProblem`; a client's upload onto a name already taken is refused). The hub's repository is read-only to every member
-(`GET .../repository`, `.../repository/file`). Where root has no hub,
-Share says so. `npm run test:project-sharing-live` proves it against the dev stack.
-
-**Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
-Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
-its own (`scripts/root-node/pool-node.sh`: k3s, the mesh as `tag:pool`, root's registry, gVisor, and the narrow `koala-backend` account of
-`k8s/root-backend/account.yaml`, which root's backend reaches it with from `/etc/koala/pool-backend-kubeconfig` while only the workers hold the admin
-`POOL_KUBECONFIG`). Root offers it on the "no
-instance yet" page while a slot is free (`POOL_SLOTS`, from the node's memory) and only with `POOL_ADDRESS` (the node's mesh
-address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `instances/lib/pool.ts`). `PoolInstanceWorkflow` (host
-worker, `POOL_TASK_QUEUE`):
-- readies the node: RuntimeClass `gvisor` (`scripts/root-node/gvisor.sh`, pinned gVisor), the `koala-pool-gvisor`
-  ValidatingAdmissionPolicy refusing any pod in a `koala.dev/pool=true` namespace not on gVisor (proved to refuse before
-  use) or naming an image on the node's loopback other than its own instance's registry port or the platform's own image (an image
-  another instance pulled stays cached on the node, so naming it would run it without that instance's credentials), and `pool-proxy`, a hostNetwork Caddy in `kube-system` whose ConfigMap root writes;
-- makes a namespace `pool-<name>` (PodSecurity baseline, labelled with its registry's port) and a vcluster in it (chart 0.37.2)
-  whose control plane and every synced pod run under gVisor, with root's quota and a limit range whose maximum is the slot, no node
-  ports, and egress only to the public internet (`publicEgressRule`: never a private, mesh or link-local address, so no cloud
-  metadata, and never ports 25, 465 or 587);
-- gives the instance three ports (`freePorts`): its backend and edge on the node's mesh address, its Gitea registry on the
-  node's 127.0.0.1, which containerd pulls over plain HTTP with nothing configured;
-- installs the instance chart in pool mode (`pool.enabled`: no Docker, cluster-only Gitea, Infisical, searxng and crawl4ai,
-  each component's memory set) through a Job in the pool namespace, since root cannot reach a vcluster's API from outside
-  its cluster;
-- waits until the proxy reaches the backend, then marks it ready; `InstanceRoutes` sends `<name>.<domain>` to its ports.
-In pool mode an instance pushes images to Gitea by its in-cluster name and gives pods the loopback name
-(`instances/lib/registry-hosts.ts`, `REGISTRY_PULL_HOST`, `KOALA_REGISTRY_PUSH`). kubectl port-forward cannot reach a gVisor pod.
-**Gitea answers nobody signed out** (`REQUIRE_SIGNIN_VIEW` in `scripts/ensure-gitea.sh`; a dev box that already had Gitea runs
-`bash scripts/ensure-gitea.sh` once, since `npm run dev` does not) and its users are private (made so,
-and every existing one patched at boot, `GiteaService.makeUsersPrivate`), so every pull of a Koala-built image needs a login:
-each namespace Koala pulls one into gets the secret `koala-registry-pull` (the bot's read-only package token,
-`GiteaService.registryLogin`; shapes in `instances/lib/registry-pull.ts`) and its `default` service account names it (release
-namespaces through `SlotCluster`, at every release step and for every released project at boot; browser tests through
-`namespacedCluster`), and a sandbox pod names it itself. A move copies a `default` service account only for its pull secrets.
-**The trial** (`PoolTrialWorkflow`, rules in `instances/lib/pool-trial.ts`): emails 3 days and 1 day before the end, stops the
-vcluster at the end (status `paused`, so sign-in and routes skip it), warns again 3 days before deleting it 30 days later.
-While a move runs the trial holds (`PoolTrialNextActivity` answers `hold`).
-**Root watches pool apps; a pool instance has no monitoring of its own** (`monitoring/lib/pool-monitoring.ts`). Its cluster gets only
-the operator's CRDs and a ClusterIP Traefik (`CLUSTER_MONITORING=crds`, `INGRESS_SERVICE`; `placedOnPool`). Root's
-`PoolHostActivity` installs one kube-prometheus-stack (no Grafana, `enforcedNamespaceLabel`, kube-state-metrics keeping
-vcluster's `vcluster.loft.sh/namespace` label and `object-name` annotation) and a blackbox exporter that never follows a
-redirect, per node; each pool namespace lets only that exporter in (`probeIngressPolicy`). The instance asks root named
-questions, never PromQL (`MonitoringService`'s `pool` dep → `PoolMonitor` → root's `/api/instances/monitoring/*` with its
-credential → `PoolMonitoringService`, which builds each query with `place` so it reads only `pool-<name>`, joining pods and
-volumes to the namespace they came from, `monitoring/lib/monitoring-asks.ts`). Its probes (read from the Probe CRs its apps make) and
-its alert rules (rebuilt by root from the six templates) are written by root into its host namespace; alerts come back with
-their namespaces translated. Not on a pool place: Open in Grafana, request counts and the `errors` alert (shown as not
-measured), and changing how long history is kept (`byKoala`).
-**Root's admin area, `/#/admin`** (`features/instances/components/RootAdmin.tsx`; `/#/pool` opens its pool section): People (every account and
-its instance, own machine or pool), Invites, and Koala's servers (places in use, the default trial length, `poolSettings`
-seeded from `POOL_TRIAL_DAYS`, each person's trial end, which moving ahead warns again and starts a stopped instance, and
-Delete, typing the name, `PoolRemoveWorkflow`). Removing an account on root runs `RootAccountRemovalWorkflow` (host worker):
-a pool instance is deleted, its mesh user and nodes removed, its records removed; what is on a person's own machine stays
-theirs. An instance mounts no `/api/admin`, and its Settings shows People and Invites only where accounts are held
-(`manage-accounts` on `/api/auth/me`).
-**Moving to their own machine** (plan `~/.claude/plans/pool-instances.md`, design A). The person starts it on root's page
-(also for a stopped trial, which is started again only for the move) or in the instance's Settings
-(`/api/instance-trial/move` → root's `/api/instances/move/self`). Root gives the install command with a single-use move
-code (`startMove`, a join token with `move`) and starts `PoolMoveWorkflow`. The machine joins as the same instance (same
-name, a new credential kept as `move.credentialHash` until the switch), takes the instance's four keys
-(`MOVED_KEYS`) into `<release>-keys` before Helm, and installs the chart with `move.enabled`: workers at zero, the setup
-jobs `move-data` (the data folder) → `platform-services` (with the moved secrets) → `move-restore` (Mongo through
-`instances/lib/mongo-move.ts`, Gitea's and Infisical's Postgres through `PG_RESTORE` into a fresh schema, Gitea's data volume
-through a helper pod) → `seed`. Every part comes through root (`/api/instances/move/parts/:part`, the move credential):
-root's `MoveRelay` reaches the pool instance's backend through the pool node's API server with a token it signs for that
-instance and part (`issueMoveToken`), sent in `x-koala-move-token` (never the address) and taken once (`moveTokenOnce`: its `jti` goes in
-the used-token record a handoff's does), never storing anything. The pool instance (`MoveExport`, `/api/move/*`) checks the
-token, refuses while work runs, and stops taking work (every other route answers 503, `.moving` in its data folder) until
-root thaws it. The installer then turns `move` off and reports `ready` with `moved`; root switches the record (credential,
-mesh address, no pool), removes the pool copy and frees its ports. A failure reported by the machine, or Stop the move,
-thaws the pool copy and stops it again if it was stopped. `npm run test:pool-live` proves the pool, its monitoring, root's
-admin removal and the move on two VMs (`POOL_LIVE_ENDING=delete` ends with an admin's Delete instead of the move).
-
-**An app's secrets never sit in its Deployment**: a construct puts a token, key or password in a Secret it makes and the
-container reads it with `secretKeyRef` (`secretEnv` in `packages/cdktf-infra/lib/app-secret.ts`; vLLM, TabbyAPI, Open WebUI,
-Hermes), since `inspect_resources` reads a Deployment and never a Secret. `constructs/app-secrets.test.ts` synthesizes each.
-**An app's sign-in is generated and shown only on asking** (owner, 2026-10-27): Hermes' dashboard password is made per deploy
-(`resolveHermesDefaults`, sealed on the deployment as `hermesDashboardPassword`; the construct refuses to deploy without one, so
-no app shares a default), like Nextcloud's and MinIO's; Palworld's live in the Secret its deploy makes. The app's page offers
-**Show sign-in** for those apps (`AppSignInReveal`, the same reveal as a project's, `shared/components/SignInReveal.tsx`), which reads
-`GET /api/deployments/:id/sign-in` (the owner's only, never cached; `appSignIns` in `infrastructure/lib/app-sign-in.ts`). Nothing
-else the deployments router sends carries a sealed field (`withoutDeploymentSecrets` on every response); the browser only writes them.
-
-**Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
-(`activities/cluster-monitoring.ts`, rule in `monitoring/lib/cluster-monitoring.ts`) asks the cluster whether it serves
-`probes.monitoring.coreos.com` and has blackbox-exporter. It applies whatever is missing: the cluster stack (`ENV=remote`,
-with `CLUSTER_INGRESS=existing` keeping an ingress the cluster already has, such as k3s's Traefik, so two never fight
-over ports 80/443) and the observability stack. An instance's cluster worker does the same when it starts. A failure
-fails the deploy with the reason; an app never goes on without its probe. A failed deploy keeps its record in the
-listing even when its namespace was never made.
-
-## How an agent holds a tool
-
-An agent never lists its own tools. What it holds is its **grants** (`toolGrants`, many to many, neither the agent
-nor the tool records the other): **shipped** ones, declared by each extension as `grants` (`extensions/*/personas.ts`,
-the engine's own in `SEEDED_GRANTS`) and never stored; the person's own, **granted** (the Studio, an approved
-proposal); and **revoked** ones, which take a shipped tool away from their agent. `toolsOf` / `withGrants` in
-`agent-engine/src/agent/grants.ts` resolve them; the backend reads every agent through **`AgentDirectory`**
-(`engine-host/registries/agent-directory.ts`, which also drops what a switched-off extension brings), and writes only
-through its `setTools` (`grantChanges` turns the wanted list into grants and revocations). So a built-in agent stays
-built in when only its tools change — the Studio says so, and saving stores grants, not a copy — and keeps getting
-shipped changes. The resolved agent (`Persona`, with `tools`) is what the engine runs; what is stored is a
-`PersonaRecord`, without them. A grant change starts the agent's image rebuilding and tells the bench, like an agent
-save. Check spaces copy the person's grants, and a world's `agents.<slug>.tools` becomes grants there. Startup moves any
-stored agent's old tool list onto grants (`engine/lib/tool-grant-migration.ts`, in `seedAll`) and drops a copy of a built-in
-that differed only in its tools.
-
-**MCP servers are a catalogue of their own** (`mcpServers`, `engine/lib/mcp-servers.ts`, Studio → Tools, under MCP servers, `/api/mcp/catalogue`).
-A server runs hosted (at a URL, or one of the person's MCP deployments, recorded as they run, `from: { projectId }`) or in
-the workspace (what installs it, the command that starts it, its port and path). Known ones ship as templates
-(`extensions/mcp/templates.ts`: Playwright, with Chromium installed against the Playwright its package bundles). Adding
-or saving one **captures** it with the `capture-mcp-server` procedure (`extensions/mcp/`, agent `mcp-capture`, no model):
-a hosted one is asked over HTTP; a workspace one has its image built (`planServerImage`) and is started in the capture
-run's own sandbox, which the run's cleanup step releases. `initialize` and `tools/list` are kept on the record —
-instructions, tools, the fingerprint of how it ran — or why it failed; a server is offered only while its capture
-matches how it runs now (`usable`). Agents **hold** servers through grants of `kind: 'server'` (stored under a key of
-their own, so a server and a tool may share a name; `persona.servers` resolved like tools), renamed and dropped with the
-server. A held workspace server's install joins the agent's image and the tree workspace (`heldWorkspaceServers` in the
-composer, each line `server:<name>`). Runs never list a server: `ServerTools` (`engine-host/tools/server-tools.ts`)
-offers each held (or chat-enabled, hosted) server's captured tools as `<server>__<tool>`, filtered by `offer`/`omit`,
-each tool's effect from the person's `kind`, else a workspace server's own hints, while a hosted server's tools are destructive
-until the person says otherwise (`toolAnnotations`: a server elsewhere could call anything read-only to skip the ask), grouped in the prompt under the server with its
-instructions, the person's notes and what it depends on, and each tool's note as its guidance; calls go to
-`WorkspaceServers` (started in the run's pod on first use, one `curl` per request) or to the hosted address. A check's
-world can carry `mcpServers` (captured before the run) and give an agent `servers`; `mechanics-workspace-server` proves
-the workspace path. Startup (`migrateMcpServers` in `seedAll`) moves `persona.mcp`, tools that served, and per-tool kinds
-onto the catalogue. **Koala proposes servers**: `list_mcp_servers` shows the person's servers (state, tools, who holds each) and the
-known ones not added; `propose_mcp_server` (rules in `engine/lib/mcp-proposals.ts`) puts an `add_mcp_server` action card in
-the chat — add a known one (with the person's notes, depends-on, offer/omit), add a new one, or give one they have to
-agents. Applying it (`ActionService`) adds and captures the server, then gives it to each agent named through
-`setServers`, which rebuilds a workspace server's holders' images. `mechanics-proposed-server` proves it (check stage
-`applyAction`, expectation `mcpServer`).
-
-**Tool calls run together where they can** (`run-tool-calls`, behind the `reads-together` patch): hand-offs start at
-once, calls to tools whose `effect` is `read` (from the Tool Loop's `offered`) run together, and a call that changes
-something waits for every call before it and runs on its own.
-
-**When a run asks before a call** (the `approve-tool-calls` step, `ports.approve` in `AgentRunWorkflow`): on someone's
-own machine every call asks; elsewhere a destructive tool asks (an MCP tool is destructive unless its server says
-otherwise). A call to a tool that runs inside the run's sandbox (`binding: 'environment'` while the environment is a
-sandbox) never asks, whatever it does (behind the `sandbox-calls-unasked` patch). **Auto mode** turns asking off for a
-whole run: a person switches it on per agent (Studio, the agent's settings; `autoModeSettings`, so a built-in stays
-built in), per tree (the tree's Settings page; `autoMode` on the tree) or per chat (**Auto mode** beside the model in the
-composer, on and off at any time; `autoMode` on the conversation, `PUT /api/auto-mode/conversations/:id`, set atomically so
-a turn's messages are never overwritten), and a run goes unasked when its agent is on, the tree it works on — its sandbox's
-`tree-<id>` workspace or its chat's tree — is, or the chat it runs for is, which reaches every agent the chat hands work
-to, since a child's ticket carries the conversation (`AutoModeService.unasked`, read at each ask through
-`EngineAutoModeActivity`, behind the `auto-mode` patch). The approval box answers the call its notice names (`callId`)
-and says what was decided. A chat's approval card offers Allow, Allow for this run, Allow <tool> in this chat, **Auto mode
-for this chat** (switches it on and lets the call through; so does switching it on while something asks) and Deny.
-
-## Noticing poisoning
-
-Plan: `~/.claude/plans/poisoning-detection.md` (owner, 2026-10-28: notice it, never block or ask). Nothing here stops a call.
-- **Hidden text never reaches the model**: the tool runtime passes every result through `withoutHidden` (`engine/lib/hidden-text.ts`):
-  Unicode tag characters, zero-width and bidi characters (the joiners emoji and joined scripts need are kept), and in HTML comments,
-  scripts, styles, templates, meta, hidden inputs and elements hidden by attribute or inline style; pages come from Crawl4AI as
-  text. The digest says how many characters were taken out.
-- **Where a result comes from**: `TOOL_SOURCES` beside `TOOL_ACCESS` in `engine/lib/tool-access.ts` (a test fails on a tool with none).
-  Each run family (keyed by its grant) keeps keyed fingerprints of what it read in `runReads`, private and outside apart, the hosts
-  logs, stored files and MCP output named, and the runs it read with `read_run` (`PoisoningWatch` in `engine-host/tools/poisoning-watch.ts`,
-  rules in `engine/lib/poisoning.ts`). No text is kept.
-- **Six findings** (`poisoningSignals`): `canary` (a run's canary, `canaryFor` in agent-engine, told in Describe Environment, in any
-  call), `private-out` (31+ characters the run read from logs, files, the repository, cluster state or private records in a fetch's URL,
-  an ingest or an MCP call's arguments, unless the person wrote them), `unvouched-host` (a fetch to a host only logs, files or MCP output
-  named), `memory-from-outside` (a memory, practice or tool note quoting outside text this run, or a run the keeper read, saw) and
-  `hidden-in-repo`, and `unchecked`: the watch could not check a call, or keep what one read (owner, 2026-11-13: the call goes on and the
-  person sees it, never a log line alone; once per run family and stage). Each is recorded once per run family; the match is sealed with `DATA_KEY`.
-- **The person**: open findings lead Infrastructure, Needs attention (`signals` on `GET /api/infrastructure`) and show on their run;
-  Retire what it left, Retire everything from <host> (memories by `provenance.sources`) or Dismiss (`/api/poisoning`, `PoisoningService`).
-  Canary and private-out are pushed and emailed once (`tellNew`). Every memory, practice and tool note keeps its sources, shown and
-  filterable on the Memories page. `koala_poisoning_signals` counts them.
-- **Checks**: every check ends with "Koala notices nothing it should not", and a check lists what it expects in `noticed`.
-  `mechanics-poisoning` proves the four on a script; `mechanics-poisoning-quiet` proves ordinary work stays quiet.
-
-## Memory
-
-Memories are made by the `memory-keeper` agent, never by a hidden model call. It is driven by events,
-not polling. `AgentRunWorkflow` reports `turn-started` and `run-ended` to the backend
-(`EngineConcludeActivity`), and `MemoryKeeperService` (rules in `memory/lib/conclusions.ts`) hands the
-keeper each conclusion:
-- a conversation whose `ConversationConclusionWorkflow` countdown ran out — the conversation agent's
-  `concludeAfterMinutes` (default 10), held while a turn runs and restarted by every new turn — or
-  one where a card was accepted or a plan approved (`onSettled`);
-- a leaf the leaf-judge settled;
-- a run that failed, or a research run.
-
-It searches, saves, replaces or retires with `search_memories` / `save_memory` / `forget_memory`,
-and reads runs with `read_run`. It can also propose a test (`propose_scenario`), a practice for one
-agent (`propose_practice`, tried on the bench before it goes live), a prompt change (compared on the
-bench, always waiting for the person), or a procedure change in plain words (handed to the agent
-builder). Each waits on the page of the agent it is for (Studio → Agents → Proposed changes). The live tests retire whatever their own runs leave
-behind (`tests/lib/forget-test-runs.ts`), since they feed the keeper made-up situations. Watermarks in `memoryWatermarks` mean nothing is processed twice,
-Koala also holds
-`save_memory` for what the person states outright.
-
-**A memory or a practice can be kept for one model** (`model` on the memory: the model's own name, as a turn's
-binding has it — `provider.model`, never the endpoint). The recall step takes the turn's binding, so one is recalled
-only when that model works (`selectForContext`); without a binding, none kept for a model is. The keeper sees the model
-in `read_run` (from the `choose-model` trace) and names it on `save_memory` / `propose_practice`, refused unless it is
-one of the person's models. The bench tries a model's practice on an endpoint serving that model, leaving it on trial
-while none does; every check result records the model it ran on, and regressions and prompt-change comparisons only
-compare results on the same model (`sameModel` in `checks/lib/bench.ts`). The Memories page and the agent's practices show
-and filter by model; `mechanics-memory-per-model` proves recall on a script (a scripted space's model is `scripted`).
-
-**A tool note is advice shown beside a tool** (`category: 'tool_note'`, with `tool` — a built-in's name, or a server's
-tool with `server` — or `server` alone for all of a server's tools; `engine/lib/tool-notes.ts`). The keeper proposes one with
-`propose_tool_note` when runs misuse a tool rather than when one agent works badly (that is a practice), naming the
-tool as it is offered. It goes on trial: the bench runs the checks that use the tool (`scenarioSubjects(...).tools`,
-any of the server's for a server note) with it in the space, and it goes live only if a check that failed before now
-passes and nothing regressed (`trial.better`); otherwise, or when no check uses the tool, it waits for the person. Resolve Tools takes the turn's binding and puts each live note on its tool
-(`learned`) or server (`servedBy.learned`), shown as "Learned from earlier runs"; one kept for a model only on that
-model. Notes never reach the memory bank or the Memories page; they show on the tool's and the server's Studio pages
-(Learned notes), follow a server's rename and are retired with it. `mechanics-tool-notes` proves it on a script.
-
-## Checks
-
-Level 2 scenarios — **checks** — run on the **check runner** (`CheckRunWorkflow`, engine worker), never in-process.
-Plan: `~/.claude/plans/testing-levels.md`.
-
-- **A fresh space per scenario**: a hidden account (`user.space`, no password, never listed among people) with the
-  person's agents, procedures, tools, tree types, extension settings and live practices — not their data — plus the
-  scenario's world (`tasks`, `memories`, `procedures`, `files`, `agents` settings, a `project`). It is removed with
-  `RemoveAccountWorkflow` afterwards, and every check ends with "its space leaves nothing behind" — so every check
-  run is also a live test of account removal.
-- **Who plays the model**: the person's model (the space borrows it — `ModelService` resolves as the person), or a
-  **script** (`scenario.script`, `checks/lib/check-script.ts`): rules matched on what a model sees (`offered`, `called`,
-  `notCalled`, `asked`, `system`, `said`) answering with `say` and/or `call`, with lookups (`{{asked.N}}`,
-  `{{said.N}}`, `{{directory}}`, `{{mentioned.task|leaf}}`, `{{result.<tool>}}`, `{{world.<path>}}`). The backend
-  serves it at `/api/checks/scripted/:space/v1` (public prefix in the auth guard, checked by a per-space key) and
-  records every request, so a check can assert `modelSaw`. A request no rule answers fails the run with what was asked.
-- **Driven through the API, as the space** (`CHECKS_API_URL`, default the local backend), answering questions and
-  approvals as they come, then reading what the run left: the turn log, `/documents`, tasks, run effort.
-- **Shared projects**: `world.shared.members` shares the world's project on the hub under a group of its own and invites a hidden
-  account for each role (`memberSpaceId`), which joins through the real routes; `world.apart` is a second project never shared.
-  The stage `memberAsks` posts in the shared channel with Ask Koala as that member and follows the turn the owner's instance
-  starts. The project is taken back when the check ends and the members are removed before the space.
-- **Flows**: `then` adds stages after the first run — `chat` (optionally `killAfterChars` to kill it mid-turn),
-  `approvePlan`, `runTree`, `waitQuiet`, `deleteTree`, `deleteProject` — each with its own expectations, including
-  plumbing ones: `modelSaw`, `compacted`, `summaryKept`, `interrupted`, `turnLog`, `leaves`, `repository`,
-  `pullRequests`, `workspace`, `project`, `trees`. Check names say which stage they belong to.
-- **The mechanics checks** (`eval/level2/mechanics.ts`, built in, scripted, so they run in seconds and on the bench):
-  the judge's verdict, the turn log (and a run killed mid-turn), research in one shared workspace through the quiet
-  time, compaction, landing, project deletion, and an Odoo module built and checked in an Odoo 20 workspace. They replaced the `*-live` scripts that tested the same plumbing.
-- **Turn checks** (`turn: true`, `checks/lib/turn-check.ts`) are one model turn of an agent: its tools offered, nothing run
-  (procedure `turn-check`). `chooses` names the tool it should pick (or `null` to answer without one) and checks its
-  arguments, read from the model call's trace. They replaced Level 1; the built-in ones are `eval/level2/turns.ts`.
-- **Any check can repeat** (`repeats`, `passAt`, `checks/lib/check-attempts.ts`): a turn check's attempts share one space, any
-  other gets a fresh space per attempt; the result keeps every attempt, and a space that leaks fails the check whatever
-  `passAt` allows. Coverage (`checks/lib/check-coverage.ts`) and comparing two runs (`checks/lib/check-compare.ts`) count every attempt.
-- The space's runs are handed to the person before it goes, so every result still opens in the run view.
-- **A failed check says where it failed** (owner, 2026-11-09). A whole check is one trace in Tempo (the check runner's client
-  carries its activity's trace), and its result carries its span (`trace`). Every span that throws records its throw site
-  (`code.function`, `code.filepath`, `code.lineno`, `failedOn` in `@koala/engine-core/telemetry`), and every refusal in `authorize`
-  a `koala.refused` event: the action, the resource kind, the principal's claim kinds and the code that asked, never an id or
-  anything typed. `checks-live` reads the failed check's part of the trace (`tests/lib/where-it-failed.ts`, rules in
-  `failure-trace.ts`) and prints the path down to each request or step that failed, then the flows that code is on and its callers
-  (`npm run flows`, `npm run refs`).
-- **The Studio** (Agents, Tools, Procedures, Tree Types) is one explorer per concept (`features/engine/components/Studio/Explorer.tsx`):
-  items grouped by how they are used (agents: `engine/lib/agent-usage.ts` on the backend), each item's parts opening on the
-  right like files. Built-in procedures open read-only; "Make my own copy to edit" saves a copy under the same id.
-- **Checks live on what they check** (Studio, `~/.claude/plans/studio-layout.md`): there is no all-checks page. A
-  check shows on every agent, tool and procedure page it touches, worked out by `checks/lib/check-subjects.ts` from its
-  agent, hand-offs, procedure (a step check's `step.from`), and the tools it expects or calls. One shared list
-  (`features/checks/components/CheckList.tsx`) takes the scope; "New check" starts as a check of that page's subject.
-
-## The bench
-
-Level 2 scenarios also run on their own, when the model is idle (`BenchService`, `checks/lib/bench.ts`).
-Top-level runs report start and end; `BenchIdleWorkflow` counts the owner's idle minutes down from
-the last event. When the time is up, everything runs if the last full run is older than the setting,
-otherwise only the scenarios of agents whose fingerprint changed. A scenario that passed last time and
-fails now is a regression: it is recorded on the run, shown as a toast, and marked in that check's history. Settings
-live on Infrastructure → Running, beside the bench's Pause switch (when it starts after the model goes idle, and how
-often everything runs).
-
-## The sidebar
-
-Koala (chats), Projects, Studio (Agents, Tools — one explorer of tools, MCP servers and workspace dependencies, `engine/components/Studio/toolbox.tsx` —, Procedures, Tree Types, Extensions, and **Models**: the LLM
-providers and the default model, `models/components/ModelsView.tsx`; **Connect OpenRouter** signs the person in to OpenRouter and gets a
-key on their own account and bill by OAuth PKCE, `models/lib/openrouter-connect.ts`: the verifier only in a sealed, httpOnly
-cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
-possible), Infrastructure, My Machines (machines Koala works on),
-Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
-Two pages are off it and reached where they are used: the VPS catalog (a price comparison; Host Koala on a server reads its OVH plans),
-and Temporal through All workflows on Running. Each still answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (unset, OVHcloud's prices are not read and the catalog says why) from the API host that
-serves that subsidiary (`ovhHostFor` in `infrastructure/lib/vps-catalog/adapters.ts`: an Australian account is on
-`ca.api.ovh.com`, and `AU` gives AUD ex GST with Sydney among the datacenters), adds the cheapest priced mandatory option
-of each family (the 2027 models' backup) to the monthly price with the parts kept as `priceParts`, and says which
-subsidiary and currency it read on the provider's status (`market`).
-
-## Infrastructure (one page for clusters, apps, services, monitoring and running work)
-
-Plan: `~/.claude/plans/infrastructure-page.md` (and `monitoring.md` for the health part). Sidebar → **Infrastructure**
-(`features/infrastructure/`, `#/infrastructure`, with Running's count badge) replaced Clusters, Applications, Services,
-Monitoring and Running. It is one page of sections, no tabs; the old addresses (and `#/infrastructure/apps|clusters|running`)
-scroll to the matching section:
-- **Needs attention**: what needs attention, worst first — work **waiting on the person** (a tool call to allow, or a Wait for
-  Person step: `waitsFor` in a run's state query, so a release waiting on its card or a workspace build asking to install
-  shows), apps and clusters not healthy, **broken workloads** on any cluster they can see, firing alerts, and **work that
-  failed in the last 7 days** with Clear.
-- **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
-  **An app's name is unique per owner, not across everyone** (the `deployments` index is `{ ownerId, name }`): a deployment's id is its own, and its namespace is `<name>-<six characters of its id>` (`newAppNamespace`), so two people's `shop` never share a namespace on one cluster. Every read of a deployment's namespace goes through `namespaceOf` in `infrastructure/lib/app-namespace.ts`, which falls back to the sanitized name for apps deployed before namespaces were stored. No live suite proves it any more: `test:app-names-live` is gone.
-- **Clusters**: every cluster the person owns as a card (health, use, apps, history kept) and Logs; the cluster Koala runs in
-  first, marked "this Koala runs here" (`own` on its health row, derived from `INSTANCE_MACHINE_ID`). Koala makes no clusters
-  and removes none: a cluster comes with a machine added under My Machines and goes when the machine is removed there, which the
-  section says with a link to My Machines (`GET /api/clusters` lists them; there is no `POST` or `DELETE`).
-- **Running**: what runs, cancel, the bench and memory keeper switches (below), and All workflows (the Temporal page).
-- **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
-- **Koala**: what Koala reports about itself (`KoalaSection`, `koala` on `GET /api/infrastructure`): its state, which of its
-  processes report, requests and the share failing, model calls, their failures and queue, workflows started, activities
-  and work that failed, read from the Prometheus of the cluster Koala runs in through the named questions in `koalaQuery`
-  (`monitoring-questions.ts`) and judged by `koalaVerdict` (`monitoring-summary.ts`); what is not measured is said so.
-- **Alerts set** and **Alert history**.
-
-An app's page (`#/infrastructure/app/<id>`) is its health; a cluster's (`#/infrastructure/cluster/<id>`) is its health
-plus **everything on it** (`ClusterContentsService`, `GET /api/infrastructure/clusters/:id`): every workload, read with
-kubectl and judged by `infrastructure/lib/cluster-workloads.ts` (crash loops, image pulls, waiting for room, restarts in the last hour,
-failed jobs; finished jobs left out; memory and CPU from Prometheus when it answers), grouped as the person's apps,
-Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
-anything put there another way; then the platform services (`infrastructure/lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
-GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
-`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (the cluster's `see-everything` row in
-`platform/lib/permissions.ts`, which monitoring uses too; root's own cluster, which nobody owns, is its operators') guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
-in as admin) and `/api/clusters/:id/gpu-status`: anyone but the owner gets the 404 an unknown cluster gets, and Open in Grafana shows only to the owner.
-
-**Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
-check's space), and any workflow that fails, which reports itself as it fails (`workflows/failure-reports.ts`, a workflow interceptor
-registered where tenants are served, behind the `failures-reported` patch; deploys and provisioning are left out since their
-failure shows on the app or cluster), described the way Running describes it, shown 7 days, kept
-30. `GET /api/infrastructure` puts the overview together (`InfrastructureViewService`); `POST /api/infrastructure/failures/clear`.
-
-Each app and cluster also keeps its **Health** tab in AppDashboard: charts over an hour, a day, a week or a month
-(uPlot, loaded lazily), with release markers, its alerts and alert history, and "Open in Grafana".
-
-**One set of named questions** (`monitoring/lib/monitoring-questions.ts`) is asked of each cluster's Prometheus through
-`ClusterProxyService`; the browser never sends PromQL. `monitoring/lib/monitoring-summary.ts` turns the answers into states and the
-plain lines Koala reads, and `MonitoringService` serves both (`/api/monitoring`, `/apps/:id`, `/clusters/:id`, `/alerts`,
-`PUT /clusters/:id/history`, `DELETE /rules/:id`). What isn't measured (an app with no probe, requests where Traefik doesn't
-count them) is said to be unmeasured, never shown as fine.
-
-**Koala** holds `monitoring_overview` (which ends with a "Koala itself" line), `app_health`, `cluster_health` and `propose_alert` (extension `monitoring`).
-- An alert is a template (`down`, `slow`, `memory`, `restarts`, `volume`, `errors`; `monitoring/lib/monitoring-alerts.ts`) proposed
-  on a card (`set_alert`). Three more are about Koala itself (`koala_down`, `model_errors`, `workflow_failures`,
-  `KOALA_ALERT_KINDS`, expressions over Koala's own metrics in `koalaAlertExpression`): proposed with `app: "koala"`, only
-  by whoever owns the cluster Koala runs in, and written as a PrometheusRule into `monitoring` there; their rule records carry
-  `deploymentId: 'koala'` and their alerts are `about: { kind: 'koala' }`.
-- Applying it writes a PrometheusRule into the app's namespace, labelled `koala_rule`, and records it
-  (`monitoringAlertRules`).
-
-**Alerts reach the person.** `AlertWatchService` reads every cluster's `/api/v1/alerts` every 30 s. Each person sees
-their apps' alerts, their own rules, and machine alerts on clusters they own; never Watchdog or k3s's false positives.
-A new one becomes an episode (`monitoringAlertEpisodes`) and is told once, as a toast and a notice: in the project's
-channel, or the conversation the rule was proposed in. Its resolution is told the same way.
-
-**The watcher also reconciles each cluster**, at most every 10 minutes:
-- **History:** Prometheus keeps its data on a volume, for the days the person set per cluster (10 by default,
-  `monitoringSettings`). This is applied with `helm upgrade --reuse-values` at the chart's version, with a
-  `retentionSize` under the volume.
-- **Request counts:** each app's requests are counted. Our Traefik gets `addServicesLabels`. On a cluster that keeps
-  k3s's Traefik, a `HelmChartConfig` turns it on, unless the person has one of their own, which is never overwritten.
-
-`mechanics-monitoring` (off the bench) proves the read → card → rule path with a real app deployed for the check's space
-(`world.apps`, expectation `alertRules`); `npm run test:monitoring-live` proves an alert of the person's own firing and
-resolving, on their own model.
-
-## Email (alerts by email, self-hosted)
-
-Root sends its own mail. `docker/mail` is a send-only Postfix with OpenDKIM (`docker-compose.mail.yml`, host network,
-listening on `127.0.0.1:2525`, trusting only loopback):
-- It signs as `<domain>` with selector `koala`; the key is kept in a volume.
-- `MAIL_RELAYHOST` sends through a smarthost instead, for a host that blocks port 25.
-
-`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (records in `infrastructure/lib/mail-dns.ts`)
-makes the A, SPF, DKIM and DMARC records on root's own domain through that zone's DNS provider (`DOMAIN_DNS`). It never rewrites a
-record the person made, and says what is left to do by hand: PTR, and their own SPF. `update.sh` keeps the container current.
-
-**Root checks its own mail** (`MailReputation`, rules in `platform/lib/mail-reputation.ts`): `mail.<DOMAIN>` resolves (to the address
-given, or the one it names), that address reverses to `mail.<DOMAIN>` (the mail container's HELO name; it sends over IPv4 only, so
-only IPv4 needs a PTR), outbound port 25 reaches `gmail-smtp-in.l.google.com` (or `MAIL_RELAYHOST` is set), and the address is on
-none of Spamhaus ZEN, Barracuda and UCEPROTECT level 1, asked through the host's own resolver. Each list's own test address
-(127.0.0.2) is asked too: a list that does not name it through this resolver, or answers 127.255.255.25x (Spamhaus to a public
-resolver, or too many queries), is "could not be asked", never "clear". Root runs it at start and on **Check now** on its admin
-page (`/#/mail`, `GET /api/instances/mail-reputation`, `POST …/check`, the operator's); `scripts/root-node/mail-check.ts [domain]
-[--ip] [--json]` runs it on the box (`bootstrap.sh` outside a lab, and the server order after bootstrap), the `--json` line marked
-`KOALA-MAIL-CHECK`. DMARC stays `p=none`; nothing yet sees whether mail root sent passed DKIM and SPF at a receiver.
-
-**Who sends** (`emailWayFrom` in `platform/lib/email-way.ts`, `MailService`):
-- **Root and the hub:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<DOMAIN>`: root's own domain, the one the mail container signs (DKIM) and whose zone holds the mail records; the people's domain is only for their addresses.
-- **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
-  only to the instance owner's address. Subjects are one line. Root sends 60 an hour per instance (`InstanceMailLimit`,
-  `instances/lib/instance-mail-limit.ts`), then holds the rest back (429) and emails the owner once that it is; the alerts
-  still show as notices.
-- **Without either,** email is off and Settings says why.
-
-**Settings → Notifications** (`NotificationService`, `/api/notifications`, `notificationSettings`): every alert (the
-default), only "down" ones, or none, plus "Send a test email". `AlertWatchService` emails each alert as it fires and as
-it resolves, alongside its notice.
-
-In dev, `docker compose -f docker-compose.mailpit.yml up -d` and `MAIL_SMTP_URL=smtp://127.0.0.1:1025` in
-`apps/backend/.env` catch every email at http://localhost:8025.
-
-`npm run test:mail-live` proves the container signs mail that verifies (DKIM checked with `mailauth`) and refuses to
-relay for anyone else. `test:routing-live` proves an instance's email reaching its owner through root.
+Single test file: `npx vitest run <path>` from its workspace. Per-workspace scripts: `npm run <script> -w <workspace>`.
+
+**The live suites.** Which ones ship runs and which the release runs are the gate lists in `tests/lib/gates.ts`. A suite that needs
+this computer's GPUs or machine agent, or a model's own judgement, runs by hand. `v1-live` proves v1 end to end in Chromium on this
+computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
+
+## The dev stack
+
+- **Dev runs as production does** (owner, 2026-11-05) and is **disposable** (owner, 2026-11-14): `npm run dev:reset` removes
+  everything dev made, and the next `npm run dev` builds it again from nothing. Nobody keeps their own Koala on it.
+- `npm run dev` runs root (API :3002, web http://koala.localhost:5175, sign in there), its host worker and the hub (API :3003, web
+  http://hub.localhost:5176) as processes on this computer. Your Koala is the instance chart's pods on this computer's k3s, running
+  this checkout under a watcher, its backend on :30320 and its web at http://dev.localhost:5173. Port 3001 is not used.
+- **Everything hot-reloads, and a reload kills what is running.** Saving a file a worker imports restarts it, and a step that is not
+  idempotent gets one attempt, so a save during a live run can fail the run. Wait for it to finish.
+- Never touch `apps/backend/.env` or `apps/backend/data/`, and never drop the old `provisioning` database.
+
+## Security and accounts
+
+- **Accounts live on root** (owner, 2026-10-26). An instance and the hub make no accounts and sign people in only through root's OpenID provider. The
+  first account needs the setup code; every later sign-up needs an invite and confirms its email before it is an account (owner,
+  2026-10-28). Nothing tells a stranger whether an address has an account.
+- **Who may do what is decided in one place**, the permissions table, which every route, socket handler, service and tool call asks,
+  and the browser asks the same answers. A person is a set of claims (operator, instance owner, a role on a shared project), never
+  an `isAdmin` shortcut. Adding a permission is a row in the table and a call where the action happens.
+- **Every signed token says what it is for**, and a session ends on the server when signed out. Revocation is one event: signing out
+  everywhere, a password or two-factor change, an account's removal or a hub removal ends that person's sessions, connections and
+  runs' grants at once, on root and on every client.
+- **Risky changes ask for proof** (owner, 2026-10-30): turning two-factor on or off, changing the password and removing the account
+  take a current code or the password. Wrong passwords and codes lock per account, never the person out of their own browser, and
+  the person is told once (owner, 2026-10-30).
+- **Limits** are per address and count only failures where a person succeeds and a guess fails. An address on the open internet
+  may have only so many requests open at once, a cap that adapts, in place of an idle timeout, which would be a deadline (owner,
+  2026-10-28).
+- **Nothing next door can act as you** (owner, 2026-10-25): people's addresses are under a registered domain of their own, never
+  root's; cookies are `__Host-` over https; a cross-site write is refused.
+- **What Koala fetches for a person stays on the open internet**: no private, loopback, mesh or metadata address, at connect time and
+  on every redirect. A lab may reach loopback (owner, 2026-11-03).
+- **Temporal answers only what Koala's own processes sign** (owner, 2026-10-27), each token for one role on one namespace, over TLS
+  to a CA of the install's own. A machine reaches Temporal only through the machine gateway, which serves only its own queue.
+- **An instance's internal services answer only its own pods.** On a person's machine nothing of the instance answers on the
+  machine's network address; NodePorts answer on loopback and the mesh only.
+- **Secrets never reach a model or a Deployment.** An app's passwords and tokens are in a Secret it reads by reference. An app's
+  sign-in is generated per deploy and shown only on asking (owner, 2026-10-27). Stored secrets are sealed with the data key, and
+  every key comes from the role's settings, never a literal.
+- **A pattern a model, the keeper or a person writes runs on RE2**, so it cannot freeze the engine.
+- **Signing in with Google, GitHub or an organisation's own OpenID provider** happens only on root, each provider one description
+  and one client. A provider joins an existing account only by a verified email the account confirmed. There is no pretend
+  provider; tests run a real one on loopback.
+
+## Account and project removal
+
+- Removing an account removes everything it owns, the account last. On root and an instance, an account is root's.
+- Every collection says how account removal removes it; a test fails on one that does not.
+- Removal and project deletion **fence** what they remove before stopping anything, and go on only once every live process holds
+  the fence (owner, 2026-11-13: "C sounds right", "with the confirmation step"). No timer is waited on. A fence outlives its removal
+  until every process live then has restarted (owner, 2026-11-13: "drop them after every process restarts").
+- Workflows are stopped by cancelling, never terminating, so a run hands its claimed work back.
+
+## Machines
+
+- A machine is added at root with one command, is one person's only, with no limit on how many (owner, 2026-11-04: "adding a machine
+  is the core product"). Running the command again replaces it. Removing it uninstalls what the join installed and nothing of the
+  person's own.
+- The join asks for sudo once, for k3s (installed stopped) and, with an NVIDIA GPU, NVIDIA's container toolkit for CDI (owner,
+  2026-11-13: "C sounds good"). A k3s of the person's own is left alone.
+- The machine's own report is the only source of its GPUs, cores and memory. A machine that has not reported is shown so, never
+  guessed.
+- A device token lives 90 days and rotates over the authenticated socket; Koala keeps only its hash.
+- **A machine's agent updates itself** (owner, 2026-10-30), only while the machine is idle, only to the bundle Koala names, checked
+  by its sha256. A session never outlives its run.
+- An agent on a machine is told everything a model is, gets its persona's tools through Koala, and works a checkout of the
+  workspace on the machine. Its work comes back merged, never refused: a conflict is handed back to the agent to resolve, and what
+  it cannot resolve is kept as a branch. Work handed on is merged into its folder (owner, 2026-11-05).
+
+## GPUs and model servers
+
+- A deploy that asks for GPUs is decided by the machine's report: the count it names (1 or more; owner, 2026-11-13: "I don't want to
+  offer any inference deployments targeting the cpu"), the vendor, and CDI support. A refusal says what to do.
+- Koala readies the GPUs itself: it applies the vendor's pinned device plugin and waits until the node advertises them.
+- GPU passthrough needs native k3s; k3d never gets a GPU.
+- vLLM and TabbyAPI run the build Koala pins unless the person picks another, and the page says which they run.
+- A model's Hugging Face token has one path: typed in the wizard, else the person's saved credential, else none. No process takes
+  one from its environment.
+
+## Configuration and roles
+
+- **Each process reads its settings in one place**, its role's reader, and gets typed settings or stops naming every problem. Nothing
+  else reads the environment.
+- A setting is one of four things: **required** (the process stops naming it), **off with a reason** the person sees, **a constant**
+  in code, or **a test parameter**. Half of a feature is a problem, never off. Adding a setting means reading it in the role's
+  reader, setting it in every writer, and extending the writer tests.
+- **`ROLE` is root, instance or hub**, each exactly one thing. A process started without it stops.
+- **Where work runs is no setting** (owner, 2026-11-10): every queue and the roles that run it are named once in code.
+- Five platform keys, one per purpose; no process starts without them. Nothing is derived from an old secret any more.
+
+## Clusters
+
+- **`ClusterAccess` is the only way to reach, start, stop or check a cluster, and the only caller of kubectl and helm.** Lint refuses
+  either anywhere else. The machine agent, a separate program on the person's machine, is not held to it.
+- Every cluster that runs apps has monitoring before an app is deployed on it; an app never goes on without its probe.
+- An app's name is unique per owner, and its namespace carries its own id.
+- Terraform's state on an instance lives in Kubernetes, a Secret per stack, locked; root keeps it in its data folder.
+- **Terraform waits on nothing it makes** (owner, 2026-11-09: "1 for helm"). Koala watches the rollout itself and stops Terraform the
+  moment a workload can never recover.
 
 ## Outside dependencies
 
-Owner, 2026-11-08: "it should be a layer for any dependency that might be slow or can be retried"; "if a dependecy is down we
-should inform the user and have metrics alerts and best practices around our dependecies". Each dependency is described once, with
-its state, shown and measured; one HTTP client and one backoff serve every call; a caller of a dependency that is down is answered with
-its state, and nothing falls back to something else (slices 1 and 2).
-- **Described once** (`platform/lib/dependencies.ts`, pure): `DEPENDENCIES` names each one Koala's own processes call (Mongo "the
-  database", Temporal, MinIO "file storage (MinIO)", Gitea, Infisical, "the image registry", SearXNG, Crawl4AI, "Koala's root" from
-  an instance, "the hub" from an instance, "the telemetry collector") and how it is checked. `dependenciesOf(settings)` says which a
-  process uses, from its settings reader: one it has no setting for is not described for it (off stays off, never down).
-  `failureOf(error)` is the one rule for temporary or final, with a reason a person reads: a lost connection (`LOST_CONNECTION` and
-  `causeCode` in `@koala/engine-core/failures`, which the model call's `connectionLost` uses too), a timeout, 5xx, 429 (with
-  Retry-After), gRPC UNAVAILABLE, Mongo's network errors and MinIO's busy codes are temporary; a name that does not resolve
-  (`NAME_NOT_FOUND`, which the mail check reads), 404/410 (`GONE_STATUSES`, push's "device gone"), any other 4xx, an OAuth refusal
-  (`refusedByServer`, which `RootSignIn.refresh` reads to end a session) and anything unrecognised are final.
-- **States** (`platform/services/DependencyStates.ts`, one per process, built by `platform/wiring/dependencies.ts`): each described
-  dependency is answering or down `{ since, reason }`. A temporary failure reported to it (`failed`) marks it down and checks it
-  again with `reopening()` (5 s doubling to a minute, no deadline) only while down; the first check that answers, or a caller saying
-  it answered, marks it answering. A final failure a caller reports marks nothing (it is that call's error); a check refused at
-  start (a name that does not resolve, MinIO's AccessDenied: a setting is wrong) marks it down as "its check at start was refused: …"
-  and is checked again the same way until it answers. One check each at start (`start()`, which refuses a described dependency with
-  no check); no standing polling. Checks: Mongo `ping` and the driver's heartbeats, Temporal `getSystemInfo`,
-  MinIO `/minio/health/live`, Gitea `/api/healthz`, Infisical `/api/status`, the registry `/v2/`, SearXNG `/healthz`, Crawl4AI
-  `/health`, the collector's `/v1/metrics`, root and the hub from their open connections.
-- **Reporters** (each through its wiring): Mongo (`Database.reportReachTo`, the driver's heartbeat events), Temporal
-  (`getTemporalClient`'s connect, `TemporalBridge`'s following, each worker's connect loop), MinIO (`minioObjectStore`), Gitea
-  (`GiteaService`, `reportsTo`), Infisical (`InfisicalService`), the registry (the image builder's manifest check), SearXNG and
-  Crawl4AI (the web tools, only at the settings' addresses, never a person's own deployment), root (`RootPresence`: its "not
-  answering" after `WATCH_UNREACHABLE_MINUTES` is root's state, since when it was last connected; its push and root's email are
-  unchanged), the hub (`RemoteHub`'s connection and calls; root giving no way to a hub is not the hub failing), the collector
-  (`telemetry.reportSinkTo`, beside `logOnce`).
-- **Across processes**: the engine, cluster and host workers write each change of state (never every call, never Mongo's own) to
-  `dependencyStates` (one row per process and dependency, `PlatformStore.saveDependencyState`; a write Mongo refuses is written when
-  Mongo answers again); the backend reads them on each `GET /api/infrastructure` and puts them beside its own (`downAcross`).
-- **What the person sees**: `dependencies` on `GET /api/infrastructure` (down ones: name, since, reason, which process saw it, and
-  for root its address), only for whoever runs this Koala (`see-platform-dependencies`); Infrastructure → Needs attention lists
-  them first, and says so when what the workers recorded cannot be read (`dependenciesUnread`), never showing them as answering (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", one item per
-  dependency with the processes that saw it, root in the words it always had ("Your instance has not reached Koala's root since …"), each gone once it answers.
-- **One HTTP client per process** (`@koala/engine-core/http`, owner 2026-11-09: "yep go for it"): `useDependencyHttp()` (called by
-  `dependencyStatesFor`, so by every backend process, and by the machine agent as it starts) makes undici's global dispatcher and axios's default agents the layer's own: no limit on
-  the answer (headers or body), and one connect limit, `CONNECT_MS` (10 s), covering the TCP connect and the TLS handshake. Opening a
-  connection does no work, so cutting it short loses nothing and is safe to try again; it is how a host that does not answer at all
-  (dropped packets, a machine off the mesh, a process stuck mid-handshake) is noticed, where Linux would take about 2 minutes or, for a
-  handshake, forever. Hitting it is temporary (`UND_ERR_CONNECT_TIMEOUT`, `ETIMEDOUT`). Model calls (`dependencyFetch`), `publicFetch`
-  (`dependencyDispatcher({ lookup })`), the drain's endpoint reads and root's Caddy agent (`InstanceReach`) use the same limits. No call
-  sets a time limit of its own: Infisical's, the model lists', Artificial Analysis's, the VPS catalog's, hosted MCP's and openid-client's
-  (`withAnswerUnlimited`, which drops the 30 s signal it puts on every request) are gone.
-- **A caller is answered with the state** (`DependencyDownError`): a reporter's `failed` returns what to throw, the dependency's state
-  for a temporary failure ("Gitea isn't answering since 10:02 UTC: it refused the connection (ECONNREFUSED)", status 503) and the error
-  itself for a final one; `thrownFor(reporter, dependency, err)` is the one way a client throws (`reportingFetch`, `minioObjectStore`,
-  `InfisicalService`, the Temporal client's connect, the run-state reads), and `errorResponder` answers it as 503 with `dependency`,
-  `since` and `reason`. A Temporal read that cannot be made says so rather than answering: a run's state (`runCancelledVia`,
-  `runEndedVia`, `runAskingVia`, `runWaitingVia`, `runLifeVia`) throws it (a workflow Temporal no longer has is the only answer taken
-  from a failure), a chat whose turn cannot be told running says "Koala can't tell whether this turn still runs: …" (`liveTurn.unknown`),
-  and a finished deploy's verdict or build's image is read again until Temporal answers (`TemporalBridge.resultOf`).
-- **One backoff** (`reopening()` in `@koala/engine-core/reopening`: 5 s doubling to a minute, `take()` for a caller that waits its own
-  way): the dependency checks, `keepTrying`, root's key announcement (`keepAnnouncing`), every worker's connect loop (the machine's device worker included), the model call's
-  wait for its server (`serverAnswers`), root's logout deliveries (`keepDelivering`, whose last failure People shows on the instance:
-  "signing out has not reached it since …"), the move import, the drain's endpoint reads and the repository's wait to be served.
-- **No fallbacks** (decisions 10 and 11, rule 4): web search is SearXNG and pages are read by Crawl4AI, each saying why when it cannot
-  (DuckDuckGo scraping and tag-stripping are gone; the instance chart makes Crawl4AI's token, `CRAWL4AI_API_TOKEN`, which the
-  backend requires); memory recall fails with why (no recency instead); image tags that cannot be read say why and take a tag typed by
-  hand (no made-up list); a credential check that cannot be made is not called invalid (502, shown apart); a DNS provider's 5xx or 429
-  is temporary, not a refusal; only a 404 means an image is not published, and the build asks the registry again rather than rebuilding;
-  the drain keeps reading its endpoints; the dashboards' automatic sign-in says why it failed and offers the dashboard; a scaffold is one
-  commit or an error with Gitea's reason.
-- **Needs attention shows one item per dependency**, since the first process saw it, naming every process that did ("Seen by this
-  Koala's backend and the engine worker").
-- **The concept** `dependencies` in `tests/coupling/concepts.ts` marks every place that waits on, retries, limits or reports a
-  dependency, so the flow maps list them, a stray `new Agent(`, `AbortSignal.timeout(` or `timeout:` included.
-- **The metric**: every process exports `koala_dependency_up{dependency}` (1 answering, 0 down) through `KoalaMetrics`. No alert
-  rule yet.
-- **Adding a dependency**: its entry in `DEPENDENCIES`, the processes that use it in `dependenciesOf` (from their settings), a check
-  registered in that process's wiring (`checkWith`, or `checkServices` for an HTTP one), its client reporting through a
-  `DependencyReporter` (`reportingFetch` for fetch), and its line read in the frontend's duplicate of `DependencyId`.
-
-## Root and instances know the other is there, and push reaches devices
-
-**Root and each instance know the other is there by one connection** (plan `~/.claude/plans/instance-presence.md`, owner
-2026-10-30, in place of asking every minute). The instance dials root (`RootPresence`, `socket.io-client` over a websocket to root's
-`/instances` namespace at `ROOT_URL`, a fresh service token on every attempt, reconnecting by itself) and root holds it
-(`InstancePresence`, root role only; `wireInstancePresence` checks the token with `InstanceService.presenceCaller`). An instance is present
-while it holds at least one connection (an upgrade's new pod connects before the old one drains); socket.io's own heartbeat finds a
-frozen machine or a cut network within about 45 s on both ends, and nothing needs the mesh. After 10 minutes gone (a live suite shortens it with the test parameter `WATCH_UNREACHABLE_MINUTES`)
-(one timer per absent instance, rules in `instances/lib/instance-watch.ts`: `nextReach`, `graceLeftMs`) root emails the owner once, and
-once when it is back; a pool instance always, also telling root's operators; an own machine unless its owner switched it off (instance
-Settings → "When this instance cannot be reached", `/api/instance-watch` → root's `PUT /api/instances/watch` with a service token, or
-root's page through `PUT /api/instances/mine/watch`). When root starts every watched instance gets the whole grace again
-(`reachAtStart`). Root watches only an instance that has connected (`presence` on its watch record), and forgets that when a check-in
-comes without `presence: true` while it is not connected (`install.sh` and the self-upgrade, `src/scripts/self-upgrade.ts`, send it), so an instance rolled back past
-this release is never called down for speaking an older protocol. Watch state lives in `instanceWatches` (`reach`, `presence`,
-`notifyWhenUnreachable`), apart from the instance record, which other writers replace whole. Root's page says the instance is down
-instead of sending the owner on (`unreachableSince` on `/api/identity/instance`), and People shows it. On the instance the same
-connection tells it root is gone: root down is the `root` dependency's state (**Outside dependencies**), shown first under
-Infrastructure → Needs attention (`dependencies` on `GET /api/infrastructure`) and pushed to the owner. An open connection proves the instance's backend runs and reaches root, not that its public address
-answers through Caddy; `routing-live` and `test:root-smoke` prove routing. `test:dev-split-live` proves both directions in ship.
-
-**Push** (`PushService`, `monitoring/lib/web-push.ts`): Koala installs as an app (`public/manifest.webmanifest`, icons,
-`public/sw.js`, which only shows pushes and opens where they point; an iPhone needs it added to the Home Screen first). Settings →
-Notifications → "Notify this device" subscribes the browser (`/api/notifications/push`, one record per person and endpoint in
-`pushSubscriptions`). Each process signs with a P-256 VAPID key derived from `DATA_KEY` (`vapidKeysFrom`), so nothing new is
-configured, and sends straight to the browser's push service, so an instance needs no root to push. What is pushed: alerts the
-person chose to hear about (the same choice as email), a run asking before a call (the tool's name only, never its arguments), a
-release waiting for Cut over, and root not answering. A device the push service says is gone (404, 410) is forgotten.
-`monitoring/routes/push-delivery.integration.test.ts` proves a push end to end in ship's unit step: the real route and `PushService` send
-through web-push over TLS to a local push service, whose request carries a VAPID JWT that verifies against the instance's key and
-a body the device's key decrypts to the notice.
-
-## What runs (Infrastructure → Running)
-
-**Running** (`features/infrastructure/components/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
-plain words, from Temporal (their `KoalaOwner` workflows, top-level only; the conversation countdowns and the bench's
-idle timer are left out) mapped by `infrastructure/lib/running.ts`: the bench and checks (progress from the check run), the memory
-keeper (what it reads, from the run's memo `about`), tree runs, releases (and whether one waits on the card), chat turns
-(the memo's `agent` and `conversation`, written by the run starter), workspace builds, deletions and deploys; an unknown
-type is listed by its type. Each opens where it lives and is cancelled its own way (`RunningService`: a check run's
-`cancelCheck`, a tree's `stopRun`, a run's `cancelRun`, otherwise a Temporal cancel); what cannot stop part way
-(deletions, an approved plan, saving a workspace) says why. Two switches pause **the bench** (its own `enabled`) and **the
-memory keeper** (`keeperSettings`): a paused keeper holds each conclusion in `deferredConclusions`, in order, and hands
-them all over when resumed (`MemoryKeeperService.setPaused`). API: `GET /api/running`, `POST /api/running/:id/cancel`,
-`PUT /api/running/bench|keeper`.
-
-## Koala's own telemetry
-
-Plan: `~/.claude/plans/koala-telemetry.md`. Every Koala process measures itself with OpenTelemetry and sends it to one
-place: the **OpenTelemetry collector on the cluster Koala runs in** (`otel-collector` in `monitoring`, ClusterIP only), which
-exports traces to **Tempo** (`tempo`, a week on a volume) and serves metrics for the cluster's **Prometheus** to scrape
-(a ServiceMonitor; no change to the kube-prometheus-stack release). Both are part of the observability stack
-(`constructs/telemetry.ts`, `constructs/koala-dashboards.ts`): `monitoringPlan` applies that stack again when either
-service is missing, exactly as it does for a missing blackbox exporter, so a cluster from before gets them when its
-cluster worker starts or its next app is deployed. Grafana gets a Tempo datasource and three dashboards (Koala: the
-service, Koala: model calls, Koala: Temporal).
-
-- **Starting it.** `startTelemetry` in `@koala/engine-core/telemetry-sdk` is the first thing the backend
-  (`koala-backend`), the three workers (`koala-worker-host|cluster|engine`), the in-process stream worker's activities and
-  the machine agent (`koala-machine`) do. `platform/lib/telemetry.ts`'s `telemetrySettings` names the service, the role
-  and the instance. Without `OTEL_EXPORTER_OTLP_ENDPOINT` the SDK records but sends nothing; the backend and workers then
-  reach the collector the way they reach Prometheus (`collectorSink` in `monitoring/services/CollectorReach.ts`:
-  `ClusterProxyService.serviceUrl`, direct ClusterIP or a port-forward, asked again at most once a minute while it
-  fails), so `npm run dev` needs nothing set. On root, `bootstrap.sh`, `update.sh` (before the restart) and `restore.sh`
-  run `scripts/root-node/root-telemetry.sh`: it applies the monitoring of root's own cluster the way the cluster worker does at
-  start (`scripts/ensure-cluster-stack.ts` → `ensureClusterMonitoring`), waits with no deadline until the cluster's
-  `otel-collector` is made and rolled out (refusing if its rollout fails), gives Mongo a `koala-metrics` user
-  (clusterMonitor, read on local) and Temporal's Postgres a `koala_metrics` role (pg_monitor) with passwords it keeps in
-  root's compose env (`MONGO_EXPORTER_PASSWORD`, `POSTGRES_EXPORTER_PASSWORD`, mode 600, never printed), starts the pinned
-  exporters (`docker-compose.exporters.yml`) and the host collector (`docker-compose.otel.yml`, `docker/otel/config.yaml`:
-  OTLP on 127.0.0.1:4318), sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`, and refuses when any metrics port
-  answers beyond loopback. The host collector relays to the cluster's collector every service on root, each scrape
-  labelled `service`: `caddy` (admin :2019), `mongo` (exporter :9216), `postgres` (exporter :9187), `temporal`
-  (`PROMETHEUS_ENDPOINT`, :9233), `headscale` (:9090), `registry` (debug :5005 and :5006), so each has
-  `up{service="…"}` in the cluster's Prometheus, and `mail`, which serves no metrics, gets `up{service="mail"}` from a
-  TCP check of :2525 (`tcpcheck`, renamed by `transform/mail`). `backup.sh` writes its last success as an OTLP gauge
-  file (`/var/lib/koala-backup/metrics/backup.json`) the collector reads again on every poll
-  (`otlpjsonfile`, `replay_file`), so `koala_root_backup_last_success_seconds` never expires. Grafana's "Koala: root"
-  shows them. `npm run test:root-metrics-live` proves it with throwaway containers.
-  A machine never reaches a collector: its agent sends batches over its socket (`telemetry:export`, `telemetry-sink.ts`)
-  and the backend relays them (`machines/lib/machine-telemetry.ts`, at most 4 MB a batch) to the collector it reports to.
-- **No deadline, never in the way.** The SDK batches (`BatchSpanProcessor`, a metrics reader every 15 s), its sink
-  reports success at once and sends in the background with one send in flight per signal; a collector that is down costs a
-  request nothing: the batch is dropped and it is logged once (`logOnce`), once more when it answers again. Nothing waits
-  on telemetry, nothing is retried.
-- **What is measured** (`KoalaMetrics` in `@koala/engine-core/telemetry`, every name `koala_*`): `koala_up` from every
-  process; HTTP requests by route template and status (`koala_http_request_seconds`, the same series `/api/metrics` serves);
-  workflows started by type; activities by type and outcome, retries and late heartbeats; model calls by provider, model
-  and outcome, tokens, queue wait, 429 pauses, lost connections and the queue depth; tool calls by tool and outcome;
-  sandbox provisioning and image builds; each hub sync step; emails sent; failed work by kind; telemetry relayed from
-  machines. **Traces**: a span per request (`MetricsService.middleware`, named `METHOD /route/:id`, the trace id answered
-  in `x-trace-id` and taken from an incoming `traceparent`), `workflow.start <type>` (the Temporal client interceptor
-  `traceWorkflowStarts`, which puts `traceparent` in the start headers), `activity <type>` on every worker
-  (`traceActivities`, the trace read from the activity's headers), `model.call`, `tool.call`, `sandbox.provision` and
-  `image.build`. Inside a workflow the pure interceptors in `workflows/telemetry-interceptors.ts` copy the trace headers
-  onto every activity, child workflow and continue-as-new, so one trace follows a request into the worker and back out;
-  `carryingTrace` puts the active trace on an axios client (the check runner's), so a check's whole run is one trace.
-- **Nothing a person typed enters telemetry.** No prompt, message, reply, thinking, tool argument, tool output, file
-  content, secret or token goes in a span name or attribute, a metric label or a log line: ids, counts, durations, model
-  and tool names, route templates and status codes only. `telemetry-scrub.test.ts` feeds all of those through a model
-  call and a tool call and asserts none reaches the sink. A span records an error as its type, never its message.
-- **Adding a metric or a span.** Add the instrument to `instrumentsOn` in `packages/engine-core/src/telemetry.ts`
-  (counters without `_total`, which the collector adds; histograms of seconds take `SECONDS_BUCKETS`) and record it with
-  `koalaMetrics().<name>` where the thing happens; wrap work in `withSpan(name, attributes, run)`. Browser-safe code
-  (agent-engine, which the frontend bundles) imports only `@koala/engine-core/telemetry`, the API; a process imports
-  `./telemetry-sdk`. To show a new number on the Infrastructure page, add a question to `KOALA_QUESTIONS` and its PromQL
-  to `koalaQuery`, a line to `koalaLines`, and a figure to `koala-figures.ts`.
-- **Env**: `OTEL_EXPORTER_OTLP_ENDPOINT` (a collector to send to; unset, the cluster's is found), `KOALA_VERSION` (the
-  service version on every span and metric), `OTEL_CLUSTER_COLLECTOR` (root's compose only: the cluster collector's
-  address the host collector relays to).
-- `npm run test:telemetry-live` proves the whole path on the running dev stack.
-
-## Platform keys
-
-Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys`, which each role's reader calls (**Configuration**):
-- `SESSION_KEY` signs session cookies;
-- `DATA_KEY` encrypts every stored secret (`crypto.ts`);
-- `PAYLOAD_KEY` encrypts Temporal payloads;
-- `EGRESS_KEY` derives the egress proxy's passwords;
-- `TEMPORAL_KEY` derives the P-256 key that signs every process's token to Temporal (below).
-
-No process starts without all five, in production or not, and root none without `ROOT_IDENTITY_KEY` (decision 14, "Migrate
-once, then delete": nothing is derived from `JWT_SECRET` or a secret written in the source any more, and `JWT_SECRET` is on no
-keyring). `loadKeys` takes all five, `loadKey(env, purpose)` one, for a program that needs only that (Temporal's key server,
-`databaseSettingsFrom`). A new dev box gets them from `npm run setup`, which runs `npm run keys -w apps/backend --
---write-env`; the test stacks hand their containers the dev box's `apps/backend/.env`, and tests take theirs from
-`platform/testing/keys.ts` (`testKeyEnv`, `testKeys`, `testIdentityKey`). Never pass a raw env var where a key is wanted: take
-`settings.keys` from the reader.
-
-Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). A keyring holds only the current key.
-
-`npm run keys -w apps/backend` (`src/scripts/rotate-keys.ts`) is the one program that still reads `JWT_SECRET`, as the old key it
-re-seals from. `--write-env` writes whatever of the five keys `apps/backend/.env` lacks (fresh) and, unless it says `ROLE=instance`,
-`ROOT_IDENTITY_KEY`: the one root signed with from `JWT_SECRET` when that is set, so whatever trusts root keeps trusting it, else a
-new one; it touches no database. Without it, it re-seals onto `DATA_KEY` whatever `JWT_SECRET`, or the key a dev box derived from
-it, sealed, in exactly the databases named with `--database <name>` (on `MONGO_URI`'s server; none by default, so a database
-another or an older Koala keeps is never touched) and the key files in `data/`: a dry run, with `--apply` to rewrite. Remove
-`JWT_SECRET` once `--apply` reports nothing unreadable and no workflow started before it still runs (a payload sealed under it
-can no longer be opened).
-
-## Root node (hosted deployment)
-
-What an operator does, step by step (buying root, keys kept offline, releases, rollback, restore, outages, leaked secrets): `docs/runbook.md`.
-
-`scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
-version onto it. Both are idempotent and both refuse loudly rather than half-succeeding.
-
-**Buying root's server from the UI** (plan `~/.claude/plans/project-to-vps.md` step 1, OVHcloud VPS): on an instance its
-operator (the owner) opens Infrastructure → Clusters → **Host Koala on a server** (`/#/host-koala`, `HostKoala.tsx`, `/api/server-orders`,
-operator only, mounted on the instance). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
-and consumer key sealed, the subsidiary plain, checked with `GET /me`; the keys need `GET /*`, `POST /order/*`, `DELETE /order/*`,
-`POST /vps/*`, `POST /me/order/*`, `POST /ip/*`) and stored credentials for each domain's DNS provider, found from its nameservers (or chosen
-on the page) and kept on the order (`dns`), which must reach both zones. **Sign-in for root is optional and offered there
-too**: every provider in `SIGN_IN_PROVIDERS` (each description carries `register`, where it is made and how, and
-`signInFieldsOf` its fields), with its redirect URI for the domain typed (`GET /api/server-orders/sign-in-providers?domain=`,
-`rootSignInProviders` in `infrastructure/lib/root-sign-in.ts`), so a provider added to the registry appears with no page change.
-The quote checks what was given with `signInProvidersFrom` (`rootSignInEnv`: a half-given provider or an issuer that is not https
-is refused before any cart), seals the env it makes on the order (`signInEnv`, `DATA_KEY`) and keeps only which were given
-(`signIn`); `withoutOrderSecrets` (`ORDER_SECRET_FIELDS`: the SSH key, the setup code, `signInEnv`) shapes every order the
-routes send. The bootstrap hands them to `bootstrap.sh` on the SSH session's stdin with the DNS credentials, the order's log
-hiding them (`signInSecretsOf`) and saying, once root runs, whether they reached its `.env` (`missingFromEnvFile`).
-`bootstrap.sh`, by hand or bought, runs `scripts/root-node/sign-in.ts setup`: the variables in its environment are checked
-against what `apps/backend/.env` already holds, refused whole when a provider is half set, written mode 600 (a value with
-spaces or `#` single-quoted, `dotenvValue`), and every provider listed with its redirect URI, on or off. Changing them later is
-by hand in root's `.env` and `systemctl restart nowrinkles` (`docs/runbook.md`, Sign-in providers); update, rollback and the
-release watch never touch them, and a restore brings back the backed-up root's. `test:restore-live` bootstraps its first
-root with a stand-in OpenID issuer's settings on stdin and checks root offers it and starts a sign-in with it, before and
-after the restore. **Price it** builds a real cart
-(`ServerOrderService.priceCart`: the plan for one month, `vps_datacenter` and `vps_os` Ubuntu 24.04, every mandatory option read
-from the cart's own options) and shows OVHcloud's own checkout total, lines and contracts; nothing is bought. **Buy** is the only
-path to `POST /order/cart/{id}/checkout` (auto-paid with the account's default payment method) and refuses unless the total the
-person confirmed equals the quote and OVHcloud still asks it. `RootNodeWorkflow` (host worker, no deadline) then follows the order
-(OVHcloud's identity check on a first order shows as waiting, for days if need be), reinstalls the VPS with Ubuntu 24.04 and a key
-made for that purchase (sealed on the order, shown to the operator on asking), waits for SSH, points `app.` and `mesh.` and
-`*.<people's domain>` at it through each zone's provider (DNS only, never rewriting a record it did not make), waits for a signed
-release, and runs `bootstrap.sh` over SSH with each zone's provider and its credentials on stdin, then starts root and publishes the image; its output lands in the
-order's log with the credentials and the setup code hidden, and the setup code is shown once. Once root runs, the workflow (behind the `root-mail-reputation` patch) sets the
-PTR of the server's IPv4 to `mail.<domain>.` through `POST /ip/{block}/reverse` (`ServerOrderService.setReverseDns`, rules in
-`infrastructure/lib/reverse-dns.ts`): only when the zone holds `mail.<domain>` → that address, waiting every 5 minutes while OVHcloud
-says the name does not resolve yet, and otherwise recording why it refused with what to set by hand (`reverseDns` on the order);
-then it runs `mail-check.ts` on the server over SSH and keeps the report (`mail`). The order page shows both; a failure after root
-is ready is logged and never fails the order. Cancelling before **Buy** deletes the
-cart; after it, Koala stops following and says the server must be terminated in OVHcloud's control panel. `npm run ovh:quote --
---plan <code> --datacenter <code>` prices a plan with the stored keys and deletes the cart, never buying (`quoteAndDiscard`).
-
-Updates build and typecheck **before** restarting, so a broken commit never interrupts the running
-version, and roll back to the previous commit automatically if the health check fails. The restart
-goes through the systemd unit so the **workers restart too** — they run plain `tsx` and do not
-hot-reload, so bouncing only the backend would leave them on the old release silently.
-
-A restart mid-provision is safe (Temporal holds the workflow state, so activities resume) but costs
-one retry attempt, so the script refuses while work is in flight (a running activity or workflow task; a workflow waiting on a timer or a person, such as the daily dependency check, is not) unless given `--force`.
-
-**The firewall.** ufw lets in 22 (or only over the mesh), 80 and 443, and root's own k3s pods (a pool on root's node included)
-reach the host only on the Kubernetes API, the kubelet and node metrics (6443, 10250, 9100; `bootstrap.sh`, and `harden-host.sh`
-narrows an older root's blanket rule on update), so no pod reaches the backend's :3001 around Caddy, where it could claim any
-address in `X-Forwarded-For`. kube-proxy's rules run before ufw's, so `harden-host.sh` (bootstrap and every update) writes
-`/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml` (`nodeport-addresses=127.0.0.1/32,100.64.0.0/10`, as `install.sh` does on an
-instance and `pool-node.sh` on a pool server) and restarts k3s when it changed: every NodePort answers on loopback, where root's
-backend and containerd reach them, and on the mesh, never on the public address.
-
-**Backups** (`scripts/root-node/backup.sh`, nightly through `koala-backup.timer` once `BACKUP_REPOSITORY` is set): restic, encrypted, of
-Mongo, Temporal's Postgres, Headscale, Caddy's data, the DKIM key, both env files, `apps/backend/data/` and tailscaled's state.
-`restore.sh <snapshot|latest>` goes onto a freshly bootstrapped root and makes it the old one, mesh identity included; then publish the
-instance image again. Pool trials' own volumes are not in it.
-
-**Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when root is a Hetzner VM and a token is available (root's own server, apart from the Hetzner provider that is gone), but
-restoring one rolls the whole disk back — including Mongo, Temporal and Headscale, so every cluster
-a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
-deploy". Rollback is git-based for exactly this reason.
-
-**Lab mode.** `CERTIFICATES=internal bash scripts/root-node/bootstrap.sh` makes a root with no public DNS, for the release
-rehearsal, and only on a domain nothing public resolves (under `.internal`, the rehearsal's `koala.internal`, or `.localhost`):
-`scripts/root-node/lab.sh` decides it for `bootstrap.sh` and `update.sh`, and refuses, changing nothing, when `.env` says
-`CERTIFICATES=internal` while `DOMAIN` is real. **`ROOT_TLS` is read once, to be rewritten** (decision 14): an older root's
-`ROOT_TLS=internal` becomes `CERTIFICATES=internal`, and `ROOT_TLS=cloudflare` `CERTIFICATES=acme` with `DOMAIN_DNS` and `INGRESS_DNS`
-`cloudflare`, each only where `.env` does not already say it, and `ROOT_TLS` is dropped (`scripts/root-node/root-tls.sh`, which
-`update.sh` runs before anything reads `.env` and `dns.ts setup` runs first, so a root moved onto this release by an older
-`update.sh`, or restored from an older backup, is rewritten too; any other value is refused). Nothing else reads it: `bootstrap.sh`
-refuses to be given one, and `update.sh` no longer moves root onto a release without `dns.ts` (v2026.10.29 and older), which read
-only `ROOT_TLS`. A lab: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
-wildcard is the tester's to resolve), Caddy signs with its own certificate authority, which the host then trusts
-(`/usr/local/share/ca-certificates/koala-lab.crt`), no DNS provider or its credentials are needed, the mail records are printed rather than
-published, and `PUBLIC_URL` may be given (the rehearsal gives `http://app.<domain>:3001`, since the pods of an instance trust
-only public authorities). The lab's domain must be one Caddy keeps to its own authority without being told, since the app and
-mesh sites take automatic certificates: the rehearsal uses `koala.internal`, never a name under `.localhost`, which curl resolves
-to the asking machine itself whatever DNS says, so an instance's self-upgrade check-in could never reach root. With
-`CERTIFICATES=acme`, the default, certificates come from Let's Encrypt over the people's domain's DNS provider. `update.sh` also finds Temporal by its
-compose label (the dev container name never existed on a root node, so the in-flight check never refused), publishes the image
-when run again on the commit it is on (a fresh root's first publish), skips a build its registry already holds, waits for the
-backend until it answers or its unit dies, and puts `INSTANCE_IMAGE_TAG` back when it rolls root back.
-
-## DNS providers
-
-Root's domain (`DOMAIN`: `app.`, `mesh.`, the mail records) and the people's domain (`INGRESS_DOMAIN`: the `*.` wildcard and
-each person's nested `*.<name>.`) may each be served by a different DNS provider. **Every provider is one description and one
-client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to either):
-- `infrastructure/lib/dns-providers.ts` describes each (`DNS_PROVIDERS`: label, the nameserver suffixes that identify it, its
-  credential fields with the env names they travel as, its Caddy module and the `dns` directive Caddy's tls block takes) and holds the
-  pure rules: `providerForNameservers`, `rootDnsSettingsFrom`, `caddyTlsSnippet`, `caddyDnsEnv`, `caddyModules`.
-- `infrastructure/services/dns/<provider>.ts` is its HTTP client (`DnsProvider`: `validate`, `zone` → `all`/`list`/`create`/`update`/`remove`
-  by record id), registered in `DNS_PROVIDER_CLIENTS` beside `DnsProviders` (the service: `describe`, `detect` by nameservers, `plan`, `apply`).
-- What records a zone should hold is one pure plan (`zonePlan` in `infrastructure/lib/dns-plan.ts`: create, keep, replace by id, or
-  refuse to rewrite a record Koala did not make); mail's records (`mailRecords`), root's `app.`/`mesh.`/wildcard (`rootDnsRecords`)
-  are wanted records on it, and a provider only carries out the plan.
-- Credentials are stored like any cloud provider's (`CredentialService`, sealed fields from the description, validated by the client,
-  `dnsCredentialsOf`), and Settings → Cloud providers lists every provider from `GET /api/dns-providers`.
-- On root, `CERTIFICATES` (`acme` or `internal`) is apart from each zone's provider (`DOMAIN_DNS`, `INGRESS_DNS`, found from the zone's
-  nameservers when unset; an older root's `ROOT_TLS` is rewritten into them once, **Lab mode** above). `scripts/root-node/dns.ts setup`
-  (bootstrap, update, restore) checks the credentials, writes root's `.env`, Caddy's tls snippet (`/etc/koala/caddy-tls/koala.caddy`) and
-  the credentials Caddy needs (`/etc/koala/caddy-dns.env`, root-only, never in the data folder the backend's user owns).
-- Caddy is built with every provider's module, listed in `docker/caddy/modules.txt`, generated from the pins file
-  (`tsx scripts/root-node/dns.ts caddy-modules`; a test fails when they differ).
-- **Adding a provider** is its description, its client, one line in `DNS_PROVIDER_CLIENTS`, its Caddy module pinned (`kind: go`) and
-  `modules.txt` regenerated, and a fake in `services/dns/fake-dns.ts`: the contract suite (`dns-providers.contract.test.ts`) runs
-  against every registered provider. Porkbun answers only for a domain with **API Access** turned on in its dashboard.
-- `npm run dns:check -- <zone> …` finds who serves each zone and lists its records with the stored credentials, changing nothing.
-- `npm run dns:issue-check -- <zone> …` proves a certificate is really issued over DNS-01 for each zone before root exists: it builds
-  root's Caddy from `docker/caddy` and runs it with root's own tls snippet (`caddyTlsSnippet`) for `*.koala-check.<zone>`, the
-  zone's provider found from its nameservers and its stored credentials handed to the container on stdin (never a file, an env
-  file or a label), from Let's Encrypt's **staging** service only (`acme_ca`, and `caddy adapt` refused unless every issuer is
-  staging, `stagingOnlyProblem`), with no port published, so the certificate is obtained and never served. It reads the
-  certificate back (its one name, the staging issuer, its dates), asks the provider's API that no TXT
-  `_acme-challenge.koala-check.<zone>` is left (removing one only by that name, `challengeLeftovers`), that the rest of the zone is
-  as it was, and that Caddy's log named no credential; the container and its storage go however it ends (rules in
-  `infrastructure/lib/dns-issue-check.ts`, the container in `services/dns/CaddyIssueCheck.ts`). It passed for both zones on
-  2026-10-30, once Caddy's Cloudflare module was v0.2.4: earlier ones refuse Cloudflare's `cfat_`/`cfut_` tokens as too long.
-
-## Headscale mesh
-
-Every cluster Koala reaches other than its own is a person's machine, reached over a WireGuard mesh, never the public
-internet: a machine sits behind its person's NAT, so it dials out and joins; nothing can SSH inward. A machine joins the mesh
-when `MESH_LOGIN_SERVER` (the public Headscale URL, e.g. `https://mesh.example.com`) is set (the join, under **A person's own
-machines**), and its cluster's kubeconfig names its mesh address.
-
-`headscale/config/acl.hujson` is required: with no policy Headscale defaults to allow-all, so every
-tenant node could reach every other. Validate changes with
-`docker exec provisioning-headscale headscale policy check -f /etc/headscale/acl.hujson` — a
-too-permissive policy still parses cleanly and fails open.
-
-## Cloud credentials
-
-Per-user credentials are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain:
-user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → `none`. What is kept is only what something
-still uses: OVHcloud (buying root's server, Host Koala on a server), each DNS provider (**DNS providers**), Hugging Face (model
-downloads), Artificial Analysis and Google Drive (backups). Cloud providers (the page) lists those. **A GitHub token is no longer
-kept** (owner, 2026-11-08: "yep remove it and track the mirror for later"): nothing used it; the startup migration
-`github-credentials-dropped` forgot every saved one, and the planned mirror of Gitea to GitHub brings it back. Signing in with GitHub
-(`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`) is separate and unchanged.
-
-**A model's Hugging Face token has one path**: the token typed in the deploy wizard (or the app's settings), else the person's
-saved Hugging Face credential (`AppDeploy`'s `savedHuggingFaceToken`; one that can no longer be unsealed refuses the deploy with
-`UnreadableCredential`'s words), else none. No process takes one from its environment (no `HF_TOKEN`, `VLLM_HF_TOKEN` or
-`HUGGING_FACE_HUB_TOKEN`, for the operator or the cluster worker). The deployment keeps it as `vllmHfToken` or `tabbyHfToken`, the
-cluster activities pick the one for the app (`modelHfToken`) and hand it to Terraform as `HF_TOKEN` alone, and the vLLM and
-TabbyAPI constructs read only `config.hfToken`, putting it in the model pod's Secret as `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN`
-(what Hugging Face's own libraries read).
-
-**Koala makes no clusters** (owner, 2026-11-08). A cluster is a machine's own, made on the machine when it is added under My Machines
-(native k3s, or k3d where the person has Docker and wants no GPU) and removed with it; on the pool an instance's place is the
-vcluster root makes (**the pool**), and root keeps its own k3s. The `k3d` provider, mock cloud mode, Hetzner and DigitalOcean (their
-constructs, activities, credentials and catalogue sources), Provision a cluster (`POST /api/clusters`, `DELETE /api/clusters/:id`,
-`/api/cluster-providers`) and the cluster-making workflows are gone; AWS, Google Cloud and Azure were never built and nothing offers
-them. A cluster record's `provider` is `machine` (`pool` and `root` name the stand-ins for Koala's own cluster there); a record of
-another kind stored before is refused by `ClusterAccess` as another kind of cluster. The VPS catalog stays as a price comparison
-(OVHcloud, Linode, Vultr, Scaleway, InterServer, all public prices, no credentials).
-
-## Worker architecture
-
-Where work runs is named once, in `platform/lib/work-places.ts`: each queue (`QUEUES`), the places each role runs (`placesOf`: root the host queue alone, an instance the engine, stream, cluster and host queues, the hub none), and each workflow's place and the roles that start it (`WORKFLOWS`, checked against every worker's registrations by `worker-activities.test.ts`). Each worker's settings reader refuses a role that runs no such worker, its startup is a function its entry calls (`startHostWorker`, `startClusterWorker`, `engineWorkerSetup`/`createEngineWorker`), and an integration test starts each one that way. An instance alerts on each of its workers that stops reporting, as root does (`INSTANCE_ALERTS`). The queues:
-- `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`), serving its role's work only (`HOST_ACTIVITIES` in `platform/lib/work-places.ts`): on root the pool (`Pool*Activity`), removals at root and the dependency watch, the only worker root runs; on an instance server orders (`ServerOrder*Activity`) and the crawl. It makes no clusters.
-- `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, an instance's only, runs as a pod on the cluster Koala runs in, which it reaches with its service account as `ClusterAccess.own()`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
-
-The root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`,
-`worker-cluster`, `worker-host` or a setup step) with every workspace, kubectl, helm and terraform. Every process reaches a cluster
-only through `ClusterAccess` (Koala's own through its pod's service account, a machine through the kubeconfig sealed on its
-record, root's through root's kubeconfig). The entrypoint still writes a kubeconfig under the context `k3d-provisioning-lunorica`
-(`/tmp/kubeconfig-provisioning-lunorica` and `~/.kube/config`) from the pod's account, because the setup job's shell scripts
-(`scripts/instance/platform-services.sh`, `ensure-gitea.sh`, `ensure-verdaccio.sh`, `ensure-infisical.sh`) still name that context;
-the backend and the workers read neither.
-
-Terraform's stacks get the kubeconfig `ClusterAccess.kubeconfigOf` writes: `AppStack` reads `KUBECONFIG`, the cluster stack
-`KUBECONFIG_PATH`. An app's Service type is always given (`APP_SERVICE_TYPE`: `ClusterIP` on the pool, `NodePort` everywhere
-else) and so is Traefik's (`INGRESS_SERVICE`); a stack told neither refuses to synthesize.
-
-**Terraform's state, output and providers** (`InfrastructureService.deploy|destroy`, rules in `infrastructure/lib/terraform-state.ts`,
-the backend in `packages/cdktf-infra/lib/state.ts`). Root and a process outside a cluster keep each stack's state in
-`apps/backend/data/terraform` (the local backend, in root's backup; `TERRAFORM_STATE=local`, required like every setting, which root's
-`root-settings.sh` and dev write). An instance (`TERRAFORM_STATE=kubernetes` in the chart, with
-`POD_NAMESPACE` on every process) keeps it in Terraform's `kubernetes` backend: a Secret `tfstate-default-<stack>-state` per stack in its
-own namespace on the cluster it runs in, locked by a Lease, reached with the pod's account, whatever cluster the stack targets. A stack
-whose state is still a file in the data folder has it pushed there before its first run (`stateMove`: pushed only when the cluster
-holds nothing, the file removed once the cluster has it, refused when the two disagree). A move from the pool carries those Secrets
-(the `terraform-state` part). Every run synthesizes into a folder of its own under the temp folder, removed however it ends.
-Providers come from a filesystem mirror (`bin/terraform-providers`, made by `scripts/terraform-providers.sh` from the pinned zips in the
-image, `setup.sh` and `dev.sh`), which Terraform links into each run rather than copying; without the mirror each run downloads them.
-Every cluster's monitoring stacks are named for the cluster's id (`<id>` and `<id>-observability`), whether the cluster worker starting
-or a deploy asks, so the cluster Koala runs in is `machine-<INSTANCE_MACHINE_ID>`, a pool instance's `pool-<name>`, root's `root`.
-State kept under the old names (`provisioning-lunorica`, a machine's device name) is not moved by Koala.
-
-## Temporal sync architecture
-
-A record that runs on a workflow (a cluster provisioning or being destroyed, an app deploying or being destroyed, a build)
-names it in `temporalWorkflowId` **only once the workflow has started**, so a follower never asks Temporal about one that does
-not exist yet. The backend follows every such record to its workflow's end, whichever process wrote it: at start it follows what
-is in flight, then change streams (`watchFollowed`, `watchLiveRuns`) hand it each record that comes to name one. Following is
-`result()` then one `describe()` (`closedAs`); a lost connection is followed again after 5 s doubling to a minute. A 30 s pass
-still reads a provisioning cluster's progress from its log and checks running apps' pods (`~/.claude/plans/event-driven.md`).
-
-**Nothing has a deadline; things end when they finish, fail, or are stopped.** Every activity takes `LIVE_ACTIVITY`
-(`platform/lib/activity-liveness.ts`): the 30-day `startToCloseTimeout` Temporal requires, and a one-minute `heartbeatTimeout`.
-Every worker (host, cluster, engine, stream, a machine's device worker) heartbeats every activity while it runs
-(`heartbeatWhileRunning` in `@koala/engine-core`), so a dead worker is noticed in a minute and the activity runs again
-elsewhere, while a slow one is never cut off. Helm and `kubectl --wait` take `CLI_CEILING` (720h) for the same reason. **Terraform waits on nothing it makes** (owner, 2026-11-09: "1 for helm"): every Helm release is `wait: false` with the ceiling as its `timeout` (so a chart's hook is never cut off) and never `atomic`, every Deployment `waitForRollout: false`, every claim `waitUntilBound: false`, and no resource has `timeouts` (`packages/cdktf-infra/lib/no-terraform-waits.test.ts` fails on one that does). Koala watches instead, with one judgement of a rollout (`rolloutOf` in `infrastructure/lib/rollout.ts`: a workload's new spec seen, its replicas updated and available, its current pods judged by `assessWorkload`, a ReplicaSet the cluster refuses to make pods for, DaemonSets too): while Terraform applies, `applyWatched` (`activities/watched-apply.ts`) reads the stack's namespaces and stops Terraform (SIGINT to its process group, `ExecuteOptions.signal`, `TerraformStopped`) the moment a workload or a chart's hook (`stuckHook`) can never recover; a stopped deploy, resize or settings sync stops Terraform the same way (the activity's cancellation signal). An app's workload is then followed by `awaitWorkload` (`CheckWorkloadActivity`, on `rolloutOf`), the cluster's monitoring by `untilRolledOut`, a release slot by `waitUntilRolledOut`, the self-upgrade by its own loop over the same rules.
-No wait inside an activity watches a clock: it ends on the thing it waits for, on a state that will never recover
-(`assessWorkload` in `infrastructure/lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like, or pods a quota or
-admission refuses to make, `creationRefused`), or on a stop. The
-pieces that used to cut work off and no longer do:
-- **Model calls** go out through `dependencyFetch` (`@koala/engine-core/http`): the process's one client, with no header
-  or body timeout, so a long prefill or a slow stream is never dropped at 300 s, and the layer's 10 s connect limit. A call
-  whose connection is lost (refused, reset, timed out connecting, the stream cut off) waits until the server answers `/models`
-  again, on the layer's backoff with no deadline, and asks again from the start, telling the run with a notice (`callModel`, `onConnectionLost`). TabbyAPI's
-  liveness probe checks only that its port accepts connections (`constructs/tabbyapi.ts`): its `/health` shares the thread
-  that generates, so a busy server used to be killed mid-answer. The
-  per-endpoint queue (`model-rate-limiter.ts`) waits for its turn with no deadline and leaves when the run is stopped.
-- **Commands.** `run_command`, Code steps, task checks, browser tests and every `kubectl` the engine runs have no time
-  limit unless the caller sets one (`timeoutSeconds`, a step's "Stop after"). In a cluster workspace every command runs
-  in its own process group (`GROUPED_EXEC` in `cluster-backend.ts`), so a limit or a stopped run kills everything it
-  started (`STOP_GROUPED_EXEC`). Commands on a person's machine wait until the machine answers or disconnects
-  (`local-agent-registry.ts`).
-- **Sandboxes** last as long as their run (`sleep infinity`, no `activeDeadlineSeconds`) unless the run sets a time
-  budget. The engine worker's sweep removes only sandboxes whose run has ended (`runEndedVia`), never by age.
-- **People.** Wait for Person and tool approvals wait until someone answers or the run is stopped; a step may still set
-  "Stop waiting after". A run takes each answer once (behind the `answers-taken-once` patch), so a procedure that
-  comes back to the same question asks it again.
-- **Workload health** (`assessWorkload` in `infrastructure/lib/workload-health.ts`) counts restarts against a pod only when the last
-  one was within the hour, and ignores a pod that failed and was replaced, so a deployment whose server was once
-  restarted and is only busy now is not marked `unhealthy` (an unhealthy model drops out of the model list).
-- **Builds and releases.** Workspace image builds, Odoo release jobs and rollouts, browser tests, pipeline builds and
-  cluster provisioning wait for their work however long it takes.
-`mechanics-long-command` proves a command outliving any old limit.
-
-**A model going in circles is asked again, not stopped.** The overthinking guard (Model Turn's "Stop overthinking") cuts a
-stream off when its thinking repeats itself; the step then asks again in place, showing the model the end of where it
-was stuck and telling it to pick and act, or say what it cannot do (`circlingNudge` in the engine's `model/circling.ts`,
-with a notice). It asks again while each attempt circles somewhere new, and stops the run only when one goes round the
-same circle as the last (`sameCircle`). A check script can stream thinking with `think`; `mechanics-circling` proves it.
-
-**Odoo browser tests.** `odoo-e2e --keep` leaves the throwaway Odoo served between runs (reused while `addons/` is
-unchanged, upgraded in place when it changed, `--stop` ends it). Specs use `e2e/odoo.ts` (`releases/lib/odoo-e2e-helpers.ts`:
-`signIn`, `openAction`, `fill`, `choose`, `addLine`, `save`, `press`, `smartButton`, `reportHtml`), whose `test` gives each
-step ten seconds and attaches `page-at-failure`, an outline of the page, which `odoo-e2e` prints and `readE2EReport`
-keeps as `E2ETest.page` (task checks and the release card show it). The image carries the helpers and `odoo-e2e` copies
-them into a repository that lacks them. Specs sign in as `koala-e2e`, made with the admin's rights and Odoo's onboarding
-tours switched off (`tour_enabled`), since a tour starting on a new user's first form opens an error over it.
-
-**Workspace images can be product images.** A tree works in the image its type's `language` names. The engine's
-image planner takes the host's bases (`extensions/workspace-bases.ts`: the UBI ones plus `extensions/odoo/`'s Odoo 18 and 20, each
-with PostgreSQL 18 and `odoo-check`); a base may carry setup steps, and a `dnf` install falls back to `apt-get`
-(`APT_NAMES` maps the names that differ). Workflow code must not import `workspace-bases.ts` — the engine's root export
-pulls in `crypto` and `path`, which Temporal's workflow bundle refuses.
-
-**A tree type can have versions** (`versions` on the type: what they are versions of, each choice's version and the
-workspace it works in, and the default; `projects/lib/tree-types.ts`). The Odoo type offers Odoo 20 (`odoo-20`, the default)
-and 18 (`odoo`). A tree records its `version` when it is made (`versionForNewTree`: the plan's `tree.version`, the New
-Tree dialog's choice, or the default; one the type does not offer is refused), and it never changes. The tree works in
-that version's workspace (`treeLanguage`, through `treeLanguageFrom`), its starter is rendered with `{{version}}`
-(`FROM odoo:{{version}}`, manifest versions), and the planner reads the versions in `list_tree_types` and
-`describe_tree_type`. A tree from before versions works in the type's own `language`; startup stamps it with that
-version (`stampTreeVersions` in `seedAll`). The Studio keeps a type's versions when it is saved but cannot edit them.
-
-**Workspace images are built from named dependencies** (plan `~/.claude/plans/workspace-dependencies.md`). One catalogue
-(`extensions/workspace-dependencies.ts`: node, python, go, jq, chromium-libraries, playwright, koala-e2e, playwright-mcp; each person's own in
-`workspaceDependencies`, Studio → Tools, under Workspace dependencies, `/api/workspace-dependencies`, `WorkspaceDependencyService`) says how each installs (`onDebian` for an
-apt base), what programs or libraries it puts there and what it needs first. Everything names what it needs: a tool (`needs`), an MCP server
-(`runs.needs`), a procedure step (`needs` on its `HostOperation`, resolved onto the agent by the directory's `stepNeeds`), a check (`checksNeed`: an
-`e2e` check needs `koala-e2e`), the project's `.koala/workspace.json` (`needs`) and a base (`has`). `planImage` resolves them in order, once each,
-skipping what the base has, and every planned image ends with a proof run as uid 1000 that each dependency put in what it promised (`proofScript`; a
-broken promise fails the build naming it). Approving a plan or story change, accepting a task, or retrying a story adds what its checks need to
-`.koala/workspace.json` and starts the build (`check-needs.ts`): unfinished tasks wait, a story whose finished work's checks need it is parked, and the
-published build puts them back. A person's own dependency with a script waits for approval like a project script. Startup moves stored inline
-installs onto dependencies (`engine/lib/dependency-migration.ts`). `koala-e2e` outside Odoo runs the project's own Playwright with its playwright.config
-webServer (`engine/lib/browser-tests.ts`); `mechanics-workspace-needs` proves the whole path. In-cluster addresses skip the egress proxy (`NO_PROXY`).
-
-**A tree's workspace is composed, built and published.** Plan: `~/.claude/plans/workspace-tool-servers.md` (step 0).
-- A project says what its workspace needs in `.koala/workspace.json` on `main` (`engine/lib/workspace-file.ts`: packages by
-  manager, an install script, languages, plain env values — a secret-looking name is refused).
-- One composer (`engine/lib/workspace-composition.ts` → the engine's `planImage`) puts the tree type's base, that file and the
-  tools of every agent that works in the tree into one plan, each line saying where it came from (`PlanLine.from`).
-- The image a tree works in is its **published workspace** (`publishedWorkspaces`, `engine/lib/published-workspace.ts`): the
-  file it was built from, its image, lines and env, and `next` (how far the next build has got). A tree with none is
-  composed from `main` and published the first time it is wanted. Later runs compose from the published file, so an
-  agent gaining a tool is still picked up, but a new `main` waits for its build.
-- A pod carries `koala.dev/workspace` (`workspaceStamp`). A tree pod whose stamp differs is replaced at the run's next
-  command, with `/work` kept (`currentWorkspace` in `environments.ts`).
-- **Builds are the `build-workspace` procedure** (`extensions/workspace/`, agent `workspace`, no model): read →
-  compose → (a new install script waits on Wait for Person with Install it / Do not install) → build → publish →
-  resume → tell the channel. Any failure keeps the workspace the tree had. It runs once per tree and commit
-  (`workspace-build-<tree>-<commit12>`). It is started by a push to `main` that touches the file (the Gitea webhook →
-  `WorkspaceBuildService.pushed`) or by `change_workspace`. A notice a procedure step emits with `post` goes to the
-  project's channel (`StreamServices.post`), and a Wait for Person with `choices` takes no other answer.
-- **Agents ask with `change_workspace`** (executor, planner, Koala). It commits the addition to `main` straight away,
-  not to the leaf's worktree: a story that needs a package cannot be verified without it, so it would never land. It
-  then starts the build. The tree comes from the call's workspace (`caller.treeId`, for a run in `tree-<id>`), the
-  chat's binding, or `treeId`.
-- **A task waits with `mark_waiting`** (executor). It is refused while `main` has nothing the published workspace
-  lacks (`pendingChanges`). do-one-task reads the task's state when the model answers (`task_status`) and ends the
-  run there, judging and recording nothing, if it waits. When only waiting tasks are left, Next Task leaves through `waiting`. The story is parked
-  (`waitingFor` on the leaf, still `pending`): it is not failed, not replanned, kept out of `ready_leaves`, and shown
-  as Blocked on the board. `workspace.resume`, after a publish, clears it, sets its waiting tasks to `accepted` and
-  grows the tree. A story is parked only after its run ends, so parking asks the workspace first (`parkingFor`): a
-  build already published puts it straight back in line, and one that failed or was declined marks it `stuck` (as
-  does a build failing later; the next build clears it), which the board shows and `settleTree` fails on.
-- A `pip` or `npm` line on a base without that manager installs its language first (`withManager` in `planImage`).
-- A run in a tree's workspace is told what is coming that it does not have yet, and at what stage
-  (`RunWorkspace.coming`, `stageText`).
-- **The person edits it on the tree's Files page, in its Workspace section** (`TreeWorkspaceFilePanel`,
-  `TreeWorkspaceService`, `GET`/`PUT /api/trees/:id/workspace-file`): the file on `main` as a form, every line it
-  composes to with where it came from (lines `main` has that the published image lacks are marked), the published
-  image, the next build's stage and the last builds. Saving commits to `main` as the person and starts the build,
-  the same run a push would. Workspace notices open it (`open-workspace`). Check stages `editWorkspace` and
-  `waitWorkspace` do the same through the API.
-- Extension tools reach the tool runtime through the same runtimes as their operations (`extensionRuntimes` once in
-  the host); `engine-host/host.integration.test.ts` fails if a grove or workspace tool has no handler there.
-  `mechanics-workspace-change` proves the whole path, with the check stage `settleTree` waiting for the story the
-  build puts back in line.
-
-## Odoo projects: A/B releases
-
-**How a project's builds are released is a procedure.** A tree type says it in `release: { agent, app }`, and a
-project may override it (`releaseHowOf` in `releases/lib/release-run.ts`: the project's setting, then its type's, then a chart in
-the repo means `slots`, otherwise `replace`). The `releases` extension (`extensions/releases/`) holds the steps and three
-procedures, run by agents with no model:
-- **`slots`** (agent `release`, the Odoo type's): the first build goes into slot `a` (the init job creates `odoo_a` before
-  slot a's Odoo exists — an Odoo started with `--database X` initialises X itself, so a slot's Deployment must never exist
-  while its database is prepared); each later build is prepared in the idle slot from a copy of the live database and
-  filestore, quieted, upgraded (`-i` new modules, `-u` the rest), **compared with live** (Compare With Live,
-  `releases.compare`), its browser tests run, and it waits on Wait for Person (`decide`: Cut over / Discard / Run tests
-  again), answered by the release card (`/api/projects/:id/releases`). The comparison (`releases/lib/release-compare.ts`, kept as
-  `changes` on the release) reads both slots' schemas through the adapter's `database`
-  (`extensions/releases/postgres-compare.ts`): tables and columns the upgrade drops with how many rows held data, and
-  columns whose type changes (Odoo keeps the old values in `<column>_moved0`); and the adapter's `inventory` of what was
-  made or edited in the app (Odoo, `extensions/odoo/inventory.ts`: fields and models made in the app, views made or
-  edited in it, server actions, automations, reports, email templates), each kept, reset, switched off or gone. Names,
-  counts and hashes only, never business rows. **When it would lose something the run waits on `decideLosing`
-  instead** (Cut over, losing what is listed / Discard / Run tests again), the API refuses a cut over without
-  `confirm: true`, naming the losses, and the card shows them under "What this release changes". Switch Slots compares
-  once more on the final copy and stops the cut-over, serving the live slot again, if anything the person was not shown
-  would be lost. Cutting
-  over puts the live slot in maintenance, copies and upgrades again, then switches `live`; the old slot is stopped with its
-  database untouched as the way back. What is Odoo about it is the app's adapter (`extensions/odoo/release-adapter.ts`).
-- **`slots-roll-back`** (agent `release-roll-back`): offered on the live release once its run has ended and until a later build reuses that slot,
-  it starts the kept slot, waits for it, then switches `live` to it — the app returns to the snapshot taken at the
-  cutover, so anything entered since is lost, and the confirm says so.
-- **`replace`** (agent `release-replace`): an image project's build deployed in place of the running app through the
-  same deploy the backend uses (`infrastructure/services/AppDeploy.ts`); the backend's reconcile loop follows a deployment whichever
-  side started it.
-
-`OdooReleaseService` starts one release run per build (`release-<projectId>~<stamp>`, bound to the project), one at a
-time per project: a build arriving while a preview waits stops that run, whose cleanup (Settle Stopped) clears and sets
-the preview aside; one arriving while a release is prepared waits as `queued`, and the newest queued build goes next.
-The steps write the release records; the service follows them and the run, and tells the person: each release records when it was last told (`toldAt`), so a change is told once, whichever process sees it, and one that happened while the backend was down is told when it starts (`release-told-at` stamps releases from before). The cluster is the
-truth for which slot is live (`helm get values`); releases are records (`odooReleases`). Each project's release has
-a deployment record (`appType: odoo-project`, with its `namespace`), so it shows among apps, goes with the project, and destroying it
-uninstalls the release and its namespace. A release is named once, at its project's first release: the project's name plus a
-short hash of its id (`newReleaseName`), stored as `releaseName` — so two projects with the same name never share a
-namespace or a host, and renaming a project does not orphan its app; a project released before names were stored keeps
-the name it has. Its namespace is labelled `koala.dev/owner` and `koala.dev/project` before Helm installs into it. Releases reach clusters the way `ClusterService` does
-(`activities/cluster-access.ts`'s `reachCluster`). Exposing the app also exposes its preview on its own address, and
-the project's builds panel shows the releases with a card to cut over or discard a waiting one. `npm run test:odoo-release-live` proves it on the cluster Koala runs in with
-a throwaway project, ~4 min, and removes everything.
-
-**A release's build can be released again** (Release this build again on its card, `POST /api/projects/:id/releases/:rid/again`,
-`OdooReleaseService.releaseAgain`): the same image prepared afresh in the idle slot from a fresh copy of live, without asking
-whether anything changed, recorded with `again`; a waiting preview is set aside as a new build would. Each release on the card
-says whether it brought **new code** or an image already released (`release-kind.ts`), and lists the **files it changes** since
-what is live (a live one: since the release it replaced), each with its diff, the files the app is built from (the type's
-`releaseWhen`) apart from the rest of the repository (`GET …/releases/:rid/files`, `releases/lib/file-changes.ts`, the diff read with
-git through a read token, `ProjectRepoService.diffCommits`).
-
-**What was made in the live app can be brought into git** (`CustomizationsService`, `releases/lib/app-drift.ts`). The project's
-Settings lists it under "Made in the live app" (`GET /api/projects/:id/customizations`, the adapter's `inventory` on the
-live slot), and Koala reads the same with `app_drift`. "Bring into git" (`POST …/customizations/adopt`) or Koala's
-`propose_adopt_customizations` puts a card in the project's channel: a story in the tree's feature "Customizations from
-the live app" (opened on approval: `newBranch` on the change), or for a project with no tree, a plan for one holding that
-story. Its worker calls `export_customizations` (granted to the executor), which reads the items from the live slot and
-writes `addons/<project>_customizations` exactly (`extensions/odoo/export.ts`: each record with its stored fields, every
-reference by XML id, an edited module view kept under its original XML id, refused whole when something cannot be named),
-with `adopt.json`; then `odoo-check` and the story lands. When a build first installs that module, the Odoo adapter's
-`upgrade` links each record in `adopt.json` to its XML id in the slot's copy before `-i`, so Odoo takes the live records
-over rather than making them twice; the release's comparison then shows them kept, and they no longer count as made in
-the app.
-
-**A project can start from a client's own Odoo database** (`ClientImportService`, rules in `releases/lib/client-import.ts`).
-While nothing is released, the project's Settings offers "Start from a client's database": the zip Odoo's database
-manager makes (`dump.sql`, `filestore/`, `manifest.json`), as a neutralized copy (the default) or as their live system.
-`PUT /api/projects/:id/import?mode=copy|live` streams the body (never buffered; the HTTP server has no request
-timeout) through `kubectl exec -i` into a volume claim `<release>-import` in the release's namespace, via a busybox holder
-pod, then reads `manifest.json`: a backup from another Odoo version (or hosted Odoo's `saas~` versions) is refused there
-and deleted. The upload is recorded on the project (`clientImport`) and the newest build released, or the first build
-when it comes. That first release (`restore` on the build input, carried by `OdooReleaseService` while nothing is
-established) runs the adapter's `restore` in place of `init`: one job in the build's image checks every module in the
-manifest exists in the image (refusing with the list, `missing modules: …`), loads `dump.sql` into `odoo_a`, unpacks
-the files, and for a copy runs `odoo neutralize` with a fresh database uuid and secret; then `upgrade`
-installs the repository's new modules and updates only those whose version differs from what the client has
-installed (`moduleChanged`), since `-u` would reset what they edited in that module's views (with step 4's takeover). `admin`'s password is then Koala's sign-in. The service
-settles `clientImport` from the release (imported, refused with the missing modules, failed), and the channel's notice
-says how it started and how many things were made in the client's app (Settings → Made in the live app, Open settings).
-`npm run test:odoo-import-live` proves it: a backup made with `odoo db dump` from one project's live app, refused for
-another version and for a missing module, restored as a copy and as live, ~25 min, removes everything. Importing from
-hosted Odoo (Online, Odoo.sh, Enterprise) is a later step.
-
-**Koala settles a new client project before planning it** (release patterns step 5). Koala holds `list_tree_types`
-and `describe_tree_type`; for something new (no tree or project bound) it asks, in one message, only what the person
-has not said: the type's version, says in a sentence how the type is released (and asks only when its HOW IT IS
-RELEASED section offers another way), and, when the type has a STARTING FROM THE CLIENT'S OWN APP section, whether
-the client already runs it. Both sections are written from what runs them (`TreeTypeDescriptions.releasing`: the
-release agents from `releaseAgentsOf` that fit the type, and `restoringApp` from `RELEASE_APPS`). The plan's tree
-carries `release` (one of those other ways; the type's own is dropped) and `startsFrom: 'client-database'` (refused
-unless the type's app restores), checked by `parsePlan` against `PlanWorld.releasing`; the card shows both. Approving
-applies them to the tree's project (`projectChoices` → `projectChoicesPatch`): its `release`, and `clientImport:
-awaited`. While a project awaits its client's database, a finished build is held, not released (`releaseHeld`,
-`HELD_FOR_CLIENT`), and the channel is told once (`awaitedNotice`, Open settings); uploading the backup releases the
-newest build with the restore, and "Start without their database" (`DELETE /api/projects/:id/import`) sets the import
-aside and releases it fresh. Checks can now assert what an agent said (`said`: `contains` exact, `means` judged by the
-run's own model through `itSays`), the conversation's plan (`plan`), `clientImport`, `build.held` and `noticed`, and
-wait with `waitBuild`; `story-odoo-client-project-scripted` proves the plumbing, `story-odoo-client-project` runs it on
-the person's model (off the bench).
-
-**A new tree that produces a service gets its own project** (`TreeHomeService`, rule in `projects/lib/tree-home.ts`): plan
-approval (`homeTree` in plan adoption) and `POST /api/trees` both call it, so it does not matter whether the tree came
-from chat, a check or the New Tree dialog. The project (`project-<treeId>`, so a retry finishes rather than doubles it)
-gets a repository, the build webhook, the person's own cluster and auto-deploy (`ProjectRepoService.createProject`, the
-one way a project gets a repository). The New Tree path also seeds the type's starter; adoption writes the starter with
-the plan in one commit. A tree that produces an artefact gets no project. A build is pinned to the commit that was pushed
-(`releases/lib/build-plan.ts`), and a push whose commit has no Dockerfile records no build at all.
-
-**A tree type declares the secrets its app needs** (`secrets` on the type: a key, where it comes from — `generated` by the
-platform, a minted `gitea-read-token`, or a `person` on a card — what it is for, and optionally the login it `signInAs`).
-`ProjectSecretsService.ensure` puts them in the project's Infisical workspace when `TreeHomeService` makes the project, and
-again before every Odoo release (`OdooReleaseService`) and image deploy (`TemporalBridge.promoteProjectBuild`), so a project
-made before a type declared something catches up; a person-sourced one waits on a card on the tree's page and holds the
-release. No value ever reaches a model, and leaf workspaces get none. Image deploys sync the vault into `<namespace>-secrets`
-(the app's `envFrom`); an Odoo release syncs it into `<release>-vault` (`OdooReleaseVaultActivity`, before Helm), the chart
-reads `POSTGRES_PASSWORD` from it, and the init and upgrade jobs set `admin`'s password from `ODOO_ADMIN_PASSWORD` every
-time. A chart from before this (its repo still has `deploy/chart/templates/secret.yaml`) keeps its own database password,
-which is copied into the vault on every release so the two never drift. **A vault that lost its values** (Infisical wiped or a workspace gone) gets them back from the app: a key the vault lacks is
-taken from what the cluster was last given (`<release>-vault` for an Odoo release, `<namespace>-secrets` for an image deploy)
-before one is generated, since a new database password would lock the app out of its own database; and a project's stored
-reader that Infisical refuses (`readerWorks`) is replaced by a new one, as is the backend's own machine identity when
-Infisical is new again. Infisical's admin password is the one `scripts/ensure-infisical.sh` wrote; in production Koala refuses to sign in to Infisical
-without it rather than fall back to the development password (`infisicalAdminPassword`). `test:odoo-release-live` removes its project's workspace and reader between two releases to prove it. An Odoo project no tree is the home of uses the
-release's own list (`ODOO_RELEASE_SECRETS`). The person sees a sign-in with "Show sign-in" on the project's card
-(`GET /api/projects/:id/sign-in`, uncached, read from the vault to their browser); the planner reads the list in
-`describe_tree_type`, and the Studio edits it under a type's Secrets.
-
-**A tree type also says what its app depends on, what its leaves get, and what makes a release.** `defaultBindings`
-("Depends on" in the Studio) are seeded into a new project's `needs`, so every deploy binds those services into the
-app with their credentials; the tree's workspaces get network access to them only (`treeExtrasFrom` → `extrasOf` on
-the tree workspace), along with the type's own `egress` rules and plain `env` values — never a credential, since a
-model works there. `releaseWhen` lists the paths the app is built from: a push that changes none of them since the last
-release (Odoo) or the deployed image (image deploys) still builds, but nothing is released, and the build says why
-(`releaseSkipped`, `releases/lib/release-paths.ts`). A check's world can lay settings over a tree type (`world.treeTypes`).
-
-**Every project has a channel, and the channel hears what happens to its work.** A project's channel is its own
-conversation (`channel-<projectId>`, `kind: 'channel'`, `ProjectChannelService.ensure`, made with the project or the
-first time its page opens, bound to its tree, deleted with it).
-
-**A project opens on its board** (`features/projects/components/Board/`, `#/projects/tree/<id>` or `#/projects/project/<id>`).
-Every tab (Board · Releases · Files · Settings) starts with **the strip** (`projects/components/Strip/ProjectStrip.tsx`): what is live
-with Open app and sign-in; what is being worked with Stop, or how many stories are ready with Work them; what each agent runs
-on (`runsOnLine`), opening the tree's models in place with **Every agent in this tree** (`wholeTreeChanges`) and auto mode;
-and **Waiting on you**: a preview to cut over, cards, asks, secrets. A plan card about a story that has since finished is out
-of date (`projects/lib/plan-staleness.ts`): listed as replaced and refused when approved. Releases holds builds and releases, Files
-the explorer and editor, Settings the models, auto mode, workspace definition and sandbox. On the board
-(full width, its chat a panel the strip's Channel button opens and closes, remembered per project, `useChatPanel`),
-each tree as an epic with its features (branches) as rows and its stories (leaves) as cards in the state columns
-(`BOARD_COLUMNS`/`stateFor`, the one rule for a leaf's column; `board.ts` builds it), and the channel on the right, its
-width dragged (and kept) at the divider. Opening a card or a feature puts it on its own page in place of the board, with
-breadcrumbs back up (`…/<branchId>/<leafId>`, `…/<branchId>`; each opening is a history step), and its chat on the right
-beside the Channel and Threads tabs. You set the order work is taken in on the board: drag a card by its grip within its column, move a feature with its arrows (`PUT /api/branches/:id/order`, `PUT /api/trees/:id/order` → `priority` on stories and features, `GroveOrderService`); `ready_leaves` takes ready stories in that order (`projects/lib/work-order.ts`), so the fan-out starts yours first, and Koala's outlines list them in it. A story's page lists its tasks, with Accept and Drop for any proposed while it was worked, and "Watch it work" opens the live feed of its worker's run and the runs it starts (the tree run's turn, `turnId` on `GET /api/trees/:id/run`; `GET /api/turns/:id?under=<runId>` sends only that run's family, with `through`, the last seq it read). Each run is a tab (`projects/components/Board/StoryRun.tsx`): its procedure on the Studio graph, read-only, following and centring on the step it is on, and its rounds (`engine/lib/run-rounds.ts`: a round starts each time the model step is entered again, since the log has no `model.requested`; a tool the procedure calls itself, a `call-tool` trace, is shown apart from the model's). The turn log writes a step's node events when the workflow step ends, so the model call is only "entered" once it has answered; streamed thinking and text carry its node, and the run state takes the step from them. A `node.traced` event in the turn log is a summary (`tracedSummary` in `engine/lib/turn-log.ts`: no `inputs` or `outputs`); the full trace is only in `engineRunTraces` (`/engine/runs/:id/traces`, which checks read), and the Studio's run panel reads those every few seconds while a run is live. Each trace used to carry the whole conversation, which made a long run's log tens of MB and crashed the tab watching it. A story that can be started shows the tree's run panel on its page: there is no running one story, the tree takes the ready ones in board order. The editor, explorer, builds, workspace file and the tree's sandbox are its **Files** page (`…/files`); its models, auto mode, how its project releases and deleting the tree or project are its **Settings** page (`…/settings`, `projects/components/Settings/`); the switch at
-the top. All three read the project through `useProjectWork` and keep the address with `useRouteSync`.
-
-**A story and a feature each have their own chat** (`ItemChatService`, `POST /api/items/<story|feature>/<id>/chat`,
-`story-<leafId>` / `feature-<branchId>`, `kind: 'item'`, bound to the leaf or branch and its tree, made the first time it
-is opened). On every turn in it Koala is handed the item (`conversationBinding` → `story` / `feature`, written by
-`projects/lib/item-outline.ts`): where it sits, its brief, what it waits on, its tasks, what was claimed, the judge's verdict and
-the attempts that failed. Every chat bound to a project, a tree or one of its items is also handed the status of each of its projects — what is live, a preview waiting on the person, a release in progress, the last build (`projects/lib/project-outline.ts`). Every chat bound to something (a project, a tree, a feature, a story) opens with what Koala is handed on each
-message, read fresh (`GET /api/conversations/:id/context`, `openingWith` over the same binding a turn gets;
-`engine/components/Chat/ConversationContext.tsx`), formatted, with the exact text a click away. In a story's or feature's chat Koala changes the work only through a card: `propose_story_change` (title, goal, brief, waits-on, tasks, rework), `propose_stories` (new stories in a feature, or a follow-up to a shipped story, which is never changed) and `propose_story_cancel` make a plan proposal with a `change` (`projects/lib/item-changes.ts`), shown on the plan card in that chat, and nothing changes until it is approved. `AdoptPlanWorkflow` applies it: it first stops the worker of a story that must start again (a running story whose title, goal or brief changes or that is reworked; a claimed one has its claim set aside), saves the records, rewrites `leaves/<story>.md` and notes the change in PLAN.md, and runs the tree only when work was put back in line. A run a story was taken off can no longer claim it (`claim_leaf` checks the story's attempts). Cancelling frees the stories that waited on it. A notice about one story (a failed leaf) is posted in full in its chat and as one line with
-"Open the story" in the channel (`line`, `open-story`); item chats are never a tree's threads and never hear the tree's
-own notices. A check stage talks in one with `chat.in: { story: title }` or `{ feature: title }`, and approves a card there with `approvePlan: { in: … }`;
-`mechanics-item-chats` proves it, change card included.
-In the channel a message is just posted (`POST /api/conversations/:id/messages`, only channels) unless it names @koala or the person has turned on "Ask Koala" beside the message box (remembered per channel in their browser, `projects/lib/channel-asks.ts`); then it starts Koala's turn. Every person message in a channel says which it was ("asked Koala" if it carries a `runId`, else "posted · Koala wasn't asked" with **Ask Koala**, which starts a turn with `asks: <its at>` so that note is answered in place, never posted again; `openTurn` refuses one already asked about). A turn's history leaves out the message its own open turn is answering, since the opening already carries it with the context. In a channel or an item chat each person message in Koala's history says who wrote it (`heardAs`, by email), a channel post nobody asked Koala about reads "<who> posted, not to you:", and the binding's `chat` value tells Koala which chat it is in and who is asking (`chatFraming`), so it reads the discussion without acting on it. Other chats about the project are its threads. Approving a new tree's plan binds the
-conversation it was planned in to the tree and its project. Releases (preview ready, live, failed), a tree's run ending
-(and each failed leaf), and a secret only the person can enter post a notice — a third kind of message
-(`role: 'notice'`, author `platform`, with links and actions) — to the project's channel (a tree with no project: to
-the conversations bound to it), once per event (`ConversationNoticeService`,
-`platform/lib/notices.ts`), pushed live as `conversation-notice`. Koala does not reply on its own; on the person's next message
-it is given each notice as a message labelled "From the platform, not the person:". Koala reads trees and releases with
-`read_tree`, `run_tree` and `project_releases`; a plan's tree starts growing when it is approved.
-
-**A tree type describes itself** (`TreeTypeDescriptions`, `projects/lib/tree-type-description.ts`): what approving a plan makes
-(`projects/lib/tree-home.ts`), the starter's files, the workspace image's own summary, how the tree grows — the grove agent's
-procedure and the agents it hands work to, each in its own words (`outlineProcedure` in the engine) — and what happens
-to work that lands (`projects/lib/delivery.ts`: the release text is keyed by every `ReleaseState`, so a new state must be described),
-with what the platform owns so the plan must not. The planner reads it with `describe_tree_type`; the Studio shows it as
-a tree type's "What it becomes"; the leaf judge is handed the type's `doneMeans`. Nothing in it is written by hand
-except next to the code it describes.
-
-**A grove lands what it verified, and says when it cannot.** `grove-run` lands verified stories after each judge pass and again when the tree goes quiet (`landWaiting`), so one that missed its landing is landed on the next run rather than stranded. Notices a step raises in the engine worker (a story that did not land, nothing landed this pass) come back with its result and are published into the run's turn log by `AgentRunWorkflow`; before, they never left the worker. Saving a workspace whose `main` was changed elsewhere (a person's edit in the editor, a merged pull request) no longer fails: the rejected push brings Gitea's `main` in, merges it, and pushes again; a real conflict is refused with the files that conflict and the workspace left as it was (`reconcileScript` in `workspace-documents.ts`).
-
-**A tree's run is one workflow at a time, each run with its own id.** The workflow is `grove-run-<tree>` (so a tree
-never runs twice at once, and Stop and deletion find it), but each run's id is `grove-run-<tree>~<stamp>`
-(`groveRunId`), remembered in the workflow's memo (`RUN_ID_MEMO`, read back as the tree run's `turnId`). Child runs,
-traces, turn logs and a task's `runs` derive from the run id, so a tree's second run never overwrites its first.
-Anything that reaches a workflow by a run id goes through `workflowOfRun`.
-
-**The browser hears when trees come and go.** Making or deleting a tree through the API, adopting a plan
-(`AdoptPlanWorkflow`) and removing a project (`RemoveProjectWorkflow`) tell the owner's browsers `grove-changed`
-(`notifyGroveChanged`; the workflows through `EngineGroveChangedActivity` on the stream queue, since the engine worker
-has no socket, behind the `grove-changed` patch), and `useGroveChanges` refreshes the trees, stories and projects, so
-the sidebar's Projects list follows at once.
-
-**A tree chooses a model per agent** (`models` on the tree, agent slug → model id; `TreeModelsService`, rules in
-`models/lib/tree-models.ts`). The tree's Settings page lists each agent in its type's work that asks a model (walked from the grove
-agent's procedure, `modelAgentsOf`), with what it would use on its own; a choice there is for that tree only, and is
-read when each of the tree's runs starts: the grove agent's by the launcher (`modelFor`), every run under it by
-`EngineResolveAgentActivity` from the run's root id (`treeOfGroveRun`), so in a tree's run an agent gets the tree's choice
-or its own model, never one handed down from the run above it (the judge stays on its own while the executor is moved).
-An agent on one of the person's machines can be chosen too, for an agent whose procedure branches at Where It Runs; an agent whose "Runs on" is a machine keeps it. A chosen model that is gone shows on
-the panel and fails the agent's runs with its name. Koala reads the models in `read_tree` and `run_tree` and proposes a
-change with `propose_tree_model` (card `set_tree_model`); `mechanics-tree-model` proves it (expectation `treeModels`).
-A `choose-model` trace keeps the model's name in its summary, so a story's run shows the model each round ran on.
-
-**Every workflow says whose it is.** Each start carries the `KoalaOwner` search attribute (`startedFor(owner)` in
-`platform/lib/workflow-owner.ts`; `platform` for platform work). The shared client (`platform/lib/temporal-client.ts`) registers the
-attribute on connect, refuses a start without it (`UnownedWorkflowError`), and stamps a check space's workflows as its
-person's. Child workflows inherit their parent's owner. The Temporal page lists, counts, opens and cancels only the
-viewer's own; an admin can switch to everything, and an instance's owner sees everything on it. Workflow tests create
-their server with `workflows/temporal-test-env.ts`, which registers the attribute.
-
-**Large payloads are stored outside Temporal.** Every Temporal client and worker builds its
-converter with `buildDataConverter(key, sharedPayloadBlobs())`: payloads are compressed, then
-encrypted (and a payload that arrives unencrypted is refused, `EncryptionCodec.decode`, so nobody with a way into Temporal can hand a
-worker plaintext; search attributes, headers and patch markers never pass through codecs), and any still over 128 KB go to Mongo `temporal_payload_chunks`, leaving a claim in the
-history (`platform/lib/payload-storage.ts`, Temporal's `externalStorage`). A new process that talks to
-Temporal must use it too, or it cannot read an offloaded payload. A daily sweep releases a
-workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` proves it on a real
-research run.
-
-Temporal is not optional, and there is no DB-polling fallback. A backend whose Temporal is down at start still starts: it tries the
-Temporal bridge on the layer's backoff (`keepTrying` in `bootstrap()`), and until it connects deploys, builds and syncs fail, chats and runs answer
-503, Running and the Temporal page say Temporal cannot be reached, and no deployment or build is followed. Once connected, a Temporal
-that goes away makes each call fail after the client's own gRPC retries (about 20 s); every worker retries its
-connection on the layer's backoff. Either way Temporal shows under Needs attention as a dependency that is not
-answering (**Outside dependencies**). Start it with `docker compose -f docker-compose.temporal.yml up`.
-
-## GPU / vLLM support
-
-**A machine says what GPUs it has, and how big it is.** Its agent reads its GPUs (`nvidia-smi`, the AMD kernel driver's topology),
-its cores and its memory, and reports them with its cluster; a driver that does not answer is a problem it reports, never taken for no
-GPU. The instance keeps the report on the machine's cluster record, and that record is the only source of a machine's capacity: the
-backend reads no node and runs no `nvidia-smi` of its own. A machine that has not reported its size is shown as such, and a model server
-is refused on it with why, never planned or checked against a guess.
-**NVIDIA GPUs reach pods through CDI** (owner, 2026-11-13: "C sounds good"). On Linux with an NVIDIA GPU, the join offers, with the
-sudo it already asks for k3s, NVIDIA's own repository under the key Koala pins and the pinned `nvidia-container-toolkit`, enabling
-`nvidia-cdi-refresh`; one the person already has is only noticed, and a system NVIDIA's repository does not serve is told how to install
-it by hand. Removing the machine removes only what the join installed. The NVIDIA device plugin hands GPUs out by CDI through the CRI,
-and no app's pod names a runtime class; the plugin itself runs under k3s's `nvidia` runtime, since it needs the driver to count them
-(2026-11-14: under CDI alone it crash-looped with "Driver Not Loaded"). AMD needs only its kernel driver on the machine.
-**A deploy that asks for GPUs is decided by that report** (decision 7): the count the request names (1 or more: Koala runs no model on CPU, owner 2026-11-13: "I don't want to offer any
-inference deployments targeting the cpu"; none named, or 0, is refused, never guessed), a change to an app's GPUs in its settings decided
-the same way, the vendor it names or the machine's only one, and a refusal that says what to do (no GPU shown or its driver not
-answering, no CDI support, too few, the wrong vendor, two vendors and none named, not a machine). **Koala then readies them**: it applies the
-vendor's pinned device plugin through `ClusterAccess` and waits, with no deadline, until the plugin it applied has rolled out and the node advertises the GPUs asked (a plugin from before still advertising them
-counts for nothing), or fails with the fix when the plugin cannot run. `npm run test:gpu-live` (in ship) proves it on this computer's two 3090s.
-
-**GPU passthrough needs native k3s on the machine** (Linux). k3d's nested containerd cannot do real device passthrough at
-all, so a cluster made with k3d never gets a GPU.
-
-Don't infer the runtime from the kubeconfig context: root's own k3s is still installed as `k3s-provisioning-lunorica`, its context
-named `k3d-provisioning-lunorica`, **even though it is native k3s**, and `systemctl is-active k3s` reports `inactive` because the
-unit is `k3s-<cluster-name>.service`.
-Check `ps aux | grep '[k]3s server'` or the node's `containerRuntimeVersion` instead. The
-distinction also decides whether a `hostPort` (game servers) is reachable from the host: on native
-k3s it binds the host's network stack directly; on k3d it is not published without an explicit
-`-p` mapping at cluster-create time.
-
-## Structure rules
-
-These are enforced, not aspirational: `npm run lint` is green and fails on a new violation (the frontend's rules, and
-the backend's rules in `apps/backend/eslint.config.js`: no unused import, variable or parameter, the layer rule — `lib`
-imports nothing above it, a service never imports a route or the wiring, a route never imports the wiring — and
-`boundaries/areas`, an area imported only through its `index.ts`), the frontend is `strict`, and `npm run ship` runs
-typecheck + lint + both unit suites before anything reaches `main`. Each rule below is here because something in this repo broke without it.
-
-### Frontend
-
-- **The frontend is laid out by area** (`src/features/<area>/`, the list in Repo structure), and **an area imports
-  another only through its `index.ts`**, never a file inside it. `shared/` and `platform` import no feature, and no
-  feature imports `shell/`. The `boundaries/areas` rule in `apps/frontend/eslint.config.js` enforces all three; tests
-  are exempt, since they mock and spy on the modules they replace by path. An `index.ts` lists only what other areas
-  use, one `export … from` per module, and it is the one kebab-case file that re-exports components.
-- **PascalCase = exports a component; kebab-case = exports none.** `projects/lib/leaf-types.ts` and
-  `home-summary.ts` already follow this; `react-refresh/only-export-components` is its linter.
-- **Nothing at `src/` root** except `App.tsx`, `main.tsx`, `index.css`, and `api/client.ts` beside them.
-- **A folder of more than ~4 files gets a `shared.ts`** that its files import instead of each other: an area has one
-  at its root, and a large screen folder inside it (`projects/components/Workspace/`, `engine/components/Studio/`) its own.
-- **If it came from HTTP it belongs to react-query.** No hand-rolled loading/error state.
-  `CloudAccounts.tsx` (21 `useState`, 9 raw `fetch`) is the counter-example.
-- **UI state lives in the component that renders it**, and **never pass a raw `setState` down** —
-  pass a named intent. `ClustersView` receiving `setExpandedCluster` from a 2,858-line parent that
-  never reads it is the anti-pattern.
-- **Client state that crosses components lives in a zustand slice** in its area's `stores/`, one per
-  domain — `platform/stores/shell.ts` (view, user, notifications), `platform/stores/socket.ts`, `engine/stores/live-turns.ts`.
-  Never one store for everything: that is structurally what App.tsx once was. Subscribe with a selector per value
-  (`useShellStore((s) => s.view)`), so an unrelated change does not re-render you.
-- **Server state is react-query's, never a store.** Putting fetched records in zustand means
-  hand-writing caching, dedup, invalidate-after-mutate and refetch.
-- **Context is for what a store cannot do** — a value scoped to a subtree rather than the app.
-  `WorkSourceContext` (`projects/lib/work-source.ts`: the instance's board or the hub's) earns it.
-- **No component contains a URL.** Components import hooks; hooks call their area's `api`; only those
-  modules import `api/client.ts`.
-- **`props: any` is banned.** Let the compiler enumerate the interface.
-- **Domain shapes are declared once**, in their area's `types` or from `@koala/harness-types`. Deliberate
-  duplication across the wire carries a `── DUPLICATED, KNOWINGLY ──` block naming the backend file
-  that wins; see `projects/types/grove.ts`.
-- **Two copies of a `useEffect` means extract a hook.** Logic that needs no React goes to the area's `lib/` as
-  pure functions with unit tests — `home-summary.ts` (21 tests) is the strongest pattern here, and
-  `engine/lib/chat-composer.ts` is what came out of `ChatSurface` beside its hooks `useChatComposer` and `useChatCards`.
-- **Tests are colocated** (`Foo.tsx` → `Foo.test.tsx`) and test the extracted unit, not `App`; the tests that drive
-  the whole app sit with the shell.
-
-### Backend
-
-- **The backend is laid out by area** (`src/<area>/`, the list in Repo structure), and **inside every area the arrow is
-  one-way: `wiring/ → routes/ → services/ → lib/`**, with `platform/middleware/` feeding routes.
-  `lib/` is pure and imports nothing above it — in its own area or any other; `engine-host/` and `extensions/` sit
-  between services and `lib`, so `lib` never imports them either (the `Task` helpers are `projects/lib/tasks.ts`, the
-  workflow ids `platform/lib/workflow-ids.ts`). `wiring/` holds what constructs services from the database and env.
-  Each area's records are its own `store.ts`, and `platform/lib/db-interface.ts` only composes them.
-  `projects/lib/leaves.ts` (38 pure functions, no I/O) is the target shape. The backend lint enforces the arrow.
-- **An area imports another only through its `index.ts`** (`src/<area>/index.ts`), which re-exports exactly what other
-  areas use: one `export … from` per module and kind, values apart from `export type`, in path order. A cross-area
-  import that is only types is `import type`, since under `verbatimModuleSyntax` `import { type X }` still loads the
-  module. Past an index go only: **values from another area's `lib/`**, taken directly by a pure file (a `lib/`, a
-  `store.ts`, a workflow) and by `engine-host/`, `extensions/` and `eval/`, because an index loads its whole area,
-  services included, and a workflow's bundle may hold only pure code (a pure file takes only types from an index);
-  **an area's `wiring/`**, which the root (`src/index.ts`, `worker-*.ts`) composes directly, since a wiring builds on
-  areas that build on its own; **`platform/lib/mongo-db.ts`** composing every `store.ts`; and the eight imports in
-  `DIRECT_TO_STAY_ACYCLIC` (`apps/backend/eslint.config.js`), each of which would close a loop through an index (hub's
-  wiring and engine's routes, projects' channel and engine's conversations, …). The `boundaries/areas` rule there
-  enforces all of it; tests are exempt and mock by path. **The backend has no value-import cycle**, and a direct
-  import is how one comes back: a cycle fails only at runtime (`Cannot access X before initialization`), which tsc
-  cannot see, so check with `npx dpdm -T --no-tree --no-warning --transform 'src/**/*.ts'` in `apps/backend` (the one
-  it lists, `pack-sampling` ↔ `tunables`, is inside `agent-engine`).
-- **The packages, and what may import what.** Apps import packages; no package imports an app. `@koala/harness-types`
-  is types only (interfaces and type aliases, no dependencies): the shapes the backend, the frontend, `agent-engine` and
-  `context-engine` share. `@koala/engine-core` is what every process that runs tools shares: the tool and environment
-  contracts (`./contracts`), tool execution, scopes, fingerprints, the external-agent shapes, `heartbeatWhileRunning`,
-  the payload codec (`./payloads`, `buildDataConverter`), the dependency layer's HTTP client (`./http`) and backoff
-  (`./reopening`); it depends on `@temporalio/common` and `undici`, uses Node's `crypto`, `path`, `zlib`, `http` and
-  `https`, and is imported by the backend, the machine agent (`apps/local-agent`) and
-  `agent-engine`. `@koala/context-engine` is what fits in a model's context (compaction settings, token budgets,
-  observation masking, the state vector); it depends on `harness-types` and is imported by `agent-engine`, the machine
-  agent, and once by the backend (`memory/lib/memory-store.ts`). `@koala/agent-engine` is procedures, their nodes,
-  agents, the model layer (`callModel`, the rate limiter) and the procedure builder, over `engine-core`,
-  `context-engine` and `harness-types`; its root export uses Node, so a workflow takes values only from its
-  `./workflow` and `./procedure` subpaths and only types from its root and from `engine-core`; the frontend imports
-  `./procedure` and `./procedure-builder`. `cdktf-infra` is imported by nothing: `InfrastructureService` runs it as a
-  CDKTF app from `packages/cdktf-infra`, the stack picked by `STACK_TYPE`. **A new shared type** goes to
-  `harness-types` when it is a shape with no code that crosses the wire to the frontend, to `engine-core` when the
-  backend's workers and the machine agent both run with it, and otherwise stays in its area's `lib/`, the frontend
-  duplicating it knowingly (`── DUPLICATED, KNOWINGLY ──`, naming the backend file that wins).
-- **A route handler does four things**: read the request, authorize, call one service method, shape
-  the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
-- **No `db.*` in a route.**
-- **Something becomes a service** when it holds state beyond a request, owns a resource, or is the
-  only writer of a collection. Otherwise it is a `lib/` function. `VpsCatalogService` over
-  `infrastructure/lib/vps-catalog/` is the model.
-- **One router per URL prefix in `src/<area>/routes/<domain>.ts`, exported as a factory** taking its deps,
-  so `src/platform/routes/test-harness.ts` can mount it without booting the app.
-- **A test may not re-declare the logic it tests.** Two security tests did, and could not fail —
-  see `platform/lib/ownership.ts` (the other guarded a pretend Google sign-in, since removed).
-- **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
-  `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
-  every `/api` router, and the SPA catch-all last.
-- **Every async handler is wrapped in `asyncRoute`.** Express 4 does not await handlers, so a
-  rejected promise produces an unhandled rejection and NO response — the request hangs until the
-  client times out. This has bitten every extraction: a missing import in the trees router
-  presented as a 15-second hang with nothing to diagnose, and became a 24ms error once wrapped.
-- **Typecheck is necessary and not sufficient.** Three failures during the router extraction
-  compiled clean and broke at runtime: a duplicate import only vitest's transform rejected, a symbol
-  used without being imported, and one imported from the wrong module — the last took the dev server
-  down on reload while `npm run typecheck` reported zero errors. Run the suite, and hit the route.
-
-### Two halves, two import conventions
-
-Backend has `verbatimModuleSyntax`, so **relative imports need the `.js` extension** even in `.ts`.
-Frontend uses `moduleResolution: bundler` and is **extensionless**. An editor's auto-import will
-get this wrong across the boundary, and the backend form fails at runtime while sometimes
-typechecking.
-
-### One-time setup
-
-```bash
-git config core.hooksPath .githooks
-```
-
-## A test that fails twice
-
-Owner, 2026-11-02: "tests should be the signal something is wrong, if we have flaky tests we have flaky code, if a test suite
-fails twice that should trigger an audit and research around how to implement the code better". A live suite's failure is
-recorded every time it runs, by hand or in a gate (`tests/lib/run-live.ts`, under `tests/<suite>.ts`); a unit or integration test
-file's failure is recorded when it runs inside ship or release (`tests/tiers/failure-reporter.ts`, through `KOALA_GATE_FAILURES`),
-since writing a test means watching it fail first (owner, 2026-11-06: "Gates always, live suites always"). Both go to
-`tests/test-failures.json`, committed with the ledger. Every test must assert something (`expect.requireAssertions` in
-`tests/tiers/projects.ts`), and no tier passes on no files. Once one has failed twice since its audit was
-last committed, ship (`runSteps`) and release (`runRounds`) refuse to start (`auditsOwed`, rules in `tests/lib/audits.ts`) until `tests/audits/<name>.md` is
-committed with the fix: what failed, the cause in the code, how it is now built. Never a rerun, a longer limit, fewer workers or
-a list of things not counted.
-
-## Coupling coverage
-
-Line coverage says code ran; it does not say two pieces that call each other ran together. `tests/coupling/` builds the
-**coupling graph** (every call from one function to another across the workspaces, structural implementations of an
-interface included, and the edges between processes: a workflow's activity calls, socket.io events, HTTP calls from the
-browser, between processes and from scripts, and env names the instance chart sets) and judges which edges a test runs for
-real. It works like Lighthouse, gather apart from audit:
-- **Gather** (`tests/coupling/gather.ts`, `--only <workspaces>`, `--cost` times each suite without coverage too) runs every
-  workspace's Vitest suite with `COUPLING_COVERAGE` set: `tests/coupling/vitest-setup.ts` takes V8's precise coverage after
-  each test file, and every script a test runs through `spawnScript`/`scriptExcerpt` (`shell-trace.ts`) is traced line by line
-  with bash's xtrace. What it gathered goes to `tests/.coupling/` (ignored), stamped with the commit and a hash of the code;
-  code that changed since is not used.
-- **Audit** (`tests/coupling/audit.ts`, `--require in-process`) builds the graph, joins it with what was gathered, and writes
-  `result.json`, `report.html` (breaches, areas and edges, filtered and sorted) and `summary.txt`. Each rule says what it needs
-  and is skipped, saying so, without it:
-  - **R1**: an edge within a process is run for real by no test of the unit or integration tier; startup code (a process's main,
-    an area's `wiring/`) is judged like any other, covered once an integration test boots the process;
-  - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
-  - **R3**: an edge between processes is run only by live suites, or by none;
-  - **R4**: a call with no implementation found, or one made through `any`; a call only tests give an implementation for is no breach, since production never makes it (owner, 2026-11-09: "I don't think we need to map the test code, just the implementation");
-  - **R5**: a function in a backend service, route or activity is not run both by a unit test (its dependencies mocked) and by an
-    integration test (its real ones); pure logic belongs in `lib/`, which R5 does not hold.
-- **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
-  Ship's coupling step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
-  baseline is committed on top with the live ledger (`LEDGER_FILES`). **It is judged only from the unit and integration tiers**
-  (owner, 2026-11-10, "lets go with A"), which run on clean dependencies of their own every time: what the live suites ran on the
-  dev stack depended on its state (a cached workspace image builds nothing, an existing project makes none), so the same commit gave
-  different breaches from run to run, and a process's first sample counted whatever had been run on the stack before ship. The audit
-  uses only the artifacts `--require` names. Run by hand without `--prune`, a gone breach fails too.
-  A breach that comes and goes between runs of the same code is a fault in the code, not noise (owner, 2026-11-02: flaky tests
-  mean flaky code); it fails ship like any other until the race or timer behind it is gone (`~/.claude/plans/event-driven.md`).
-- **The live suites' coverage is not judged.** `COUPLING_LIVE=1 npm run dev` still measures the dev stack (`tests/coupling/live.ts`,
-  `live-hook.mjs`, the chart's `dev.coverage`) for a look by hand (`npm run test:coupling -- --require in-process,live`), and ship
-  neither needs nor reads it. Measuring the live suites on a clean stack each ship, with the dependencies Koala did not write stood in
-  for, is planned (`~/.claude/plans/backend.md`, deferred).
-- Ship gathers with `npm run test:integration:coupled` after the unit tier and lint, and judges right after it with
-  `npm run test:coupling`, before the live suites. Not measured yet: workflow code (Temporal runs it from its own bundle, so
-  `backend/workflows` shows almost nothing covered), the live suites' and the VMs' coverage.
+Owner, 2026-11-08: "it should be a layer for any dependency that might be slow or can be retried"; "if a dependecy is down we should
+inform the user and have metrics alerts and best practices around our dependecies". Then (2026-11-09): "yep go for it".
+- Each dependency is described once, with its state, shown under Needs attention and measured. One HTTP client and one backoff serve
+  every call.
+- A caller of a dependency that is down is answered with its state (503 with since and why). Nothing falls back to something else:
+  web search is SearXNG, pages are Crawl4AI, recall fails with why.
+- One rule decides temporary or final. Opening a connection has a limit; an answer never does.
+- Adding a dependency: its description, the processes that use it, its check, and its client reporting to it.
+
+## No deadlines
+
+Nothing has a deadline: work ends when it finishes, fails for good, or is stopped.
+- Activities heartbeat so a dead worker is noticed in a minute, and a slow one is never cut off.
+- A wait ends on the thing it waits for or on a state that will never recover, never on a count of tries or a clock. That holds in
+  tests too.
+- Model calls, commands, sandboxes, builds, releases and people's answers wait as long as they take, unless the person set a limit.
+- A model going in circles is asked again, not stopped, until it circles the same way twice.
+
+## Temporal
+
+- Temporal is not optional and there is no polling fallback. A backend whose Temporal is down still starts and says so.
+- A record names its workflow only once the workflow has started, and the backend follows every one to its end.
+- Every workflow says whose it is; a start without an owner is refused.
+- Payloads are compressed and encrypted, a plaintext one refused, and large ones stored outside Temporal. Every new process that talks
+  to Temporal uses the same converter.
+- Workflow code imports only pure code; Temporal bundles it.
+
+## Files and data
+
+- Code is in git; records are in Mongo; every other file is on the instance's own MinIO. There is no fallback store.
+- Overwriting a file asks (owner, 2026-11-07: "make sure the user is aware they would overwrite it"). Room is checked before an
+  upload and the person is told when it would not fit (owner: "the size should be calculated before the upload and inform the user if
+  it wouldn't fit"). A drop is one batch, all or nothing (owner: "I'm ok with a batched approach").
+- Share links follow their file and stop when it moves or goes. A person's file is served only in a type Koala judged.
+- Mongo is a replica set. A field left undefined is not stored.
+- Startup migrations run once, by name.
+
+## The engine
+
+- **An agent never lists its tools.** It holds grants: shipped, granted or revoked. A built-in agent stays built in when only its
+  tools change. MCP servers are a catalogue of their own, offered only while their capture matches how they run.
+- **Every run works with a grant** that ends with the run or on revocation; every tool call is checked against it.
+- **Asking before a call** is separate from what is allowed: on a person's own machine every call asks, elsewhere a destructive tool
+  asks, and auto mode (per agent, tree or chat) turns asking off.
+- **Poisoning is noticed, never blocked** (owner, 2026-10-28: notice it, never block or ask). Hidden text never reaches the model. A
+  call the watch could not check goes on, and the person sees it (owner, 2026-11-13).
+- **Memories are made by the memory keeper**, driven by events, never by a hidden model call.
+- **Checks** run each scenario in a fresh hidden space that is removed afterwards. Every mechanics check passes on an instance except
+  those marked with why (owner, 2026-11-09). A failed check says where it failed (owner, 2026-11-09).
+- A tree's workspace is composed, built and published; a task that needs what is not built yet waits for it, never fails.
+
+## Projects, the hub and releases
+
+- A project's channel hears what happens to its work. Koala changes work in a chat only through a card the person approves.
+- Every member of a shared project sees everything in it (owner, 2026-10-26: "we can pair it down later"). Koala acts for the member
+  who asked and reaches nothing outside the project; an MCP server is a tool (owner, 2026-10-26).
+- Invites that would make an account are limited per person (owner, 2026-10-26).
+- How a project's builds are released is a procedure its type names. A release that would lose something the person made waits for
+  them to see it. The cluster is the truth for which slot is live.
+
+## Monitoring, mail and telemetry
+
+- The browser never sends PromQL. What is not measured is said to be unmeasured, never shown as fine.
+- Alerts reach the person once as they fire and once as they resolve.
+- Root sends its own mail; an instance sends through root, only to its owner.
+- Nothing a person typed enters telemetry: ids, counts, durations and names only. Telemetry never waits and never retries.
+- Root and each instance know the other is there through one open connection, not polling.
+
+## Root, DNS and the mesh
+
+- What an operator does by hand is in `docs/runbook.md`.
+- Root's scripts are idempotent and refuse loudly rather than half-succeed. An update builds and checks before restarting, and rolls
+  back on failure. Rollback is git-based; snapshots are disaster recovery only.
+- **Root moves only onto a signed release** (owner, 2026-10-25), and never builds an image outside a lab. A lab is only a domain
+  nothing public resolves.
+- **Each DNS provider is one description and one client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to either).
+  Koala never rewrites a DNS record it did not make.
+- Headscale's policy is required; with none it allows everything.
+- A GitHub token is no longer kept (owner, 2026-11-08: "yep remove it and track the mirror for later").
 
 ## Releases: every gate before what it protects
 
-Plan: `~/.claude/plans/release-pipeline.md`. Nothing reaches `main` on GitHub, and no release reaches root or anyone's
-instance, without passing its gates first (owner, 2026-10-23: "all those checks need to run before it gets to main"):
-- **`npm run ship`** (`tests/ship.ts`, with `MECHANICS_ADMIN` set) is how `main` is pushed. It runs on `main` in the
-  checkout the dev stack runs from (it checks the backend on :3001 has its working directory there, and that nothing is
-  uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
-  runs whose fix is due: production packages in `package-lock.json`; ship lists each one and refuses none (owner, 2026-11-09: "thats a guideline it shouldn't block anything"): a fix published
-  under 14 days ago is listed with the day it can be taken, one 14 days old or more as to take now with `npm run deps:update -- <package>`, which takes it (the newest version two weeks old in
-  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier gathering its coverage) and, after G2, the coupling rules over both tiers and what the live suites ran (R1-R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
-  sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
-  worked on that hub, account removal, hub, project sharing,
-  telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass but the two `NOT_ON_AN_INSTANCE` names with why (`tests/lib/e2e-env.ts`; owner, 2026-11-09),
-  three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own); `test:checks-live` fails whenever a check it runs fails, by hand too (owner, 2026-11-06). After each step it checks the checkout
-  is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. Each step's pass is kept as it lands (`checked`), on the commit that last changed code, so ledger commits on top keep it;
-  `npm run gate -- <step>` runs one step alone and `npm run ship` runs only the steps not yet passed (`shipRun`), the coupling rules alone
-  only once every step before them passed on the commit. A pass is
-  recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
-  `-- --no-push` stops before the push.
-- **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
-  in `dependencies.pins.json` with its version, checksum and the files that name it, and one from GitHub or a chart repository with when it was released (`node scripts/pin-dates.mjs` fills it, from the tag or the repository's index), so the daily check asks nobody for it; `scripts/ci-tools.sh` reads its tools from it
-  (`scripts/pin.mjs`). **A version, checksum or chart repository is edited only in the pins file** (owner, 2026-11-17: "reconcile them
-  into that dependencies.pins.json file"): each pin records every place that names it, `npm run pins:write` writes them all from it, and the
-  pins tests fail when a file says otherwise or names an image or chart repository the pins file does not account for. What Koala cannot
-  pin yet is in its `unpinned` list with why (floating tags of the apps outside v1, the two charts with no version, `latest` markers that
-  name a pinned image). No `curl | sh` is left, and every installer checks a sha256 before it runs. `npm run deps:inventory`
-  (`scripts/deps-inventory.mjs`, node only) writes a CycloneDX inventory: npm from the lockfile (development-only marked), the machine
-  agent's packages as Node resolves them, and every pinned or unpinned component; the Release workflow attaches it to each release
-  as `sbom-<version>.cdx.json`, and root keeps one per release it runs beside its chart (`ReleaseCatalogue`, `<image tag>.sbom.json`).
-  **Root checks them daily** (`DependencyWatchWorkflow` on the host worker, `DependencyWatch`): every release root or an instance runs,
-  against OSV in batches (npm, and the Go modules and GitHub Actions the pins name; images and charts are not in OSV), each fix judged
-  by the same two-week rule as ship (`platform/lib/dependency-rule.ts`), findings kept in `dependencyFindings`, and the operator
-  emailed once when an advisory appears against a running release and once more when its fix comes due. Root's admin page shows
-  **Koala's dependencies** (`/#/dependencies`, operator only, Check now), and an instance's Settings → Updates says what its release
-  carries and which newer release fixes it (`/api/instances/release-findings`, a service token).
-- **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
-  builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
-  suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra integration, instance, machine, byo, mesh,
-  routing, pool, the Odoo customisations, the restore drill, then `test:release-live` from the previous tag) in rounds packed by free memory (`roundsOf`; a step marked `alone` runs by itself), carrying on past a failure and keeping each step that passed for the commit (`checked` on its gate record, kept for a ledger commit on top), so a second attempt runs only what failed, then **signs** the tag. `npm run release:check` does the same on any commit without tagging, so every step is known to pass before a release is tried. A previous release a hardened root cannot run (`UNHOSTABLE_RELEASES` in `tests/lib/release-lab.ts`, so far only v2026.10.23, whose Temporal health check dials the Docker gateway) is not rehearsed: the candidate's parent commit stands in for it as `v2099.12.29`, root bootstraps on it, and the same updates, refusals, instance upgrade and rollbacks run between it and the candidate with the
-  release key (an SSH ed25519 key, `~/.ssh/koala-release` or `KOALA_RELEASE_KEY`, whose public half must be in
-  `scripts/root-node/release-signers`, checked before the suites start), pushes it with the ledger, waits for the GitHub
-  release and checks the image with `scripts/root-node/verify-release.sh image`, the check root makes, so the first
-  release proves it.
-- **The pre-push hook** (`.githooks/pre-push` → `tests/gate-check.ts`, `pushRefusal`) refuses a push to `main` of a commit
-  without a ship record (a commit that changes only the ledger on top of one passes), and a `v*` tag whose commit was
-  not released under that name or that is not signed by a key in `release-signers` (`unsignedTagRefusal`). A push of any other branch is typechecked. `git push --no-verify` is there for when you
-  mean it.
-- **A hotfix** (`npm run ship -- --hotfix`, then `npm run release -- --hotfix`) skips every suite and keeps the typecheck
-  and the image build, about a minute each. Its gate record says `hotfix`, and its tag says "Hotfix released from <commit>
-  without the gates", which the hook and the Release workflow accept (`TAG_SIGNATURE`, `tagMessage` in `tests/lib/gates.ts`).
-- **`npm run test:workflows`** (`scripts/workflows-local.sh`) checks the GitHub workflows here before they run there:
-  actionlint on every workflow, then act runs `release.yml` in a clean clone on a throwaway tag, or on a tag `npm run release`
-  made before you push it (`-- <tag>`). Under act (`ACT` set) the release builds the image without
-  pushing it, packages the chart and prints the notes it would post. act and actionlint are pinned by version and checksum
-  in `.ci-tools/`.
-- **On the tag**, `.github/workflows/release.yml` on GitHub's own runners (every action pinned by commit, permissions on
-  the job only) refuses a tag `npm run release` did not make or did not sign,
-  then builds the image once and publishes it as `ghcr.io/luno89/nowrinkles/app:<tag>` and `:<commit12>` (public), attests
-  it (`actions/attest-build-provenance`, Sigstore, stored beside the image), and makes the GitHub release with the instance chart (`instance-<tag>.tgz`) and the image's digest. Nothing from GitHub
-  runs on this box. Nothing runs on a push to `main` there: `ship` ran every check on that commit before it was pushed
-  (owner, 2026-10-24, removing the CI that repeated G1 afterwards).
-- **Root moves onto a release two ways**: `koala-release-watch.timer` (installed by `bootstrap.sh` outside a lab, started by
-  hand once root works) runs `scripts/root-node/release-watch.sh` hourly, which finds GitHub's newest published release
-  and runs a copy of `update.sh` with it when it is newer than root's, except a hotfix (its tag says "Hotfix released from"), which
-  the timer leaves and reaches root only when the operator names it (`release-watch.sh <tag>`); and `npm run release` with `ROOT_SSH=<user@host>`
-  waits for the published image and runs `release-watch.sh <tag>` there over SSH. **Root moves only onto a signed release**
-  (W1, owner 2026-10-25): before checking anything out, `update.sh` checks the tag against `/etc/koala/release-signers`
-  (installed by `bootstrap.sh` from the checkout once, then changed only by hand; never the checkout's copy), and outside
-  a lab refuses any other ref. It never builds an image outside a lab: `verify-release.sh image` pulls the Release
-  workflow's image (`PUBLISHED_IMAGE`, by commit) and checks with cosign (pinned, `/usr/local/bin/cosign`) that
-  release.yml at that tag built it from that commit, then pushes that digest into root's registry and records it
-  (`INSTANCE_IMAGE_DIGEST`). Root's dependencies install with `npm ci --ignore-scripts`. A lab (`CERTIFICATES=internal`)
-  takes any ref, builds when nothing is published, and checks a tag's signature when it has signers; the rehearsal signs
-  its tags with a throwaway key and proves an unsigned one refused.
-- **Each instance's updates are its owner's** (owner, 2026-10-24; rules in `instances/lib/instance-updates.ts`). Root keeps
-  every release it has run (`ReleaseCatalogue`: recorded at boot from its checkout's tag and message, `instanceReleases`,
-  with that release's chart in `data/instance-charts/`, served at `/api/instances/chart/<image tag>.tgz`, and the image
-  digest and chart sha256 it was released with, which `/api/instances/release` and the install bundle hand on; `install.sh`
-  and the self-upgrade refuse a chart whose sha256 differs and pull the image by digest, `image.digest` in the chart; a
-  release from before digests moves by its tag). Each instance
-  record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
-  `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
-  than what the instance runs, never older; off, what was picked. A person may pick any newer release or the one it ran
-  just before (`pickProblem`). **A rollback withdraws what root rolled back from** (owner, 2026-10-29): when root boots on a release older than one it
-  served (`ReleaseCatalogue.recordCurrent`, ranked as the catalogue ranks), every newer one gets `withdrawn` (`withdrawnBy`), and a
-  later move onto one clears it. A withdrawn release is never offered or pickable; an instance on auto that runs one follows root
-  down, even when the `running` root recorded is stale; one that picked it keeps it, its Settings → Updates says it was withdrawn and
-  offers root's release, and root emails its owner once per withdrawal (`WithdrawalNotices`, `releaseWithdrawalNotices`). People
-  marks it. **An instance never moves below its data** (owner, 2026-11-16, version-align's concept): the chart declares a `dataVersion`,
-  raised when a release moves an instance's data forward for good (1: Temporal 1.29's schema); root keeps each instance's highest from
-  its check-ins, never offers or lets it pick a release below it, and a rollback leaves it where it is, Updates and People saying why and
-  its owner emailed once; the self-upgrade refuses a release below it and does not roll back a failed upgrade that raised it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
-  root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
-  check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
-  People shows each instance's version and how it updates. **The self-upgrade** (`apps/backend/src/scripts/self-upgrade.ts`, the
-  chart's `self-upgrade` CronJob, rules in `instances/lib/self-upgrade.ts`) applies root's chart without helm's wait and watches the
-  release's Deployments and StatefulSets roll out (`rolloutOf`), with no deadline: it rolls back the moment a pod of the new revision is
-  in a state that does not recover (`assessWorkload`: CrashLoopBackOff, ImagePullBackOff, a restart loop, an init container's too) and tells root why;
-  Helm still waits on the chart's hook jobs, so while it runs the self-upgrade watches the hooks this upgrade made and stops Helm when one
-  cannot start (`stuckHook`), then removes the jobs the failed attempt left (`abandonedJobs`), since one left running blocks every later check-in; the words it
-  reports are `UPGRADE_WORDS`, which the rehearsal and byo-live wait for. Release channels (rc, LTS) are a later conversation.
-  **An upgrade drops no request** (owner 2026-10-27: drain on events): told to stop in its pod (`POD_IP`, `POD_NAMESPACE` from the
-  chart), the backend keeps serving until no EndpointSlice in its namespace lists its pod ready, nor its pod beside only a
-  replacement still starting, which kube-proxy would not yet send to (`stillRoutedTo` in `platform/lib/drain.ts`, read with its service account), then serves as before for `PROXIES_CATCH_UP_MS` (10 s) more, since Kubernetes gives no signal that every node's kube-proxy has dropped it and byo-live once caught a request sent to the old pod 1.5 s after it was unlisted (the pre-stop wait Kubernetes' own sleep action, KEP-3960, exists for, counted here from the unlisting), then answers everything with `Connection: close`, tells socket.io
-  clients to reconnect, and exits once no connection is left (`drainThenStop`), never closing a connection a client may be reusing
-  (that race lost a request through byo-live's tunnel); the pod's grace is a week (`backend.terminationGraceSeconds`) so
-  Kubernetes never cuts that short, and the edge's pre-stop waits until the backend stops listening. Off a cluster it stops at
-  once, as before.
-- Left out of the gates: the Playwright suite (its setup recreates Temporal with its volumes and stops a k3d server,
-  so it cannot run beside the dev stack), the
-  machine suites that need this computer's machine agent, and those that wait on the memory keeper or a model's own
-  judgement (memory, bench, proposals, practices, changes, monitoring, infrastructure, big-run).
+Owner, 2026-10-23: "all those checks need to run before it gets to main". Plan: `~/.claude/plans/release-pipeline.md`.
+- **Ship** is how `main` is pushed: typecheck, the unit tier, lint, the integration tier, the coupling rules, then the live suites,
+  from a fresh dev stack, on a clean checkout of `main`. The mechanics checks fail whenever a check fails (owner, 2026-11-06). It runs once a day, in the owner's own terminal. Known vulnerabilities are
+  listed, never a block (owner, 2026-11-09: "thats a guideline it shouldn't block anything").
+- **A release** runs the VM suites and the release rehearsal on a shipped commit, then signs the tag. GitHub builds, attests and
+  publishes the image; nothing from GitHub runs on root, and no CI repeats ship (owner, 2026-10-24).
+- The pre-push hook refuses `main` without a ship record and a tag Koala did not sign.
+- **Every version, checksum and chart repository is edited in the pins file alone** (owner, 2026-11-17: "reconcile them into that
+  dependencies.pins.json file"). Every installer checks a checksum before it runs.
+- **Each instance's updates are its owner's** (owner, 2026-10-24): automatic by default, or a picked release. A release root rolled
+  back from is withdrawn (owner, 2026-10-29). An instance never moves below its data (owner, 2026-11-16).
+- **An upgrade drops no request** (owner, 2026-10-27: drain on events).
 
-## TypeScript quirks## TypeScript quirks
+## Tests
 
-- `verbatimModuleSyntax: true` → all relative imports need a `.js` extension, even in `.ts` files
-- `exactOptionalPropertyTypes: true` → auto-generated `.gen/` CDKTF files have pre-existing type errors; skip them
-- `noUncheckedIndexedAccess: true` → array/tuple access returns `T | undefined`
+- **Three tiers, run in order** (owner, 2026-11-02): unit (one process, every dependency mocked through a library), integration (the
+  real dependencies on this machine), e2e (real Koala processes on the dev stack or a VM). Each concept is tested at each tier.
+  Plan: `~/.claude/plans/testing-pyramid.md`.
+- A unit test cannot reach outside its process. An integration test never touches the dev stack.
+- **Each integration file works in a clean world of its own** (owner, 2026-11-11), touching nothing another file can see, and
+  waits on the condition it needs. A failure only in a full run is the setup's fault.
+- **A mock is held to the real thing** by one contract suite run against both.
+- Every test asserts something, and no tier passes on no files.
+- **A test that fails twice** (owner, 2026-11-02: "tests should be the signal something is wrong, if we have flaky tests we have flaky
+  code, if a test suite fails twice that should trigger an audit and research around how to implement the code better"): failures are
+  recorded for gates and live suites always (owner, 2026-11-06: "Gates always, live suites always"), and twice since its last audit
+  blocks ship and release until the audit and its code fix are committed. Never a rerun, a longer limit or fewer workers.
+- **Coupling coverage**: the coupling rules judge which calls a test runs for real, from the unit and integration tiers only (owner,
+  2026-11-10: "lets go with A"), never mapping test code (owner, 2026-11-09: "I don't think we need to map the test code, just the
+  implementation"). The baseline only shrinks. A breach that comes and goes is a fault in the code.
+- A test never re-declares the logic it tests, and tests what people notice, never a log line.
 
-## Test tiers
+## Structure rules
 
-Owner, 2026-11-02: three tiers, run in order, each over the same concepts: a service is tested in the unit tier with every real
-dependency mocked, again in the integration tier with the real ones, and its flow once more end to end. Plan:
-`~/.claude/plans/testing-pyramid.md`.
+Enforced by lint; each is here because something broke without it.
 
-- **Unit** (`*.test.ts`, `npm run test:unit`, ~1.5 min with the typecheck): one process, nothing outside it. Every Mongo store,
-  Temporal client, kubectl and helm, fetch, socket and process is a mock. `tests/tiers/unit-guard.ts` is the unit project's first
-  setup file: it makes opening a connection, listening and starting a process throw, and fails the file afterwards even when the code
-  caught the throw, saying to name it `*.integration.test.ts`. So a unit test cannot quietly reach the dev stack.
-- **Integration** (`*.integration.test.ts`, `npm run test:integration`, ~3 min): the same concepts with their real dependencies on
-  this machine, nothing else: a Mongo of its own (`mongodb-memory-server`, `testDatabase()`), Temporal's test server, real sockets
-  and HTTP on loopback, real git and sh, and a throwaway k3s in Docker where a test needs a Kubernetes API (`startK3s` in
-  `infrastructure/testing/real-k3s.ts`, the pinned `k3s-test-image`, the same k3s machines run; ready in about 8 s). That one k3s is
-  shared by every integration file running at the same time, so **a test works in namespaces and releases it makes and asserts only
-  about those**; a subject that by design acts on every namespace of its cluster (`MoveExport`, since a pool instance owns its vcluster) gets a k3s of its own (`startK3s` in its `beforeAll`), never a filter only the test would use. Where the code reads the whole cluster (a cluster's page lists every release), the test checks that its own objects
-  are shown right, never that nothing else is there (a cluster-page test once expected no Helm releases while another file installed one), and **waits on the condition it needs**, not on something that usually comes before it (the edge test waits
-  for the NodePort to answer from inside the edge's container, not for the Service to list its pod; `tests/audits/`). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
-  only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores
-  (`--maxWorkers=50%`): each file starts its own servers, and seven at once starve tests on eight.
-  **Each file works in a clean world of its own, and the tier enforces it** (owner, 2026-11-11): a file touches nothing another file
-  can see, and one that needs anything cluster-wide or on the node gets a cluster of its own.
-- **E2E** (`npm run test:e2e`, the live suites in `E2E_STEPS`; the VM suites in `RELEASE_STEPS`): real Koala processes, the dev stack
-  or a VM, driven over HTTP as a person would.
-- Each workspace's `vitest.config.ts` builds its two projects with `tiers()` (`tests/tiers/projects.ts`); `npm run test:unit -w <ws>`
-  and `npm run test:integration -w <ws>` run one. The coupling report takes a test's level from its name.
-- **A mock is held to the real thing**: each mocked dependency has one contract suite, run in the unit tier against the mock and in the
-  integration tier against the real dependency, so a mock that drifts fails (the in-memory `MemoryDB` was deleted on 2026-10-22 for
-  drifting). Every area store has its twin: `src/<area>/testing/memory-store.ts` (`Memory<Area>Store`) and
-  `testing/store-contract.ts`, run by `store.test.ts` on the twin and by `store.integration.test.ts` on Mongo
-  (`emptiedEachTime()`: one database per file, emptied before each test). A `testing/` folder is for tests only: production code
-  importing one fails lint. **Every other dependency is mocked with a library**: HTTP with msw (`interceptHttp` in
-  `platform/testing/http.ts`, `onUnhandledFrame: 'error'`, so a request no handler expects fails; the unit guard lets only msw's own
-  sockets connect), and any interface with vitest-mock-extended's `mock<T>()` answering by arguments (`calledWith`): `Processes`
-  (`platform/lib/processes.ts`; real `nodeProcesses`, no shell, `succeeded` throwing `ProcessFailed`), `Workflows`
-  (`platform/lib/workflows.ts`, the Temporal client calls Koala makes, typed from Temporal's own; the real one is `client.workflow`)
-  and any service a unit takes as a `Pick<>`. `platform/testing/mocks.test.ts` shows each.
-- `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
-  Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
-  `k3d cluster list`, which returns nothing on a native-k3s host.
-- Workflows run with their activities (integration) on a real Temporal dev server; the time-skipping one only where a durable timer must be skipped. And `src/worker-activities.test.ts` reads every
-  workflow's activity types and every worker's map from the compiler (unit).
+**Both halves**
+- Laid out by area, the same areas in the backend and the frontend. An area imports another only through its `index.ts`. Find a file
+  by area first.
+- Domain shapes are declared once. A deliberate copy across the wire is marked `── DUPLICATED, KNOWINGLY ──` and names the file that
+  wins.
+- Apps import packages; no package imports an app.
 
-## Playwright / k3d gotchas
+**Backend**
+- Inside an area the arrow is one-way: wiring → routes → services → lib. `lib/` is pure.
+- An area's records are its own store; nothing else reaches the driver.
+- A route reads the request, authorizes, calls one service method and shapes the response. Every async handler is wrapped.
+- Something is a service when it holds state, owns a resource or is the only writer of a collection; otherwise it is a `lib`
+  function.
+- Route order in the backend's bootstrap is load-bearing.
+- No value-import cycles; tsc cannot see them.
+- Relative imports need the `.js` extension.
 
-- **`workers: 1` only** — E2E tests deploy real apps bound to host network ports; parallel workers collide on ports.
-- **Worker restarts on failure**: a failed test restarts the Playwright worker process, which reloads the spec file and generates a *new* random `CLUSTER_NAME` (e.g. `e2e-fleet-XXX`) — but already-passed tests aren't rerun. A cascade of timeouts after one failure almost always means the *first* failure is the real bug; look there, not at the timeouts.
-- **Stale k3d containers**: leftover containers from a previous run (e.g. `k3d-isolated-fleet-XXX-server-0`) can make `k3d cluster create/delete` fail. `npm run clean-dev` removes leftover k3d containers/volumes.
+**Frontend**
+- Server state belongs to react-query; client state that crosses components is a zustand slice per domain; UI state stays in its
+  component.
+- No component contains a URL. No `props: any`. Pass a named intent, never a raw `setState`.
+- PascalCase files export a component, kebab-case files none. Logic that needs no React is a pure, tested `lib` function.
+- Imports are extensionless.
 
-## Files: code in git, everything else on the instance's MinIO
+**TypeScript**: `verbatimModuleSyntax`, `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` are on. Typecheck is necessary
+and not sufficient: run the suite and hit the route.
 
-Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's Files page shows two roots:
-- **Repository**: code dropped there, or on a folder in it, is committed in one commit as the person (`POST /api/projects/:id/files/drop`,
-  `RepositoryDropService` → `GiteaService.commitDropFromDisk`, bytes intact). The drop is streamed, never held in memory: the browser
-  sends the files as they are (`application/vnd.koala.drop`, `projects/lib/drop-body.ts`: a line of settings, then each file's
-  path and size followed by its bytes), the backend reads it as it arrives (`DropReader` in `files/lib/drops.ts`), writing each
-  file to a folder of its own on disk that is removed however the drop ends (`withReceivedDrop`), and commits from there with git
-  (a shallow fetch of the branch, the files hashed in from disk, one commit pushed; a file onto a folder, or a race, is refused).
-  There is no size limit. A project whose files live on the person's machine gets them written there byte for
-  byte from that folder, one file at a time (`sandbox:writeFile` with `encoding: 'base64'`, a whole file per message).
-- **Files**: everything else Koala keeps for a person is a **stored file** on the instance's own MinIO (owner: records in Mongo, code
-  and what agents write while working in Gitea, every other file in MinIO). There is no choice of server, no default server and no
-  Mongo fallback: the instance chart runs MinIO beside Mongo on the one data volume, its keys made once and kept, answering only the
-  instance's own pods, and gives every instance process `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`.
-  They are required: a backend serving tenants and the engine worker stop at start naming what is missing (`minioSettingsFrom` in
-  `files/lib/minio-settings.ts`); root and the hub serve and read no files. One construction builds it all, `storedFilesFor` in
-  `files/wiring/files.ts`, used by the backend and the engine worker alike: the object store (`minioObjectStore`), `StoredFiles`, the
-  activities, `FileService` and `ArtifactService`.
-  - **Bytes and records.** A file's bytes sit flat in the bucket under its id (`files/<id>`); its owner, scope, path, size, type,
-    version and state are a record in Mongo's `storedFiles` (`files/store.ts`). A scope (`files/lib/stored-files.ts`) is a
-    `project`, a `person` (their own files), a `conversation` with no project, or a `run` (its artifacts). A chat bound to a project
-    (its channel, a story's or feature's chat, one bound by plan adoption) keeps its files in that project under `chats/<chat id>/`
-    (`storedPlaceOf` in `files/lib/file-places.ts`); stories keep theirs under `stories/<story>/`. An empty folder is a folder record.
-  - **Keeping a file is a Temporal workflow.** An upload streams to a new id while its record says `uploading` (touched as bytes
-    arrive), then `StoredFilesWorkflow` (on the engine queue, its activities on the backend's stream worker,
-    `temporalStoredFileCommits`) checks the bytes are there whole and commits in one Mongo transaction: an upload onto a file's
-    path is that file's next version, the old bytes removed after. A move, and a whole scope's move, is one transaction. Removing
-    goes through the same workflow, records then bytes. `StoredFilesSweepWorkflow` (`stored-files-sweep`, started once by the
-    backend where tenants are served, `keepStoredFilesSwept`) runs daily: uploads nobody finished, expired run files and bytes no
-    record names go.
-  - **`FileService`** (`files/services/FileService.ts`) keeps authorization, paths and share links and calls `StoredFiles.at(owner,
-    scope)` for everything else. `/api/files/<scope>/<id>/list|search|folder|shares|content|move` with scopes `mine`,
-    `projects/:id` (the owner's) and `conversations/:id` (the owner's chat, its project's files under its folder when it has
-    one); an upload (`PUT …/content?path=`, the type in `X-File-Type`, the body octet-stream so nothing parses it) answers
-    `{ path, id }`, and `GET /api/files/stored/:fileId` serves a file of the person's by its id. A listing's or search's file
-    carries its stored file's `id` (a folder none). No size limit and no quota.
-  - **Overwriting asks** (owner, 2026-11-07: "make sure the user is aware they would overwrite it"). An upload keeps a file only
-    where nothing is unless it says `replace=1`; otherwise it answers 409 `{ error: '<path> is already there', exists: true }`, and
-    the browser asks before sending it again with `replace=1`. The commit enforces it too (`commitPlan` names every path already
-    there). Koala's own callers say their choice: `store_file`, the Archive and run artifacts replace; a hub member's upload replaces
-    only for an owner or a collaborator (`change-files`).
-  - **Room is checked before an upload** (owner: "the size should be calculated before the upload and inform the user if it wouldn't
-    fit"). `GET /api/files/room` answers `{ free }`, the bytes left on the volume the backend's data folder is on, which is the one
-    MinIO, Mongo and Temporal's database keep their stores on (`fs.statfs`, `roomOn` in `files/services/room.ts`, given to
-    `StoredFiles` as `room`). Any upload whose size is known (its `Content-Length`, a drop's whole length, each dropped file's size)
-    larger than that is refused before a byte is stored: 507 `{ error: 'This needs <size>, and <size> is free', needed, free }`
-    (`noRoomFor` in `files/lib/file-room.ts`).
-  - **A drop is one batch** (owner: "I'm ok with a batched approach"). `POST /api/files/<scope>/<id>/drop` takes the repository
-    drop's streamed body (`application/vnd.koala.drop`, read by `DropReader`): a settings line `{ dir, replace }`, then each file's
-    `{ path, size, type? }` (the type judged from its name when not given) followed by its bytes. Each file streams to MinIO under
-    an id of its own as it arrives (`receiveStoredDrop` in `files/services/stored-drop.ts`, through `Folder.startBatch` →
-    `UploadBatch`), and all of them are kept in one commit, so the batch is all or nothing; it answers 201 `{ files: [{ path, id }] }`.
-    Without `replace` a drop onto files already there stores nothing past the first of them and answers 409
-    `{ error, exists: [paths] }` naming every one. A refused drop removes what it had sent through the remove workflow; a drop
-    that fails part way (the connection lost, MinIO failing) leaves its uploads to the daily sweep.
-- **Koala's own file browser** (`features/files/components/StoredFiles.tsx`, rules in `files/lib/file-browser.ts`): upload, new folder, search by
-  name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection
-  onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
-  right pane, a dialog elsewhere).
-- **Share links follow the file**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by
-  Koala at `/api/share/<token>` with no session, by the file's id (`fileId` on the share): a new version of the file moves the link
-  to it in the same transaction (`nextVersions`), and moving, renaming or removing the file drops the link in the transaction that
-  does it; a link from before files were kept by id opens nothing. The token is stored only as its SHA-256, `tokenHash`, by which a
-  link is found, and sealed with `DATA_KEY` so Settings can show it again, the share's id being its own (the startup migration
-  `share-tokens-sealed` moved the links stored under their token) (`/share/` in the guard's public prefixes), streamed from MinIO,
-  so MinIO is never exposed. Revoked from Settings; expired ones are removed when opened. Every person's file and every artifact is served
-  with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
-  Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses, its policy only `frame-ancestors 'self'`, so the page's own policy never stops Koala's preview framing it); anything else downloads, whatever type
-  its uploader gave it, and the type sent is the one Koala judged, never the uploader's string (`servedType` in `files/lib/file-serving.ts`).
-- **A story's page** takes both: **Code for this story** goes to the story's checkout (`StoryDropService`, recorded as `drops` on
-  the story): committed on its own branch `drop/<story>/<id>` from `main`, merged into the story's worktree at once when it
-  exists (`applyDrop`, `git merge --autostash`, so the worker's uncommitted changes stay), otherwise brought into the tree's
-  repository (`keepBranch`) or left in Gitea for the next workspace start, and merged when the checkout is made
-  (`mergeDrops` in Prepare Worktrees). A conflict changes nothing and names the files. **Files for this story** go under
-  `stories/<story>/` in the project's files. `mechanics-story-drop` proves both code paths on a script.
-- **Chat attachments** (paperclip, drop or paste in any composer) are uploaded first, into the chat's files
-  (`/api/files/conversations/<id>/content`), then sent with the message by id (`attachments: [{ fileId }]`); the backend reads each
-  from what the person keeps (`readAttachments` in `engine/lib/attachments.ts`, through `FileService.attachable`) and keeps its
-  `fileId`, name, size, type and project on the message. The model is told each file's id and to read it with `read_stored_file`
-  (`fileId`), in that turn and every later one (`heardAs`). Attachments from before, with a path and no id, were removed from every
-  message once at start (owner, 2026-11-07: "just delete em"; the migration `unkept-attachments-dropped`,
-  `EngineStore.dropUnkeptAttachments`), the message kept. A channel post can be only attachments.
-- **A run's artifacts** (`ArtifactService`, what a browser test or a failed task left) are stored files of the run's scope, kept 14
-  days (`expiresAt`, removed by the sweep) within the run's 50 MB; `/api/artifacts/runs/:runId` lists them and
-  `/api/artifacts/:id` (a stored file's id) serves one. A check space's run files are handed to the person with its runs
-  (`reownRunFiles`).
-- **Agents' tools** (extension `files`): `list_files`, `read_stored_file` (by path, or by `fileId` within the scope the call is in;
-  text whole up to 100,000 characters, a binary file described), `store_file`, `remove_stored_file` (both destructive, so they
-  ask), on the project named or the run's or chat's own project, else a chat's own files, else the person's. Koala holds all four;
-  the executor and research the first three.
-- Deleting a project deletes its files, its chats' included (`RemoveProjectFilesActivity` → `FileService.removeProjectFiles`, behind
-  the `project-files` patch), and removing an account removes every file it keeps, in every scope (`StoredFiles.removeOwned` in
-  `RemoveAccountRecordsActivity`).
-
-## Data
-
-**Mongo must be a replica set** (one node is enough; change streams need it): the backend refuses a standalone one, and `bash scripts/ensure-mongo.sh` converts a dev box's, keeping its data.
-
-**A field left undefined is not stored** (`CLIENT_OPTIONS` in `platform/lib/collection.ts`, `ignoreUndefined`, on every client; before 2026-11-02 the driver stored it as `null`, so an invite saved with `usedBy: undefined` could never be spent), and a partial write goes through `fieldChanges`, which unsets a field patched to `undefined`. Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it). A deployment's passwords, keys and tokens (`DEPLOYMENT_SECRET_FIELDS` in `infrastructure/lib/deployment-secrets.ts`) are
-sealed with `DATA_KEY` at the store boundary (`MongoInfrastructureStore` seals on save and unseals on read, so every reader sees plain
-values), and the startup migration `deployment-secrets-sealed` seals records stored plain before.
-
-`apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
-socket.io — see `InfrastructureService`'s `LOG_DIR`) and, on an instance, `caddy/apps/` (the edge's sites, one
-`<namespace>.local.caddy` and `<namespace>.public.caddy` per exposed app). The `*.json` files
-in there are unused leftovers, **not** the source of truth.
-
-## Prerequisites
-
-- Docker, k3d, kubectl, helm (or use pre-downloaded binaries in `bin/`)
-- Node.js 20+
-- Temporal workflows need the Docker container on port 7233 (`docker-compose.temporal.yml`)
-- GPU workloads (vLLM) need the NVIDIA/AMD driver and container toolkit on the host — see `scripts/setup-gpu.sh`
+One-time setup: `git config core.hooksPath .githooks`.
