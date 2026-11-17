@@ -295,22 +295,6 @@ export function publishedImageOf(repo: string): string {
   return `ghcr.io/${owner.toLowerCase()}/nowrinkles/app`;
 }
 
-export function waitForPublished(image: string, log: (line: string) => void, ended: () => string | undefined): void {
-  const started = Date.now();
-  let told = 0;
-  for (;;) {
-    if (spawnSync('docker', ['manifest', 'inspect', image], { stdio: 'ignore' }).status === 0) return;
-    const reason = ended();
-    if (reason) throw new Error(`${image} will not be published: ${reason}`);
-    const minutes = Math.floor((Date.now() - started) / 60_000);
-    if (minutes >= told + 5) {
-      told = minutes;
-      log(`${image} is not published yet after ${minutes} min; the Release workflow builds it (and the package must be public for root to pull it)`);
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30_000);
-  }
-}
-
 export function updateRoot(target: string, version: string, repoDir: string): boolean {
   return spawnSync('ssh', ['-o', 'BatchMode=yes', target, 'sudo', 'bash', `${repoDir}/scripts/root-node/release-watch.sh`, version], { stdio: 'inherit', env: { ...process.env } }).status === 0;
 }

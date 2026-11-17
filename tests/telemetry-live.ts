@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { stillDown } from '@koala/engine-core/failures';
 import crypto from 'node:crypto';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -153,7 +154,7 @@ async function main(): Promise<void> {
       const names = await until(`the trace ${traceId} with ${wanted.join(', ')}`, async () => {
         const answer = await http.get(`/api/traces/${traceId}`);
         if (answer.status === 404) return undefined;
-        if (answer.status >= 500) throw new Error(`Tempo answered ${answer.status}`);
+        if (answer.status >= 500) throw stillDown(`Tempo answered ${answer.status}`);
         assert.ok(answer.status === 200, `Tempo answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
         const names = spanNames(answer.data);
         return wanted.every((name) => names.includes(name)) ? names : undefined;

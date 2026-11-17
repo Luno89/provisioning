@@ -14,15 +14,20 @@ describe('until', () => {
     expect(looks).toBe(1);
   });
 
-  it('asks again after a lost connection, and never after an assertion or a hopeless answer', async () => {
+  it('asks again after a lost connection or an answer of not there yet, and never after a final one or a hopeless answer', async () => {
     let looks = 0;
-    expect(await until('root', async () => { looks += 1; if (looks === 1) throw new Error('connect ECONNREFUSED'); return 'up'; })).toBe('up');
+    expect(await until('root', async () => { looks += 1; if (looks === 1) throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }); if (looks === 2) throw Object.assign(new Error('missing'), { response: { status: 404 } }); return 'up'; })).toBe('up');
     await expect(until('root', async () => { throw new Hopeless('gone'); })).rejects.toThrow('gone');
     await expect(until('root', async () => { throw Object.assign(new Error('refused'), { response: { status: 401 } }); })).rejects.toThrow('refused');
   });
 
-  it('treats a reason that cannot be read as nothing to report', async () => {
+  it('stops at once on a mistake in what it looks at, rather than looking forever', async () => {
+    await expect(until('root', async () => { throw new TypeError('Cannot read properties of undefined'); })).rejects.toThrow(TypeError);
+  });
+
+  it('keeps waiting while its end cannot be read for now, and stops when reading it fails for good', async () => {
     let looks = 0;
-    expect(await until('root', async () => { looks += 1; return looks > 1 ? true : undefined; }, async () => { throw new Error('docker did not answer'); })).toBe(true);
+    expect(await until('root', async () => { looks += 1; return looks > 1 ? true : undefined; }, async () => { throw Object.assign(new Error('reset'), { code: 'ECONNRESET' }); })).toBe(true);
+    await expect(until('root', async () => undefined, async () => { throw new TypeError('no such field'); })).rejects.toThrow('no such field');
   });
 });

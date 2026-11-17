@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { stillDown } from '@koala/engine-core/failures';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -346,7 +347,7 @@ async function main(): Promise<void> {
     if (https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie }).status === 401) return true;
     const failing = (await logoutDeliveries(ROOT)).find((delivery) => delivery.lastError);
     if (failing && /CERT|certificate|ENOTFOUND|EAI_AGAIN/i.test(failing.lastError!)) throw new Hopeless(`root cannot tell the instance at ${failing.url}: ${failing.lastError}`);
-    if (failing) throw new Error(`root has tried ${failing.attempts} times to tell the instance at ${failing.url}: ${failing.lastError}`);
+    if (failing) throw stillDown(`root has tried ${failing.attempts} times to tell the instance at ${failing.url}: ${failing.lastError}`);
     return undefined;
   }, gone);
   console.log('  the instance refuses the session root revoked');
