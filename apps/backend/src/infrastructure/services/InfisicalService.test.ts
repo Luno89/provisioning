@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const files = new Map<string, string>();
+const unwritable = new Set<string>();
 
 vi.mock('fs/promises', () => ({
   default: {
     readFile: (p: string) => (files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error('ENOENT'))),
-    writeFile: (p: string, data: string) => { files.set(p, data); return Promise.resolve(); },
+    writeFile: (p: string, data: string) => {
+      if (unwritable.has(p)) return Promise.reject(new Error(`EACCES: permission denied, open '${p}'`));
+      files.set(p, data);
+      return Promise.resolve();
+    },
     mkdir: () => Promise.resolve(),
   },
 }));
@@ -44,6 +49,7 @@ describe('InfisicalService', () => {
 
   beforeEach(() => {
     files.clear();
+    unwritable.clear();
     files.set(IDENTITY_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
     for (const fn of [post, get, patch, del]) fn.mockReset();
     service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir);
@@ -167,16 +173,18 @@ describe('InfisicalService', () => {
     expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe('the signing secret the setup script wrote');
   });
 
-  it('carries an identity a box kept in the auth secret file into its own, leaving that file as Infisical has it', async () => {
+  it('fails, naming the file, when the identity it made cannot be kept', async () => {
     files.clear();
-    const kept = JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' });
-    files.set(SHARED_AUTH_SECRET_FILE, kept);
-    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    unwritable.add(IDENTITY_FILE);
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith('/universal-auth/login')) return { data: { accessToken: 'fresh' } };
+      if (url.endsWith('/admin/bootstrap')) return { data: { identity: { id: 'id2', credentials: { token: 'boot' } }, organization: { id: 'org2' } } };
+      if (url.endsWith('/client-secrets')) return { data: { clientSecret: 'cs2' } };
+      return { data: { identityUniversalAuth: { clientId: 'cid2' } } };
+    });
 
-    expect(await service.authenticate()).toBe('tok');
-    expect(post.mock.calls[0]?.[1]).toEqual({ clientId: 'cid', clientSecret: 'cs' });
-    expect(files.get(IDENTITY_FILE)).toBe(kept);
-    expect(files.get(SHARED_AUTH_SECRET_FILE)).toBe(kept);
+    await expect(service.authenticate()).rejects.toThrow(`could not keep Infisical's machine identity at ${IDENTITY_FILE}: EACCES: permission denied`);
+    expect(files.has(IDENTITY_FILE)).toBe(false);
   });
 
   it('says so when Infisical refuses the stored identity and is not new, keeping the file as it was', async () => {

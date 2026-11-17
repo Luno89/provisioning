@@ -84,19 +84,16 @@ export class InfisicalService {
   }
 
   private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
-    const own = await readIdentity(path.join(this.dataDir, '.infisical-machine-identity'));
-    if (own) return own;
-    const shared = await readIdentity(path.join(this.dataDir, '.infisical-auth-secret'));
-    if (shared) await this.saveAuthCreds(shared);
-    return shared;
+    return readIdentity(path.join(this.dataDir, '.infisical-machine-identity'));
   }
 
   private async saveAuthCreds(creds: { clientId: string; clientSecret: string; orgId: string }): Promise<void> {
+    const file = path.join(this.dataDir, '.infisical-machine-identity');
     try {
       await fs.mkdir(this.dataDir, { recursive: true });
-      await fs.writeFile(path.join(this.dataDir, '.infisical-machine-identity'), JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
+      await fs.writeFile(file, JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
     } catch (err) {
-      console.warn(`[InfisicalService] could not persist auth credentials: ${messageOf(err)}`);
+      throw new Error(`could not keep Infisical's machine identity at ${file}: ${messageOf(err)}`);
     }
   }
 
@@ -139,9 +136,7 @@ export class InfisicalService {
       const clientSecret = textAt(secretRes.data, 'clientSecret');
       if (!clientSecret) return null;
 
-      const creds = { clientId, clientSecret, orgId };
-      await this.saveAuthCreds(creds);
-      return creds;
+      return { clientId, clientSecret, orgId };
     } catch (err) {
       console.warn(`[InfisicalService] could not provision a machine identity: ${messageOf(err)}`);
       return null;
@@ -162,6 +157,7 @@ export class InfisicalService {
           ? 'Infisical refuses the machine identity in data/.infisical-machine-identity and is not new, so another cannot be made'
           : 'Infisical has no machine identity and one could not be provisioned');
       }
+      await this.saveAuthCreds(creds);
       token = await this.login(creds);
       if (!token) throw new Error('Infisical refused the machine identity it just made');
     }
