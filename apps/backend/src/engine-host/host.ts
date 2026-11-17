@@ -139,7 +139,7 @@ export interface EngineHostOptions {
   reportsTo?: import('../platform/index.js').DependencyReporter | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
   registryPushToken?: (() => Promise<PushToken>) | undefined;
-  revokeRegistryPushToken?: ((name: string) => Promise<void>) | undefined;
+  revokeRegistryPushToken: (name: string) => Promise<void>;
   registryLogin?: RegistryLoginSource | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   runEnded?: ((runId: string) => Promise<boolean>) | undefined;
@@ -250,7 +250,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.reportsTo ? { reportsTo: options.reportsTo } : {}),
     ...(options.registryAccount ? { account: options.registryAccount } : {}),
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
-    ...(options.revokeRegistryPushToken ? { revokePushToken: options.revokeRegistryPushToken } : {}),
+    revokePushToken: options.revokeRegistryPushToken,
   });
 
   const treeWorkspacesFor: { current?: TreeWorkspaces | undefined } = {};

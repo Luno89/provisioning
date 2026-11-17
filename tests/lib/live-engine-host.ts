@@ -29,6 +29,7 @@ export function liveEngineHost(db: Database) {
     registry: devRegistry(),
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
+    revokeRegistryPushToken: (name: string) => gitea.revokeToken(name),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
   });

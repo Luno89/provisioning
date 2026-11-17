@@ -20,7 +20,7 @@ const hostFor = async (enabled: string[]) => {
   await seedAll(db, testKeys('mcp-on-host').data);
   await db.engine.saveMcpServer(GITEA);
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], mcpServers: enabled, createdAt: 't0', updatedAt: 't0' });
-  const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });
+  const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, revokeRegistryPushToken: async () => undefined, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });
   const call = (name: string, args: Record<string, unknown>) => host.tools.run({ ticket: { runId: 'r1', depth: 0, ownerId: 'bo', agentSlug: 'koala', trigger: 'user', conversationId: 'c1' }, nodeId: 'n', name, arguments: JSON.stringify(args) }, 1);
   return { db, call };
 };

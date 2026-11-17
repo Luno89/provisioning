@@ -22,6 +22,8 @@ const needsPsql: ToolDefinition = {
   needs: ['go'],
 };
 
+const revokesNothing = async (_name: string): Promise<void> => undefined;
+
 const PLAIN = planImage({ tools: [] });
 const CUSTOM = planImage({ tools: [needsPsql] });
 
@@ -40,7 +42,7 @@ const builder = (over: Partial<Parameters<typeof createImageBuilder>[0]> = {}) =
   const { run, calls } = kube(over.run ? {} : {});
   return {
     calls,
-    builder: createImageBuilder({
+    builder: createImageBuilder({ revokePushToken: revokesNothing,
       run,
       registry: HOSTS,
       published: async () => false,
@@ -59,7 +61,7 @@ describe('not building what does not need building', () => {
 
   it('skips the build when the registry already has that fingerprint', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: HOSTS, published: async () => true });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, published: async () => true });
 
     expect(await build.ensure(CUSTOM)).toBe(imageReference(REGISTRY, CUSTOM));
     expect(calls.some((call) => call.args[0] === 'apply')).toBe(false);
@@ -72,7 +74,7 @@ describe('building what does', () => {
 
   it('applies a kaniko job that pushes to the fingerprinted tag', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
 
     const reference = await build.ensure(CUSTOM);
 
@@ -96,7 +98,7 @@ describe('building what does', () => {
       return new Response(null, { status: calls.some((call) => call.args[0] === 'apply') ? 200 : 404 });
     });
     try {
-      const build = createImageBuilder({
+      const build = createImageBuilder({ revokePushToken: revokesNothing,
         run, registry: { pull: '127.0.0.1:35010', push: 'gitea-http.gitea.svc.cluster.local:3000' }, pollMs: 1,
         pushToken: async () => ({ username: 'bot', password: 'token' }),
       });
@@ -127,7 +129,7 @@ describe('building what does', () => {
 
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {
     const { run, calls } = kube();
-    await createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
+    await createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
@@ -142,7 +144,7 @@ describe('building what does', () => {
       logs: { stdout: 'error building image: no such package', stderr: '', exitCode: 0 },
     });
 
-    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(ImageBuildError);
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/no such package/);
@@ -154,7 +156,7 @@ describe('building what does', () => {
       logs: { stdout: 'No match for argument: ripgrep', stderr: '', exitCode: 0 },
     });
 
-    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     const started = Date.now();
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: No match for argument: ripgrep/);
@@ -164,7 +166,7 @@ describe('building what does', () => {
   it('keeps waiting on a build that is still going, however long it takes, and finishes when it is published', async () => {
     let polls = 0;
     const { run } = kube({ get: { stdout: '1||', stderr: '', exitCode: 0 } });
-    const build = createImageBuilder({
+    const build = createImageBuilder({ revokePushToken: revokesNothing,
       run, registry: HOSTS, pollMs: 1, published: async () => { polls += 1; return polls > 30; },
     });
 
@@ -177,21 +179,21 @@ describe('building what does', () => {
     const stuck = vi.fn(async (args: string[]) => (args[0] === 'get' && args[1] === 'pods'
       ? { stdout: JSON.stringify({ items: [{ metadata: { name: 'build-x' }, status: { phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } }] } }] }), stderr: '', exitCode: 0 }
       : run(args)));
-    const build = createImageBuilder({ run: stuck as never, registry: HOSTS, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run: stuck as never, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: build-x: ImagePullBackOff/);
   });
 
   it('says so when the job cannot even be created', async () => {
     const { run } = kube({ apply: { stdout: '', stderr: 'forbidden', exitCode: 1 } });
-    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/Could not start the image build: forbidden/);
   });
 
   it('names the job after the fingerprint, so two runs wanting the same image share one build', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
 
     await build.ensure(CUSTOM);
 
@@ -203,7 +205,7 @@ describe('building what does', () => {
 describe('where images are pushed', () => {
   it('refuses to build with the reason it was given where there is no registry, running nothing', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: { none: 'root builds no workspace images, so it pushes to no registry' }, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ revokePushToken: revokesNothing, run, registry: { none: 'root builds no workspace images, so it pushes to no registry' }, published: async () => false, pollMs: 1 });
     await expect(build.ensure(CUSTOM)).rejects.toThrow('root builds no workspace images, so it pushes to no registry');
     expect(calls).toHaveLength(0);
   });
@@ -309,6 +311,22 @@ describe('the token a workspace build pushes with', () => {
     expect(secrets.size).toBe(0);
   });
 
+  it('says so when the builds\' secrets cannot be listed, rather than taking it as no token to revoke', async () => {
+    const { run } = cluster();
+    const listing = vi.fn<KubeRunner>(async (args, input) => (args[0] === 'get' && args[1] === 'secrets'
+      ? { stdout: '', stderr: 'Error from server (Forbidden): secrets is forbidden', exitCode: 1 }
+      : run(args, input)));
+    const minting = tokens();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const build = createImageBuilder({ run: listing, registry: HOSTS, published: async () => false, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+      await build.start(CUSTOM);
+      expect(warn).toHaveBeenCalledWith(matching(/push tokens of finished builds stay valid.*secrets is forbidden/));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('is revoked for a failed build, and for one whose job is gone, before the next build mints its own', async () => {
     const { run, secrets, jobs } = cluster();
     const minting = tokens();
@@ -333,7 +351,7 @@ describe('whether an image is published, asked of the registry', () => {
     let status = 200;
     const fetched = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status }));
     try {
-      const build = createImageBuilder({ run: kube().run, registry: HOSTS });
+      const build = createImageBuilder({ revokePushToken: revokesNothing, run: kube().run, registry: HOSTS });
       for (const [given, published] of answers) {
         status = given;
         expect(await build.exists(PLAIN)).toBe(published);
@@ -352,14 +370,14 @@ describe('whether an image is published, asked of the registry', () => {
 describe('an image registry that cannot say whether an image is built', () => {
   it('is asked again until it answers, never taken as having no image, and a refusal stops the build with why', async () => {
     let asked = 0;
-    const flaky = createImageBuilder({
+    const flaky = createImageBuilder({ revokePushToken: revokesNothing,
       run: kube().run, registry: HOSTS, askAgain: () => reopening(1),
       published: async () => { asked += 1; if (asked < 3) throw Object.assign(new Error('the image registry answered 503'), { status: 503 }); return true; },
     });
     expect(await flaky.ensure(CUSTOM)).toBe(imageReference(REGISTRY, CUSTOM));
     expect(asked).toBe(3);
 
-    const refusing = createImageBuilder({ run: kube().run, registry: HOSTS, published: async () => { throw Object.assign(new Error('the image registry answered 401'), { status: 401 }); } });
+    const refusing = createImageBuilder({ revokePushToken: revokesNothing, run: kube().run, registry: HOSTS, published: async () => { throw Object.assign(new Error('the image registry answered 401'), { status: 401 }); } });
     await expect(refusing.ensure(CUSTOM)).rejects.toThrow(`The image registry could not be asked whether ${CUSTOM.fingerprint} is built: the image registry answered 401`);
   });
 });

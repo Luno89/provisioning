@@ -17,6 +17,7 @@ describe('the engine host', () => {
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this test builds no workspace images' },
+      revokeRegistryPushToken: async () => undefined,
       stores: storesFromDatabase(db, noMemoryIndex),
       publishedWorkspaces: { get: async () => undefined, save: async () => undefined },
       readRepoFile: async () => undefined,
@@ -39,6 +40,7 @@ describe('a run whose workspace image cannot be had yet', () => {
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this Koala has no registry to build workspace images in' },
+      revokeRegistryPushToken: async () => undefined,
       stores: storesFromDatabase(db, noMemoryIndex),
       mcpHostedUrl: async () => undefined,
     });

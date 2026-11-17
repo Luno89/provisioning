@@ -48,7 +48,7 @@ export interface ImageBuilderOptions {
   askAgain?: (() => Reopening) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
   pushToken?: (() => Promise<PushToken>) | undefined;
-  revokePushToken?: ((name: string) => Promise<void>) | undefined;
+  revokePushToken: (name: string) => Promise<void>;
   reportsTo?: DependencyReporter | undefined;
 }
 
@@ -222,10 +222,8 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const exists = async (plan: ImagePlan): Promise<boolean> => published(await target(plan));
 
   const releaseFinishedTokens = async (): Promise<void> => {
-    if (!options.revokePushToken) return;
-    const secrets = await run(['get', 'secrets', '-n', namespace, '-l', 'koala.dev/image', '-o', 'json'], undefined, undefined)
-      .catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
-    if (secrets.exitCode !== 0) return;
+    const secrets = await run(['get', 'secrets', '-n', namespace, '-l', 'koala.dev/image', '-o', 'json'], undefined, undefined);
+    if (secrets.exitCode !== 0) throw new Error(`the builds' secrets could not be listed: ${(secrets.stderr || secrets.stdout).trim()}`);
     const items = (JSON.parse(secrets.stdout || '{}') as { items?: { metadata: { name: string; annotations?: Record<string, string> } }[] }).items ?? [];
     for (const secret of items) {
       const token = secret.metadata.annotations?.[PUSH_TOKEN_ANNOTATION];
