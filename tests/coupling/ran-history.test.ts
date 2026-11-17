@@ -26,6 +26,13 @@ describe('which tests last ran a call for real', () => {
     expect(lastRanLine([record], 'R5 apps/backend/src/x/services/Thing.ts#acts')).toBe('  last run for real at aaa (aaa-at) by: Thing.integration.test.ts; this run did not, so what those tests do differs between runs');
   });
 
+  it('counts a call made from two places as run only when both places ran, so one place never vouches for the other', () => {
+    const elsewhere: Judged = { ...ranBy(['sign-in.integration.test.ts']), edge: { ...edge('interpreter', ['workflow']), site: { file: 'apps/backend/src/x/interpreter.ts', line: 9, column: 1, start: 0, end: 0 } } };
+    expect(run([elsewhere, unrun], 'aaa').ran).toEqual({});
+    expect(run([unrun, elsewhere], 'aaa').ran).toEqual({});
+    expect(Object.values(run([elsewhere, ranBy(['grove-run.integration.test.ts'])], 'aaa').ran)).toEqual([['grove-run.integration.test.ts', 'sign-in.integration.test.ts']]);
+  });
+
   it('says so when no audit it keeps ran the call, and keeps only the latest few audits', () => {
     const [breach] = breaches([unrun], graph, ['R1']);
     expect(lastRanLine([run([unrun], 'ccc')], breach!.key)).toBe(`  no audit of the last ${KEPT_RECORDS} ran it for real either`);

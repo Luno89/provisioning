@@ -9,11 +9,16 @@ export const KEPT_RECORDS = 5;
 const TESTS_NAMED = 5;
 
 export function ranIn(judged: readonly Judged[], graph: Graph): Record<string, string[]> {
-  const ran: Record<string, string[]> = {};
+  const byCall = new Map<string, Judged[]>();
   for (const entry of judged) {
-    if (entry.covered.length === 0 || entry.edge.to.length === 0) continue;
-    const tests = [...new Set(entry.covered.map((covered) => covered.test))].sort().slice(0, TESTS_NAMED);
-    ran[callOf(entry.edge, graph)] = tests;
+    if (entry.edge.to.length === 0) continue;
+    const call = callOf(entry.edge, graph);
+    byCall.set(call, [...(byCall.get(call) ?? []), entry]);
+  }
+  const ran: Record<string, string[]> = {};
+  for (const [call, sites] of byCall) {
+    if (sites.some((site) => site.covered.length === 0)) continue;
+    ran[call] = [...new Set(sites.flatMap((site) => site.covered.map((covered) => covered.test)))].sort().slice(0, TESTS_NAMED);
   }
   return ran;
 }
