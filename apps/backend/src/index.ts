@@ -500,7 +500,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (!settings.underTest || settings.e2e) {
     httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);
+        console.error(`❌ Port ${port} is already in use by another process. Stop what holds it, or run npm run dev:reset.`);
         process.exit(1);
       }
       console.error(`Provisioning Server Error: ${err.message}`);

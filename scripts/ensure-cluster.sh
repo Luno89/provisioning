@@ -64,19 +64,9 @@ else
   fi
 fi
 
-# Guard against a stale in-cluster worker pod competing with the local `dev:worker:cluster`
-# process for the same Temporal task queue (cluster-ops-queue). The pod is only ever deployed
-# manually (`npm run deploy-worker`) and persists across `npm run dev` sessions since it lives
-# in the cluster, not the npm process — scale it to 0 so local dev always wins, without
-# touching the manifest itself so `npm run deploy-worker` still works when deliberately wanted.
-if "$KUBECTL" --context "$CLUSTER_CONTEXT" get deployment provisioning-worker &>/dev/null; then
-  echo "  ▶  scaling down in-cluster worker pod (avoids stale-code conflicts with local dev)"
-  "$KUBECTL" --context "$CLUSTER_CONTEXT" scale deployment/provisioning-worker --replicas=0 || true
-fi
-
 # Create the worker log directory BEFORE root-node/root-telemetry.sh applies the stack. LoggingStack mounts this exact
 # path into promtail as `hostPath: { type: DirectoryOrCreate }` (constructs/logging.ts), and
-# kubelet creates a missing DirectoryOrCreate path as root:root 0755. `clean-dev` wipes data/, so
+# kubelet creates a missing DirectoryOrCreate path as root:root 0755, so
 # on a fresh setup promtail would win the race and the host workers — which run as the invoking
 # user — then fail with EACCES on their own log file. Creating it here means the mount finds an
 # existing directory and leaves ownership alone.

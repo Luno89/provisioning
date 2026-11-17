@@ -11,7 +11,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEMPORAL_PORT=7233
 COMPOSE_FILE="${ROOT}/docker-compose.temporal.yml"
 
-# Resolve docker-compose binary (same pattern as first-time.sh)
 DOCKER_COMPOSE="${ROOT}/bin/docker-compose"
 if [ ! -f "$DOCKER_COMPOSE" ] || ! "$DOCKER_COMPOSE" version >/dev/null 2>&1; then
   if command -v docker-compose >/dev/null 2>&1; then
