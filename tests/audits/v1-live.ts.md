@@ -64,3 +64,16 @@ Each failure pointed at something a person would hit (a page error, a GPU not of
 and each fix is in the product with its own unit and integration tests; the suite changes are the guard, the awaited clicks and the
 context it serves. It runs on the disposable dev stack as a fresh owner (owner, 2026-11-14: "Disposable, reset each run"), and passed
 there on 2026-11-15.
+
+## Since 2026-11-16: three more failures, one cause in the code
+1. **2026-11-16 22:24**: after the vLLM half destroyed its app, the app's dashboard stayed open over the page, so TabbyAPI's
+   "Deploy an app" could not be clicked. The cause was in the product: a finished destroy never told the browser. Only the
+   removed abort sent `resource-destroyed`, so the page's own handler (close that app's log, clear its destroying state, say it
+   is gone) never ran on an ordinary destroy. The suite closed the dashboard by hand then (c2ce58db4), which hid it.
+2. **2026-11-17 18:13**: the deliberate fault check of the build Koala pins (the wizard's TabbyAPI default put back to `latest`);
+   v1-live failed saying "TabbyAPI runs ghcr.io/theroyallab/tabbyapi:latest, not the build Koala pins", as meant. No fault.
+3. **2026-11-17 23:18**: the product fix for 1 landed (a2cfc171e: the destroy's end tells its owner's browsers), and the page
+   closed the dashboard itself before the suite's hand-close, which then found no button.
+
+**How it is now built**: the destroy workflow's end sends `resource-destroyed` to the owner's browsers (TemporalBridge's settle,
+tested in TemporalBridge.test.ts), and v1-live checks the destroyed app's dashboard closes by itself rather than closing it.

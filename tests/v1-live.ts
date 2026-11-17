@@ -222,8 +222,7 @@ async function main(): Promise<void> {
       return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
     });
     await expect(appRow).toHaveCount(0, { timeout: 60_000 });
-    await page.getByRole('button', { name: 'Close dashboard' }).click();
-    await expect(page.getByRole('button', { name: 'Close dashboard' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Close dashboard' }), 'the destroyed app\'s dashboard did not close once it was gone').toHaveCount(0, { timeout: 60_000 });
     deploymentId = undefined;
     stopWatching();
     stopWatching = () => undefined;
