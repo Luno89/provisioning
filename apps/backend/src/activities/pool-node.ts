@@ -28,14 +28,14 @@ export function installJob(job: string, namespace: string, vcluster: string, ima
     'set -eu',
     `sed "s|server: .*|server: https://${vclusterAddress(vcluster)}:443|" /vc/config > /tmp/kubeconfig`,
     'chmod 600 /tmp/kubeconfig',
-    `/app/bin/helm upgrade --install ${INSTANCE_RELEASE.name} /app/charts/instance -n ${INSTANCE_RELEASE.namespace} --create-namespace --kubeconfig /tmp/kubeconfig -f /values/values.json --timeout 720h`,
+    `exec entrypoint install-koala --kubeconfig /tmp/kubeconfig --release ${INSTANCE_RELEASE.name} --namespace ${INSTANCE_RELEASE.namespace} --chart /app/charts/instance -- -f /values/values.json`,
   ].join('\n');
   return {
     apiVersion: 'batch/v1',
     kind: 'Job',
     metadata: { name: job, namespace },
     spec: {
-      backoffLimit: 2,
+      backoffLimit: 0,
       ttlSecondsAfterFinished: 3600,
       template: {
         spec: {

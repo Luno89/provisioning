@@ -2,6 +2,7 @@ import type { Socket } from 'socket.io'
 import type { Site } from './site'
 import { MachineService } from '../../../../backend/src/machines/services/MachineService'
 import { MachineAccounts } from '../../../../backend/src/machines/services/MachineAccounts'
+import { KoalaInstalls } from '../../../../backend/src/machines/services/KoalaInstalls'
 import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice } from '../../../../backend/src/machines/lib/local-agent-registry'
 import { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
 import { InstanceService } from '../../../../backend/src/instances/services/InstanceService'
@@ -36,8 +37,14 @@ export function machinesOf({ db, origin }: Site): Machines {
     koala: { of: async () => ({ url: origin, audience: 'site-instance' }) },
     followers: { joined: (machine) => machines.adopt(machine), removed: (machine) => machines.forget(machine), changed: async () => undefined },
     toOwner: { machinesChanged: () => undefined },
-    toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
-    placer: instances,
+    toMachines: { removed: () => false, koala: () => false, online: () => false },
+    installs: new KoalaInstalls({
+      devices: () => db.machines.getLocalAgentDevices(),
+      places: () => instances,
+      workflows: { start: async () => undefined, progress: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
+      toMachines: { placeKoala: async () => false },
+      toOwner: { installChanged: () => undefined },
+    }),
   })
   return {
     machines,

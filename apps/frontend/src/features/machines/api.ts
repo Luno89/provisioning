@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { machineChoice } from '@koala/agent-engine/procedure'
 import { MACHINE_JOINS_CHANGED, type MachineJoinView } from '@koala/engine-core/machine-join'
+import { KOALA_INSTALL_CHANGED, type KoalaInstallView } from '@koala/engine-core/koala-install'
 import { api } from '../../api/client'
 import { machineChoiceLabel } from './lib/machine-rows'
 import type { ReportedGpus } from '../../shared/lib/gpu-lines'
 import { useSocketEvent } from '../platform'
 
-export type { MachineJoinView }
+export type { KoalaInstallView, MachineJoinView }
 
 export const localAgentKeys = {
   list: () => ['local-agent-devices'] as const,
@@ -125,7 +126,7 @@ export interface AccountMachine {
 export interface MyMachinesView {
   machines: AccountMachine[]
   joins: MachineJoinView[]
-  koala: { machineId?: string; status?: string } | null
+  koala: { machineId?: string; status?: string; install?: KoalaInstallView } | null
 }
 
 export const listMyMachines = (): Promise<MyMachinesView> =>
@@ -142,7 +143,9 @@ export const dismissMachineJoin = (id: string): Promise<{ dismissed: true }> =>
 
 export function useMyMachinesLive(): void {
   const queries = useQueryClient()
-  useSocketEvent(MACHINE_JOINS_CHANGED, () => { void queries.invalidateQueries({ queryKey: localAgentKeys.mine() }) })
+  const changed = () => { void queries.invalidateQueries({ queryKey: localAgentKeys.mine() }) }
+  useSocketEvent(MACHINE_JOINS_CHANGED, changed)
+  useSocketEvent(KOALA_INSTALL_CHANGED, changed)
 }
 
 export function useDismissMachineJoin() {

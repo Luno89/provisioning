@@ -8,6 +8,7 @@ import type { ClientSession, LogoutDelivery, SessionRevocation } from '../lib/si
 import type { InstanceWatchRecord, Reach } from '../lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from '../lib/dependency-findings.js';
 import type { InstancesStore } from '../store.js';
+import type { Watching } from '../../platform/lib/change-streams.js';
 
 type Fields = Record<string, unknown>;
 
@@ -45,6 +46,7 @@ export class MemoryInstancesStore implements InstancesStore {
   private readonly findings = new Map<string, Omit<DependencyFinding, 'key'>>();
   private check: DependencyCheck | undefined;
   private readonly withdrawalNotices: Map<string, { ownerId: string; at: string }>;
+  private readonly installWatchers = new Set<(instance: InstanceRecord) => void>();
 
   constructor(collections: Collections = new Map()) {
     this.joinTokens = collectionIn<StoredToken>(collections, 'instanceJoinTokens');
@@ -84,7 +86,32 @@ export class MemoryInstancesStore implements InstancesStore {
       const taken = [...this.instances.values()].some((other) => other.id !== instance.id && other.name === instance.name);
       if (taken) throw duplicateKey(`name: "${instance.name}"`);
     }
-    this.instances.set(instance.id, asStored(copied(stampServed(instance))));
+    const stored = asStored(copied(stampServed(instance)));
+    this.instances.set(instance.id, stored);
+    if (stored.install) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+  }
+
+  async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {
+    const found = this.instances.get(instanceId);
+    if (!found?.install || found.install.id !== installId) return false;
+    const next = copied(found) as unknown as Record<string, unknown>;
+    for (const [path, value] of Object.entries(fields)) {
+      const [first, second] = path.split('.') as [string, string | undefined];
+      const holder = second === undefined ? next : (next[first] ??= {}) as Record<string, unknown>;
+      const key = second ?? first;
+      if (value === undefined) delete holder[key];
+      else holder[key] = copied(value);
+    }
+    if (fields.status === 'ready' && typeof fields.updatedAt === 'string' && next.servedAt === undefined) next.servedAt = fields.updatedAt;
+    const stored = asStored(next as unknown as InstanceRecord);
+    this.instances.set(instanceId, stored);
+    for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    return true;
+  }
+
+  watchInstalls(on: (instance: InstanceRecord) => void): Watching {
+    this.installWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.installWatchers.delete(on); } };
   }
 
   async deleteInstance(id: string): Promise<void> {

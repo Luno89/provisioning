@@ -95,13 +95,8 @@ if [ "${JOINING}" = 1 ]; then
   trap - EXIT
 fi
 
-CHART_INPUTS="$( (find "${ROOT}/charts/instance" -type f -print0 | sort -z | xargs -0 cat; printf 'dev.coverage=%s\n' "${KOALA_COVERAGE}") | sha256sum | cut -d' ' -f1)"
-if [ "$(cat "${DEV_DATA}/chart.sha" 2>/dev/null || true)" != "${CHART_INPUTS}" ]; then
-  say "Applying the instance chart's changes to your Koala, with the values it was installed with"
-  quietly "${ROOT}/bin/helm" upgrade instance "${ROOT}/charts/instance" -n nowrinkles --kubeconfig "${KUBECONFIG_FILE}" --reset-then-reuse-values --set-string "dev.coverage=${KOALA_COVERAGE}" --wait --timeout 720h
-  printf '%s\n' "${CHART_INPUTS}" > "${DEV_DATA}/chart.sha"
-  echo "  applied"
-fi
+say "Your Koala runs this checkout's instance chart, with the values it was installed with"
+npx tsx "${ROOT}/apps/backend/src/scripts/install-koala.ts" --kubeconfig "${KUBECONFIG_FILE}" --release instance --namespace nowrinkles --chart "${ROOT}/charts/instance" -- --reset-then-reuse-values --set-string "dev.coverage=${KOALA_COVERAGE}"
 if [ -n "${KOALA_COVERAGE}" ]; then
   say "Starting your Koala's pods again, so what they run is measured from their start"
   KOALA_DEPLOYMENTS="deployment/instance-backend deployment/instance-worker-engine deployment/instance-worker-cluster deployment/instance-worker-host"

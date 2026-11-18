@@ -1,4 +1,5 @@
-import { ROLLOUT_KINDS, rolloutAcross, stuckHook, type ExecuteOptions, type Reach } from '../infrastructure/index.js';
+import { ROLLOUT_KINDS, rolloutAcross, stuckHook } from '@koala/provision';
+import type { ExecuteOptions, Reach } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 
 export type Pause = (ms: number) => Promise<void>;

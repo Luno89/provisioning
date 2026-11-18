@@ -1,8 +1,12 @@
 import type { Server as SocketServer } from 'socket.io';
+import type { Client } from '@temporalio/client';
 import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
-import { holdsAccounts, runOnce, servesTenants, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
-import { RootMachines, type InstanceRecord } from '../../instances/index.js';
-import { MachineAccounts, type KoalaPlace, type KoalaPlacer } from '../services/MachineAccounts.js';
+import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
+import { getTemporalClient, holdsAccounts, QUEUES, runOnce, servesTenants, startedFor, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
+import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, RootMachines, type InstanceRecord } from '../../instances/index.js';
+import { KoalaInstallWorkflow } from '../../workflows/KoalaInstallWorkflow.js';
+import { MachineAccounts, type KoalaPlace } from '../services/MachineAccounts.js';
+import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from '../services/KoalaInstalls.js';
 import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
 import { MachineClusters } from '../services/MachineClusters.js';
@@ -26,19 +30,37 @@ export interface MachineSidesDeps {
   rootToken?: (() => Promise<string>) | undefined;
   side?: { hear(event: string, handler: () => void): void } | undefined;
   instances: () => InstancesNow | undefined;
+  installWorkflows?: InstallWorkflows | undefined;
 }
+
+const ended = (err: Error): void => {
+  if (!/not found|already completed/i.test(err.message)) throw err;
+};
+
+export const temporalInstallWorkflows = (client: () => Promise<Client> = getTemporalClient, taskQueue: string = QUEUES.host): InstallWorkflows => {
+  const handle = async (installId: string) => (await client()).workflow.getHandle(koalaInstallWorkflowId(installId));
+  return {
+    start: async (installId, ownerId) => {
+      await (await client()).workflow.start(KoalaInstallWorkflow, { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], ...startedFor(ownerId) });
+    },
+    progress: async (installId, progress) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.progress, progress); },
+    reconnected: async (installId) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.reconnected); },
+    cancel: async (installId) => { await (await handle(installId)).cancel().catch(ended); },
+  };
+};
 
 export interface InstancesNow {
   service?: {
     koalaOf(ownerId: string): Promise<KoalaPlace | undefined>;
     caller(instanceId: string, credential: string): Promise<{ ownerId: string } | undefined>;
-    placeOn?: KoalaPlacer['placeOn'] | undefined;
   } | undefined;
+  places?: InstallPlaces | undefined;
   tellInstance?: ((instanceId: string, event: string) => void) | undefined;
 }
 
 export interface MachineSides {
   accounts?: MachineAccounts | undefined;
+  installs?: KoalaInstalls | undefined;
   machines: MachineService;
   clusters?: MachineClusters | undefined;
   mirror?: MachineMirror | undefined;
@@ -56,6 +78,13 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   };
   let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
   let machines: MachineService | undefined;
+  const installs = holdsAccounts(role) && role.signing ? new KoalaInstalls({
+    devices: () => db.machines.getLocalAgentDevices(),
+    places: () => deps.instances()?.places,
+    workflows: deps.installWorkflows ?? temporalInstallWorkflows(),
+    toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed) },
+    toOwner: { installChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(KOALA_INSTALL_CHANGED, {}); } },
+  }) : undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
     signing: role.signing,
@@ -63,8 +92,8 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
     followers: { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
     toOwner: { machinesChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(MACHINE_JOINS_CHANGED, {}); } },
-    toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), online: (deviceId) => toMachines.online(deviceId) },
-    placer: { placeOn: async (ownerId, machine, name) => (deps.instances()?.service?.placeOn ? deps.instances()!.service!.placeOn!(ownerId, machine, name) : { ok: false, status: 503, error: 'this Koala holds no instances to put on machines' }) },
+    toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), online: (deviceId) => toMachines.online(deviceId) },
+    installs,
     mesh: deps.mesh,
   }) : undefined;
   const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, koalaMachineId: deps.koalaMachineId }) : undefined;
@@ -93,9 +122,15 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     deps.side?.hear('machines:changed', quietly);
     deps.side?.hear('connect', quietly);
   }
-  if (accounts) toMachines = wireMachineAccounts({ io: deps.io, db, accounts: () => accounts });
+  if (accounts && installs) {
+    toMachines = wireMachineAccounts({ io: deps.io, db, accounts: () => accounts, installs: () => installs });
+    db.instances.watchInstalls((instance) => {
+      installs.relay(instance).catch((err: Error) => console.warn(`[machines] ${instance.id}'s install could not be passed on: ${err.message}`));
+    });
+  }
   return {
     accounts,
+    installs,
     machines,
     clusters,
     mirror,

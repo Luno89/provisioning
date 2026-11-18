@@ -1,4 +1,4 @@
-import { RECENT_RESTART_MS } from './workload-health.js';
+import { RECENT_RESTART_MS } from '@koala/provision';
 
 export type WorkloadState = 'ok' | 'starting' | 'warning' | 'down';
 export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job' | 'Pod';

@@ -14,10 +14,12 @@ case "${1:-backend}" in
   worker-cluster) exec node --import tsx src/worker-cluster.ts ;;
   worker-host) exec node --import tsx src/worker-host.ts ;;
   seed) exec node --import tsx src/scripts/seed-all.ts ;;
+  setup-waits) exec node --import tsx src/scripts/setup-waits.ts ;;
   platform-services) exec node --import tsx src/scripts/platform-services.ts ;;
   move-data) exec node --import tsx src/scripts/move-import.ts data ;;
   move-restore) exec node --import tsx src/scripts/move-import.ts restore ;;
   self-upgrade) exec node --import tsx src/scripts/self-upgrade.ts ;;
+  install-koala) shift; exec node --import tsx src/scripts/install-koala.ts "$@" ;;
   temporal-keys) exec node --import tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;
   *) exec "$@" ;;
 esac

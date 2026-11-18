@@ -5,6 +5,7 @@ import { machinesOf, type Machines } from '../../test/backend/machines'
 import type { AccountMachine as RootMachine, MachineAccounts } from '../../../../backend/src/machines/services/MachineAccounts'
 import { localAgentsRouter } from '../../../../backend/src/machines/routes/local-agents'
 import { myMachinesRouter } from '../../../../backend/src/machines/routes/my-machines'
+import { installView } from '../../../../backend/src/instances/lib/koala-installs'
 import type { MachineView } from '../../../../backend/src/machines/services/MachineService'
 import type { Wire } from '../../test/backend/wire'
 import { anyOf, objectWith } from '../../../../backend/src/platform/lib/test-matchers'
@@ -18,7 +19,7 @@ const backend = await startBackend((site) => {
     accounts: side.accounts,
     koalaOf: async (owner) => {
       const instance = (await site.db.instances.getInstances(owner))[0]
-      return instance ? { machineId: instance.machineId, status: instance.status } : undefined
+      return instance ? { machineId: instance.machineId, status: instance.status, ...(instance.install ? { install: installView(instance.install) } : {}) } : undefined
     },
   }))
 })
@@ -93,11 +94,11 @@ describe('root\'s My Machines page, as the browser asks for it', () => {
     await expect(dismissMachineJoin(joins[0]!.id)).rejects.toMatchObject({ response: { status: 404, data: { error: 'no such join on your account' } } })
   })
 
-  it('puts Koala on a machine on the mesh under the name the page sends, and the list then says it holds Koala', async () => {
+  it('starts putting Koala on a machine on the mesh under the name the page sends, and the list then says it holds Koala and the install is asked of it', async () => {
     const { machines: [tower] } = await listMyMachines()
     await side!.accounts.recordMeshIp(tower!.id, '100.64.0.9')
-    expect(await putKoalaOn(tower!.id, 'kangaroo')).toEqual({ placing: false })
-    expect(await listMyMachines()).toMatchObject({ koala: { machineId: tower!.id, status: 'joined' }, machines: [{ id: tower!.id, holdsKoala: true, meshIp: '100.64.0.9' }] })
+    expect(await putKoalaOn(tower!.id, 'kangaroo')).toEqual({ placing: true })
+    expect(await listMyMachines()).toMatchObject({ koala: { machineId: tower!.id, status: 'joined', install: { machineId: tower!.id, state: 'asked' } }, machines: [{ id: tower!.id, holdsKoala: true, meshIp: '100.64.0.9' }] })
     expect((await backend.db.instances.getInstances((await backend.db.accounts.getUsers())[0]!.id))[0]).toMatchObject({ name: 'kangaroo' })
   })
 

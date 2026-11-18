@@ -1,35 +1,21 @@
 import { createHash } from 'node:crypto';
-import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
-import { parse } from 'yaml';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { K3S_KUBECONFIG, runMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { parse } from 'yaml';
+import { KOALA_INSTALL_LAST_STAGE, koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
+import { allReporters, chartInputs, chartStep, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Reporter, type Step, type WaitOptions } from '@koala/provision';
+import { K3S_BINARY, K3S_KUBECONFIG, clusterState, runMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
-export interface PlacedKoala {
-  instanceId: string;
-  ownerId: string;
-  machineId: string;
-  rootUrl: string;
-  rootPublicKeys: string;
-  meshLoginServer: string;
-  meshAddress: string;
-  image: string;
-  imageTag: string;
-  imageDigest?: string | undefined;
-  chartUrl: string;
-  chartSha256?: string | undefined;
-  credential: string;
-  name: string;
-  domain: string;
-}
+export type { PlacedKoala };
 
 export const KOALA_NAMESPACE = 'nowrinkles';
 export const KOALA_RELEASE = 'instance';
 export const BACKEND_NODE_PORT = 30320;
 export const EDGE_NODE_PORT = 30321;
 
-const TEXT_FIELDS = ['instanceId', 'ownerId', 'machineId', 'rootUrl', 'rootPublicKeys', 'meshLoginServer', 'meshAddress', 'image', 'imageTag', 'chartUrl', 'credential'] as const;
+const TEXT_FIELDS = ['installId', 'instanceId', 'ownerId', 'machineId', 'rootUrl', 'rootPublicKeys', 'meshLoginServer', 'meshAddress', 'image', 'imageTag', 'chartUrl', 'credential'] as const;
 
 export function placedFrom(raw: unknown): PlacedKoala | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -63,37 +49,8 @@ export function koalaValues(placed: PlacedKoala): Record<string, unknown> {
   };
 }
 
-export function helmArgs(chart: string, valuesFiles: string[], rootKeysFile: string, helmKubeconfig: string = K3S_KUBECONFIG): string[] {
-  return [
-    'upgrade', '--install', KOALA_RELEASE, chart, '-n', KOALA_NAMESPACE, '--create-namespace', '--kubeconfig', helmKubeconfig,
-    ...valuesFiles.flatMap((file) => ['-f', file]),
-    '--set-file', `instance.rootPublicKeys=${rootKeysFile}`,
-    '--wait', '--timeout', '720h',
-  ];
-}
-
-export interface KoalaInstallDeps {
-  cluster: ClusterHost;
-  helm: string;
-  fetch: typeof fetch;
-  say: (line: string) => void;
-  ownValues?: string | undefined;
-  wait?: Reopening | undefined;
-}
-
 export const ownValuesFile = (env: NodeJS.ProcessEnv = process.env): string =>
   path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'koala', 'koala-values.yaml');
-
-type Status = 'installing' | 'ready' | 'failed';
-
-async function report(placed: PlacedKoala, deps: Pick<KoalaInstallDeps, 'fetch' | 'say'> & { wait: Reopening }, status: Status, detail: string, extra: Record<string, unknown> = {}): Promise<void> {
-  const answer = await untilAnswered(() => deps.fetch(`${placed.rootUrl}/api/instances/status`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-instance-id': placed.instanceId, authorization: `Bearer ${placed.credential}` },
-    body: JSON.stringify({ status, detail, meshIp: placed.meshAddress, presence: true, ...extra }),
-  }), deps.wait, (why, seconds) => deps.say(`root was not told Koala is ${status} (${why}); telling it again in ${seconds} s`));
-  if (!answer.ok) throw new Error(`root refused the report that Koala is ${status} (${answer.status}): ${(await answer.text()).slice(0, 300)}`);
-}
 
 export function ownPublicUrl(ownValuesYaml: string): string | undefined {
   const parsed: unknown = parse(ownValuesYaml);
@@ -101,38 +58,112 @@ export function ownPublicUrl(ownValuesYaml: string): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
 }
 
-export async function installKoala(placed: PlacedKoala, given: KoalaInstallDeps): Promise<void> {
-  const deps = { ...given, wait: given.wait ?? reopening() };
-  const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? deps.ownValues : undefined;
-  const url = (own ? ownPublicUrl(await deps.cluster.read(own)) : undefined) ?? koalaUrlOf(placed);
+export const machineChartCluster = (host: ClusterHost, helm: string): ChartCluster => ({
+  helm: (args) => host.run(helm, [...args, '--kubeconfig', K3S_KUBECONFIG]),
+  kubectl: (args) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]),
+});
+
+export interface InstallContext {
+  placed: PlacedKoala;
+  host: ClusterHost;
+  helm: string;
+  fetch: typeof fetch;
+  work: string;
+  own?: { file: string; yaml: string } | undefined;
+  chart?: Buffer | undefined;
+  wait?: WaitOptions | undefined;
+}
+
+const chartFile = (ctx: InstallContext): string => path.join(ctx.work, 'instance-chart.tgz');
+const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
+
+const startCluster: Step<InstallContext> = {
+  id: 'cluster',
+  title: 'Starting this machine\'s cluster',
+  check: async (ctx) => (await clusterState(ctx.host) === 'running' ? { done: true } : { done: false, why: 'k3s is not running on this machine' }),
+  apply: async (ctx, progress) => {
+    await runMachineCluster(ctx.host, { kind: 'start' });
+    progress.line('k3s answers on this machine');
+  },
+};
+
+const fetchChart: Step<InstallContext> = {
+  id: 'chart',
+  title: 'Fetching Koala\'s chart from root',
+  check: async (ctx) => {
+    if (!ctx.chart) return { done: false, why: 'the chart has not been fetched in this install' };
+    if (ctx.placed.chartSha256 && sha256(ctx.chart) !== ctx.placed.chartSha256) return { done: false, why: 'the chart root sent is not the one it released (its sha256 differs); nothing was installed' };
+    return { done: true };
+  },
+  apply: async (ctx) => {
+    const answer = await ctx.fetch(ctx.placed.chartUrl);
+    if (!answer.ok) throw new Error(`root's chart answered ${answer.status}`);
+    ctx.chart = Buffer.from(await answer.arrayBuffer());
+    await writeFile(chartFile(ctx), ctx.chart);
+  },
+};
+
+async function releaseOf(ctx: InstallContext): Promise<ChartRelease> {
+  if (!ctx.chart) throw new Error('Koala\'s chart was not fetched before it was applied');
+  const values = path.join(ctx.work, 'koala-values.json');
+  const keys = path.join(ctx.work, 'root-keys.pem');
+  const rootValues = JSON.stringify(koalaValues(ctx.placed));
+  await writeFile(values, rootValues, { mode: 0o600 });
+  await writeFile(keys, ctx.placed.rootPublicKeys, { mode: 0o600 });
+  return {
+    release: KOALA_RELEASE,
+    namespace: KOALA_NAMESPACE,
+    chart: chartFile(ctx),
+    values: ['-f', values, ...(ctx.own ? ['-f', ctx.own.file] : []), '--set-file', `instance.rootPublicKeys=${keys}`],
+    inputs: chartInputs([ctx.chart, rootValues, ctx.own?.yaml ?? '', ctx.placed.rootPublicKeys]),
+  };
+}
+
+const KOALA_STEP = { id: KOALA_INSTALL_LAST_STAGE, title: 'Putting Koala on this machine' };
+
+const putKoala: Step<InstallContext> = {
+  ...KOALA_STEP,
+  check: async (ctx) => chartStep(KOALA_STEP, await releaseOf(ctx)).check({ cluster: machineChartCluster(ctx.host, ctx.helm), ...(ctx.wait ? { wait: ctx.wait } : {}) }),
+  apply: async (ctx, progress) => chartStep(KOALA_STEP, await releaseOf(ctx)).apply({ cluster: machineChartCluster(ctx.host, ctx.helm), ...(ctx.wait ? { wait: ctx.wait } : {}) }, progress),
+};
+
+export const KOALA_INSTALL_STEPS: readonly Step<InstallContext>[] = [startCluster, fetchChart, putKoala];
+
+export interface KoalaInstallDeps {
+  cluster: ClusterHost;
+  helm: string;
+  fetch: typeof fetch;
+  token: () => string;
+  say: (line: string) => void;
+  ownValues?: string | undefined;
+  wait?: WaitOptions | undefined;
+}
+
+const saying = (say: (line: string) => void): Reporter => ({
+  started: (step) => say(`${step.title}…`),
+  alreadyDone: (step) => say(`${step.title}: already so`),
+  line: (_step, text) => say(`  ${text}`),
+  done: (step) => say(`${step.title}: done`),
+  failed: (step, failure) => say(`${step.title} failed: ${failure.why}`),
+});
+
+export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps): Promise<void> {
+  const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? { file: deps.ownValues, yaml: await deps.cluster.read(deps.ownValues) } : undefined;
+  const url = (own ? ownPublicUrl(own.yaml) : undefined) ?? koalaUrlOf(placed);
+  const root = rootReporter(
+    rootProgress(rootUrlOf(placed.rootUrl, koalaInstallProgressPath(placed.installId)), deps.token, deps.fetch, deps.wait ?? {}),
+    { lines: true, ending: { stage: KOALA_INSTALL_LAST_STAGE, url } },
+  );
   const work = await mkdtemp(path.join(os.tmpdir(), 'koala-install-'));
   try {
     await deps.cluster.holdKoala(placed.instanceId);
-    await report(placed, deps, 'installing', 'starting this machine\'s cluster', { url });
-    await runMachineCluster(deps.cluster, { kind: 'start' });
-    deps.say('this machine\'s cluster runs; fetching Koala');
-    const chart = Buffer.from(await (await deps.fetch(placed.chartUrl).then((answer) => {
-      if (!answer.ok) throw new Error(`root's chart answered ${answer.status}`);
-      return answer;
-    })).arrayBuffer());
-    const sha = createHash('sha256').update(chart).digest('hex');
-    if (placed.chartSha256 && sha !== placed.chartSha256) throw new Error('the chart root sent is not the one it released (its sha256 differs); nothing was installed');
-    const chartFile = path.join(work, 'instance-chart.tgz');
-    const keysFile = path.join(work, 'root-keys.pem');
-    const valuesFile = path.join(work, 'koala-values.json');
-    await writeFile(chartFile, chart);
-    await writeFile(keysFile, placed.rootPublicKeys, { mode: 0o600 });
-    await writeFile(valuesFile, JSON.stringify(koalaValues(placed)), { mode: 0o600 });
-    await report(placed, deps, 'installing', 'installing Koala on this machine', { url });
-    if (own) deps.say(`Koala takes this machine's own values from ${own}`);
-    await deps.cluster.run(deps.helm, helmArgs(chartFile, [valuesFile, ...(own ? [own] : [])], keysFile));
-    await report(placed, deps, 'ready', 'Installed', { url, imageTag: placed.imageTag });
+    if (own) deps.say(`Koala takes this machine's own values from ${own.file}`);
+    await runSteps(KOALA_INSTALL_STEPS, { placed, host: deps.cluster, helm: deps.helm, fetch: deps.fetch, work, own, wait: deps.wait }, allReporters(saying(deps.say), root));
     deps.say(`Koala runs on this machine at ${url}`);
   } catch (err) {
-    const message = (err as Error).message.slice(0, 1000);
-    deps.say(`Koala could not be put on this machine: ${message}`);
-    await report(placed, deps, 'failed', message).catch((failure: Error) => deps.say(`root could not be told: ${failure.message}`));
+    if (!(err instanceof StepFailed)) deps.say(`Koala could not be put on this machine: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     await rm(work, { recursive: true, force: true });
   }
 }
+

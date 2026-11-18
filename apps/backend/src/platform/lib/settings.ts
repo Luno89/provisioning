@@ -686,6 +686,26 @@ export function platformServicesSettingsFrom(env: Env, serviceAccountDir = SERVI
     : undefined);
 }
 
+export interface SetupWaitsSettings extends PodStepSettings {
+  step: string;
+  after: string[];
+  podNamespace: string;
+  mongo: MongoTarget;
+}
+
+export function setupWaitsSettingsFrom(env: Env): SetupWaitsSettings {
+  const read = new Reading(env);
+  const step = podStep(read);
+  const name = required(read, 'SETUP_STEP', 'the instance chart names the setup step each Job runs');
+  const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where the setup Jobs run');
+  const afterText = read.env.SETUP_AFTER;
+  if (afterText === undefined) read.problems.push('SETUP_AFTER is not set: the instance chart names the setup Jobs this one runs after, none for the first');
+  const mongo = read.take(() => mongoTarget(env));
+  return finish(read, 'the setup step\'s waits', step && name && podNamespace && afterText !== undefined && mongo
+    ? { ...step, step: name, after: afterText.split(' ').filter((job) => job !== ''), podNamespace, mongo }
+    : undefined);
+}
+
 export function operatorCredentialsFrom(env: Env): OperatorCredentials {
   const read = new Reading(env);
   return finish(read, 'this program', operatorCredentials(read));

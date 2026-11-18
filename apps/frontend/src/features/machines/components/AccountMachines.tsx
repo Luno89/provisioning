@@ -3,6 +3,7 @@ import { AlertTriangle, Check, Copy, HardDrive, Loader2, Plus, X } from 'lucide-
 import { errorMessage } from '../../../api/client'
 import { useCreateMyJoinCode, useDismissMachineJoin, useMyMachines, useMyMachinesLive, usePutKoalaOn, type MachineJoinView } from '../api'
 import { joinStatus } from '../lib/machine-joins'
+import { installShown, type InstallShown } from '../lib/koala-install'
 
 function JoinRow({ join, onDismiss, dismissing }: { join: MachineJoinView; onDismiss: (id: string) => void; dismissing: boolean }) {
   const status = joinStatus(join, new Date())
@@ -44,6 +45,35 @@ function JoinRow({ join, onDismiss, dismissing }: { join: MachineJoinView; onDis
   )
 }
 
+function InstallLine({ shown, retrying, onRetry }: { shown: InstallShown | undefined; retrying: boolean; onRetry: () => void }) {
+  if (!shown) return null
+  if (shown.kind === 'working') {
+    return (
+      <p className="flex items-start gap-2 text-[11px] text-slate-300">
+        <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin text-slate-400" />
+        <span className="space-y-0.5">
+          <span className="block">{shown.title}</span>
+          {shown.line && <span className="block font-mono text-[10px] text-slate-400">{shown.line}</span>}
+        </span>
+      </p>
+    )
+  }
+  return (
+    <div role="alert" className="space-y-1 rounded-md border border-rose-800 px-2 py-1.5 text-[11px] text-rose-200">
+      <p className="flex items-center gap-2"><AlertTriangle size={12} /> Koala could not be put here at {shown.title}</p>
+      <p className="whitespace-pre-wrap font-mono text-[10px] text-rose-100">{shown.why}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="rounded border border-rose-700/60 px-1.5 py-0.5 text-[10px] text-rose-100 disabled:opacity-50"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
+
 export interface AccountMachinesProps {
   name: string
   nameOk: boolean
@@ -62,6 +92,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
   useMyMachinesLive()
   const machines = mine.data?.machines ?? []
   const joins = mine.data?.joins ?? []
+  const install = mine.data?.koala?.install
 
   const add = () => {
     setAdding(true)
@@ -103,6 +134,11 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                 </button>
               )}
               </div>
+              <InstallLine
+                shown={installShown(install, machine)}
+                retrying={place.isPending || !nameOk}
+                onRetry={() => place.mutate({ machineId: machine.id, name }, { onSuccess: onPlacing })}
+              />
               {machine.koalaRefused && !hasKoala && (
                 <p className="flex items-center gap-2 text-[11px] text-amber-300">
                   <span>Koala could not be put here: {machine.koalaRefused.reason}</span>

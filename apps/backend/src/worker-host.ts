@@ -9,6 +9,7 @@ import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecord
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
+import { KoalaInstallAskActivity, KoalaInstallStageActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
@@ -33,6 +34,7 @@ export const HOST_WORKER_ACTIVITIES = {
   ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderSshActivity, ServerOrderDnsActivity, ServerOrderReleaseActivity,
   ServerOrderBootstrapActivity, ServerOrderReverseDnsActivity, ServerOrderMailCheckActivity, ServerOrderStoppedActivity, ServerOrderFailedActivity,
   RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity,
+  KoalaInstallAskActivity, KoalaInstallStageActivity,
   CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity,
 };
 

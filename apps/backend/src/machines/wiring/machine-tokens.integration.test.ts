@@ -134,7 +134,7 @@ beforeEach(async () => {
     toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });
-  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, now: () => clock });
+  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), now: () => clock });
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],

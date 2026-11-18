@@ -3,8 +3,9 @@ import type { Database } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
+import { PLACE_KOALA, type PlacedKoala } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
-import type { PlacedKoala } from '../../instances/index.js';
+import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 
 export const ACCOUNT_NAMESPACE = '/machine-account';
 
@@ -19,6 +20,7 @@ export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
   accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
+  installs: () => Pick<KoalaInstalls, 'connected'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
@@ -50,6 +52,7 @@ export function wireMachineAccounts(deps: {
     connected.set(deviceId, sockets);
     accounts.seen(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it was last seen could not be recorded: ${err.message}`));
     accounts.joinFinished(deviceId, tokenHash).catch((err: Error) => console.warn(`[machines] ${deviceId}: its join could not be marked finished: ${err.message}`));
+    deps.installs().connected(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: the install of Koala it was asked for could not be asked again: ${err.message}`));
     void rotateDeviceToken(socket, deviceId, via, accounts)
       .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
       .catch((err: Error) => console.warn(`[machines] ${deviceId}: its token renewal could not be recorded: ${err.message}`));
@@ -77,13 +80,14 @@ export function wireMachineAccounts(deps: {
     for (const socket of sockets) send(socket);
     return true;
   };
-  const placeKoala = (deviceId: string, placed: PlacedKoala): Promise<boolean> => {
-    const socket = [...(connected.get(deviceId) ?? [])][0];
-    if (!socket) return Promise.resolve(false);
+  const placeKoala = async (deviceId: string, placed: PlacedKoala): Promise<boolean> =>
+    (await Promise.all([...(connected.get(deviceId) ?? [])].map((socket) => placeKoalaOn(socket, placed)))).some(Boolean);
+  const placeKoalaOn = (socket: Socket, placed: PlacedKoala): Promise<boolean> => {
+    if (!socket.connected) return Promise.resolve(false);
     return new Promise<boolean>((done) => {
       const gone = () => done(false);
       socket.once('disconnect', gone);
-      socket.emit('machine:place-koala', placed, (answer: { taken?: unknown } | undefined) => {
+      socket.emit(PLACE_KOALA, placed, (answer: { taken?: unknown } | undefined) => {
         socket.off('disconnect', gone);
         done(answer?.taken === true);
       });

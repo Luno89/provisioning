@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join'
+import { KOALA_INSTALL_CHANGED, type KoalaInstallView } from '@koala/engine-core/koala-install'
 import AccountMachines from './AccountMachines'
 import type { AccountMachine, MachineJoinView } from '../api'
 import { api } from '../../../api/client'
@@ -118,5 +119,51 @@ describe('My Machines on root, while a machine joins', () => {
     showing([join({ stage: 'agent', title: 'Installing the machine agent' })])
     handlers.get(MACHINE_JOINS_CHANGED)!()
     expect(await screen.findByText('Installing the machine agent')).toBeDefined()
+  })
+})
+
+describe('My Machines on root, while Koala is put on a machine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    handlers.clear()
+  })
+
+  const install = (over: Partial<KoalaInstallView> = {}): KoalaInstallView => ({ id: 'install-1', machineId: 'desk', state: 'installing', stage: 'koala', title: 'Putting Koala on this machine', at: '2026-11-18T10:00:00.000Z', ...over })
+  const installing = (shown: KoalaInstallView, machines: AccountMachine[] = [machine({ holdsKoala: true })]) =>
+    vi.mocked(api.get).mockResolvedValue({ data: { machines, joins: [], koala: { machineId: 'desk', status: shown.state === 'failed' ? 'failed' : 'installing', install: shown } } })
+
+  it('shows the stage the machine is at and what it waits on, live as root says it changed', async () => {
+    installing(install({ line: 'waiting for job/instance-seed-1 runs' }))
+    renderPanel()
+    expect(await screen.findByText('Putting Koala on this machine')).toBeDefined()
+    expect(screen.getByText('waiting for job/instance-seed-1 runs')).toBeDefined()
+    installing(install({ line: 'waiting for deployment/instance-backend has 0 of 1 available' }))
+    handlers.get(KOALA_INSTALL_CHANGED)!()
+    expect(await screen.findByText('waiting for deployment/instance-backend has 0 of 1 available')).toBeDefined()
+  })
+
+  it('says a machine that is offline is asked once it connects', async () => {
+    const { stage: _stage, title: _title, ...asked } = install({ state: 'asked' })
+    installing(asked, [machine({ holdsKoala: true, online: false })])
+    renderPanel()
+    expect(await screen.findByText('Koala is put on it once it connects')).toBeDefined()
+  })
+
+  it('shows where putting Koala there stopped and why, and Try again asks again', async () => {
+    installing(install({ state: 'failed', why: 'job/instance-seed-1 failed: Mongo refused its password' }))
+    vi.mocked(api.post).mockResolvedValue({ data: { placing: true } })
+    renderPanel(false)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Koala could not be put here at Putting Koala on this machine')
+    expect(screen.getByText('job/instance-seed-1 failed: Mongo refused its password')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'bobby' }))
+  })
+
+  it('shows nothing of an install on another machine', async () => {
+    installing(install({ machineId: 'laptop' }), [machine()])
+    renderPanel()
+    await screen.findByText('desk')
+    expect(screen.queryByText('Putting Koala on this machine')).toBeNull()
   })
 })

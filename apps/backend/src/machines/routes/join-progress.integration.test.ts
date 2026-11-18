@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { Router } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
-import { JOIN_PROGRESS_PATH, joinProgressCredential } from '@koala/engine-core/machine-join';
-import { joinProgressContract } from '@koala/engine-core/testing/machine-join';
+import { JOIN_PROGRESS, JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
+import { progressCredential } from '@koala/engine-core/machine-progress';
+import { machineProgressContract } from '@koala/engine-core/testing/machine-progress';
 import { anyOf } from '../../platform/lib/test-matchers.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
@@ -25,7 +26,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts; told:
         store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
         mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
         koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-        toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
+        toMachines: { removed: () => false, koala: () => false, online: () => false },
         toOwner: { machinesChanged: (ownerId) => { told.push(ownerId); } },
       });
       return Router()
@@ -38,13 +39,13 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts; told:
 }
 
 const report = (site: Harness, code: string | undefined, body: unknown) =>
-  axios.post(site.url(JOIN_PROGRESS_PATH), body, { headers: { 'content-type': 'application/json', ...(code === undefined ? {} : joinProgressCredential(code)) }, validateStatus: () => true, transformRequest: [(data: unknown) => JSON.stringify(data)] });
+  axios.post(site.url(JOIN_PROGRESS_PATH), body, { headers: { 'content-type': 'application/json', ...(code === undefined ? {} : progressCredential(code)) }, validateStatus: () => true, transformRequest: [(data: unknown) => JSON.stringify(data)] });
 
 const codeFor = async (site: Harness): Promise<string> => ((await axios.post(site.url('/api/my-machines/join-code'), {})).data as { code: string }).code;
 
-joinProgressContract('root\'s route', async () => {
+machineProgressContract('root\'s join route', JOIN_PROGRESS, async () => {
   const { site } = await root();
-  return { code: () => codeFor(site), post: async (code, body) => (await report(site, code, body)).status };
+  return { credential: () => codeFor(site), post: async (code, body) => (await report(site, code, body)).status };
 });
 
 describe('a joining machine reporting its progress to root', () => {

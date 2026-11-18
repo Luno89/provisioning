@@ -5,6 +5,7 @@ import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../accounts/lib/account-removal.js';
 import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
+import { koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import { ignore } from '@koala/engine-core/failures';
 
 const steps = proxyActivities<RootRemovalActivities & Pick<typeof pool, 'PoolRemoveActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
@@ -14,7 +15,8 @@ export const rootRemovalProgressQuery = defineQuery<RemovalStep[]>(REMOVAL_PROGR
 export async function RootAccountRemovalWorkflow(args: { ownerId: string }): Promise<{ poolInstance: boolean; meshDevices: number; records: Record<string, number> }> {
   const done: RemovalStep[] = [];
   setHandler(rootRemovalProgressQuery, () => [...done]);
-  const { poolInstanceId } = await steps.RootRemovalInstanceActivity(args);
+  const { poolInstanceId, installId } = await steps.RootRemovalInstanceActivity(args);
+  if (installId) await getExternalWorkflowHandle(koalaInstallWorkflowId(installId)).cancel().catch(ignore('an install that has already ended has nothing left to stop'));
   if (poolInstanceId) {
     await steps.PoolRemoveActivity({ instanceId: poolInstanceId });
     await getExternalWorkflowHandle(poolTrialWorkflowId(poolInstanceId)).signal(TRIAL_CHANGED).catch(ignore('a trial workflow that has already ended has no schedule left to change'));

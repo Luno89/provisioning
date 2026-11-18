@@ -11,17 +11,3 @@ export const UPGRADE_WORDS = {
 } as const;
 
 export const withWhy = (words: string, why: string): string => `${words}: ${why}`.slice(0, 500);
-
-interface Item {
-  kind?: string;
-  metadata?: { name?: string; creationTimestamp?: string };
-  status?: { succeeded?: number };
-}
-
-const itemsOf = (listed: unknown): Item[] => ((listed as { items?: Item[] })?.items ?? []).filter((item) => item && typeof item === 'object');
-const madeSince = (item: Item, since: number): boolean => Date.parse(item.metadata?.creationTimestamp ?? '') >= Math.floor(since / 1000) * 1000;
-
-export const abandonedJobs = (listed: unknown, since: number): string[] => itemsOf(listed)
-  .filter((item) => item.kind === 'Job' && madeSince(item, since) && (item.status?.succeeded ?? 0) === 0)
-  .map((item) => item.metadata?.name)
-  .filter((name): name is string => name !== undefined);

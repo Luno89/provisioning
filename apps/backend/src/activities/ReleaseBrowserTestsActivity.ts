@@ -1,4 +1,5 @@
-import { assessWorkload, type ClusterAccess } from '../infrastructure/index.js';
+import { assessWorkload } from '@koala/provision';
+import type { ClusterAccess } from '../infrastructure/index.js';
 import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';

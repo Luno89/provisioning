@@ -35,13 +35,21 @@
       "types": "./src/machine-join.ts",
       "default": "./src/machine-join.ts"
     },
+    "./machine-progress": {
+      "types": "./src/machine-progress.ts",
+      "default": "./src/machine-progress.ts"
+    },
+    "./koala-install": {
+      "types": "./src/koala-install.ts",
+      "default": "./src/koala-install.ts"
+    },
     "./testing/ports": {
       "types": "./testing/ports.ts",
       "default": "./testing/ports.ts"
     },
-    "./testing/machine-join": {
-      "types": "./testing/machine-join.ts",
-      "default": "./testing/machine-join.ts"
+    "./testing/machine-progress": {
+      "types": "./testing/machine-progress.ts",
+      "default": "./testing/machine-progress.ts"
     },
     "./testing/throwaway-containers": {
       "types": "./testing/throwaway-containers.ts",

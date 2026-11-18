@@ -1,4 +1,4 @@
-import { assessWorkload } from '../infrastructure/index.js';
+import { assessWorkload } from '@koala/provision';
 import fs from 'fs/promises';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';

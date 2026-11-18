@@ -1,5 +1,6 @@
 import { ApplicationFailure } from '@temporalio/common';
-import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne, type ClusterAccess } from '../infrastructure/index.js';
+import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne } from '@koala/provision';
+import type { ClusterAccess } from '../infrastructure/index.js';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
 export interface NamespacedCluster {

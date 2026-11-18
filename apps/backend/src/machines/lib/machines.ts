@@ -1,10 +1,11 @@
 import crypto from 'crypto';
-import type { JoinProgress, MachineJoinView } from '@koala/engine-core/machine-join';
+import type { MachineJoinView } from '@koala/engine-core/machine-join';
+import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { commandSafeCode } from '../../platform/lib/invite-codes.js';
 
 export const MACHINE_CODE_TTL_SECONDS = 3600;
 
-export interface MachineJoinStage extends JoinProgress {
+export interface MachineJoinStage extends MachineProgress {
   at: string;
 }
 

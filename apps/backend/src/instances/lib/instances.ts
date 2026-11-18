@@ -3,6 +3,7 @@ import type { UpdateSetting } from './instance-updates.js';
 import type { TrialStep } from './pool-trial.js';
 import type { InstanceMove } from './instance-move.js';
 import type { SignInKey } from './oidc.js';
+import type { KoalaInstallRecord } from './koala-installs.js';
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
 
@@ -44,6 +45,7 @@ export interface InstanceRecord {
   dataVersion?: number | undefined;
   previous?: string | undefined;
   signIn?: SignInKey | undefined;
+  install?: KoalaInstallRecord | undefined;
 }
 
 export interface InstanceGroup {

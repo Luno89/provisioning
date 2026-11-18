@@ -3,58 +3,43 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
-import { abandonedJobs, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
-import { clusterAccessFrom, ROLLOUT_KINDS, rolloutOf, stuckHook } from '../infrastructure/index.js';
+import { chartInputs, chartStep, followRelease, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter, type WaitOptions } from '@koala/provision';
+import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
+import { clusterAccessFrom } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
-
-export interface SelfUpgradeCluster {
-  kubectl(args: readonly string[]): Promise<string>;
-  helm(args: readonly string[], signal?: AbortSignal): Promise<string>;
-}
-
-export function selfUpgradeClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'own' | 'startHelm'>): SelfUpgradeCluster {
-  return {
-    kubectl: (args) => access.kubectl(access.own(), args),
-    async helm(args, signal) {
-      const started = await access.startHelm(access.own(), args);
-      const stop = (): void => started.stop();
-      if (signal?.aborted) stop();
-      signal?.addEventListener('abort', stop, { once: true });
-      try {
-        const result = await started.ended;
-        if (result.code !== 0) throw new Error(`helm ${args[0] ?? ''} ended with ${result.code}: ${result.stderr.trim()}`);
-        return result.stdout;
-      } finally {
-        signal?.removeEventListener('abort', stop);
-      }
-    },
-  };
-}
 
 export interface SelfUpgradeDeps {
   root: { url: string; instanceId: string; credential: string };
   release: { name: string; namespace: string; current: string; dataVersion: number };
-  cluster: SelfUpgradeCluster;
+  cluster: ChartCluster;
   fetch?: typeof fetch;
   wait?: Reopening;
-  sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
+  watch?: WaitOptions;
   log?: (line: string) => void;
 }
 
 interface Released { imageTag: string; chartUrl: string; digest?: string; chartSha256?: string; dataVersion?: number }
 
+type Ended = { state: 'done' } | { state: 'hopeless'; reason: string };
+
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const CEILING = '720h';
+
+const logged = (log: (line: string) => void): Reporter => ({
+  started: () => undefined,
+  alreadyDone: () => undefined,
+  line: (_step, text) => log(text),
+  done: () => undefined,
+  failed: () => undefined,
+});
 
 export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const call = deps.fetch ?? fetch;
-  const sleep = deps.sleep ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
   const log = deps.log ?? ((line: string) => console.log(line));
-  const now = deps.now ?? (() => Date.now());
   const headers = { 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${deps.root.credential}` };
   const { name, namespace, current, dataVersion: installed } = deps.release;
   const wait = deps.wait ?? reopening();
+  const ctx = { cluster: deps.cluster, ...(deps.watch ? { wait: deps.watch } : {}) };
+  const progress: Progress = { line: log };
   const ofRoot = (doing: string, ask: () => Promise<Response>): Promise<Response> =>
     untilAnswered(ask, wait, (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`));
 
@@ -97,78 +82,48 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   try {
     const chartFile = join(dir, 'chart.tgz');
     await writeFile(chartFile, bytes);
-    const since = now();
-    const applied = await whileHelmRuns(['upgrade', name, chartFile, '-n', namespace, '--reset-then-reuse-values', '--set', `image.tag=${wanted.imageTag}`, '--set-string', `image.digest=${wanted.digest ?? ''}`, '--timeout', CEILING], since);
-    const upgraded = applied.ok ? await rollout() : { state: 'hopeless' as const, reason: applied.reason };
+    const release: ChartRelease = {
+      release: name,
+      namespace,
+      chart: chartFile,
+      values: ['--reset-then-reuse-values', '--set', `image.tag=${wanted.imageTag}`, '--set-string', `image.digest=${wanted.digest ?? ''}`],
+      inputs: chartInputs([bytes, wanted.imageTag, wanted.digest ?? '']),
+    };
+    const upgraded = await runSteps([chartStep({ id: 'upgrade', title: UPGRADE_WORDS.upgrading(current, wanted.imageTag) }, release)], ctx, logged(log)).then(
+      (): Ended => ({ state: 'done' }),
+      (err: unknown): Ended => {
+        if (err instanceof StepFailed) return { state: 'hopeless', reason: err.why };
+        throw err;
+      },
+    );
     if (upgraded.state === 'done') {
       await report('ready', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag, wantedData);
       return true;
     }
     if (wantedData > installed) {
       log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; it is not rolled back to ${current}, which cannot run the data it may have moved forward`);
-      const left = await clearAbandoned(since);
-      await report('failed', withWhy(UPGRADE_WORDS.keptForData(wanted.imageTag, current, wantedData), left ? `${upgraded.reason}; ${left}` : upgraded.reason), undefined, wantedData);
+      await report('failed', withWhy(UPGRADE_WORDS.keptForData(wanted.imageTag, current, wantedData), upgraded.reason), undefined, wantedData);
       return false;
     }
     log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; rolling back to ${current}`);
-    const back = await deps.cluster.helm(['rollback', name, '-n', namespace, '--timeout', CEILING])
-      .then(() => rollout(), (err: Error) => ({ state: 'hopeless' as const, reason: err.message }));
-    const left = await clearAbandoned(since);
-    const why = left ? `${upgraded.reason}; ${left}` : upgraded.reason;
+    const back = await deps.cluster.helm(['rollback', name, '-n', namespace])
+      .then(() => followRelease(ctx, release, `the rollback to ${current}`, progress))
+      .then((): Ended => ({ state: 'done' }), (err: Error): Ended => ({ state: 'hopeless', reason: err.message }));
     await report('failed', back.state === 'done'
-      ? withWhy(UPGRADE_WORDS.rolledBack(wanted.imageTag, current), why)
-      : withWhy(UPGRADE_WORDS.notRolledBack(wanted.imageTag, current), `${why}; rolling back: ${back.reason}`));
+      ? withWhy(UPGRADE_WORDS.rolledBack(wanted.imageTag, current), upgraded.reason)
+      : withWhy(UPGRADE_WORDS.notRolledBack(wanted.imageTag, current), `${upgraded.reason}; rolling back: ${back.reason}`));
     return false;
   } finally {
     await rm(dir, { recursive: true, force: true });
-  }
-
-  async function whileHelmRuns(args: string[], since: number): Promise<{ ok: true } | { ok: false; reason: string }> {
-    const stop = new AbortController();
-    const ended: { result?: { ok: true } | { ok: false; reason: string } } = {};
-    const helm = deps.cluster.helm(args, stop.signal).then(() => { ended.result = { ok: true }; }, (err: Error) => { ended.result = { ok: false, reason: err.message }; });
-    for (;;) {
-      await Promise.race([helm, sleep(5000)]);
-      if (ended.result) return ended.result;
-      const stuck = stuckHook(JSON.parse(await deps.cluster.kubectl(['get', 'jobs,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since, now());
-      if (stuck) {
-        stop.abort();
-        await helm;
-        return { ok: false, reason: stuck };
-      }
-    }
-  }
-
-  async function clearAbandoned(since: number): Promise<string | undefined> {
-    try {
-      const names = abandonedJobs(JSON.parse(await deps.cluster.kubectl(['get', 'jobs', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since);
-      if (names.length > 0) await deps.cluster.kubectl(['delete', 'jobs', '-n', namespace, '--ignore-not-found', ...names]);
-      return undefined;
-    } catch (err) {
-      const said = `the jobs the upgrade left could not be removed, and one still running stops the next check-in: ${(err as Error).message}`;
-      log(said);
-      return said;
-    }
-  }
-
-  async function rollout(): Promise<{ state: 'done' } | { state: 'hopeless'; reason: string }> {
-    let said = '';
-    for (;;) {
-      const listed: unknown = JSON.parse(await deps.cluster.kubectl(['get', ROLLOUT_KINDS, '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
-      const now = rolloutOf(listed);
-      if (now.state !== 'rolling') return now;
-      if (now.waiting !== said) log(`waiting: ${now.waiting}`);
-      said = now.waiting;
-      await sleep(5000);
-    }
   }
 }
 
 if (process.argv[1]?.endsWith('self-upgrade.ts')) {
   const settings = selfUpgradeSettingsFrom(process.env);
+  const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   selfUpgrade({
     root: settings.root,
     release: settings.release,
-    cluster: selfUpgradeClusterOn(clusterAccessFrom(settings.clusters, { role: settings.role.role })),
+    cluster: access.chartCluster(access.own()),
   }).then((ok) => { process.exitCode = ok ? 0 : 1; }, (err: Error) => { console.error(err.message); process.exitCode = 1; });
 }

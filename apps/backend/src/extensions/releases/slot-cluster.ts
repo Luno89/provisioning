@@ -9,7 +9,7 @@ import type { ReleaseSource, ReleaseTarget, VaultReach } from '../../releases/in
 import type { SecretSyncInfra } from '../../projects/index.js';
 import { inNamespace, namespacedOn, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
-import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import { assessWorkload } from '@koala/provision';
 import { manifestList, registryPullManifests, type RegistryLogin, type RegistryLoginSource } from '../../instances/lib/registry-pull.js';
 
 export interface VaultSyncArgs {

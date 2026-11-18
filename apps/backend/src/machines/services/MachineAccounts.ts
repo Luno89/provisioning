@@ -1,8 +1,10 @@
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { joinProgressOf, type MachineJoinView } from '@koala/engine-core/machine-join';
+import { JOIN_PROGRESS, type MachineJoinView } from '@koala/engine-core/machine-join';
+import { progressOf } from '@koala/engine-core/machine-progress';
 import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform/index.js';
-import type { IdentityKeyPair, PlacedKoala, PlacingMachine } from '../../instances/index.js';
+import type { IdentityKeyPair } from '../../instances/index.js';
+import type { KoalaInstalls } from './KoalaInstalls.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
 import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinCodeLapsed, joinDismissable, joinEndsOnConnecting, joinShown, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
@@ -37,12 +39,7 @@ export interface KoalaPlace {
 export interface MachineMessages {
   removed(deviceId: string): boolean;
   koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
-  placeKoala?(deviceId: string, placed: PlacedKoala): Promise<boolean>;
   online?(deviceId: string): boolean;
-}
-
-export interface KoalaPlacer {
-  placeOn(ownerId: string, machine: PlacingMachine, name?: unknown): Promise<Outcome<PlacedKoala>>;
 }
 
 export interface MachineFollowers {
@@ -63,7 +60,7 @@ export interface MachineAccountsDeps {
   followers: MachineFollowers;
   toMachines: MachineMessages;
   toOwner: OwnerBrowsers;
-  placer?: KoalaPlacer | undefined;
+  installs?: Pick<KoalaInstalls, 'start' | 'machineRemoved'> | undefined;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -170,7 +167,7 @@ export class MachineAccounts {
     if (typeof code !== 'string' || !code) return { ok: false, status: 401, error: 'send the code from My Machines as the bearer credential' };
     const join = await this.deps.store.getMachineJoin(hashMachineCode(code));
     if (!join || joinCodeLapsed(join, this.now())) return { ok: false, status: 401, error: JOIN_GONE };
-    const read = joinProgressOf(body);
+    const read = progressOf(body, JOIN_PROGRESS);
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
     const progress = { ...read.value, at: this.now().toISOString() };
     const recorded = join.connectedAt !== undefined && joinEndsOnConnecting({ progress })
@@ -280,7 +277,7 @@ export class MachineAccounts {
   async putKoalaOn(ownerId: string, deviceId: string, name?: string): Promise<Outcome<{ placing: boolean }>> {
     const device = await this.byId(deviceId);
     if (!device || device.ownerId !== ownerId) return { ok: false, status: 404, error: 'no such machine on your account' };
-    if (!this.deps.placer) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
+    if (!this.deps.installs) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
     await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaWanted: { name: name ?? device.koalaWanted?.name ?? '' } }, unset: ['koalaRefused'] });
     return this.deliverKoala(device.id);
   }
@@ -288,15 +285,14 @@ export class MachineAccounts {
   async deliverKoala(deviceId: string): Promise<Outcome<{ placing: boolean }>> {
     const device = await this.byId(deviceId);
     if (!device?.koalaWanted) return { ok: true, value: { placing: false } };
-    if (!this.deps.placer) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
-    const placed = await this.deps.placer.placeOn(device.ownerId, { id: device.id, name: device.name, ...(device.meshIp ? { meshIp: device.meshIp } : {}) }, device.koalaWanted.name || undefined);
+    if (!this.deps.installs) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
+    const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined);
     if (!placed.ok) {
       if (placed.status !== 409 || device.meshIp) await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaRefused: { reason: placed.error, at: this.now().toISOString() } }, unset: ['koalaWanted'] });
       return placed;
     }
-    const taken = await this.deps.toMachines.placeKoala?.(device.id, placed.value) ?? false;
-    if (taken) await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted', 'koalaRefused'] });
-    return { ok: true, value: { placing: taken } };
+    await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted', 'koalaRefused'] });
+    return { ok: true, value: { placing: true } };
   }
 
   async tellKoala(ownerId: string): Promise<void> {
@@ -309,6 +305,7 @@ export class MachineAccounts {
   async remove(ownerId: string, deviceId: string): Promise<boolean> {
     const device = await this.byId(deviceId);
     if (!device || device.ownerId !== ownerId) return false;
+    await this.deps.installs?.machineRemoved(device.id);
     this.deps.toMachines.removed(device.id);
     await this.deps.store.deleteLocalAgentDevice(device.id);
     if (await this.deps.store.deleteMachineJoinsOf(device.id)) this.deps.toOwner.machinesChanged(device.ownerId);

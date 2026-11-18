@@ -2,9 +2,10 @@ import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import { HeadscaleService } from '../infrastructure/index.js';
+import { installUnfinished } from '../instances/index.js';
 
 export interface RootRemovalActivities {
-  RootRemovalInstanceActivity(args: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined }>;
+  RootRemovalInstanceActivity(args: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined; installId?: string | undefined }>;
   RootRemovalMeshActivity(args: { ownerId: string }): Promise<{ devices: number; user: boolean }>;
   RootRemovalRecordsActivity(args: { ownerId: string }): Promise<Record<string, number>>;
 }
@@ -20,10 +21,13 @@ async function withDb<T>(work: (db: ReturnType<typeof createDatabase>) => Promis
   }
 }
 
-export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined }> {
+export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string }): Promise<{ poolInstanceId?: string | undefined; installId?: string | undefined }> {
   return withDb(async (db) => {
     const instance = (await db.instances.getInstances()).find((entry) => entry.ownerId === ownerId);
-    return instance?.pool ? { poolInstanceId: instance.id } : {};
+    return {
+      ...(instance?.pool ? { poolInstanceId: instance.id } : {}),
+      ...(instance?.install && installUnfinished(instance.install) ? { installId: instance.install.id } : {}),
+    };
   });
 }
 

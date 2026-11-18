@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import type { ChartCluster } from '@koala/provision';
 import { decryptValue, nodeProcesses, nodeStreams, theFence, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
 import { helmArgsFor } from '../lib/chart-sources.js';
@@ -113,6 +114,13 @@ export class ClusterAccess {
     }
   }
 
+  chartCluster(target: Target): ChartCluster {
+    return {
+      helm: (args) => this.helm(target, args),
+      kubectl: (args) => this.kubectl(target, args),
+    };
+  }
+
   async apply(target: Target, manifest: string, options: { serverSide?: boolean } = {}): Promise<string> {
     const leave = this.admitted();
     try {
@@ -209,6 +217,15 @@ export interface ClusterAccessFrom {
   role: PlatformRole;
   clusters?: Pick<InfrastructureStore, 'getClusters'> | undefined;
   dataKey?: SecretKey | undefined;
+}
+
+export function clusterAccessOfKubeconfig(kubeconfig: string, clusterId: string): { access: ClusterAccess; target: Reach } {
+  const folder = join(tmpdir(), `koala-clusters-${process.pid}`);
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  return {
+    access: new ClusterAccess({ here: { root: false }, folder, processes: nodeProcesses, streams: nodeStreams, tools: { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') } }),
+    target: { clusterId, kind: 'machine', kubeconfig },
+  };
 }
 
 export function clusterAccessFrom(settings: ClusterSettings, from: ClusterAccessFrom): ClusterAccess {

@@ -4,7 +4,8 @@ import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { ignore } from '@koala/engine-core/failures';
 import type { GpuVendor } from '@koala/engine-core';
-import { advertisedGpus, GPU_PLUGINS, gpuPluginState, rolloutOfOne, runtimeRefused, type Reach, type Rollout } from '../infrastructure/index.js';
+import { rolloutOfOne, type Rollout } from '@koala/provision';
+import { advertisedGpus, GPU_PLUGINS, gpuPluginState, runtimeRefused, type Reach } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 

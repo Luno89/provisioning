@@ -164,11 +164,13 @@ describe('installing Koala in a trial', () => {
     await expect(silent.pool.install('ann', 'install-1', {}, IMAGE)).rejects.toThrow('installing Koala in pool-ann failed: no log');
   });
 
-  it('runs the chart from the image against the vcluster it was handed', () => {
-    const job = installJob('install-1', 'pool-ann', 'ann', IMAGE) as { spec: { template: { spec: { containers: Array<{ image: string; command: string[] }> } } } };
+  it('puts the chart from the image on the vcluster it was handed with the one install step, which follows it until all is up, tried once', () => {
+    const job = installJob('install-1', 'pool-ann', 'ann', IMAGE) as { spec: { backoffLimit: number; template: { spec: { containers: Array<{ image: string; command: string[] }> } } } };
     const container = job.spec.template.spec.containers[0]!;
     expect(container.image).toBe('reg.test/nowrinkles/app:v1');
-    expect(container.command[2]).toContain('/app/bin/helm upgrade --install instance /app/charts/instance -n nowrinkles');
+    expect(container.command[2]).toContain('exec entrypoint install-koala --kubeconfig /tmp/kubeconfig --release instance --namespace nowrinkles --chart /app/charts/instance -- -f /values/values.json');
+    expect(container.command[2]).not.toMatch(/--wait|--timeout/);
+    expect(job.spec.backoffLimit).toBe(0);
   });
 });
 

@@ -325,19 +325,17 @@ if [ "${INSTANCE_MOVE:-}" = yes ]; then
   ok "your instance's keys are here"
   MOVE_ARGS="--set move.enabled=true"
 fi
-WAIT="--wait"
-[ -n "$MOVE_ARGS" ] && WAIT=
 helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --create-namespace \
   --set image.repository="$INSTANCE_IMAGE" --set image.tag="$INSTANCE_IMAGE_TAG" --set-string image.digest="${INSTANCE_IMAGE_DIGEST:-}" \
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
   --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set storage.total=100Gi \
   --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" $ROUTING $MOVE_ARGS \
-  $WAIT --timeout 720h
+  --wait --wait-for-jobs --timeout 720h
 rm -f "$KEYS_FILE"
 if [ -n "$MOVE_ARGS" ]; then
   ok "everything came over"
-  helm upgrade "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --reuse-values --set move.enabled=false --wait --timeout 720h
+  helm upgrade "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --reuse-values --set move.enabled=false --wait --wait-for-jobs --timeout 720h
   echo "  waiting for the instance to answer on ${MESH_IP}:${NODE_PORT}"
   until curl -fsS -o /dev/null "http://${MESH_IP}:${NODE_PORT}/api/auth/sign-in"; do sleep 3; done
   report ready "Moved here" "$PUBLIC_URL" moved

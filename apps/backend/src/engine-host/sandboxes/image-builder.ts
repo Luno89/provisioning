@@ -1,7 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
-import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import { assessWorkload } from '@koala/provision';
 import { forPushing, kanikoRegistryArgs, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 import { dockerConfigJson } from '../../instances/lib/registry-pull.js';
 import { failureOf, reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';

@@ -11,6 +11,8 @@ import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, update
 import type { Reach } from '../lib/instance-watch.js';
 import { commandSafeCode } from '../../platform/index.js';
 import { InstanceReach } from './InstanceReach.js';
+import type { KoalaInstallView, PlacedKoala } from '@koala/engine-core/koala-install';
+import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -95,24 +97,6 @@ export interface JoinBundle {
   name: string;
   domain: string;
   move?: boolean | undefined;
-}
-
-export interface PlacedKoala {
-  instanceId: string;
-  ownerId: string;
-  machineId: string;
-  rootUrl: string;
-  rootPublicKeys: string;
-  meshLoginServer: string;
-  meshAddress: string;
-  image: string;
-  imageTag: string;
-  imageDigest?: string | undefined;
-  chartUrl: string;
-  chartSha256?: string | undefined;
-  credential: string;
-  name: string;
-  domain: string;
 }
 
 export interface PlacingMachine {
@@ -356,7 +340,7 @@ export class InstanceService {
     };
   }
 
-  async placeOn(ownerId: string, machine: PlacingMachine, requestedName?: unknown): Promise<Outcome<PlacedKoala>> {
+  async placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>> {
     if (!this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can hold a Koala' };
     if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
     if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
@@ -367,22 +351,35 @@ export class InstanceService {
     }
     const named = await this.nameFor(ownerId, requestedName);
     if (!named.ok) return { ok: false, status: 400, error: named.error };
-    const credential = crypto.randomBytes(32).toString('base64url');
     const instanceId = existing?.id ?? instanceIdFor(ownerId);
     const now = this.now().toISOString();
     await this.save(existing ?? { id: instanceId, ownerId, url: '', createdAt: now, updatedAt: now }, {
       status: 'joined',
-      detail: `${machine.name} is putting Koala on itself`,
-      credentialHash: hashCredential(credential),
+      detail: `Asking ${machine.name} to put Koala on itself`,
       machine: machine.name,
       machineId: machine.id,
+      meshIp: machine.meshIp,
       name: named.name,
+      install: askedInstall(installId, machine.id, now),
     });
+    const replaces = existing?.install && installUnfinished(existing.install) ? existing.install.id : undefined;
+    return { ok: true, value: { instanceId, ...(replaces ? { replaces } : {}) } };
+  }
+
+  async placedKoala(installId: string, machine: PlacingMachine): Promise<Outcome<PlacedKoala>> {
+    if (!this.settings.meshLoginServer || !this.settings.registry) return { ok: false, status: 503, error: 'this root has no mesh or no registry, so no machine can hold a Koala' };
+    if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.install?.id === installId);
+    if (!instance?.install || instance.install.machineId !== machine.id || !installUnfinished(instance.install)) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
+    const credential = crypto.randomBytes(32).toString('base64url');
+    const recorded = await this.store.instances.updateInstall(instance.id, installId, { credentialHash: hashCredential(credential), 'install.imageTag': this.settings.imageTag, updatedAt: this.now().toISOString() });
+    if (!recorded) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
     return {
       ok: true,
       value: {
-        instanceId,
-        ownerId,
+        installId,
+        instanceId: instance.id,
+        ownerId: instance.ownerId,
         machineId: machine.id,
         rootUrl: this.settings.rootUrl,
         rootPublicKeys: this.settings.rootPublicKeys().join('\n'),
@@ -393,11 +390,30 @@ export class InstanceService {
         chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
         ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
         credential,
-        name: named.name,
+        name: instance.name ?? '',
         domain: this.settings.domain ?? '',
       },
     };
   }
+
+  async installOf(installId: string): Promise<InstanceRecord | undefined> {
+    return (await this.store.instances.getInstances()).find((entry) => entry.install?.id === installId);
+  }
+
+  async installNotStarted(instanceId: string, installId: string, why: string): Promise<void> {
+    const at = this.now().toISOString();
+    await this.store.instances.updateInstall(instanceId, installId, { 'install.state': 'failed', 'install.why': why, 'install.at': at, status: 'failed', detail: why, updatedAt: at });
+  }
+
+  async installsOn(machineId: string): Promise<InstanceRecord[]> {
+    return (await this.store.instances.getInstances()).filter((entry) => entry.install?.machineId === machineId);
+  }
+
+  async installedUrl(instance: InstanceRecord, raw: unknown): Promise<Outcome<string>> {
+    const checked = await this.reach.reportedUrl(raw, { name: instance.name, meshIp: instance.meshIp });
+    return checked.ok ? { ok: true, value: checked.url } : { ok: false, status: 400, error: checked.error };
+  }
+
 
   private async authenticated(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
@@ -620,7 +636,7 @@ export class InstanceService {
     return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined; watch: WatchView } | null> {
+  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined; install?: KoalaInstallView | undefined; watch: WatchView } | null> {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance) return null;
     const move = await this.moveOf(ownerId);
@@ -628,6 +644,7 @@ export class InstanceService {
       id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name,
       ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
       ...(move ? { move } : {}),
+      ...(instance.install ? { install: installView(instance.install) } : {}),
       watch: await this.watchViewOf(instance),
     };
   }

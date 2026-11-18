@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import type { KoalaInstallView } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -11,7 +12,7 @@ const nameIn = (body: unknown, field: string): string | undefined => {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
-export interface KoalaWhere { machineId?: string | undefined; status?: string | undefined }
+export interface KoalaWhere { machineId?: string | undefined; status?: string | undefined; install?: KoalaInstallView | undefined }
 
 export function myMachinesRouter(deps: {
   accounts: Pick<MachineAccounts, 'mine' | 'createJoinCode' | 'putKoalaOn' | 'remove' | 'dismissJoin'>;

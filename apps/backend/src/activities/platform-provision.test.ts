@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
-import { ROLLOUT_KINDS } from '../infrastructure/lib/rollout.js';
+import { ROLLOUT_KINDS } from '@koala/provision';
 import { CannotRollOut } from './watched-apply.js';
 import { provisionPlatformServices } from './platform-provision.js';
 

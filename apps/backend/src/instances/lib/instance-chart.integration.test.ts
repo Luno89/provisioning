@@ -7,7 +7,7 @@ import { renderChart } from '../../../../../tests/coupling/chart-trace.js';
 import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
 import { podPlaceFrom } from '../../platform/lib/drain.js';
 import { loadKey } from '../../platform/lib/keys.js';
-import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, platformServicesSettingsFrom, selfUpgradeSettingsFrom } from '../../platform/lib/settings.js';
+import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, platformServicesSettingsFrom, selfUpgradeSettingsFrom, setupWaitsSettingsFrom } from '../../platform/lib/settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
@@ -59,7 +59,7 @@ interface Spec {
 
 interface Doc {
   kind: string;
-  metadata: { name: string; annotations?: Record<string, string> };
+  metadata: { name: string; annotations?: Record<string, string>; labels?: Record<string, string> };
   spec?: Spec;
   data?: Record<string, string>;
   roleRef?: { name: string };
@@ -227,15 +227,24 @@ describe('the instance chart', () => {
     }
   });
 
-  it('owns the cluster it is installed in, and sets up its services there after install and every upgrade', () => {
+  it('owns the cluster it is installed in, and sets up its services there with Jobs of their own on every install and upgrade, each after the one before it, with nothing for helm to wait on', () => {
     const docs = render();
     expect(find(docs, 'ClusterRoleBinding', 'luno-nowrinkles-owns-cluster').roleRef?.name).toBe('cluster-admin');
+    const after: string[] = [];
     for (const step of ['platform-services', 'seed']) {
-      const job = find(docs, 'Job', `luno-${step}`);
-      expect(job.metadata.annotations?.['helm.sh/hook']).toBe('post-install,post-upgrade');
+      const job = find(docs, 'Job', `luno-${step}-1`);
+      expect(job.metadata.annotations?.['helm.sh/hook']).toBeUndefined();
+      expect(job.metadata.labels?.['koala.app/setup']).toBe(step);
+      expect((job.spec as { backoffLimit?: number }).backoffLimit).toBe(0);
       expect(podOf(job).containers[0]!.args).toEqual([step]);
       expect(podOf(job).containers[0]!.env).toContainEqual({ name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } });
+      const waits = podOf(job).initContainers?.[0];
+      expect(waits?.args).toEqual(['setup-waits']);
+      expect(waits?.env).toEqual(expect.arrayContaining([{ name: 'SETUP_STEP', value: step }, { name: 'SETUP_AFTER', value: after.join(' ') }]));
+      after.push(`luno-${step}-1`);
     }
+    const moving = render(['move.enabled=true']);
+    expect(podOf(find(moving, 'Job', 'luno-move-restore-1')).initContainers?.[0]?.env).toContainEqual({ name: 'SETUP_AFTER', value: 'luno-move-data-1 luno-platform-services-1' });
   });
 
   it('runs each process and setup step from a checkout on the machine under a watcher only when dev names one, read-only, the data volume still its own', () => {
@@ -251,7 +260,7 @@ describe('the instance chart', () => {
     const pods = aliased.filter((doc) => doc.kind === 'Job' || doc.kind === 'CronJob' || (doc.kind === 'Deployment' && koalas.includes(doc.metadata.name)));
     expect(pods.map((doc) => doc.kind)).toEqual(expect.arrayContaining(['Deployment', 'Job', 'CronJob']));
     for (const doc of pods) expect(podOf(doc).hostAliases, `${doc.kind} ${doc.metadata.name}`).toEqual([{ ip: '10.42.0.1', hostnames: ['koala.localhost'] }]);
-    expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
+    expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed-1')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
   });
 
   it('measures what Koala\'s own processes run only when dev asks it to, into the host\'s folder at its own path and under the host\'s pids, and refuses it for anything but a dev checkout', () => {
@@ -448,13 +457,15 @@ describe('the instance chart', () => {
     const upgrade = selfUpgradeSettingsFrom(environment(fresh, podOf(find(fresh, 'CronJob', 'luno-self-upgrade')), 'self-upgrade'));
     expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
     expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
-    expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed')), 'seed')).mongo).toBeDefined();
-    expect(platformServicesSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services')), 'platform-services'))).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: expect.stringMatching(/^[A-Za-z0-9]{40}$/) as unknown, clusters: { here: { koalaMachineId: 'desk' } } });
+    expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'seed')).mongo).toBeDefined();
+    expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'waits'))).toMatchObject({ step: 'seed', after: ['luno-platform-services-1'], podNamespace: 'nowrinkles', mongo: { dbName: 'provisioning' }, clusters: { here: { koalaMachineId: 'desk' } } });
+    expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services-1')), 'waits'))).toMatchObject({ step: 'platform-services', after: [] });
+    expect(platformServicesSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services-1')), 'platform-services'))).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: expect.stringMatching(/^[A-Za-z0-9]{40}$/) as unknown, clusters: { here: { koalaMachineId: 'desk' } } });
     expect(loadKey(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-temporal')), 'temporal-jwks'), 'temporal')).toBeDefined();
     expect(podPlaceFrom(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-backend')), 'backend'))).toEqual({ ip: '10.42.0.9', namespace: 'nowrinkles' });
     const moving = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`, 'move.enabled=true']);
     for (const step of ['move-data', 'move-restore']) {
-      expect(moveImportSettingsFrom(environment(moving, podOf(find(moving, 'Job', `luno-${step}`)), step))).toMatchObject({ rootUrl: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes' } });
+      expect(moveImportSettingsFrom(environment(moving, podOf(find(moving, 'Job', `luno-${step}-1`)), step))).toMatchObject({ rootUrl: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes' } });
     }
   });
 

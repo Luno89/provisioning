@@ -497,23 +497,23 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('putting Koala on one of the person\'s machines', () => {
-    const placedFor = (machineId: string) => ({ instanceId: 'inst-bo', ownerId: 'bo', machineId, rootUrl: ROOT_URL, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh', meshAddress: '100.64.0.7', image: 'r/app', imageTag: 't', chartUrl: `${ROOT_URL}/c.tgz`, credential: 'cred', name: 'bobby', domain: '' });
-
-    const placing = (online: boolean) => {
-      const asked: Array<[string, string, unknown]> = [];
-      const handed: string[] = [];
+    const placing = () => {
+      const started: Array<[string, string, unknown]> = [];
+      const cancelled: string[] = [];
       const machines = accounts({
-        placer: { placeOn: async (ownerId, machine, name) => {
-          asked.push([ownerId, machine.id, name]);
-          return machine.meshIp ? { ok: true, value: placedFor(machine.id) } : { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
-        } },
-        toMachines: { removed: () => true, koala: () => true, placeKoala: async (deviceId) => { handed.push(deviceId); return online; }, online: () => online },
+        installs: {
+          start: async (ownerId, device, name) => {
+            started.push([ownerId, device.id, name]);
+            return device.meshIp ? { ok: true, value: { installId: `install-${started.length}` } } : { ok: false, status: 409, error: `${device.name} is not on your private network yet; Koala is put on it once it is` };
+          },
+          machineRemoved: async (deviceId) => { cancelled.push(deviceId); },
+        },
       });
-      return { machines, asked, handed };
+      return { machines, started, cancelled };
     };
 
-    it('asks for Koala through the join command when the person has none, and puts it there once the machine is on the mesh', async () => {
-      const { machines, asked, handed } = placing(true);
+    it('asks for Koala through the join command when the person has none, and starts putting it there once the machine is on the mesh', async () => {
+      const { machines, started } = placing();
       const { code } = await machines.createJoinCode('bo', 'bobby');
       const joined = await machines.join(code, { hostname: 'desk', rootDir: '/home/bo/koala' });
       if (!joined.ok) throw new Error(joined.error);
@@ -523,26 +523,20 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect((await stored(id))?.koalaWanted).toEqual({ name: 'bobby' });
       await machines.recordMeshIp(id, '100.64.0.7');
       expect(await machines.deliverKoala(id)).toEqual({ ok: true, value: { placing: true } });
-      expect(asked.at(-1)).toEqual(['bo', id, 'bobby']);
-      expect(handed).toEqual([id]);
+      expect(started.at(-1)).toEqual(['bo', id, 'bobby']);
       expect((await stored(id))?.koalaWanted).toBeUndefined();
       expect(await machines.deliverKoala(id)).toEqual({ ok: true, value: { placing: false } });
+      expect(started).toHaveLength(2);
     });
 
     it('keeps a refused placement on the machine with its reason, and putting Koala there again asks again', async () => {
-      const refusing = accounts({
-        placer: { placeOn: async () => ({ ok: false, status: 409, error: '"bobby" is taken' }) },
-        toMachines: { removed: () => true, koala: () => true, placeKoala: async () => true, online: () => true },
-      });
+      const refusing = accounts({ installs: { start: async () => ({ ok: false, status: 409, error: '"bobby" is taken' }), machineRemoved: async () => undefined } });
       const { deviceId } = await joined(refusing, 'bo', { hostname: 'desk', rootDir: '/x' });
       await refusing.recordMeshIp(deviceId, '100.64.0.7');
       expect(await refusing.putKoalaOn('bo', deviceId, 'bobby')).toMatchObject({ ok: false, error: '"bobby" is taken' });
       const [listed] = await refusing.listOnline('bo');
       expect(listed).toMatchObject({ koalaWanted: false, koalaRefused: { reason: '"bobby" is taken', at: clock.toISOString() } });
-      const placingNow = accounts({
-        placer: { placeOn: async (ownerId, machine) => ({ ok: true, value: { instanceId: 'inst-bo', ownerId, machineId: machine.id, rootUrl: ROOT_URL, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh', meshAddress: '100.64.0.7', image: 'r/app', imageTag: 't', chartUrl: `${ROOT_URL}/c.tgz`, credential: 'cred', name: 'bobbie', domain: '' } }) },
-        toMachines: { removed: () => true, koala: () => true, placeKoala: async () => true, online: () => true },
-      });
+      const { machines: placingNow } = placing();
       expect(await placingNow.putKoalaOn('bo', deviceId, 'bobbie')).toEqual({ ok: true, value: { placing: true } });
       expect((await placingNow.listOnline('bo'))[0]).not.toHaveProperty('koalaRefused');
     });
@@ -560,15 +554,17 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect((await machines.listOnline('bo'))[0]).not.toHaveProperty('tokenRenewal');
     });
 
-    it('keeps the wish for a machine that is offline until it connects, and never puts Koala on another person\'s machine', async () => {
-      const { machines, handed } = placing(false);
+    it('starts the install for a machine that is offline, to be asked of it once it connects, never puts Koala on another person\'s machine, and stops the install when the machine is removed', async () => {
+      const { machines, started, cancelled } = placing();
       const { deviceId } = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x' });
       await machines.recordMeshIp(deviceId, '100.64.0.7');
-      expect(await machines.putKoalaOn('bo', deviceId, 'bobby')).toEqual({ ok: true, value: { placing: false } });
-      expect(handed).toEqual([deviceId]);
-      expect((await stored(deviceId))?.koalaWanted).toEqual({ name: 'bobby' });
+      expect(await machines.putKoalaOn('bo', deviceId, 'bobby')).toEqual({ ok: true, value: { placing: true } });
+      expect(started).toEqual([['bo', deviceId, 'bobby']]);
       expect(await machines.putKoalaOn('cy', deviceId, 'cyril')).toMatchObject({ ok: false, status: 404 });
-      expect((await machines.listOnline('bo')).map((machine) => [machine.id, machine.online, machine.koalaWanted])).toEqual([[deviceId, false, true]]);
+      expect((await machines.listOnline('bo')).map((machine) => [machine.id, machine.online, machine.koalaWanted])).toEqual([[deviceId, false, false]]);
+      mesh.removeNode.mockResolvedValue(undefined);
+      expect(await machines.remove('bo', deviceId)).toBe(true);
+      expect(cancelled).toEqual([deviceId]);
     });
   });
 }

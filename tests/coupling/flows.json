@@ -53,7 +53,8 @@
     "name": "put-koala-here",
     "title": "Put Koala on a machine",
     "entries": [
-      "apps/frontend/src/features/machines/api.ts#putKoalaOn"
+      "apps/frontend/src/features/machines/api.ts#putKoalaOn",
+      "apps/local-agent/src/koala-install.ts#installKoala"
     ],
     "concepts": [
       "work",
@@ -68,6 +69,13 @@
         "title": "My Machines shows Koala on the machine, or why not",
         "entries": [
           "apps/frontend/src/features/machines/api.ts#listMyMachines"
+        ]
+      },
+      {
+        "title": "My Machines shows the install's current stage and what it waits on, live, or the stage it stopped at and why",
+        "entries": [
+          "apps/frontend/src/features/machines/api.ts#listMyMachines",
+          "apps/frontend/src/features/machines/api.ts#useMyMachinesLive"
         ]
       }
     ]

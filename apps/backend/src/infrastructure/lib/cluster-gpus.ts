@@ -1,6 +1,6 @@
 import { GPU_VENDORS, gpuCountOf, type GpuVendor } from '@koala/engine-core';
 import type { ClusterMetadata } from '../../platform/index.js';
-import type { Rollout } from './rollout.js';
+import type { Rollout } from '@koala/provision';
 
 export interface GpuPlugin {
   manifest: string;

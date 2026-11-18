@@ -222,6 +222,9 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - Terraform's state on an instance lives in Kubernetes, a Secret per stack, locked; root keeps it in its data folder.
 - **Terraform waits on nothing it makes** (owner, 2026-11-09: "1 for helm"). Koala watches the rollout itself and stops Terraform the
   moment a workload can never recover.
+- Koala's own chart is applied by one install step (machine, pool, self-upgrade and dev alike) with helm waiting on nothing; its setup
+  steps are ordinary Jobs per revision that wait on what they need, and putting Koala on a machine is a workflow on root that the
+  machine's agent carries out (owner, 2026-11-18: "The agent, driven by root").
 - An instance's platform services are CDKTF stacks applied through that same watch, one per service, each taking over what is
   already there; their secrets live in Secrets Koala makes, which the stacks read by name.
 

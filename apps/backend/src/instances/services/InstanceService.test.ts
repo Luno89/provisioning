@@ -612,25 +612,38 @@ describe('an instance asking root about itself', () => {
 describe('putting a person\'s Koala on one of their machines', () => {
   const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
 
-  it('makes their instance on the machine and hands the machine everything to install it, a credential only it holds', async () => {
-    const placed = await service.placeOn('u1', desk, 'luno');
+  it('makes their instance on the machine with an install asked of it, and hands the machine everything to install it, a credential only it holds', async () => {
+    expect(await service.placeOn('u1', desk, 'luno', 'install-1')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u1') } });
+    expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ status: 'joined', machine: 'desk', machineId: 'desk', meshIp: '100.64.0.7', name: 'luno', install: { id: 'install-1', machineId: 'desk', state: 'asked' } });
+    const placed = await service.placedKoala('install-1', desk);
     expect(placed).toMatchObject({ ok: true, value: {
-      instanceId: instanceIdFor('u1'), ownerId: 'u1', machineId: 'desk', rootUrl: 'https://app.example.com', rootPublicKeys: 'PEM-1',
+      installId: 'install-1', instanceId: instanceIdFor('u1'), ownerId: 'u1', machineId: 'desk', rootUrl: 'https://app.example.com', rootPublicKeys: 'PEM-1',
       meshLoginServer: 'https://mesh.example.com', meshAddress: '100.64.0.7', image: '100.64.0.1:5001/nowrinkles/app', imageTag: 'abc123',
       chartUrl: 'https://app.example.com/api/instances/chart.tgz', name: 'luno', domain: 'koala.dev',
     } });
     if (!placed.ok) throw new Error(placed.error);
-    expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ status: 'joined', machine: 'desk', machineId: 'desk', name: 'luno', credentialHash: hashCredential(placed.value.credential) });
+    expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ credentialHash: hashCredential(placed.value.credential), install: { imageTag: 'abc123' } });
+    const again = await service.placedKoala('install-1', desk);
+    if (!again.ok) throw new Error(again.error);
+    expect(again.value.credential).not.toBe(placed.value.credential);
   });
 
-  it('puts it again on the same machine with a new credential, and refuses another machine while one holds it, one off the mesh, or a trial on Koala\'s servers', async () => {
-    const first = await service.placeOn('u1', desk, 'luno');
-    const again = await service.placeOn('u1', desk);
-    if (!first.ok || !again.ok) throw new Error('not placed');
-    expect(again.value.credential).not.toBe(first.value.credential);
-    expect(await service.placeOn('u1', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' })).toMatchObject({ ok: false, status: 409, error: 'your Koala is on desk; moving it is a step of its own' });
-    expect(await service.placeOn('u2', { id: 'nas', name: 'nas' }, 'nasbox')).toMatchObject({ ok: false, status: 409, error: 'nas is not on your private network yet; Koala is put on it once it is' });
+  it('puts it again on the same machine, naming the install it replaces, and refuses another machine while one holds it, one off the mesh, or a trial on Koala\'s servers', async () => {
+    await service.placeOn('u1', desk, 'luno', 'install-1');
+    expect(await service.placeOn('u1', desk, undefined, 'install-2')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u1'), replaces: 'install-1' } });
+    expect(await service.placedKoala('install-1', desk)).toMatchObject({ ok: false, status: 404 });
+    expect(await service.placedKoala('install-2', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' })).toMatchObject({ ok: false, status: 404 });
+    expect(await service.placeOn('u1', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' }, undefined, 'install-3')).toMatchObject({ ok: false, status: 409, error: 'your Koala is on desk; moving it is a step of its own' });
+    expect(await service.placeOn('u2', { id: 'nas', name: 'nas' }, 'nasbox', 'install-4')).toMatchObject({ ok: false, status: 409, error: 'nas is not on your private network yet; Koala is put on it once it is' });
     await db.instances.saveInstance({ id: instanceIdFor('u3'), ownerId: 'u3', url: '', createdAt: 'then', updatedAt: 'then', status: 'ready', pool: { namespace: 'pool-x' } as never });
-    expect(await service.placeOn('u3', desk, 'trial')).toMatchObject({ ok: false, status: 409 });
+    expect(await service.placeOn('u3', desk, 'trial', 'install-5')).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it('ends an install it could not start as failed, saying why, and shows the person its stage', async () => {
+    await service.placeOn('u1', desk, 'luno', 'install-1');
+    await service.installNotStarted(instanceIdFor('u1'), 'install-1', 'root could not start putting Koala on desk: Temporal is down');
+    expect(await service.placedKoala('install-1', desk)).toMatchObject({ ok: false, status: 404 });
+    expect(await service.mine('u1')).toMatchObject({ status: 'failed', detail: 'root could not start putting Koala on desk: Temporal is down', install: { id: 'install-1', machineId: 'desk', state: 'failed', why: 'root could not start putting Koala on desk: Temporal is down' } });
+    expect((await service.installsOn('desk')).map((instance) => instance.id)).toEqual([instanceIdFor('u1')]);
   });
 });

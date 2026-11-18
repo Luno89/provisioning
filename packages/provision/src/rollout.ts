@@ -108,6 +108,53 @@ export function rolloutAcross(lists: readonly unknown[], options: RolloutOptions
   return each.find((rollout) => rollout.state === 'hopeless') ?? each.find((rollout) => rollout.state === 'rolling') ?? { state: 'done' };
 }
 
+export const SETUP_LABEL = 'koala.app/setup';
+
+export type ReleaseRollout = { state: 'done' } | { state: 'rolling'; waiting: string[] } | { state: 'hopeless'; reason: string; job?: string };
+
+export interface ReleaseOptions {
+  now?: number;
+}
+
+const conditionTrue = (item: Item, type: string): Condition | undefined => item.status?.conditions?.find((condition) => condition.type === type && condition.status === 'True');
+
+type JobState = { state: 'done' } | { state: 'waiting'; line: string } | { state: 'hopeless'; reason: string; job: string };
+
+function jobState(items: readonly Item[], job: Item, now: number | undefined): JobState {
+  const name = `job/${job.metadata?.name}`;
+  const status = job.status as (Item['status'] & { succeeded?: number; active?: number }) | undefined;
+  if ((status?.succeeded ?? 0) > 0 || conditionTrue(job, 'Complete')) return { state: 'done' };
+  const failed = conditionTrue(job, 'Failed');
+  if (failed) return { state: 'hopeless', reason: `${name} failed: ${failed.message ?? failed.reason ?? 'its pod ended in failure'}`, job: job.metadata?.name ?? '' };
+  const pods = items.filter((item) => item.kind === 'Pod' && !item.metadata?.deletionTimestamp && ownedBy(item, 'Job', job.metadata?.name));
+  const health = assessWorkload({ items: pods }, now);
+  if (health.health === 'unhealthy') return { state: 'hopeless', reason: `${name}: ${health.reason}`, job: job.metadata?.name ?? '' };
+  const unplaced = pods.map((pod) => pod.status?.conditions?.find((condition) => condition.type === 'PodScheduled' && condition.status === 'False')).find((condition) => condition !== undefined);
+  if (unplaced) return { state: 'waiting', line: `${name} waits for room: ${unplaced.message ?? unplaced.reason ?? 'the scheduler has not placed it'}` };
+  return { state: 'waiting', line: (status?.active ?? 0) > 0 || pods.length > 0 ? `${name} runs` : `${name} has not started` };
+}
+
+export function releaseRollout(listed: unknown, options: ReleaseOptions = {}): ReleaseRollout {
+  const items = itemsOf(listed);
+  const workloads = items.filter((item) => WORKLOADS.has(item.kind ?? ''));
+  const jobs = items.filter((item) => item.kind === 'Job' && item.metadata?.labels?.[SETUP_LABEL] !== undefined && !item.metadata.deletionTimestamp);
+  const waiting: string[] = [];
+  if (workloads.length > 0) {
+    const rolled = rolloutOf({ items: items.filter((item) => item.kind !== 'Job') }, options.now === undefined ? {} : { now: options.now });
+    if (rolled.state === 'hopeless') return rolled;
+    if (rolled.state === 'rolling') {
+      const each = workloads.map(waitingOn).filter((line): line is string => line !== undefined);
+      waiting.push(...(each.length > 0 ? each : [rolled.waiting]));
+    }
+  }
+  for (const job of jobs) {
+    const state = jobState(items, job, options.now);
+    if (state.state === 'hopeless') return state;
+    if (state.state === 'waiting') waiting.push(state.line);
+  }
+  return waiting.length > 0 ? { state: 'rolling', waiting } : { state: 'done' };
+}
+
 const HOOK = 'helm.sh/hook';
 const madeSince = (item: Item, since: number): boolean => Date.parse(item.metadata?.creationTimestamp ?? '') >= Math.floor(since / 1000) * 1000;
 

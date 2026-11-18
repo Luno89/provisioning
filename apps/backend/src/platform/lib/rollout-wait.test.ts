@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import { assessWorkload } from '@koala/provision';
 import { LIVE_ACTIVITY } from './activity-liveness.js';
 
 const podsWith = (c: object) => ({ items: [{ metadata: { name: 'p' }, status: { phase: 'Running', containerStatuses: [c] } }] });

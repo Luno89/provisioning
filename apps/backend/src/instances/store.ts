@@ -1,6 +1,7 @@
 import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
+import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
@@ -15,6 +16,8 @@ export interface InstancesStore extends AreaStore {
   takeJoinToken(hash: string): Promise<JoinToken | undefined>;
   getInstances(ownerId?: string): Promise<InstanceRecord[]>;
   saveInstance(instance: InstanceRecord): Promise<void>;
+  updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean>;
+  watchInstalls(on: (instance: InstanceRecord) => void): Watching;
   deleteInstance(id: string): Promise<void>;
   getPoolPolicy(): Promise<PoolPolicy | undefined>;
   savePoolPolicy(policy: PoolPolicy): Promise<void>;
@@ -134,6 +137,19 @@ export class MongoInstancesStore implements InstancesStore {
 
   async saveInstance(instance: InstanceRecord): Promise<void> {
     await this.instanceRegistry.replaceOne({ _id: instance.id as never }, stampServed(instance), { upsert: true });
+  }
+
+  async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {
+    const changed = await this.instanceRegistry.updateOne({ _id: instanceId as never, 'install.id': installId }, fieldChanges(fields));
+    if (changed.matchedCount === 0) return false;
+    if (fields.status === 'ready' && typeof fields.updatedAt === 'string') {
+      await this.instanceRegistry.updateOne({ _id: instanceId as never, servedAt: { $exists: false } }, { $set: { servedAt: fields.updatedAt } });
+    }
+    return true;
+  }
+
+  watchInstalls(on: (instance: InstanceRecord) => void): Watching {
+    return watchWrites(() => this.instanceRegistry, { install: { $exists: true } }, ({ _id, ...rest }) => on(rest as unknown as InstanceRecord));
   }
 
   async deleteInstance(id: string): Promise<void> {

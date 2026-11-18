@@ -1,10 +1,12 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
+import { installView } from '../../instances/index.js';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import type { WorkTokenTrust } from './sockets.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
+import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { accountMachinesRouter, type MachineCaller } from '../routes/account-machines.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -23,6 +25,7 @@ export interface MachinesWiringDeps {
   tenant: Routes;
   servesTenants: boolean;
   accounts?: MachineAccounts | undefined;
+  installs?: KoalaInstalls | undefined;
   instanceCaller?: ((instanceId: string, credential: string) => Promise<MachineCaller | undefined>) | undefined;
   workTokens?: WorkTokenTrust | undefined;
   db: Database;
@@ -74,7 +77,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     );
   }
   const metrics = deps.servesTenants && deps.metricsWrite ? new MachineMetricsRelay({ clusters: () => db.infrastructure.getClusters(), write: deps.metricsWrite }) : undefined;
-  deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, bundle, git: deps.servesTenants ? git : undefined, metrics }));
+  deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, installs: deps.installs, bundle, git: deps.servesTenants ? git : undefined, metrics }));
   if (deps.accounts) {
     const { accounts, instanceCaller } = deps;
     deps.app.use('/api/instances/machines', accountMachinesRouter({
@@ -86,7 +89,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
         accounts,
         koalaOf: async (ownerId) => {
           const instance = (await db.instances.getInstances(ownerId))[0];
-          return instance ? { machineId: instance.machineId, status: instance.status } : undefined;
+          return instance ? { machineId: instance.machineId, status: instance.status, ...(instance.install ? { install: installView(instance.install) } : {}) } : undefined;
         },
       }));
     }

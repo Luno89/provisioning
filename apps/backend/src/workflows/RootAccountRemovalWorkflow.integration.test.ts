@@ -7,6 +7,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import type { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,7 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const run = async (poolInstanceId: string | undefined) => {
+const run = async (poolInstanceId: string | undefined, installId?: string) => {
   const seen: string[] = [];
   const taskQueue = `root-removal-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
@@ -30,7 +31,7 @@ const run = async (poolInstanceId: string | undefined) => {
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'RootAccountRemovalWorkflow.ts')),
     activities: {
-      RootRemovalInstanceActivity: async () => { seen.push('find instance'); return poolInstanceId ? { poolInstanceId } : {}; },
+      RootRemovalInstanceActivity: async () => { seen.push('find instance'); return { ...(poolInstanceId ? { poolInstanceId } : {}), ...(installId ? { installId } : {}) }; },
       PoolRemoveActivity: async ({ instanceId }: { instanceId: string }) => { seen.push(`remove pool instance ${instanceId}`); },
       RootRemovalMeshActivity: async () => { seen.push('mesh'); return { devices: 2, user: true }; },
       RootRemovalRecordsActivity: async () => { seen.push('records'); return { users: 1, instances: 1 }; },
@@ -47,6 +48,15 @@ describe('removing an account on root', () => {
     const { seen, result } = await run('inst-1');
     expect(seen).toEqual(['find instance', 'remove pool instance inst-1', 'mesh', 'records']);
     expect(result).toEqual({ poolInstance: true, meshDevices: 2, records: { users: 1, instances: 1 } });
+  });
+
+  it('stops Koala being put on the person\'s machine, by cancelling its install, before anything else goes', async () => {
+    const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
+    const installing = await env.client.workflow.start('KoalaInstallStandIn', { workflowId: koalaInstallWorkflowId(installId), taskQueue: 'nobody-runs-this', args: [], searchAttributes: { KoalaOwner: ['bo'] } });
+    const { seen } = await run(undefined, installId);
+    expect(seen).toEqual(['find instance', 'mesh', 'records']);
+    const history = await installing.fetchHistory();
+    expect(history.events?.some((event) => event.workflowExecutionCancelRequestedEventAttributes)).toBe(true);
   });
 
   it('unregisters an instance on the person\'s own machine by removing its mesh user and its record', async () => {

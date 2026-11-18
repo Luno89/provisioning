@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'fs';
 import { WORKSPACE_STAMP } from '../../engine/lib/published-workspace.js';
-import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
+import { assessWorkload } from '@koala/provision';
 import type { Followed, Io } from '../../platform/index.js';
 
 export interface KubeResult {

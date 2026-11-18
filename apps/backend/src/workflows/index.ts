@@ -17,6 +17,7 @@ export { PoolInstanceWorkflow } from './PoolInstanceWorkflow.js';
 export { PoolTrialWorkflow } from './PoolTrialWorkflow.js';
 export { PoolRemoveWorkflow } from './PoolRemoveWorkflow.js';
 export { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
+export { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
 export { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 export { RootNodeWorkflow } from './RootNodeWorkflow.js';
 export { StoredFilesWorkflow } from './StoredFilesWorkflow.js';

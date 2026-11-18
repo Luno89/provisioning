@@ -7,7 +7,8 @@ import type { JoinContext } from './context.js';
 import type { JoinHost } from './host.js';
 import { joinPins, type JoinPins } from './pins.js';
 import { JoinStopped, planJoin } from './plan.js';
-import { rootJoinProgress, rootReporter } from './root-progress.js';
+import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
+import { rootProgress, rootReporter, rootUrlOf } from '../root-progress.js';
 
 export interface JoinAsking {
   yesNo(question: string): Promise<boolean>;
@@ -64,7 +65,7 @@ export async function runJoin(argv: readonly string[], deps: JoinDeps): Promise<
     const folder = await folderOf(args, deps, say);
     const ctx: JoinContext = { args, host: deps.host, commands, pins: (deps.pins ?? ((given) => joinPins(given.k3sMirror)))(args), folder, agentDir: deps.agentDir, node: deps.node };
     const plan = await planJoin(ctx, ask, say);
-    const reporter = allReporters(terminalReporter(deps.terminal), (deps.rootReporter ?? ((url, code) => rootReporter(rootJoinProgress(url, code, deps.host.fetch))))(args.url, args.code));
+    const reporter = allReporters(terminalReporter(deps.terminal), (deps.rootReporter ?? ((url, code) => rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, deps.host.fetch))))(args.url, args.code));
     await runSteps(plan.steps, ctx, reporter);
     section('Coding agents on this machine');
     await deps.setUpAgents(args.adapters, folder).then(

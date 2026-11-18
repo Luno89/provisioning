@@ -30,14 +30,15 @@ const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
 const helmBinary = (env: NodeJS.ProcessEnv = process.env) => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'bin', 'helm');
 
-let placing = false;
-const placeKoala = (raw: unknown): boolean => {
-  const placed = placedFrom(raw);
-  if (!placed || placing) return false;
-  placing = true;
-  say(`root asks for Koala on this machine (${placed.instanceId})`);
-  void installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, say, ownValues: ownValuesFile() }).finally(() => { placing = false; });
-  return true;
+const placementsWith = (token: () => string) => {
+  let installing = Promise.resolve();
+  return (raw: unknown): boolean => {
+    const placed = placedFrom(raw);
+    if (!placed) return false;
+    say(`root asks for Koala on this machine (${placed.instanceId}, install ${placed.installId})`);
+    installing = installing.then(() => installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, token, say, ownValues: ownValuesFile() }));
+    return true;
+  };
 };
 
 const forgetAndStop = (closing: () => Promise<unknown>) => {
@@ -74,7 +75,7 @@ async function main() {
     meshIp,
     say,
     onRemoved: () => forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve()),
-    onPlaceKoala: placeKoala,
+    onPlaceKoala: placementsWith(() => (root.socket.auth as { token: string }).token),
     onKoala: (koala) => {
       if (!working) {
         working = startWork(thisComputer(service), config, koala.url, koala.workToken, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });

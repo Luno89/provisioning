@@ -176,12 +176,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'), settings.dataDir);
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
-  const { accounts: machineAccounts, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
+  const { accounts: machineAccounts, installs: koalaInstalls, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken,
     side: instanceSide,
-    instances: () => (late.instances ? { service: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
+    instances: () => (late.instances ? { service: late.instances.instanceService, places: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);
 
@@ -375,7 +375,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { odooReleases, releaseSettings, customizations } = releases;
   wireMachines({
-    app, tenant, servesTenants: tenants, accounts: machineAccounts, workTokens,
+    app, tenant, servesTenants: tenants, accounts: machineAccounts, installs: koalaInstalls, workTokens,
     instanceCaller,
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,
     ...(tenants ? {

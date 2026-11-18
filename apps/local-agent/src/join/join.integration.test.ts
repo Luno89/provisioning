@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ignore } from '@koala/engine-core/failures';
-import { joinProgressOf, JOIN_PROGRESS_PATH, type JoinProgress } from '@koala/engine-core/machine-join';
+import { JOIN_PROGRESS, JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
+import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import { localCommands, type CommandRunner, type Every } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
 import { localJoinHost } from './host.js';
@@ -34,7 +35,7 @@ const tool = (name: string, body: string) => {
   chmodSync(path.join(bin, name), 0o755);
 };
 
-const heard: { auth: string | undefined; progress: JoinProgress }[] = [];
+const heard: { auth: string | undefined; progress: MachineProgress }[] = [];
 const joins: Record<string, unknown>[] = [];
 let server: Server;
 let url = '';
@@ -135,7 +136,7 @@ beforeAll(async () => {
           req.socket.destroy();
           return;
         }
-        const read = joinProgressOf(JSON.parse(body));
+        const read = progressOf(JSON.parse(body), JOIN_PROGRESS);
         if (!read.ok) {
           res.statusCode = 400;
           res.end(read.problem);

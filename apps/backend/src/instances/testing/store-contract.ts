@@ -143,6 +143,36 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
+  describe('following Koala being put on a machine', () => {
+    it('hears each write of an instance with an install, and none of one without', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const watching = store.watchInstalls((written) => { heard.push(`${written.id} ${written.install?.state}`); if (written.install?.state === 'ready') finish(); });
+      await watching.ready;
+      const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, askedAt: '2026-11-18T10:00:00.000Z', at: '2026-11-18T10:00:00.000Z' };
+      await store.saveInstance(instance('inst-plain', 'o1'));
+      await store.saveInstance(instance('inst-installed', 'o2', { install }));
+      await store.saveInstance(instance('inst-installed', 'o2', { install: { ...install, state: 'ready' } }));
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['inst-installed asked', 'inst-installed ready']);
+    });
+
+    it('changes only the fields named, only while the install named is the instance\'s, and stamps when it first served once ready', async () => {
+      const store = await make();
+      const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, line: 'waiting', askedAt: '2026-11-18T10:00:00.000Z', at: '2026-11-18T10:00:00.000Z' };
+      await store.saveInstance(instance('inst-a', 'o1', { install, credentialHash: 'h1' }));
+      expect(await store.updateInstall('inst-a', 'install-0', { status: 'failed' })).toBe(false);
+      expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'installing', 'install.line': undefined, status: 'installing', updatedAt: '2026-11-18T10:01:00.000Z' })).toBe(true);
+      expect((await store.getInstances('o1'))[0]).toEqual(instance('inst-a', 'o1', { install: { id: 'install-1', machineId: 'desk', state: 'installing', askedAt: install.askedAt, at: install.at }, credentialHash: 'h1', status: 'installing', updatedAt: '2026-11-18T10:01:00.000Z' }));
+      expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'ready', status: 'ready', url: 'https://bo.koala.app', updatedAt: '2026-11-18T10:02:00.000Z' })).toBe(true);
+      expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z', credentialHash: 'h1' });
+      expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
+    });
+  });
+
   describe('watching whether an instance can be reached', () => {
     it('keeps what is known of each instance apart, and says nothing of the owner', async () => {
       const store = await make();

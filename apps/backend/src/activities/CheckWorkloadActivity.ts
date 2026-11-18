@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { ignore } from '@koala/engine-core/failures';
-import { namespaceOf, ROLLOUT_KINDS, rolloutOf, type Reach, type WorkloadHealth } from '../infrastructure/index.js';
+import { ROLLOUT_KINDS, rolloutOf, type WorkloadHealth } from '@koala/provision';
+import { namespaceOf, type Reach } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
 

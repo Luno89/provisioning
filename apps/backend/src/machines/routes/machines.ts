@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { KOALA_INSTALL_ROUTE } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
+import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/MachineGitService.js';
 import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { METRICS_MAX_BYTES } from '../lib/machine-metrics.js';
@@ -23,7 +25,7 @@ export interface AgentBundle {
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
   const router = Router();
 
   router.post('/metrics', asyncRoute(async (req: Request, res: Response) => {
@@ -62,6 +64,13 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' |
   router.post('/join-progress', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.accounts) return res.status(404).type('text/plain').send('machines report their join to root, which holds accounts');
     const outcome = await deps.accounts.reportJoinProgress(bearer(req.headers.authorization), req.body);
+    if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
+    res.status(204).end();
+  }));
+
+  router.post(KOALA_INSTALL_ROUTE, asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.installs) return res.status(404).type('text/plain').send('machines report putting Koala on themselves to root, which asked them');
+    const outcome = await deps.installs.report(String(req.params.installId ?? ''), bearer(req.headers.authorization), req.body);
     if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
     res.status(204).end();
   }));

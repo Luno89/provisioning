@@ -27,6 +27,7 @@ export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
     'PoolTrialNextActivity', 'PoolTrialStepActivity', 'PoolRemoveActivity', 'PoolMoveStartActivity', 'PoolMoveSwitchActivity', 'PoolMoveStopActivity',
     'DependencyWatchActivity',
     'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
+    'KoalaInstallAskActivity', 'KoalaInstallStageActivity',
   ],
   instance: [
     'ServerOrderFollowActivity', 'ServerOrderRebuildActivity', 'ServerOrderSshActivity', 'ServerOrderDnsActivity', 'ServerOrderReleaseActivity',
@@ -47,6 +48,7 @@ export const WORKFLOWS: Record<string, Started> = {
   PoolRemoveWorkflow: onRoot('host'),
   PoolMoveWorkflow: onRoot('host'),
   RootAccountRemovalWorkflow: onRoot('host'),
+  KoalaInstallWorkflow: onRoot('host'),
   executeIngestWorkflow: onInstance('host'),
   RootNodeWorkflow: onInstance('host'),
   executeDeployAppWorkflow: onInstance('cluster'),

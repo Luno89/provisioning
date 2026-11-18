@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rolloutAcross, rolloutOf, stuckHook } from './rollout.js';
+import { releaseRollout, rolloutAcross, rolloutOf, SETUP_LABEL, stuckHook } from './rollout.js';
 
 const NOW = Date.parse('2026-10-31T12:00:00Z');
 const deployment = (name: string, revision: string, status: Record<string, number>, replicas = 1) =>
@@ -121,5 +121,63 @@ describe('a chart\'s hook that can never finish', () => {
     expect(stuckHook({ items: [hook('admission-create', '2026-10-31T11:00:05Z'), pod('a', { kind: 'Job', name: 'admission-create' }, starting)] }, since, NOW)).toBeUndefined();
     expect(stuckHook({ items: [hook('admission-create', '2026-10-31T10:00:00Z'), pod('a', { kind: 'Job', name: 'admission-create' }, pulling)] }, since, NOW)).toBeUndefined();
     expect(stuckHook({ items: [{ kind: 'Job', metadata: { name: 'backup', creationTimestamp: '2026-10-31T11:00:05Z' } }, pod('b', { kind: 'Job', name: 'backup' }, pulling)] }, since, NOW)).toBeUndefined();
+  });
+});
+
+describe('how far a release of a chart has got, its setup Jobs included', () => {
+  const job = (name: string, step: string, status: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
+    ({ kind: 'Job', metadata: { name, labels: { [SETUP_LABEL]: step }, ...extra }, status });
+  const failedJob = (name: string, step: string, message: string, extra: Record<string, unknown> = {}) =>
+    job(name, step, { failed: 1, conditions: [{ type: 'Failed', status: 'True', reason: 'BackoffLimitExceeded', message }] }, extra);
+  const running = { ready: false, state: { running: {} } };
+  const backend = deployment('instance-backend', '3', { replicas: 1, updatedReplicas: 1, availableReplicas: 1 });
+
+  it('is done once every workload is rolled out and every setup Job it holds has succeeded', () => {
+    const listed = { items: [backend, job('instance-seed-4', 'seed', { succeeded: 1 }), job('instance-platform-services-4', 'platform-services', { conditions: [{ type: 'Complete', status: 'True' }] })] };
+    expect(releaseRollout(listed, { now: NOW })).toEqual({ state: 'done' });
+  });
+
+  it('names every workload and Job still waiting, each with what it waits on', () => {
+    const listed = { items: [
+      deployment('instance-backend', '3', { replicas: 1, updatedReplicas: 1, availableReplicas: 0 }),
+      { kind: 'StatefulSet', metadata: { name: 'instance-mongo-stores', generation: 1 }, spec: { replicas: 1 }, status: { observedGeneration: 1, readyReplicas: 0 } },
+      job('instance-platform-services-4', 'platform-services', { active: 1 }),
+      pod('platform-services-x', { kind: 'Job', name: 'instance-platform-services-4' }, running),
+      job('instance-seed-4', 'seed'),
+    ] };
+    expect(releaseRollout(listed, { now: NOW })).toEqual({ state: 'rolling', waiting: [
+      'deployment/instance-backend has 0 of 1 available',
+      'statefulset/instance-mongo-stores has 0 of 1 ready',
+      'job/instance-platform-services-4 runs',
+      'job/instance-seed-4 has not started',
+    ] });
+  });
+
+  it('judges only the setup Jobs the release holds now, not one being removed with an earlier revision, nor the self-upgrade\'s', () => {
+    const listed = { items: [
+      backend,
+      failedJob('instance-seed-3', 'seed', 'Job has reached the specified backoff limit', { deletionTimestamp: '2026-10-31T11:59:00Z' }),
+      { kind: 'Job', metadata: { name: 'instance-self-upgrade-29000' }, status: { active: 1 } },
+      job('instance-seed-4', 'seed', { succeeded: 1 }),
+    ] };
+    expect(releaseRollout(listed, { now: NOW })).toEqual({ state: 'done' });
+  });
+
+  it('cannot finish once a setup Job of the revision has failed, naming the Job and why', () => {
+    const listed = { items: [backend, failedJob('instance-seed-4', 'seed', 'Job has reached the specified backoff limit')] };
+    expect(releaseRollout(listed, { now: NOW })).toEqual({ state: 'hopeless', reason: 'job/instance-seed-4 failed: Job has reached the specified backoff limit', job: 'instance-seed-4' });
+  });
+
+  it('cannot finish once a setup Job\'s pod is in a state that does not recover, or a workload\'s is', () => {
+    const pulled = { items: [backend, job('instance-seed-4', 'seed', { active: 1 }), pod('seed-x', { kind: 'Job', name: 'instance-seed-4' }, pulling)] };
+    expect(releaseRollout(pulled, { now: NOW })).toEqual({ state: 'hopeless', reason: 'job/instance-seed-4: seed-x: ImagePullBackOff', job: 'instance-seed-4' });
+    const workload = { items: [deployment('instance-backend', '3', { replicas: 1, updatedReplicas: 1, availableReplicas: 0 }), replicaSet('backend-new', 'instance-backend', '3'), pod('backend-new-a', { kind: 'ReplicaSet', name: 'backend-new' }, pulling)] };
+    expect(releaseRollout(workload, { now: NOW })).toEqual({ state: 'hopeless', reason: 'backend-new-a: ImagePullBackOff' });
+  });
+
+  it('says a Job waits for room when the scheduler has not placed its pod', () => {
+    const unplaced = { ...pod('seed-x', { kind: 'Job', name: 'instance-seed-4' }, {}), status: { phase: 'Pending', conditions: [{ type: 'PodScheduled', status: 'False', message: '0/1 nodes are available: 1 Insufficient cpu.' }] } };
+    expect(releaseRollout({ items: [backend, job('instance-seed-4', 'seed', { active: 1 }), unplaced] }, { now: NOW }))
+      .toEqual({ state: 'rolling', waiting: ['job/instance-seed-4 waits for room: 0/1 nodes are available: 1 Insufficient cpu.'] });
   });
 });
