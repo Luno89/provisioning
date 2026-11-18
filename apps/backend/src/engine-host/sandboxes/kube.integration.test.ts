@@ -82,7 +82,7 @@ describe('the sandbox runner against a real k3s', () => {
       const done = await run(step);
       if (done.exitCode !== 0) throw new Error(done.stderr);
     }
-  }, 300_000);
+  });
 
   afterAll(async () => {
     await run(['delete', 'namespace', namespace, '--wait=true']);
@@ -121,7 +121,7 @@ describe('the sandbox runner against a real k3s', () => {
     expect(left).not.toContain('sleep 3001');
     expect(left).not.toContain('sleep 3002');
     expect((await run(exec('test', '-e', `${EXEC_PIDS}/${id}`))).exitCode).not.toBe(0);
-  }, 120_000);
+  });
 
   it('says what kubectl said when the cluster refuses', async () => {
     const result = await run(['get', 'namespace', 'nowhere']);

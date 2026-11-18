@@ -41,7 +41,7 @@ const sent = collecting();
 beforeAll(async () => {
   telemetry = startTelemetry({ service: 'koala-test', sink: sent.sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -106,5 +106,5 @@ describe('one trace from the request through the workflow to the activity', () =
     const activity = mine.find((span) => span.name === 'activity ConcludeWorkspaceActivity')!;
     expect(start.parentSpanId).toBe(request.spanId);
     expect(activity.parentSpanId).toBe(start.spanId);
-  }, 90_000);
+  });
 });

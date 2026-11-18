@@ -35,7 +35,7 @@ describe('bootstrap.sh writing the sign-in providers into root\'s .env', () => {
     expect(at).toBeLessThan(script.indexOf('bash scripts/root-node/units.sh'));
   });
 
-  it('writes what it is given, mode 600, so the backend reads every value back as it was given', { timeout: 30_000 }, () => {
+  it('writes what it is given, mode 600, so the backend reads every value back as it was given', () => {
     const file = rootEnv('NODE_ENV=production\nROLE=root\n');
     const ran = setup(file, {
       GOOGLE_CLIENT_ID: 'google-id.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'google-fake-a#b c',
@@ -51,7 +51,7 @@ describe('bootstrap.sh writing the sign-in providers into root\'s .env', () => {
     expect(ran.stdout + ran.stderr).not.toMatch(/google-fake|own-secret/);
   });
 
-  it('keeps what an operator wrote by hand, changes only what it is given, and takes nothing as passwords only', { timeout: 30_000 }, () => {
+  it('keeps what an operator wrote by hand, changes only what it is given, and takes nothing as passwords only', () => {
     const file = rootEnv('ROLE=root\nGITHUB_CLIENT_ID=by-hand\nGITHUB_CLIENT_SECRET=by-hand-secret\n');
     expect(setup(file, {}).stdout).toContain('GitHub sign-in is on (kept)');
     expect(readFileSync(file, 'utf8')).toBe('ROLE=root\nGITHUB_CLIENT_ID=by-hand\nGITHUB_CLIENT_SECRET=by-hand-secret\n');
@@ -62,7 +62,7 @@ describe('bootstrap.sh writing the sign-in providers into root\'s .env', () => {
     expect(readFileSync(none, 'utf8')).toBe('ROLE=root\n');
   });
 
-  it('refuses a half-given provider or a value .env cannot hold, writing nothing', { timeout: 30_000 }, () => {
+  it('refuses a half-given provider or a value .env cannot hold, writing nothing', () => {
     const file = rootEnv('ROLE=root\n');
     const half = setup(file, { GOOGLE_CLIENT_ID: 'only-the-id' });
     expect(half.status).toBe(1);

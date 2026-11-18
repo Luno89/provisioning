@@ -15,7 +15,7 @@ import { TemporalBridge } from '../services/TemporalBridge.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
-beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
+beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
 let h: Harness | undefined;

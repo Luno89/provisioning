@@ -19,7 +19,7 @@ const scope = { kind: 'project', id: 'p1' } as const;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -79,7 +79,7 @@ describe('the stored files workflow on Temporal', () => {
     expect([...objects.kept.keys()].sort()).toEqual(['new', 'old']);
     expect(await real.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 1 });
     expect([...objects.kept.keys()]).toEqual(['new']);
-  }, 30_000);
+  });
 
   it('commits exactly once when the worker dies after committing and before it could answer', async () => {
     const records = new MemoryFilesStore();
@@ -101,7 +101,7 @@ describe('the stored files workflow on Temporal', () => {
     expect(plan).toMatchObject({ ok: true });
     expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version, record.state])).toEqual([['f1', 1, 'stored']]);
     expect([...objects.kept.keys()]).toEqual(['f1']);
-  }, 30_000);
+  });
 
   it('forgets a refused upload and its bytes, and removes files record first, then bytes', async () => {
     const records = new MemoryFilesStore();

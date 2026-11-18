@@ -80,7 +80,7 @@ let stillSignedIn: string | undefined;
 beforeAll(async () => {
   roles = await startThreeRoles('hardening');
   ({ root, instance, mail, owner } = roles);
-}, 240_000);
+});
 
 afterAll(async () => {
   for (const socket of sockets) socket.close();
@@ -259,4 +259,4 @@ describe('an account is hard to take over, on a root of its own beside an instan
     expect(await me(stillSignedIn)).toBe(200);
     expect(mailsTo(patEmail, SUBJECTS.lock)).toHaveLength(1);
   });
-}, 300_000);
+});

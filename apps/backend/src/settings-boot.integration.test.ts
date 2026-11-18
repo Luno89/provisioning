@@ -83,4 +83,4 @@ describe('a process started without a setting its role requires', () => {
     expect(engine.said).toContain('TEMPORAL_ENGINE_METRICS_PORT is not set');
     expect(engine.said).toContain('CHECKS_API_URL is not set');
   });
-}, 300_000);
+});

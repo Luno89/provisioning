@@ -32,7 +32,7 @@ beforeAll(async () => {
   const at = await testDatabaseAt();
   db = at.db;
   mongoUri = at.uri.replace(/\/[^/?]*(\?|$)/, `/${at.dbName}$1`);
-}, 120_000);
+});
 
 afterAll(async () => {
   await env.teardown();
@@ -79,7 +79,7 @@ describe('crawling a site into a person\'s corpus', () => {
     expect(standIn.documents(INDEX_ID).map((doc) => doc.url)).toContain('https://docs.example.com/');
     expect(standIn.points('koala-corpus').some((point) => point.ingest_id === receipt.ingestId)).toBe(true);
     expect((await db.engine.getCorpusPages({ ownerId: 'owner-1', ingestId: receipt.ingestId })).map((page) => page.url)).toEqual(['https://docs.example.com/']);
-  }, 120_000);
+  });
 
   it('a crawl whose index is deployed but down is retried, not stored to the database only', async () => {
     standIn.page('https://down.example.com/', PAGE);

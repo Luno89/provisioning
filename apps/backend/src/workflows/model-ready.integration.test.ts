@@ -25,7 +25,7 @@ let standIn: HuggingFaceStandIn;
 beforeAll(async () => {
   env = await temporalTestEnvironment();
   standIn = await startHuggingFaceStandIn(access, DESK);
-}, 600_000);
+});
 
 afterAll(async () => {
   await standIn.stop();
@@ -51,7 +51,7 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
       args: [{ appType: 'vllm', clusterId: DESK.clusterId, reach: DESK, vllmModel: 'acme/tiny', modelImage: STAND_IN_IMAGE, modelCacheHostPath: `/var/lib/rancher/koala-test-ready-${taskQueue}` }],
     }));
     expect(ready).toBe(true);
-  }, 600_000);
+  });
 
   it('stop a vLLM deploy at the GPU check on a machine without NVIDIA\'s CDI support, saying what to do', async () => {
     const taskQueue = `model-gpu-${Math.random().toString(36).slice(2, 8)}`;
@@ -67,7 +67,7 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
     } finally {
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }
-  }, 600_000);
+  });
 
   it('stop a change of a vLLM app\'s model that Hugging Face does not have before anything is applied, saying so', async () => {
     const taskQueue = `model-sync-${Math.random().toString(36).slice(2, 8)}`;
@@ -80,5 +80,5 @@ describe('a model app\'s workflows with the cluster worker\'s own activities, on
     while (at.cause) at = at.cause as { message?: string; cause?: unknown };
     expect(at.message).toMatch(/Hugging Face answered 404/);
     expect((await access.kubectl(DESK, ['get', 'namespace', 'llm-1a2b3c', '--ignore-not-found', '-o', 'name'])).trim()).toBe('');
-  }, 600_000);
+  });
 });

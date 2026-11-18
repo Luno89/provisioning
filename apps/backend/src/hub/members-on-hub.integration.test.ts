@@ -31,13 +31,13 @@ beforeAll(async () => {
   roles = await startThreeRoles('members', { gitea: true, instanceWorkers: ['engine'] });
   mongo = new MongoClient(roles.mongoUri);
   await mongo.connect();
-}, 300_000);
+});
 
 afterAll(async () => {
   await mongo?.close();
   await roles?.close();
   await model?.close();
-}, 120_000);
+});
 
 describe('a project shared from its owner\'s instance and worked on the hub by its members', () => {
   beforeEach((context) => {
@@ -146,4 +146,4 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     await until(async () => ((await call(onHub(`/projects/${hubProjectId}`), { cookie: ownerHub })).status === 404 ? true : undefined));
     expect((await call(onHub(`/projects/${hubProjectId}/board`), { cookie: collaboratorMember.hub })).status, 'the collaborator still reads a project taken back').toBe(404);
   });
-}, 300_000);
+});

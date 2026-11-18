@@ -21,7 +21,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -51,7 +51,7 @@ describe('concluding a workspace through Temporal', () => {
       await service.conclude('u1', { kind: 'conversation', id: 'c-none' });
     }, db);
     expect(seen).toEqual([{ owner: 'u1', project: 'p-shop' }, { owner: 'u1' }]);
-  }, 60_000);
+  });
 
   it('waits for the workspace to be saved and deleted, and answers with what was saved', async () => {
     const seen: ConcludeWorkspaceArgs[] = [];
@@ -59,7 +59,7 @@ describe('concluding a workspace through Temporal', () => {
       expect(await service.conclude('u1', { kind: 'tree', id: 't1' })).toEqual({ saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' });
     });
     expect(seen).toEqual([{ ownerId: 'u1', workspace: { kind: 'tree', id: 't1' } }]);
-  }, 60_000);
+  });
 
   it('joins a conclusion already under way for the same workspace rather than running a second one', async () => {
     let calls = 0;
@@ -76,7 +76,7 @@ describe('concluding a workspace through Temporal', () => {
       ]);
     });
     expect(calls).toBe(1);
-  }, 60_000);
+  });
 
   it('refuses with why, as a conflict, when the workspace could not be saved', async () => {
     await withWorker(async () => { throw ApplicationFailure.nonRetryable('Pushing to koala-u1/research-c2 failed: Gitea is down'); }, async (service) => {
@@ -85,5 +85,5 @@ describe('concluding a workspace through Temporal', () => {
       expect((refused as WorkspaceNotConcludedError).status).toBe(409);
       expect((refused as Error).message).toBe('the conversation\'s workspace could not be saved, so nothing was deleted: Pushing to koala-u1/research-c2 failed: Gitea is down');
     });
-  }, 60_000);
+  });
 });

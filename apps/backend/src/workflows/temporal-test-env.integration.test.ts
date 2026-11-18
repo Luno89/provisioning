@@ -20,5 +20,5 @@ describe('a Temporal namespace for one test file', () => {
     const known = (await connection.workflowService.listNamespaces({})).namespaces.map((entry) => entry.namespaceInfo?.name);
     expect(known).not.toContain(first.namespace);
     await connection.close();
-  }, 60_000);
+  });
 });

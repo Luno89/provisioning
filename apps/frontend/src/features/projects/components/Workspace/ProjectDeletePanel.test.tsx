@@ -42,7 +42,7 @@ describe('deleting a project from its page', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }, { timeout: 8_000 }))
     expect(onDeleted).toHaveBeenCalled()
-  }, 15_000)
+  })
 
   it('names the running app among what goes, and still offers to delete', async () => {
     vi.mocked(projectsApi.getProjectRemoval).mockResolvedValue({ ...PREVIEW, apps: ['shop-web'] })

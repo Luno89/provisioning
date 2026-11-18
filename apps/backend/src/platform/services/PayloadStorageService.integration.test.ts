@@ -8,7 +8,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -31,5 +31,5 @@ describe('sweeping stored Temporal payloads against a real Temporal', () => {
     expect((await stored()).map((blob) => blob.id)).toEqual(['kept']);
     expect(await service.retentionMs()).toBeGreaterThan(0);
     await handle.terminate();
-  }, 120_000);
+  });
 });

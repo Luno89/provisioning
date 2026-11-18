@@ -238,7 +238,7 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
     await vi.waitFor(async () => expect(await db.projects.getTokensToRevoke()).toEqual([]), { timeout: 30_000 });
     expect(refusals).toBe(2);
     expect(await tokensOf(db, 'tok-1')).toEqual([]);
-  }, 120_000);
+  });
 
   it('a branch pushed to a new repository becomes its main, is pulled back and compared, and every token used is revoked', async () => {
     const db = await testDatabase();
@@ -279,7 +279,7 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
 
     expect(await tokensOf(db, 'branch-1')).toEqual([]);
     expect(await db.projects.getTokensToRevoke()).toEqual([]);
-  }, 120_000);
+  });
 
   it('a token left from a push that failed to revoke is revoked at the next start', async () => {
     const db = await testDatabase();
@@ -294,5 +294,5 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
 
     expect(await tokensOf(db, 'tok-2')).toEqual([]);
     expect(await db.projects.getTokensToRevoke()).toEqual([]);
-  }, 120_000);
+  });
 });

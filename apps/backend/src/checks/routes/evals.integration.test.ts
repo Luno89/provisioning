@@ -213,5 +213,5 @@ describe('level 2 eval routes', () => {
     expect((await axios.post<{ error: string }>(h.url('/api/evals/level2/runs'), { only: ['ghost'] }, quiet)).data.error).toContain('there is no scenario called "ghost"');
     expect((await axios.post(h.url('/api/evals/level2/runs'), { temperature: 9 }, quiet)).status).toBe(400);
     await h.close();
-  }, 30_000);
+  });
 });

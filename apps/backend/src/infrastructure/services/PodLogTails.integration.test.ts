@@ -27,7 +27,7 @@ beforeAll(async () => {
   await access.kubectl(CLUSTER, ['create', 'namespace', NAMESPACE]);
   await access.kubectl(CLUSTER, ['run', 'shop-0', '-n', NAMESPACE, '--image=busybox:1.37', '--restart=Never', '--command', '--', 'sh', '-c', 'echo first; while true; do echo tick; sleep 1; done']);
   await access.kubectl(CLUSTER, ['wait', 'pod/shop-0', '-n', NAMESPACE, '--for=condition=Ready', '--timeout=720h']);
-}, 300_000);
+});
 
 describe('following a pod\'s logs on a real cluster', () => {
   it('says what the pod prints in the app\'s room as it prints it, until it is stopped', async () => {
@@ -44,7 +44,7 @@ describe('following a pod\'s logs on a real cluster', () => {
     const heard = said.length;
     await new Promise((done) => setTimeout(done, 2_500));
     expect(said).toHaveLength(heard);
-  }, 120_000);
+  });
 
   it('says kubectl\'s own words when the pod is not there', async () => {
     const said: string[] = [];
@@ -52,7 +52,7 @@ describe('following a pod\'s logs on a real cluster', () => {
     await tails.tail({ resourceId: 'gone', clusterId: CLUSTER, namespace: NAMESPACE, podName: 'gone-0' });
     await vi.waitFor(() => { if (!tails.following('gone') && said.length) return; throw new Error('still following'); }, { timeout: 60_000, interval: 200 });
     expect(said).toEqual([expect.stringContaining('pods "gone-0" not found')]);
-  }, 120_000);
+  });
 
   it('says why when the app\'s cluster is stopped, starting nothing', async () => {
     const said: string[] = [];

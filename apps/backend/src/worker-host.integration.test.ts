@@ -60,6 +60,6 @@ describe('the host worker, started the way its entry starts it', () => {
       worker.shutdown();
       await running;
       expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
-    }, 60_000);
+    });
   }
 });

@@ -78,5 +78,5 @@ describe('the machine agent starting its work for its Koala', () => {
     expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [] } });
     expect(stops).toHaveLength(1);
     await new Promise<void>((done) => { void koala.close(() => done()); });
-  }, 120_000);
+  });
 });

@@ -32,5 +32,5 @@ describe("the kubernetes backend a stack is given, read by real Terraform", () =
     } finally {
       await rm(work, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });

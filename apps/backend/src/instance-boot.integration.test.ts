@@ -49,5 +49,5 @@ describe('an instance\'s backend, started as its entry starts it', () => {
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 200));
     expect((await pollers()).length).toBeGreaterThan(0);
-  }, 120_000);
+  });
 });

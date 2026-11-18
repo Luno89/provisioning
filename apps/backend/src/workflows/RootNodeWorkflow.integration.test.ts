@@ -14,7 +14,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -73,12 +73,12 @@ describe('following a bought server until root runs on it', () => {
       'reverse dns', 'reverse dns', 'reverse dns',
       'mail check',
     ]);
-  }, 120_000);
+  });
 
   it('records why when installing root fails, and goes no further', async () => {
     const done = await run({ bootstrapFails: 'Installing root ended with 1' });
     expect(done.at(-1)).toBe('failed: Installing root ended with 1');
-  }, 120_000);
+  });
 
   it('records that it stopped following when cancelled, and says the server is still bought', async () => {
     const done: string[] = [];
@@ -95,5 +95,5 @@ describe('following a bought server until root runs on it', () => {
     });
     expect(done.at(-1)).toBe('stopped');
     expect(done).not.toContain('rebuild');
-  }, 120_000);
+  });
 });

@@ -3,7 +3,7 @@ import { realStoredFiles, type RealStoredFiles } from '../testing/real-stored-fi
 import { ArtifactService } from './ArtifactService.js';
 
 let real: RealStoredFiles;
-beforeAll(async () => { real = await realStoredFiles(); }, 300_000);
+beforeAll(async () => { real = await realStoredFiles(); });
 afterAll(async () => { await real?.stop(); });
 
 const bytesOf = async (body: NodeJS.ReadableStream): Promise<Buffer> => {

@@ -98,7 +98,7 @@ describe('a machine telling Koala about its own cluster', () => {
   it('a machine whose k3s Koala installed shows its cluster, stopped, on its mesh address', async () => {
     await reports(machineWith(true));
     expect(await until(desk)).toMatchObject({ provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'owner-1', meshIp: '100.64.0.7' });
-  }, 30_000);
+  });
 
   it('a machine reporting its GPUs and its size again keeps them on its cluster, read by the agent\'s own readers', async () => {
     await reports(machineWith(true));
@@ -107,7 +107,7 @@ describe('a machine telling Koala about its own cluster', () => {
     const reported = await until(async () => ((await desk())?.gpus ? desk() : undefined));
     expect(reported).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] });
     expect(reported?.capacity).toEqual({ cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' });
-  }, 30_000);
+  });
 
   it('a machine whose k3s is gone takes its cluster with it once no app is on it', async () => {
     await reports(machineWith(true));
@@ -115,5 +115,5 @@ describe('a machine telling Koala about its own cluster', () => {
     await reports(machineWith(false));
     await until(async () => ((await desk()) ? undefined : true));
     expect(await desk()).toBeUndefined();
-  }, 30_000);
+  });
 });

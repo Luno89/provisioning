@@ -79,7 +79,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     worker.shutdown();
     await running;
     expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
-  }, 120_000);
+  });
 
   it('on an instance answers a person\'s tool calls with their own corpus and memory, as Mongo holds them', async () => {
     const settings = engineWorkerSettingsFrom(placeFor('instance'));
@@ -102,7 +102,7 @@ describe('the engine worker, started the way its entry starts it', () => {
 
     worker.shutdown();
     await running;
-  }, 120_000);
+  });
 
   it('is refused by its settings on root, which runs no engine worker', () => {
     expect(() => engineWorkerSettingsFrom(placeFor('root'))).toThrow(/the engine worker runs only in an instance, and ROLE is root/);

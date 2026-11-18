@@ -14,7 +14,7 @@ beforeAll(async () => {
   k3s = await startK3s();
   kubeconfig = join(mkdtempSync(join(tmpdir(), 'koala-cluster-wide-')), 'admin.yaml');
   writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
-}, 120_000);
+});
 
 afterAll(async () => { await k3s.stop(); });
 
@@ -28,5 +28,5 @@ describe('what a test leaves on a cluster beyond its own namespaces', () => {
     const after = await clusterWide(kubeconfig);
     expect(after.filter((entry) => !before.includes(entry))).toEqual(['ClusterRole/left-behind', 'kube-system/Deployment/left-behind']);
     expect((await namespacesOf(kubeconfig)).filter((entry) => !namespacesBefore.includes(entry))).toEqual(['left-behind']);
-  }, 60_000);
+  });
 });

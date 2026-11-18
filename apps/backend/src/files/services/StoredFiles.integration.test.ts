@@ -40,7 +40,7 @@ beforeAll(async () => {
   const commits = temporalStoredFileCommits(async () => env.client.workflow, queue);
   const files = new StoredFiles({ records: db.files, objects, commits, room: roomOn(tmpdir()), now: () => clock.now });
   world = { files, objects, records: db.files, commits, sweep: () => activities.StoredFilesSweepActivity(), clock };
-}, 300_000);
+});
 
 afterAll(async () => {
   await stop();

@@ -64,12 +64,12 @@ beforeAll(async () => {
   dataDir = await mkdtemp(path.join(tmpdir(), 'sharing-gitea-'));
   await writeFile(path.join(dataDir, '.gitea-admin-password'), roles.gitea!.adminPassword);
   gitea = new GiteaService('sharing-test-key' as never, { url: roles.gitea!.url }, { dataDir });
-}, 300_000);
+});
 
 afterAll(async () => {
   await roles?.close();
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
-}, 120_000);
+});
 
 describe('sharing a project from its owner\'s instance to the hub, and taking it back', () => {
   beforeEach((context) => {
@@ -270,4 +270,4 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
       await until(async () => ((await accountGone(who.id)) ? true : undefined));
     }
   });
-}, 300_000);
+});

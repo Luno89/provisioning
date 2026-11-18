@@ -42,7 +42,7 @@ beforeAll(async () => {
     db,
     router: () => deploymentsRouter({ appService: new AppService(db, infra, clusters, {} as never), clusterService: clusters, appExposureService: {} as never, temporalBridge: bridge, toolCalling: {} as never, db, io: undefined as never }),
   });
-}, 120_000);
+});
 
 afterAll(async () => {
   for (const id of workflows) await env.client.workflow.getHandle(id).terminate('the test is over').catch(() => undefined);

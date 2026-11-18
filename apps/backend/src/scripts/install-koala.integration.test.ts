@@ -32,7 +32,7 @@ describe('the entry dev and the pool put Koala\'s chart on a cluster with, on a 
     const again = said();
     await installKoalaChart(argv, again.terminal);
     expect(again.text()).toMatch(/already/i);
-  }, 300_000);
+  });
 
   it('stops naming the setup Job that failed and why', async () => {
     const namespace = namespaces.name('install-entry-fails');
@@ -41,5 +41,5 @@ describe('the entry dev and the pool put Koala\'s chart on a cluster with, on a 
     expect(failed).toBeInstanceOf(StepFailed);
     expect((failed as StepFailed).why).toContain('job/tiny-setup-1 failed');
     expect(out.text()).toContain('no Mongo');
-  }, 300_000);
+  });
 });

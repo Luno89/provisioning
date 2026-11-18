@@ -97,5 +97,5 @@ describe('the machine agent\'s bundle', () => {
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
-  }, 60_000);
+  });
 });

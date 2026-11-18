@@ -80,7 +80,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -323,7 +323,7 @@ describe('AgentRunWorkflow', () => {
     expect(result).toMatchObject({ outcome: 'ok', agentId: 'research', outputs: { result: 'The answer is 42.' } });
     expect(recorded(acts).map((trace) => trace.kind)).toEqual(expect.arrayContaining(['provision-sandbox', 'persona', 'call-model', 'finish', 'release-sandbox']));
     expect(published(acts).map((event) => event.type)).toEqual(expect.arrayContaining(['run.started', 'node.entered', 'node.traced', 'run.finished']));
-  }, 60_000);
+  });
 
   it('runs the tools a reply asked for and answers each call by id on the next turn', async () => {
     const acts = activities({ script: [callsATool('c1', 'read_file', '{"path":"a"}'), { content: 'a says hello' }] });
@@ -340,7 +340,7 @@ describe('AgentRunWorkflow', () => {
       { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"path":"a"}' }] },
       { role: 'tool', content: 'output of read_file', toolCallId: 'c1', name: 'read_file' },
     ]);
-  }, 60_000);
+  });
 
   it('records how hard the run was, against the model it ran on, with no limit before there is a track record', async () => {
     const acts = activities({ script: [callsATool('c1', 'read_file', '{"path":"a"}'), callsATool('c2', 'read_file', '{"path":"b"}'), { content: 'done' }] });
@@ -361,7 +361,7 @@ describe('AgentRunWorkflow', () => {
       ask: 'read two files',
       limits: TOOL_ROUNDS_V2.budget,
     })]);
-  }, 60_000);
+  });
 
   it('records what a run needed without holding the next one to it, so an easy history cannot cut off a harder ask', async () => {
     const past = (index: number): RunEffort => ({
@@ -378,7 +378,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok' });
     expect(acts.efforts.at(-1)).toMatchObject({ outcome: 'ok', limits: {}, rounds: 3 });
-  }, 60_000);
+  });
 
   it('still holds a run to a limit the procedure itself asks for', async () => {
     const acts = activities({
@@ -389,7 +389,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'exhausted', reason: 'used all 2 rounds' });
     expect(acts.efforts.at(-1)).toMatchObject({ limits: { maxRounds: 2 } });
-  }, 60_000);
+  });
 
   it('asks before running a call on someone\'s machine, and runs it there once allowed', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
@@ -412,7 +412,7 @@ describe('AgentRunWorkflow', () => {
       expect.objectContaining({ type: 'tool.called', callId: 'c1' }),
       expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', tool: 'run_command', message: expect.stringContaining('run_command on Desk') as unknown }),
     ]));
-  }, 60_000);
+  });
 
   it('does not ask when the run\'s agent or tree is in auto mode, even on someone\'s machine', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
@@ -425,7 +425,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineAutoModeActivity).toHaveBeenCalledWith({ ownerId: asked.ticket.ownerId, agentSlug: 'executor', conversationId: 'chat-1' });
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
-  }, 60_000);
+  });
 
   it('does not ask again for a tool the person already allowed in this conversation', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'done' }] });
@@ -438,7 +438,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineToolAllowedActivity).toHaveBeenCalledWith({ ownerId: asked.ticket.ownerId, conversationId: 'chat-1', tool: 'run_command' });
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
-  }, 60_000);
+  });
 
   it('runs a destructive call inside its sandbox without asking anyone', async () => {
     const sandbox: RunEnvironment = {
@@ -462,7 +462,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(acts.engine.EngineAutoModeActivity).not.toHaveBeenCalled();
     expect(published(acts)).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', level: 'warn' })]));
-  }, 60_000);
+  });
 
   it('never runs a declined call, and tells the model it was declined', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"rm -rf /"}'), { content: 'understood' }] });
@@ -474,7 +474,7 @@ describe('AgentRunWorkflow', () => {
     expect(result.outcome).toBe('ok');
     expect(acts.engine.EngineToolActivity).not.toHaveBeenCalled();
     expect(acts.seen[1]!.at(-1)).toEqual({ role: 'tool', content: REFUSED_CALL, toolCallId: 'c1', name: 'run_command' });
-  }, 60_000);
+  });
 
   it('pauses for a person and carries on with their answer', async () => {
     const acts = activities({ script: [{ content: 'unused' }] });
@@ -485,7 +485,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'the staging one' } });
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?' })]));
-  }, 60_000);
+  });
 
   it('waits for a person however long they take when the step sets no time of its own', async () => {
     const patient: Procedure = { ...WAITING, nodes: WAITING.nodes.map((node) => (node.id === 'ask' ? { ...node, settings: { prompt: 'Which database?' } } : node)) };
@@ -497,7 +497,7 @@ describe('AgentRunWorkflow', () => {
     });
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'the staging one' } });
-  }, 60_000);
+  });
 
   it('takes only one of the answers it offered, and goes on waiting through any other', async () => {
     const choosing: Procedure = { ...WAITING, nodes: WAITING.nodes.map((node) => (node.id === 'ask' ? { ...node, settings: { ...node.settings, choices: ['Install it', 'Do not install'] } } : node)) };
@@ -510,7 +510,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Do not install' } });
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'notice', message: 'Which database?', choices: ['Install it', 'Do not install'] })]));
-  }, 60_000);
+  });
 
   it('asks again when the procedure comes back to the same question, rather than reusing the answer it already took', async () => {
     const asking: Procedure = {
@@ -534,13 +534,13 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Done' } });
     expect(published(acts).filter((event) => (event as { message?: string }).message === 'Run the tests again?')).toHaveLength(2);
-  }, 60_000);
+  });
 
   it('gives up only when the step itself set how long to wait, and nobody answered in that time', async () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }));
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'nobody answered in the time this step waits' });
-  }, 60_000);
+  });
 
   it('ends interrupted and hands its claimed tasks back when Temporal cancels it, as a removal does', async () => {
     const acts = activities({ script: [{ content: 'unused' }] });
@@ -550,7 +550,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
     expect(acts.engine.EngineSettleClaimsActivity).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'interrupted' }));
-  }, 60_000);
+  });
 
   it('ends a run whose access was revoked, gives it one turn to leave a handover note, and says why it ended', async () => {
     const acts = activities({ script: [{ content: 'unused' }] });
@@ -564,7 +564,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineHandoverActivity.mock.calls[0]![0]).toMatchObject({ because: 'signed-out-everywhere', ask: 'Ask me first.', ticket: { runId: args.ticket.runId } });
     const ended = acts.stream.EngineLifecycleActivity.mock.calls.map(([event]) => event).find((event) => event.kind === 'run-ended');
     expect(ended).toMatchObject({ outcome: 'interrupted', revokedBecause: 'signed-out-everywhere', handover: { note: 'Asked the person, got no answer yet.', path: 'handover/run.md' } });
-  }, 60_000);
+  });
 
   it('says who stopped a run, and leaves no handover when it was stopped rather than revoked', async () => {
     const acts = activities({ script: [{ content: 'unused' }] });
@@ -576,7 +576,7 @@ describe('AgentRunWorkflow', () => {
     const ended = acts.stream.EngineLifecycleActivity.mock.calls.map(([event]) => event).find((event) => event.kind === 'run-ended');
     expect(ended).toMatchObject({ outcome: 'interrupted', stoppedBy: 'luno@example.com' });
     expect(ended).not.toHaveProperty('revokedBecause');
-  }, 60_000);
+  });
 
   it('stops a waiting run when it is cancelled', async () => {
     const result = await runWorkflow(input('koala', WAITING), activities({ script: [{ content: 'unused' }] }), async (handle) => {
@@ -584,7 +584,7 @@ describe('AgentRunWorkflow', () => {
     });
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
-  }, 60_000);
+  });
 
   it('cancelling a run stops the model call in flight in its delegated child, and both end interrupted', async () => {
     const acts = activities({ script: ['hang'] });
@@ -599,7 +599,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
     const child = await new WorkflowClient({ connection: env.connection }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
-  }, 60_000);
+  });
 
   it('records the model call a stop catches in flight as stopped by it, not as failed', async () => {
     const acts = activities({ script: ['hang'] });
@@ -655,7 +655,7 @@ describe('AgentRunWorkflow', () => {
       { kind: 'run-started', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', depth: 0, conversationId: 'conv-9' },
       { kind: 'run-ended', ownerId: 'user-1', runId: args.ticket.runId, agentSlug: 'research', outcome: 'ok', ask: 'We use Cloudflare.', depth: 0, conversationId: 'conv-9' },
     ]);
-  }, 60_000);
+  });
 
   it('a run whose ending cannot be reported yet keeps reporting it until the backend hears it, and is heard once', async () => {
     const acts = activities({ script: [{ content: 'Done.' }] });
@@ -677,7 +677,7 @@ describe('AgentRunWorkflow', () => {
     expect(result.outcome).toBe('ok');
     expect(refusals).toBe(3);
     expect(heard.filter((event) => event.kind === 'run-ended')).toEqual([expect.objectContaining({ runId: args.ticket.runId, outcome: 'ok' })]);
-  }, 120_000);
+  });
 
   it('a run whose ending is refused for good fails, naming why', async () => {
     const acts = activities({ script: [{ content: 'Done.' }] });
@@ -693,7 +693,7 @@ describe('AgentRunWorkflow', () => {
     expect(failed).toBeDefined();
     expect(`${failed?.cause?.message} ${failed?.cause?.cause?.message}`).toContain('the run grant store refused the ending');
     expect(acts.stream.EngineLifecycleActivity.mock.calls.filter(([event]) => event.kind === 'run-ended')).toHaveLength(1);
-  }, 60_000);
+  });
 
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {
     const acts = activities({ script: [{ content: 'because it was' }] });
@@ -703,7 +703,7 @@ describe('AgentRunWorkflow', () => {
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'because it was' } });
     expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ agentSlug: 'research' }));
     expect(acts.seen[0]![0]).toEqual({ role: 'user', content: 'question: why' });
-  }, 60_000);
+  });
 
   describe('how far a chat\'s machine reaches', () => {
     const AGENT_SCRIPT = fileURLToPath(new URL('../../../local-agent/src/acp-script-agent.ts', import.meta.url));
@@ -845,7 +845,7 @@ describe('AgentRunWorkflow', () => {
       expect(unaskedFor).toContainEqual(expect.objectContaining({ agentSlug: 'research', conversationId: 'c1' }));
       expect(brought).toBe('TabbyAPI listens on 5000.\n');
       expect(saved).toEqual(['conversation-c1']);
-    }, 60_000);
+    });
 
     it('leaves the agents it hands work to on their own models when the machine is for this chat only, in the conversation\'s workspace', async () => {
       const { result, resolved, sent, recorded } = await onMachine('chat');
@@ -854,7 +854,7 @@ describe('AgentRunWorkflow', () => {
       expect(resolved.find((call) => call.agentSlug === 'research')).not.toHaveProperty('modelId');
       expect(sent).toEqual([]);
       expect(recorded).toBeUndefined();
-    }, 60_000);
+    });
 
     it('has a chat on a machine work a checkout of the conversation\'s documents, brings what research wrote there into its folder once research answers, and saves the documents when the turn ends', async () => {
       const here = await mkdtemp(resolve(tmpdir(), 'external-chat-'));
@@ -938,7 +938,7 @@ describe('AgentRunWorkflow', () => {
         await mcp.close();
         await rm(here, { recursive: true, force: true });
       }
-    }, 60_000);
+    });
   });
 
   it('hands a delegated persona the opening line its parent wrote, and still labels the rest of what it was given', async () => {
@@ -951,7 +951,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'ok' });
     expect(acts.seen[0]![0]).toEqual({ role: 'user', content: 'Answer this one question.\n\nquestion: why' });
-  }, 60_000);
+  });
 
   it('hands a delegated persona the sandbox its caller works in, across the child workflow, and only the caller releases it', async () => {
     const sandbox: RunEnvironment = {
@@ -989,13 +989,13 @@ describe('AgentRunWorkflow', () => {
     expect(childCall?.environment?.id).toBe('engine-parent');
 
     expect(environments.release.mock.calls.map(([runId]) => runId)).toEqual([args.ticket.runId]);
-  }, 60_000);
+  });
 
   it('fails a delegation readably when the persona does not exist', async () => {
     const result = await runWorkflow(input('koala', delegating('ghost')), activities({ script: [{ content: 'unused' }] }));
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'ghost did not finish: there is no agent called "ghost"' });
-  }, 60_000);
+  });
 
   it('fails the run, naming the step, when the model cannot be reached, and still cleans up', async () => {
     const acts = activities({ script: [new Error('the endpoint is down')] });
@@ -1005,7 +1005,7 @@ describe('AgentRunWorkflow', () => {
     expect(result.outcome).toBe('failed');
     expect(result.reason).toMatch(/^"turn" failed/);
     expect(recorded(acts).some((trace) => trace.kind === 'release-sandbox')).toBe(true);
-  }, 120_000);
+  });
 });
 
 describe('a long run continues as a new one', () => {
@@ -1058,7 +1058,7 @@ describe('a long run continues as a new one', () => {
     expect(acts.engine.EngineSettleClaimsActivity).toHaveBeenCalledTimes(1);
     expect(acts.efforts.filter((effort) => effort.runId === args.ticket.runId)).toHaveLength(1);
     expect(published(acts).filter((event) => event.type === 'run.started' && event.runId === args.ticket.runId)).toHaveLength(1);
-  }, 120_000);
+  });
 
   it('answers with everything it and the runs it handed work to made, across a new run', async () => {
     const findings = { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' };
@@ -1082,7 +1082,7 @@ describe('a long run continues as a new one', () => {
 
     expect(result).toMatchObject({ outcome: 'ok' });
     expect(result.artifacts).toEqual([findings, notes]);
-  }, 120_000);
+  });
 
   it('answers with every step it took, each hand-off\'s run nested under the call that started it, across a new run', async () => {
     const findings = { kind: 'file' as const, workspace: 'conversation-c1', path: 'research/r1/findings.md' };
@@ -1112,7 +1112,7 @@ describe('a long run continues as a new one', () => {
       { callId: 'c3', name: 'read_file', ok: true, digest: 'ran read_file' },
     ]);
     expect(published(acts).find((event) => event.type === 'run.started' && event.runId === childRunId)).toMatchObject({ parentRunId: args.ticket.runId, parentCallId: 'c1' });
-  }, 120_000);
+  });
 
   it('keeps numbering its children across a new run, so no child reuses an earlier one\'s id', async () => {
     const acts = activities({ script: [{ content: 'one answered' }, { content: 'two answered' }] });
@@ -1123,7 +1123,7 @@ describe('a long run continues as a new one', () => {
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'two answered' } });
     const childRuns = acts.efforts.map((effort) => effort.runId).filter((id) => id !== args.ticket.runId).sort();
     expect(childRuns).toEqual([`${args.ticket.runId}-research-1`, `${args.ticket.runId}-research-2`]);
-  }, 120_000);
+  });
 
   it('does not continue while its history is short', async () => {
     const acts = activities({ script: [{ content: 'The answer is 42.' }] });
@@ -1133,7 +1133,7 @@ describe('a long run continues as a new one', () => {
     await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; });
 
     expect((await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe()).status.name).toBe('COMPLETED');
-  }, 60_000);
+  });
 });
 
 describe('a writer whose reply is cut off', () => {
@@ -1148,7 +1148,7 @@ describe('a writer whose reply is cut off', () => {
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'Part two, finished.' } });
     const second = acts.seen[1]!;
     expect(second.some((message) => message.role === 'assistant' && String(message.content).includes('Part one, cut off mid'))).toBe(true);
-  }, 60_000);
+  });
 
   it('fails a writer that ends saying nothing, rather than letting it claim a paper it did not write', async () => {
     const acts = activities({ script: [{ content: '' }] });
@@ -1156,7 +1156,7 @@ describe('a writer whose reply is cut off', () => {
     const result = await runWorkflow(input('paper-writer', PAPER_WRITING), acts);
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the writer ended without saying anything' });
-  }, 60_000);
+  });
 });
 
 describe('a run bigger than Temporal can carry', () => {
@@ -1199,7 +1199,7 @@ describe('a run bigger than Temporal can carry', () => {
     expect(Math.max(...(await stored()).map((blob) => blob.size))).toBeGreaterThan(3_000_000);
     expect((await stored()).length).toBeGreaterThan(0);
     expect((await stored()).every((blob) => blob.workflowId === args.ticket.runId)).toBe(true);
-  }, 180_000);
+  });
 });
 
 describe('a remembered conversation, through the workflow', () => {
@@ -1271,7 +1271,7 @@ describe('a remembered conversation, through the workflow', () => {
     expect(saved?.messages.at(-1)?.toolCalls).toEqual([
       { id: 'c1', name: 'run_command', args: '{"command":"rm -rf /"}', ok: false, digest: REFUSED_CALL },
     ]);
-  }, 60_000);
+  });
 
   it('remembers the calls a turn made in the middle of its rounds, with what they gave back', async () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'it listed fine' }] });
@@ -1291,7 +1291,7 @@ describe('a remembered conversation, through the workflow', () => {
     expect(saved?.messages.at(-1)?.toolCalls).toEqual([
       { id: 'c1', name: 'run_command', args: '{"command":"ls"}', ok: true, digest: 'output of run_command' },
     ]);
-  }, 60_000);
+  });
 });
 
 describe('when the model call fails', () => {
@@ -1309,7 +1309,7 @@ describe('when the model call fails', () => {
     expect(acts.seen.length).toBeGreaterThan(1);
     const saved = await acts.conversations.get('user-1', 'c-retried');
     expect(saved?.messages.at(-1)?.content).toBe('second attempt got through');
-  }, 30_000);
+  });
 });
 
 
@@ -1380,7 +1380,7 @@ describe('an external agent working on someone\'s machine', () => {
       expect.objectContaining({ type: 'content', nodeId: 'agent', delta: 'Wrote and pushed the labels.' }),
     ]));
     await sessions.closeAll();
-  }, 60_000);
+  });
 
   it('tells the agent no when the person declines, and the agent carries on without it', async () => {
     const sessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [
@@ -1398,7 +1398,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(result.outputs.result).toBe('Left the build alone.');
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'tool.result', callId: 'ext-wipe', ok: false, digest: 'the person declined' })]));
     await sessions.closeAll();
-  }, 60_000);
+  });
 
   it('stops the agent\'s turn when the run is cancelled, and closes its session', async () => {
     const sessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'Starting a long job.' }, { wait: 120_000 }, { say: 'never' }] }] });
@@ -1412,7 +1412,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(result.outcome).toBe('interrupted');
     expect(sessions.openKeys()).toEqual([]);
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'content', delta: 'Starting a long job.' })]));
-  }, 60_000);
+  });
 
   it('runs the shipped procedure as the Antigravity agent: the machine\'s antigravity is told its prompt and folder once, then given the task', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1429,7 +1429,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(told).toContain('You are working for Koala');
     expect(told.endsWith('Build the delivery labels.')).toBe(true);
     expect(sessions.openKeys()).toEqual([]);
-  }, 60_000);
+  });
 
   it('answers a chat turn with the agent picked on a machine, and the next turn continues the same session', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1459,7 +1459,7 @@ describe('an external agent working on someone\'s machine', () => {
       ['user', 'labels module?'], ['assistant', 'labels module?'], ['user', 'And the tests?'], ['assistant', 'And the tests?'],
     ]);
     expect(sessions.openKeys()).toEqual([]);
-  }, 60_000);
+  });
 
   it('keeps what the agent thought and the tools it called with its reply, so the turn still shows them once it ends', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1488,7 +1488,7 @@ describe('an external agent working on someone\'s machine', () => {
       toolCalls: [{ id: 'ext-ls', name: 'antigravity.read', args: 'ls addons', ok: true, digest: 'delivery_labels' }],
     });
     await sessions.closeAll();
-  }, 60_000);
+  });
 
   it('works a story\'s folder on the machine: checks it out there, brings its work in before run_in_workspace, and brings it back when the turn ends', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1578,7 +1578,7 @@ describe('an external agent working on someone\'s machine', () => {
       await sessions.closeAll();
       await mcp.close();
     }
-  }, 60_000);
+  });
 
   describe('when the workspace moved on while the machine worked', () => {
     const conflicted = async (secondTurns: AgentScript['turns'], first: AgentScript['turns'][number]['steps'] = [{ write: { path: 'label.txt', content: 'Axial Concepts\n' } }, { say: 'Wrote the label.' }]) => {
@@ -1686,7 +1686,7 @@ describe('an external agent working on someone\'s machine', () => {
       expect(git(bare, 'branch', '--list')).toBe('');
       expect(existsSync(resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees'))).toBe(true);
       expect(execFileSync('ls', [resolve(machineRoot, 'koala-trees', 'tree-t1', 'trees')], { encoding: 'utf8' }).trim()).toBe('');
-    }, 60_000);
+    });
 
     it('answers run_in_workspace with the conflict mid-turn, so the agent resolves it and runs its check on the merged work', async () => {
       const { result, acts, folder, git } = await conflicted([], [
@@ -1703,7 +1703,7 @@ describe('an external agent working on someone\'s machine', () => {
       expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
       expect(readNow(resolve(folder, 'label.txt'), 'utf8')).toBe('Another agent\'s label\nAxial Concepts\n');
       expect(git(folder, 'status', '--porcelain')).toBe('');
-    }, 60_000);
+    });
 
     it('keeps the agent\'s work as a branch in the workspace, and says so, when it will not resolve the conflict', async () => {
       const { result, acts, folder, git } = await conflicted([
@@ -1718,7 +1718,7 @@ describe('an external agent working on someone\'s machine', () => {
       expect(kept).toMatch(/^machine\/desk\//);
       expect(git(folder, 'show', `${kept}:label.txt`)).toContain('Axial Concepts');
       expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', message: expect.stringContaining(`kept as the branch ${kept} in the workspace`) as unknown }));
-    }, 60_000);
+    });
   });
 
   describe('what an agent on a machine is told', () => {
@@ -1836,7 +1836,7 @@ describe('an external agent working on someone\'s machine', () => {
         await sessions.closeAll();
         await mcp.close();
       }
-    }, 60_000);
+    });
 
     it('lets the agent\'s own asks through without anyone when its tree is on auto mode', async () => {
       root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1861,7 +1861,7 @@ describe('an external agent working on someone\'s machine', () => {
       } finally {
         await sessions.closeAll();
       }
-    }, 60_000);
+    });
 
     it('tells an agent working a folder of its own that it is the project\'s own, and offers no run_in_workspace', async () => {
       root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1886,7 +1886,7 @@ describe('an external agent working on someone\'s machine', () => {
         await sessions.closeAll();
         await mcp.close();
       }
-    }, 60_000);
+    });
   });
 
   it('serves the agent its persona\'s own tools, runs each call through the run (asking before one that changes something), and starts it on the model picked', async () => {
@@ -1937,7 +1937,7 @@ describe('an external agent working on someone\'s machine', () => {
       await sessions.closeAll();
       await mcp.close();
     }
-  }, 60_000);
+  });
 
   it('saves the run of an agent a served call hands work to on the chat\'s reply, so its steps are still there after the turn', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -1973,7 +1973,7 @@ describe('an external agent working on someone\'s machine', () => {
       await sessions.closeAll();
       await mcp.close();
     }
-  }, 60_000);
+  });
 
   it('runs the calls an agent on a machine makes at once together, and gives it each answer', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -2018,7 +2018,7 @@ describe('an external agent working on someone\'s machine', () => {
       await sessions.closeAll();
       await mcp.close();
     }
-  }, 60_000);
+  });
 
   it('runs on a machine that reads its instance\'s payloads: encrypted, and fetched or stored over its socket when they are large', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -2056,7 +2056,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(asked).toEqual(expect.arrayContaining(['machine:payloads', 'payloads:get', 'payloads:put']));
     expect((await stored()).length).toBeGreaterThan(1);
     await sessions.closeAll();
-  }, 60_000);
+  });
 
   it('says in the chat why the machine could not take the turn, instead of an empty reply', async () => {
     const conversations = inMemoryConversations();
@@ -2072,7 +2072,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(result.outcome).toBe('failed');
     const stored = await conversations.get('user-1', 'c-broken');
     expect(stored?.messages.at(-1)).toMatchObject({ role: 'assistant', content: '', interruptedReason: 'Desk could not run antigravity: Unknown encoding: binary/encrypted-aes-256-gcm' });
-  }, 60_000);
+  });
 
   it('hands a story to an agent set to work on a machine, whatever model the run that handed it over used', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
@@ -2091,7 +2091,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'user-1', agentSlug: 'research', modelId: 'tabby-qwen' }));
     expect(acts.seen).toEqual([]);
     expect(sessions.openKeys()).toEqual([]);
-  }, 60_000);
+  });
 
   it('gives each agent in a tree\'s run the model the tree chose for it, or its own, never the one the run above it used', async () => {
     const chosen: Record<string, { modelId?: string }> = { 'grove-run-t1~abc': { modelId: 'vllm-big' }, 'grove-run-t2~abc': {} };
@@ -2108,12 +2108,12 @@ describe('an external agent working on someone\'s machine', () => {
       expect(result.outcome).toBe('ok');
       expect(acts.launched).toEqual([{ runId: `${runId}-research-1`, modelId: tree.modelId }]);
     }
-  }, 60_000);
+  });
 
   it('fails readably when the run has no machine for it', async () => {
     const acts = activities({ script: [{ content: 'unused' }] });
     const result = await runWorkflow(input('executor', EXTERNAL, 'Do it'), acts);
     expect(result.outcome).toBe('failed');
     expect(result.reason).toBe('scripted works on a person\'s machine, and no machine was picked for this run');
-  }, 60_000);
+  });
 });

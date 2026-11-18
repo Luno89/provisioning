@@ -21,7 +21,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -72,7 +72,7 @@ describe('the check runner on Temporal\'s test server', () => {
       expect(ownerIn(description.typedSearchAttributes)).toBe('bo');
       expect(await runner.outcome('check-run-r1')).toMatchObject({ cancelled: false, results: [{ scenarioId: 'a', passed: true }] });
     });
-  }, 60_000);
+  });
 
   it('cancels a run in flight, says there was nothing to cancel for one that is not there, and reads that it is missing', async () => {
     let entered: () => void = () => undefined;
@@ -94,7 +94,7 @@ describe('the check runner on Temporal\'s test server', () => {
       expect(await runner.cancel('check-run-never-started')).toBe(false);
       expect(await runner.outcome('check-run-never-started')).toEqual({ missing: true });
     });
-  }, 60_000);
+  });
 
   it('refuses to start when Temporal is not there', async () => {
     await expect(temporalCheckRunner(() => undefined, 'engine-queue').start('w', input('r3'))).rejects.toThrow('Temporal is not reachable');

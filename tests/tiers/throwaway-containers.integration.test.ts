@@ -22,5 +22,5 @@ describe('throwaway containers a test run leaves when it is killed', () => {
     await sweepThrowaways();
     expect(await alive(orphan)).toBe(false);
     expect(await alive(kept)).toBe(true);
-  }, 60_000);
+  });
 });

@@ -14,7 +14,7 @@ import { releaseDecider } from '../releases/services/release-decider.js';
 import { noRepositoryRead } from '../releases/testing/no-repository.js';
 
 let env: TestWorkflowEnvironment;
-beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+beforeAll(async () => { env = await temporalTestEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
 describe('following a project\'s release run in Temporal', () => {
@@ -37,7 +37,7 @@ describe('following a project\'s release run in Temporal', () => {
       expect(await runs.running(projectId)).toBe(false);
       expect(await env.client.workflow.getHandle(releaseRunWorkflowId(projectId)).result()).toBe('cutOver');
     });
-  }, 60_000);
+  });
 
   it('lets the release service follow the run it started until it ends, then settles what the run never said', async () => {
     const db = await testDatabase();
@@ -59,5 +59,5 @@ describe('following a project\'s release run in Temporal', () => {
       await following;
     });
     expect((await db.releases.getOdooReleases('bo', project.id))[0]).toMatchObject({ id: 'r1', state: 'failed', reason: 'the release stopped before it said how it went' });
-  }, 60_000);
+  });
 });

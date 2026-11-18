@@ -18,7 +18,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -66,7 +66,7 @@ describe('a conversation\'s countdown to concluding', () => {
       expect(concluded).toEqual([{ kind: 'conversation-quiet', ownerId: 'u1', conversationId: 'c1' }]);
       expect(workspaces, 'its workspace was not concluded through the workflow').toEqual([{ ownerId: 'u1', workspace: { kind: 'conversation', id: 'c1' } }]);
     }));
-  }, 120_000);
+  });
 
   it('follows the time the agent is configured with', async () => {
     const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
@@ -100,5 +100,5 @@ describe('a conversation\'s countdown to concluding', () => {
       expect(concluded).toHaveLength(1);
       expect(workspaces).toHaveLength(1);
     }));
-  }, 120_000);
+  });
 });

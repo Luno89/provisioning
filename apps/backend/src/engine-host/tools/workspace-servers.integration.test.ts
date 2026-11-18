@@ -56,7 +56,7 @@ describe('a server that runs in the workspace', () => {
     expect(out.ok).toBe(false);
     expect(out.digest).toContain('broken could not be started in the workspace');
     expect(out.digest).toContain('cannot start this');
-  }, 90_000);
+  });
 
   it('says why when the run has no workspace for it', async () => {
     const none = createWorkspaceServers({ environments: { forRun: async () => undefined } });

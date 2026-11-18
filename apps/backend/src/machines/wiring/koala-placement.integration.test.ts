@@ -74,7 +74,7 @@ beforeAll(async () => {
     activities: koalaInstallActivities({ db: async () => ({ db: current(), close: async () => undefined }), now: () => new Date() }),
   });
   running = worker.run();
-}, 120_000);
+});
 
 afterAll(async () => {
   worker?.shutdown();

@@ -15,7 +15,7 @@ for (const [server, make] of [['the in-memory test server', temporalTestEnvironm
   describe(`Temporal as Koala relies on it, on ${server}`, () => {
     let env: TestWorkflowEnvironment;
     let attempts = 0;
-    beforeAll(async () => { env = await make(); }, 120_000);
+    beforeAll(async () => { env = await make(); });
     afterAll(async () => { await env.teardown(); });
 
     const running = async <T>(work: (taskQueue: string) => Promise<T>): Promise<T> => {

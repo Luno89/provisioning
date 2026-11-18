@@ -38,5 +38,5 @@ describe('the pool\'s node reached as root\'s cluster, on a real k3s', () => {
     expect(await access.kubectl(ROOT_CLUSTER_ID, ['get', 'statefulset', 'bea', '-n', 'pool-bea', '-o', 'jsonpath={.spec.replicas}'])).toBe('1');
     await pool.remove('bea');
     expect(await access.kubectl(ROOT_CLUSTER_ID, ['get', 'namespace', '--field-selector', 'metadata.name=pool-bea', '-o', 'name'])).toBe('');
-  }, 120_000);
+  });
 });

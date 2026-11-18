@@ -36,13 +36,13 @@ beforeAll(async () => {
     },
   });
   running = worker.run();
-}, 120_000);
+});
 
 afterAll(async () => {
   worker?.shutdown();
   await running;
   await env?.teardown();
-}, 60_000);
+});
 
 describe('a run stopped in the middle of a long step', () => {
   it('reaches the step through its heartbeats within the bound the workers set, long after the first one went out', async () => {
@@ -54,5 +54,5 @@ describe('a run stopped in the middle of a long step', () => {
     expect(await handle.result()).toBe('stopped');
     while (heardAt === 0) await new Promise((done) => setTimeout(done, 50));
     expect(heardAt - stoppedAt).toBeLessThanOrEqual(STOPS_ARRIVE_WITHIN_MS + 1_000);
-  }, 60_000);
+  });
 });

@@ -75,7 +75,7 @@ describe('work that failed', () => {
 
 describe('a workflow that fails tells the backend itself', () => {
   let env: TestWorkflowEnvironment;
-  beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+  beforeAll(async () => { env = await temporalTestEnvironment(); });
   afterAll(async () => { await env?.teardown(); });
 
   it('is recorded before it closes, with its reason, while one that is cancelled is not', async () => {
@@ -107,5 +107,5 @@ describe('a workflow that fails tells the backend itself', () => {
     }));
 
     expect(reports.map((report) => report.type)).toEqual(['RemoveProjectWorkflow']);
-  }, 60_000);
+  });
 });

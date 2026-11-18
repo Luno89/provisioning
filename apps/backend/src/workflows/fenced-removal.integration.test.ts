@@ -36,7 +36,7 @@ beforeAll(async () => {
   env = await realTemporalEnvironment();
   db = await testDatabase();
   watch = await holdFences('worker-engine', db.platform);
-}, 120_000);
+});
 
 afterAll(async () => {
   await watch?.stop();
@@ -160,7 +160,7 @@ describe('an account being removed while a step of its run is still writing', ()
       await db.platform.forgetProcess(`other-${owner}`);
       await stop();
     }
-  }, 120_000);
+  });
 });
 
 describe('a project being deleted while a step of its release is still writing', () => {
@@ -205,5 +205,5 @@ describe('a project being deleted while a step of its release is still writing',
     } finally {
       await stop();
     }
-  }, 120_000);
+  });
 });

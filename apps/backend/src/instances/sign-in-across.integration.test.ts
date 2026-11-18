@@ -52,7 +52,7 @@ beforeAll(async () => {
     },
   });
   ({ root, instance, hub, mail, owner, instanceId, mongoUri, databases } = roles);
-}, 240_000);
+});
 
 afterAll(async () => {
   await roles?.close();
@@ -205,4 +205,4 @@ describe('signing in across root, an instance and the hub, each its own process'
       await client.close();
     }
   });
-}, 300_000);
+});

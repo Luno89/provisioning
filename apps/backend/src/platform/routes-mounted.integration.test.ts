@@ -97,7 +97,7 @@ const sessions = {} as Record<Role, string>;
 beforeAll(async () => {
   roles = await startThreeRoles('routes');
   Object.assign(urls, { root: roles.root.url, instance: roles.instance.url, hub: roles.hub.url });
-}, 240_000);
+});
 
 afterAll(async () => {
   await roles?.close();
@@ -170,4 +170,4 @@ describe('every router answers where it is mounted, and what is public answers b
     expect(problems).toEqual([]);
     expect(ROUTERS.filter((probe) => probe.on.length === 0)).toEqual([]);
   });
-}, 300_000);
+});

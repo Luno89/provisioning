@@ -93,13 +93,13 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     const { named } = await agent({ bundle: B });
     expect(await named).toEqual({ sha256: B });
     expect(await until(async () => ((await shown())?.state === 'current' ? shown() : undefined))).toEqual({ state: 'current', current: B, running: B });
-  }, 30_000);
+  });
 
   it('shows an agent that says nothing about its bundle as too old to update itself', async () => {
     await agent({});
     await until(async () => ((await db.machines.getLocalAgentDevices())[0]?.lastSeenAt ? true : undefined));
     expect(await shown()).toEqual({ state: 'too-old', current: B });
-  }, 30_000);
+  });
 
   it('shows what the agent says as it follows a newer bundle: waiting while busy, then why it failed', async () => {
     const { socket, named } = await agent({ bundle: A });
@@ -119,7 +119,7 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     await following;
     expect(await until(async () => ((await shown())?.state === 'failed' ? shown() : undefined)))
       .toMatchObject({ state: 'failed', current: B, running: A, reason: 'npm ci failed: npm error network' });
-  }, 30_000);
+  });
 
   it('keeps the last thing the agent said when recording an earlier one is slower', async () => {
     const { socket } = await agent({ bundle: A });
@@ -138,7 +138,7 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     slowOne();
     await until(async () => (sent === 2 ? true : undefined));
     expect(await shown()).toMatchObject({ state: 'failed', reason: 'npm ci failed' });
-  }, 30_000);
+  });
 
   it('is behind once Koala serves a newer agent than the one it last reported', async () => {
     await agent({ bundle: A });
@@ -147,7 +147,7 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     served = B;
   ending = new Map();
     expect(await shown()).toEqual({ state: 'behind', current: B, running: A });
-  }, 30_000);
+  });
 });
 
 describe('a machine\'s sessions and the runs that hold them', () => {
@@ -161,5 +161,5 @@ describe('a machine\'s sessions and the runs that hold them', () => {
     ending.get('chat-1-koala-1')!();
     await until(async () => (ended.length === 2 ? true : undefined));
     expect(ended).toEqual(['chat-gone-koala-1', 'chat-1-koala-1']);
-  }, 30_000);
+  });
 });

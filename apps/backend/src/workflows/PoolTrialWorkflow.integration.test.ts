@@ -15,7 +15,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -47,7 +47,7 @@ describe('a pool instance\'s trial', () => {
       { step: 'warn-3d', day: 11 }, { step: 'warn-1d', day: 13 }, { step: 'pause', day: 14 },
       { step: 'last-warning', day: 41 }, { step: 'delete', day: 44 },
     ]);
-  }, 120_000);
+  });
 
   it('hears an extension while it waits, and starts a stopped instance again', async () => {
     const start = await env.currentTimeMs();
@@ -82,7 +82,7 @@ describe('a pool instance\'s trial', () => {
       await handle.signal('trialChanged');
       await handle.result();
     });
-  }, 120_000);
+  });
 
   it('holds every step while the instance moves, and ends once it has moved off Koala\'s servers', async () => {
     const start = await env.currentTimeMs();
@@ -113,5 +113,5 @@ describe('a pool instance\'s trial', () => {
       await handle.result();
     });
     expect(done).toEqual([]);
-  }, 120_000);
+  });
 });

@@ -53,6 +53,6 @@ describe('each worker, started as its own program and stopped as a pod is', () =
       } finally {
         await worker.close();
       }
-    }, 120_000);
+    });
   }
 });

@@ -24,13 +24,13 @@ beforeAll(async () => {
   worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowBundle: await bundled(resolve(__dirname, 'testing/run-cancellation.fixture-workflow.ts')) });
   running = worker.run();
   client = async () => env.client;
-}, 120_000);
+});
 
 afterAll(async () => {
   worker?.shutdown();
   await running;
   await env?.teardown();
-}, 60_000);
+});
 
 describe('whether a run still runs, read from Temporal', () => {
   it('is running while its workflow runs, only for its owner, and ended once it finishes, is terminated or never was', async () => {
@@ -45,7 +45,7 @@ describe('whether a run still runs, read from Temporal', () => {
     await terminated.terminate('stopped by hand');
     expect(await life('chat-2-koala-1', 'owner-1')).toBe('ended');
     expect(await life('chat-never-koala-1', 'owner-1')).toBe('ended');
-  }, 60_000);
+  });
 
   it('hears the moment a run closes, however it closes, without asking on a clock', async () => {
     const closed = runClosedVia(client, undefined, () => reopening(60_000));
@@ -61,7 +61,7 @@ describe('whether a run still runs, read from Temporal', () => {
     const ending = closed('chat-4-koala-1', 'owner-1');
     await terminated.terminate('stopped by hand');
     expect(await ending).toBe('ended');
-  }, 60_000);
+  });
 });
 
 describe('a machine told when the runs holding its sessions end', () => {
@@ -84,7 +84,7 @@ describe('a machine told when the runs holding its sessions end', () => {
     await new Promise((done) => setTimeout(done, 500));
     expect(told).toEqual(['chat-gone-koala-1', 'chat-5-koala-1']);
     expect(watch.watching('desk')).toEqual([]);
-  }, 60_000);
+  });
 });
 
 async function waitFor(done: () => boolean): Promise<void> {

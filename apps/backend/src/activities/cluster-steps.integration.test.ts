@@ -83,20 +83,20 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     while (read.health === 'starting') read = await check();
     expect(read.health).toBe('unhealthy');
     expect(read.reason).toContain('exceeded quota');
-  }, 60_000);
+  });
 
   it('says a workload could not be read when the machine it was handed answers nowhere', async () => {
     const nowhere = startedMachine('machine-gone', k3s.admin.replace(/server: https:\/\/127\.0\.0\.1:\d+/, 'server: https://127.0.0.1:1'));
     const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-gone', reach: nowhere }, steps);
     expect(read.health).toBe('unknown');
     expect(read.reason).toContain('127.0.0.1:1');
-  }, 60_000);
+  });
 
   it('removes an Odoo release and its namespace on the cluster it was handed', async () => {
     await access.kubectl(DESK, ['create', 'namespace', 'odoo-shop']);
     await DestroyAppActivity({ name: 'shop', namespace: 'odoo-shop', deploymentId: 'shop', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', appType: ODOO_PROJECT_APP, logFile: path.join(root, 'odoo.log'), reach: DESK }, steps);
     expect(await exists(DESK, 'odoo-shop')).toBe(false);
-  }, 120_000);
+  });
 
   it('applies an app\'s stack with Terraform through the kubeconfig Koala\'s own service account makes, then removes it the same way', async () => {
     const app = { name: 'books', namespace: 'books-1a2b3c', deploymentId: 'd1', clusterId: KOALA.clusterId, clusterName: 'own', strategy: 'native', logFile: path.join(root, 'books.log'), reach: KOALA };
@@ -104,7 +104,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     expect(await access.kubectl(KOALA, ['get', 'namespace', 'books-1a2b3c', '-o', 'jsonpath={.metadata.labels.app}'])).toBe('audiobookshelf');
     await DestroyAppActivity({ ...app, appType: 'audiobookshelf' }, steps);
     expect(await exists(KOALA, 'books-1a2b3c')).toBe(false);
-  }, 300_000);
+  });
 
   it('stops Terraform the moment what it applies can never roll out, saying why, rather than waiting on it', async () => {
     const env = { CLUSTER_NAME: 'desk', DEPLOYMENT_ID: 'd9', DEPLOYMENT_NAME: 'stuck-9a8b7c', KUBECONFIG: await access.kubeconfigOf(DESK), STUCK_IMAGE: 'registry.invalid/koala/none:1' };
@@ -114,7 +114,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     expect(failed, `the apply ended otherwise: ${String((failed as Error | undefined)?.message ?? failed)}`).toBeInstanceOf(CannotRollOut);
     expect((failed as CannotRollOut).why).toMatch(/pull|image/i);
     await access.kubectl(DESK, ['delete', 'namespace', 'stuck-9a8b7c', '--wait=false']);
-  }, 600_000);
+  });
 
   it('applies the NVIDIA device plugin on a machine without NVIDIA\'s CDI support, and fails with what to do rather than wait', async () => {
     try {
@@ -123,7 +123,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     } finally {
       await access.kubectl(DESK, ['delete', 'daemonset', 'nvidia-device-plugin-daemonset', '-n', 'kube-system', '--ignore-not-found', '--wait=false']);
     }
-  }, 300_000);
+  });
 
   it('applies an app\'s stack with Terraform on another machine through the kubeconfig its workflow handed over', async () => {
     const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };
@@ -131,14 +131,14 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
     expect(await exists(DESK, 'notes-4d5e6f')).toBe(true);
     await DestroyAppActivity({ ...app, appType: 'papra' }, steps);
     expect(await exists(DESK, 'notes-4d5e6f')).toBe(false);
-  }, 300_000);
+  });
 });
 
 describe('a model downloaded on the machine that runs it', () => {
   const cache = `/var/lib/rancher/koala-test-models-${Math.random().toString(36).slice(2, 8)}`;
   let standIn: HuggingFaceStandIn;
 
-  beforeAll(async () => { standIn = await startHuggingFaceStandIn(access, DESK); }, 600_000);
+  beforeAll(async () => { standIn = await startHuggingFaceStandIn(access, DESK); });
   afterAll(async () => { await standIn.stop(); });
 
   const download = (modelRepo: string, logFile?: string) => DownloadModelActivity({ clusterId: DESK.clusterId, reach: DESK, image: STAND_IN_IMAGE, modelRepo, cacheHostPath: cache, ...(logFile ? { logFile } : {}) }, { access }, standIn.endpoint);
@@ -148,11 +148,11 @@ describe('a model downloaded on the machine that runs it', () => {
     expect(await download('acme/tiny', log)).toEqual({ skipped: false, modelDir: `${cache}/acme-tiny` });
     expect(await download('acme/tiny', log)).toEqual({ skipped: true, modelDir: `${cache}/acme-tiny` });
     expect(await readFile(log, 'utf8')).toMatch(/acme\/tiny is on the machine\n[\s\S]*acme\/tiny was already on the machine\n/);
-  }, 600_000);
+  });
 
   it('fails with what to check: a model with no files, one Hugging Face does not have, one without config.json', async () => {
     await expect(download('acme/empty')).rejects.toThrow(/no files found for acme\/empty@main/);
     await expect(download('acme/unknown')).rejects.toThrow(/Hugging Face answered 404/);
     await expect(download('acme/noconfig')).rejects.toThrow(/config\.json is missing after downloading acme\/noconfig@main/);
-  }, 600_000);
+  });
 });

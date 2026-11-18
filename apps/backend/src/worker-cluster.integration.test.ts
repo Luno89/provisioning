@@ -57,7 +57,7 @@ describe('the cluster worker, started the way its entry starts it', () => {
     worker.shutdown();
     await running;
     expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
-  }, 60_000);
+  });
 
   it('is refused by its settings on root, which runs no cluster worker', () => {
     expect(() => clusterWorkerSettingsFrom(placeFor('root'))).toThrow(/the cluster worker runs only in an instance, whose apps it deploys, and ROLE is root/);

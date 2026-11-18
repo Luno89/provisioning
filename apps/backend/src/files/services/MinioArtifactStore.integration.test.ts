@@ -32,5 +32,5 @@ describe('reaching a person\'s MinIO from Koala\'s own cluster', () => {
     expect(await reach.endpoint(minio('machine-desk'))).toEqual({ host: '100.64.0.7', port: nodePort });
     expect(await reach.endpoint(minio('machine-dev1'))).toEqual({ host: `minio.${namespace}.svc.cluster.local`, port: 9000 });
     await expect(reach.endpoint(minio('machine-gone'))).rejects.toThrow('machine-gone');
-  }, 120_000);
+  });
 });

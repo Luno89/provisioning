@@ -48,7 +48,7 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
 
     const unreached = await contents.contents(asPerson('bo'), resting.id);
     expect(unreached).toMatchObject({ reachable: false, problem: 'it does not answer (resting is stopped until something runs on it)' });
-  }, 300_000);
+  });
 
   it('shows Koala\'s own pods as the platform on the cluster Koala runs in, and nowhere else', async () => {
     const db = await testDatabase();
@@ -69,5 +69,5 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
     expect(onKoalas.workloads.find((workload) => workload.namespace === KOALA)).toMatchObject({ group: 'platform', name: 'instance-backend', state: 'ok' });
     const elsewhere = await contentsWith({ clusterId: 'machine-other', namespace: KOALA }).contents(asPerson('bo'), desk.id);
     expect(elsewhere.workloads.find((workload) => workload.namespace === KOALA)).toMatchObject({ group: 'other' });
-  }, 300_000);
+  });
 });

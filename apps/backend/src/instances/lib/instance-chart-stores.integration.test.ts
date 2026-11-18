@@ -56,7 +56,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     expect(again.MINIO_ROOT_PASSWORD).toBe(keysOf(first).MINIO_ROOT_PASSWORD);
     const volume = rendered().find((doc) => doc.kind === 'PersistentVolumeClaim') as Doc & { spec: { resources: { requests: { storage: string } } } };
     expect(volume.spec.resources.requests.storage).toBe('1Gi');
-  }, 600_000);
+  });
 
   it('renders the one-time hook that brings an older instance\'s Mongo and Postgres onto the shared volume only while their old StatefulSets are there', () => {
     const folder = mkdtempSync(join(tmpdir(), 'koala-chart-adopt-'));
@@ -84,5 +84,5 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const script = job!.spec!.template.spec.containers[0]!.args[0]!;
     expect(script).toContain('adopt luno-mongo /old/mongo mongo');
     expect(script).toContain('adopt luno-temporal-db /old/temporal-db temporal-db');
-  }, 600_000);
+  });
 });

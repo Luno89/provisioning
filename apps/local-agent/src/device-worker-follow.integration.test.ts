@@ -62,7 +62,7 @@ describe('the machine agent following its Koala for its device worker', () => {
     await host!.stop();
     socket.close();
     await new Promise<void>((done) => { void koala.close(() => done()); });
-  }, 120_000);
+  });
 
   it('follows nothing on a machine that has not joined, having no device', () => {
     const gate = new IdleGate();

@@ -73,7 +73,7 @@ const handed: Array<{ activity: string; kubeconfig: string | undefined }> = [];
 
 const app = (id: string): DeploymentMetadata => ({ id, name: id, clusterId: 'machine-desk', ownerId: 'bo', strategy: 'native', status: 'running' });
 
-beforeAll(async () => { env = await temporalTestEnvironment(); rootDir = mkdtempSync(join(tmpdir(), 'machine-cluster-wf-')); }, 120_000);
+beforeAll(async () => { env = await temporalTestEnvironment(); rootDir = mkdtempSync(join(tmpdir(), 'machine-cluster-wf-')); });
 afterAll(async () => { await env?.teardown(); rmSync(rootDir, { recursive: true, force: true }); });
 
 beforeEach(async () => {
@@ -135,7 +135,7 @@ describe('a machine\'s own cluster under the deploy and destroy workflows', () =
     expect(record).toMatchObject({ status: 'healthy', meshIp: DESK.meshIp });
     expect(decryptValue(record.kubeconfigEnc!, KEY)).toBe(ONE_MESH);
     expect(handed).toEqual([{ activity: 'deploy', kubeconfig: ONE_MESH }, { activity: 'check', kubeconfig: ONE_MESH }]);
-  }, 120_000);
+  });
 
   it('destroying the last app on it starts it to remove the app, then stops k3s and records it stopped', async () => {
     await db.infrastructure.saveDeployment(app('books'));
@@ -144,7 +144,7 @@ describe('a machine\'s own cluster under the deploy and destroy workflows', () =
     expect(host.active).toBe(false);
     expect(host.wantedNow).toBe(false);
     expect((await stored()).status).toBe('stopped');
-  }, 120_000);
+  });
 
   it('destroying one app while another is still on it leaves k3s running', async () => {
     await db.infrastructure.saveDeployment(app('books'));
@@ -152,5 +152,5 @@ describe('a machine\'s own cluster under the deploy and destroy workflows', () =
     await working(() => destroy('books'));
     expect(host.active).toBe(true);
     expect((await stored()).status).toBe('healthy');
-  }, 120_000);
+  });
 });

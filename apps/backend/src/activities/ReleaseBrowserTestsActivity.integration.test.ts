@@ -67,6 +67,6 @@ describe('browser tests on a release whose database password the cluster will no
     expect(result.state).toBe('unavailable');
     expect(result.state === 'unavailable' ? result.reason : '').toMatch(new RegExp(`^the database's password could not be read from ${vaultDatabaseSecret('shop').secret}: .*forbidden`, 'i'));
     expect(await admin('get', 'jobs', '-o', 'name')).toBe('');
-  }, 120_000);
+  });
 });
 

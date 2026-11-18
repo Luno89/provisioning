@@ -90,14 +90,14 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     await service.destroy('desk', { logFile: path.join(stand.root, 'desk.log') });
     expect(await resourcesIn(state)).toEqual([]);
     expect(await readdir(stand.places.runsDir)).toEqual([]);
-  }, 180_000);
+  });
 
   it('hands a run the repository standing in for every chart, when this process was given one', async () => {
     await new InfrastructureService({ ...stand.places, chartSources: 'http://127.0.0.1:4100' }).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     const state = path.join(stand.places.stateDir, 'terraform.shelf.tfstate');
     expect((await resourcesIn(state))[0]?.instances[0]?.attributes.input.value).toBe('http://127.0.0.1:4100');
     await new InfrastructureService(stand.places).destroy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
-  }, 180_000);
+  });
 
   it('runs two stacks at once, each in its own output, neither touching the other', async () => {
     const service = new InfrastructureService(stand.places);
@@ -108,7 +108,7 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     expect((await resourcesIn(path.join(stand.places.stateDir, 'terraform.desk.tfstate')))[0]?.instances[0]?.attributes.input.value).toBe('for the desk');
     expect((await resourcesIn(path.join(stand.places.stateDir, 'terraform.shelf.tfstate')))[0]?.instances[0]?.attributes.input.value).toBe('for the shelf');
     expect(await readdir(stand.places.runsDir)).toEqual([]);
-  }, 180_000);
+  });
 
   it('stops Terraform when told to, saying why, and leaves the stack free for the next run', async () => {
     const service = new InfrastructureService(stand.places);
@@ -128,13 +128,13 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     expect(await readFile(logFile, 'utf8')).toContain('STOPPED: the person stopped the deploy');
     expect(await readdir(stand.places.runsDir)).toEqual([]);
     await service.deploy('shelf', { logFile: path.join(stand.root, 'after-stop.log') });
-  }, 180_000);
+  });
 
   it('removes the run\'s folder when the run fails too', async () => {
     const service = new InfrastructureService(stand.places);
     await expect(service.deploy('desk', { logFile: path.join(stand.root, 'fail.log'), env: { FAIL_SYNTH: '1' } })).rejects.toThrow();
     expect(await readdir(stand.places.runsDir)).toEqual([]);
-  }, 180_000);
+  });
 
   it('hands Terraform the mirror\'s settings when the mirror is there, and none when it is not', async () => {
     await rm(stand.capture, { force: true });
@@ -144,7 +144,7 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     await mkdir(mirrorDir);
     await new InfrastructureService({ ...stand.places, mirrorDir }).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     expect(await readFile(stand.capture, 'utf8')).toBe(terraformCliConfig(mirrorDir));
-  }, 180_000);
+  });
 
   it('moves a stack\'s state from where it was kept before into the state folder before using it, once', async () => {
     const before = path.join(stand.places.cdktfDir, 'terraform.shelf.tfstate');
@@ -158,7 +158,7 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     expect(existsSync(before)).toBe(false);
     expect((await resourcesIn(now))[0]?.instances[0]?.attributes.id).toBe((JSON.parse(made) as { resources: Array<{ instances: Array<{ attributes: { id: string } }> }> }).resources[0]?.instances[0]?.attributes.id);
-  }, 180_000);
+  });
 });
 
 describe('moving state kept in the data folder into the backend in the cluster, with real Terraform', () => {
@@ -189,7 +189,7 @@ describe('moving state kept in the data folder into the backend in the cluster, 
     } finally {
       await rm(local.root, { recursive: true, force: true });
     }
-  }, 300_000);
+  });
 
   it('refuses, keeping the file, when the backend already holds a state that the file did not lead to', async () => {
     await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
@@ -205,7 +205,7 @@ describe('moving state kept in the data folder into the backend in the cluster, 
     } finally {
       await rm(unrelated.root, { recursive: true, force: true });
     }
-  }, 300_000);
+  });
 });
 
 describe('installing providers from the mirror with real Terraform', () => {
@@ -233,5 +233,5 @@ describe('installing providers from the mirror with real Terraform', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  }, 120_000);
+  });
 });

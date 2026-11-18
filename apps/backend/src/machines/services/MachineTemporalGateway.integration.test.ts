@@ -66,14 +66,14 @@ beforeAll(async () => {
     log: (line) => refusals.push(line),
   });
   address = `127.0.0.1:${await gateway.listen(0, '127.0.0.1')}`;
-}, 120_000);
+});
 
 afterAll(async () => {
   await gateway?.close();
   relayed?.close();
   await new Promise((done) => (relay ? relay.close(done) : done(undefined)));
   await env?.teardown();
-}, 60_000);
+});
 
 const asMachine = (token: string) => NativeConnection.connect({ address, metadata: { authorization: `Bearer ${token}` } });
 
@@ -96,7 +96,7 @@ describe('a machine reaching Temporal through the gateway', () => {
     const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-test', workflowBundle: await bundled(resolve(__dirname, '../testing/MachineTemporalGateway.fixture-workflow.ts')) });
     const answer = await workflows.runUntil(machine.runUntil(env.client.workflow.execute(askMachine, { taskQueue: 'gateway-test', workflowId: `ask-${Date.now()}`, args: ['d1', 'hello'] })));
     expect(answer).toBe('machine says hello');
-  }, 120_000);
+  });
 
   it('lets a machine read the large payloads of the tasks it was handed, and no other machine', async () => {
     const machine = await Worker.create({
@@ -120,7 +120,7 @@ describe('a machine reaching Temporal through the gateway', () => {
     expect(itsOwn.length).toBeLessThan(offloaded.length);
     expect([...(await blobs.getHanded('d1', offloaded)).keys()].sort()).toEqual(itsOwn.sort());
     expect((await blobs.getHanded('d2', offloaded)).size).toBe(0);
-  }, 120_000);
+  });
 
   it('speaks to Temporal with its own token, never the machine\'s', () => {
     expect(upstreamAuth.length).toBeGreaterThan(0);
@@ -131,7 +131,7 @@ describe('a machine reaching Temporal through the gateway', () => {
     const thief = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: await asMachine('token-d2'), namespace: env.namespace ?? 'default', taskQueue: 'device-d1', activities: { Echo: async () => 'stolen' } });
     await thief.runUntil(new Promise((done) => setTimeout(done, 3_000)));
     expect(refusals.some((line) => line.includes('refused PollActivityTaskQueue from d2: a machine takes work only from its own queue, device-d2'))).toBe(true);
-  }, 60_000);
+  });
 
   it('refuses everything else a machine might ask, and anyone without a machine\'s token', async () => {
     const client = new Client({ connection: await Connection.connect({ address, metadata: { authorization: 'Bearer token-d1' } }), namespace: env.namespace ?? 'default' });
@@ -141,5 +141,5 @@ describe('a machine reaching Temporal through the gateway', () => {
     await refusedWith(client.activity.complete(Buffer.from('a-forged-task-token'), 'done'), /tasks it was handed|PERMISSION_DENIED/);
     await refusedWith(Connection.connect({ address, metadata: { authorization: 'Bearer not-a-machine' } }), /this machine is not known here; add it again from My Machines/);
     await refusedWith(Connection.connect({ address }), /this machine is not known here/);
-  }, 60_000);
+  });
 });

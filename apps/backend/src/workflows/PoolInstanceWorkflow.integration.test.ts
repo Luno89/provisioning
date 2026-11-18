@@ -14,7 +14,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -39,7 +39,7 @@ describe('installing a pool instance', () => {
     expect(seen).toEqual(['host', 'vcluster inst-1', 'proxy', 'chart inst-1', 'ready inst-1']);
     const trial = await env.client.workflow.getHandle('pool-trial-inst-1').describe();
     expect(trial.type).toBe('PoolTrialWorkflow');
-  }, 60_000);
+  });
 
   it('records why it failed on the instance, so the person sees it and can try again', async () => {
     const failed: string[] = [];
@@ -51,5 +51,5 @@ describe('installing a pool instance', () => {
     });
     expect(outcome).toBeInstanceOf(Error);
     expect(failed).toEqual(['the pool\'s node has no gVisor runtime yet']);
-  }, 60_000);
+  });
 });

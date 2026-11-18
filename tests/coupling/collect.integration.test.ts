@@ -27,5 +27,5 @@ describe('what a test runs, gathered', () => {
     const queueOf = places.find((range) => range.fn !== undefined && range.start.line === 12);
     expect(queueOf?.count).toBe(1);
     expect(places.find((range) => range.fn !== undefined && range.start.line === 20)?.count ?? 0).toBe(0);
-  }, 120_000);
+  });
 });

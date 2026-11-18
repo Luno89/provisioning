@@ -63,11 +63,11 @@ beforeAll(async () => {
   roles = await startThreeRoles('hubpeople', { gitea: true, ownerInvited: true, rootWorkers: ['host'] });
   ownerOnInstance = await roles.ownerOnInstance();
   ann = { name: 'ann', person: roles.owner, hub: await roles.ownerOnHub() };
-}, 300_000);
+});
 
 afterAll(async () => {
   await roles?.close();
-}, 120_000);
+});
 
 describe('the hub\'s people: who is on a shared project, with which role, invited through root and removed', () => {
   beforeEach((context) => {
@@ -250,4 +250,4 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
       await client.close();
     }
   });
-}, 300_000);
+});

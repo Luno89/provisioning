@@ -50,7 +50,7 @@ describe('a project started from the mcp-server template', () => {
     const tools = await client.listTools();
     expect(tools.length).toBeGreaterThan(0);
     expect(tools[0]!.inputSchema).toBeTruthy();
-  }, 30_000);
+  });
 
   it('runs a tool and returns text a caller can read', async () => {
     const client = new McpClient(await startScaffold());
@@ -58,20 +58,20 @@ describe('a project started from the mcp-server template', () => {
     const out = await client.callTool('echo', { message: 'hello' });
     expect(out.isError).toBe(false);
     expect(out.text).toMatch(/hello/);
-  }, 30_000);
+  });
 
   it('reports an unknown tool without falling over', async () => {
     const client = new McpClient(await startScaffold());
     await client.initialize();
     const out = await client.callTool('does-not-exist', {});
     expect(out.isError).toBe(true);
-  }, 30_000);
+  });
 
   it('answers /health, which is what the platform probes', async () => {
     const url = await startScaffold();
     const res = await fetch(url.replace('/mcp', '/health'));
     expect(res.status).toBe(200);
-  }, 30_000);
+  });
 });
 
 describe('the scaffold itself', () => {

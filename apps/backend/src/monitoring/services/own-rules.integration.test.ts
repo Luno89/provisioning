@@ -13,7 +13,7 @@ import { prometheusStandIn } from '../testing/prometheus-stand-in.js';
 
 let k3s: RealK3s;
 
-beforeAll(async () => { k3s = await startK3s(); }, 120_000);
+beforeAll(async () => { k3s = await startK3s(); });
 afterAll(async () => { await k3s.stop(); });
 const KEY = 'own-rules-key' as never;
 const RULE_TYPE = readFileSync(join(import.meta.dirname, '../testing/prometheusrules-crd-operator-0.93.1.json'), 'utf8');
@@ -40,7 +40,7 @@ describe('the alerts a Koala sets on the cluster it runs in, applied to a real c
 
     const written = JSON.parse(await access.kubectl(home.id, ['get', 'prometheusrule', 'koala-instance-alerts', '-n', 'monitoring', '-o', 'json'])) as { spec: { groups: { rules: { expr: string; labels: Record<string, string> }[] }[] } };
     expect(written.spec.groups[0]!.rules.map((rule) => [rule.labels.koala_rule, rule.expr])).toEqual(INSTANCE_ALERTS.map((alert) => [alert.id, alert.expr]));
-  }, 300_000);
+  });
 
   it('on an instance, are written by the alert watcher\'s own pass, which carries on past what the cluster lacks', async () => {
     const db = await testDatabase();
@@ -69,5 +69,5 @@ describe('the alerts a Koala sets on the cluster it runs in, applied to a real c
     const written = JSON.parse(await access.kubectl(home.id, ['get', 'prometheusrule', 'koala-instance-alerts', '-n', 'monitoring', '-o', 'json'])) as { spec: { groups: { rules: { labels: Record<string, string> }[] }[] } };
     expect(written.spec.groups[0]!.rules.map((rule) => rule.labels.koala_rule)).toEqual(INSTANCE_ALERTS.map((alert) => alert.id));
     expect(said.some((line) => line.includes('alerts could not be set'))).toBe(false);
-  }, 300_000);
+  });
 });

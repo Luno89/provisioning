@@ -60,7 +60,7 @@ const placedRefused = async (args: DeployAppArgs) => {
 beforeAll(async () => {
   env = await temporalTestEnvironment();
   bundle = await bundled(resolve(import.meta.dirname, 'index.ts'));
-}, 120_000);
+});
 
 const huggingFace = interceptHttp();
 
@@ -96,18 +96,18 @@ describe('deploying and removing an app through Temporal on a real k3s, with the
     expect(deployed).toEqual([{ clusterId: KOALA.clusterId, reach: KOALA }]);
     expect(outcome).toMatchObject({ status: 'running', workload: 'unhealthy' });
     expect(outcome.workloadReason).toContain('exceeded quota');
-  }, 120_000);
+  });
 
   it('removes the app on the cluster it was handed, its namespace with it', async () => {
     await working(destroy({ reach: KOALA }));
     expect((await access.kubectl(KOALA, ['get', 'namespace', 'shop-1a2b3c', '--ignore-not-found', '-o', 'name'])).trim()).toBe('');
-  }, 120_000);
+  });
 
   it('refuses work started with no way to reach its cluster, as a release before this one started it, and runs no step', async () => {
     deployed.length = 0;
     await expect(working(deploy({}))).rejects.toMatchObject({ cause: { message: expect.stringContaining('this work was started with no way to reach machine-dev1') as unknown } });
     expect(deployed).toEqual([]);
-  }, 60_000);
+  });
 });
 
 describe('a TabbyAPI app whose model\'s size Hugging Face cannot say, deployed through Temporal', () => {
@@ -115,5 +115,5 @@ describe('a TabbyAPI app whose model\'s size Hugging Face cannot say, deployed t
     huggingFace.use(http.get('https://huggingface.co/api/models/org/model/tree/*', () => new HttpResponse(null, { status: 503 })));
     await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), clusterActivities(steps).DeployAppActivity))
       .rejects.toMatchObject({ cause: { cause: { message: expect.stringMatching(/^Koala could not read how big org\/model is from Hugging Face \(.*503.*\), so it cannot size the memory it needs\. Set its Memory Limit \(RAM\) and Shared Memory/) as unknown } } });
-  }, 120_000);
+  });
 });

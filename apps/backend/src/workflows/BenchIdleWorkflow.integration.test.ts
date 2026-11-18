@@ -16,7 +16,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -51,7 +51,7 @@ describe('the bench\'s idle countdown', () => {
       await env.sleep(10 * MINUTE);
       expect(asked).toEqual(['u1']);
     });
-  }, 120_000);
+  });
 
   it('when the model turns out to be busy, waits for the next run event instead of polling', async () => {
     await scenario(['busy', 'started'], async (signal, asked) => {
@@ -64,5 +64,5 @@ describe('the bench\'s idle countdown', () => {
       await env.sleep(16 * MINUTE);
       expect(asked).toEqual(['u1', 'u1']);
     });
-  }, 120_000);
+  });
 });

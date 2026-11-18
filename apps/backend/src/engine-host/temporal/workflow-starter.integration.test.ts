@@ -14,7 +14,7 @@ import { temporalWorkflowStarter } from './workflow-starter.js';
 
 let env: TestWorkflowEnvironment;
 
-beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
+beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
 describe('a run started through Temporal for a project', () => {
@@ -38,5 +38,5 @@ describe('a run started through Temporal for a project', () => {
       await runs.answer(runId, 'n1', 'yes');
       expect(await naming.workflow.getHandle(workflowOfRun(runId)).result()).toEqual({ seen: { owner: 'u1', project: 'p1' }, answered: { nodeId: 'n1', value: 'yes' }, approved: { callId: 'call-1', allowed: true, forRun: false }, cancelledBy: 'u1' });
     });
-  }, 60_000);
+  });
 });

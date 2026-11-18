@@ -11,7 +11,7 @@ let grove: GroveWorld;
 beforeAll(async () => {
   env = await temporalTestEnvironment();
   grove = new GroveWorld(env);
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -31,7 +31,7 @@ describe('the grove agent\'s procedure, on other kinds of work', () => {
     expect(grove.plans.map((plan) => plan.leafPlan?.leafId)).not.toContain('leafA');
     expect(grove.leafOf('leafB')).toMatchObject({ status: 'succeeded' });
     expect(result).toMatchObject({ outcome: 'quiet' });
-  }, 120_000);
+  });
 
   it('honours a limit set on a copy of the procedure: no replans means a failed leaf is left for the person', async () => {
     grove.judgeVerdicts = { leafB: 'failed' };
@@ -44,7 +44,7 @@ describe('the grove agent\'s procedure, on other kinds of work', () => {
     expect(grove.leafOf('leafB')).toMatchObject({ status: 'failed' });
     expect(grove.plans).toEqual([]);
     expect(result).toMatchObject({ outcome: 'quiet', awaitingApproval: [] });
-  }, 120_000);
+  });
 
   it('claims a paper leaf whose writer failed, saying the work stopped and why, so its judge decides', async () => {
     grove.trees = grove.trees.map((tree) => ({ ...tree, type: 'research-paper' }));
@@ -57,7 +57,7 @@ describe('the grove agent\'s procedure, on other kinds of work', () => {
     expect(leafA.claim?.evidence ?? '').toMatch(/stopped: the work did not finish: .*stopped answering mid-paper/);
     expect(worktreeOfCall.some((call) => call.startsWith('leaf-judge settle_leaf') && call.includes('leafA'))).toBe(true);
     expect(leafA.status).toBe('failed');
-  }, 120_000);
+  });
 
   it('has the paper writer write each leaf in one run, and the claim carries what it said', async () => {
     grove.trees = grove.trees.map((tree) => ({ ...tree, type: 'research-paper' }));
@@ -68,5 +68,5 @@ describe('the grove agent\'s procedure, on other kinds of work', () => {
     expect(grove.leaves.every((leaf) => leaf.status === 'succeeded'), JSON.stringify(grove.leaves.map((leaf) => [leaf.id, leaf.status]))).toBe(true);
     expect(worktreeOfCall.filter((call) => call.startsWith('executor'))).toEqual([]);
     expect(grove.leafOf('leafA')?.claim?.evidence ?? '').toContain('Wrote paper.md for leafA');
-  }, 120_000);
+  });
 });

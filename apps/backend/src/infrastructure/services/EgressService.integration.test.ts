@@ -27,7 +27,7 @@ describe('the egress proxy on a real cluster', () => {
     await admin('create', 'configmap', 'egress-grants', '-n', PROXY_NAMESPACE, '--from-literal=passwd=', '--from-literal=acls.conf=');
     await admin('apply', '-f', PROXY_MANIFEST);
     await admin('rollout', 'status', 'deployment/egress-proxy', '-n', PROXY_NAMESPACE, '--timeout=720h');
-  }, 600_000);
+  });
 
   afterAll(async () => { await k3s?.stop(); });
 
@@ -56,5 +56,5 @@ describe('the egress proxy on a real cluster', () => {
 
     await vi.waitFor(() => expect(egress.proxyBehindSince()).toBeUndefined(), { timeout: 120_000, interval: 200 });
     expect(await held()).not.toContain('example.com');
-  }, 300_000);
+  });
 });

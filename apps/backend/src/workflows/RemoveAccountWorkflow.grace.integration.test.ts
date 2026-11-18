@@ -16,7 +16,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();

@@ -33,7 +33,7 @@ describe('what a setup step waits for, with the instance\'s Mongo and the Jobs o
     await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-platform-services-1', namespace, 'echo set up'));
     await waiting;
     expect(said).toEqual(['[setup] seed waits for the instance\'s Mongo and for luno-platform-services-1', '[setup] seed may run']);
-  }, 300_000);
+  });
 
   it('says now and then what it still waits for, with what it last heard, while the step before it has not been made yet', async () => {
     const namespace = namespaces.name('setup-waits-later');
@@ -62,7 +62,7 @@ describe('what a setup step waits for, with the instance\'s Mongo and the Jobs o
     await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-move-data-1', namespace, 'exit 3'));
     await expect(setupWaitsOn({ step: 'move-restore', after: ['luno-move-data-1'], podNamespace: namespace, mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}setup_waits` }) }, access, () => undefined))
       .rejects.toThrow('luno-move-data-1 failed, so move-restore cannot run after it');
-  }, 300_000);
+  });
 
   it('runs as the instance chart\'s Job runs it, from the settings the chart gives and the pod\'s own account on its cluster', async () => {
     const namespace = namespaces.name('setup-waits-step');

@@ -32,7 +32,7 @@ const manifests = [
 
 describe('a pool instance stopping for a move and taking work again, on a real cluster', () => {
   let k3s: RealK3s;
-  beforeAll(async () => { k3s = await startK3s(); }, 120_000);
+  beforeAll(async () => { k3s = await startK3s(); });
   afterAll(async () => { await k3s?.stop(); });
 
   it('pauses its self-upgrade, scales its apps to nothing remembering how many ran, and starts them again as they were', async () => {
@@ -72,5 +72,5 @@ describe('a pool instance stopping for a move and taking work again, on a real c
     expect(await kubectl('get', 'deployment', 'web', '-n', 'shelf', '-o', 'jsonpath={.spec.replicas}')).toBe('1');
     expect(await kubectl('get', 'deployment', 'web', '-n', 'shelf', '-o', 'jsonpath={.metadata.annotations}')).not.toContain(REPLICAS_ANNOTATION);
     expect(await kubectl('get', 'cronjob', SELF_UPGRADE.name, '-n', SELF_UPGRADE.namespace, '-o', 'jsonpath={.spec.suspend}')).toBe('false');
-  }, 120_000);
+  });
 });

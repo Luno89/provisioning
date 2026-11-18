@@ -21,7 +21,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -86,7 +86,7 @@ describe('running checks through Temporal', () => {
     });
     expect(log).toEqual(['space a', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?', 'space b', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
     expect(progress.map((entry) => entry.running ?? entry.result?.scenarioId)).toEqual(['a', 'a', 'b', 'b']);
-  }, 60_000);
+  });
 
   it('stops on cancel, and still removes the space it was in', async () => {
     let entered: () => void = () => undefined;
@@ -111,7 +111,7 @@ describe('running checks through Temporal', () => {
       expect(outcome).toEqual({ cancelled: true, results: [] });
     });
     expect(log).toEqual(['space a', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
-  }, 60_000);
+  });
 
   it('repeats a turn check in one space, and passes it when enough attempts pass', async () => {
     const spaces = new Set<string>();
@@ -140,7 +140,7 @@ describe('running checks through Temporal', () => {
     });
     expect(spaces.size).toBe(1);
     expect(log).toEqual(['space t', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
-  }, 60_000);
+  });
 
   it('gives each attempt of a repeated run its own space, and fails it when any space leaks, whatever passAt allows', async () => {
     const spaces: string[] = [];
@@ -161,7 +161,7 @@ describe('running checks through Temporal', () => {
     });
     expect(new Set(spaces).size).toBe(3);
     expect(log.filter((line) => line === 'space r')).toHaveLength(3);
-  }, 60_000);
+  });
 
   it('removes each space in a workflow owned by whoever owns the check', async () => {
     const spaces: string[] = [];
@@ -177,7 +177,7 @@ describe('running checks through Temporal', () => {
       const removal = await env.client.workflow.getHandle(removeAccountWorkflowId(spaces[0]!)).describe();
       expect(ownerIn(removal.typedSearchAttributes)).toBe('bo');
     });
-  }, 60_000);
+  });
 
   it('fails a check whose runs Koala noticed something in that it did not expect, and passes one that expected it', async () => {
     const { run } = harness(async ({ scenario: chosen }) => ({ result: passed(chosen.id), runIds: [] }), new Set(), [{ kind: 'canary', said: 'store_file was given the canary' }]);
@@ -192,5 +192,5 @@ describe('running checks through Temporal', () => {
       expect(canary!.passed).toBe(true);
       expect(canary!.checks.map((check) => check.what)).toContain('Koala notices: a run copied its own canary out');
     });
-  }, 60_000);
+  });
 });

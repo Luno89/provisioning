@@ -26,7 +26,7 @@ describe('removing an app\'s namespace on a real cluster', () => {
     await kubectl('create', 'configmap', 'settings', '-n', 'leaving-1a2b3c', '--from-literal=a=b');
     await remove('leaving-1a2b3c');
     expect(await kubectl('get', 'namespace', 'leaving-1a2b3c', '--ignore-not-found', '-o', 'name')).toBe('');
-  }, 120_000);
+  });
 
   it('waits on a finalizer holding the namespace without clearing it, says what holds it, and ends once its controller lets go', async () => {
     const { access, kubectl, remove } = await onK3s();
@@ -47,5 +47,5 @@ describe('removing an app\'s namespace on a real cluster', () => {
     await kubectl('patch', 'configmap', 'held', '-n', 'held-4d5e6f', '--type=merge', '-p', '{"metadata":{"finalizers":null}}');
     await waiting;
     expect(await kubectl('get', 'namespace', 'held-4d5e6f', '--ignore-not-found', '-o', 'name')).toBe('');
-  }, 120_000);
+  });
 });

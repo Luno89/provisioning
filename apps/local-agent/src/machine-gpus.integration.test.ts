@@ -41,12 +41,12 @@ describe('the GPUs a machine reports, read by the agent on a machine of its own'
     expect(await machine(TWO_CARDS, true)).toEqual({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: [] });
     expect(await machine(TWO_CARDS, false)).toEqual({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: false }], problems: [] });
     expect(await machine(TWO_CARDS, true, false)).toEqual({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: false }], problems: [] });
-  }, 300_000);
+  });
 
   it('says the NVIDIA driver needs fixing when nvidia-smi is there but does not answer, rather than reporting no GPU', async () => {
     const report = await machine('echo "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver" >&2; exit 9', true) as { gpus: unknown[]; problems: string[] };
     expect(report.gpus).toEqual([]);
     expect(report.problems).toHaveLength(1);
     expect(report.problems[0]).toMatch(/^nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: /);
-  }, 300_000);
+  });
 });

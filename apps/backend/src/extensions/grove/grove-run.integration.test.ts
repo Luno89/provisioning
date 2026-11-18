@@ -9,7 +9,7 @@ let grove: GroveWorld;
 beforeAll(async () => {
   env = await temporalTestEnvironment();
   grove = new GroveWorld(env);
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -28,7 +28,7 @@ describe('the grove agent\'s procedure', () => {
     }
     expect(worktreeOfCall.some((call) => call.startsWith('executor ') && call.endsWith('trees/leafA'))).toBe(true);
     expect(worktreeOfCall.some((call) => call.startsWith('leaf-judge settle_leaf'))).toBe(true);
-  }, 120_000);
+  });
 
   it('lands what it verified, and a verified story an earlier run left unlanded once nothing else is left to do', async () => {
     const merged: string[] = [];
@@ -43,12 +43,12 @@ describe('the grove agent\'s procedure', () => {
     expect(second.outcome).toMatchObject({ outcome: 'ok' });
     expect(merged).toEqual(['leaf/leafC']);
     expect(grove.leafOf('leafC')?.landed?.outcome).toBe('merged');
-  }, 120_000);
+  });
 
   it('tells the run\'s turn log when a story did not land, rather than keeping it to the worker', async () => {
     const { published } = await grove.run({ agent: 'grove', merges: async () => 'failed' });
     const notices = published.filter((event) => event.type === 'notice').map((event) => (event as { message: string; nodeId?: string }));
     expect(notices.some((notice) => notice.nodeId === 'land' && /did not land this pass/.test(notice.message))).toBe(true);
     expect(grove.leaves.every((leaf) => !leaf.landed)).toBe(true);
-  }, 120_000);
+  });
 });

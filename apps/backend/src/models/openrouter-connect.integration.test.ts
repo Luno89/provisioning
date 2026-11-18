@@ -36,7 +36,7 @@ async function standInOpenRouter(): Promise<void> {
 beforeAll(async () => {
   await standInOpenRouter();
   roles = await startThreeRoles('openrouter', { extra: { OPENROUTER_URL: openRouterUrl } });
-}, 240_000);
+});
 
 afterAll(async () => {
   await roles?.close();
@@ -92,4 +92,4 @@ describe('Connect OpenRouter on an instance signed in through root', () => {
 
     expect(await openRouterNow()).toEqual(before);
   });
-}, 300_000);
+});

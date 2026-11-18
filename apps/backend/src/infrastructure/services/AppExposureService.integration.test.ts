@@ -83,7 +83,7 @@ beforeAll(async () => {
     if (answered) break;
     await new Promise((done) => setTimeout(done, 200));
   }
-}, 120_000);
+});
 
 afterAll(async () => {
   if (edgeName) await docker('rm', '-f', edgeName);
@@ -125,5 +125,5 @@ describe('an app exposed on this computer through the instance\'s real edge', ()
 
     await exposure.unexposeLocal('d1abcdef');
     expect(await ask('shop.localhost:8000')).toEqual({ status: 404, body: 'No app is exposed at this address on this computer.' });
-  }, 600_000);
+  });
 });

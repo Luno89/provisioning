@@ -20,7 +20,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -64,7 +64,7 @@ describe('removing an account through Temporal', () => {
       expect(await workflows.state(removeAccountWorkflowId('bo'))).toEqual({ state: 'finished' });
     });
     expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records', 'fence ended']);
-  }, 60_000);
+  });
 
   it('says how far it has got while it runs', async () => {
     let release: () => void = () => undefined;
@@ -78,7 +78,7 @@ describe('removing an account through Temporal', () => {
       release();
       await env.client.workflow.getHandle(removeAccountWorkflowId('cy')).result();
     });
-  }, 60_000);
+  });
 
   it('reports a step that could not finish, with its reason', async () => {
     await withWorker(fakeSteps([], { RemoveAccountRepositoriesActivity: async () => { throw ApplicationFailure.nonRetryable('Gitea would not delete the user koala-dee (HTTP 500)'); } }), async (workflows) => {
@@ -86,7 +86,7 @@ describe('removing an account through Temporal', () => {
       await env.client.workflow.getHandle(removeAccountWorkflowId('dee')).result().catch(() => undefined);
       expect(await workflows.state(removeAccountWorkflowId('dee'))).toEqual({ state: 'failed', reason: 'Gitea would not delete the user koala-dee (HTTP 500)' });
     });
-  }, 60_000);
+  });
 
   it('destroys each of its apps on the cluster worker before it deletes its workspaces and records', async () => {
     const seen: string[] = [];
@@ -113,12 +113,12 @@ describe('removing an account through Temporal', () => {
     expect(destroyed).toEqual(['shop in shop-1a2b3c']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(seen.slice(0, 6)).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroyed', 'workspaces']);
-  }, 60_000);
+  });
 
   it('knows nothing of an account that was never being removed', async () => {
     await withWorker(fakeSteps([]), async (workflows) => {
       expect(await workflows.state(removeAccountWorkflowId('nobody'))).toEqual({ state: 'none' });
     });
-  }, 60_000);
+  });
 
 });

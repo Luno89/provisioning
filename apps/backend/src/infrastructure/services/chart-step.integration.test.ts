@@ -38,19 +38,19 @@ describe('a chart applied and followed by the one install step, on a real k3s', 
     expect(again.reported).toEqual([{ kind: 'started', id: 'tiny' }, { kind: 'already-done', id: 'tiny' }]);
     const listed = JSON.parse(await cluster.helm(['list', '-n', release.namespace, '-o', 'json'])) as Array<{ revision: string; status: string }>;
     expect(listed).toMatchObject([{ revision: '1', status: 'deployed' }]);
-  }, 300_000);
+  });
 
   it('stops once its setup Job fails, naming the Job and why, with the end of its log', async () => {
     const release = releaseIn(namespaces.name('tiny-job'), tinyChart(), ['--set-string', 'setup=echo the seed found no Mongo; exit 3']);
     const failed = await runSteps([step(release)], { cluster: onK3s() }, memoryReporter()).then(() => undefined, (err: unknown) => err);
     expect(failed).toBeInstanceOf(StepFailed);
     expect((failed as StepFailed).why).toMatch(/^Putting the tiny chart on k3s: job\/tiny-setup-1 failed: .+\nthe end of its log:\nthe seed found no Mongo$/);
-  }, 300_000);
+  });
 
   it('stops once its workload\'s image can never be pulled, naming the pod and why', async () => {
     const release = releaseIn(namespaces.name('tiny-pull'), tinyChart(), ['--set-string', 'image=registry.invalid/koala/none:1']);
     const failed = await runSteps([step(release)], { cluster: onK3s() }, memoryReporter()).then(() => undefined, (err: unknown) => err);
     expect(failed).toBeInstanceOf(StepFailed);
     expect((failed as StepFailed).why).toMatch(/^Putting the tiny chart on k3s: tiny-app-[a-z0-9-]+: (ErrImagePull|ImagePullBackOff), its image registry\.invalid\/koala\/none:1 could not be pulled/);
-  }, 300_000);
+  });
 });

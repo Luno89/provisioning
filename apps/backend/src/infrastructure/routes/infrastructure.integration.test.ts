@@ -85,7 +85,7 @@ beforeAll(async () => {
   await ended.signal('cancelRun');
   await ended.result();
   await until(async () => ((await listed(TEST_USER.id)).length === 2 ? true : undefined));
-}, 120_000);
+});
 
 afterAll(async () => {
   worker?.shutdown();

@@ -16,7 +16,7 @@ import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 
-beforeAll(async () => { env = await realTemporalEnvironment(); }, 120_000);
+beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
 describe('following work Koala started anywhere to its end', () => {
@@ -60,7 +60,7 @@ describe('following work Koala started anywhere to its end', () => {
     expect(failures.shop).toBeUndefined();
     expect(failures.blog).toBe('the app did not come up');
     expect(failures.wiki).toMatch(/not found|no longer has|never/i);
-  }, 60_000);
+  });
 });
 
 describe('cancelling and reading work in Temporal', () => {
@@ -88,7 +88,7 @@ describe('cancelling and reading work in Temporal', () => {
       expect(await bridge.getWorkflowHistory(`never-started-${taskQueue}`)).toBeNull();
       expect(await bridge.describeWorkflow(`never-started-${taskQueue}`)).toBeNull();
     });
-  }, 60_000);
+  });
 });
 
 describe('settling the work the bridge itself starts', () => {
@@ -143,7 +143,7 @@ describe('settling the work the bridge itself starts', () => {
     const modelSync = startedSync.mock.calls.map(([, options]) => options.args?.[0] as Record<string, unknown>).find((args) => args.name === 'model');
     expect(modelSync).toMatchObject({ appType: 'vllm', modelCacheHostPath: resolveVllmCacheHostPath('shared-models') });
     expect(String(modelSync?.modelImage)).toContain('vllm/vllm-openai');
-  }, 60_000);
+  });
 
   it('destroys an app still deploying by cancelling its deploy and waiting for it to end before the removal starts', async () => {
     const db = await testDatabase();
@@ -174,5 +174,5 @@ describe('settling the work the bridge itself starts', () => {
 
     expect((await deploy.describe()).status.name).toBe('CANCELLED');
     expect((await db.infrastructure.getDeployments()).map((dep) => dep.id)).not.toContain('halfway');
-  }, 60_000);
+  });
 });

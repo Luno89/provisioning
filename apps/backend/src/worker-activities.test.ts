@@ -30,7 +30,7 @@ beforeAll(() => {
   const workflowFiles = readdirSync(join(SRC, 'workflows')).filter((entry) => entry.endsWith('.ts') && !entry.endsWith('.test.ts')).map((entry) => join(SRC, 'workflows', entry));
   program = ts.createProgram([...workflowFiles, ...Object.values(WORKERS).map((file) => join(SRC, file))], { ...config.options, noEmit: true });
   world = temporalWorld(program, SRC);
-}, 300_000);
+});
 
 describe('what each workflow calls is what its worker runs', () => {
   it('knows which queue every workflow is started on', () => {

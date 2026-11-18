@@ -72,7 +72,7 @@ describe('what a push changed, read from the project\'s repository', () => {
 
     expect(await service.release(project, build('b3', more))).toMatchObject({ commit: more });
     await service.stop();
-  }, 120_000);
+  });
 });
 
 describe('whether a build is released, from what its tree type says the app is built from', () => {
@@ -97,5 +97,5 @@ describe('whether a build is released, from what its tree type says the app is b
     expect(unread.release).toBe(false);
     expect(unread.release ? '' : unread.reason).toMatch(/^what changed since ffffffff could not be read, so the build is not released: /);
     expect(await decide({ ...project, id: 'no-tree' }, first, words)).toEqual({ release: true });
-  }, 120_000);
+  });
 });

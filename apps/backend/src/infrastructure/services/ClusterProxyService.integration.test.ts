@@ -39,5 +39,5 @@ describe('forwarding to a service in a cluster through ClusterAccess', () => {
     expect(await opens(port)).toBe(false);
 
     await expect(proxy.serviceUrl('machine-nas', 'dns', dns)).rejects.toThrow('nas is stopped until something runs on it');
-  }, 180_000);
+  });
 });

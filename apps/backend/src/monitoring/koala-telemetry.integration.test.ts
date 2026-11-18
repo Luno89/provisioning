@@ -32,13 +32,13 @@ beforeAll(async () => {
   backend = roles.instance;
   worker = roles.workers['instance-engine']!;
   cookie = await roles.ownerOnInstance();
-}, 300_000);
+});
 
 afterAll(async () => {
   if (checkRunId) await until(async () => (((await call(`/api/evals/level2/runs/${checkRunId}`)).body as { state: string }).state === 'running' ? undefined : true));
   await roles?.close();
   await collector?.close();
-}, 300_000);
+});
 
 describe('Koala reports its own telemetry to the collector it is pointed at', () => {
   let traceId: string;
@@ -86,7 +86,7 @@ describe('Koala reports its own telemetry to the collector it is pointed at', ()
     const runner = parentOf(named('POST /api/engine/runs'));
     expect(runner?.service).toBe('koala-worker-engine');
     expect(runner?.name).toMatch(/^activity /);
-  }, 300_000);
+  });
 
   it('the metrics arrive by their names, each labelled with the process that reported it', async () => {
     const wanted: [string, string][] = [
@@ -106,7 +106,7 @@ describe('Koala reports its own telemetry to the collector it is pointed at', ()
     expect(points('koala_http_request_seconds').map((point) => point.route)).toContain('/api/evals/level2/runs');
     expect(points('koala_workflows_started').map((point) => point['workflow.type'])).toEqual(expect.arrayContaining(['CheckRunWorkflow', 'AgentRunWorkflow']));
     expect(points('koala_model_call_seconds')).toContainEqual(expect.objectContaining({ model: 'scripted', outcome: 'ok' }));
-  }, 120_000);
+  });
 
   it('nothing the person asked or the model said reaches the collector', () => {
     expect(collector.received.length).toBeGreaterThan(0);

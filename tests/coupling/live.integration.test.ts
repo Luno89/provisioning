@@ -52,5 +52,5 @@ describe('the hook in a process run as Koala\'s pods run theirs, under tsx watch
     expect(readdirSync(join(live, 'raw', 'startup')).filter((name) => name.endsWith('.json')).map((name) => name.split('-')[1])).toEqual([String(second)]);
     expect(readdirSync(join(live, 'raw', 'three')).some((name) => name.startsWith(`coverage-${second}-`))).toBe(true);
     expect(existsSync(join(live, 'pids', String(first)))).toBe(true);
-  }, 60_000);
+  });
 });

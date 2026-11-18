@@ -29,7 +29,7 @@ const sink: TelemetrySink = {
 beforeAll(async () => {
   telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -73,7 +73,7 @@ describe('the trace a workflow was started under follows its activities and chil
       'run continued local activity': started,
       'run continued child activity': started,
     });
-  }, 90_000);
+  });
 
   it('gives an activity of a workflow started outside any trace a trace of its own, not the last workflow\'s', async () => {
     const taskQueue = `trace-probe-${Math.random().toString(36).slice(2, 8)}`;
@@ -87,5 +87,5 @@ describe('the trace a workflow was started under follows its activities and chil
     expect(seen.size).toBe(3);
     expect(traces.has(undefined)).toBe(false);
     expect(traces.size).toBe(3);
-  }, 90_000);
+  });
 });

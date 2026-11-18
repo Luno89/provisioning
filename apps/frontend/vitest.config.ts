@@ -45,6 +45,5 @@ export default defineConfig({
         plugins: [thePageSocketsAsABrowserDoes],
       },
     }),
-    testTimeout: 30000,
   },
 });

@@ -68,7 +68,7 @@ describe('a backend told to stop in its pod', () => {
       '[drain] answering what still comes with Connection: close, until no connection is left',
       '[drain] no connection is left',
     ]);
-  }, 30_000);
+  });
 
   it('outside a pod goes straight to asking clients to reconnect, and in one whose endpoints could not be read at first reads them again', async () => {
     for (const place of [undefined, { ip: '10.42.0.9', namespace: 'nowrinkles' }]) {

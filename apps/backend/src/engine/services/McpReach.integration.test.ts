@@ -34,5 +34,5 @@ describe('reaching a person\'s MCP server through ClusterAccess', () => {
     await expect(reach.url(tools('machine-nas'))).rejects.toThrow('nas is stopped until something runs on it');
     await expect(reach.url(tools('machine-gone'))).rejects.toThrow('there is no cluster machine-gone');
     expect(await reach.probe(tools('machine-nas'))).toEqual({ unreachable: 'nas is stopped until something runs on it', tools: 0 });
-  }, 120_000);
+  });
 });

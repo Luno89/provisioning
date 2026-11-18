@@ -204,7 +204,7 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect((await account(received)).error).toBeUndefined();
     await until(async () => ((await stored()).tokenHash === deviceTokenHash(received) ? true : undefined));
     expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
-  }, 30_000);
+  });
 
   it('is shown on the machine as not renewed, saying why, when the agent could not keep the new one', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
@@ -247,7 +247,7 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     clock = new Date(ISSUED.getTime() + 91 * DAY);
     expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
-  }, 30_000);
+  });
 
   it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
@@ -260,7 +260,7 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect((await work(told[0]!.workToken)).error).toBeUndefined();
     socket.emit('machine:koala?');
     await until(async () => (told.length === 2 ? true : undefined));
-  }, 30_000);
+  });
 });
 
 describe('a machine\'s work token at its Koala', () => {
@@ -285,7 +285,7 @@ describe('a machine\'s work token at its Koala', () => {
       expect(await gitAnswer(token)).toBe(401);
       expect(await gatewayAnswer(token)).toMatch(/not known here/);
     }
-  }, 30_000);
+  });
 
   it('stops working at the gateway the moment the machine leaves, though the gateway had just let it in', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
@@ -295,5 +295,5 @@ describe('a machine\'s work token at its Koala', () => {
     await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
     expect(await gatewayAnswer(token)).toMatch(/not known here/);
     expect(await gitAnswer(token)).toBe(401);
-  }, 30_000);
+  });
 });

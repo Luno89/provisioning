@@ -7,7 +7,7 @@ let session = '';
 beforeAll(async () => {
   roles = await startThreeRoles('engine-wiring');
   session = await roles.ownerOnInstance();
-}, 240_000);
+});
 
 afterAll(async () => {
   await roles?.close();

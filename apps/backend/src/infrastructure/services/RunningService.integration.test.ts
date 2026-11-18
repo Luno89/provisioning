@@ -20,7 +20,7 @@ let client: Client;
 beforeAll(async () => {
   env = await realTemporalEnvironment();
   client = env.client;
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();

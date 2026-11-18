@@ -53,7 +53,7 @@ beforeAll(async () => {
   const keys = { ...testKeyEnv('frontend-routes'), ROOT_IDENTITY_KEY: Buffer.from(identity).toString('base64') };
   const roles = { root: { ...keys, ...plan.rootEnv, ...own('root') }, instance: { ...keys, ...plan.instanceEnv, ...own('instance') }, hub: { ...keys, ...plan.hubEnv, ...own('hub') } };
   await Promise.all(Object.entries(roles).map(async ([role, env]) => { byRole[role] = await routesFor(env as Record<string, string>); }));
-}, 240_000);
+});
 
 describe('every call the frontend makes is one some backend serves', () => {
   it('reads each role\'s routes from Express itself', () => {
@@ -88,5 +88,5 @@ describe('every call the frontend makes is one some backend serves', () => {
     const mounted = new Set(Object.values(byRole).flat().map((route) => `${route.method} ${route.path}`));
     expect([...mounted].filter((route) => !read.has(route)).sort()).toEqual([]);
     expect([...read].filter((route) => !mounted.has(route)).sort()).toEqual(Object.keys(MOUNTED_ONLY_ELSEWHERE).sort());
-  }, 120_000);
+  });
 });

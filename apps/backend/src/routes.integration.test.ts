@@ -50,7 +50,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
         resolve();
       });
     });
-  }, 30_000);
+  });
 
   afterAll(async () => {
     delete process.env.IS_E2E;

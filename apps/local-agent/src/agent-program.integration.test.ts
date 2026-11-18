@@ -97,7 +97,7 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
 
     child.kill('SIGTERM');
     expect(await ended).toBe(0);
-  }, 120_000);
+  });
 });
 
 const program = async (args: string[], extra: Record<string, string> = {}) => {
@@ -155,7 +155,7 @@ describe('removing this machine, as the agent\'s own program does it, on a throw
     expect(await here.there(here.onMachine('/usr/local/lib/koala/machine-uninstall.sh'))).toBe(false);
     expect(await here.there(here.machineFile)).toBe(false);
     expect(await here.there(here.serviceFile)).toBe(false);
-  }, 120_000);
+  });
 
   it('still deletes its token, and fails saying so, when k3s is left on the machine', async () => {
     const here = await program(['remove']);
@@ -164,7 +164,7 @@ describe('removing this machine, as the agent\'s own program does it, on a throw
     expect(await exited(here.start())).toBe(1);
     expect(here.said.join('')).toContain('k3s is still on this machine: /usr/local/lib/koala/machine-uninstall.sh did not remove it');
     expect(await here.there(here.machineFile)).toBe(false);
-  }, 120_000);
+  });
 });
 
 describe('Koala placed on this machine by root, as the agent\'s own program takes it, on a machine without Koala\'s k3s', () => {
@@ -206,5 +206,5 @@ describe('Koala placed on this machine by root, as the agent\'s own program take
     toRoot[0]!.emit('machine:removed');
     expect(await ended, here.said.join('')).toBe(0);
     expect(await here.there(here.machineFile)).toBe(false);
-  }, 120_000);
+  });
 });

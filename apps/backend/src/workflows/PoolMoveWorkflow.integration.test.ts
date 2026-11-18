@@ -12,7 +12,7 @@ import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let env: TestWorkflowEnvironment;
 
-beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+beforeAll(async () => { env = await temporalTestEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
 const run = async (signal: (handle: { signal: (name: string, ...args: unknown[]) => Promise<void> }) => Promise<void>) => {

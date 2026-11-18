@@ -31,7 +31,7 @@ beforeAll(async () => {
   await env.client.workflow.getHandle('run-done').terminate('finished before anyone cancelled it');
   listed = vi.spyOn(env.client.workflow, 'list');
   counted = vi.spyOn(env.client.workflow, 'count');
-}, 120_000);
+});
 
 afterAll(async () => { await env?.teardown(); });
 

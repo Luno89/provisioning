@@ -20,7 +20,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -83,5 +83,5 @@ describe('deleting a project through Temporal', () => {
     expect(seen).toEqual(['fence', 'workflows', 'repositories', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'files', 'records', 'fence ended']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
-  }, 60_000);
+  });
 });

@@ -20,7 +20,7 @@ describe('a dependency that stops answering and comes back', () => {
   beforeAll(async () => {
     minio = await startMinio(undefined, { port: await portToHandOn() });
     records = await testDatabase();
-  }, 120_000);
+  });
 
   afterAll(async () => {
     await minio?.stop();
@@ -60,7 +60,7 @@ describe('a dependency that stops answering and comes back', () => {
     } finally {
       states.stop();
     }
-  }, 120_000);
+  });
 });
 
 describe('the database stopping and starting again', () => {
@@ -68,7 +68,7 @@ describe('the database stopping and starting again', () => {
 
   beforeAll(async () => {
     server = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
-  }, 120_000);
+  });
 
   afterAll(async () => {
     await server?.stop();
@@ -101,7 +101,7 @@ describe('the database stopping and starting again', () => {
       states.stop();
       await db.close();
     }
-  }, 120_000);
+  });
 });
 
 describe('a dependency reported on by its open connection', () => {

@@ -36,7 +36,7 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -293,7 +293,7 @@ describe('AdoptPlanWorkflow', () => {
       adopted: { treeId: 'plan-p1-tree', branchIds: ['plan-p1-b0'], leafIds: { health: 'plan-p1-b0-l0', deploy: 'plan-p1-b0-l1' }, commit: 'c0ffee' },
     });
     expect(w.needsAsked, 'once the plan is written, its tasks\' checks are given what they need').toEqual([{ ownerId: 'user-1', treeId: 'plan-p1-tree', taskIds: ['plan-p1-b0-l0-t0', 'plan-p1-b0-l0-t1'] }]);
-  }, 60_000);
+  });
 
   it("adds only the starter files an existing repository lacks when a plan makes a tree in it, leaving its own alone", async () => {
     const w = world([proposal()]);
@@ -304,7 +304,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.files.has('repo/README.md')).toBe(false);
     expect(w.files.get('repo/scripts/build.sh')).toContain('echo Widget API');
     expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
-  }, 60_000);
+  });
 
   it('copies what the conversation saved into the new tree before writing the plan, so the plan wins any path both have', async () => {
     const w = world([proposal()], { saved: ['research/r1/findings.md'] });
@@ -314,14 +314,14 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.brought).toEqual([{ from: 'research-conv-1', into: '/work/repo', workspace: 'tree-plan-p1-tree', planWritten: false }]);
     expect(w.files.get('repo/PLAN.md')).toContain('Widget API');
     expect(w.commands.some((command) => command.includes("commit -q -m 'plan: p1'"))).toBe(true);
-  }, 60_000);
+  });
 
   it('brings nothing in when the plan was not proposed in a conversation', async () => {
     const w = world([proposal({ conversationId: undefined })]);
 
     expect(await adopt(w)).toMatchObject({ status: 'adopted' });
     expect(w.brought).toEqual([]);
-  }, 60_000);
+  });
 
   it('links a new tree planned in a conversation about a project to that project', async () => {
     const w = world([proposal({ projectId: 'project-9' })]);
@@ -329,7 +329,7 @@ describe('AdoptPlanWorkflow', () => {
     await adopt(w);
 
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
-  }, 60_000);
+  });
 
   it('gives a new tree with no project the home its type calls for, so its tasks belong to that project', async () => {
     const w = world([proposal()], { homes: true });
@@ -339,7 +339,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-plan-p1-tree'] })]);
     expect([...w.tasks.values()].map((task) => task.projectId)).toEqual([...w.tasks.values()].map(() => 'project-plan-p1-tree'));
     expect(w.tasks.size).toBeGreaterThan(0);
-  }, 60_000);
+  });
 
   it('gives the new tree\'s project how it is released and that it waits for the client\'s database, when the plan says so', async () => {
     const plain = world([proposal()], { homes: true });
@@ -349,7 +349,7 @@ describe('AdoptPlanWorkflow', () => {
     const w = world([{ ...base, plan: { ...base.plan!, tree: { ...base.plan!.tree!, release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } } } as never], { homes: true });
     await adopt(w);
     expect(w.chosen).toEqual([{ ownerId: 'user-1', projectId: 'project-plan-p1-tree', choices: { release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } }]);
-  }, 60_000);
+  });
 
   it('works for the project a plan is adopted into from its first step, so deleting the project fences everything it still does', async () => {
     const w = world([proposal({ projectId: 'project-9' })], { homes: true });
@@ -363,7 +363,7 @@ describe('AdoptPlanWorkflow', () => {
       ['settle', { owner: 'user-1', project: 'project-9' }],
       ['grow', { owner: 'user-1', project: 'project-9' }],
     ]);
-  }, 60_000);
+  });
 
   it('works for the project its tree is given from the moment the tree has one, when adopting it made the project', async () => {
     const w = world([proposal()], { homes: true });
@@ -377,7 +377,7 @@ describe('AdoptPlanWorkflow', () => {
       ['settle', { owner: 'user-1', project: 'project-plan-p1-tree' }],
       ['grow', { owner: 'user-1', project: 'project-plan-p1-tree' }],
     ]);
-  }, 60_000);
+  });
 
   it('keeps the project a new tree was planned into', async () => {
     const w = world([proposal({ projectId: 'project-9' })], { homes: true });
@@ -385,7 +385,7 @@ describe('AdoptPlanWorkflow', () => {
     await adopt(w);
 
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
-  }, 60_000);
+  });
 
   it('gives the new tree its service name, and joins the project of the service it claims', async () => {
     const base = proposal();
@@ -394,7 +394,7 @@ describe('AdoptPlanWorkflow', () => {
     await adopt(w);
 
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', serviceName: 'widgets', projectIds: ['project-7'] })]);
-  }, 60_000);
+  });
 
   it('adopting the same plan again rewrites the same records instead of doubling them', async () => {
     const w = world([proposal()]);
@@ -406,28 +406,28 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.branches.size).toBe(1);
     expect(w.leaves.size).toBe(2);
     expect(w.tasks.size).toBe(2);
-  }, 60_000);
+  });
 
   it('binds the conversation a new tree was planned in to that tree and its project, so asking there later is about it', async () => {
     const w = world([proposal({ id: 'p5' } as never)], { homes: true });
     await adopt(w, 'p5');
     expect(w.bound).toEqual(['user-1 conv-1 -> plan-p5-tree / project-plan-p5-tree']);
     await env.client.workflow.getHandle('grove-run-plan-p5-tree').terminate('test over').catch(() => undefined);
-  }, 60_000);
+  });
 
   it('leaves a conversation already about a tree as it is', async () => {
     const w = world([proposal({ id: 'p6' } as never)], { bound: ['conv-1'] });
     await adopt(w, 'p6');
     expect(w.bound).toEqual([]);
     await env.client.workflow.getHandle('grove-run-plan-p6-tree').terminate('test over').catch(() => undefined);
-  }, 60_000);
+  });
 
   it('keeps a plan adopted when its tree cannot be started, and says why', async () => {
     const w = world([proposal({ id: 'p9' } as never)]);
     const result = await adopt(w, 'p9', () => { throw ApplicationFailure.nonRetryable('there is no agent called "grove" to grow this tree'); });
     expect(result).toMatchObject({ status: 'adopted', growing: { started: false, reason: 'there is no agent called "grove" to grow this tree' } });
     expect(w.proposals.find((entry) => entry.id === 'p9')).toMatchObject({ status: 'adopted' });
-  }, 60_000);
+  });
 
   it('marks the proposal failed with the reason when the tree it grows is gone, and builds nothing', async () => {
     const w = world([proposal({ plan: { ...proposal().plan!, tree: undefined, treeId: 'gone' } })]);
@@ -440,7 +440,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.proposals[0]?.reason).toContain('no longer exists');
     expect(w.leaves.size).toBe(0);
     expect(w.files.size).toBe(0);
-  }, 120_000);
+  });
 
   it('adopts a leaf plan: drops the leaf\'s unfinished tasks, adds the new ones, resets the leaf, rewrites its brief, and runs the tree again', async () => {
     const leafProposal: PlanProposal = {
@@ -474,7 +474,7 @@ describe('AdoptPlanWorkflow', () => {
     const run = await env.client.workflow.getHandle('grove-run-tree-r').describe();
     expect(run.type).toBe('AgentRunWorkflow');
     await env.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
-  }, 60_000);
+  });
 
   const changeWorld = (change: PlanProposal['change']) => {
     const w = world([{ id: 'p3', ownerId: 'user-1', conversationId: 'story-chat', status: 'adopting', change, createdAt: 'then', updatedAt: 'then' }]);
@@ -512,7 +512,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.commands.some((command) => command.includes("commit -q -m 'change: p3'"))).toBe(true);
     expect(w.bound).toEqual([]);
     await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
-  }, 60_000);
+  });
 
   it('adds stories in a feature the change opens, making the feature only once it is approved', async () => {
     const w = changeWorld({
@@ -531,7 +531,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.branches.get('tree-c-customizations')).toMatchObject({ treeId: 'tree-c', title: 'Customizations from the live app', ownerId: 'user-1' });
     expect([...w.leaves.values()].find((leaf) => leaf.branchId === 'tree-c-customizations')).toMatchObject({ title: 'Bring 1 customization made in the app into git', status: 'pending' });
     await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
-  }, 60_000);
+  });
 
   it('applies a cancel: stops the worker, frees what waited on it in the records and its brief, and does not run the tree', async () => {
     const w = changeWorld({ treeId: 'tree-c', why: 'not wanted', cancel: ['leaf-a'], before: [], outcome: [] });
@@ -545,5 +545,5 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.tasks.get('t-busy')?.status).toBe('dropped');
     expect(w.files.get('repo/leaves/leaf-b.md')).toContain('Waits on: nothing');
     expect(w.files.get('repo/PLAN.md')).toContain('- **Note on screen** (`leaf-a`): cancelled');
-  }, 60_000);
+  });
 });

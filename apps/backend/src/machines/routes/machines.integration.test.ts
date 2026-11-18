@@ -112,7 +112,7 @@ describe('git for a person\'s machine over HTTP, with the real git on both ends'
     expect([said.status, said.data]).toEqual([403, 'a machine may push only its own work branches, not refs/heads/main']);
     const heads = await nodeProcesses.run({ command: 'git', args: ['-C', bare, 'for-each-ref', '--format=%(refname)'], env: gitEnv(checkout) });
     expect(heads.stdout.split('\n').filter(Boolean).sort()).toEqual(['refs/heads/machine/desk/run-1', 'refs/heads/main']);
-  }, 60_000);
+  });
 
   it('serves no git at all where this Koala has none, and reads a bearer token however it is spaced and cased', async () => {
     const without = await koala({ withGit: false });
@@ -139,5 +139,5 @@ describe('the machine agent served to a machine, from the real build', () => {
     const sum = await axios.get<string>(site.url('/api/machines/agent.tgz.sha256'));
     expect(tarball.headers['content-type']).toMatch(/gzip/);
     expect(sum.data).toBe(`${createHash('sha256').update(Buffer.from(tarball.data)).digest('hex')}  machine-agent.tgz\n`);
-  }, 120_000);
+  });
 });

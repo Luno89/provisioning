@@ -24,7 +24,7 @@ describe('the machine agent bundle, built by the real build', () => {
     expect(sha).toMatch(/^[0-9a-f]{64}$/);
     expect(createHash('sha256').update(await readFile(first)).digest('hex')).toBe(sha);
     expect(await bundle.path()).toBe(first);
-  }, 120_000);
+  });
 
   it('says why the build failed, in the build\'s own words, and builds again the next time it is asked', async () => {
     const root = await folder();
