@@ -1,0 +1,212 @@
+import { chmod, chown, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { Connection } from '@temporalio/client';
+import { composeStep, type ComposeContext, type ComposeProject, type Step, type StepState } from '@koala/provision';
+import { mongoClientFor } from '../lib/collection.js';
+import { replicaSetProblem } from '../lib/replica-set.js';
+import { temporalApiKey, temporalJwks } from '../lib/temporal-auth.js';
+import { temporalTls } from '../lib/temporal-tls.js';
+import { answersHttp } from './dependencies.js';
+
+export const ROOT_SERVICE_NAMES = ['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry'] as const;
+export type RootServiceName = typeof ROOT_SERVICE_NAMES[number];
+
+export interface FilesOwner {
+  uid: number;
+  gid: number;
+}
+
+export interface RootServices {
+  program: ComposeProject['program'];
+  project?: string;
+  tlsOwner?: FilesOwner;
+  temporal: { files: string[]; address: string; namespace: string; tlsDir: string; jwksFile: string; key: () => string };
+  mongo: { files: string[]; address: string };
+  headscale: { files: string[]; url: string };
+  registry: { files: string[]; push: string };
+}
+
+export function rootServicesIn(repo: string, program: ComposeProject['program'], temporalKey: () => string): RootServices {
+  return {
+    program,
+    temporal: {
+      files: [join(repo, 'docker-compose.temporal.yml')],
+      address: '127.0.0.1:7233',
+      namespace: 'default',
+      tlsDir: join(repo, 'apps/backend/data/temporal-tls'),
+      jwksFile: join(repo, 'apps/backend/data/temporal-keys/temporal-jwks.json'),
+      key: temporalKey,
+    },
+    mongo: { files: [join(repo, 'docker-compose.mongo.yml')], address: '127.0.0.1:27017' },
+    headscale: { files: [join(repo, 'docker-compose.headscale.yml')], url: 'http://127.0.0.1:8080' },
+    registry: { files: [join(repo, 'docker-compose.registry.yml')], push: '127.0.0.1:5000' },
+  };
+}
+
+const TLS_FILES = ['ca.crt', 'server.crt', 'server.key'] as const;
+const SERVER_EXTENSIONS = 'subjectAltName=DNS:localhost,DNS:temporal,DNS:host.k3d.internal,DNS:host.docker.internal,IP:127.0.0.1\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature\n';
+
+async function sizeOf(path: string): Promise<{ size: number; uid: number } | undefined> {
+  try {
+    return await stat(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw err;
+  }
+}
+
+async function tlsMissing(dir: string): Promise<string | undefined> {
+  for (const file of TLS_FILES) {
+    const found = await sizeOf(join(dir, file));
+    if (!found || found.size === 0) return join(dir, file);
+  }
+  return undefined;
+}
+
+export function temporalTlsStep(dir: string, owner?: FilesOwner): Step<ComposeContext> {
+  return {
+    id: 'temporal-tls',
+    title: 'Temporal\'s certificate, signed by a CA of its own',
+    async check() {
+      const missing = await tlsMissing(dir);
+      if (missing) return { done: false, why: `${missing} is not there` };
+      if (owner) {
+        for (const file of ['', ...TLS_FILES]) {
+          const found = await stat(join(dir, file));
+          if (found.uid !== owner.uid) return { done: false, why: `${join(dir, file)} is not owned by ${owner.uid}, whom Temporal runs as` };
+        }
+      }
+      return { done: true };
+    },
+    async apply(ctx, progress) {
+      if (await tlsMissing(dir)) {
+        await mkdir(dir, { recursive: true });
+        await chmod(dir, 0o755);
+        const work = await mkdtemp(join(tmpdir(), 'koala-temporal-tls-'));
+        try {
+          const openssl = (args: string[]) => ctx.commands.run({ command: 'openssl', args }, progress);
+          await openssl(['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', join(work, 'ca.key')]);
+          await openssl(['req', '-x509', '-new', '-key', join(work, 'ca.key'), '-sha256', '-days', '3650', '-subj', '/CN=Koala Temporal CA', '-out', join(dir, 'ca.crt')]);
+          await openssl(['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', join(dir, 'server.key')]);
+          await openssl(['req', '-new', '-key', join(dir, 'server.key'), '-subj', '/CN=temporal', '-out', join(work, 'server.csr')]);
+          await writeFile(join(work, 'ext'), SERVER_EXTENSIONS);
+          await openssl(['x509', '-req', '-in', join(work, 'server.csr'), '-CA', join(dir, 'ca.crt'), '-CAkey', join(work, 'ca.key'), '-CAcreateserial', '-CAserial', join(work, 'ca.srl'), '-days', '3650', '-sha256', '-extfile', join(work, 'ext'), '-out', join(dir, 'server.crt')]);
+          await chmod(join(dir, 'ca.crt'), 0o644);
+          await chmod(join(dir, 'server.crt'), 0o644);
+          await chmod(join(dir, 'server.key'), 0o600);
+          progress.line(`made Temporal's certificate, signed by a CA of its own, in ${dir}`);
+        } finally {
+          await rm(work, { recursive: true, force: true });
+        }
+      }
+      if (owner) {
+        for (const file of ['', ...TLS_FILES]) await chown(join(dir, file), owner.uid, owner.gid);
+      }
+    },
+  };
+}
+
+export const temporalJwksText = (key: string): string => `${JSON.stringify(temporalJwks(key))}\n`;
+
+export async function writeTemporalJwks(target: string, key: string): Promise<void> {
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(`${target}.new`, temporalJwksText(key), { mode: 0o644 });
+  await chmod(`${target}.new`, 0o644);
+  await rename(`${target}.new`, target);
+}
+
+export function temporalJwksStep(target: string, key: () => string): Step<ComposeContext> {
+  return {
+    id: 'temporal-jwks',
+    title: 'The key Temporal checks Koala\'s tokens with',
+    async check() {
+      const found = await sizeOf(target);
+      if (!found) return { done: false, why: `${target} is not there` };
+      if (await readFile(target, 'utf8') !== temporalJwksText(key())) return { done: false, why: `${target} holds another key than the platform's Temporal key` };
+      return { done: true };
+    },
+    async apply(_ctx, progress) {
+      await writeTemporalJwks(target, key());
+      progress.line(`Temporal reads Koala's public key from ${target}`);
+    },
+  };
+}
+
+const project = (services: RootServices, files: string[]): ComposeProject => ({
+  program: services.program,
+  files,
+  ...(services.project !== undefined ? { project: services.project } : {}),
+});
+
+export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
+  return async () => {
+    const connection = await Connection.connect({
+      address: temporal.address,
+      tls: temporalTls({ caPath: join(temporal.tlsDir, 'ca.crt') }),
+      apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
+    });
+    try {
+      await connection.workflowService.getSystemInfo({});
+      return { done: true };
+    } finally {
+      await connection.close();
+    }
+  };
+}
+
+export function mongoAnswers(address: string): () => Promise<StepState> {
+  return async () => {
+    const client = mongoClientFor(`mongodb://${address}/`);
+    try {
+      const problem = await replicaSetProblem(client);
+      return problem ? { done: false, why: problem } : { done: true };
+    } finally {
+      await client.close();
+    }
+  };
+}
+
+export function httpAnswers(url: string): () => Promise<StepState> {
+  return async () => {
+    await answersHttp(url)();
+    return { done: true };
+  };
+}
+
+function stepsOf(services: RootServices, name: RootServiceName): Step<ComposeContext>[] {
+  const keys = [temporalTlsStep(services.temporal.tlsDir, services.tlsOwner), temporalJwksStep(services.temporal.jwksFile, services.temporal.key)];
+  switch (name) {
+    case 'temporal-keys':
+      return keys;
+    case 'temporal':
+      return [...keys, composeStep({ id: 'temporal', title: 'Temporal, answering over TLS', compose: project(services, services.temporal.files), answers: temporalAnswers(services.temporal) })];
+    case 'mongo':
+      return [composeStep({ id: 'mongo', title: 'Mongo, as a replica set', compose: project(services, services.mongo.files), answers: mongoAnswers(services.mongo.address) })];
+    case 'headscale':
+      return [composeStep({ id: 'headscale', title: 'Headscale, the mesh\'s coordination server', compose: project(services, services.headscale.files), answers: httpAnswers(`${services.headscale.url}/health`) })];
+    case 'registry':
+      return [composeStep({ id: 'registry', title: 'The image registry for instances', compose: project(services, services.registry.files), answers: httpAnswers(`http://${services.registry.push}/v2/`) })];
+  }
+}
+
+export function rootServiceSteps(services: RootServices, names: readonly RootServiceName[]): Step<ComposeContext>[] {
+  const steps = names.flatMap((name) => stepsOf(services, name));
+  return steps.filter((step, at) => steps.findIndex((other) => other.id === step.id) === at);
+}
+
+const USAGE = `usage: root-services.ts --compose <compose program> <${ROOT_SERVICE_NAMES.join('|')}>...`;
+
+const isServiceName = (name: string): name is RootServiceName => (ROOT_SERVICE_NAMES as readonly string[]).includes(name);
+
+export function rootServicesAsked(argv: readonly string[]): { program: ComposeProject['program']; names: RootServiceName[] } {
+  const at = argv.indexOf('--compose');
+  const words = at >= 0 ? (argv[at + 1] ?? '').split(' ').filter((word) => word !== '') : [];
+  const [first, ...rest] = words;
+  if (first === undefined) throw new Error(`name the compose program to run them with; ${USAGE}`);
+  const names = argv.filter((_arg, index) => index !== at && index !== at + 1);
+  if (names.length === 0) throw new Error(`name at least one service; ${USAGE}`);
+  const unknown = names.find((name) => !isServiceName(name));
+  if (unknown !== undefined) throw new Error(`${unknown} is not one of root's services; ${USAGE}`);
+  return { program: [first, ...rest], names: names.filter(isServiceName) };
+}

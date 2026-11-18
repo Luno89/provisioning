@@ -172,7 +172,9 @@ data (it lives on the person's machine, or in their pool namespace).
   registry keeps what instances pull). A full disk stops Mongo first.
 - **Temporal unhealthy**: `docker compose -f docker-compose.temporal.yml ps`, then `… logs --tail 200 temporal`. Its
   operator CLI only works from inside: `docker exec <temporal container> temporal operator cluster health --address 127.0.0.1:7236`.
-  After a restore, `bash scripts/temporal-keys.sh` gives Temporal its TLS key back.
+  `npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" temporal` checks Temporal's certificate,
+  its key and its containers, starts what is not as its compose file says, and waits until it answers or says why it
+  cannot.
 - **Caddy not getting a certificate**: `tail -200 /var/log/koala-caddy/caddy.log`. Let's Encrypt allows 5 certificates
   per exact name per week; a loop of failed issues hits it and the log names the time it lifts. Wildcards are proved
   through the zone's DNS provider: check its credential is in root's `.env` and still valid.

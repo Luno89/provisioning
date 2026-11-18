@@ -17,7 +17,7 @@ export const devFile = (path: string): string => {
 
 export function devTemporalCa(): string[] {
   const tls = devFile('apps/backend/data/temporal-tls');
-  if (!existsSync(`${tls}/ca.crt`)) throw new Error(`the dev stack's Temporal has no certificate at ${tls}: run bash scripts/ensure-temporal.sh`);
+  if (!existsSync(`${tls}/ca.crt`)) throw new Error(`the dev stack's Temporal has no certificate at ${tls}: run npm run dev, which makes it`);
   return ['-v', `${tls}/ca.crt:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
 }
 

@@ -102,6 +102,8 @@ export { signSocketsIn } from './middleware/socket-sign-in.js';
 export type { SocketSignInDeps } from './middleware/socket-sign-in.js';
 export { inFlightLimit } from './middleware/in-flight.js';
 export { temporalKeysRouter } from './routes/temporal-keys.js';
+export { ROOT_SERVICE_NAMES, rootServicesAsked, rootServiceSteps, rootServicesIn, temporalJwksText, temporalTlsStep, writeTemporalJwks } from './wiring/root-services.js';
+export type { RootServiceName, RootServices } from './wiring/root-services.js';
 export { AccessRevocations } from './services/AccessRevocations.js';
 export { BaseService } from './services/BaseService.js';
 export { DependencyStates } from './services/DependencyStates.js';

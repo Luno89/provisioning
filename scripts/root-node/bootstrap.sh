@@ -294,10 +294,8 @@ REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
 
 # ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
-docker compose -f docker-compose.mongo.yml up -d
-bash scripts/temporal-keys.sh
-docker compose -f docker-compose.temporal.yml up -d
-docker compose -f docker-compose.headscale.yml up -d
+npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" mongo temporal headscale \
+  || die "root's services did not all start; the step that failed says why above"
 docker compose -f docker-compose.caddy.yml up -d --build
 docker compose -f docker-compose.mail.yml up -d --build
 ok "Mongo, Temporal, Headscale, Caddy and the mail server running"
@@ -359,7 +357,8 @@ step "Starting the image registry for instances"
 grep -q '^REGISTRY_MESH_BIND=' "$COMPOSE_ENV" && sed -i "s|^REGISTRY_MESH_BIND=.*|REGISTRY_MESH_BIND=${ROOT_MESH_IP}|" "$COMPOSE_ENV" || echo "REGISTRY_MESH_BIND=${ROOT_MESH_IP}" >> "$COMPOSE_ENV"
 set_env INSTANCE_REGISTRY "${ROOT_MESH_IP}:5001"
 ufw allow in on tailscale0 to any port 5001 proto tcp >/dev/null
-docker compose -f docker-compose.registry.yml up -d
+npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" registry \
+  || die "the image registry did not start; the step that failed says why above"
 ok "machines pull from ${ROOT_MESH_IP}:5001 over the mesh; root pushes to 127.0.0.1:5000"
 
 # Nothing seeds the catalogues at server start any more, and this host never runs setup.sh — so

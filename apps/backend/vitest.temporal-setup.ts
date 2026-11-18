@@ -1,14 +1,14 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import tls from 'node:tls';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import type { TestProject } from 'vitest/node';
+import { localCommands, runSteps } from '@koala/provision';
+import { memoryReporter } from '@koala/provision/testing';
 import { OWNER_ATTRIBUTE } from './src/platform/lib/workflow-owner.js';
-
-const TEMPORAL_TLS_SCRIPT = resolve(__dirname, '../../scripts/temporal-tls.sh');
+import { temporalTlsStep } from './src/platform/wiring/root-services.js';
 
 function tlsInFrontOf(address: string, dir: string): Promise<tls.Server> {
   const [host, port] = [address.slice(0, address.lastIndexOf(':')), Number(address.slice(address.lastIndexOf(':') + 1))];
@@ -29,7 +29,7 @@ export default async function setup(project: TestProject): Promise<() => Promise
     server: { searchAttributes: [OWNER_ATTRIBUTE] },
   });
   const dir = mkdtempSync(join(tmpdir(), 'koala-test-temporal-tls-'));
-  execFileSync('bash', [TEMPORAL_TLS_SCRIPT, dir], { stdio: ['ignore', 'ignore', 'pipe'] });
+  await runSteps([temporalTlsStep(dir)], { commands: localCommands(process.env) }, memoryReporter());
   const front = await tlsInFrontOf(env.address, dir);
   project.provide('temporalAddress', env.address);
   project.provide('temporalTlsAddress', `127.0.0.1:${(front.address() as net.AddressInfo).port}`);

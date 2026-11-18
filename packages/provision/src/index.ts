@@ -3,3 +3,4 @@ export { argvOf, CommandFailed, commandOutput, shown, type Command, type Command
 export { localCommands } from './local-commands.js';
 export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-reporter.js';
 export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
+export { composeCommand, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';

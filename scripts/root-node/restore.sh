@@ -73,7 +73,8 @@ for key in "${OURS[@]}"; do [ -n "${KEEP[$key]}" ] && put "$key" "${KEEP[$key]}"
 find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name logs -exec rm -rf {} +
 cp -a "$RESTORED$DATA_DIR/." "$DATA_DIR/"
 REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
-bash "$REPO_DIR/scripts/temporal-keys.sh" >/dev/null
+(cd "$REPO_DIR" && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" temporal-keys) \
+  || die "Temporal's certificate and key could not be made from the restored env; the step that failed says why above"
 ok "env and data restored, keeping this host's own Mongo password, collector address and trial slots"
 (cd "$REPO_DIR" && COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup >/dev/null && docker compose -f docker-compose.caddy.yml up -d >/dev/null) \
   || die "Caddy's certificate and DNS settings could not be made from the restored env; run: COMPOSE_ENV=$COMPOSE_ENV npx tsx scripts/root-node/dns.ts setup"
@@ -127,7 +128,8 @@ if [ -d "$RESTORED/var/lib/tailscale" ]; then
     systemctl restart "$(basename "$K3S_UNIT")"
     ok "k3s serves its node ports on ${MESH_IP} again"
   fi
-  (cd "$REPO_DIR" && docker compose -f docker-compose.registry.yml up -d >/dev/null)
+  (cd "$REPO_DIR" && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" registry) \
+    || die "the image registry did not start; the step that failed says why above"
 else
   warn "the backup holds no mesh identity for this host; run bootstrap.sh again to join the mesh as a new node"
 fi

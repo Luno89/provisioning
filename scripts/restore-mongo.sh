@@ -42,7 +42,7 @@ fi
 # Ensure container is running
 if ! docker ps --format '{{.Names}}' | grep -q '^provisioning-mongodb-1$'; then
   echo "▶ Starting MongoDB container..."
-  bash "${ROOT}/scripts/ensure-mongo.sh"
+  npx tsx "${ROOT}/apps/backend/src/scripts/root-services.ts" --compose "${ROOT}/bin/docker-compose" mongo
 fi
 
 echo "▶ Copying archive to MongoDB container..."

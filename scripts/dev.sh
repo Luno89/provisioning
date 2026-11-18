@@ -32,11 +32,7 @@ quietly sh "${ROOT}/scripts/terraform-providers.sh" "${ROOT}/bin/terraform-provi
 echo "  ready"
 
 say "Root's services: Temporal, Mongo, Headscale, the registry"
-quietly bash "${ROOT}/scripts/ensure-temporal.sh"
-quietly bash "${ROOT}/scripts/ensure-mongo.sh"
-quietly bash "${ROOT}/scripts/ensure-headscale.sh"
-quietly "${ROOT}/bin/docker-compose" -f "${ROOT}/docker-compose.registry.yml" up -d
-echo "  running"
+npx tsx "${ROOT}/apps/backend/src/scripts/root-services.ts" --compose "${ROOT}/bin/docker-compose" temporal mongo headscale registry
 
 if [ -x /usr/local/bin/k3s-provisioning-lunorica-uninstall.sh ]; then
   say "Removing the k3s dev ran before (provisioning-lunorica); this computer gets a machine's k3s instead"

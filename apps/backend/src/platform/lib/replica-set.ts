@@ -13,6 +13,12 @@ export function replicaSetConfig(commandLine: CommandLine): { _id: string; membe
   return { _id: name, members: [{ _id: 0, host: `127.0.0.1:${commandLine.parsed?.net?.port ?? 27017}` }] };
 }
 
+const member = (hello: Hello): boolean => Boolean(hello.setName || hello.isreplicaset);
+
+export async function replicaSetProblem(client: MongoClient): Promise<string | undefined> {
+  return member(await client.db('admin').command({ hello: 1 }) as Hello) ? undefined : REPLICA_SET_NEEDED;
+}
+
 function becomesPrimary(client: MongoClient): { promise: Promise<void>; stop: () => void } {
   let listener: ((event: ServerDescriptionChangedEvent) => void) | undefined;
   const promise = new Promise<void>((resolve) => {
@@ -28,7 +34,7 @@ export async function ensureReplicaSet(client: MongoClient): Promise<void> {
   try {
     const hello = await admin.command({ hello: 1 }) as Hello;
     if (hello.setName && hello.isWritablePrimary) return;
-    if (!hello.setName && !hello.isreplicaset) throw new Error(REPLICA_SET_NEEDED);
+    if (!member(hello)) throw new Error(REPLICA_SET_NEEDED);
     if (!hello.setName) {
       const config = replicaSetConfig(await admin.command({ getCmdLineOpts: 1 }) as CommandLine);
       try {

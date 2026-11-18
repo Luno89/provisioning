@@ -106,11 +106,12 @@ ensure_platform_keys() {
   done
 }
 
+root_services() {
+  npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" "$@"
+}
+
 update_temporal() {
-  if [ -f scripts/temporal-keys.sh ]; then
-    bash scripts/temporal-keys.sh || return 1
-  fi
-  docker compose -f docker-compose.temporal.yml up -d --wait
+  root_services temporal
 }
 
 install_dependencies() {
@@ -378,16 +379,16 @@ step "Updating Temporal"
 ensure_platform_keys
 . scripts/root-node/root-settings.sh
 ensure_root_settings "$BACKEND_ENV" "$REPO_DIR" "$REPO_DIR/.env" || die "root's settings could not be completed; see above. Nothing was restarted yet."
-update_temporal || die "Temporal did not come back with this release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
+update_temporal || die "Temporal did not come back with this release's settings; the step that failed says why above"
 ok "Temporal answers only what this release's processes sign"
 
 step "Updating Mongo"
-docker compose -f docker-compose.mongo.yml up -d --wait || die "Mongo did not come back with this release's settings. Check: docker compose -f docker-compose.mongo.yml logs"
+root_services mongo || die "Mongo did not come back with this release's settings; the step that failed says why above"
 ok "Mongo runs as a replica set, so Koala can follow its records as they change"
 
 step "Measuring root: the cluster's monitoring, the exporters and the host collector"
 if [ -f scripts/root-node/root-telemetry.sh ]; then
-  docker compose -f docker-compose.registry.yml up -d >/dev/null || die "the registry did not come back with this release's settings. Nothing was restarted yet."
+  root_services registry || die "the registry did not come back with this release's settings. Nothing was restarted yet."
   REPO_DIR="$REPO_DIR" COMPOSE_ENV="$REPO_DIR/.env" BACKEND_ENV="$REPO_DIR/$BACKEND_ENV" bash scripts/root-node/root-telemetry.sh \
     || die "root cannot be measured with this release; see above. Nothing was restarted yet."
 else
@@ -412,7 +413,7 @@ else
   install_dependencies && npm run build --silent
   install_units
   docker compose -f docker-compose.caddy.yml up -d --build
-  update_temporal || warn "Temporal did not come back with the previous release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
+  update_temporal || warn "Temporal did not come back with the previous release's settings; the step that failed says why above"
   [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
   [ -n "$PREVIOUS_DIGEST" ] && set_backend_env INSTANCE_IMAGE_DIGEST "$PREVIOUS_DIGEST"
   systemctl restart "$SERVICE"
