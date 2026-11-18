@@ -240,6 +240,47 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
     expect(await tokensOf(db, 'tok-1')).toEqual([]);
   }, 120_000);
 
+  it('a branch pushed to a new repository becomes its main, is pulled back and compared, and every token used is revoked', async () => {
+    const db = await testDatabase();
+    const repos = new ProjectRepoService(db, gitea, KEY as never);
+    const work = await mkdtemp(path.join(scratch, 'branch-'));
+    const git = (...args: string[]) => execFileSync('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]).toString();
+    git('init', '-q', '-b', 'draft');
+    await writeFile(path.join(work, 'plan.md'), 'first\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'first');
+    git('bundle', 'create', path.join(work, 'draft.bundle'), 'draft');
+
+    const first = await repos.pushBranch({ ownerId: 'branch-1', repo: 'plans', describe: 'Plans', bundle: path.join(work, 'draft.bundle'), branch: 'draft' });
+    expect(first).toBe(git('rev-parse', 'HEAD').trim());
+    const { username } = await repos.ensureAccountFor('branch-1');
+    expect(await gitea.getRawFile(username, 'plans', 'plan.md', 'main')).toBe('first\n');
+
+    git('checkout', '-q', '-b', 'next');
+    await writeFile(path.join(work, 'plan.md'), 'second\n');
+    git('commit', '-q', '-am', 'second');
+    git('bundle', 'create', path.join(work, 'next.bundle'), 'next');
+    const second = await repos.pushBranch({ ownerId: 'branch-1', repo: 'plans', describe: 'Plans', bundle: path.join(work, 'next.bundle'), branch: 'next' });
+    expect(await gitea.getRawFile(username, 'plans', 'plan.md', 'main')).toBe('first\n');
+
+    const branchBack = path.join(work, 'next-back.bundle');
+    expect(await repos.pullBranch({ ownerId: 'branch-1', repo: 'plans', branch: 'next', bundle: branchBack })).toBe(true);
+    expect(git('bundle', 'list-heads', branchBack)).toContain(`${second} refs/heads/next`);
+    expect(await repos.pullBranch({ ownerId: 'branch-1', repo: 'plans', branch: 'gone', bundle: path.join(work, 'gone.bundle') })).toBe(false);
+
+    const allBack = path.join(work, 'all-back.bundle');
+    expect(await repos.pullDocuments({ ownerId: 'branch-1', repo: 'plans', bundle: allBack })).toBe(true);
+    expect(git('bundle', 'list-heads', allBack)).toEqual(expect.stringContaining(`${first} refs/heads/main`));
+    expect(await repos.pullDocuments({ ownerId: 'branch-1', repo: 'nothing-here', bundle: path.join(work, 'none.bundle') })).toBe(false);
+
+    const diff = await repos.diffCommits({ ownerId: 'branch-1', owner: username, repo: 'plans', base: 'main', head: 'next' });
+    expect(diff).toContain('-first');
+    expect(diff).toContain('+second');
+
+    expect(await tokensOf(db, 'branch-1')).toEqual([]);
+    expect(await db.projects.getTokensToRevoke()).toEqual([]);
+  }, 120_000);
+
   it('a token left from a push that failed to revoke is revoked at the next start', async () => {
     const db = await testDatabase();
     const repos = new ProjectRepoService(db, gitea, KEY as never);

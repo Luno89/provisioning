@@ -215,6 +215,33 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect((await account(OLD_TOKEN)).error).toBeUndefined();
   });
 
+  it('is shown on the machine as not renewed, saying why, when Koala could not keep the new one itself', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const store = db.machines;
+    const refusing = Object.assign(Object.create(store) as typeof store, {
+      updateLocalAgentDevice: (id: string, change: Parameters<typeof store.updateLocalAgentDevice>[1]) => (change.set && 'nextTokenHash' in change.set
+        ? Promise.reject(new Error('the database refused the write'))
+        : store.updateLocalAgentDevice(id, change)),
+    });
+    accounts = new MachineAccounts({
+      store: refusing,
+      signing: root,
+      settings: { url: 'http://root.test' },
+      koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
+      followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+      toMachines: { removed: () => false, koala: () => false },
+      now: () => clock,
+    });
+    let offered = false;
+    const first = await account(OLD_TOKEN, () => { offered = true; });
+    expect(first.error).toBeUndefined();
+    const renewal = await until(async () => (await stored()).tokenRenewal);
+    expect(renewal).toMatchObject({ reason: 'the database refused the write' });
+    expect(offered).toBe(false);
+    expect((await stored()).tokenHash).toBe(deviceTokenHash(OLD_TOKEN));
+    expect((await account(OLD_TOKEN)).error).toBeUndefined();
+  });
+
   it('is refused past its expiry, saying to run the command from My Machines again', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     clock = new Date(ISSUED.getTime() + 91 * DAY);

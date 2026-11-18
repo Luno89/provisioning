@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { MockActivityEnvironment } from '@temporalio/testing';
 import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import type { GiteaService } from '../projects/index.js';
 import type { Database } from '../platform/index.js';
@@ -19,6 +20,7 @@ vi.mock('../platform/index.js', async (actual) => ({
 }));
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
+const { clusterActivities } = await import('../worker-cluster.js');
 
 const huggingFace = interceptHttp();
 const MODEL_TREE = 'https://huggingface.co/api/models/org/model/tree/*';
@@ -150,6 +152,19 @@ describe('deploying an app on the cluster it was handed', () => {
   it('is refused when it was handed no way to reach the cluster', async () => {
     await expect(DeployAppActivity(deploy({ reach: undefined }), steps())).rejects.toThrow('handed no way to reach machine-desk');
     expect(infra.deploy).not.toHaveBeenCalled();
+  });
+
+  it('as the cluster worker serves it, applies the app\'s stack and stops applying it when the step is cancelled', async () => {
+    const activity = new MockActivityEnvironment();
+    let appSignal: AbortSignal | undefined;
+    infra.deploy.mockImplementation((stack, options) => (stack !== 'app-desk-d1' ? Promise.resolve({ stdout: '', logFile: LOG }) : new Promise((_done, refuse) => {
+      appSignal = options!.signal;
+      options!.signal!.addEventListener('abort', () => refuse(new Error('terraform was stopped')), { once: true });
+      activity.cancel();
+    })));
+    await expect(activity.run(clusterActivities(steps()).DeployAppActivity, deploy())).rejects.toThrow();
+    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', expect.anything());
+    expect(appSignal?.aborted).toBe(true);
   });
 });
 

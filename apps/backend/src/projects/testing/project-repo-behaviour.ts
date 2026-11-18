@@ -73,6 +73,73 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
       expect((await db.projects.getTokensToRevoke()).map((token) => token.name)).toEqual(['push-live']);
     });
 
+    it('pulls a repository or a branch into a bundle with a read token it revokes afterwards, and pulls nothing from a repository the person lacks', async () => {
+      const { db, gitea, repos } = await setUp(make);
+      gitea.findRepo.calledWith('koala-u1', 'docs').mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
+      gitea.createReadToken.mockResolvedValueOnce({ name: 'read-1', token: 'r1' }).mockResolvedValueOnce({ name: 'read-2', token: 'r2' });
+      const tokenIs = (token: string) => matches<{ username: string; token: string }>((auth) => auth.username === 'koala-u1' && auth.token === token);
+      gitea.pullBundle.calledWith(tokenIs('r1'), 'koala-u1', 'docs', '/tmp/all.bundle').mockResolvedValue(true);
+      gitea.pullBranchBundle.calledWith(tokenIs('r2'), 'koala-u1', 'docs', 'draft', '/tmp/draft.bundle').mockResolvedValue(true);
+
+      expect(await repos.pullDocuments({ ownerId: 'u1', repo: 'docs', bundle: '/tmp/all.bundle' })).toBe(true);
+      expect(await repos.pullBranch({ ownerId: 'u1', repo: 'docs', branch: 'draft', bundle: '/tmp/draft.bundle' })).toBe(true);
+      expect(gitea.createReadToken).toHaveBeenCalledWith('koala-u1', 'pw-koala-u1');
+      expect(gitea.revokeUserToken.mock.calls).toEqual([['koala-u1', 'pw-koala-u1', 'read-1'], ['koala-u1', 'pw-koala-u1', 'read-2']]);
+      expect(await db.projects.getTokensToRevoke()).toEqual([]);
+
+      expect(await repos.pullDocuments({ ownerId: 'u1', repo: 'missing', bundle: '/tmp/x.bundle' })).toBe(false);
+      expect(await repos.pullBranch({ ownerId: 'u1', repo: 'missing', branch: 'draft', bundle: '/tmp/x.bundle' })).toBe(false);
+      expect(gitea.createReadToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('pushes a branch with a push token it revokes afterwards, making a new repository\'s main from it and waiting until it serves files', async () => {
+      const { db, gitea, repos } = await setUp(make);
+      gitea.findRepo.mockResolvedValueOnce(null).mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
+      gitea.repoServesFiles.mockResolvedValueOnce(false).mockResolvedValue(true);
+      gitea.createPushToken.mockResolvedValueOnce({ name: 'push-1', token: 'p1' }).mockResolvedValueOnce({ name: 'push-2', token: 'p2' });
+      gitea.pushBranchBundle.mockResolvedValueOnce('c1').mockResolvedValueOnce('c2');
+
+      expect(await repos.pushBranch({ ownerId: 'u1', repo: 'docs', describe: 'Docs', bundle: '/tmp/b1', branch: 'draft' })).toBe('c1');
+      expect(gitea.createRepoForUser).toHaveBeenCalledWith('koala-u1', 'docs', { private: true, description: 'Docs', empty: true });
+      expect(gitea.pushBranchBundle).toHaveBeenLastCalledWith({ username: 'koala-u1', token: 'p1' }, 'koala-u1', 'docs', '/tmp/b1', 'draft', { asMain: true });
+      expect(gitea.repoServesFiles).toHaveBeenCalledTimes(2);
+
+      expect(await repos.pushBranch({ ownerId: 'u1', repo: 'docs', describe: 'Docs', bundle: '/tmp/b2', branch: 'next' })).toBe('c2');
+      expect(gitea.createRepoForUser).toHaveBeenCalledTimes(1);
+      expect(gitea.pushBranchBundle).toHaveBeenLastCalledWith({ username: 'koala-u1', token: 'p2' }, 'koala-u1', 'docs', '/tmp/b2', 'next', { asMain: false });
+      expect(gitea.repoServesFiles).toHaveBeenCalledTimes(2);
+      expect(gitea.revokeUserToken.mock.calls).toEqual([['koala-u1', 'pw-koala-u1', 'push-1'], ['koala-u1', 'pw-koala-u1', 'push-2']]);
+      expect(await db.projects.getTokensToRevoke()).toEqual([]);
+    });
+
+    it('compares two commits of a repository with a read token it revokes afterwards', async () => {
+      const { db, gitea, repos } = await setUp(make);
+      gitea.createReadToken.mockResolvedValue({ name: 'read-1', token: 'r1' });
+      gitea.diffBetween.calledWith(matches<{ username: string; token: string }>((auth) => auth.token === 'r1'), 'koala-u2', 'shop', 'main', 'draft').mockResolvedValue('+hello\n');
+
+      expect(await repos.diffCommits({ ownerId: 'u1', owner: 'koala-u2', repo: 'shop', base: 'main', head: 'draft' })).toBe('+hello\n');
+      expect(gitea.revokeUserToken).toHaveBeenCalledWith('koala-u1', 'pw-koala-u1', 'read-1');
+      expect(await db.projects.getTokensToRevoke()).toEqual([]);
+    });
+
+    it('keeps trying to revoke the tokens stopped processes left until the live processes can be read', async () => {
+      const { db, gitea } = await setUp(make);
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
+      await repos.ensureAccountFor('u1');
+      await db.projects.saveTokenToRevoke({ name: 'push-gone', ownerId: 'u1', username: 'koala-u1', process: 'backend-gone', at: '2026-11-17T10:00:00.000Z' });
+      let asked = 0;
+      const live = async () => {
+        asked += 1;
+        if (asked === 1) throw new Error('mongo is not answering');
+        return [];
+      };
+
+      expect(await repos.keepRevokingLeftovers(live)).toBe(false);
+      await vi.waitFor(async () => expect(await db.projects.getTokensToRevoke()).toEqual([]));
+      expect(gitea.revokeUserToken).toHaveBeenCalledWith('koala-u1', 'pw-koala-u1', 'push-gone');
+      expect(asked).toBe(2);
+    });
+
     it('revokes the token and rethrows when the push fails, and only warns when revoking fails too', async () => {
       const { gitea, repos } = await setUp(make);
       gitea.findRepo.mockResolvedValue({ owner: 'koala-u1', name: 'docs' });

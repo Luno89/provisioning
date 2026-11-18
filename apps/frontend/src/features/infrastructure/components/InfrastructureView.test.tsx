@@ -206,6 +206,18 @@ describe('the Infrastructure page', () => {
     expect(screen.queryByText(/Everything is healthy/)).toBeNull()
   })
 
+  it('says when sandboxes\' egress proxy still holds old grants, since when and why, rather than calling everything healthy', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [], signals: [],
+      dependencies: [], egressBehind: { since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' },
+    })
+    show()
+    const item = await screen.findByTestId('attention-egress-behind')
+    expect(item).toHaveTextContent('Not synced')
+    expect(item).toHaveTextContent(/Sandboxes' egress proxy still holds grants from before .*2026.*: it refused the connection \(ECONNREFUSED\)/)
+    expect(screen.queryByText(/Everything is healthy/)).toBeNull()
+  })
+
   it('scrolls to the section an old address names', async () => {
     const scrolled = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrolled

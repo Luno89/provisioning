@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { MockActivityEnvironment } from '@temporalio/testing';
 import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import type { GiteaService } from '../projects/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
@@ -13,6 +14,7 @@ import { ResizeDiskActivity } from './ResizeDiskActivity.js';
 import { SyncConfigActivity } from './SyncConfigActivity.js';
 import { VerifyGpuRuntimeActivity } from './VerifyGpuRuntimeActivity.js';
 import { handedReach } from './handed-reach.js';
+import { clusterActivities } from '../worker-cluster.js';
 
 const gitea = vi.hoisted(() => ({
   getRegistryHosts: vi.fn(),
@@ -256,6 +258,37 @@ describe('syncing an app\'s settings', () => {
     expect(infra.deploy.mock.calls[0]![1]?.env).toMatchObject({ KUBECONFIG: '/clusters/kubeconfig-machine', APP_SERVICE_TYPE: 'NodePort' });
     expect(said.every((call) => call.reach === DESK)).toBe(true);
     expect(said.map((call) => call.args.slice(0, 3).join(' '))).toEqual(['rollout restart deployment', '-n chat-1 get', 'exec -n chat-1']);
+  });
+});
+
+describe('an app\'s stack, as the cluster worker serves its steps', () => {
+  const stopsWhenCancelled = (activity: MockActivityEnvironment) => {
+    infra.deploy.mockImplementation((_stack, options) => new Promise((_done, refuse) => {
+      options!.signal!.addEventListener('abort', () => refuse(new Error('terraform was stopped')), { once: true });
+      activity.cancel();
+    }));
+  };
+
+  it('resizing applies the stack the app was deployed as, and stops applying it when the step is cancelled', async () => {
+    const activity = new MockActivityEnvironment();
+    stopsWhenCancelled(activity);
+    await expect(activity.run(clusterActivities(steps()).ResizeDiskActivity, { name: 'shop', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' })).rejects.toThrow();
+    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', expect.anything());
+    expect(infra.deploy.mock.calls[0]![1]!.signal?.aborted).toBe(true);
+  });
+
+  it('syncing settings applies the stack the app was deployed as, and stops applying it when the step is cancelled', async () => {
+    const activity = new MockActivityEnvironment();
+    stopsWhenCancelled(activity);
+    await expect(activity.run(clusterActivities(steps()).SyncConfigActivity, { name: 'chat', namespace: 'chat-1', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', strategy: 'native', appType: 'openwebui', logFile: LOG, deploymentId: 'd2' })).rejects.toThrow();
+    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d2', expect.anything());
+    expect(infra.deploy.mock.calls[0]![1]!.signal?.aborted).toBe(true);
+  });
+
+  it('removing the app destroys the stack it was deployed as', async () => {
+    const done = await new MockActivityEnvironment().run(clusterActivities(steps()).DestroyAppActivity, { name: 'shop', clusterId: 'machine-desk', clusterName: 'desk', strategy: 'native', logFile: LOG, deploymentId: 'd1', namespace: 'shop-1a2b3c', reach: DESK });
+    expect(done).toMatchObject({ status: 'destroyed' });
+    expect(infra.destroy).toHaveBeenCalledWith('app-desk-d1', expect.anything());
   });
 });
 

@@ -142,6 +142,25 @@ describe('seed-all', () => {
     }
   });
 
+  it('gives a machine that joined before device tokens expired 90 days from now, once, leaving a dated one and one with no token alone', async () => {
+    const db = await testDatabase();
+    const dated = { id: 'dated', ownerId: 'ann', name: 'dated', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z', tokenHash: 'h-dated', issuedAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-12-30T00:00:00.000Z' };
+    await db.machines.saveLocalAgentDevice({ id: 'old', ownerId: 'ann', name: 'old', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z', tokenHash: 'h-old' });
+    await db.machines.saveLocalAgentDevice(dated);
+    await db.machines.saveLocalAgentDevice({ id: 'tokenless', ownerId: 'ann', name: 'tokenless', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z' });
+
+    const before = Date.now();
+    expect(await seedAll(db)).toMatchObject({ deviceTokenLifetimes: 1 });
+    expect(await seedAll(db)).toMatchObject({ deviceTokenLifetimes: 0 });
+    const devices = new Map((await db.machines.getLocalAgentDevices()).map((device) => [device.id, device]));
+    const old = devices.get('old')!;
+    expect(old.tokenHash).toBe('h-old');
+    expect(Date.parse(old.expiresAt!) - Date.parse(old.issuedAt!)).toBe(90 * 24 * 60 * 60 * 1000);
+    expect(Date.parse(old.issuedAt!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(devices.get('dated')).toMatchObject(dated);
+    expect(devices.get('tokenless')?.expiresAt).toBeUndefined();
+  });
+
   it('writes nothing on a second run', async () => {
     const db = await testDatabase();
     await seedAll(db);
