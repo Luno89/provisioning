@@ -638,7 +638,8 @@ describe('AgentRunWorkflow', () => {
     expect(result.outcome).toBe('failed');
     expect(result.reason).toMatch(/^"persona" failed: .*there is no persona called "nobody"/);
     const persona = recorded(acts).find((trace) => trace.kind === 'persona');
-    expect(persona).toMatchObject({ role: 'value', error: expect.stringContaining('there is no persona called "nobody"') });
+    expect(persona).toMatchObject({ role: 'value' });
+    expect(persona!.error).toContain('there is no persona called "nobody"');
     expect(persona).not.toHaveProperty('interrupted');
     expect(persona!.durationMs).toBeGreaterThanOrEqual(0);
     expect(acts.seen).toEqual([]);
