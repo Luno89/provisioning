@@ -28,6 +28,23 @@ export async function startHeadscaleStandIn(): Promise<HeadscaleStandIn> {
     if (req.method === 'GET' && kind === 'apikey') { answer(200, { apiKeys: [] }); return; }
     if (req.method === 'GET' && kind === 'user' && !id) { answer(200, { users: users.filter((user) => !url.searchParams.get('name') || user.name === url.searchParams.get('name')) }); return; }
     if (req.method === 'GET' && kind === 'node' && !id) { answer(200, { nodes: nodes.filter((node) => !url.searchParams.get('user') || node.user === url.searchParams.get('user')) }); return; }
+    if (req.method === 'POST' && (kind === 'user' || kind === 'preauthkey') && !id) {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        const asked = JSON.parse(body || '{}') as { name?: string; user?: string; expiration?: string };
+        if (kind === 'user') {
+          if (!asked.name) { answer(400, { message: 'a user needs a name' }); return; }
+          const user = { id: String(users.length + 1), name: asked.name };
+          users.push(user);
+          answer(200, { user });
+          return;
+        }
+        if (!users.some((user) => user.id === asked.user)) { answer(404, { message: 'user not found' }); return; }
+        answer(200, { preAuthKey: { key: crypto.randomBytes(16).toString('hex'), expiration: asked.expiration ?? '' } });
+      });
+      return;
+    }
     if (req.method === 'DELETE' && kind === 'node' && id) {
       const at = nodes.findIndex((node) => node.id === id);
       if (at < 0) { answer(404, { message: 'node not found' }); return; }

@@ -141,7 +141,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const hubSide: LoopbackRole[] = [];
   const instanceSide: LoopbackRole[] = [];
   const gitea: TestGitea | undefined = options.gitea ? await startRealGitea() : undefined;
-  const headscale = options.rootWorkers?.includes('host') ? await startHeadscaleStandIn() : undefined;
+  const headscale = await startHeadscaleStandIn();
   const dependencySources = await startDependencySourcesStandIn();
   const close = async () => {
     for (const side of [instanceSide, hubSide, rootSide]) {
