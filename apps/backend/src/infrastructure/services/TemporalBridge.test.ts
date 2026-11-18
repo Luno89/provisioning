@@ -433,6 +433,24 @@ describe('checking each app on its cluster', () => {
     expect((await gone.db.infrastructure.getDeployments())[0]).not.toHaveProperty('healthReason');
   });
 
+  it('never lets a registry failure change a status: an MCP server whose probe fails leaves every app as its pods alone would', async () => {
+    const world = async (probe: () => Promise<{ tools: number }>) => {
+      const made = checking(['tools-1a2b3c', 'blog-4d5e6f']);
+      await made.db.infrastructure.saveCluster(machine);
+      await made.db.infrastructure.saveDeploymentInfo(running({ id: 'tools', name: 'Tools', appType: 'gitapp', namespace: 'tools-1a2b3c' }));
+      await made.db.infrastructure.saveDeploymentInfo(running({ id: 'blog', name: 'Blog', namespace: 'blog-4d5e6f', status: 'unhealthy', healthReason: 'its pod was not ready' }));
+      vi.spyOn(made.instance as unknown as { mcpProbes: () => Promise<{ tools: number }> }, 'mcpProbes').mockImplementation(probe);
+      await made.instance.checkApps();
+      return Object.fromEntries((await made.db.infrastructure.getDeployments()).map((dep) => [dep.id, [dep.status, dep.healthReason ?? '']]));
+    };
+
+    const failed = await world(async () => { throw new Error('the MCP registry did not answer'); });
+    const silent = await world(async () => ({ tools: 3 }));
+
+    expect(failed).toEqual(silent);
+    expect(failed).toEqual({ tools: ['running', ''], blog: ['running', ''] });
+  });
+
   it('never makes again an app deleted while the pass read its cluster', async () => {
     const { db, instance, access } = checking([]);
     await db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f' }));
