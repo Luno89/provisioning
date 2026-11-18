@@ -8,6 +8,7 @@ import { mcpRuntime, type McpRuntimeDeps } from './mcp/runtime.js';
 import { releasesRuntime, type ReleasesRuntimeDeps } from './releases/runtime.js';
 import { monitoringRuntime, type MonitoringRuntimeDeps } from './monitoring/runtime.js';
 import { filesRuntime, type FilesRuntimeDeps } from './files/runtime.js';
+import { provisionRuntime, type ProvisionRuntimeDeps } from './provision/runtime.js';
 
 export interface ExtensionRuntimeDeps {
   grove?: GroveRuntimeDeps | undefined;
@@ -17,10 +18,11 @@ export interface ExtensionRuntimeDeps {
   releases?: ReleasesRuntimeDeps | undefined;
   monitoring?: MonitoringRuntimeDeps | undefined;
   files?: FilesRuntimeDeps | undefined;
+  provision?: ProvisionRuntimeDeps | undefined;
 }
 
 export function extensionRuntimes(deps: ExtensionRuntimeDeps): Record<string, ExtensionRuntime> {
-  return { platform: platformRuntime(deps.platform ?? {}), grove: groveRuntime(deps.grove ?? {}), workspace: workspaceRuntime(deps.workspace ?? {}), mcp: mcpRuntime(deps.mcp ?? {}), releases: releasesRuntime(deps.releases ?? {}), monitoring: monitoringRuntime(deps.monitoring ?? {}), files: filesRuntime(deps.files ?? {}) };
+  return { platform: platformRuntime(deps.platform ?? {}), grove: groveRuntime(deps.grove ?? {}), workspace: workspaceRuntime(deps.workspace ?? {}), mcp: mcpRuntime(deps.mcp ?? {}), releases: releasesRuntime(deps.releases ?? {}), monitoring: monitoringRuntime(deps.monitoring ?? {}), files: filesRuntime(deps.files ?? {}), provision: provisionRuntime(deps.provision ?? {}) };
 }
 
 export const operationHandlers = (runtimes: Record<string, ExtensionRuntime>): Record<string, HostOperationRun> =>

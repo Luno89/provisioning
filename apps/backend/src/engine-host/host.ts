@@ -131,6 +131,7 @@ export interface EngineHostOptions {
   treeExtras?: ((ownerId: string, treeId: string) => Promise<import('./sandboxes/environments.js').WorkspaceExtras | undefined>) | undefined;
   artifacts?: GroveOperationDeps['artifacts'];
   releases?: import('../extensions/releases/operations/handlers.js').ReleaseOperationDeps | undefined;
+  provision?: import('../extensions/provision/operations/handlers.js').ProvisionOperationDeps | undefined;
   models: ModelServiceLike;
   stores: EngineHostStores;
   web?: WebTools | undefined;
@@ -363,6 +364,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     },
     monitoring: stores.actions ? { tools: { reading: options.monitoring, proposals: stores.actions } } : {},
     files: options.files ? { tools: options.files } : {},
+    provision: options.provision ? { operations: options.provision } : {},
     platform: { operations: { environments, ...(options.artifacts ? { artifacts: options.artifacts } : {}) } },
     grove: {
       tools: { stores: {
