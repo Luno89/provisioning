@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { removeThrowaway, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 const run = promisify(execFile);
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -16,7 +16,7 @@ const TWO_CARDS = 'printf "NVIDIA GeForce RTX 3090, 24576\\nNVIDIA GeForce RTX 3
 
 const started: string[] = [];
 afterEach(async () => {
-  for (const name of started.splice(0)) await run('docker', ['rm', '-f', name]);
+  for (const name of started.splice(0)) await removeThrowaway(name);
 });
 
 async function machine(nvidiaSmi: string, cdi: boolean, runtime = true): Promise<unknown> {

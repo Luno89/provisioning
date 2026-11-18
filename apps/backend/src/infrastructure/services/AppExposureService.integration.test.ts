@@ -12,7 +12,7 @@ import { adminEdge } from '../../instances/services/InstanceAddresses.js';
 import { startK3s, TOOLS } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
 import { ClusterAccess } from './ClusterAccess.js';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { removeThrowaway, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 
 const KEY = 'test-key' as never;
 const k3s = await startK3s();
@@ -86,7 +86,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (edgeName) await docker('rm', '-f', edgeName);
+  if (edgeName) await removeThrowaway(edgeName, (args) => docker(...args));
   await k3s.stop();
 }, 0);
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import type { ServiceAccount } from '../lib/cluster-places.js';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { removeThrowaway, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import { ensureImageCaches, IMAGE_CACHES, imageCacheContainer } from './image-caches.js';
 
 export const K3S_TEST_IMAGE = 'rancher/k3s:v1.36.4-k3s1@sha256:edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657';
@@ -46,7 +46,7 @@ export async function startK3s(processes: Processes = nodeProcesses): Promise<Re
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
   const registries = await mirrorsThroughCaches(processes);
   await docker('run', '-d', '--name', name, ...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', '-v', `${registries}:/etc/rancher/k3s/registries.yaml:ro`, K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
-  const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
+  const stop = (): Promise<void> => removeThrowaway(name, (args) => docker(...args));
   const stillRunning = async (what: string): Promise<void> => {
     if ((await docker('inspect', '-f', '{{.State.Running}}', name)).trim() === 'true') return;
     const said = await processes.run({ command: 'docker', args: ['logs', '--tail', '20', name] });
