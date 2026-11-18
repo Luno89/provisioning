@@ -2,7 +2,7 @@ import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { Readable } from 'node:stream';
 import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import { Client } from '@temporalio/client';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -24,7 +24,7 @@ import { startedFor } from '../platform/lib/workflow-owner.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { holdFences } from '../platform/wiring/fences.js';
 import type { FenceWatch } from '../platform/services/FenceWatch.js';
-import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
+import { bundled, freshNamespace, realTemporalEnvironment, type FreshNamespace } from './temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 let db: MongoDB;
@@ -41,6 +41,17 @@ beforeAll(async () => {
 afterAll(async () => {
   await watch?.stop();
   await env?.teardown();
+});
+
+let world: { namespace: string; client: Client; fresh: FreshNamespace };
+
+beforeEach(async () => {
+  const fresh = await freshNamespace();
+  world = { namespace: fresh.namespace, client: new Client({ connection: env.connection, namespace: fresh.namespace }), fresh };
+});
+
+afterEach(async () => {
+  await world.fresh.drop();
 });
 
 interface Straggler {
@@ -88,7 +99,7 @@ const fenceRaised = (kind: 'owner' | 'project', id: string) => new Promise<void>
 const fakeApps = { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/tmp/destroy.log', taskQueue: 'cluster-ops-queue' };
 
 async function workers(queue: string, removal: object, removalWorkflow: string, stragglerOf: Straggler & { activity: (args: { ownerId: string; projectId?: string | undefined }) => Promise<string[]> }) {
-  const namespace = env.namespace ?? 'default';
+  const namespace = world.namespace;
   const removing = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, removalWorkflow)), activities: removal });
   const straggling = await Worker.create({
     ...WORKER_DEFAULTS,
@@ -109,7 +120,7 @@ async function workers(queue: string, removal: object, removalWorkflow: string, 
   };
 }
 
-const naming = () => new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+const naming = () => new Client({ connection: env.connection, namespace: world.namespace, interceptors: { workflow: [namesItsWork] } });
 
 describe('an account being removed while a step of its run is still writing', () => {
   it('waits for every live process to hold the account\'s fence, waits on no timer, and leaves nothing the late step tried to keep', async () => {
@@ -140,7 +151,7 @@ describe('an account being removed while a step of its run is still writing', ()
 
       await db.platform.beatProcess({ id: `other-${owner}`, name: 'worker-cluster' }, new Date().toISOString());
       const raised = fenceRaised('owner', owner);
-      const workflows = temporalRemovalWorkflows<{ ownerId: string; keepRunsFor: string }>(() => env.client, queue);
+      const workflows = temporalRemovalWorkflows<{ ownerId: string; keepRunsFor: string }>(() => world.client, queue);
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId(owner), [{ ownerId: owner, keepRunsFor: 'keeper' }], owner);
       await raised;
       await expect.poll(() => db.platform.fenceAcks({ kind: 'owner', id: owner })).toHaveLength(1);
@@ -148,7 +159,7 @@ describe('an account being removed while a step of its run is still writing', ()
       expect(await db.accounts.getUserById(owner), 'nothing is deleted until every live process holds the fence').toBeDefined();
 
       await db.platform.ackFence({ kind: 'owner', id: owner }, `other-${owner}`, new Date().toISOString());
-      const handle = env.client.workflow.getHandle(removeAccountWorkflowId(owner));
+      const handle = world.client.workflow.getHandle(removeAccountWorkflowId(owner));
       expect(await handle.result()).toMatchObject({ stoppedWorkflows: 1 });
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes), 'removal waits on no timer').toBe(false);
 
@@ -189,9 +200,9 @@ describe('a project being deleted while a step of its release is still writing',
       await withWorkFor({ project }, () => temporal.workflow.start('StragglerWorkflow', { taskQueue: `${queue}-straggler`, workflowId: releaseRunWorkflowId(project), args: [{ ownerId: owner, projectId: project }], ...startedFor(owner) }));
       await late.started;
 
-      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => env.client, queue, PROJECT_REMOVAL_PROGRESS_QUERY);
+      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => world.client, queue, PROJECT_REMOVAL_PROGRESS_QUERY);
       await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId(project), [{ projectId: project }], owner);
-      const handle = env.client.workflow.getHandle(removeProjectWorkflowId(project));
+      const handle = world.client.workflow.getHandle(removeProjectWorkflowId(project));
       expect(await handle.result()).toMatchObject({ stoppedWorkflows: 1 });
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes), 'deletion waits on no timer').toBe(false);
 

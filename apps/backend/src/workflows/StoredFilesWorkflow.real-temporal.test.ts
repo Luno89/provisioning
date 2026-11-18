@@ -4,14 +4,14 @@ import { Readable } from 'node:stream';
 import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import type { StoredFilesActivities } from '../files/lib/stored-files-work.js';
 import { createStoredFilesActivities } from '../files/services/stored-files-activities.js';
 import { temporalStoredFileCommits } from '../files/services/StoredFileCommits.js';
 import { MemoryFilesStore } from '../files/testing/memory-store.js';
 import { MemoryObjectStore } from '../files/testing/memory-object-store.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 const AT = '2026-11-07T10:00:00.000Z';
@@ -19,6 +19,12 @@ const scope = { kind: 'project', id: 'p1' } as const;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
+});
+
+let world: TestWorld;
+
+beforeEach(async () => {
+  world = await newWorld(env);
 });
 
 afterAll(async () => {
@@ -32,7 +38,7 @@ const begun = async (records: MemoryFilesStore, objects: MemoryObjectStore, id: 
 
 async function running<T>(activities: StoredFilesActivities, work: (queue: string) => Promise<T>): Promise<T> {
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
-  const namespace = env.namespace ?? 'default';
+  const namespace = world.namespace;
   const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
   const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   return workflows.runUntil(stream.runUntil(work(queue)));
@@ -45,7 +51,7 @@ describe('the stored files workflow on Temporal', () => {
     await begun(records, objects, 'old', 'a.txt', 'old');
     await records.commitStoredFiles([{ id: 'old', size: 3 }], { replace: true }, AT);
     await begun(records, objects, 'new', 'a.txt', 'newer');
-    const plan = await running(createStoredFilesActivities({ records, objects }), (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
+    const plan = await running(createStoredFilesActivities({ records, objects }), (queue) => temporalStoredFileCommits(async () => world.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
     expect(plan).toMatchObject({ ok: true, replaced: ['old'], absorbed: ['new'] });
     expect([...objects.kept.keys()]).toEqual(['new']);
     expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.objectId, record.version])).toEqual([['old', 'new', 2]]);
@@ -71,7 +77,7 @@ describe('the stored files workflow on Temporal', () => {
       },
       StoredFilesRemoveBytesActivity: async (args) => { removed.push(...args.objectIds); return real.StoredFilesRemoveBytesActivity(args); },
     };
-    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
+    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => world.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
     expect(attempts).toBe(2);
     expect(plan).toMatchObject({ ok: true, replaced: [], absorbed: [], stored: [{ id: 'old', objectId: 'new', version: 2 }] });
     expect(removed).toEqual([]);
@@ -96,7 +102,7 @@ describe('the stored files workflow on Temporal', () => {
         return plan;
       },
     };
-    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'f1', size: 4 }], { replace: false }));
+    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => world.client.workflow, queue).commit('u1', [{ id: 'f1', size: 4 }], { replace: false }));
     expect(attempts).toBe(2);
     expect(plan).toMatchObject({ ok: true });
     expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version, record.state])).toEqual([['f1', 1, 'stored']]);
@@ -117,7 +123,7 @@ describe('the stored files workflow on Temporal', () => {
       StoredFilesRemoveBytesActivity: async (args) => { order.push(`bytes ${args.objectIds.join(',')}`); return real.StoredFilesRemoveBytesActivity(args); },
     };
     await running(watched, async (queue) => {
-      const commits = temporalStoredFileCommits(async () => env.client.workflow, queue);
+      const commits = temporalStoredFileCommits(async () => world.client.workflow, queue);
       expect(await commits.commit('u1', [{ id: 'theirs', size: 6 }], { replace: false })).toMatchObject({ ok: false, status: 409 });
       await commits.remove('u1', [(await records.storedFileById('mine'))!]);
     });

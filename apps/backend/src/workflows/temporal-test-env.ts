@@ -1,4 +1,4 @@
-import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
 import { Client, Connection } from '@temporalio/client';
@@ -51,6 +51,20 @@ export async function clockSkippingEnvironment(): Promise<TestWorkflowEnvironmen
   const env = await TestWorkflowEnvironment.createTimeSkipping();
   await registerOwnerAttribute(env.connection, env.namespace ?? 'default');
   return env;
+}
+
+export interface TestWorld {
+  namespace: string;
+  client: Client;
+}
+
+export async function newWorld(env: TestWorkflowEnvironment): Promise<TestWorld> {
+  if (!env.supportsTimeSkipping) throw new Error('a world of its own is a namespace the time-skipping server makes on first use; on a real server, take a freshNamespace');
+  const namespace = `world-${randomUUID()}`;
+  await registerOwnerAttribute(env.connection, namespace);
+  const client = new Client({ connection: env.connection, namespace });
+  if (env.client.workflow instanceof TimeSkippingWorkflowClient) Object.defineProperty(client, 'workflow', { value: new TimeSkippingWorkflowClient({ connection: env.connection, namespace }) });
+  return { namespace, client };
 }
 
 export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {

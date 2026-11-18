@@ -1,7 +1,7 @@
 import { activityInterceptors } from '@koala/engine-core';
 import { testKeys } from '../platform/testing/keys.js';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createCompactContextNode } from '../engine-host/nodes/model-nodes.js';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WorkflowClient, type WorkflowHandle, type WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
@@ -44,7 +44,7 @@ import type { DataConverter } from '@temporalio/common';
 import { buildDataConverter } from '../platform/lib/temporal-codec.js';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
-import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
@@ -86,6 +86,12 @@ afterAll(async () => {
   await env?.teardown();
 });
 
+let world: TestWorld;
+
+beforeEach(async () => {
+  world = await newWorld(env);
+});
+
 type Scripted = Partial<ModelReply> | Error | 'hang';
 
 const MACHINE: RunEnvironment = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', path: 'projects/thing', egressMode: 'declared' };
@@ -103,6 +109,7 @@ function activities(options: {
   machineGit?: (op: MachineGitOp) => Promise<MachineGitResult>;
   memories?: unknown[];
   hangValue?: string;
+  world?: TestWorld;
 }) {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
@@ -195,7 +202,7 @@ function activities(options: {
       ...(options.machineGit ? { MachineGitActivity: options.machineGit } : {}),
     } : {},
     stream: {
-      EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
+      EngineStreamNodeActivity: createNodeRunner([scriptedModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => (options.world ?? world).client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
       EngineLifecycleActivity: vi.fn(async (_event: LifecycleEvent): Promise<void> => undefined),
     },
@@ -229,34 +236,35 @@ async function runWorkflow(
   drive?: (handle: WorkflowHandle) => Promise<void>,
   dataConverter?: DataConverter,
   deviceConverter?: DataConverter,
+  inWorld: TestWorld = world,
 ) {
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
   const converted = dataConverter ? { dataConverter } : {};
   const engineWorker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: inWorld.namespace,
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')),
     activities: acts.engine,
     ...converted,
   });
-  const streamWorker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
-  const deviceWorker = await Worker.create({
+  const streamWorker = () => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: inWorld.namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
+  const deviceWorker = () => Worker.create({
     interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: inWorld.namespace,
     taskQueue: 'device-desk',
     activities: { EngineToolActivity: acts.engine.EngineToolActivity, ...acts.device },
     ...(deviceConverter ? { dataConverter: deviceConverter } : converted),
   });
 
-  const client = drive || dataConverter ? new WorkflowClient({ connection: env.connection, ...converted }) : env.client.workflow;
+  const client = drive || dataConverter ? new WorkflowClient({ connection: env.connection, namespace: inWorld.namespace, ...converted }) : inWorld.client.workflow;
   const start = async () => {
     const handle = await client.start(AgentRunWorkflow, { args: [args], taskQueue, workflowId: args.ticket.runId });
     if (drive) await drive(handle);
     return handle.result();
   };
 
-  return engineWorker.runUntil(() => streamWorker.runUntil(() => deviceWorker.runUntil(start)));
+  return engineWorker.runUntil(async () => (await streamWorker()).runUntil(async () => (await deviceWorker()).runUntil(start)));
 }
 
 const published = (acts: Activities) =>
@@ -597,7 +605,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
     expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
-    const child = await new WorkflowClient({ connection: env.connection }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
+    const child = await new WorkflowClient({ connection: env.connection, namespace: world.namespace }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   });
 
@@ -1049,7 +1057,7 @@ describe('a long run continues as a new one', () => {
     const result = await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; });
 
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'a, b and c all say hello' } });
-    const first = await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe();
+    const first = await world.client.workflow.getHandle(args.ticket.runId, firstRun).describe();
     expect(first.status.name).toBe('CONTINUED_AS_NEW');
     expect(acts.engine.EngineToolActivity.mock.calls.map(([call]) => call.callId)).toEqual(['c1', 'c2', 'c3']);
     const lastTurn = acts.seen.at(-1)!;
@@ -1132,7 +1140,7 @@ describe('a long run continues as a new one', () => {
 
     await runWorkflow(args, acts, async (handle) => { firstRun = (handle as WorkflowHandleWithFirstExecutionRunId).firstExecutionRunId; });
 
-    expect((await env.client.workflow.getHandle(args.ticket.runId, firstRun).describe()).status.name).toBe('COMPLETED');
+    expect((await world.client.workflow.getHandle(args.ticket.runId, firstRun).describe()).status.name).toBe('COMPLETED');
   });
 });
 
@@ -1166,7 +1174,7 @@ describe('a run bigger than Temporal can carry', () => {
     const sizes: number[] = [];
     let runId: string | undefined = firstRunId;
     while (runId) {
-      const history = await env.client.workflow.getHandle(workflowId, runId).fetchHistory();
+      const history = await world.client.workflow.getHandle(workflowId, runId).fetchHistory();
       let next: string | undefined;
       for (const event of history.events ?? []) {
         sizes.push(temporal.api.history.v1.HistoryEvent.encode(event).finish().length);
@@ -1405,7 +1413,10 @@ describe('an external agent working on someone\'s machine', () => {
     const acts = activities({ script: [{ content: 'unused' }], external: sessions });
 
     const result = await runWorkflow({ ...input('executor', EXTERNAL, 'Do the long job'), environment: MACHINE }, acts, async (handle) => {
-      await new Promise((wait) => setTimeout(wait, 1500));
+      const ended = handle.result().then(() => 'ended', () => 'ended');
+      while (!published(acts).some((event) => event.type === 'content' && event.delta === 'Starting a long job.')) {
+        if (await Promise.race([ended, new Promise((wait) => setTimeout(wait, 50))]) === 'ended') break;
+      }
       await handle.signal(cancelSignal);
     });
 
@@ -2115,5 +2126,14 @@ describe('an external agent working on someone\'s machine', () => {
     const result = await runWorkflow(input('executor', EXTERNAL, 'Do it'), acts);
     expect(result.outcome).toBe('failed');
     expect(result.reason).toBe('scripted works on a person\'s machine, and no machine was picked for this run');
+  });
+});
+
+describe('two test worlds side by side', () => {
+  it('each runs on workers of its own, neither refused for the other\'s', async () => {
+    const worlds = [await newWorld(env), await newWorld(env)];
+    const results = await Promise.all(worlds.map((inWorld) =>
+      runWorkflow(input('research', RESEARCH_V2), activities({ script: [{ content: 'The answer is 42.' }], world: inWorld }), undefined, undefined, undefined, inWorld)));
+    expect(results).toMatchObject([{ outcome: 'ok', outputs: { result: 'The answer is 42.' } }, { outcome: 'ok', outputs: { result: 'The answer is 42.' } }]);
   });
 });

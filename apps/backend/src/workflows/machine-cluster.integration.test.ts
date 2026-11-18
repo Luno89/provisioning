@@ -8,7 +8,7 @@ import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { createDeviceActivities } from '../../../local-agent/src/engine-worker.js';
 import { IdleGate } from '../../../local-agent/src/idle-gate.js';
 import { K3S_KUBECONFIG, K3S_MARKER, runMachineCluster, type ClusterHost } from '../../../local-agent/src/machine-cluster.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { decryptValue } from '../platform/lib/crypto.js';
@@ -74,6 +74,12 @@ const handed: Array<{ activity: string; kubeconfig: string | undefined }> = [];
 const app = (id: string): DeploymentMetadata => ({ id, name: id, clusterId: 'machine-desk', ownerId: 'bo', strategy: 'native', status: 'running' });
 
 beforeAll(async () => { env = await temporalTestEnvironment(); rootDir = mkdtempSync(join(tmpdir(), 'machine-cluster-wf-')); });
+
+let world: TestWorld;
+
+beforeEach(async () => {
+  world = await newWorld(env);
+});
 afterAll(async () => { await env?.teardown(); rmSync(rootDir, { recursive: true, force: true }); });
 
 beforeEach(async () => {
@@ -87,7 +93,7 @@ beforeEach(async () => {
 
 async function working<T>(work: () => Promise<T>): Promise<T> {
   const connection = env.nativeConnection;
-  const namespace = env.namespace ?? 'default';
+  const namespace = world.namespace;
   const services: StreamServices = { registry: {} as never, endpoints: {} as never, bus: {} as never, machineClusters: clusters };
   const workflows = await Worker.create({
     ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection, namespace, taskQueue: QUEUE,
@@ -113,12 +119,12 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
 const stored = async () => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk')!;
 const ONE_MESH = 'clusters:\n- cluster:\n    server: https://100.64.0.7:6443\n';
 
-const deploy = (name: string) => env.client.workflow.execute<typeof executeDeployAppWorkflow>('executeDeployAppWorkflow', {
+const deploy = (name: string) => world.client.workflow.execute<typeof executeDeployAppWorkflow>('executeDeployAppWorkflow', {
   taskQueue: QUEUE, workflowId: `deploy-${name}-${Math.random().toString(36).slice(2, 8)}`, ...startedFor('bo'),
   args: [{ name, clusterId: 'machine-desk', clusterName: 'desk', provider: 'machine', strategy: 'native', appType: 'nginx', machine: { deviceId: DESK.id } } as unknown as DeployAppArgs],
 });
 
-const destroy = (name: string) => env.client.workflow.execute<typeof executeDestroyAppWorkflow>('executeDestroyAppWorkflow', {
+const destroy = (name: string) => world.client.workflow.execute<typeof executeDestroyAppWorkflow>('executeDestroyAppWorkflow', {
   taskQueue: QUEUE, workflowId: `destroy-${name}-${Math.random().toString(36).slice(2, 8)}`, ...startedFor('bo'),
   args: [{ name, deploymentId: name, clusterId: 'machine-desk', clusterName: 'desk', provider: 'machine', strategy: 'native', appType: 'nginx', logFile: join(rootDir, 'destroy.log'), machine: { deviceId: DESK.id, leaving: name } } as unknown as DestroyAppArgs],
 });

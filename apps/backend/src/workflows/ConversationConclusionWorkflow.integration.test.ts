@@ -1,13 +1,13 @@
 import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
-import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { createWorkspaceProjectActivities } from '../activities/WorkspaceProjectActivity.js';
 
@@ -18,6 +18,12 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
+});
+
+let world: TestWorld;
+
+beforeEach(async () => {
+  world = await newWorld(env);
 });
 
 afterAll(async () => {
@@ -31,20 +37,20 @@ describe('a conversation\'s countdown to concluding', () => {
     const workspaces: ConcludeWorkspaceArgs[] = [];
     const timers = await Worker.create({
       interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
     const backend = await Worker.create({
       interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });
 
     await timers.runUntil(() => backend.runUntil(async () => {
-      const client = env.client.workflow;
+      const client = world.client.workflow;
       const where = { workflowId: 'conclude-conversation-c1', taskQueue, args: [{ ownerId: 'u1', conversationId: 'c1' }] as [{ ownerId: string; conversationId: string }] };
       const start = (signal: 'turnEnded' | 'turnStarted', args: [{ quietMs: number }] | []) => (signal === 'turnEnded'
         ? client.signalWithStart(ConversationConclusionWorkflow, { ...where, signal: turnEndedSignal, signalArgs: args as [{ quietMs: number }] })
@@ -74,20 +80,20 @@ describe('a conversation\'s countdown to concluding', () => {
     const workspaces: ConcludeWorkspaceArgs[] = [];
     const timers = await Worker.create({
       interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
     const backend = await Worker.create({
       interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });
 
     await timers.runUntil(() => backend.runUntil(async () => {
-      const handle = await env.client.workflow.signalWithStart(ConversationConclusionWorkflow, {
+      const handle = await world.client.workflow.signalWithStart(ConversationConclusionWorkflow, {
         workflowId: 'conclude-conversation-c2',
         taskQueue,
         args: [{ ownerId: 'u1', conversationId: 'c2' }],

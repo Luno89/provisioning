@@ -2,7 +2,7 @@ import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ApplicationFailure } from '@temporalio/common';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -24,7 +24,7 @@ import type { Tree } from '../projects/lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
-import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
 import { Client } from '@temporalio/client';
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
@@ -36,6 +36,12 @@ let env: TestWorkflowEnvironment;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
+});
+
+let temporalWorld: TestWorld;
+
+beforeEach(async () => {
+  temporalWorld = await newWorld(env);
 });
 
 afterAll(async () => {
@@ -222,7 +228,7 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
   const seeing = <A extends unknown[], R>(name: string, step: (...args: A) => Promise<R>) => async (...args: A): Promise<R> => { workSeen?.push([name, workFor()]); return step(...args); };
   const worker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: temporalWorld.namespace,
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname), [resolve(__dirname, 'telemetry-interceptors.ts')]),
     activities: {
@@ -240,11 +246,11 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
   });
   const streamWorker = await Worker.create({
     interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: temporalWorld.namespace,
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { w.told.push(ownerId); } },
   });
-  const naming = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+  const naming = new Client({ connection: env.connection, namespace: temporalWorld.namespace, interceptors: { workflow: [namesItsWork] } });
   return streamWorker.runUntil(worker.runUntil(() => naming.workflow.execute(AdoptPlanWorkflow, {
     args: [{ ownerId: 'user-1', proposalId }],
     taskQueue,
@@ -262,8 +268,8 @@ describe('AdoptPlanWorkflow', () => {
     expect(result).toMatchObject({ status: 'adopted', treeId: 'plan-p1-tree', commit: 'c0ffee' });
     expect(result.growing).toEqual({ started: true });
     expect(w.told, 'the owner\'s browsers are told the grove changed').toEqual(['user-1']);
-    expect((await env.client.workflow.getHandle('grove-run-plan-p1-tree').describe()).type).toBe('AgentRunWorkflow');
-    await env.client.workflow.getHandle('grove-run-plan-p1-tree').terminate('test over').catch(() => undefined);
+    expect((await temporalWorld.client.workflow.getHandle('grove-run-plan-p1-tree').describe()).type).toBe('AgentRunWorkflow');
+    await temporalWorld.client.workflow.getHandle('grove-run-plan-p1-tree').terminate('test over').catch(() => undefined);
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', ownerId: 'user-1', name: 'Widget API', type: 'api-service', projectIds: [] })]);
     expect([...w.branches.values()]).toEqual([expect.objectContaining({ id: 'plan-p1-b0', treeId: 'plan-p1-tree', title: 'Operability' })]);
 
@@ -412,14 +418,14 @@ describe('AdoptPlanWorkflow', () => {
     const w = world([proposal({ id: 'p5' } as never)], { homes: true });
     await adopt(w, 'p5');
     expect(w.bound).toEqual(['user-1 conv-1 -> plan-p5-tree / project-plan-p5-tree']);
-    await env.client.workflow.getHandle('grove-run-plan-p5-tree').terminate('test over').catch(() => undefined);
+    await temporalWorld.client.workflow.getHandle('grove-run-plan-p5-tree').terminate('test over').catch(() => undefined);
   });
 
   it('leaves a conversation already about a tree as it is', async () => {
     const w = world([proposal({ id: 'p6' } as never)], { bound: ['conv-1'] });
     await adopt(w, 'p6');
     expect(w.bound).toEqual([]);
-    await env.client.workflow.getHandle('grove-run-plan-p6-tree').terminate('test over').catch(() => undefined);
+    await temporalWorld.client.workflow.getHandle('grove-run-plan-p6-tree').terminate('test over').catch(() => undefined);
   });
 
   it('keeps a plan adopted when its tree cannot be started, and says why', async () => {
@@ -471,9 +477,9 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.files.get('repo/leaves/leaf-r.md')).toContain('_Replanned: nginx is not installed; python3 is_');
     expect(w.commands.some((command) => command.includes("commit -q -m 'replan: Serve it'"))).toBe(true);
 
-    const run = await env.client.workflow.getHandle('grove-run-tree-r').describe();
+    const run = await temporalWorld.client.workflow.getHandle('grove-run-tree-r').describe();
     expect(run.type).toBe('AgentRunWorkflow');
-    await env.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
+    await temporalWorld.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
   });
 
   const changeWorld = (change: PlanProposal['change']) => {
@@ -511,7 +517,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.files.get('repo/PLAN.md')).toContain('## Changed: Change “Note on screen” (change `p3`)\n\nprint it too\n\n- **Note on screen** (`leaf-a`): its goal changed');
     expect(w.commands.some((command) => command.includes("commit -q -m 'change: p3'"))).toBe(true);
     expect(w.bound).toEqual([]);
-    await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
+    await temporalWorld.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
   });
 
   it('adds stories in a feature the change opens, making the feature only once it is approved', async () => {
@@ -530,7 +536,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(result).toMatchObject({ status: 'adopted', growing: { started: true } });
     expect(w.branches.get('tree-c-customizations')).toMatchObject({ treeId: 'tree-c', title: 'Customizations from the live app', ownerId: 'user-1' });
     expect([...w.leaves.values()].find((leaf) => leaf.branchId === 'tree-c-customizations')).toMatchObject({ title: 'Bring 1 customization made in the app into git', status: 'pending' });
-    await env.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
+    await temporalWorld.client.workflow.getHandle('grove-run-tree-c').terminate('test over');
   });
 
   it('applies a cancel: stops the worker, frees what waited on it in the records and its brief, and does not run the tree', async () => {
