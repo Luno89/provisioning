@@ -20,7 +20,7 @@ import { startRealGitea } from '../../projects/testing/real-gitea.js';
 import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
 import { startDependencySourcesStandIn } from './dependency-sources-stand-in.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
-import { PLAINTEXT_TEMPORAL_CA, TEST_RELEASE } from './platform-services.js';
+import { TEST_RELEASE } from './platform-services.js';
 
 export interface TestGitea { url: string; adminPassword: string; logs(): string; close(): Promise<void> }
 
@@ -124,7 +124,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
     hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
-    temporal: { address: inject('temporalAddress'), namespace: temporalNamespace.namespace, ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE, dataDir: rootData,
+    temporal: { address: inject('temporalTlsAddress'), namespace: temporalNamespace.namespace, ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: rootData,
   });
   const shared = {
     ...testKeyEnv(secret),

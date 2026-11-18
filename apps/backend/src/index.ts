@@ -17,7 +17,7 @@ import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRou
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
-  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
+  TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, type BackendSettings } from './platform/index.js';
@@ -394,7 +394,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         upstream: settings.temporal.address,
         namespace: settings.temporal.namespace,
         temporalKey: keys.temporal,
-        temporalCa: temporalCa(settings.temporal),
+        temporalCa: temporalTls(settings.temporal).serverRootCACertificate,
         payloadBlobs: sharedPayloadBlobs(),
       },
     } : {}),

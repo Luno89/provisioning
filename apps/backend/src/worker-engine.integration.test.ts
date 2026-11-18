@@ -32,7 +32,7 @@ const away = 'http://127.0.0.1:1';
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   NODE_ENV: 'development', ...testKeyEnv(`engine-${role}`), ROLE: role, MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: testDataDir(),
+  TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
   HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: '0', PUBLIC_URL: away, TERRAFORM_STATE: 'local',
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey() }

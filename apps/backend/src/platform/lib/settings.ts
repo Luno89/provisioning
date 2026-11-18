@@ -53,7 +53,6 @@ export interface TemporalSettings {
   address: string;
   namespace: string;
   caPath: string;
-  production: boolean;
 }
 
 export interface ClusterSettings {
@@ -350,7 +349,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
     lab: labFrom(env),
     keys,
     mongo,
-    temporal: { address, namespace, caPath, production },
+    temporal: { address, namespace, caPath },
     telemetry: {
       version: settingIn(read.env, 'KOALA_VERSION'),
       instanceId: settingIn(read.env, 'INSTANCE_ID'),
@@ -690,7 +689,7 @@ export function connectionSettingsFrom(env: Env): ConnectionSettings {
   const namespace = required(read, 'TEMPORAL_NAMESPACE', 'it is the Temporal namespace this install works in');
   const caPath = required(read, 'TEMPORAL_TLS_CA', 'it is the file holding Temporal\'s certificate authority');
   return finish(read, 'this program', keys && mongo && address && namespace && caPath
-    ? { keys, mongo, temporal: { address, namespace, caPath, production: env.NODE_ENV === 'production' } }
+    ? { keys, mongo, temporal: { address, namespace, caPath } }
     : undefined);
 }
 

@@ -1,7 +1,7 @@
 import { testKeyEnv } from './platform/testing/keys.js';
 import { spawn } from 'node:child_process';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { NO_SERVICE_HOST, PLAINTEXT_TEMPORAL_CA, TEST_RELEASE, unreachedPlatformServices } from './platform/testing/platform-services.js';
+import { NO_SERVICE_HOST, TEST_RELEASE, unreachedPlatformServices } from './platform/testing/platform-services.js';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +47,7 @@ beforeAll(async () => {
   const plan = devSplitPlan({
     name: 'dev', owner: { id: 'owner-1', email: 'owner@example.com', createdAt: 'then' } as never, instanceId: 'inst-1', credential: 'c', credentialHash: hashCredential('c'),
     hubCredential: 'h', hubCredentialHash: hashCredential('h'), rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
-    temporal: { address: NO_SERVICE_HOST, namespace: 'default', ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE, dataDir: testDataDir(),
+    temporal: { address: NO_SERVICE_HOST, namespace: 'default', ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: testDataDir(),
   });
   const own = (database: string) => ({ MONGO_URI: `${mongo}${database}_${randomUUID().slice(0, 8)}` });
   const keys = { ...testKeyEnv('frontend-routes'), ROOT_IDENTITY_KEY: Buffer.from(identity).toString('base64') };

@@ -10,6 +10,8 @@ import { registerOwnerAttribute } from '../platform/lib/temporal-client.js';
 declare module 'vitest' {
   export interface ProvidedContext {
     temporalAddress: string;
+    temporalTlsAddress: string;
+    temporalCa: string;
   }
 }
 

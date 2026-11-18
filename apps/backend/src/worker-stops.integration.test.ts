@@ -25,7 +25,7 @@ const away = 'http://127.0.0.1:1';
 
 const instance = async (): Promise<Record<string, string>> => ({
   NODE_ENV: 'development', ...testKeyEnv('worker-stops'), ROLE: 'instance', MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt',
+  TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'),
   TEMPORAL_METRICS_PORT: String(await portToHandOn()), TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()), TERRAFORM_STATE: 'local',
   INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', INSTANCE_MACHINE_ID: 'desk', ROOT_URL: away, ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred',
   GITEA_URL: away, GITEA_REACHES_KOALA_AT: away, INFISICAL_URL: away, ...testMinioEnv(),

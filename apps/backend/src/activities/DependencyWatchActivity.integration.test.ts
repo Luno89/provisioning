@@ -42,7 +42,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
     writeFileSync(join(dataDir, 'instance-charts', `${TAG}.sbom.json`), JSON.stringify({ components: [k3s] }));
     const settings = hostWorkerSettingsFrom({
       NODE_ENV: 'development', ...testKeyEnv('dependency-watch'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: mongoUri,
-      TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: dataDir,
+      TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: dataDir,
       HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
       MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: sources.url,
     });
@@ -72,7 +72,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
       const before = mail.received.length;
       const settings = hostWorkerSettingsFrom({
         NODE_ENV: 'development', ...testKeyEnv('dependency-watch-down'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: fresh.uri.replace(/\/[^/?]*(\?|$)/, `/${fresh.dbName}$1`),
-        TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: dataDir,
+        TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: dataDir,
         HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
         MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: down.url,
       });
@@ -103,7 +103,7 @@ describe('root\'s daily dependency check, run as the host worker runs it', () =>
       const before = mail.received.length;
       const settings = hostWorkerSettingsFrom({
         NODE_ENV: 'development', ...testKeyEnv('dependency-watch-gone'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: fresh.uri.replace(/\/[^/?]*(\?|$)/, `/${fresh.dbName}$1`),
-        TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: '/nowhere/ca.crt', DATA_DIR: dataDir,
+        TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: dataDir,
         HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'https://app.root.test', INSTANCE_IMAGE_TAG: TAG,
         MAIL_SMTP_URL: mail.url, MAIL_FROM: 'koala@root.test', DEPENDENCY_SOURCES: registry.url,
       });

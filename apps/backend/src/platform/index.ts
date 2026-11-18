@@ -83,7 +83,7 @@ export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks } from './lib/temporal
 export { connectTemporalAs, getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';
 export { connectTemporalWorker } from './lib/temporal-connection.js';
-export { temporalCa, temporalTls, temporalTlsProblem } from './lib/temporal-tls.js';
+export { temporalTls, temporalTlsProblem } from './lib/temporal-tls.js';
 export { failureReason } from './lib/temporal-failure.js';
 export { isCloudProvider } from './lib/types.js';
 export type { CloudCredentials, CloudProvider, ClusterMetadata, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, PlatformGrant, ProjectMetadata, SignInLink, UserMetadata } from './lib/types.js';

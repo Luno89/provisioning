@@ -1,9 +1,5 @@
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 export const NO_SERVICE_HOST = '127.0.0.1:1';
-
-export const PLAINTEXT_TEMPORAL_CA = join(tmpdir(), 'koala-test-temporal-speaks-plaintext', 'ca.crt');
 
 export const TEST_RELEASE = { imageTag: 'dev', registry: '127.0.0.1:5001' };
 
