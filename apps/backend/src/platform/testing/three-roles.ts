@@ -129,7 +129,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const shared = {
     ...testKeyEnv(secret),
     ROOT_IDENTITY_KEY: identityKey,
-    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
+    TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'),
     TEMPORAL_NAMESPACE: temporalNamespace.namespace,
     MAIL_SMTP_URL: mail.url,
     MAIL_FROM: `koala@${label}.test`,
