@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
@@ -79,6 +79,23 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
     expect(saved.token).toBe(ctx.joined!.token);
     expect((await db.machines.getLocalAgentDevices()).map((device) => [device.id, device.ownerId, device.name])).toEqual([[saved.deviceId, 'bo', 'desk']]);
     expect((await accounts.joins('bo')).map((join) => [join.stage, join.state])).toEqual([['join', 'done']]);
+  });
+
+  it('stops at the join when the settings this machine kept are not the ones Koala writes, tells root where and why with the code, and makes no machine', async () => {
+    const { db, accounts, url } = await root();
+    const { code } = await accounts.createJoinCode('bo');
+    const ctx = await joinContext(url, code);
+    const settings = path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json');
+    await mkdir(path.dirname(settings), { recursive: true });
+    await writeFile(settings, '{"token": ');
+    const reporter = rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, fetch, { pause: async () => undefined }));
+    await expect(runSteps([joinRootStep(url)], ctx, reporter)).rejects.toThrow(`${settings} is not the settings Koala writes (`);
+    expect(await db.machines.getLocalAgentDevices()).toEqual([]);
+    const [join] = await accounts.joins('bo');
+    expect(join).toMatchObject({ stage: 'join', state: 'failed', joined: false });
+    expect(join?.why).toContain(`${settings} is not the settings Koala writes (`);
+    expect(join?.why).toContain(`remove it there; then delete ${settings} and run this command again.`);
+    expect(await readFile(settings, 'utf8')).toBe('{"token": ');
   });
 
   it('tells root each stage of putting Koala on the machine at the install\'s own route, with the machine\'s own token, and is refused a stage of an install it was not asked for', async () => {

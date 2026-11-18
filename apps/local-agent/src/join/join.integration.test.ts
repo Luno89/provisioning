@@ -261,15 +261,21 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     expect(heard.slice(0, 2).map((entry) => `${entry.progress.stage} ${entry.progress.state}`)).toEqual(['join started', 'join done']);
   });
 
-  it('joins as a new machine, and says so, when the settings it kept are not the ones Koala writes', async () => {
+  it('stops at the join, saying where, why and what to do, and makes no machine, when the settings it kept are not the ones Koala writes', async () => {
     const settings = path.join(home, '.config/koala/machine.json');
+    const kept = readFileSync(settings, 'utf8');
+    const made = joins.length;
+    heard.length = 0;
     writeFileSync(settings, 'not what Koala writes');
     const fifth = await join('fifth-code');
-    expect(fifth.code, fifth.said).toBe(0);
-    expect(fifth.said).toContain(`${settings} is not the settings Koala writes (`);
-    expect(fifth.said).toContain(', so this joins as a new machine\n');
-    expect(joins.at(-1)?.replaces).toBe('');
-    expect((JSON.parse(readFileSync(settings, 'utf8')) as { token: string }).token).toBe(`token-${joins.length}`);
+    writeFileSync(settings, kept);
+    expect(fifth.code, fifth.said).toBe(1);
+    expect(fifth.said).toContain(`failed: ${settings} is not the settings Koala writes (`);
+    expect(fifth.said).toContain(`If this machine is on My Machines already, remove it there; then delete ${settings} and run this command again.`);
+    expect(joins).toHaveLength(made);
+    const failed = heard.find((entry) => entry.progress.state === 'failed');
+    expect(failed?.progress).toMatchObject({ stage: 'join', state: 'failed' });
+    expect(failed?.progress.why).toContain(`${settings} is not the settings Koala writes (`);
   });
 
   it('tells the person when sudo stops keeping their password partway through', async () => {

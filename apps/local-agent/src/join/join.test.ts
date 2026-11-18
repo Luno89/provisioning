@@ -307,3 +307,41 @@ describe('a join that fails', () => {
     expect(world.files.has(K3S_CONFIG)).toBe(false);
   });
 });
+
+describe('the settings this machine kept from its last join', () => {
+  const SETTINGS = `${HOME}/.config/koala/machine.json`;
+
+  it('stops at the join, naming the file, why and what to do, and makes no machine, when they are not the settings Koala writes', async () => {
+    const world = machine({ tailscale: { installed: true }, executables: ['/usr/bin/systemctl'], files: { [SETTINGS]: 'not what Koala writes' } });
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (`);
+    expect(ran.said).toContain(`If this machine is on My Machines already, remove it there; then delete ${SETTINGS} and run this command again.`);
+    expect(ran.root.reported.at(-1)).toMatchObject({ kind: 'failed', id: 'join' });
+    expect(world.joins).toEqual([]);
+    expect(world.files.get(SETTINGS)).toBe('not what Koala writes');
+    expect(ran.agents).toEqual([]);
+  });
+
+  it('stops the same way when they name no device token', async () => {
+    const world = machine({ tailscale: { installed: true }, files: { [SETTINGS]: '{"rootUrl":"https://root.test"}' } });
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (it names no device token)`);
+    expect(world.joins).toEqual([]);
+  });
+
+  it('stops, saying how to make them readable, when they cannot be read', async () => {
+    const world = machine({ tailscale: { installed: true } });
+    const reads = world.host.readOwn;
+    world.host.readOwn = async (file) => {
+      if (file === SETTINGS) throw new Error(`${SETTINGS} could not be read: EACCES: permission denied, open '${SETTINGS}'`);
+      return reads(file);
+    };
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} could not be read: EACCES: permission denied, open '${SETTINGS}'. Make it yours and readable only by you (chown ${world.host.user} ${SETTINGS}; chmod 600 ${SETTINGS}), then run this command again.`);
+    expect(world.joins).toEqual([]);
+  });
+});
+
