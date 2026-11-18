@@ -6,9 +6,9 @@ import {
   type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, appStackName, NO_STACK_ID, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, failureOf, type DatabaseSettings } from '../platform/index.js';
+import { createDatabase, failureOf } from '../platform/index.js';
 
-import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { installClusterMonitoring, machineMonitoringOf } from './cluster-monitoring.js';
 import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
@@ -115,23 +115,7 @@ export interface DeployAppResult {
   notes: string[];
 }
 
-
 const SANITIZE = sanitiseNamespaceName;
-
-const metricsUrlOf = (url: string | { off: string }): string => {
-  if (typeof url !== 'string') throw new Error(url.off);
-  return url;
-};
-
-async function rememberMetricsToken(database: DatabaseSettings, clusterId: string, tokenHash: string): Promise<void> {
-  const db = createDatabase(database);
-  await db.init();
-  try {
-    await db.infrastructure.patchCluster(clusterId, { metricsTokenHash: tokenHash });
-  } finally {
-    await db.close().catch(ignore('the token\'s hash is already kept, and a connection that does not close cleanly holds nothing this deploy needs'));
-  }
-}
 
 export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<DeployAppResult> {
   const { access } = steps;
@@ -423,11 +407,11 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     storageEnv,
   });
 
-  await ensureClusterMonitoring(steps, {
+  await installClusterMonitoring(steps, {
     physicalName: reach.clusterId, reach, pool: placedOnPool(Boolean(access.here.poolName), reach),
     ...(reach.kind === 'koala' ? { koala: true } : {}),
-    ...(reach.kind === 'machine' ? { machine: { metricsUrl: metricsUrlOf(steps.machineMetricsUrl), remember: (tokenHash: string) => rememberMetricsToken(steps.database, args.clusterId, tokenHash) } } : {}),
-  }, logFile);
+    ...(reach.kind === 'machine' ? { machine: machineMonitoringOf(steps, args.clusterId) } : {}),
+  }, { logFile });
   await applyWatched(steps, appStackName(physicalName, deploymentId), { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
 
   if (args.appType === 'gitapp') {

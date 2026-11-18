@@ -12,7 +12,7 @@ import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, startedMachine, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import { startK3s, TOOLS, type RealK3s } from '../infrastructure/testing/real-k3s.js';
 import { MONITORING_CHARTS } from '../monitoring/index.js';
-import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const GROUP = `koala${randomBytes(4).toString('hex')}.test`;
 const CRD = `widgets.${GROUP}`;
@@ -90,7 +90,7 @@ describe('a cluster whose monitoring stack is at another version than Koala\'s',
     const seenWhenUpgraded: string[][] = [];
     infra.deploy.mockImplementation(async () => { seenWhenUpgraded.push(await fields()); return { stdout: '', logFile: '' }; });
 
-    await ensureClusterMonitoring({ access, infra }, { physicalName: 'machine-desk', reach });
+    await installClusterMonitoring({ access, infra }, { physicalName: 'machine-desk', reach });
 
     expect(infra.deploy).toHaveBeenCalled();
     expect(seenWhenUpgraded[0]).toEqual(['colour', 'size']);

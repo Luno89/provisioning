@@ -14,14 +14,14 @@ import { DownloadModelActivity, type DownloadModelArgs } from './activities/Down
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
-import { type ClusterWorkerSettings, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
+import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
-import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
+import { collectorEndpoint, collectorSink } from './monitoring/index.js';
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
@@ -32,7 +32,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const logger = createWorkerLogger('cluster-worker');
 
-export const clusterActivities = (steps: ClusterSteps, huggingFace: string = HUGGING_FACE) => ({
+export interface ClusterSetup {
+  place: ProvisionPlace;
+  lines: ProvisionLines;
+}
+
+export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, huggingFace: string = HUGGING_FACE) => ({
       DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
       CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
       DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
@@ -41,6 +46,7 @@ export const clusterActivities = (steps: ClusterSteps, huggingFace: string = HUG
       DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps, huggingFace),
       VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
       RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
+      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, ...setup }),
 });
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
@@ -58,6 +64,9 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   keepPayloadsIn(settings.mongo);
   const fences = await holdFencesIn('worker-cluster', settings.mongo);
   const dataKey = settings.keys.data;
+  const db = createDatabase({ mongo: settings.mongo, dataKey });
+  db.reportReachTo(dependencies);
+  await db.init();
   const steps: ClusterSteps = {
     access,
     infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources)),
@@ -87,7 +96,10 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities: clusterActivities(steps, settings.tests.huggingFaceUrl),
+        activities: clusterActivities(steps, {
+          place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
+          lines: recordedLines(db.infrastructure),
+        }, settings.tests.huggingFaceUrl),
       });
       break;
     } catch (err) {
@@ -113,11 +125,8 @@ async function main() {
       },
     },
   });
-  const { worker, steps, telemetry, fences } = await startClusterWorker(settings);
+  const { worker, telemetry, fences } = await startClusterWorker(settings);
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
-  ensureClusterMonitoring(steps, koalaClusterMonitoring(Boolean(settings.clusters.here.poolName), steps.access.own()))
-    .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
-    .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
   await runThenLetGo(worker, fences);
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));

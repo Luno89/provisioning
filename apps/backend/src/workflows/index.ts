@@ -22,3 +22,4 @@ export { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 export { RootNodeWorkflow } from './RootNodeWorkflow.js';
 export { StoredFilesWorkflow } from './StoredFilesWorkflow.js';
 export { StoredFilesSweepWorkflow } from './StoredFilesWorkflow.js';
+export { ProvisionPieceWorkflow } from './ProvisionPieceWorkflow.js';

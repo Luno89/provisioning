@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { InfrastructureService, terraformPlacesFor } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { clusterAccessFrom } from '../apps/backend/src/infrastructure/services/ClusterAccess.js';
-import { ensureClusterMonitoring } from '../apps/backend/src/activities/cluster-monitoring.js';
+import { installClusterMonitoring } from '../apps/backend/src/activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../apps/backend/src/monitoring/lib/cluster-monitoring.js';
 
 async function main(): Promise<void> {
@@ -13,8 +13,8 @@ async function main(): Promise<void> {
   const access = clusterAccessFrom({ here: { root: true }, serviceAccount: undefined, rootKubeconfig, chartSources: undefined }, { role: 'root' });
   const reach = access.own();
   const logFile = infra.getLogPath(`cluster-stack-${reach.clusterId}`);
-  console.log(`  ▶  root's cluster's monitoring, ingress and telemetry: applying whatever is missing, as the cluster worker does when it starts (log: ${logFile})`);
-  await ensureClusterMonitoring({ access, infra }, koalaClusterMonitoring(false, reach), logFile);
+  console.log(`  ▶  root's cluster's monitoring, ingress and telemetry: applying whatever is missing, as each Koala's setup does for its own cluster (log: ${logFile})`);
+  await installClusterMonitoring({ access, infra }, koalaClusterMonitoring(false, reach), { logFile });
   console.log('  ✅ root\'s cluster has monitoring and Koala\'s own telemetry stack');
 }
 

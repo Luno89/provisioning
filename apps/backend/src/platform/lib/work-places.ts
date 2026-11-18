@@ -56,6 +56,7 @@ export const WORKFLOWS: Record<string, Started> = {
   executeResizeDiskWorkflow: onInstance('cluster'),
   executeSyncConfigWorkflow: onInstance('cluster'),
   executePipelineRunWorkflow: onInstance('cluster'),
+  ProvisionPieceWorkflow: onInstance('cluster'),
   AgentRunWorkflow: onInstance('engine'),
   AdoptPlanWorkflow: onInstance('engine'),
   ConversationConclusionWorkflow: onInstance('engine'),

@@ -21,6 +21,7 @@ vi.mock('../platform/index.js', async (actual) => ({
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { clusterActivities } = await import('../worker-cluster.js');
+type ClusterSetup = import('../worker-cluster.js').ClusterSetup;
 
 const huggingFace = interceptHttp();
 const MODEL_TREE = 'https://huggingface.co/api/models/org/model/tree/*';
@@ -162,7 +163,7 @@ describe('deploying an app on the cluster it was handed', () => {
       options!.signal!.addEventListener('abort', () => refuse(new Error('terraform was stopped')), { once: true });
       activity.cancel();
     })));
-    await expect(activity.run(clusterActivities(steps()).DeployAppActivity, deploy())).rejects.toThrow();
+    await expect(activity.run(clusterActivities(steps(), mock<ClusterSetup>()).DeployAppActivity, deploy())).rejects.toThrow();
     expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', expect.anything());
     expect(appSignal?.aborted).toBe(true);
   });
