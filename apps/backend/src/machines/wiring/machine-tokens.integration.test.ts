@@ -230,6 +230,7 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
       koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
       followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
       toMachines: { removed: () => false, koala: () => false },
+      toOwner: { machinesChanged: () => undefined },
       now: () => clock,
     });
     let offered = false;
