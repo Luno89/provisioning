@@ -422,7 +422,8 @@ describe('the instance chart', () => {
     expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322' });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
-    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN });
+    expect(fromSecrets.CRAWL4AI_API_TOKEN).toMatch(/^[A-Za-z0-9]{40}$/);
     expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined });
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;

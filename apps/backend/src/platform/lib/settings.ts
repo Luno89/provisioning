@@ -198,6 +198,8 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   infisical: InfisicalSettings;
   terraform: TerraformStateKind;
   machineMetricsUrl: string | Off;
+  podNamespace: string;
+  crawl4aiToken: string;
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -546,6 +548,15 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   });
 }
 
+const platformNamespaceFrom = (read: Reading): string | undefined =>
+  required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
+
+function crawl4aiTokenFrom(read: Reading): string | undefined {
+  const token = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+  if (token && !/^[A-Za-z0-9]+$/.test(token)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+  return token;
+}
+
 export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const read = new Reading(env);
   const role = read.take(() => roleFromEnv(env));
@@ -557,7 +568,9 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const terraform = terraformFrom(read);
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const metricsUrl = settingIn(read.env, 'MACHINE_METRICS_URL');
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  const podNamespace = platformNamespaceFrom(read);
+  const crawl4aiToken = crawl4aiTokenFrom(read);
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -566,6 +579,8 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     registryPullHost,
     infisical,
     terraform,
+    podNamespace,
+    crawl4aiToken,
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
@@ -677,10 +692,9 @@ export function platformServicesSettingsFrom(env: Env, serviceAccountDir = SERVI
   const read = new Reading(env);
   const step = podStep(read, serviceAccountDir);
   const terraform = terraformFrom(read);
-  const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
+  const podNamespace = platformNamespaceFrom(read);
   const dataDir = dataDirFrom(read);
-  const crawl4aiToken = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
-  if (crawl4aiToken && !/^[A-Za-z0-9]+$/.test(crawl4aiToken)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+  const crawl4aiToken = crawl4aiTokenFrom(read);
   return finish(read, 'the platform services step', step && terraform && podNamespace && dataDir && crawl4aiToken
     ? { ...step, terraform, podNamespace, dataDir, crawl4aiToken }
     : undefined);
