@@ -1,4 +1,5 @@
 import type { Socket } from 'socket.io'
+import { afterAll } from 'vitest'
 import type { Site } from './site'
 import { MachineService } from '../../../../backend/src/machines/services/MachineService'
 import { MachineAccounts } from '../../../../backend/src/machines/services/MachineAccounts'
@@ -9,6 +10,11 @@ import { InstanceService } from '../../../../backend/src/instances/services/Inst
 import { generateIdentityKey, identityKeysFrom } from '../../../../backend/src/instances/lib/identity-token'
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
 import type { LocalAgentDeviceMetadata } from '../../../../backend/src/platform/lib/types'
+import { machineSides, type MachineSides } from '../../../../backend/src/machines/wiring/sides'
+import { koalaOfOwner } from '../../../../backend/src/machines/wiring/machines'
+import { myMachinesRouter } from '../../../../backend/src/machines/routes/my-machines'
+import type { InstallWorkflows } from '../../../../backend/src/machines/services/KoalaInstalls'
+import { roleFromEnv, type RoleConfig } from '../../../../backend/src/platform/lib/platform-role'
 
 export const DATA_KEY = 'frontend-integration-data-key'
 
@@ -18,6 +24,39 @@ export interface Machines {
   join: (name: string, code: string) => Promise<string>
   agents: (deviceId: string, agents: NonNullable<LocalAgentDeviceMetadata['agents']>) => Promise<void>
   connect: (deviceId: string) => Promise<void>
+}
+
+export interface RootSides {
+  role: RoleConfig
+  sides: MachineSides
+  started: string[]
+}
+
+export async function rootSidesOf(site: Site): Promise<RootSides> {
+  const { db, io, origin, api } = site
+  const role = roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() })
+  const places = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
+    { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined })
+  const started: string[] = []
+  const workflows: InstallWorkflows = {
+    start: async (installId) => { started.push(installId) },
+    progress: async () => undefined,
+    reconnected: async () => undefined,
+    cancel: async () => undefined,
+  }
+  const sides = machineSides({
+    role, db, io, dataKey: DATA_KEY, publicUrl: origin, meshLoginServer: 'https://mesh.koala.test',
+    mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },
+    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
+    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
+    instances: () => ({ places }),
+    installWorkflows: workflows,
+  })
+  if (!sides.accounts || !sides.installsWatched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
+  afterAll(() => sides.installsWatched?.close())
+  await sides.installsWatched.ready
+  api.use('/my-machines', myMachinesRouter({ accounts: sides.accounts, koalaOf: koalaOfOwner(db) }))
+  return { role, sides, started }
 }
 
 export function machinesOf({ db, origin }: Site): Machines {

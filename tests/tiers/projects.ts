@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { TestProjectInlineConfiguration } from 'vitest/config';
+import type { PluginOption } from 'vite';
 
 const here = (file: string): string => fileURLToPath(new URL(file, import.meta.url));
 
@@ -28,7 +29,7 @@ export interface Tiers {
   exclude?: string[];
   setupFiles?: string[];
   unit?: { setupFiles?: string[] };
-  integration?: { setupFiles?: string[]; globalSetup?: string[]; optional?: Record<string, Setup>; env?: Record<string, string>; environment?: string };
+  integration?: { setupFiles?: string[]; globalSetup?: string[]; optional?: Record<string, Setup>; env?: Record<string, string>; environment?: string; plugins?: PluginOption[] };
 }
 
 export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
@@ -43,6 +44,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
     },
     {
       extends: true,
+      ...(options.integration?.plugins ? { plugins: options.integration.plugins } : {}),
       test: {
         name: 'integration',
         testTimeout: 0,

@@ -2,6 +2,7 @@ import http from 'node:http'
 import { randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import express, { type Router } from 'express'
+import { Server as SocketServer } from 'socket.io'
 import { afterAll } from 'vitest'
 import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
@@ -29,6 +30,7 @@ export interface Site {
   api: Router
   auth: Auth
   origin: string
+  io: SocketServer
 }
 
 export interface Mail {
@@ -64,8 +66,9 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
   await seedAll(db)
   const app = express()
   const server = http.createServer(app)
+  const io = new SocketServer(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
-  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  afterAll(() => new Promise<void>((resolve) => { void io.close(() => resolve()) }))
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
   const sessionEnds = new SessionEnds(db.platform)
@@ -82,7 +85,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
   app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: SESSION_KEY }))
   const api = express.Router()
   app.use('/api', api)
-  await mount({ db, api, auth, origin })
+  await mount({ db, api, auth, origin, io })
   app.use(errorResponder)
 
   moveThePageTo(origin)

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { act, renderHook } from '@testing-library/react'
+import { act, getConfig, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query'
 
 const freshClient = (): QueryClient => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -30,4 +30,18 @@ export async function mutated<Variables, Result>(useHook: () => UseMutationResul
   view.unmount()
   client.clear()
   return result
+}
+
+export function shown<T>(find: () => T | null): Promise<T> {
+  return getConfig().asyncWrapper(() => new Promise<T>((resolve) => {
+    const now = find()
+    if (now) return resolve(now)
+    const watch = new MutationObserver(() => {
+      const found = find()
+      if (!found) return
+      watch.disconnect()
+      resolve(found)
+    })
+    watch.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true })
+  }))
 }
