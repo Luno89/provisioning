@@ -87,4 +87,13 @@ describe('the "Setting Koala up" card', () => {
     expect(shown.setups[0]).toEqual({ kind: 'up', key: 'desk', line: 'Koala\'s services and monitoring are set up (revision 7).' })
     expect(shown.setups[1]).toMatchObject({ kind: 'open', key: 'desk-2', heading: 'desk-2\'s collector', because: 'because a piece was found missing', pieces: [{ key: 'monitoring', title: 'desk-2\'s collector', state: 'waiting', words: 'waiting its turn' }] })
   })
+
+  it('says root refused hearing the setup, with why, and stays open for it even once everything is up', () => {
+    const root = { why: 'root refused hearing that Koala is set up: this Koala is moving (409)', at: '2026-11-18T10:21:00.000Z' }
+    const rootSaid = 'My Machines does not show this yet: root refused hearing that Koala is set up: this Koala is moving (409)'
+    expect(provisioningShown([koala({ state: 'up', pieces: allUp(), root })], true))
+      .toEqual({ kind: 'setting-up', setups: [{ kind: 'up', key: 'desk', line: 'Koala\'s services and monitoring are set up (revision 7).', root: rootSaid }] })
+    const shown = provisioningShown([koala({ root })], true)
+    expect(shown.kind === 'setting-up' && shown.setups[0]).toMatchObject({ kind: 'open', root: rootSaid })
+  })
 })

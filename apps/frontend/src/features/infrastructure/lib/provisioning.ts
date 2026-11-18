@@ -8,8 +8,8 @@ export interface PieceShown {
 }
 
 export type SetupShown =
-  | { kind: 'up'; key: string; line: string }
-  | { kind: 'open'; key: string; heading: string; because: string; pieces: PieceShown[]; failed?: string; again: boolean }
+  | { kind: 'up'; key: string; line: string; root?: string }
+  | { kind: 'open'; key: string; heading: string; because: string; pieces: PieceShown[]; failed?: string; again: boolean; root?: string }
 
 export type CardShown =
   | { kind: 'not-started'; line: string }
@@ -43,9 +43,12 @@ function stoppedLine(setup: ProvisioningView): string {
   return `Stopped: ${setup.why ?? 'it gave no reason'}`
 }
 
+const rootSaid = (setup: ProvisioningView): { root?: string } =>
+  (setup.root ? { root: `My Machines does not show this yet: ${setup.root.why}` } : {})
+
 function setupShown(setup: ProvisioningView, canAgain: boolean): SetupShown {
   const key = setup.target.clusterId
-  if (setup.state === 'up') return { kind: 'up', key, line: upLine(setup) }
+  if (setup.state === 'up') return { kind: 'up', key, line: upLine(setup), ...rootSaid(setup) }
   return {
     kind: 'open',
     key,
@@ -54,6 +57,7 @@ function setupShown(setup: ProvisioningView, canAgain: boolean): SetupShown {
     pieces: setup.pieces.map((piece) => ({ key: piece.key, title: piece.title, state: piece.state, words: pieceWords(piece) })),
     ...(setup.state === 'failed' ? { failed: stoppedLine(setup) } : {}),
     again: setup.state === 'failed' && canAgain,
+    ...rootSaid(setup),
   }
 }
 
@@ -62,6 +66,6 @@ const order = (setup: ProvisioningView): string => (setup.target.kind === 'koala
 export function provisioningShown(setups: readonly ProvisioningView[], canAgain: boolean): CardShown {
   if (setups.length === 0) return { kind: 'not-started', line: 'Koala has not started setting itself up yet.' }
   const sorted = [...setups].sort((a, b) => order(a).localeCompare(order(b)))
-  if (sorted.every((setup) => setup.state === 'up')) return { kind: 'set-up', line: sorted.map(upLine).join(' ') }
+  if (sorted.every((setup) => setup.state === 'up' && !setup.root)) return { kind: 'set-up', line: sorted.map(upLine).join(' ') }
   return { kind: 'setting-up', setups: sorted.map((setup) => setupShown(setup, canAgain)) }
 }

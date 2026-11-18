@@ -83,6 +83,13 @@ describe('the "Setting Koala up" card on Infrastructure', () => {
     expect(screen.queryByText('The egress proxy')).toBeNull()
   })
 
+  it('shows that root refused hearing the setup, with why, beside a setup that is up', async () => {
+    answering({ setups: [setup({ state: 'up', pieces: pieces((piece) => ({ ...piece, state: 'up' })), endedAt: '2026-11-18T10:20:00.000Z', root: { why: 'root refused hearing that Koala is set up: this Koala is moving (409)', at: '2026-11-18T10:21:00.000Z' } })], can: ['set-up-again'] })
+    renderCard()
+    expect((await screen.findByRole('alert')).textContent).toBe('My Machines does not show this yet: root refused hearing that Koala is set up: this Koala is moving (409)')
+    expect(screen.getByText('Koala\'s services and monitoring are set up (revision 7).')).toBeDefined()
+  })
+
   it('says why it cannot show the setup when the answer fails', async () => {
     vi.mocked(api.get).mockRejectedValue(Object.assign(new Error('Request failed'), { isAxiosError: true, response: { status: 500, data: { error: 'the provisioning records could not be read' } } }))
     renderCard()

@@ -1,6 +1,6 @@
 import {
   PROVISION_DONE_STAGE, PROVISION_DONE_TITLE, PROVISION_PIECES,
-  type ProvisioningView, type ProvisionPieceKey, type ProvisionPieceView, type ProvisionReason, type ProvisionReport, type ProvisionTarget,
+  type ProvisioningView, type ProvisionPieceKey, type ProvisionPieceView, type ProvisionReason, type ProvisionReport, type ProvisionRootRefusal, type ProvisionTarget,
 } from '@koala/engine-core/koala-install';
 import { boundedLine, boundedWhy, type MachineProgress } from '@koala/engine-core/machine-progress';
 
@@ -157,6 +157,18 @@ export function runEnded(record: ProvisioningRecord, why: string, at: string): P
 export function provisioningView(record: ProvisioningRecord): ProvisioningView {
   const { runId: _run, ownerId: _owner, workflowId: _workflow, ...view } = record;
   return view;
+}
+
+const HEARD_AS: Record<MachineProgress['state'], string> = { started: 'under way', done: 'up', 'already-done': 'up', failed: 'failed' };
+
+const heardAs = (progress: MachineProgress): string =>
+  (progress.stage === PROVISION_DONE_STAGE ? progress.title : `${progress.title} is ${HEARD_AS[progress.state]}`);
+
+export function rootRefusal(progress: MachineProgress, answer: { status: number; error: string } | { thrown: string }, at: string): ProvisionRootRefusal {
+  const why = 'thrown' in answer
+    ? `root could not be told that ${heardAs(progress)}: ${answer.thrown}`
+    : `root refused hearing that ${heardAs(progress)}: ${answer.error} (${answer.status})`;
+  return { why: boundedWhy(why), at };
 }
 
 export function rootReportOf(record: ProvisioningRecord, progress: MachineProgress): ProvisionReport | undefined {

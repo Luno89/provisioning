@@ -105,6 +105,12 @@ export interface ProvisioningView {
   startedAt: string;
   endedAt?: string;
   why?: string;
+  root?: ProvisionRootRefusal;
+}
+
+export interface ProvisionRootRefusal {
+  why: string;
+  at: string;
 }
 
 export interface ProvisionReport {

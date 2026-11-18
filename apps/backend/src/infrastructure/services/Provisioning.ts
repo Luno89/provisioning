@@ -1,8 +1,9 @@
-import type { ProvisioningView, ProvisionReason, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisioningView, ProvisionReason, ProvisionReport, ProvisionRootRefusal, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { reopening } from '@koala/engine-core/reopening';
 import { runStamp, type Watching } from '../../platform/index.js';
 import {
-  heardPatch, openedRecord, progressSince, provisionedFor, provisioningView, provisionRunId, rootReportOf, runEnded, startDecision,
+  heardPatch, openedRecord, progressSince, provisionedFor, provisioningView, provisionRunId, rootRefusal, rootReportOf, runEnded, startDecision,
   type Provisioned, type Provisioner, type ProvisioningRecord, type ProvisionRunInput,
 } from '../lib/provisioning.js';
 import type { InfrastructureStore } from '../store.js';
@@ -35,6 +36,7 @@ export class Provisioning implements Provisioner {
   private readonly following = new Set<string>();
   private readonly followAgain = reopening();
   private readonly toldRoot = new Map<string, ProvisioningRecord>();
+  private readonly untold = new Map<string, MachineProgress[]>();
   private telling: Promise<void> = Promise.resolve();
   private closed = false;
 
@@ -111,17 +113,26 @@ export class Provisioning implements Provisioner {
       if (this.closed) return;
       const record = await this.deps.store.getProvisioningRun(recordId);
       if (!record) return;
-      const lines = progressSince(this.toldRoot.get(recordId), record);
+      const fresh = progressSince(this.toldRoot.get(recordId), record);
       this.toldRoot.set(recordId, record);
-      for (const progress of lines) {
-        const report = rootReportOf(record, progress);
-        if (!report) continue;
-        const answer = await this.deps.root.setup(report);
-        if (!answer.ok) this.deps.log(`[provisioning] root refused hearing that ${progress.title} is ${progress.state} (${answer.status}): ${answer.error}`);
+      if (fresh.length === 0 || !rootReportOf(record, fresh[0]!)) return;
+      const lines = [...(this.untold.get(recordId) ?? []), ...fresh];
+      this.untold.delete(recordId);
+      let refused: ProvisionRootRefusal | undefined;
+      for (const [at, progress] of lines.entries()) {
+        let answer: RootAnswer;
+        try {
+          answer = await this.deps.root.setup(rootReportOf(record, progress)!);
+        } catch (err) {
+          this.untold.set(recordId, lines.slice(at));
+          refused = rootRefusal(progress, { thrown: messageOf(err) }, this.at().toISOString());
+          break;
+        }
+        refused = answer.ok ? undefined : rootRefusal(progress, answer, this.at().toISOString());
       }
+      if (refused?.why !== record.root?.why) await this.deps.store.patchProvisioning(recordId, { root: refused });
     }).catch((err: unknown) => {
-      this.deps.log(`[provisioning] root was not told how the setup ${recordId} goes: ${messageOf(err)}; it is told again the next time the setup changes`);
-      this.toldRoot.delete(recordId);
+      this.deps.log(`[provisioning] the setup ${recordId} could not be read or written while telling root how it goes: ${messageOf(err)}`);
     });
   }
 

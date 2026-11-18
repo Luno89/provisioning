@@ -544,6 +544,17 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       expect(await store.patchProvisioning('provision-nowhere~x', { state: 'up' })).toBeUndefined();
     });
 
+    it('keeps root\'s refusal on a run, ended or not, until it is patched away', async () => {
+      const store = await make();
+      const opened = run('a');
+      await store.openProvisioning(opened);
+      await store.patchProvisioning(opened.id, { state: 'up', endedAt: '2026-11-18T10:05:00.000Z' });
+      const root = { why: 'root refused hearing that Koala is set up: no (409)', at: '2026-11-18T10:06:00.000Z' };
+      expect(await store.patchProvisioning(opened.id, { root })).toMatchObject({ state: 'up', root });
+      await store.patchProvisioning(opened.id, { root: undefined });
+      expect(await store.getProvisioningRun(opened.id)).not.toHaveProperty('root');
+    });
+
     it('patches a run while it runs only when asked to, and leaves one that has ended as it ended', async () => {
       const store = await make();
       const opened = run('a');

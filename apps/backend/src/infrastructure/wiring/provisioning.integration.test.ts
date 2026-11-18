@@ -3,6 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { Router } from 'express';
 import axios from 'axios';
+import express from 'express';
+import { reopening } from '@koala/engine-core/reopening';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket } from 'socket.io-client';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -17,7 +19,9 @@ import { RUN_ID_MEMO, workflowOfRun } from '../../platform/lib/workflow-ids.js';
 import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import type { RunStarter, StartRunRequest } from '../../engine-host/registries/run-starter.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
-import { Provisioning } from '../services/Provisioning.js';
+import { Provisioning, type ProvisionRoot } from '../services/Provisioning.js';
+import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
+import { pieceHeard } from '../lib/provisioning.js';
 import { isOff } from '../../platform/index.js';
 import { wireProvisioning } from './provisioning.js';
 import { PROVISION_AGENT } from '../../extensions/provision/names.js';
@@ -67,7 +71,7 @@ function hearing(socket: Socket) {
   return { heard, when };
 }
 
-async function koalaAt(clusterId: string) {
+async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async () => ({ ok: true }) }) {
   const db = await testDatabase();
   const app = await harnessApp({ prefix: '/unused', router: () => Router(), claims: { role: 'instance', instanceOwnerId: OWNER.id } }, db, () => OWNER);
   const server = http.createServer(app);
@@ -85,7 +89,7 @@ async function koalaAt(clusterId: string) {
     io,
     runs,
     client: () => env.client.workflow,
-    root: { setup: async () => ({ ok: true }) },
+    root,
     koala: { ownerId: OWNER.id, clusterId, revision: 2 },
   });
   if (isOff(provisioning)) throw new Error(provisioning.off);
@@ -141,5 +145,35 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     const settled = provisioning.settled(one.id);
     await env.client.workflow.getHandle(`provision-${clusterId}`).signal('cancelRun');
     expect(await settled).toEqual({ state: 'failed', why: 'the setup\'s run finished without saying how its pieces ended' });
+  });
+
+  it('shows its owner, on the setup, that root refused hearing how it goes, with root\'s own words, after waiting while root was down', async () => {
+    const clusterId = `machine-moving-${taskQueue}`;
+    const heardByRoot: unknown[] = [];
+    const rootApp = express();
+    rootApp.use(express.json());
+    rootApp.post('/api/instances/status', (req, res) => {
+      heardByRoot.push(req.body);
+      if (heardByRoot.length === 1) return res.status(503).end();
+      return res.status(409).json({ error: 'this Koala is moving to another machine' });
+    });
+    const rootServer = http.createServer(rootApp);
+    await new Promise<void>((resolve) => rootServer.listen(0, '127.0.0.1', () => resolve()));
+    closing.push(() => new Promise<void>((resolve) => { rootServer.close(() => resolve()); }));
+    const reporter = new InstanceReporter({ root: { url: `http://127.0.0.1:${(rootServer.address() as AddressInfo).port}`, instanceId: 'inst-1', credential: 'secret' }, wait: reopening(1), log: () => undefined });
+    const { url, owner, db } = await koalaAt(clusterId, reporter);
+
+    const running = await owner.when((view) => view.state === 'running');
+    const opened = (await db.infrastructure.getProvisioningRun(running.id))!;
+    const started = pieceHeard(opened, { stage: 'egress', title: 'The egress proxy', state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }, new Date().toISOString());
+    await db.infrastructure.patchProvisioning(opened.id, { pieces: started.pieces }, true);
+
+    const refused = await owner.when((view) => view.id === running.id && view.root !== undefined);
+    expect(refused.root?.why).toBe('root refused hearing that The egress proxy is under way: this Koala is moving to another machine (409)');
+    expect(heardByRoot).toHaveLength(2);
+    expect((await axios.get<{ setups: ProvisioningView[] }>(`${url}/api/infrastructure/provisioning`)).data.setups[0]?.root?.why).toBe(refused.root?.why);
+
+    await env.client.workflow.getHandle(`provision-${clusterId}`).signal('cancelRun');
+    await owner.when((view) => view.id === running.id && view.state === 'failed');
   });
 });

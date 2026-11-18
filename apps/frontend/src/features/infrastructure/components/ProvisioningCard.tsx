@@ -32,7 +32,12 @@ function Piece({ piece }: { piece: PieceShown }) {
 function Setup({ setup }: { setup: SetupShown }) {
   const again = useSetUpAgain()
   if (setup.kind === 'up') {
-    return <p className={`${row} text-emerald-300`}><CheckCircle2 size={14} /> {setup.line}</p>
+    return (
+      <div className={`${row} flex-col items-stretch`}>
+        <p className="flex items-center gap-2 text-emerald-300"><CheckCircle2 size={14} /> {setup.line}</p>
+        {setup.root && <p role="alert" className="text-rose-300">{setup.root}</p>}
+      </div>
+    )
   }
   return (
     <div className={`${row} flex-col items-stretch`} data-testid="provisioning-setup">
@@ -44,6 +49,7 @@ function Setup({ setup }: { setup: SetupShown }) {
         {setup.pieces.map((piece) => <Piece key={piece.key} piece={piece} />)}
       </ul>
       {setup.failed && <p role="alert" className="text-rose-300">{setup.failed}</p>}
+      {setup.root && <p role="alert" className="text-rose-300">{setup.root}</p>}
       {setup.again && (
         <div className="flex items-center gap-2">
           <QuietButton onClick={() => again.mutate(setup.key)} disabled={again.isPending}><RotateCcw size={11} /> Set up again</QuietButton>

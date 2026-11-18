@@ -16,6 +16,10 @@ function setUp(given: { revision?: number } = {}) {
   runs.start.mockImplementation(async (input) => { started.push(input); return provisionWorkflowId(input.target.clusterId); });
   runs.ended.mockImplementation((workflowId) => new Promise<string>((resolve) => { endings.set(workflowId, resolve); }));
   const told: { ownerId: string; view: ProvisioningView }[] = [];
+  const toldWaits: { until: (view: ProvisioningView) => boolean; done: () => void }[] = [];
+  const toldWhen = (until: (view: ProvisioningView) => boolean) => (told.some((entry) => until(entry.view))
+    ? Promise.resolve()
+    : new Promise<void>((done) => { toldWaits.push({ until, done }); }));
   const reported: ProvisionReport[] = [];
   const root = mock<ProvisionRoot>();
   const hearing: { count: number; done: () => void }[] = [];
@@ -32,7 +36,10 @@ function setUp(given: { revision?: number } = {}) {
     runs,
     root,
     koala: { ownerId: 'owner-1', clusterId: KOALA.clusterId, revision: given.revision ?? 4 },
-    changed: (ownerId, view) => { told.push({ ownerId, view }); },
+    changed: (ownerId, view) => {
+      told.push({ ownerId, view });
+      for (const wait of toldWaits.filter((entry) => entry.until(view))) { toldWaits.splice(toldWaits.indexOf(wait), 1); wait.done(); }
+    },
     log: (line) => { logged.push(line); },
     now: () => new Date(clock += 1000),
   });
@@ -42,7 +49,7 @@ function setUp(given: { revision?: number } = {}) {
     ending(why);
   };
   const followed = (workflowId: string) => endings.has(workflowId);
-  return { store, runs, started, told, reported, rootHeard, root, logged, provisioning, end, followed };
+  return { store, runs, started, told, toldWhen, reported, rootHeard, root, logged, provisioning, end, followed };
 }
 
 const earlier = (target: ProvisionTarget, revision: number, stamp: string, over: Partial<ProvisioningRecord> = {}): ProvisioningRecord => ({
@@ -253,15 +260,62 @@ describe('setting Koala up after its chart', () => {
     expect(reported).toEqual([{ revision: 4, progress: { stage: 'egress', title: 'The egress proxy', state: 'failed', why: 'the setup\'s run was stopped' } }]);
   });
 
-  it('tells root again on a restart how the setup it runs stands, and says when root refused hearing it', async () => {
-    const { provisioning, store, reported, root, logged } = setUp({ revision: 4 });
+  it('tells root again on a restart how the setup it runs stands, and keeps on the setup, for its card, that root refused hearing how it ended', async () => {
+    const { provisioning, store, reported, root, told, toldWhen } = setUp({ revision: 4 });
     await store.openProvisioning(earlier(KOALA, 4, 'a', { workflowId: 'provision-machine-desk' }));
     await store.patchProvisioning('provision-machine-desk~a', { state: 'up', pieces: upPieces(earlier(KOALA, 4, 'a')), endedAt: '2026-11-17T09:30:00.000Z' });
-    root.setup.mockImplementationOnce(async (report) => { reported.push(report); return { ok: false, status: 409, error: 'this Koala is moving' }; });
+    root.setup.mockImplementation(async (report) => {
+      reported.push(report);
+      return report.progress.stage === 'set-up' ? { ok: false, status: 409, error: 'this Koala is moving' } : { ok: true };
+    });
     await provisioning.start();
+    await toldWhen((view) => view.root !== undefined);
     await provisioning.close();
 
     expect(reported.map((report) => report.progress.stage)).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea', 'verdaccio', 'infisical', 'monitoring', 'set-up']);
-    expect(logged).toContain('[provisioning] root refused hearing that The egress proxy is done (409): this Koala is moving');
+    const refused = { why: 'root refused hearing that Koala is set up: this Koala is moving (409)', at: expect.any(String) as unknown };
+    expect((await store.getProvisioningRun('provision-machine-desk~a'))?.root).toEqual(refused);
+    expect(told.at(-1)?.view).toMatchObject({ id: 'provision-machine-desk~a', root: refused });
+  });
+
+  it('drops a refusal from the setup once root takes a later line of it', async () => {
+    const { provisioning, store, reported, root } = setUp({ revision: 4 });
+    await store.openProvisioning(earlier(KOALA, 4, 'a', { workflowId: 'provision-machine-desk' }));
+    await store.patchProvisioning('provision-machine-desk~a', { state: 'up', pieces: upPieces(earlier(KOALA, 4, 'a')), endedAt: '2026-11-17T09:30:00.000Z', root: { why: 'root refused hearing that Monitoring is up: no (400)', at: '2026-11-17T09:31:00.000Z' } });
+    root.setup.mockImplementation(async (report) => {
+      reported.push(report);
+      return report.progress.stage === 'egress' ? { ok: false, status: 409, error: 'this Koala is moving' } : { ok: true };
+    });
+    await provisioning.start();
+    await provisioning.close();
+
+    expect(reported).toHaveLength(8);
+    expect((await store.getProvisioningRun('provision-machine-desk~a'))?.root).toBeUndefined();
+  });
+
+  it('keeps on the setup that root could not be told, and tells root those lines with the next change', async () => {
+    const { provisioning, store, reported, root, toldWhen } = setUp({ revision: 4 });
+    let broken = true;
+    root.setup.mockImplementation(async (report) => {
+      if (broken) throw new Error('unable to verify the first certificate');
+      reported.push(report);
+      return { ok: true };
+    });
+    await provisioning.start();
+    const [opened] = await store.getProvisioning(KOALA.clusterId);
+    const started = pieceHeard(opened!, { stage: 'egress', title: 'The egress proxy', state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }, '2026-11-18T10:00:30.000Z');
+    await store.patchProvisioning(opened!.id, { pieces: started.pieces });
+    await toldWhen((view) => view.id === opened!.id && view.root !== undefined);
+    expect((await store.getProvisioningRun(opened!.id))?.root?.why).toBe('root could not be told that The egress proxy is under way: unable to verify the first certificate');
+    expect(reported).toEqual([]);
+
+    broken = false;
+    const done = pieceHeard(started, { stage: 'egress', title: 'The egress proxy', state: 'done' }, '2026-11-18T10:01:00.000Z');
+    await store.patchProvisioning(opened!.id, { pieces: done.pieces });
+    await toldWhen((view) => view.id === opened!.id && view.root === undefined && view.pieces[0]?.state === 'up');
+    await provisioning.close();
+
+    expect(reported.map((report) => `${report.progress.stage} ${report.progress.state}`)).toEqual(['egress started', 'egress done']);
+    expect((await store.getProvisioningRun(opened!.id))?.root).toBeUndefined();
   });
 });

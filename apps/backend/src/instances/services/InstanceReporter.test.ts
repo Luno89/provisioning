@@ -38,7 +38,7 @@ describe('the instance telling root about itself', () => {
     heard.length = 0;
     answers = [() => new HttpResponse(null, { status: 503 }), () => HttpResponse.json({ error: 'status is one of waiting, joined' }, { status: 400 })];
     const said: string[] = [];
-    expect(await reporter(said).status({ status: 'failed', detail: 'no' })).toEqual({ ok: false, status: 400, error: '{"error":"status is one of waiting, joined"}' });
+    expect(await reporter(said).status({ status: 'failed', detail: 'no' })).toEqual({ ok: false, status: 400, error: 'status is one of waiting, joined' });
     expect(heard).toHaveLength(2);
     expect(said).toEqual([expect.stringMatching(/^root isn't answering when this instance tells it it is failed \(.*\); asking again in 0 s$/)]);
   });

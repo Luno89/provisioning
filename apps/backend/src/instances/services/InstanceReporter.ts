@@ -48,6 +48,16 @@ export class InstanceReporter {
       (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`),
     );
     if (answer.ok) return { ok: true };
-    return { ok: false, status: answer.status, error: await answer.text() };
+    return { ok: false, status: answer.status, error: saidBy(await answer.text()) };
   }
+}
+
+function saidBy(text: string): string {
+  try {
+    const body = JSON.parse(text) as unknown;
+    if (typeof body === 'object' && body !== null && typeof (body as { error?: unknown }).error === 'string') return (body as { error: string }).error;
+  } catch {
+    return text;
+  }
+  return text;
 }

@@ -305,7 +305,7 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   async patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning = false): Promise<ProvisioningRecord | undefined> {
     const changed = this.provisioning.change(id, (record) => {
       if (whileRunning && record.state !== 'running') return undefined;
-      return stored({ ...record, ...patch });
+      return stored({ ...record, ...patch } as ProvisioningRecord);
     });
     return changed ? this.provisioning.get(id) : undefined;
   }
