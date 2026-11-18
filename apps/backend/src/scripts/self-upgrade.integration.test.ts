@@ -1,15 +1,19 @@
-import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer, type AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { NextFunction, Request, Response } from 'express';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
+import { nodeProcesses, nodeStreams } from '../platform/index.js';
+import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
+import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { testNamespaces } from '../infrastructure/testing/test-namespaces.js';
 import { mountRouter, TEST_USER, type Harness } from '../platform/routes/test-harness.js';
 import { instancesRouter } from '../instances/routes/instances.js';
 import { InstanceService } from '../instances/services/InstanceService.js';
 import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
-import { selfUpgrade } from './self-upgrade.js';
+import { selfUpgrade, selfUpgradeStep } from './self-upgrade.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
 
@@ -28,9 +32,10 @@ const PULLING = { ready: false, state: { waiting: { reason: 'ImagePullBackOff' }
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.close(); harness = undefined; });
 
-async function rootServing(chartSha256 = createHash('sha256').update(CHART).digest('hex'), newData?: number) {
+async function rootServing(given?: string, newData?: number, chart: string | Buffer = CHART) {
+  const chartSha256 = given ?? createHash('sha256').update(chart).digest('hex');
   const chartFile = join(mkdtempSync(join(tmpdir(), 'root-chart-')), 'chart.tgz');
-  writeFileSync(chartFile, CHART);
+  writeFileSync(chartFile, chart);
   const settings = { rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev',
     releases: { hasChart: () => false, releases: async () => [
       { imageTag: 'old111', version: 'v2026.10.29', servedAt: '2026-10-29T00:00:00Z' },
@@ -186,3 +191,58 @@ describe('an instance upgrading itself to what root released', () => {
     expect(await record()).toMatchObject({ status: 'failed', detail: UPGRADE_WORDS.wrongChart('new222') });
   });
 });
+
+const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+afterAll(async () => { await namespaces.removeAll(); }, 0);
+
+function imageChart(): string {
+  const chart = mkdtempSync(join(tmpdir(), 'koala-upgrade-chart-'));
+  mkdirSync(join(chart, 'templates'));
+  writeFileSync(join(chart, 'Chart.yaml'), 'apiVersion: v2\nname: luno\nversion: 0.1.0\n');
+  writeFileSync(join(chart, 'values.yaml'), 'image:\n  tag: "1.37"\n  digest: ""\n');
+  writeFileSync(join(chart, 'templates', 'backend.yaml'), [
+    'apiVersion: apps/v1',
+    'kind: Deployment',
+    'metadata:',
+    '  name: {{ .Release.Name }}-backend',
+    '  labels: { app.kubernetes.io/instance: {{ .Release.Name }} }',
+    'spec:',
+    '  replicas: 1',
+    '  selector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }} } }',
+    '  template:',
+    '    metadata: { labels: { app.kubernetes.io/instance: {{ .Release.Name }} } }',
+    '    spec:',
+    '      terminationGracePeriodSeconds: 0',
+    '      containers: [{ name: backend, image: "busybox:{{ .Values.image.tag }}", command: [sleep, "100000"] }]',
+    '',
+  ].join('\n'));
+  return chart;
+}
+
+describe('an instance upgrading itself as its CronJob runs it, on a real k3s', () => {
+  it('rolls the release back to what it ran when root\'s release can never start, and tells root why', async () => {
+    const namespace = namespaces.name('self-upgrade');
+    const admin = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-self-upgrade-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
+    const desk = { clusterId: 'desk', kind: 'machine' as const, kubeconfig: k3s.admin };
+    const chart = imageChart();
+    await admin.kubectl(desk, ['create', 'namespace', namespace]);
+    await admin.helm(desk, ['upgrade', '--install', 'luno', chart, '-n', namespace]);
+    const packed = mkdtempSync(join(tmpdir(), 'koala-upgrade-packed-'));
+    await admin.packageChart(chart, packed);
+    const { root, record } = await rootServing(undefined, undefined, readFileSync(join(packed, 'luno-0.1.0.tgz')));
+    const said: string[] = [];
+
+    const upgraded = await selfUpgradeStep({
+      ROLE: 'instance', INSTANCE_ID: root.instanceId, INSTANCE_OWNER_ID: TEST_USER.id, ROOT_URL: root.url,
+      ROOT_PUBLIC_KEYS: Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64'),
+      INSTANCE_MACHINE_ID: 'desk', INSTANCE_CREDENTIAL: root.credential, RELEASE_NAME: 'luno', RELEASE_NAMESPACE: namespace, CURRENT_IMAGE_TAG: 'old111', DATA_VERSION: '0',
+      KUBERNETES_SERVICE_HOST: k3s.account.host, KUBERNETES_SERVICE_PORT: k3s.account.port,
+    }, dirname(k3s.account.caFile), (line) => said.push(line));
+
+    expect(upgraded, said.join('\n')).toBe(false);
+    expect((await record()).detail).toMatch(new RegExp(`^${withWhy(UPGRADE_WORDS.rolledBack('new222', 'old111'), UPGRADING).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: .*(ErrImagePull|ImagePullBackOff)`));
+    expect(await admin.kubectl(desk, ['get', 'deployment', 'luno-backend', '-n', namespace, '-o', 'jsonpath={.spec.template.spec.containers[0].image}'])).toBe('busybox:1.37');
+  }, 0);
+});
+

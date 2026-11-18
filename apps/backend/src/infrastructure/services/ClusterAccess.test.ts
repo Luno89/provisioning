@@ -2,14 +2,21 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { encryptValue, type ClusterMetadata, type Processes, type Streams } from '../../platform/index.js';
 import { startedMachine } from '../lib/cluster-places.js';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
-import { ClusterAccess, runnersByRecord, type ClusterAccessDeps } from './ClusterAccess.js';
+import { ClusterAccess, clusterAccessOfKubeconfig, runnersByRecord, type ClusterAccessDeps } from './ClusterAccess.js';
 import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
 import { theFence } from '../../platform/lib/fence.js';
+
+const spawned = vi.hoisted(() => ({ runs: [] as Array<{ command: string; args: readonly string[] }> }));
+
+vi.mock('../../platform/index.js', async (actual) => ({
+  ...(await actual<typeof import('../../platform/index.js')>()),
+  nodeProcesses: { run: async (run: { command: string; args: readonly string[] }) => { spawned.runs.push(run); return { code: 0, stdout: 'spawned', stderr: '' }; } },
+}));
 
 const KEY = 'test-key' as never;
 const ADMIN = 'apiVersion: v1\nkind: Config\nclusters: []\n';
@@ -127,6 +134,32 @@ describe('ClusterAccess: running kubectl and helm with a reach, wherever it was 
     await expect(failed).rejects.toMatchObject({ name: 'ClusterCommandFailed', clusterId: 'machine-dev2', message: 'Error from server (NotFound): namespaces "shop" not found' });
     processes.run.mockResolvedValue({ code: 137, stdout: '', stderr: '' });
     await expect(access.helm(startedMachine('machine-dev2', ADMIN), ['--namespace', 'shop', 'status', 'shop'])).rejects.toThrow('helm on machine-dev2 exited 137');
+  });
+});
+
+describe('ClusterAccess: the cluster a chart is applied to', () => {
+  it('runs helm and kubectl on the reach it was given, each with its kubeconfig', async () => {
+    const { access, processes, folder } = await door({ clusters: undefined, dataKey: undefined });
+    const cluster = access.chartCluster(startedMachine('machine-dev2', ADMIN));
+    const where = join(folder, 'kubeconfig-machine-machine-dev2');
+    expect(await cluster.helm(['status', 'luno', '-n', 'nowrinkles'])).toBe('ok');
+    expect(await cluster.kubectl(['get', 'jobs', '-n', 'nowrinkles'])).toBe('ok');
+    expect(processes.run.mock.calls.map(([run]) => run)).toEqual([
+      { command: '/bin/helm', args: ['--kubeconfig', where, 'status', 'luno', '-n', 'nowrinkles'], input: undefined },
+      { command: '/bin/kubectl', args: ['--kubeconfig', where, 'get', 'jobs', '-n', 'nowrinkles'], input: undefined },
+    ]);
+  });
+
+  it('is a machine reached by the kubeconfig a program was handed, through the repository\'s own kubectl and helm', async () => {
+    const { access, target } = clusterAccessOfKubeconfig(ADMIN, 'desk');
+    expect(target).toEqual({ clusterId: 'desk', kind: 'machine', kubeconfig: ADMIN });
+    spawned.runs = [];
+    expect(await access.chartCluster(target).kubectl(['get', 'namespaces'])).toBe('spawned');
+    const [run] = spawned.runs;
+    expect(run!.command).toMatch(/\/bin\/kubectl$/);
+    expect(run!.args.slice(2)).toEqual(['get', 'namespaces']);
+    expect(readFileSync(run!.args[1]!, 'utf8')).toBe(ADMIN);
+    expect(access.ownId()).toBeUndefined();
   });
 });
 

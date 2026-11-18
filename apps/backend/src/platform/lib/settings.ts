@@ -619,9 +619,9 @@ export interface SelfUpgradeSettings extends PodStepSettings {
   release: { name: string; namespace: string; current: string; dataVersion: number };
 }
 
-export function selfUpgradeSettingsFrom(env: Env): SelfUpgradeSettings {
+export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): SelfUpgradeSettings {
   const read = new Reading(env);
-  const step = podStep(read);
+  const step = podStep(read, serviceAccountDir);
   const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance asks root for its release with');
   const why = 'the self-upgrade CronJob names the release it upgrades';
   const name = required(read, 'RELEASE_NAME', why);
@@ -693,9 +693,9 @@ export interface SetupWaitsSettings extends PodStepSettings {
   mongo: MongoTarget;
 }
 
-export function setupWaitsSettingsFrom(env: Env): SetupWaitsSettings {
+export function setupWaitsSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): SetupWaitsSettings {
   const read = new Reading(env);
-  const step = podStep(read);
+  const step = podStep(read, serviceAccountDir);
   const name = required(read, 'SETUP_STEP', 'the instance chart names the setup step each Job runs');
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where the setup Jobs run');
   const afterText = read.env.SETUP_AFTER;

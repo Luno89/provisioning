@@ -28,10 +28,14 @@ export async function setupWaitsOn(settings: Pick<SetupWaitsSettings, 'step' | '
   say(`[setup] ${settings.step} may run`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const settings = setupWaitsSettingsFrom(process.env);
+export async function setupWaitsStep(env: Readonly<Record<string, string | undefined>>, say: (line: string) => void, serviceAccountDir?: string, wait: WaitOptions = {}): Promise<void> {
+  const settings = setupWaitsSettingsFrom(env, serviceAccountDir);
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  setupWaitsOn(settings, access.chartCluster(access.own()), (line) => console.log(line)).catch((err: Error) => {
+  await setupWaitsOn(settings, access.chartCluster(access.own()), say, wait);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  setupWaitsStep(process.env, (line) => console.log(line)).catch((err: Error) => {
     console.error(`[setup] ${err.message}`);
     process.exitCode = 1;
   });

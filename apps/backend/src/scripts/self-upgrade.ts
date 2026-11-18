@@ -118,12 +118,12 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   }
 }
 
-if (process.argv[1]?.endsWith('self-upgrade.ts')) {
-  const settings = selfUpgradeSettingsFrom(process.env);
+export async function selfUpgradeStep(env: Readonly<Record<string, string | undefined>>, serviceAccountDir?: string, log?: (line: string) => void): Promise<boolean> {
+  const settings = selfUpgradeSettingsFrom(env, serviceAccountDir);
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  selfUpgrade({
-    root: settings.root,
-    release: settings.release,
-    cluster: access.chartCluster(access.own()),
-  }).then((ok) => { process.exitCode = ok ? 0 : 1; }, (err: Error) => { console.error(err.message); process.exitCode = 1; });
+  return selfUpgrade({ root: settings.root, release: settings.release, cluster: access.chartCluster(access.own()), ...(log ? { log } : {}) });
+}
+
+if (process.argv[1]?.endsWith('self-upgrade.ts')) {
+  selfUpgradeStep(process.env).then((ok) => { process.exitCode = ok ? 0 : 1; }, (err: Error) => { console.error(err.message); process.exitCode = 1; });
 }
