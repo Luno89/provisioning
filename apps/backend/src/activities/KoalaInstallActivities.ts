@@ -1,10 +1,12 @@
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
-import type { KoalaInstallState } from '@koala/engine-core/koala-install';
+import type { KoalaInstallState, ProvisionReport } from '@koala/engine-core/koala-install';
 import { createDatabase, type Database } from '../platform/index.js';
-import { askedAgain, installFields, installUnfinished, stageHeard, type InstallPatch, type InstanceRecord } from '../instances/index.js';
+import { askedAgain, installFields, installSetupHeard, installUnfinished, stageHeard, type InstallPatch, type InstanceRecord } from '../instances/index.js';
 import { hostSettings } from './host-settings.js';
 
 export type InstallAnswer = KoalaInstallState | 'replaced';
+
+export type InstallHeard = { progress: MachineProgress } | { setup: ProvisionReport };
 
 export interface KoalaInstallDeps {
   db(): Promise<{ db: Pick<Database, 'instances'>; close(): Promise<void> }>;
@@ -38,8 +40,10 @@ export function koalaInstallActivities(deps: KoalaInstallDeps) {
   return {
     KoalaInstallAskActivity: ({ installId }: { installId: string }): Promise<InstallAnswer> =>
       withInstall(deps, installId, (instance, at) => askedAgain(instance.install, instance.machine ?? 'your machine', at)),
-    KoalaInstallStageActivity: ({ installId, progress }: { installId: string; progress: MachineProgress }): Promise<InstallAnswer> =>
-      withInstall(deps, installId, (instance, at) => stageHeard(instance.install, progress, instance.machine ?? 'your machine', at)),
+    KoalaInstallStageActivity: ({ installId, ...heard }: { installId: string } & InstallHeard): Promise<InstallAnswer> =>
+      withInstall(deps, installId, (instance, at) => ('setup' in heard
+        ? installSetupHeard(instance, heard.setup, at)
+        : stageHeard(instance.install, heard.progress, instance.machine ?? 'your machine', at))),
   };
 }
 

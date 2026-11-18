@@ -350,7 +350,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
-    instanceArrived,
+    instanceArrived, installs: koalaInstalls,
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));

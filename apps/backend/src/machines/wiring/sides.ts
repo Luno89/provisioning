@@ -44,6 +44,7 @@ export const temporalInstallWorkflows = (client: () => Promise<Client> = getTemp
       await (await client()).workflow.start(KoalaInstallWorkflow, { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], ...startedFor(ownerId) });
     },
     progress: async (installId, progress) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.progress, progress); },
+    setup: async (installId, report) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.setup, report); },
     reconnected: async (installId) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.reconnected); },
     cancel: async (installId) => { await (await handle(installId)).cancel().catch(ended); },
   };

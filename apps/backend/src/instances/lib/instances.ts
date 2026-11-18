@@ -4,6 +4,7 @@ import type { TrialStep } from './pool-trial.js';
 import type { InstanceMove } from './instance-move.js';
 import type { SignInKey } from './oidc.js';
 import type { KoalaInstallRecord } from './koala-installs.js';
+import type { InstanceSetup } from './instance-setup.js';
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
 
@@ -46,6 +47,7 @@ export interface InstanceRecord {
   previous?: string | undefined;
   signIn?: SignInKey | undefined;
   install?: KoalaInstallRecord | undefined;
+  setup?: InstanceSetup | undefined;
 }
 
 export interface InstanceGroup {
@@ -59,6 +61,7 @@ export interface InstancePool {
   trialEndsAt: string;
   told?: TrialStep[] | undefined;
   pausedAt?: string | undefined;
+  settingUp?: boolean | undefined;
 }
 
 export type NestedState = 'issuing' | 'ready';

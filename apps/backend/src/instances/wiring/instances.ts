@@ -11,10 +11,10 @@ import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
-import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
+import { POOL_SETUP_HEARD, poolInstanceWorkflowId, poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
-import { InstanceService } from '../services/InstanceService.js';
+import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
 import { InstanceRoutes, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
@@ -172,6 +172,7 @@ export interface InstancesWiringDeps {
   rootToken?: (() => Promise<string>) | undefined;
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
+  installs?: SetupInstalls | undefined;
 }
 
 export interface InstancesWiring {
@@ -301,10 +302,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
     reach: new InstanceReach(settings.reach),
+    installs: deps.installs,
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {
-        workflowId: `pool-instance-${instanceId}`,
+        workflowId: poolInstanceWorkflowId(instanceId),
         taskQueue: poolTaskQueue,
         args: [{ instanceId }],
         ...startedFor(ownerId),
@@ -337,6 +339,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
     moveStopped: async (instanceId, reason) => {
       await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);
+    },
+    setupHeard: async (instanceId, report) => {
+      await (await getTemporalClient()).workflow.getHandle(poolInstanceWorkflowId(instanceId)).signal(POOL_SETUP_HEARD, report);
     },
   });
   instanceRoutes?.start();

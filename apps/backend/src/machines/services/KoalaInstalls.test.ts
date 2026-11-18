@@ -25,6 +25,7 @@ beforeEach(() => {
   workflows = mock<InstallWorkflows>();
   workflows.start.mockResolvedValue(undefined);
   workflows.progress.mockResolvedValue(undefined);
+  workflows.setup.mockResolvedValue(undefined);
   workflows.reconnected.mockResolvedValue(undefined);
   workflows.cancel.mockResolvedValue(undefined);
   handed = [];
@@ -87,6 +88,14 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(await installs.report('install-1', TOKEN, { ...ended, url: 'http://100.64.0.7:30320/' })).toMatchObject({ ok: false, status: 503 });
     expect(await installs.report('install-1', TOKEN, { ...ended, url: 'http://100.64.0.7:30320/' })).toEqual({ ok: true, value: { recorded: true } });
     expect(workflows.progress).toHaveBeenLastCalledWith('install-1', { ...ended, url: 'http://100.64.0.7:30320' });
+  });
+
+  it('hands each line of Koala setting itself up to the install it ends, and answers 503 while that workflow cannot be reached', async () => {
+    const line = { revision: 1, progress: { stage: 'gitea', title: 'Gitea', state: 'started' as const, line: 'waiting for statefulset/gitea' } };
+    expect(await installs.setupHeard('install-1', line)).toEqual({ ok: true, value: { recorded: true } });
+    expect(workflows.setup).toHaveBeenCalledWith('install-1', line);
+    workflows.setup.mockRejectedValueOnce(new Error('Temporal is down'));
+    expect(await installs.setupHeard('install-1', line)).toEqual({ ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' });
   });
 
   it('asks the machine once for each ask its workflow records, and never for an install that has ended or was replaced', async () => {

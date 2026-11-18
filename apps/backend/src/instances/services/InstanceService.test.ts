@@ -3,6 +3,7 @@ import type { Database } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 import { InstanceReach } from './InstanceReach.js';
+import type { InstanceRecord } from '../lib/instances.js';
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -655,5 +656,108 @@ describe('putting a person\'s Koala on one of their machines', () => {
     expect(await service.placedKoala('install-1', desk)).toMatchObject({ ok: false, status: 404 });
     expect(await service.mine('u1')).toMatchObject({ status: 'failed', detail: 'root could not start putting Koala on desk: Temporal is down', install: { id: 'install-1', machineId: 'desk', state: 'failed', why: 'root could not start putting Koala on desk: Temporal is down' } });
     expect((await service.installsOn('desk')).map((instance) => instance.id)).toEqual([instanceIdFor('u1')]);
+  });
+});
+
+describe('an instance telling root how its setup after the chart goes', () => {
+  const gitea = (state: 'started' | 'done' | 'failed', more: Record<string, string> = {}) => ({ stage: 'gitea', title: 'Gitea, your repositories and images', state, ...more });
+  const setUp = { stage: 'set-up', title: 'Koala is set up', state: 'done' };
+
+  const joinedOn = async (machine = 'desk') => {
+    const joined = await service.join((await tokenFor('u1')).token, machine);
+    if (!joined.ok) throw new Error(joined.error);
+    return joined.value;
+  };
+
+  it('shows each piece as it comes, fails at the piece that stopped, and is ready only once the setup says so', async () => {
+    const { instanceId, credential } = await joinedOn();
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: gitea('started', { line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' }) } }))
+      .toMatchObject({ ok: true, value: { status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for statefulset/gitea in gitea: 0 of 1 ready', setup: { revision: 1, state: 'running', stage: 'gitea' } } });
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: gitea('failed', { why: 'pod gitea-0 is Init:Error' }) } }))
+      .toMatchObject({ ok: true, value: { status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea, your repositories and images: pod gitea-0 is Init:Error' } });
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: setUp } })).toMatchObject({ ok: true, value: { status: 'ready', detail: 'Ready', setup: { revision: 1, state: 'up' } } });
+    expect(await service.report(instanceId, credential, { provision: { revision: 0, progress: setUp } })).toMatchObject({ ok: false, status: 400, error: containing('"revision"') });
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: { stage: 'koala', title: 'Koala', state: 'done' } } })).toMatchObject({ ok: false, status: 400, error: containing('"stage" is one of') });
+    expect(await service.report(instanceId, credential, { status: 'ready', provision: { revision: 1, progress: setUp } })).toEqual({ ok: false, status: 400, error: 'a report of Koala\'s setup sends only "provision"' });
+  });
+
+  it('keeps nothing of a setup for a revision it has moved past', async () => {
+    const { instanceId, credential } = await joinedOn();
+    await service.report(instanceId, credential, { provision: { revision: 2, progress: gitea('started') } });
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: setUp } })).toMatchObject({ ok: true, value: { status: 'installing', setup: { revision: 2, state: 'running' } } });
+  });
+
+  it('holds a report naming the revision it runs to that revision\'s setup, never ready before it nor over a piece that failed, while the release it runs is kept', async () => {
+    const { instanceId, credential } = await joinedOn();
+    expect(await service.report(instanceId, credential, { status: 'installing', detail: 'Upgraded to v8', imageTag: 'v8', revision: 2 })).toMatchObject({ ok: true, value: { status: 'installing', detail: 'Upgraded to v8', running: 'v8' } });
+    await service.report(instanceId, credential, { provision: { revision: 2, progress: gitea('failed', { why: 'pod gitea-0 is Init:Error' }) } });
+    expect(await service.report(instanceId, credential, { status: 'installing', detail: 'Running v8', imageTag: 'v8', revision: 2 })).toMatchObject({ ok: true, value: { status: 'failed', detail: containing('stopped setting itself up at Gitea') } });
+    await service.report(instanceId, credential, { provision: { revision: 2, progress: setUp } });
+    expect(await service.report(instanceId, credential, { status: 'installing', detail: 'Running v8', imageTag: 'v8', revision: 2 })).toMatchObject({ ok: true, value: { status: 'ready', detail: 'Running v8' } });
+    expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Running v8', revision: 2 })).toMatchObject({ ok: false, status: 400, error: containing('ready comes from') });
+    expect(await service.report(instanceId, credential, { status: 'installing', revision: 'two' })).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it('hands the setup of a Koala still being put on its machine to that install, and writes nothing itself', async () => {
+    const handed: unknown[] = [];
+    let down = false;
+    service = new InstanceService(db, { ...settings, installs: { setupHeard: async (installId, report) => {
+      if (down) return { ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' };
+      handed.push([installId, report]);
+      return { ok: true, value: { recorded: true } };
+    } } }, mesh, () => now);
+    const placed = await service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-1');
+    if (!placed.ok) throw new Error(placed.error);
+    const koala = await service.placedKoala('install-1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' });
+    if (!koala.ok) throw new Error(koala.error);
+    const line = { revision: 1, progress: gitea('started') };
+    expect(await service.report(placed.value.instanceId, koala.value.credential, { provision: line })).toMatchObject({ ok: true, value: { status: 'joined' } });
+    expect(handed).toEqual([['install-1', line]]);
+    expect((await db.instances.getInstances('u1'))[0]!.setup).toBeUndefined();
+    down = true;
+    expect(await service.report(placed.value.instanceId, koala.value.credential, { provision: line })).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it('forgets the setup of a Koala it puts on a machine afresh, since a fresh chart counts its revisions from 1 again', async () => {
+    const { instanceId, credential } = await joinedOn();
+    await service.report(instanceId, credential, { provision: { revision: 4, progress: setUp } });
+    await service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-2');
+    expect((await db.instances.getInstances('u1'))[0]!.setup).toBeUndefined();
+  });
+});
+
+describe('a pool instance setting itself up', () => {
+  const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-10-01T00:00:00.000Z', trialEndsAt: '2026-10-15T00:00:00.000Z' };
+  const line = { revision: 1, progress: { stage: 'searxng', title: 'SearXNG, web search', state: 'started' } };
+  let handed: unknown[];
+
+  beforeEach(async () => {
+    handed = [];
+    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => now, () => undefined, {
+      start: async () => {}, trialChanged: async () => {}, remove: async () => {},
+      setupHeard: async (instanceId, report) => { handed.push([instanceId, report]); },
+    });
+  });
+
+  const saved = async (more: Partial<InstanceRecord>) => {
+    await db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', name: 'bo', url: '', status: 'installing', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'), pool: { ...pool, settingUp: true }, ...more });
+  };
+
+  it('is made waiting for its setup, which its own workflow hears while it is being placed', async () => {
+    expect(await service.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true });
+    expect((await db.instances.getInstances('u1'))[0]!.pool).toMatchObject({ settingUp: true });
+    await saved({});
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'installing' } });
+    expect(handed).toEqual([['inst-bo', line]]);
+  });
+
+  it('hears nothing more of a placement that failed, and records the setup itself once the placement has ended', async () => {
+    await saved({ status: 'failed', detail: 'no gVisor' });
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'failed', detail: 'no gVisor' } });
+    await saved({ status: 'ready', url: 'https://bo.koala.dev', pool });
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'installing', detail: 'Koala is setting itself up: SearXNG, web search' } });
+    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now' } });
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready' } });
+    expect(handed).toEqual([]);
   });
 });

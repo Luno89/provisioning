@@ -41,6 +41,7 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
   const workflows: InstallWorkflows = {
     start: async (installId) => { started.push(installId) },
     progress: async () => undefined,
+    setup: async () => undefined,
     reconnected: async () => undefined,
     cancel: async () => undefined,
   }

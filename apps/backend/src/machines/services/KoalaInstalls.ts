@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { KOALA_INSTALL_PROGRESS, type PlacedKoala } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_PROGRESS, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
@@ -20,6 +20,7 @@ export interface InstallPlaces {
 export interface InstallWorkflows {
   start(installId: string, ownerId: string): Promise<void>;
   progress(installId: string, progress: MachineProgress): Promise<void>;
+  setup(installId: string, report: ProvisionReport): Promise<void>;
   reconnected(installId: string): Promise<void>;
   cancel(installId: string): Promise<void>;
 }
@@ -93,8 +94,16 @@ export class KoalaInstalls {
       if (!url.ok) return url;
       progress = { ...progress, url: url.value };
     }
+    return this.handed(() => this.deps.workflows.progress(installId, progress));
+  }
+
+  async setupHeard(installId: string, report: ProvisionReport): Promise<Outcome<{ recorded: true }>> {
+    return this.handed(() => this.deps.workflows.setup(installId, report));
+  }
+
+  private async handed(hand: () => Promise<void>): Promise<Outcome<{ recorded: true }>> {
     try {
-      await this.deps.workflows.progress(installId, progress);
+      await hand();
     } catch (err) {
       return { ok: false, status: 503, error: `root could not hand this to the install it follows: ${reasonOf(err)}` };
     }

@@ -7,7 +7,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
-import type { InstallAnswer } from '../activities/KoalaInstallActivities.js';
+import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
 
@@ -19,7 +19,7 @@ afterAll(async () => { await env?.teardown(); });
 
 type Handle = { signal: (name: string, ...args: unknown[]) => Promise<void>; cancel: () => Promise<void> };
 
-async function run(answers: (progress: MachineProgress) => InstallAnswer, drive: (handle: Handle, seen: string[]) => Promise<void>, ask: () => InstallAnswer = () => 'asked') {
+async function run(answers: (heard: InstallHeard) => InstallAnswer, drive: (handle: Handle, seen: string[]) => Promise<void>, ask: () => InstallAnswer = () => 'asked') {
   const seen: string[] = [];
   const taskQueue = `koala-install-test-${Math.random().toString(36).slice(2, 8)}`;
   const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
@@ -30,7 +30,11 @@ async function run(answers: (progress: MachineProgress) => InstallAnswer, drive:
     workflowBundle: await bundled(resolve(__dirname, 'KoalaInstallWorkflow.ts')),
     activities: {
       KoalaInstallAskActivity: async () => { seen.push('ask'); return ask(); },
-      KoalaInstallStageActivity: async ({ progress }: { progress: MachineProgress }) => { seen.push(`${progress.stage} ${progress.state}${progress.line ? ` ${progress.line}` : ''}`); return answers(progress); },
+      KoalaInstallStageActivity: async (heard: InstallHeard) => {
+        const progress = 'setup' in heard ? heard.setup.progress : heard.progress;
+        seen.push(`${'setup' in heard ? `setup ${heard.setup.revision} ` : ''}${progress.stage} ${progress.state}${progress.line ? ` ${progress.line}` : ''}`);
+        return answers(heard);
+      },
     },
   });
   const result = await worker.runUntil(async () => {
@@ -45,9 +49,10 @@ async function run(answers: (progress: MachineProgress) => InstallAnswer, drive:
 
 const until = async (seen: string[], count: number) => { while (seen.length < count) await new Promise((done) => setTimeout(done, 20)); };
 const stage = (stage: string, state: MachineProgress['state'], more: Partial<MachineProgress> = {}): MachineProgress => ({ stage, title: stage, state, ...more });
-const installing = (progress: MachineProgress): InstallAnswer => {
-  if (progress.state === 'failed') return 'failed';
-  return progress.stage === 'koala' && progress.state === 'done' ? 'ready' : 'installing';
+const installing = (heard: InstallHeard): InstallAnswer => {
+  if ('setup' in heard) return heard.setup.progress.state === 'failed' ? 'failed' : 'installing';
+  if (heard.progress.state === 'failed') return 'failed';
+  return heard.progress.stage === 'koala' && heard.progress.state === 'done' ? 'ready' : 'installing';
 };
 
 describe('root driving Koala onto a machine', () => {
@@ -59,6 +64,19 @@ describe('root driving Koala onto a machine', () => {
       await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala', 'done', { url: 'https://bo.koala.app' }));
     });
     expect(seen).toEqual(['ask', 'cluster started', 'cluster done', 'koala started waiting for job/instance-seed-1 runs', 'koala done']);
+    expect(result).toBe('ready');
+  });
+
+  it('hears Koala setting itself up on the same line as the machine\'s stages, in the order they come, and ends when what it heard ends the install', async () => {
+    const setUpEnds = (heard: InstallHeard): InstallAnswer => ('setup' in heard && heard.setup.progress.stage === 'set-up' ? 'ready' : 'installing');
+    const { seen, result } = await run(setUpEnds, async (handle) => {
+      await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala', 'started'));
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('gitea', 'started', { line: 'waiting for statefulset/gitea' }) });
+      await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala', 'done', { url: 'https://bo.koala.app' }));
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('gitea', 'done') });
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('set-up', 'done') });
+    });
+    expect(seen).toEqual(['ask', 'koala started', 'setup 1 gitea started waiting for statefulset/gitea', 'koala done', 'setup 1 gitea done', 'setup 1 set-up done']);
     expect(result).toBe('ready');
   });
 

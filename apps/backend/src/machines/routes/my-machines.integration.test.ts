@@ -31,7 +31,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
         installs: new KoalaInstalls({
           devices: () => db.machines.getLocalAgentDevices(),
           places: () => instances,
-          workflows: { start: async (installId) => { started.push(installId); }, progress: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
+          workflows: { start: async (installId) => { started.push(installId); }, progress: async () => undefined, setup: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
           toMachines: { placeKoala: async () => false },
           toOwner: { installChanged: () => undefined },
         }),

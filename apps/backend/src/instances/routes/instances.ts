@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { pipeline } from 'stream';
 import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute } from '../../platform/index.js';
-import type { InstanceService, JoinBundle } from '../services/InstanceService.js';
+import type { InstanceService, JoinBundle, StatusReport } from '../services/InstanceService.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitoring/index.js';
 import { isMovePart } from '../lib/instance-move.js';
@@ -412,7 +412,7 @@ export function instancesRouter(deps: {
 
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown; dataVersion?: unknown });
+    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as StatusReport);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
   }));
