@@ -23,7 +23,7 @@ export const roleRuns = (role: PlatformRole, place: Place): boolean => PLACES[ro
 
 export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
   root: [
-    'PoolHostActivity', 'PoolVclusterActivity', 'PoolProxyActivity', 'PoolChartActivity', 'PoolReadyActivity', 'PoolFailedActivity',
+    'PoolHostActivity', 'PoolVclusterActivity', 'PoolProxyActivity', 'PoolChartActivity', 'PoolReadyActivity', 'PoolSetupActivity', 'PoolFailedActivity',
     'PoolTrialNextActivity', 'PoolTrialStepActivity', 'PoolRemoveActivity', 'PoolMoveStartActivity', 'PoolMoveSwitchActivity', 'PoolMoveStopActivity',
     'DependencyWatchActivity',
     'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',

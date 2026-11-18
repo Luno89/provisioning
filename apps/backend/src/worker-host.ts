@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 
 import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
-import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
+import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolSetupActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { KoalaInstallAskActivity, KoalaInstallStageActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
@@ -28,7 +28,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const logger = createWorkerLogger('host-worker');
 
 export const HOST_WORKER_ACTIVITIES = {
-  PoolHostActivity, PoolVclusterActivity, PoolProxyActivity, PoolChartActivity, PoolReadyActivity, PoolFailedActivity,
+  PoolHostActivity, PoolVclusterActivity, PoolProxyActivity, PoolChartActivity, PoolReadyActivity, PoolSetupActivity, PoolFailedActivity,
   PoolTrialNextActivity, PoolTrialStepActivity, PoolRemoveActivity, PoolMoveStartActivity, PoolMoveSwitchActivity, PoolMoveStopActivity,
   DependencyWatchActivity,
   ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderSshActivity, ServerOrderDnsActivity, ServerOrderReleaseActivity,
