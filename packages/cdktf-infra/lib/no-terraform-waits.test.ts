@@ -14,6 +14,7 @@ const RULES: Record<string, { off: Record<string, string>; never: readonly strin
   Daemonset: { off: { waitForRollout: "false" }, never: ["timeouts"] },
   Job: { off: { waitForCompletion: "false" }, never: ["timeouts"] },
   PersistentVolumeClaim: { off: { waitUntilBound: "false" }, never: ["timeouts"] },
+  Manifest: { off: {}, never: ["wait", "waitFor", "timeouts"] },
 };
 
 const sources = (dir: string) => readdirSync(path.join(root, dir))
@@ -45,6 +46,8 @@ describe("Terraform never waits on what it makes", () => {
     expect(terraformWaits("x.ts", 'new Release(this, "a", { name: "a", timeout: 600 });')).toEqual(["x.ts:1 Release does not set wait: false", "x.ts:1 Release does not set timeout: HELM_CEILING_SECONDS"]);
     expect(terraformWaits("x.ts", 'new Release(this, "a", { wait: false, timeout: HELM_CEILING_SECONDS, atomic: true });')).toEqual(["x.ts:1 Release sets atomic"]);
     expect(terraformWaits("x.ts", 'new Deployment(this, "d", { waitForRollout: false, spec: {} });')).toEqual([]);
+    expect(terraformWaits("x.ts", 'new Manifest(this, "m", { manifest: {}, waitFor: { fields: {} }, timeouts: { create: "1h" } });')).toEqual(["x.ts:1 Manifest sets waitFor", "x.ts:1 Manifest sets timeouts"]);
+    expect(terraformWaits("x.ts", 'new Manifest(this, "m", { manifest: {}, fieldManager: { forceConflicts: true } });')).toEqual([]);
   });
 
   it("every Helm release, workload, job and claim a construct makes is left to Koala to watch", () => {

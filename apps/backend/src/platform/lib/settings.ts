@@ -666,6 +666,26 @@ export function moveImportSettingsFrom(env: Env): MoveImportSettings {
     : undefined);
 }
 
+export interface PlatformServicesSettings extends PodStepSettings {
+  terraform: TerraformStateKind;
+  podNamespace: string;
+  dataDir: string;
+  crawl4aiToken: string;
+}
+
+export function platformServicesSettingsFrom(env: Env): PlatformServicesSettings {
+  const read = new Reading(env);
+  const step = podStep(read);
+  const terraform = terraformFrom(read);
+  const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
+  const dataDir = dataDirFrom(read);
+  const crawl4aiToken = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+  if (crawl4aiToken && !/^[A-Za-z0-9]+$/.test(crawl4aiToken)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+  return finish(read, 'the platform services step', step && terraform && podNamespace && dataDir && crawl4aiToken
+    ? { ...step, terraform, podNamespace, dataDir, crawl4aiToken }
+    : undefined);
+}
+
 export function operatorCredentialsFrom(env: Env): OperatorCredentials {
   const read = new Reading(env);
   return finish(read, 'this program', operatorCredentials(read));

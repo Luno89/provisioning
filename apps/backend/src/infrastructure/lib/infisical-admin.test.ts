@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { DEV_INFISICAL_ADMIN_PASSWORD, infisicalAdminPassword } from './infisical-admin.js';
 
 describe('Infisical\'s admin password', () => {
-  it('is the one ensure-infisical.sh wrote', () => {
+  it('is the one the platform services step wrote', () => {
     expect(infisicalAdminPassword('  made-at-setup\n', true, '/data/.infisical-admin-password')).toBe('made-at-setup');
   });
 
   it('in production is never the development one: without the file Koala refuses to sign in', () => {
     for (const stored of [undefined, '', '  \n']) {
       expect(() => infisicalAdminPassword(stored, true, '/data/.infisical-admin-password'))
-        .toThrow('Infisical\'s admin password is not in /data/.infisical-admin-password. In production Koala never signs in to Infisical with the development password');
+        .toThrow('Infisical\'s admin password is not in /data/.infisical-admin-password. In production Koala never signs in to Infisical with the development password: the platform services step, which runs after every install and upgrade of this Koala, makes one there');
     }
   });
 

@@ -9,6 +9,7 @@ import { PrometheusApp } from "./prometheus.js";
 import { TelemetryStack } from "./telemetry.js";
 import { TemporalApp } from "./temporal.js";
 import { TraefikApp } from "./traefik.js";
+import { platformService } from "./platform-services.js";
 
 interface Pin { kind: string; name: string; source?: string }
 const pins = (JSON.parse(readFileSync(new URL("../../../dependencies.pins.json", import.meta.url), "utf8")) as { components: Pin[] }).components;
@@ -27,6 +28,8 @@ const constructs: Record<string, (scope: never) => unknown> = {
   telemetry: (scope) => new TelemetryStack(scope, "telemetry", "monitoring"),
   Temporal: (scope) => new TemporalApp(scope, "app"),
   Traefik: (scope) => new TraefikApp(scope, "app"),
+  "Koala's Gitea": (scope) => platformService(scope, "gitea", { existing: new Set(), koalaNamespace: "koala", pool: false, stamp: "s" }),
+  "Koala's Infisical": (scope) => platformService(scope, "infisical", { existing: new Set(), koalaNamespace: "koala", pool: false, stamp: "s" }),
 };
 
 beforeEach(() => { vi.stubEnv("APP_SERVICE_TYPE", "NodePort"); vi.stubEnv("INGRESS_SERVICE", "NodePort"); });

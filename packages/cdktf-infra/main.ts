@@ -46,6 +46,8 @@ import { TelemetryStack } from "./constructs/telemetry.js";
 import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
 import { K8sProviderService, kubeconfigFrom } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
+import { platformService } from "./constructs/platform-services.js";
+import { platformSettingsFrom } from "./lib/platform-settings.js";
 
 function gpuCountFrom(name: string): number {
   const count = Number(process.env[name]);
@@ -535,6 +537,14 @@ class AppStack extends TerraformStack {
   }
 }
 
+class PlatformStack extends TerraformStack {
+  constructor(scope: Construct, id: string, settings: ReturnType<typeof platformSettingsFrom>) {
+    super(scope, id);
+    initK8sProvider(this);
+    platformService(this, settings.name, settings.inputs);
+  }
+}
+
 const app = new App();
 
 const stackType = process.env.STACK_TYPE;
@@ -547,6 +557,9 @@ if (stackType === "cluster") {
   new ObservabilityStack(app, `${clusterName}-observability`);
 } else if (stackType === "app") {
   new AppStack(app, `app-${clusterName}-${deploymentId}`);
+} else if (stackType === "platform") {
+  const platform = platformSettingsFrom(process.env);
+  new PlatformStack(app, `platform-${platform.name}`, platform);
 }
 
 keepState(app, process.env);

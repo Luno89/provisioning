@@ -4,7 +4,7 @@ export function infisicalAdminPassword(stored: string | undefined, production: b
   const read = stored?.trim();
   if (read) return read;
   if (production) {
-    throw new Error(`Infisical's admin password is not in ${where}. In production Koala never signs in to Infisical with the development password: run scripts/ensure-infisical.sh, which makes one and writes it there`);
+    throw new Error(`Infisical's admin password is not in ${where}. In production Koala never signs in to Infisical with the development password: the platform services step, which runs after every install and upgrade of this Koala, makes one there`);
   }
   return DEV_INFISICAL_ADMIN_PASSWORD;
 }

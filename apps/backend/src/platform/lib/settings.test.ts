@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, operatorCredentialsFrom,
-  selfUpgradeSettingsFrom, SettingsError,
+  platformServicesSettingsFrom, selfUpgradeSettingsFrom, SettingsError,
 } from './settings.js';
 
 const saying = (text: string): unknown => expect.stringContaining(text);
@@ -188,6 +188,14 @@ describe('the settings of a step run in an instance\'s pod', () => {
   it('gives the move its root, Mongo, Gitea and namespace, and refuses one without its namespace', () => {
     expect(moveImportSettingsFrom({ ...INSTANCE, POD_NAMESPACE: 'nowrinkles' })).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred', podNamespace: 'nowrinkles', registryPullHost: '127.0.0.1:31737', dataDir: '/app/apps/backend/data' });
     expect(problemsOf(() => moveImportSettingsFrom(INSTANCE))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, where Terraform keeps its state');
+  });
+
+  it('gives the platform services step its cluster, its namespace, its data folder and Crawl4AI\'s token, and refuses a token the chart never makes', () => {
+    const env = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1', CRAWL4AI_API_TOKEN: 'crawlToken40' };
+    expect(platformServicesSettingsFrom(env)).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: 'crawlToken40', clusters: { here: { koalaMachineId: 'desk' } } });
+    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: '' }))).toContain('CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: 'a b' }))).toContain('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
   });
 });
 

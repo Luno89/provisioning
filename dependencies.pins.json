@@ -1632,15 +1632,15 @@
       "source": "https://dl.gitea.com/charts/",
       "uses": [
         {
-          "file": "scripts/ensure-gitea.sh",
-          "pattern": "GITEA_CHART=([0-9.]+)"
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "GITEA_CHART_VERSION = \"([0-9.]+)\""
         }
       ],
       "released": "2026-07-19T16:29:15Z",
       "sourceUses": [
         {
-          "file": "scripts/ensure-gitea.sh",
-          "pattern": "repo add gitea-charts (\\S+)"
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "GITEA_CHART_REPO = \"([^\"]+)\""
         }
       ]
     },
@@ -1652,15 +1652,15 @@
       "github": "Infisical/infisical",
       "uses": [
         {
-          "file": "scripts/ensure-infisical.sh",
-          "pattern": "STANDALONE_CHART=([0-9.]+)"
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "INFISICAL_CHART_VERSION = \"([0-9.]+)\""
         }
       ],
       "released": "2026-10-22T00:54:10Z",
       "sourceUses": [
         {
-          "file": "scripts/ensure-infisical.sh",
-          "pattern": "repo add infisical-helm-charts (\\S+)"
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "INFISICAL_CHART_REPO = \"([^\"]+)\""
         }
       ]
     },
@@ -1673,8 +1673,8 @@
       "github": "Infisical/kubernetes-operator",
       "uses": [
         {
-          "file": "scripts/ensure-infisical.sh",
-          "pattern": "OPERATOR_CHART=(v[0-9.]+)"
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "INFISICAL_OPERATOR_CHART_VERSION = \"(v[0-9.]+)\""
         },
         {
           "file": "apps/backend/src/projects/services/ProjectSecretSync.ts",
@@ -2188,7 +2188,7 @@
       "name": "verdaccio/verdaccio",
       "version": "6",
       "floating": true,
-      "where": "the Verdaccio app and the dev box's npm cache",
+      "where": "the Verdaccio app and every instance's npm registry mirror",
       "source": "docker.io/verdaccio/verdaccio:6",
       "uses": [
         {
@@ -2200,7 +2200,7 @@
           "pattern": "config.webTag \\|\\| \"([0-9]+)\""
         },
         {
-          "file": "scripts/ensure-verdaccio.sh",
+          "file": "k8s/verdaccio/verdaccio.yaml",
           "pattern": "image: verdaccio/verdaccio:([0-9]+)"
         }
       ]

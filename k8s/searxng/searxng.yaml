@@ -6,15 +6,6 @@ metadata:
     name: searxng
 ---
 apiVersion: v1
-kind: Secret
-metadata:
-  name: searxng-secret
-  namespace: searxng
-type: Opaque
-stringData:
-  secret_key: "koala-dev-searxng-key"
----
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: searxng-settings
@@ -89,10 +80,8 @@ metadata:
   name: searxng
   namespace: searxng
 spec:
-  type: NodePort
   selector:
     app: searxng
   ports:
     - port: 8080
       targetPort: 8080
-      nodePort: 32080

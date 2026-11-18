@@ -7,7 +7,7 @@ import { renderChart } from '../../../../../tests/coupling/chart-trace.js';
 import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
 import { podPlaceFrom } from '../../platform/lib/drain.js';
 import { loadKey } from '../../platform/lib/keys.js';
-import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, selfUpgradeSettingsFrom } from '../../platform/lib/settings.js';
+import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, platformServicesSettingsFrom, selfUpgradeSettingsFrom } from '../../platform/lib/settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
@@ -449,6 +449,7 @@ describe('the instance chart', () => {
     expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
     expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed')), 'seed')).mongo).toBeDefined();
+    expect(platformServicesSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services')), 'platform-services'))).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: expect.stringMatching(/^[A-Za-z0-9]{40}$/) as unknown, clusters: { here: { koalaMachineId: 'desk' } } });
     expect(loadKey(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-temporal')), 'temporal-jwks'), 'temporal')).toBeDefined();
     expect(podPlaceFrom(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-backend')), 'backend'))).toEqual({ ip: '10.42.0.9', namespace: 'nowrinkles' });
     const moving = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`, 'move.enabled=true']);

@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "cdktf": "^0.20.0",
-    "constructs": "^10.0.0"
+    "constructs": "^10.0.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
