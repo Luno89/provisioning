@@ -54,7 +54,7 @@ const backend = await startBackend(async (site) => {
   })
   site.api.use('/monitoring', monitoringRouter({ monitoring }))
   site.api.use('/infrastructure', infrastructureRouter({
-    infrastructure: new InfrastructureViewService({ monitoring, contents, running, failures, signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) } }),
+    infrastructure: new InfrastructureViewService({ monitoring, contents, running, failures, memory: db.memory, signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) } }),
   }))
 })
 
@@ -78,6 +78,14 @@ describe('Infrastructure, with a machine that is stopped and no cluster that ans
     expect(overview.failures.map((failure) => failure.id).sort()).toEqual(['failure-1', 'failure-2'])
     expect(overview).toMatchObject({ running: 0, runningProblem: 'Temporal is not reachable, so what runs cannot be read', waiting: [], signals: [] })
     expect(overview.monitoring.clusters).toEqual(arrayWith([objectWith({ id: 'machine-desk' })]))
+  })
+
+  it('reads when the person\'s memories stopped being consolidated, and why', async () => {
+    const reason = 'Qdrant "vectors" is deployed but not answering: the cluster proxy could not reach desk'
+    await backend.db.memory.saveKeepingState({ ownerId: owner.id, state: 'down', since: '2026-11-18T09:00:00.000Z', reason, at: '2026-11-18T10:00:00.000Z' })
+    expect((await getInfrastructure()).memoryKeepingDown).toEqual({ since: '2026-11-18T09:00:00.000Z', reason })
+    await backend.db.memory.saveKeepingState({ ownerId: owner.id, state: 'kept', at: '2026-11-18T11:00:00.000Z' })
+    expect(await getInfrastructure()).not.toHaveProperty('memoryKeepingDown')
   })
 
   it('reads the machine\'s contents as not reachable, saying it is stopped', async () => {

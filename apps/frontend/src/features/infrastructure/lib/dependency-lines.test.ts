@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dependencyLines, egressBehindLine } from './dependency-lines'
+import { dependencyLines, egressBehindLine, memoryKeepingLine } from './dependency-lines'
 import type { DependencyDown } from '../api/infrastructure'
 
 const at = (iso: string) => `at ${iso}`
@@ -56,5 +56,12 @@ describe('the item Needs attention shows while sandboxes\' egress proxy is behin
   it('says the proxy still holds grants from before when, and why it has not taken the current ones', () => {
     expect(egressBehindLine({ since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' }, at))
       .toBe('Sandboxes\' egress proxy still holds grants from before at 2026-11-17T10:00:00.000Z: it refused the connection (ECONNREFUSED)')
+  })
+})
+
+describe('the item Needs attention shows while a person\'s memories are not being consolidated', () => {
+  it('says since when, and why', () => {
+    expect(memoryKeepingLine({ since: '2026-11-18T09:00:00.000Z', reason: 'Qdrant "vectors" is deployed but not answering: its pod is not ready' }, at))
+      .toBe('Koala has not consolidated your memories since at 2026-11-18T09:00:00.000Z: Qdrant "vectors" is deployed but not answering: its pod is not ready')
   })
 })

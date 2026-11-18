@@ -218,6 +218,19 @@ describe('the Infrastructure page', () => {
     expect(screen.queryByText(/Everything is healthy/)).toBeNull()
   })
 
+  it('says when the person\'s memories stopped being consolidated, since when and why, rather than calling everything healthy', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [], signals: [],
+      dependencies: [], memoryKeepingDown: { since: '2026-11-18T09:00:00.000Z', reason: 'Qdrant "vectors" is deployed but not answering: its pod is not ready' },
+    })
+    show()
+    const item = await screen.findByTestId('attention-memory-keeping')
+    expect(item).toHaveTextContent('Not consolidated')
+    expect(item).toHaveTextContent('Your memories')
+    expect(item).toHaveTextContent(/Koala has not consolidated your memories since .*2026.*: Qdrant "vectors" is deployed but not answering: its pod is not ready/)
+    expect(screen.queryByText(/Everything is healthy/)).toBeNull()
+  })
+
   it('scrolls to the section an old address names', async () => {
     const scrolled = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrolled
