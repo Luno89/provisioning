@@ -205,3 +205,39 @@ describe('a run Koala does for a member of a shared project', () => {
     expect((runs[0]!.args[0] as ProcedureRunInput).ticket.actingFor).toBeUndefined();
   });
 });
+
+describe('two processes starting the same run at once', () => {
+  it('withdraws the grant of the start Temporal refused, so only the run that started holds one', async () => {
+    const issued: string[] = [];
+    const withdrawn: string[] = [];
+    const grants = {
+      issue: vi.fn(async () => { const id = `g${issued.length + 1}`; issued.push(id); return { id }; }),
+      withdraw: vi.fn(async (id: string) => { withdrawn.push(id); }),
+    };
+    let release!: () => void;
+    const bothIssued = new Promise<void>((resolve) => { release = resolve; });
+    let waiting = 0;
+    const tickets: (string | undefined)[] = [];
+    const start = vi.fn(async (_type: string, options: { args: unknown[] }) => {
+      waiting += 1;
+      if (waiting === 2) release();
+      await bothIssued;
+      if (tickets.length > 0) throw new Error('Workflow execution already started');
+      tickets.push((options.args[0] as ProcedureRunInput).ticket.grantId);
+      return { workflowId: 'run-same' };
+    });
+    const first = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), grants });
+    const second = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), grants });
+
+    const [won, lost] = await Promise.allSettled([
+      first.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', runId: 'run-same' }),
+      second.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', runId: 'run-same' }),
+    ]);
+
+    expect(won.status).toBe('fulfilled');
+    expect(lost.status).toBe('rejected');
+    expect(issued).toEqual(['g1', 'g2']);
+    expect(tickets).toEqual(['g1']);
+    expect(withdrawn).toEqual(['g2']);
+  });
+});

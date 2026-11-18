@@ -90,7 +90,7 @@ export { UnknownAgentError };
 export interface RunStarterOptions {
   registry: AgentRegistry;
   principal?: ((ownerId: string) => Promise<Principal>) | undefined;
-  grants?: { issue(request: GrantRequest): Promise<{ id: string }> } | undefined;
+  grants?: { issue(request: GrantRequest): Promise<{ id: string }>; withdraw(id: string): Promise<void> } | undefined;
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
@@ -208,6 +208,7 @@ export function createRunStarter(options: RunStarterOptions) {
           },
         });
       } catch (err) {
+        if (grant) await options.grants!.withdraw(grant.id);
         if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(ignore('the start failure is thrown below, and a turn left open is closed the next time its conversation is read, its run not running'));
         throw err;
       }

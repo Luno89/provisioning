@@ -191,6 +191,10 @@ export class MemoryEngineStore implements EngineStore {
     return this.runGrants.get(id);
   }
 
+  async deleteRunGrant(id: string): Promise<void> {
+    this.runGrants.delete(id);
+  }
+
   async getRunGrantOfRun(runId: string): Promise<RunGrant | undefined> {
     return this.runGrants.all().find((grant) => grant.runId === runId);
   }

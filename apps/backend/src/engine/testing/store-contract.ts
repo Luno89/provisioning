@@ -389,6 +389,16 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       expect(await store.getLiveRunGrants('owner-1')).toEqual([]);
     });
 
+    it('removes a grant issued for a start that never began, leaving every other grant', async () => {
+      const store = await make();
+      await store.saveRunGrant(grant('g1'));
+      await store.saveRunGrant(grant('g2'));
+      await store.deleteRunGrant('g2');
+      expect(await store.getRunGrant('g2')).toBeUndefined();
+      expect(await store.getRunGrantOfRun('run-g2')).toBeUndefined();
+      expect((await store.getLiveRunGrants('owner-1')).map((found) => found.id)).toEqual(['g1']);
+    });
+
     it('records how a run ended and its handover together, whichever comes first', async () => {
       const store = await make();
       await store.saveRunHandover('owner-1', 'run-1', { note: 'left halfway', path: 'handover/run-1.md' });
