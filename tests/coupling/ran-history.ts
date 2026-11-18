@@ -34,10 +34,13 @@ export function unitsRanIn(graph: Graph, runs: readonly Ran[]): Record<string, s
 
 export const kept = (history: readonly RanRecord[], latest: RanRecord): RanRecord[] => [latest, ...history].slice(0, KEPT_RECORDS);
 
+const foundIn = (record: RanRecord, breachKey: string): boolean => (record.breaches?.[breachKey] ?? 0) > 0;
+
 export function lastRan(history: readonly RanRecord[], breachKey: string): { commit: string; at: string; tests: string[] } | undefined {
   const rule = breachKey.slice(0, breachKey.indexOf(' '));
   const call = breachKey.slice(breachKey.indexOf(' ') + 1);
   for (const record of history) {
+    if (foundIn(record, breachKey)) return undefined;
     const tests = rule === 'R5' ? record.units?.[call] : record.ran[call];
     if (tests) return { commit: record.commit, at: record.at, tests };
   }
@@ -46,6 +49,8 @@ export function lastRan(history: readonly RanRecord[], breachKey: string): { com
 
 export function lastRanLine(history: readonly RanRecord[], breachKey: string): string {
   const last = lastRan(history, breachKey);
+  const held = history.find((record) => foundIn(record, breachKey));
+  if (!last && held) return `  the audit at ${held.commit} (${held.at}) found it too, so it holds between runs`;
   if (!last) return `  no audit of the last ${KEPT_RECORDS} ran it for real either`;
   return `  last run for real at ${last.commit} (${last.at}) by: ${last.tests.join(', ')}; this run did not, so what those tests do differs between runs`;
 }

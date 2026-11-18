@@ -21,6 +21,15 @@ describe('which tests last ran a call for real', () => {
     expect(lastRanLine(history, breach!.key)).toBe('  last run for real at aaa (aaa-at) by: AgentRunWorkflow.integration.test.ts, grove-run.integration.test.ts; this run did not, so what those tests do differs between runs');
   });
 
+  it('says an audit found the same breach when it did, even where its tests ran the call, so a breach that stays is never told as one that comes and goes', () => {
+    const [breach] = breaches([unrun], graph, ['R1']);
+    const earlier: RanRecord = { ...run([ranBy(['KoalaInstalls.test.ts'])], 'aaa'), breaches: { [breach!.key]: 1 } };
+    const r5: RanRecord = { commit: 'aaa', at: 'aaa-at', ran: {}, units: { 'apps/backend/src/x/services/Thing.ts#acts': ['Thing.test.ts'] }, breaches: { 'R5 apps/backend/src/x/services/Thing.ts#acts': 1 } };
+    expect(lastRan([earlier], breach!.key)).toBeUndefined();
+    expect(lastRanLine([earlier], breach!.key)).toBe('  the audit at aaa (aaa-at) found it too, so it holds between runs');
+    expect(lastRanLine([r5], 'R5 apps/backend/src/x/services/Thing.ts#acts')).toBe('  the audit at aaa (aaa-at) found it too, so it holds between runs');
+  });
+
   it('names the tests that last ran a function an R5 breach is about', () => {
     const record: RanRecord = { commit: 'aaa', at: 'aaa-at', ran: {}, units: { 'apps/backend/src/x/services/Thing.ts#acts': ['Thing.integration.test.ts'] }, breaches: {} };
     expect(lastRanLine([record], 'R5 apps/backend/src/x/services/Thing.ts#acts')).toBe('  last run for real at aaa (aaa-at) by: Thing.integration.test.ts; this run did not, so what those tests do differs between runs');
