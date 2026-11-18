@@ -10,7 +10,7 @@ let grove: GroveWorld;
 beforeAll(async () => {
   env = await realTemporalEnvironment();
   grove = new GroveWorld(env);
-}, 120_000);
+});
 
 afterAll(async () => {
   await env?.teardown();
@@ -33,10 +33,10 @@ describe('stopping the grove agent\'s work', () => {
 
     expect(grove.leafOf('leafA')?.status).toBe('cancelled');
     expect(grove.leafOf('leafB')).toMatchObject({ status: 'succeeded', verified: true });
-  }, 120_000);
+  });
 
   it('stopping the run stops the leaf mid-task, puts it back to waiting and parks the workspace', async () => {
-    const { outcome, parkedTrees } = await grove.run({
+    const { outcome, parkedTrees, traces } = await grove.run({
       agent: 'grove',
       hang: 'exec-leafA',
       drive: async (handle, firstCall) => {
@@ -49,5 +49,7 @@ describe('stopping the grove agent\'s work', () => {
     expect(grove.leafOf('leafA')).toMatchObject({ status: 'pending' });
     expect(grove.leafOf('leafA')?.claim).toBeUndefined();
     expect(parkedTrees).toEqual(['tree-1']);
-  }, 120_000);
+    expect(traces.filter((trace) => trace.error !== undefined).map(({ runId, node, error }) => ({ runId, node, error })), 'a step the stop caught in flight reads as failed').toEqual([]);
+    expect(traces).toContainEqual(expect.objectContaining({ kind: 'call-model', interrupted: 'the run was cancelled' }));
+  });
 });

@@ -31,6 +31,7 @@ import {
   DEFAULT_STREAM_TASK_QUEUE,
   type GroveRunResult,
   type PublishArgs,
+  type RecordTracesArgs,
   type ResolveAgentArgs,
 } from '../../../engine-host/temporal/contracts.js';
 import { createTaskTools } from '../../../engine-host/tools/task-tools.js';
@@ -222,6 +223,7 @@ export class GroveWorld {
     const env = this.env;
     const namespace = env.namespace ?? 'default';
     const published: EngineEvent[] = [];
+    const traces: (RecordTracesArgs['traces'][number] & { runId: string })[] = [];
     if (options.waitingTasksOf) {
       this.tasks = this.tasks.map((task) => (task.leafId === options.waitingTasksOf ? { ...task, status: 'waiting', evidence: 'waits for the workspace to get dnf wkhtmltopdf' } : task));
     }
@@ -405,7 +407,7 @@ export class GroveWorld {
           if (args.ticket.agentSlug !== 'grove-runner') worktreeOfCall.push(`${args.ticket.agentSlug} ${args.name} ${args.environment?.scope?.worktree ?? 'none'}`);
           return runTool(args);
         },
-        EngineRecordTracesActivity: async () => undefined,
+        EngineRecordTracesActivity: async (args: RecordTracesArgs) => { traces.push(...args.traces.map((trace) => ({ ...trace, runId: args.runId }))); },
       },
     });
     const streamWorker = await Worker.create({
@@ -444,6 +446,6 @@ export class GroveWorld {
       return handle.result();
     };
     const outcome = await engineWorker.runUntil(() => streamWorker.runUntil(startAgent));
-    return { published, result: outcome.outputs as unknown as GroveRunResult, outcome, parkedTrees, worktreeOfCall };
+    return { published, traces, result: outcome.outputs as unknown as GroveRunResult, outcome, parkedTrees, worktreeOfCall };
   }
 }

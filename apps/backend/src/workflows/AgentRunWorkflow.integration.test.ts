@@ -19,6 +19,7 @@ import {
   INTERACTIVE_CHAT_V4,
   replyExit,
   stepImplementation,
+  valueImplementation,
   type ChatMessage,
   type ModelReply,
   type Procedure,
@@ -101,12 +102,15 @@ function activities(options: {
   machineWork?: Record<string, (...args: never[]) => Promise<unknown>>;
   machineGit?: (op: MachineGitOp) => Promise<MachineGitResult>;
   memories?: unknown[];
+  hangValue?: string;
 }) {
   const registry = options.registry ?? createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
   const seen: ChatMessage[][] = [];
   let calledOnce!: () => void;
   const called = new Promise<void>((done) => { calledOnce = done; });
+  let valueCalledOnce!: () => void;
+  const valueCalled = new Promise<void>((done) => { valueCalledOnce = done; });
   const aborted: string[] = [];
   let turn = 0;
   const launched: { runId: string; modelId?: string | undefined }[] = [];
@@ -126,7 +130,12 @@ function activities(options: {
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
     memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined },
     ...(options.conversationWorkspaces ? { conversationWorkspaces: options.conversationWorkspaces } : {}),
-  }), ['activity', 'sandbox']);
+  }), ['activity', 'sandbox']).map((implementation) => (implementation.kind === options.hangValue
+    ? valueImplementation(implementation.kind, ({ run }) => new Promise<never>((_, reject) => {
+      valueCalledOnce();
+      run.signal?.addEventListener('abort', () => reject(new Error(`the ${implementation.kind} lookup was aborted`)));
+    }))
+    : implementation));
 
   const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
     seen.push(structuredClone(inputs.messages as ChatMessage[]));
@@ -162,6 +171,7 @@ function activities(options: {
   return {
     seen,
     called,
+    valueCalled,
     launched,
     aborted,
     efforts,
@@ -590,6 +600,49 @@ describe('AgentRunWorkflow', () => {
     const child = await new WorkflowClient({ connection: env.connection }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   }, 60_000);
+
+  it('records the model call a stop catches in flight as stopped by it, not as failed', async () => {
+    const acts = activities({ script: ['hang'] });
+
+    const result = await runWorkflow(input('research', RESEARCH_V2), acts, async (handle) => {
+      await Promise.race([acts.called, handle.result()]);
+      await handle.signal(cancelSignal);
+    });
+
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+    const call = recorded(acts).find((trace) => trace.kind === 'call-model');
+    expect(call).toMatchObject({ role: 'step', interrupted: 'the run was cancelled' });
+    expect(call).not.toHaveProperty('error');
+  });
+
+  it('records the value a stop catches in flight as stopped by it, not as failed', async () => {
+    const acts = activities({ script: [{ content: 'unused' }], hangValue: 'persona' });
+
+    const result = await runWorkflow(input('research', RESEARCH_V2), acts, async (handle) => {
+      await Promise.race([acts.valueCalled, handle.result()]);
+      await handle.signal(cancelSignal);
+    });
+
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+    const persona = recorded(acts).find((trace) => trace.kind === 'persona');
+    expect(persona).toMatchObject({ role: 'value', interrupted: 'the run was cancelled' });
+    expect(persona).not.toHaveProperty('error');
+    expect(recorded(acts).filter((trace) => trace.error !== undefined)).toEqual([]);
+  });
+
+  it('records a value that fails on its own as failed, with why and how long it took, and the run ends saying which one failed', async () => {
+    const acts = activities({ script: [{ content: 'unused' }] });
+
+    const result = await runWorkflow(input('nobody', RESEARCH_V2), acts);
+
+    expect(result.outcome).toBe('failed');
+    expect(result.reason).toMatch(/^"persona" failed: .*there is no persona called "nobody"/);
+    const persona = recorded(acts).find((trace) => trace.kind === 'persona');
+    expect(persona).toMatchObject({ role: 'value', error: expect.stringContaining('there is no persona called "nobody"') });
+    expect(persona).not.toHaveProperty('interrupted');
+    expect(persona!.durationMs).toBeGreaterThanOrEqual(0);
+    expect(acts.seen).toEqual([]);
+  });
 
   it('tells the backend when a chat turn starts and when each run ends, with what it needs to decide what to remember', async () => {
     const acts = activities({ script: [{ content: 'Noted.' }] });

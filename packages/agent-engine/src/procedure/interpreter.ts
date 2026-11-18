@@ -175,10 +175,19 @@ export const describeError = (err: unknown): string => {
   return said.join(': ') || 'an unknown error';
 };
 
+function stoppedBecause(signal: AbortSignal | undefined): string | undefined {
+  if (!signal?.aborted) return undefined;
+  return typeof signal.reason === 'string' ? signal.reason : 'Stopped';
+}
+
 function stopFor(run: RunContext, failure: string): RunStop {
-  const signal = run.signal;
-  if (!signal?.aborted) return new RunStop('failed', failure);
-  return new RunStop('interrupted', typeof signal.reason === 'string' ? signal.reason : 'Stopped');
+  const stopped = stoppedBecause(run.signal);
+  return stopped === undefined ? new RunStop('failed', failure) : new RunStop('interrupted', stopped);
+}
+
+function endedBy(run: RunContext, err: unknown): { error: string } | { interrupted: string } {
+  const stopped = stoppedBecause(run.signal);
+  return stopped === undefined ? { error: describeError(err) } : { interrupted: stopped };
 }
 
 export async function runProcedure(options: RunProcedureOptions): Promise<ProcedureResult> {
@@ -337,7 +346,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
       return result.outputs;
     } catch (err) {
       if (err instanceof RunStop) throw err;
-      record({ node: node.id, kind: node.kind, role: 'value', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, error: describeError(err) });
+      record({ node: node.id, kind: node.kind, role: 'value', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, ...endedBy(run, err) });
       throw stopFor(run, `"${origin.get(node.id) ?? node.id}" failed: ${describeError(err)}`);
     } finally {
       evaluating.delete(node.id);
@@ -379,7 +388,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
         run,
       });
     } catch (err) {
-      record({ node: id, kind: node.kind, role: 'step', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, error: describeError(err) });
+      record({ node: id, kind: node.kind, role: 'step', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, ...endedBy(run, err) });
       emit({ type: 'node.exited', nodeId: id } as never);
       throw stopFor(run, `"${origin.get(id) ?? id}" failed: ${describeError(err)}`);
     }
@@ -431,9 +440,8 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     const run = context(false, options.signal);
 
     while (current !== undefined) {
-      if (options.signal?.aborted) {
-        throw new RunStop('interrupted', typeof options.signal.reason === 'string' ? options.signal.reason : 'Stopped');
-      }
+      const stopped = stoppedBecause(options.signal);
+      if (stopped !== undefined) throw new RunStop('interrupted', stopped);
       const at: NodeId = current;
       const checkpoint = (): RunCheckpoint => {
         counters.elapsedMs = now() - counters.startedAt;
