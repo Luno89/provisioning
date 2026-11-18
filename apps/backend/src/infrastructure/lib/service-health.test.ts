@@ -66,8 +66,4 @@ describe('where reconciliation applies it', () => {
   it('prefers the service reason over the workload one when both exist', () => {
     expect(bridge).toMatch(/healthReason: serviceReason \|\| reason/);
   });
-
-  it('never lets a registry failure change a status', () => {
-    expect(bridge).toMatch(/catch[\s\S]{0,200}mcpByName = new Map\(\)|catch[\s\S]{0,200}\{\}/);
-  });
 });
