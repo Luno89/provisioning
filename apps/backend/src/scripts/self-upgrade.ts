@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
-import { chartInputs, chartStep, followRelease, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter, type WaitOptions } from '@koala/provision';
-import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
+import { chartInputs, chartStep, followRelease, releaseRevision, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter, type WaitOptions } from '@koala/provision';
+import { InstanceReporter, UPGRADE_WORDS, withWhy, type InstanceStatus } from '../instances/index.js';
 import { clusterAccessFrom } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
 
@@ -43,20 +43,18 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const ofRoot = (doing: string, ask: () => Promise<Response>): Promise<Response> =>
     untilAnswered(ask, wait, (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`));
 
-  const report = async (status: string, detail: string, imageTag?: string, dataVersion = installed): Promise<void> => {
-    const answer = await ofRoot(`tells it it is ${status}`, () => call(`${deps.root.url}/api/instances/status`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, detail, ...(imageTag ? { imageTag } : {}), dataVersion, presence: true }),
-    }));
-    if (!answer.ok) log(`root refused hearing that this instance is ${status} (${answer.status}): ${await answer.text()}`);
+  const reporter = new InstanceReporter({ root: deps.root, fetch: call, wait, log });
+  const report = async (status: InstanceStatus, detail: string, imageTag?: string, dataVersion = installed, revision?: number): Promise<void> => {
+    const answer = await reporter.status({ status, detail, imageTag, dataVersion, revision });
+    if (!answer.ok) log(`root refused hearing that this instance is ${status} (${answer.status}): ${answer.error}`);
   };
+  const runs = (): Promise<number> => releaseRevision(ctx, { release: name, namespace });
 
   const asked = await ofRoot('asks which release to run', () => call(`${deps.root.url}/api/instances/release`, { headers }));
   if (!asked.ok) throw new Error(`root did not say which release this instance should run (${asked.status}): ${await asked.text()}`);
   const wanted = await asked.json() as Released;
   if (wanted.imageTag === current) {
-    await report('ready', UPGRADE_WORDS.running(current), current);
+    await report('installing', UPGRADE_WORDS.running(current), current, installed, await runs());
     return true;
   }
   const wantedData = wanted.dataVersion ?? 0;
@@ -97,7 +95,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
       },
     );
     if (upgraded.state === 'done') {
-      await report('ready', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag, wantedData);
+      await report('installing', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag, wantedData, await runs());
       return true;
     }
     if (wantedData > installed) {

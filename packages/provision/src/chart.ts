@@ -39,9 +39,17 @@ interface Listed {
   status?: string;
 }
 
-async function listed(ctx: ChartContext, release: ChartRelease): Promise<Listed | undefined> {
+async function listed(ctx: ChartContext, release: Pick<ChartRelease, 'release' | 'namespace'>): Promise<Listed | undefined> {
   const found = JSON.parse(await ctx.cluster.helm(['list', '-n', release.namespace, '--filter', `^${release.release}$`, '-a', '-o', 'json'])) as Listed[];
   return found[0];
+}
+
+export async function releaseRevision(ctx: ChartContext, release: Pick<ChartRelease, 'release' | 'namespace'>): Promise<number> {
+  const found = await listed(ctx, release);
+  if (!found) throw new Error(`${release.release} is not installed in ${release.namespace}, so it runs no revision`);
+  const revision = Number(found.revision);
+  if (!Number.isInteger(revision) || revision < 1) throw new Error(`helm lists ${release.release} in ${release.namespace} with no revision it can name (${String(found.revision)})`);
+  return revision;
 }
 
 async function inputsOf(ctx: ChartContext, release: ChartRelease): Promise<unknown> {

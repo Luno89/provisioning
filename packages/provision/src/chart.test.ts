@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
-import { chartInputs, chartStep, INPUTS_VALUE, type ChartCluster, type ChartRelease } from './chart.js';
+import { chartInputs, chartStep, INPUTS_VALUE, releaseRevision, type ChartCluster, type ChartRelease } from './chart.js';
 import { SETUP_LABEL } from './rollout.js';
 import { runSteps, StepFailed } from './steps.js';
 
@@ -101,5 +101,12 @@ describe('applying a chart and following it until everything it holds is up', ()
     await runSteps([step], { cluster: world, wait: noPause }, reporter);
     expect(reporter.reported).toEqual([{ kind: 'started', id: 'koala' }, { kind: 'already-done', id: 'koala' }]);
     expect(world.helmRan.some((args) => args[0] === 'upgrade')).toBe(false);
+  });
+});
+
+describe('the revision a release runs', () => {
+  it('is the one helm lists, and a release helm does not list has none to name', async () => {
+    expect(await releaseRevision({ cluster: cluster({ listed: { status: 'deployed' }, rollouts: [] }) }, release)).toBe(2);
+    await expect(releaseRevision({ cluster: cluster({ listed: undefined, rollouts: [] }) }, release)).rejects.toThrow('instance is not installed in nowrinkles, so it runs no revision');
   });
 });

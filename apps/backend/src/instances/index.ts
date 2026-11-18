@@ -36,6 +36,7 @@ export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
 export { InstanceReach } from './services/InstanceReach.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
+export { InstanceReporter, type InstanceStatusReport, type Reported } from './services/InstanceReporter.js';
 export type { PlacingMachine } from './services/InstanceService.js';
 export { askedAgain, installFields, installSetupHeard, installUnfinished, installView, KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, stageHeard, type InstallPatch, type KoalaInstallRecord } from './lib/koala-installs.js';
 export { setupHeard, setupSaid, statusSettled, type InstanceSetup } from './lib/instance-setup.js';
