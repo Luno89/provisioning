@@ -128,7 +128,7 @@ describe('the instance chart', () => {
   it('configures every process as this owner\'s instance, trusting root and keeping its own keys', () => {
     const docs = render();
     expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({
-      ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production',
+      ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production', KOALA_RELEASE_REVISION: '1',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
     expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
@@ -419,7 +419,7 @@ describe('the instance chart', () => {
     };
     const backend = backendSettingsFrom(envOf('backend'));
     expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, trustProxy: 1, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
-    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322' });
+    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1 });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
     expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN });

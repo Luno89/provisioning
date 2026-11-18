@@ -131,6 +131,7 @@ export interface InstanceSettings {
   selfUpgrade: { cronJob: string; namespace: string } | Off;
   machineTemporalAddress: string | Off;
   gatewayPort: number;
+  revision: number;
   move: MovedSettings;
   poolMonitor: { rootUrl: string; instanceId: string } | Off;
 }
@@ -271,6 +272,15 @@ function portSetting(read: Reading, name: string, why: string, zeroAllowed = fal
   const port = Number(value);
   if (Number.isInteger(port) && port < 65536 && (port > 0 || (zeroAllowed && port === 0))) return port;
   read.problems.push(`${name} is not a port: ${value}`);
+  return undefined;
+}
+
+function revisionSetting(read: Reading, name: string, why: string): number | undefined {
+  const value = required(read, name, why);
+  if (value === undefined) return undefined;
+  const revision = Number(value);
+  if (/^[0-9]+$/.test(value) && Number.isSafeInteger(revision) && revision >= 1) return revision;
+  read.problems.push(`${name} is not a chart revision, a whole number from 1: ${value}`);
   return undefined;
 }
 
@@ -440,8 +450,9 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
   if (Boolean(cronJob) !== Boolean(namespace)) read.problems.push('SELF_UPGRADE_CRONJOB and INSTANCE_NAMESPACE go together, and only one is set');
   const machineTemporal = settingIn(read.env, 'MACHINE_TEMPORAL_ADDRESS');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
+  const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which Koala sets itself up for once; the instance chart sets it');
   const pool = env.POOL?.trim() === 'true';
-  if (!credential || !edge || gatewayPort === undefined) return undefined;
+  if (!credential || !edge || gatewayPort === undefined || revision === undefined) return undefined;
   return {
     credential,
     edge,
@@ -450,6 +461,7 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
       ? (read.take(() => settingHostPort('MACHINE_TEMPORAL_ADDRESS', machineTemporal)) ?? machineTemporal)
       : { off: 'MACHINE_TEMPORAL_ADDRESS is not set (the instance chart sets it from mesh.address), so no machine can take this instance\'s work' },
     gatewayPort,
+    revision,
     move: movedSettingsFrom(env),
     poolMonitor: pool && role.instance
       ? { rootUrl: role.instance.rootUrl, instanceId: role.instance.id }

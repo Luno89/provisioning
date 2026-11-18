@@ -36,7 +36,7 @@ const TENANT = {
 
 const INSTANCE = {
   ...BACKEND, ...TENANT, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey,
-  INSTANCE_CREDENTIAL: 'cred', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local',
+  INSTANCE_CREDENTIAL: 'cred', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local', KOALA_RELEASE_REVISION: '7',
 };
 
 const HUB = { ...BACKEND, ROLE: 'hub', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, HUB_CREDENTIAL: 'hub-cred', HUB_DATABASE: 'koala_hub', GITEA_URL: TENANT.GITEA_URL, GITEA_REACHES_KOALA_AT: 'http://hub.koala.dev' };
@@ -115,12 +115,18 @@ describe('the settings a backend reads once, at start', () => {
   it('takes an instance\'s, with the services the chart names and nothing guessed for the ones it does not', () => {
     const settings = backendSettingsFrom(INSTANCE);
     expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL, crawl4aiToken: 'crawl-token' } });
-    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, poolMonitor: { off: ANY_TEXT } });
+    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, poolMonitor: { off: ANY_TEXT } });
     expect(settings.endpointRules).toEqual({ scriptedBase: 'http://instance.nowrinkles.svc.cluster.local/api/checks/scripted', lab: false });
     expect(settings.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(settings.mesh).toEqual({ off: 'instance runs no mesh; root does' });
     const missing = problemsOf(() => backendSettingsFrom({ ...INSTANCE, MINIO_BUCKET: '', SEARXNG_URL: '', CRAWL4AI_API_TOKEN: '', CHECKS_API_URL: '', INSTANCE_CREDENTIAL: '', MACHINE_GATEWAY_PORT: '' }));
     for (const name of ['MINIO_BUCKET', 'SEARXNG_URL', 'CRAWL4AI_API_TOKEN', 'CHECKS_API_URL', 'INSTANCE_CREDENTIAL', 'MACHINE_GATEWAY_PORT']) expect(missing.some((problem) => problem.includes(name)), name).toBe(true);
+  });
+
+  it('takes the chart revision an instance runs, a whole number from 1, and stops without one', () => {
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, KOALA_RELEASE_REVISION: '' })).some((problem) => problem.startsWith('KOALA_RELEASE_REVISION is not set'))).toBe(true);
+    for (const wrong of ['0', '-2', '1.5', 'seven']) expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, KOALA_RELEASE_REVISION: wrong })), wrong).toContain(`KOALA_RELEASE_REVISION is not a chart revision, a whole number from 1: ${wrong}`);
+    expect(backendSettingsFrom({ ...INSTANCE, KOALA_RELEASE_REVISION: '12' }).instance?.revision).toBe(12);
   });
 
   it('takes an instance with no machine named as one with no cluster of its own, and a trial on Koala\'s servers only with its name', () => {

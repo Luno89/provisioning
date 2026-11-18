@@ -8,6 +8,7 @@ metadata:
 data:
   NODE_ENV: production
   ROLE: instance
+  KOALA_RELEASE_REVISION: {{ .Release.Revision | quote }}
   INSTANCE_ID: {{ .Values.instance.id | quote }}
   INSTANCE_OWNER_ID: {{ .Values.instance.ownerId | quote }}
   {{- with .Values.instance.machineId }}
