@@ -43,4 +43,15 @@ describe('consolidating a person\'s memories in Mongo with their own Quickwit, Q
     expect(standIn.documents(MEMORY_INDEX).map((doc) => doc.memory_id)).not.toContain('keep-a');
     expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id).sort()).toEqual(['keep-b', 'keep-c']);
   });
+
+  it('keeps what a finished task established as a lesson in Mongo, once', async () => {
+    const findings = 'The shop\'s Odoo needs the website module installed before any theme can be applied, and installing it afterwards resets the theme to the default one, so the module goes in first and the theme second on every new database.';
+    await db.projects.saveLeaf({ id: 'leaf-theme', ownerId: 'keeper-lessons', branchId: 'b1', title: 'Apply the shop theme', status: 'succeeded', findings } as never);
+
+    await consolidateOwner({ db, reach: async () => ({}), now: () => NOW }, 'keeper-lessons');
+    await consolidateOwner({ db, reach: async () => ({}), now: () => NOW }, 'keeper-lessons');
+
+    const lessons = (await db.memory.getMemories('keeper-lessons')).filter((item) => !item.invalidAt);
+    expect(lessons.map((item) => [item.title, item.category, item.provenance?.taskId])).toEqual([['What "Apply the shop theme" established', 'lessons_learned', 'leaf-theme']]);
+  });
 });
