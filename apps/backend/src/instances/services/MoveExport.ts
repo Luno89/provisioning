@@ -28,7 +28,6 @@ export interface ClusterStarts {
   kubectl(target: Target, args: readonly string[]): Promise<string>;
   own(): Reach;
   start(target: Target, args: readonly string[], io?: Io): Promise<Followed>;
-  startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed>;
 }
 
 export function moveClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'own' | 'start'>): MoveCluster {

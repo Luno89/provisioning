@@ -128,17 +128,6 @@ describe('ClusterAccess against a real k3s', () => {
     expect(refused.stderr).toContain('namespaces "nowhere" not found');
   });
 
-  it('starts helm and hands back how it ended, a refusal included, without throwing', async () => {
-    const access = await door([], { clusters: undefined });
-    const reach = startedMachine('machine-dev3', k3s.admin);
-    const quiet = `helm-start-${Math.random().toString(36).slice(2, 8)}`;
-    const listed = await (await access.startHelm(reach, ['list', '-n', quiet, '-o', 'json'])).ended;
-    expect(listed).toMatchObject({ code: 0, stdout: '[]\n' });
-    const missing = await (await access.startHelm(reach, ['status', 'nowhere', '-n', PLAYGROUND])).ended;
-    expect(missing.code).not.toBe(0);
-    expect(missing.stderr).toContain('release: not found');
-  });
-
   it('stops a kubectl it started that would run until stopped', async () => {
     const access = await door([], { clusters: undefined });
     const watching = await access.start(startedMachine('machine-dev3', k3s.admin), ['get', 'configmaps', '-n', PLAYGROUND, '-w']);

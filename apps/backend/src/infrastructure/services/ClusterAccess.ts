@@ -171,15 +171,6 @@ export class ClusterAccess {
     }
   }
 
-  async startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    const leave = this.admitted();
-    try {
-      return this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io);
-    } finally {
-      leave();
-    }
-  }
-
   async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
     const leave = this.admitted();
     try {

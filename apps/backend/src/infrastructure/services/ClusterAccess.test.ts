@@ -160,15 +160,6 @@ describe('ClusterAccess: a kubectl it starts and leaves running', () => {
     expect((await started.ended).code).toBe(3);
   });
 
-  it('starts helm the same way, with the reach\'s kubeconfig', async () => {
-    const { access, streams, folder } = await door({ clusters: undefined, dataKey: undefined });
-    const started = { stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: 'UPGRADE FAILED' }) };
-    streams.start.mockReturnValue(started);
-    expect(await access.startHelm(startedMachine('machine-dev2', ADMIN), ['upgrade', 'koala', '/chart'])).toBe(started);
-    expect(streams.start).toHaveBeenCalledWith({ command: '/bin/helm', args: ['--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'upgrade', 'koala', '/chart'], input: undefined }, undefined);
-    expect((await started.ended).code).toBe(1);
-  });
-
   it('starts nothing for a cluster it cannot reach', async () => {
     const { access, streams } = await door({ serviceAccount: undefined });
     await expect(access.start('machine-dev1', ['logs', '-f', 'pod'])).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'no-account' });

@@ -1,36 +1,37 @@
 import { fileURLToPath } from 'node:url';
-import { Hopeless } from '@koala/provision';
+import { Hopeless, type ChartCluster, type WaitOptions } from '@koala/provision';
 import { clusterAccessFrom } from '../infrastructure/index.js';
 import { setupWaits } from '../instances/index.js';
-import { mongoClientFor, setupWaitsSettingsFrom } from '../platform/index.js';
+import { mongoClientFor, setupWaitsSettingsFrom, type SetupWaitsSettings } from '../platform/index.js';
 
 const AUTHENTICATION_FAILED = 18;
 
-async function main(): Promise<void> {
-  const settings = setupWaitsSettingsFrom(process.env);
-  const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  const own = access.own();
-  console.log(`[setup] ${settings.step} waits for the instance's Mongo${settings.after.length ? ` and for ${settings.after.join(', ')}` : ''}`);
+async function mongoAnswers(uri: string): Promise<void> {
+  const client = mongoClientFor(uri);
+  try {
+    await client.db('admin').command({ ping: 1 });
+  } catch (err) {
+    if ((err as { code?: unknown }).code === AUTHENTICATION_FAILED) throw new Hopeless(`the instance's Mongo refused its own password: ${(err as Error).message}`);
+    throw err;
+  } finally {
+    await client.close();
+  }
+}
+
+export async function setupWaitsOn(settings: Pick<SetupWaitsSettings, 'step' | 'after' | 'podNamespace' | 'mongo'>, cluster: Pick<ChartCluster, 'kubectl'>, say: (line: string) => void, wait: WaitOptions = {}): Promise<void> {
+  say(`[setup] ${settings.step} waits for the instance's Mongo${settings.after.length ? ` and for ${settings.after.join(', ')}` : ''}`);
   await setupWaits(settings.step, settings.after, {
-    job: async (name) => JSON.parse(await access.kubectl(own, ['get', 'job', name, '-n', settings.podNamespace, '-o', 'json'])) as unknown,
-    mongo: async () => {
-      const client = mongoClientFor(settings.mongo.uri);
-      try {
-        await client.db('admin').command({ ping: 1 });
-      } catch (err) {
-        if ((err as { code?: unknown }).code === AUTHENTICATION_FAILED) throw new Hopeless(`the instance's Mongo refused its own password: ${(err as Error).message}`);
-        throw err;
-      } finally {
-        await client.close();
-      }
-    },
-    wait: { waiting: (what, last) => console.log(`[setup] still waiting for ${what}${last ? ` (${last})` : ''}`) },
+    job: async (name) => JSON.parse(await cluster.kubectl(['get', 'job', name, '-n', settings.podNamespace, '-o', 'json'])) as unknown,
+    mongo: () => mongoAnswers(settings.mongo.uri),
+    wait: { waiting: (what, last) => say(`[setup] still waiting for ${what}${last ? ` (${last})` : ''}`), ...wait },
   });
-  console.log(`[setup] ${settings.step} may run`);
+  say(`[setup] ${settings.step} may run`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  main().catch((err: Error) => {
+  const settings = setupWaitsSettingsFrom(process.env);
+  const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
+  setupWaitsOn(settings, access.chartCluster(access.own()), (line) => console.log(line)).catch((err: Error) => {
     console.error(`[setup] ${err.message}`);
     process.exitCode = 1;
   });
