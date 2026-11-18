@@ -74,7 +74,7 @@ export type SharedAction =
   | 'ask-koala';
 
 export interface Actions {
-  install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces' | 'see-platform-dependencies';
+  install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces' | 'see-platform-dependencies' | 'set-up-again';
   'instance-settings': 'change';
   account: 'remove';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
@@ -121,6 +121,7 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     'use-operator-credentials': OPERATOR('Only the operator of this server uses its own cloud credentials.'),
     'open-platform-namespaces': OPERATOR('Only the operator of this server can open the platform\'s own namespaces.'),
     'see-platform-dependencies': { who: ['operator', 'instance-owner'], hidden: false, said: 'Only whoever runs this Koala sees whether the services it depends on answer.' },
+    'set-up-again': { who: ['operator', 'instance-owner'], hidden: false, said: 'Only whoever runs this Koala sets it up again.' },
   },
   'instance-settings': {
     change: { who: ['instance-owner'], hidden: false, said: 'Only the owner of this instance changes its settings.' },
@@ -235,7 +236,7 @@ export const rolePrincipal = (id: string, project: string, as: SharedRole): Prin
 export const memberPrincipal = (personId: string, project: string, role: string): Principal =>
   (SHARED_ROLES as readonly string[]).includes(role) ? rolePrincipal(personId, project, role as SharedRole) : asPerson(personId);
 
-export const SESSION_PERMISSIONS = ['administer', 'manage-accounts', 'see-all-work', 'open-platform-namespaces', 'change-instance-settings', 'manage-own-account'] as const;
+export const SESSION_PERMISSIONS = ['administer', 'manage-accounts', 'see-all-work', 'open-platform-namespaces', 'change-instance-settings', 'manage-own-account', 'set-up-again'] as const;
 
 export type SessionPermission = typeof SESSION_PERMISSIONS[number];
 
@@ -252,6 +253,7 @@ export function sessionPermissions(principal: Principal, place: SessionPlace): R
     'open-platform-namespaces': allowed(principal, 'open-platform-namespaces', install),
     'change-instance-settings': allowed(principal, 'change', { kind: 'instance-settings' }),
     'manage-own-account': place.holdsAccounts && allowed(principal, 'remove', { kind: 'account', id: principal.id }),
+    'set-up-again': allowed(principal, 'set-up-again', install),
   };
 }
 

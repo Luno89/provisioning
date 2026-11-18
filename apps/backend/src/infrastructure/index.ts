@@ -59,6 +59,8 @@ export { AppService } from './services/AppService.js';
 export { BuilderService } from './services/BuilderService.js';
 export { BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter } from './services/build-token-cleanup.js';
 export { PodLogTails, podLogRoom } from './services/PodLogTails.js';
+export { NEVER_STARTED, Provisioning } from './services/Provisioning.js';
+export type { ProvisioningDeps, ProvisionRuns } from './services/Provisioning.js';
 export type { PodLogTailsDeps, PodToTail } from './services/PodLogTails.js';
 export { ClusterAccess, ClusterCommandFailed, ClusterUnreachable, clusterAccessFrom, clusterAccessOfKubeconfig, runnersByRecord } from './services/ClusterAccess.js';
 export type { ClusterAccessDeps, ClusterAccessFrom, RecordRunners, Target } from './services/ClusterAccess.js';
@@ -85,5 +87,5 @@ export type { GroveRunStatus, TemporalBridge } from './services/TemporalBridge.j
 export { VpsCatalogService } from './services/VpsCatalogService.js';
 export type { WorkFailureService } from './services/WorkFailureService.js';
 export { default as WorkerService } from './services/WorkerService.js';
-export type { DeploymentHealth, InfrastructureStore } from './store.js';
+export type { DeploymentHealth, InfrastructureStore, ProvisioningOpened, ProvisioningPatch } from './store.js';
 export { pushOpenWebUiWebSearchConfig } from './wiring/openwebui-admin.js';

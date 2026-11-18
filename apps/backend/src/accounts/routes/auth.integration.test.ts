@@ -119,7 +119,7 @@ describe('auth router', () => {
     const me = await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { claims: unknown; permissions: Record<string, boolean>; isAdmin?: unknown; holdsAccounts?: unknown };
     expect(me.claims).toEqual([{ role: 'person' }, { role: 'operator' }]);
     expect(me.permissions).toEqual({
-      administer: true, 'manage-accounts': true, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': false, 'manage-own-account': true,
+      administer: true, 'manage-accounts': true, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': true,
     });
     expect(signedIn.permissions).toEqual(me.permissions);
     expect('isAdmin' in me || 'holdsAccounts' in me || 'isAdmin' in signedIn).toBe(false);
@@ -127,7 +127,7 @@ describe('auth router', () => {
     await db.accounts.saveUser({ id: 'plain', email: 'plain@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01' });
     const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `session=${sessionToken({ id: 'plain', email: 'plain@example.com' }, JWT_SECRET)}` } });
     expect((await plain.json() as { permissions: Record<string, boolean> }).permissions).toEqual({
-      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true,
+      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': false,
     });
   });
 

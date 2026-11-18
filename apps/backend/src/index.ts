@@ -37,6 +37,7 @@ import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
 import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
+import { wireProvisioning } from './infrastructure/wiring/provisioning.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { onKoalasCluster } from './engine-host/sandboxes/kube.js';
@@ -49,7 +50,7 @@ import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHtt
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, vpsCatalogAdapters,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
   savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
@@ -444,6 +445,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
     egress,
   });
+  if (role.role === 'instance' && role.instance && settings.instance) {
+    const clusterId = koalasClusterId(settings.clusters.here);
+    wireProvisioning({
+      tenant, db, io, runs: engineRuns,
+      client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
+      koala: clusterId
+        ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
+        : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },
+    });
+  }
   runningNow = async (ownerId) => {
     const view = await running.view(ownerId);
     if (!view.ok) return 'unknown';
