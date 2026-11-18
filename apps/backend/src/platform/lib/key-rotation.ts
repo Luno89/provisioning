@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { decryptValue, encryptValue, looksEncrypted, needsReencryption, type Keyring } from './crypto.js';
+import { decryptValue, encryptValue, sealedWithOtherKey, type Keyring } from './crypto.js';
 import { KEY_NAMES } from './keys.js';
 import { identityKeysFromSeed } from '../../instances/lib/identity-token.js';
 
@@ -9,15 +9,38 @@ export interface Reencrypted<T> {
   unreadable: string[];
 }
 
+const UNVERSIONED = /^[0-9a-f]{32}:[0-9a-f]{32}:[0-9a-f]*$/;
+const UNVERSIONED_SALT = 'ianthe-credential-encryption-v1';
+
+export const needsReencryption = (encrypted: string, ring: Keyring): boolean =>
+  UNVERSIONED.test(encrypted) || sealedWithOtherKey(encrypted, ring);
+
+function openUnversioned(encrypted: string, ring: Keyring): string {
+  const [ivHex, tagHex, body] = encrypted.split(':') as [string, string, string];
+  let failure: unknown;
+  for (const secret of [ring.current, ...(ring.previous ?? [])]) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', crypto.scryptSync(secret, UNVERSIONED_SALT, 32), Buffer.from(ivHex, 'hex'));
+      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+      return decipher.update(body, 'hex', 'utf8') + decipher.final('utf8');
+    } catch (err) {
+      failure = err;
+    }
+  }
+  throw failure;
+}
+
+const opened = (sealed: string, ring: Keyring): string => (UNVERSIONED.test(sealed) ? openUnversioned(sealed, ring) : decryptValue(sealed, ring));
+
 export function reencrypt<T>(value: T, ring: Keyring, at = ''): Reencrypted<T> {
   const rewritten: string[] = [];
   const unreadable: string[] = [];
 
   const walk = (node: unknown, path: string): unknown => {
     if (typeof node === 'string') {
-      if (!looksEncrypted(node) || !needsReencryption(node, ring)) return node;
+      if (!needsReencryption(node, ring)) return node;
       try {
-        const plain = decryptValue(node, ring);
+        const plain = opened(node, ring);
         rewritten.push(path);
         return encryptValue(plain, ring);
       } catch {

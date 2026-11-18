@@ -1,5 +1,6 @@
+import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
-import { identityKeyOf, missingKeyLines, reencrypt, sealedBeforeKeys } from './key-rotation.js';
+import { identityKeyOf, missingKeyLines, needsReencryption, reencrypt, sealedBeforeKeys } from './key-rotation.js';
 import { identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { decryptValue, encryptValue, keyId } from './crypto.js';
 
@@ -23,6 +24,25 @@ describe('moving stored secrets onto the current key', () => {
     expect(result.value.current).toBe(doc.current);
     expect(result.value.createdAt).toBe(doc.createdAt);
     expect(result.value.email).toBe('a@b.c');
+  });
+
+  it('re-seals onto the current key a value written before keys had ids, which nothing else opens any more', () => {
+    const unversioned = (plaintext: string, secret: string): string => {
+      const key = crypto.scryptSync(secret, 'ianthe-credential-encryption-v1', 32);
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+      const body = cipher.update(plaintext, 'utf8', 'hex') + cipher.final('hex');
+      return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${body}`;
+    };
+    const doc = { byOld: unversioned('before ids', 'old-key'), byCurrent: unversioned('also before', 'new-key'), stranger: unversioned('nobody', 'stranger') };
+    expect(needsReencryption(doc.byCurrent, ring)).toBe(true);
+
+    const result = reencrypt(doc, ring);
+
+    expect(result.rewritten).toEqual(['byOld', 'byCurrent']);
+    expect(result.unreadable).toEqual(['stranger']);
+    expect(decryptValue(result.value.byOld, 'new-key')).toBe('before ids');
+    expect(decryptValue(result.value.byCurrent, 'new-key')).toBe('also before');
   });
 
   it('leaves alone what no key it holds can open, and reports it rather than guessing', () => {

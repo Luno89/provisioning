@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
-import { encryptValue, decryptValue, maskSecret, keyId, needsReencryption, looksEncrypted } from './crypto.js';
+import { encryptValue, decryptValue, maskSecret, keyId, looksEncrypted } from './crypto.js';
+import { needsReencryption } from './key-rotation.js';
 
 const TEST_KEY = 'test-master-key-for-unit-tests-only';
 
@@ -93,11 +94,16 @@ describe('crypto', () => {
       expect(() => decryptValue(encrypted, 'key-two')).toThrow(`encrypted with key ${keyId('key-one')}, which this platform no longer holds`);
     });
 
-    it('opens what an older key wrote, and anything written before keys had ids', () => {
+    it('opens what an older key wrote', () => {
       const ring = { current: 'new-key', previous: ['old-key'] };
       expect(decryptValue(encryptValue('rotated', 'old-key'), ring)).toBe('rotated');
-      expect(decryptValue(legacy('before ids', 'old-key'), ring)).toBe('before ids');
-      expect(() => decryptValue(legacy('nobody', 'stranger'), ring)).toThrow();
+    });
+
+    it('refuses a value written before keys had ids, naming npm run keys', () => {
+      const ring = { current: 'new-key', previous: ['old-key'] };
+      expect(() => decryptValue(legacy('before ids', 'old-key'), ring)).toThrow('this was sealed before keys were versioned; run npm run keys');
+      expect(() => decryptValue(legacy('before ids', 'new-key'), 'new-key')).toThrow('this was sealed before keys were versioned; run npm run keys');
+      expect(() => decryptValue('not-sealed', ring)).toThrow('Invalid encrypted value format');
     });
 
     it('writes only with the current key, and says what still needs moving onto it', () => {
@@ -106,7 +112,6 @@ describe('crypto', () => {
       expect(decryptValue(fresh, 'new-key')).toBe('x');
       expect(needsReencryption(fresh, ring)).toBe(false);
       expect(needsReencryption(encryptValue('x', 'old-key'), ring)).toBe(true);
-      expect(needsReencryption(legacy('x', 'new-key'), ring)).toBe(true);
       expect(looksEncrypted('not:a:secret')).toBe(false);
     });
   });

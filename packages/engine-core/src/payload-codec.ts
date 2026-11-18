@@ -68,19 +68,8 @@ export function decryptValue(encrypted: string, key: SecretKey): string {
     return open(secret, ivHex, authTagHex, ciphertext);
   }
 
-  if (parts.length !== 3) throw new Error('Invalid encrypted value format');
-  const [ivHex, authTagHex, ciphertext] = parts as [string, string, string];
-  if (!ivHex || !authTagHex) throw new Error('Invalid encrypted value format');
-
-  let failure: unknown;
-  for (const secret of secrets) {
-    try {
-      return open(secret, ivHex, authTagHex, ciphertext);
-    } catch (err) {
-      failure = err;
-    }
-  }
-  throw failure;
+  if (parts.length === 3 && parts[0] && parts[1]) throw new Error('this was sealed before keys were versioned; run npm run keys');
+  throw new Error('Invalid encrypted value format');
 }
 
 export const OFFLOAD_ABOVE_BYTES = 128 * 1024;
