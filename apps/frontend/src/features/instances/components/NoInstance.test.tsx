@@ -140,3 +140,19 @@ describe('root\'s page when the owner\'s instance is not answering', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith('/instances/mine/watch', { notifyWhenUnreachable: false }))
   })
 })
+
+describe('root\'s page when the owner\'s instance has not named its sign-in key', () => {
+  it('says so instead of sending them on', async () => {
+    vi.clearAllMocks()
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/instances/mine') return { data: { instance: { id: 'inst-1', status: 'ready', url: 'https://luno.koala.dev', name: 'luno' } } }
+      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
+      return { data: { ok: false } }
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><NoInstance hasInstance signInWaiting="your Koala has not named its sign-in key to root yet; it does so as it starts" onLogout={() => {}} /></QueryClientProvider>)
+    expect(await screen.findByText('Your Koala is not ready for sign-in yet')).toBeInTheDocument()
+    expect(screen.getByText(/your Koala has not named its sign-in key to root yet; it does so as it starts/)).toBeInTheDocument()
+    expect(screen.queryByText(/Taking you to your instance/)).toBeNull()
+  })
+})

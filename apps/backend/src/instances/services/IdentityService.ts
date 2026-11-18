@@ -1,34 +1,20 @@
 import crypto from 'crypto';
-import { handoffNonceShaped, type Database, type RoleConfig } from '../../platform/index.js';
-import { issueHandoff, publicKeyPem } from '../lib/identity-token.js';
+import type { Database, RoleConfig } from '../../platform/index.js';
+import { publicKeyPem } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
-import { handoffServedFor, START_PATH, startsSignInItself } from '../lib/oidc.js';
-import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
+import { SIGN_IN_KEY_NOT_NAMED, signInWaitingFor, START_PATH } from '../lib/oidc.js';
 import { hashCredential } from './InstanceService.js';
-import { InstanceReach } from './InstanceReach.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
+
+export type GoTo = { url: string } | { waiting: string };
 
 export class IdentityService {
   constructor(
     private readonly role: RoleConfig,
     private readonly store: Store,
     private readonly now: () => number = () => Math.floor(Date.now() / 1000),
-    private readonly signInAnswer: ((url: string) => Promise<unknown>) | undefined = undefined,
-    private readonly reach: InstanceReach = new InstanceReach({ open: false }),
   ) {}
-
-  private async startsSignIn(url: string, instance: InstanceRecord): Promise<boolean | undefined> {
-    try {
-      const answer = this.signInAnswer
-        ? await this.signInAnswer(url)
-        : await (await this.reach.fetchFor(instance)(`${url}/api/auth/sign-in`)).json();
-      return startsSignInItself(answer);
-    } catch (err) {
-      console.warn(`[identity] ${instance.name ?? instance.id} could not be asked at ${url} how it signs people in (${(err as Error).message}); it is sent the old handoff instead`);
-      return undefined;
-    }
-  }
 
   publicKeys(): { kid: string; publicKey: string }[] {
     return this.role.signing ? [{ kid: this.role.signing.kid, publicKey: publicKeyPem(this.role.signing.publicKey) }] : [];
@@ -38,22 +24,18 @@ export class IdentityService {
     return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && inService(instance));
   }
 
-  async goUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }, nonce?: unknown): Promise<string | undefined> {
+  async goUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<GoTo | undefined> {
     if (!this.role.signing) return undefined;
-    const bound = handoffNonceShaped(nonce) ? nonce : undefined;
     if (to?.hub) {
       if (!this.role.hubLink) return undefined;
+      if (!(await this.store.instances.getHubSignInKey())) return { waiting: SIGN_IN_KEY_NOT_NAMED.hub };
       const going = to.next && /^\/[^/\\]/.test(to.next) ? to.next : undefined;
-      if (await this.store.instances.getHubSignInKey()) return `${this.role.hubLink.url}${START_PATH}${going ? `?next=${encodeURIComponent(going)}` : ''}`;
-      const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, HUB_AUDIENCE, this.now(), bound);
-      return `${this.role.hubLink.url}/#/handoff?token=${encodeURIComponent(token)}${going ? `&next=${encodeURIComponent(going)}` : ''}`;
+      return { url: `${this.role.hubLink.url}${START_PATH}${going ? `?next=${encodeURIComponent(going)}` : ''}` };
     }
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
-    const base = instance.url.replace(/\/+$/, '');
-    if (!handoffServedFor(instance, instance.signIn ? await this.startsSignIn(base, instance) : undefined)) return `${base}${START_PATH}`;
-    const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now(), bound);
-    return `${base}/#/handoff?token=${encodeURIComponent(token)}`;
+    const waiting = signInWaitingFor(instance);
+    return waiting ? { waiting } : { url: `${instance.url.replace(/\/+$/, '')}${START_PATH}` };
   }
 
   hubUrl(): string | undefined {

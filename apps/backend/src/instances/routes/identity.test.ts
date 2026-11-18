@@ -11,7 +11,8 @@ const get = async (router: Router, path: string, headers?: Record<string, string
 
 type Identity = Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
 
-const instance: InstanceRecord = { id: 'inst-test', ownerId: PERSON.id, url: 'https://test.example.com', createdAt: 'x', updatedAt: 'x' };
+const announced = { jwk: { kty: 'OKP' as const, crv: 'Ed25519' as const, x: 'x', kid: 'k' }, since: '2026-10-29T00:00:00.000Z' };
+const instance: InstanceRecord = { id: 'inst-test', ownerId: PERSON.id, url: 'https://test.example.com', createdAt: 'x', updatedAt: 'x', signIn: announced };
 const signedInWhenCookie = async (req: { headers: { cookie?: string | undefined } }) => (req.headers.cookie?.includes('session=ok') ? PERSON : undefined);
 
 describe('root\'s identity routes', () => {
@@ -34,6 +35,13 @@ describe('root\'s identity routes', () => {
     });
   });
 
+  it('tells a person whose instance has not named its sign-in key to root that it has not yet', async () => {
+    const identity = mock<Identity>();
+    identity.instanceOf.calledWith(PERSON.id).mockResolvedValue({ ...instance, signIn: undefined });
+    const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/instance');
+    expect(answer.data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com', signInWaiting: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, servesTenants: false });
+  });
+
   it('says there is no instance yet, and asks nobody whether it is reachable', async () => {
     const identity = mock<Identity>();
     identity.instanceOf.mockResolvedValue(undefined);
@@ -51,18 +59,18 @@ describe('root\'s identity routes', () => {
     expect(answer.headers['cache-control']).toBe('no-store');
   });
 
-  it('redirects a signed-in person to the address root gives them, passing on the nonce', async () => {
+  it('redirects a signed-in person to their instance\'s own sign-in start', async () => {
     const identity = mock<Identity>();
-    identity.goUrl.calledWith(PERSON, undefined, 'n'.repeat(32)).mockResolvedValue('https://test.example.com/#/handoff?token=t');
-    const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), `/go?nonce=${'n'.repeat(32)}`, { cookie: 'session=ok' });
+    identity.goUrl.calledWith(PERSON, undefined).mockResolvedValue({ url: 'https://test.example.com/api/auth/oidc/start' });
+    const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go', { cookie: 'session=ok' });
     expect(answer.status).toBe(302);
-    expect(answer.headers.location).toBe('https://test.example.com/#/handoff?token=t');
+    expect(answer.headers.location).toBe('https://test.example.com/api/auth/oidc/start');
     expect(answer.headers['cache-control']).toBe('no-store');
   });
 
   it('sends a person to the hub, carrying where they were going', async () => {
     const identity = mock<Identity>();
-    identity.goUrl.calledWith(PERSON, matches<{ hub: true; next?: string | undefined } | undefined>((to) => to?.hub === true && to.next === '/hub/join/abc'), undefined).mockResolvedValue('https://hub.example.com/api/auth/oidc/start');
+    identity.goUrl.calledWith(PERSON, matches<{ hub: true; next?: string | undefined } | undefined>((to) => to?.hub === true && to.next === '/hub/join/abc')).mockResolvedValue({ url: 'https://hub.example.com/api/auth/oidc/start' });
     const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go?to=hub&next=%2Fhub%2Fjoin%2Fabc', { cookie: 'session=ok' });
     expect(answer.headers.location).toBe('https://hub.example.com/api/auth/oidc/start');
   });
@@ -75,6 +83,13 @@ describe('root\'s identity routes', () => {
     expect([noInstance.status, noInstance.data]).toEqual([404, { error: 'you have no instance yet' }]);
     const noHub = await get(router, '/go?to=hub', { cookie: 'session=ok' });
     expect([noHub.status, noHub.data]).toEqual([404, { error: 'this root has no hub' }]);
+  });
+
+  it('tells a person their instance has not named its sign-in key yet, rather than sending them on', async () => {
+    const identity = mock<Identity>();
+    identity.goUrl.mockResolvedValue({ waiting: 'your Koala has not named its sign-in key to root yet; it does so as it starts' });
+    const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go', { cookie: 'session=ok' });
+    expect([answer.status, answer.data, answer.headers.location]).toEqual([409, { error: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, undefined]);
   });
 });
 

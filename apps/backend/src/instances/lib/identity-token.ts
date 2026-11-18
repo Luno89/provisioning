@@ -1,18 +1,6 @@
 import crypto from 'crypto';
 
-export const HANDOFF_TTL_SECONDS = 60;
 const ALG = 'EdDSA';
-const TYP = 'nowrinkles-handoff';
-
-export interface HandoffClaims {
-  sub: string;
-  email: string;
-  aud: string;
-  iat: number;
-  exp: number;
-  jti: string;
-  nonce?: string;
-}
 
 export interface IdentityKeyPair {
   kid: string;
@@ -48,27 +36,6 @@ export function identityKeysFromSeed(seed: Buffer): IdentityKeyPair {
 
 export const generateIdentityKey = (): string =>
   crypto.generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-
-export function issueHandoff(
-  keys: IdentityKeyPair,
-  who: { userId: string; email: string },
-  audience: string,
-  now: number = Math.floor(Date.now() / 1000),
-  nonce?: string,
-): string {
-  const header = { alg: ALG, typ: TYP, kid: keys.kid };
-  const claims: HandoffClaims = {
-    sub: who.userId,
-    email: who.email,
-    aud: audience,
-    iat: now,
-    exp: now + HANDOFF_TTL_SECONDS,
-    jti: crypto.randomUUID(),
-    ...(nonce ? { nonce } : {}),
-  };
-  const signed = `${b64(JSON.stringify(header))}.${b64(JSON.stringify(claims))}`;
-  return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;
-}
 
 export function trustedKeys(publicKeyPems: readonly string[]): Map<string, crypto.KeyObject> {
   return new Map(publicKeyPems.map((pem) => {

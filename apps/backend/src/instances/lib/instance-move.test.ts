@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { generateIdentityKey, identityKeysFrom, issueMoveToken, checkMoveToken, trustedKeys, publicKeyPem, issueHandoff } from './identity-token.js';
+import crypto from 'node:crypto';
+import { generateIdentityKey, identityKeysFrom, issueMoveToken, checkMoveToken, trustedKeys, publicKeyPem } from './identity-token.js';
 import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE } from './instance-move.js';
 import { kubeAccessFrom, serviceProxyPath } from './kubeconfig-access.js';
 
@@ -64,7 +65,9 @@ describe('root asking a pool instance for a part of itself', () => {
     expect(checkMoveToken(token, trusted, 'inst-1', 'mongo', now + 61)).toEqual({ ok: false, reason: 'expired' });
     const other = identityKeysFrom(generateIdentityKey());
     expect(checkMoveToken(issueMoveToken(other, 'inst-1', 'mongo', now), trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'unknown-key' });
-    expect(checkMoveToken(issueHandoff(keys, { userId: 'u', email: 'e' }, 'inst-1', now), trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'malformed' });
+    const [, body] = issueMoveToken(keys, 'inst-1', 'mongo', now).split('.') as [string, string];
+    const otherKind = `${Buffer.from(JSON.stringify({ alg: 'EdDSA', typ: 'nowrinkles-handoff', kid: keys.kid })).toString('base64url')}.${body}`;
+    expect(checkMoveToken(`${otherKind}.${crypto.sign(null, Buffer.from(otherKind), keys.privateKey).toString('base64url')}`, trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'malformed' });
   });
 
   it('calls a token whose header or claims are not an object malformed rather than failing on it', () => {

@@ -97,10 +97,13 @@ export function signInRefusal(client: { kind: ClientKind; owner?: string | undef
   return undefined;
 }
 
-export const handoffServedFor = (instance: Pick<InstanceRecord, 'signIn'>, startsSignIn: boolean | undefined): boolean =>
-  instance.signIn === undefined || startsSignIn === false;
+export const SIGN_IN_KEY_NOT_NAMED = {
+  instance: 'your Koala has not named its sign-in key to root yet; it does so as it starts',
+  hub: 'the hub has not named its sign-in key to root yet; it does so as it starts',
+} as const;
 
-export const startsSignInItself = (answer: unknown): boolean => (answer as { url?: unknown } | undefined)?.url === START_PATH;
+export const signInWaitingFor = (instance: Pick<InstanceRecord, 'signIn'>): string | undefined =>
+  instance.signIn ? undefined : SIGN_IN_KEY_NOT_NAMED.instance;
 
 export const claimsFor = (user: ClaimedUser, client: { kind: ClientKind; owner?: string | undefined }): Claim[] =>
   client.kind === 'instance' ? claimsOf(user, { role: 'instance', instanceOwnerId: client.owner }) : claimsOf(user, { role: 'hub' });

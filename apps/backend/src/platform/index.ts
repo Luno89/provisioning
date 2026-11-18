@@ -25,7 +25,6 @@ export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';
 export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
-export { handoffNonceShaped } from './lib/handoff-nonce.js';
 export { ACCOUNT_KEY, afterFailure, attemptsKeyFor, CONFIRM_CODES, confirmCodesKeyFor, confirmCodesSaid, CSP_REPORT_LIMIT, fullUntil, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, LOCKOUT, RATE_LIMITS, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './lib/http-limits.js';
 export type { LockoutRule, SignInAttempts } from './lib/http-limits.js';
 export { commandSafeCode, INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';

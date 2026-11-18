@@ -7,7 +7,7 @@ import { createAuth, type Auth } from '../../../../backend/src/platform/middlewa
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
-import { TEST_DATA_KEY, testDatabase } from '../../../../backend/src/platform/lib/test-database'
+import { testDatabase } from '../../../../backend/src/platform/lib/test-database'
 import { JSON_LIMITS } from '../../../../backend/src/platform/lib/http-limits'
 import type { Database } from '../../../../backend/src/platform/lib/db-interface'
 import { authRouter } from '../../../../backend/src/accounts/routes/auth'

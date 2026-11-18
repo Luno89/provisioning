@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { isDown, type Reach } from '../lib/instance-watch.js';
+import { signInWaitingFor } from '../lib/oidc.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
@@ -20,7 +21,8 @@ export function identityRouter(deps: {
   router.get('/instance', asyncRoute(async (req: Request, res: Response) => {
     const found = accounts ? await accounts.identity.instanceOf(userOf(req).id) : undefined;
     const reach = found && accounts?.reachOf ? await accounts.reachOf(found.id) : undefined;
-    const instance = found ? { id: found.id, url: found.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) } : null;
+    const waiting = found ? signInWaitingFor(found) : undefined;
+    const instance = found ? { id: found.id, url: found.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}), ...(waiting ? { signInWaiting: waiting } : {}) } : null;
     res.json({ instance, servesTenants: deps.servesTenants });
   }));
   if (!accounts) return router;
@@ -34,9 +36,10 @@ export function identityRouter(deps: {
     res.setHeader('Cache-Control', 'no-store');
     if (!user) return res.redirect(302, '/');
     const toHub = req.query.to === 'hub';
-    const url = await accounts.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined, req.query.nonce);
-    if (!url) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
-    return res.redirect(302, url);
+    const going = await accounts.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined);
+    if (!going) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
+    if ('waiting' in going) return res.status(409).json({ error: going.waiting });
+    return res.redirect(302, going.url);
   }));
 
   return router;

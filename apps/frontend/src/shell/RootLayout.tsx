@@ -115,7 +115,7 @@ export function RootLayout() {
   const adminPage = ((location.pathname === '/pool' || location.pathname === '/admin') && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !placement.data.instance.signInWaiting && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
   }, [placement.data, adminPage, removalPage, joinPage]);
 
   const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && placement.data.servesTenants;
@@ -263,7 +263,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants) {
-    return <NoInstance hasInstance={Boolean(placement.data.instance)} unreachableSince={placement.data.instance?.unreachableSince} onLogout={handleLogout} />;
+    return <NoInstance hasInstance={Boolean(placement.data.instance)} unreachableSince={placement.data.instance?.unreachableSince} signInWaiting={placement.data.instance?.signInWaiting} onLogout={handleLogout} />;
   }
 
   const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/dependencies', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));

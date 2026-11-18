@@ -14,8 +14,6 @@ export interface Handoff {
   location: string;
   callback?: string | undefined;
   startCookie?: string | undefined;
-  token?: string | undefined;
-  nonceCookie?: string | undefined;
 }
 
 export const fetchSide = (base: string, cookie?: string): Side => async (path, init = {}) => {
@@ -27,12 +25,6 @@ export const fetchSide = (base: string, cookie?: string): Side => async (path, i
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   return { status: response.status, location: response.headers.get('location') ?? '', setCookies: response.headers.getSetCookie(), body: await response.text() };
-};
-
-const tokenIn = (location: string): string => decodeURIComponent(/[?&]token=([^&]+)/.exec(location)?.[1] ?? '');
-const nextIn = (location: string): string | undefined => {
-  const next = /[?&]next=([^&]+)/.exec(location)?.[1];
-  return next ? decodeURIComponent(next) : undefined;
 };
 
 type Jar = Map<string, string>;
@@ -51,33 +43,9 @@ const sent = (jar: Jar): string => [...jar].map(([name, value]) => `${name}=${va
 
 const pathOf = (url: URL): string => `${url.pathname}${url.search}`;
 
-async function legacyHandOff(root: Side, target: Side, go: Hop): Promise<Handoff> {
-  const token = tokenIn(go.location);
-  const exchange = await target('/api/auth/handoff', { method: 'POST', body: { token } });
-  if (!(exchange.status === 401 && /"restart":true/.test(exchange.body))) return { exchange, token, location: go.location };
-  const next = nextIn(go.location);
-  const start = await target(`/api/auth/handoff/start${next ? `?next=${encodeURIComponent(next)}` : ''}`);
-  assert.equal(start.status, 302, `the sign-in did not start there: ${start.status} ${start.body}`);
-  const nonceCookie = start.setCookies.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?handoff_nonce=/.test(pair));
-  assert.ok(nonceCookie, 'starting the sign-in set no nonce cookie');
-  const back = new URL(start.location);
-  const bound = await root(pathOf(back));
-  assert.equal(bound.status, 302, `root did not hand the person over with the nonce: ${bound.status} ${bound.body}`);
-  const boundToken = tokenIn(bound.location);
-  assert.ok(boundToken, `root sent the person to ${bound.location}`);
-  return { exchange: await target('/api/auth/handoff', { method: 'POST', body: { token: boundToken }, cookie: nonceCookie }), token: boundToken, location: bound.location, nonceCookie };
-}
-
-export type SignInWay = 'oidc' | 'either';
-
-export async function handOff(root: Side, target: Side, first = '/api/identity/go', via: SignInWay = 'oidc'): Promise<Handoff> {
+export async function handOff(root: Side, target: Side, first = '/api/identity/go'): Promise<Handoff> {
   const go = await root(first);
   assert.equal(go.status, 302, `root did not send the person on: ${go.status} ${go.body}`);
-  if (/\/#\/handoff\?token=/.test(go.location)) {
-    assert.equal(via, 'either', `root fell back to the old handoff (${go.location.split('?')[0]}), so it could not ask the instance how it signs in, or the instance named no key: the OpenID sign-in this suite tests never ran`);
-    return legacyHandOff(root, target, go);
-  }
-
   return followSignIn(root, target, new URL(go.location), go.location);
 }
 

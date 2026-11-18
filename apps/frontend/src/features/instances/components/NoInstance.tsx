@@ -12,6 +12,7 @@ import { AccountMachines } from '../../machines'
 export interface NoInstanceProps {
   hasInstance: boolean
   unreachableSince?: string | undefined
+  signInWaiting?: string | undefined
   onLogout: () => void
 }
 
@@ -107,7 +108,7 @@ function InstanceDown({ since }: { since: string }) {
   )
 }
 
-export default function NoInstance({ hasInstance, unreachableSince, onLogout }: NoInstanceProps) {
+export default function NoInstance({ hasInstance, unreachableSince, signInWaiting, onLogout }: NoInstanceProps) {
   const operator = useCan()('manage-accounts')
   const [ownMachine, setOwnMachine] = useState(false)
   const [placing, setPlacing] = useState(false)
@@ -133,6 +134,11 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
       <div className="w-full max-w-xl space-y-4 rounded-2xl border border-[var(--bark-700)] bg-[var(--bark-800)] p-8">
         {hasInstance && unreachableSince ? (
           <InstanceDown since={unreachableSince} />
+        ) : hasInstance && signInWaiting ? (
+          <div className="space-y-2" role="status">
+            <p className="text-sm font-semibold">Your Koala is not ready for sign-in yet</p>
+            <p className="text-xs leading-relaxed text-slate-400">Root can't send you on: {signInWaiting}.</p>
+          </div>
         ) : hasInstance ? (
           <p className="flex items-center justify-center gap-2 text-sm text-slate-300"><Loader2 size={16} className="animate-spin" /> Taking you to your instance…</p>
         ) : (

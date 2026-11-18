@@ -30,7 +30,6 @@ export function machinesOf({ db, origin }: Site): Machines {
   })
   const accounts: MachineAccounts = new MachineAccounts({
     store: db.machines,
-    dataKey: DATA_KEY,
     signing: identityKeysFrom(generateIdentityKey()),
     settings: { url: origin, meshLoginServer: 'https://mesh.koala.test' },
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },

@@ -5,7 +5,6 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { createEngineHost, storesFromDatabase } from './host.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../engine/lib/mcp-servers.js';
 import { seedAll } from '../scripts/seed-all.js';
-import { testKeys } from '../platform/testing/keys.js';
 
 const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
 
