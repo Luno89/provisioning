@@ -1,6 +1,6 @@
 import { WorkflowFailedError, type Client } from '@temporalio/client';
 import { failureReason } from '../../platform/index.js';
-import type { ProvisionPieceResult } from '../../infrastructure/lib/provisioning.js';
+import type { ProvisionPieceResult } from '../../infrastructure/index.js';
 import { provisionPieceStart } from '../../workflows/provision-piece.js';
 import type { ProvisionPieces } from './operations/handlers.js';
 import { PROVISION_PIECE_WORKFLOW } from './names.js';
