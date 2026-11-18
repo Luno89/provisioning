@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { Session } from 'node:inspector/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
+import { TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
+import { mappedFunctions, type V8Function } from './mapped.js';
 import { ranIn, type RawCoverage } from './live.js';
 import { chartRan } from './chart-trace.js';
 import { shellRan } from './shell-trace.js';
@@ -11,8 +12,6 @@ export interface Position { line: number; column: number }
 export interface RanRange { start: Position; end: Position; count: number; fn?: string }
 export interface Ran { testFile: string; files: Record<string, RanRange[]> }
 
-interface V8Range { startOffset: number; endOffset: number; count: number }
-interface V8Function { functionName: string; ranges: V8Range[] }
 interface V8Script { scriptId: string; url: string; functions: V8Function[] }
 
 const WORKFLOW_BUNDLE = /\/workflow-bundle-[0-9a-f]+\.js$/;
@@ -75,21 +74,14 @@ export async function startCollecting(options: { dir: string; root: string; keep
       if (!inline) continue;
       const map = new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput);
       const starts = lineStarts(scriptSource);
-      const original = (offset: number): (Position & { file: string }) | undefined => {
-        const at = generatedAt(starts, offset);
-        const found = originalPositionFor(map, { line: at.line, column: at.column });
-        if (found.line === null) return undefined;
-        const file = own ?? (found.source ? relative(options.root, found.source.replace(/^webpack:\/\/[^/]*/, '')) : undefined);
-        return file === undefined ? undefined : { file, line: found.line, column: found.column + 1 };
-      };
-      for (const fn of script.functions) {
-        fn.ranges.forEach((range, index) => {
-          const start = original(range.startOffset);
-          const end = original(Math.max(range.startOffset, range.endOffset - 1));
-          if (!start || !end || start.file !== end.file) return;
-          if (own === undefined && !options.keep(start.file)) return;
-          (files[start.file] ??= []).push({ start: { line: start.line, column: start.column }, end: { line: end.line, column: end.column }, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
-        });
+      const fileOf = (source: string | null): string | undefined => own ?? (source ? relative(options.root, source.replace(/^webpack:\/\/[^/]*/, '')) : undefined);
+      for (const ranges of mappedFunctions(script.functions, map, (offset) => generatedAt(starts, offset))) {
+        for (const { source, range } of ranges) {
+          const file = fileOf(source);
+          if (file === undefined) continue;
+          if (own === undefined && !options.keep(file)) continue;
+          (files[file] ??= []).push(range);
+        }
       }
     }
     if (options.shellTrace) {

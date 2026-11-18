@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
+import { TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { commitOf, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import type { Position, Ran, RanRange } from './collect.js';
+import { mappedFunctions, type V8Function } from './mapped.js';
 import { STARTUP } from './report.js';
 
 export const LIVE = join(OUT, 'live');
@@ -14,8 +15,6 @@ export const checkoutPathOf = (path: string, root: string): string =>
 
 export const runsInPod = (entry: string): boolean => entry.startsWith(`${POD_SOURCE}/`);
 
-interface V8Range { startOffset: number; endOffset: number; count: number }
-interface V8Function { functionName: string; ranges: V8Range[] }
 interface V8Script { url: string; functions: V8Function[] }
 interface CachedMap { lineLengths: number[]; data: SourceMapInput }
 export interface RawCoverage { result: V8Script[]; 'source-map-cache'?: Record<string, CachedMap> }
@@ -147,19 +146,9 @@ export function ranIn(coverage: RawCoverage, root: string): Record<string, RanRa
     const cached = coverage['source-map-cache']?.[script.url];
     if (!cached) continue;
     const map = new TraceMap(cached.data);
-    const original = (offset: number): Position | undefined => {
-      const at = generatedAt(cached.lineLengths, offset);
-      const found = originalPositionFor(map, at);
-      return found.line === null ? undefined : { line: found.line, column: found.column + 1 };
-    };
     const ranges = files[file] ?? [];
-    for (const fn of script.functions) {
-      fn.ranges.forEach((range, index) => {
-        const start = original(range.startOffset);
-        const end = original(Math.max(range.startOffset, range.endOffset - 1));
-        if (!start || !end) return;
-        ranges.push({ start, end, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
-      });
+    for (const mapped of mappedFunctions(script.functions, map, (offset) => generatedAt(cached.lineLengths, offset))) {
+      for (const { range } of mapped) ranges.push(range);
     }
     files[file] = ranges;
   }
