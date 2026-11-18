@@ -27,6 +27,7 @@ COPY --chown=node:node packages/cdktf-infra/package.json packages/cdktf-infra/
 COPY --chown=node:node packages/context-engine/package.json packages/context-engine/
 COPY --chown=node:node packages/engine-core/package.json packages/engine-core/
 COPY --chown=node:node packages/harness-types/package.json packages/harness-types/
+COPY --chown=node:node packages/provision/package.json packages/provision/
 COPY --chown=node:node vendor/decode-uri-component/ vendor/decode-uri-component/
 RUN npm ci
 

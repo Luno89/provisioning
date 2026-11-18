@@ -17,6 +17,7 @@ export const WORKSPACES: readonly Workspace[] = [
   { name: 'context-engine', folder: 'packages/context-engine', tsconfig: 'tsconfig.json' },
   { name: 'engine-core', folder: 'packages/engine-core', tsconfig: 'tsconfig.json' },
   { name: 'cdktf-infra', folder: 'packages/cdktf-infra', tsconfig: 'tsconfig.json' },
+  { name: 'provision', folder: 'packages/provision', tsconfig: 'tsconfig.json' },
 ];
 
 export const workspaceOf = (file: string): Workspace | undefined => WORKSPACES.find((workspace) => file.startsWith(`${workspace.folder}/`));

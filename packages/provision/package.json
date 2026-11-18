@@ -1,0 +1,28 @@
+{
+  "name": "@koala/provision",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Provisioning a host in steps: each step checks whether it is done, applies itself when it is not and is checked again, saying what it does and failing with where and why. Commands run without a shell, and a wait ends on what it waits for or on why that can never come.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./testing": {
+      "types": "./testing/index.ts",
+      "default": "./testing/index.ts"
+    }
+  },
+  "dependencies": {
+    "@koala/engine-core": "*"
+  },
+  "scripts": {
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration --maxWorkers=50%",
+    "lint": "eslint ."
+  }
+}
