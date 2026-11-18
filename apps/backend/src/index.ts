@@ -109,7 +109,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { role } = settings;
   const claimSettings = claimSettingsFrom(role);
   await operatorsFromAdmins(db, new Date().toISOString());
-  await migrateLegacyOwnership(db, claimSettings);
+  await migrateLegacyOwnership(db, claimSettings, new Date().toISOString());
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
   await seedAll(db);
 

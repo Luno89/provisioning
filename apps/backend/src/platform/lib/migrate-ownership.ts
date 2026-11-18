@@ -3,42 +3,27 @@ import { runOnce } from './migrations.js';
 import { holds, principalOf, type ClaimSettings } from './permissions.js';
 import type { UserMetadata } from './types.js';
 
-const holdsAccounts = (claims: ClaimSettings): boolean => claims.role === 'root';
-
 async function firstOperator(db: Database, claims: ClaimSettings): Promise<UserMetadata | undefined> {
   const users = (await db.accounts.getUsers()).filter((user) => !user.space);
   const byAge = [...users].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  const operator = byAge.find((user) => holds(principalOf(user, claims), 'operator'));
-  if (operator || !holdsAccounts(claims)) return operator;
-  const oldest = byAge[0];
-  if (!oldest) return undefined;
-  await db.accounts.saveUser({ ...oldest, roles: ['operator'] });
-  console.log(`[migrate-ownership] No operator existed — made ${oldest.email} (oldest account) the operator`);
-  return oldest;
+  return byAge.find((user) => holds(principalOf(user, claims), 'operator'));
 }
 
-export async function migrateLegacyOwnership(db: Database, claims: ClaimSettings): Promise<void> {
+async function ownUnownedClustersAndApps(db: Database, claims: ClaimSettings): Promise<Record<string, number>> {
+  const clusters = (await db.infrastructure.getClusters()).filter((cluster) => !cluster.ownerId);
+  const deployments = (await db.infrastructure.getDeployments()).filter((deployment) => !deployment.ownerId);
+  const unowned = clusters.length + deployments.length;
+  if (unowned === 0) return { owned: 0 };
   const operator = await firstOperator(db, claims);
-  if (!operator) return;
-
-  let clusterCount = 0;
-  for (const cluster of await db.infrastructure.getClusters()) {
-    if (cluster.ownerId) continue;
-    await db.infrastructure.saveCluster({ ...cluster, ownerId: operator.id });
-    clusterCount++;
-  }
-
-  let deploymentCount = 0;
-  for (const deployment of await db.infrastructure.getDeployments()) {
-    if (deployment.ownerId) continue;
-    await db.infrastructure.saveDeployment({ ...deployment, ownerId: operator.id });
-    deploymentCount++;
-  }
-
-  if (clusterCount > 0 || deploymentCount > 0) {
-    console.log(`[migrate-ownership] Backfilled ownerId on ${clusterCount} cluster(s) and ${deploymentCount} deployment(s) to the operator ${operator.email}`);
-  }
+  if (!operator) return { owned: 0, left: unowned };
+  for (const cluster of clusters) await db.infrastructure.saveCluster({ ...cluster, ownerId: operator.id });
+  for (const deployment of deployments) await db.infrastructure.saveDeployment({ ...deployment, ownerId: operator.id });
+  console.log(`[migrate-ownership] Gave ${clusters.length} cluster(s) and ${deployments.length} deployment(s) with no owner to the operator ${operator.email}`);
+  return { owned: unowned };
 }
+
+export const migrateLegacyOwnership = (db: Database, claims: ClaimSettings, now: string): Promise<Record<string, number>> =>
+  runOnce(db.platform, 'clusters-and-apps-owned', now, () => ownUnownedClustersAndApps(db, claims));
 
 export async function ownUnownedProjects(db: Database, claims: ClaimSettings): Promise<Record<string, number>> {
   const unowned = (await db.projects.getProjects()).filter((project) => !project.ownerId);

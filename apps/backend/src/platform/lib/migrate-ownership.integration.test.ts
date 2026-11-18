@@ -14,7 +14,7 @@ describe('records nobody owned', () => {
     await db.infrastructure.saveCluster({ id: 'c', name: 'c', provider: 'k3d', status: 'healthy' } as never);
 
     expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 1 });
-    await migrateLegacyOwnership(db, { role: 'root' });
+    expect(await migrateLegacyOwnership(db, { role: 'root' }, '2026-11-17T00:00:00.000Z')).toEqual({ owned: 1 });
     const projects = await db.projects.getProjects();
     expect(projects.find((project) => project.id === 'legacy')?.ownerId).toBe('op');
     expect(projects.find((project) => project.id === 'mine')?.ownerId).toBe('old');
@@ -33,15 +33,30 @@ describe('records nobody owned', () => {
     await db.close();
   });
 
-  it('make the oldest account the operator where accounts are held and none is, and nobody on the hub', async () => {
+  it('makes nobody an operator, and leaves records with no owner unowned, when no operator exists', async () => {
     const db = await testDatabase();
     await db.accounts.saveUser(person('young', '2026-03-01'));
     await db.accounts.saveUser(person('old', '2026-01-01'));
     await db.projects.saveProjectInfo({ id: 'legacy', name: 'Legacy', createdAt: 't' } as never);
+    await db.infrastructure.saveCluster({ id: 'c', name: 'c', provider: 'machine', status: 'stopped' } as never);
     expect(await ownUnownedProjects(db, { role: 'hub' })).toEqual({ owned: 0, left: 1 });
+    expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 0, left: 1 });
+    expect(await migrateLegacyOwnership(db, { role: 'root' }, '2026-11-17T00:00:00.000Z')).toEqual({ owned: 0, left: 1 });
     expect((await db.accounts.getUserById('old'))?.roles).toBeUndefined();
-    expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 1 });
-    expect((await db.accounts.getUserById('old'))?.roles).toEqual(['operator']);
+    expect((await db.accounts.getUserById('young'))?.roles).toBeUndefined();
+    expect((await db.projects.getProjects())[0]?.ownerId).toBeUndefined();
+    expect((await db.infrastructure.getClusters())[0]?.ownerId).toBeUndefined();
+    await db.close();
+  });
+
+  it('gives clusters and apps with no owner to the operator once, and a later start changes nothing', async () => {
+    const db = await testDatabase();
+    await db.accounts.saveUser(person('op', '2026-02-01', true));
+    await db.infrastructure.saveCluster({ id: 'c', name: 'c', provider: 'machine', status: 'stopped' } as never);
+    expect(await migrateLegacyOwnership(db, { role: 'root' }, '2026-11-17T00:00:00.000Z')).toEqual({ owned: 1 });
+    await db.infrastructure.saveCluster({ id: 'later', name: 'later', provider: 'machine', status: 'stopped' } as never);
+    expect(await migrateLegacyOwnership(db, { role: 'root' }, '2026-11-18T00:00:00.000Z')).toEqual({});
+    expect((await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'later')?.ownerId).toBeUndefined();
     await db.close();
   });
 });
