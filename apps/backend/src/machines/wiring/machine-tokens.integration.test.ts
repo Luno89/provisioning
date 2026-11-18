@@ -206,6 +206,15 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
   }, 30_000);
 
+  it('is shown on the machine as not renewed, saying why, when the agent could not keep the new one', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const first = await account(OLD_TOKEN, (_next, ack) => ack(tokenAnswer(false)));
+    expect(first.error).toBeUndefined();
+    const renewal = await until(async () => (await stored()).tokenRenewal);
+    expect(renewal).toMatchObject({ reason: 'the machine did not keep its new token' });
+    expect((await account(OLD_TOKEN)).error).toBeUndefined();
+  });
+
   it('is refused past its expiry, saying to run the command from My Machines again', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     clock = new Date(ISSUED.getTime() + 91 * DAY);

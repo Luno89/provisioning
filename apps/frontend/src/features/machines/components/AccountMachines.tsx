@@ -34,7 +34,8 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
       {machines.length > 0 && (
         <ul className="space-y-2">
           {machines.map((machine) => (
-            <li key={machine.id} className="flex items-center justify-between gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2">
+            <li key={machine.id} className="space-y-1 rounded-md border border-[var(--bark-700)] px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-xs text-slate-200">
                 <HardDrive size={14} />
                 {machine.name}
@@ -51,6 +52,25 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                 >
                   {place.isPending ? <Loader2 size={12} className="animate-spin" /> : 'Put Koala here'}
                 </button>
+              )}
+              </div>
+              {machine.koalaRefused && !hasKoala && (
+                <p className="flex items-center gap-2 text-[11px] text-amber-300">
+                  <span>Koala could not be put here: {machine.koalaRefused.reason}</span>
+                  <button
+                    type="button"
+                    onClick={() => place.mutate({ machineId: machine.id, name }, { onSuccess: onPlacing })}
+                    disabled={place.isPending || !nameOk}
+                    className="rounded border border-amber-700/60 px-1.5 py-0.5 text-[10px] text-amber-200 disabled:opacity-50"
+                  >
+                    Try again
+                  </button>
+                </p>
+              )}
+              {machine.tokenRenewal && (
+                <p className="text-[11px] text-amber-300">
+                  {`Its token could not be renewed: ${machine.tokenRenewal.reason}; it stops working on ${machine.tokenRenewal.stopsAt ? new Date(machine.tokenRenewal.stopsAt).toLocaleDateString() : 'its expiry'} unless it is`}
+                </p>
               )}
             </li>
           ))}

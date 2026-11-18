@@ -114,6 +114,8 @@ export interface AccountMachine {
   online: boolean
   koalaWanted: boolean
   holdsKoala: boolean
+  koalaRefused?: { reason: string; at: string }
+  tokenRenewal?: { reason: string; failedAt: string; stopsAt?: string }
 }
 
 export interface MyMachinesView {

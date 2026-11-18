@@ -10,14 +10,17 @@ export interface TokenRotation {
   tokenTaken(deviceId: string): Promise<void>;
 }
 
-export async function rotateDeviceToken(socket: TokenSocket, deviceId: string, via: TokenVia, machines: TokenRotation): Promise<boolean> {
+export type Renewal = 'renewed' | 'refused' | 'not-due';
+
+export async function rotateDeviceToken(socket: TokenSocket, deviceId: string, via: TokenVia, machines: TokenRotation): Promise<Renewal> {
   const token = await machines.rotationFor(deviceId, via);
-  if (!token || !socket.connected) return false;
-  return new Promise((resolve) => {
+  if (!token || !socket.connected) return 'not-due';
+  const taken = await new Promise<boolean>((resolve) => {
     socket.emit('machine:token', { token }, (answer: unknown) => {
-      const taken = Boolean(answer && typeof answer === 'object' && (answer as { taken?: unknown }).taken === true);
-      if (!taken) return resolve(false);
-      machines.tokenTaken(deviceId).then(() => resolve(true), () => resolve(false));
+      resolve(Boolean(answer && typeof answer === 'object' && (answer as { taken?: unknown }).taken === true));
     });
   });
+  if (!taken) return 'refused';
+  await machines.tokenTaken(deviceId);
+  return 'renewed';
 }

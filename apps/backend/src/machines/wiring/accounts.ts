@@ -19,7 +19,7 @@ export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
   dataKey: SecretKey;
-  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala'>;
+  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
@@ -50,7 +50,9 @@ export function wireMachineAccounts(deps: {
     sockets.add(socket);
     connected.set(deviceId, sockets);
     accounts.seen(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it was last seen could not be recorded: ${err.message}`));
-    void rotateDeviceToken(socket, deviceId, via, accounts).catch((err: Error) => console.warn(`[machines] ${deviceId}: its token could not be rotated: ${err.message}`));
+    void rotateDeviceToken(socket, deviceId, via, accounts)
+      .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
+      .catch((err: Error) => console.warn(`[machines] ${deviceId}: its token renewal could not be recorded: ${err.message}`));
     const tellKoala = () => accounts.koalaFor(deviceId).then(
       (koala) => { if (socket.connected) socket.emit('machine:koala', koala ?? null); },
       (err: Error) => console.warn(`[machines] ${deviceId}: where its Koala is could not be told: ${err.message}`),

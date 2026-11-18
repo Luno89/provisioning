@@ -338,6 +338,37 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(await machines.deliverKoala(id)).toEqual({ ok: true, value: { placing: false } });
     });
 
+    it('keeps a refused placement on the machine with its reason, and putting Koala there again asks again', async () => {
+      const refusing = accounts({
+        placer: { placeOn: async () => ({ ok: false, status: 409, error: '"bobby" is taken' }) },
+        toMachines: { removed: () => true, koala: () => true, placeKoala: async () => true, online: () => true },
+      });
+      const { deviceId } = await joined(refusing, 'bo', { hostname: 'desk', rootDir: '/x' });
+      await refusing.recordMeshIp(deviceId, '100.64.0.7');
+      expect(await refusing.putKoalaOn('bo', deviceId, 'bobby')).toMatchObject({ ok: false, error: '"bobby" is taken' });
+      const [listed] = await refusing.listOnline('bo');
+      expect(listed).toMatchObject({ koalaWanted: false, koalaRefused: { reason: '"bobby" is taken', at: clock.toISOString() } });
+      const placingNow = accounts({
+        placer: { placeOn: async (ownerId, machine) => ({ ok: true, value: { instanceId: 'inst-bo', ownerId, machineId: machine.id, rootUrl: ROOT_URL, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh', meshAddress: '100.64.0.7', image: 'r/app', imageTag: 't', chartUrl: `${ROOT_URL}/c.tgz`, credential: 'cred', name: 'bobbie', domain: '' } }) },
+        toMachines: { removed: () => true, koala: () => true, placeKoala: async () => true, online: () => true },
+      });
+      expect(await placingNow.putKoalaOn('bo', deviceId, 'bobbie')).toEqual({ ok: true, value: { placing: true } });
+      expect((await placingNow.listOnline('bo'))[0]).not.toHaveProperty('koalaRefused');
+    });
+
+    it('keeps a token renewal that failed on the machine, with when its token stops working, and clears it once one succeeds', async () => {
+      const machines = accounts();
+      const { deviceId } = await joined(machines);
+      await machines.renewalFailed(deviceId, 'the machine did not take its new token');
+      const expiresAt = (await stored(deviceId))!.expiresAt;
+      expect((await machines.listOnline('bo'))[0]).toMatchObject({ tokenRenewal: { reason: 'the machine did not take its new token', failedAt: clock.toISOString(), stopsAt: expiresAt } });
+      clock = new Date(Date.parse(expiresAt!) - 10 * DAY);
+      const next = await machines.rotationFor(deviceId, 'current');
+      expect(next).toBeDefined();
+      await machines.tokenTaken(deviceId);
+      expect((await machines.listOnline('bo'))[0]).not.toHaveProperty('tokenRenewal');
+    });
+
     it('keeps the wish for a machine that is offline until it connects, and never puts Koala on another person\'s machine', async () => {
       const { machines, handed } = placing(false);
       const { deviceId } = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x' });
