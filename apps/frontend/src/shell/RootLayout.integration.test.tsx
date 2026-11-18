@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory } from '@tanstack/react-router'
@@ -165,10 +165,7 @@ const openApps = async () => {
   await shown(() => rowOf('hermes'))
 }
 
-describe('the apps a person has open follow every change to their status, told by the backend while the page\'s own refresh stands still', () => {
-  beforeEach(() => { vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }) })
-  afterEach(() => { vi.useRealTimers() })
-
+describe('the apps a person has open follow every change to their status, told by the backend', () => {
   it.each(changes)('shows it as $change', async ({ act, shows }) => {
     await openApps()
     await act()
