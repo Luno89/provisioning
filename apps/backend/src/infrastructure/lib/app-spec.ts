@@ -338,7 +338,7 @@ const SEARXNG_SETTINGS_YAML = [
 
 export const SEARXNG_SPEC: AppSpec = {
   id: 'searxng',
-  image: 'searxng/searxng:latest',
+  image: 'searxng/searxng:latest@sha256:0b9f3ddd85efc8df189e6543d65702abfa8f3ed1c32229a53f7707cd12b554ef',
   // A ConfigMap mount is read-only and the secret has to be substituted in — see configFiles below.
   command: ['/bin/sh', '-c'],
   args: [
@@ -421,7 +421,7 @@ export const VERDACCIO_SPEC: AppSpec = {
 
 export const CRAWL4AI_SPEC: AppSpec = {
   id: 'crawl4ai',
-  image: 'unclecode/crawl4ai:latest',
+  image: 'unclecode/crawl4ai:latest@sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9',
   env: [
     // With no credential the image binds 127.0.0.1 and refuses to expose itself at all.
     { name: 'CRAWL4AI_API_TOKEN', fromSecret: 'api_token', generate: 'password' },

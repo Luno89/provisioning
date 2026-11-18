@@ -49,7 +49,7 @@ export class SearxngNativeApp extends Construct {
     super(scope, id);
 
     const namespaceName = config.namespace || "searxng";
-    const image = `${config.webRepo || "searxng/searxng"}:${config.webTag || "latest"}`;
+    const image = `${config.webRepo || "searxng/searxng"}:${config.webTag || "latest@sha256:0b9f3ddd85efc8df189e6543d65702abfa8f3ed1c32229a53f7707cd12b554ef"}`;
     const serviceType = config.serviceType || defaultServiceType();
 
     const ns = new Namespace(this, "ns", {
