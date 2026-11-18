@@ -2,9 +2,9 @@ import { proxyActivities } from '../temporal.js';
 import { awaitReady } from './shared.js';
 
 const { Greet } = proxyActivities<{ Greet(name: string): Promise<string> }>();
-const steps = proxyActivities<{ Count(): Promise<number> }>();
+const steps = proxyActivities<{ Count(): Promise<number>; Made(name: string): Promise<string> }>();
 
 export async function DemoWorkflow(name: string): Promise<string> {
   await awaitReady();
-  return `${await Greet(name)} ${await steps.Count()}`;
+  return `${await Greet(name)} ${await steps.Count()} ${await steps.Made(name)}`;
 }

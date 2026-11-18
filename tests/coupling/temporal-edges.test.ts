@@ -37,6 +37,10 @@ describe('Temporal edges', () => {
     ]));
   });
 
+  it('reach the activity a factory makes, where the activity the worker registers is destructured from what the factory returns', () => {
+    expect(into('src/workflows/DemoWorkflow.ts')).toEqual(expect.arrayContaining([{ through: 'temporal', to: ['src/activities/made.ts#Made'] }]));
+  });
+
   it('reach every queue a shared helper is called on, through the workflows that import it', () => {
     expect(into('src/workflows/shared.ts').filter((edge) => edge.through === 'temporal')).toEqual([{ through: 'temporal', to: ['src/activities/ready-cluster.ts#Ready', 'src/activities/ready-host.ts#Ready'] }]);
   });

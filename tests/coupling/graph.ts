@@ -290,6 +290,7 @@ export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: Proje
       if (ts.isShorthandPropertyAssignment(node)) return functionOf(aliased(checker.getShorthandAssignmentValueSymbol(node))?.valueDeclaration, depth + 1);
       if (ts.isIdentifier(node)) return functionOf(aliased(checker.getSymbolAtLocation(node))?.valueDeclaration, depth + 1);
       if (ts.isPropertyAccessExpression(node)) return functionOf(checker.getSymbolAtLocation(node.name)?.valueDeclaration, depth + 1);
+      if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) return functionOf(checker.getTypeAtLocation(node.parent).getProperty((node.propertyName ?? node.name).getText())?.valueDeclaration, depth + 1);
       return undefined;
     };
 
