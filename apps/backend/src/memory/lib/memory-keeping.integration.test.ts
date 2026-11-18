@@ -90,10 +90,9 @@ describe('consolidating everyone\'s memories in Mongo, each person on their own'
       .toEqual([['bob-a', 'retired for bob-b'], ['bob-b', 'current']]);
     expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id)).not.toContain('bob-a');
     expect((await db.memory.getMemories('keeping-ann')).filter((item) => !item.invalidAt).map((item) => item.id).sort()).toEqual(['ann-a', 'ann-b']);
-    expect(await db.memory.getKeepingState('keeping-ann')).toEqual({
-      ownerId: 'keeping-ann', state: 'down', since: NOW, at: NOW,
-      reason: expect.stringMatching(/^(Quickwit|Qdrant|TEI) "\w+-keeping-ann" is deployed but not answering: the cluster proxy could not reach keeping-ann-desk$/),
-    });
+    const ann = await db.memory.getKeepingState('keeping-ann');
+    expect(ann).toMatchObject({ ownerId: 'keeping-ann', state: 'down', since: NOW, at: NOW });
+    expect(ann?.state === 'down' ? ann.reason : undefined).toMatch(/^(Quickwit|Qdrant|TEI) "\w+-keeping-ann" is deployed but not answering: the cluster proxy could not reach keeping-ann-desk$/);
     expect(await db.memory.getKeepingState('keeping-bob')).toEqual({ ownerId: 'keeping-bob', state: 'kept', at: NOW });
   });
 });
