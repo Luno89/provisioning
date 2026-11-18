@@ -59,6 +59,7 @@ export interface OdooReleaseDeps {
   runs: ReleaseRuns;
   how?: ((project: ProjectMetadata) => Promise<ReleaseHow>) | undefined;
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
+  deploymentChanged: (ownerId: string) => void;
   diff?: ((project: ProjectMetadata, base: string, head: string) => Promise<string>) | undefined;
   releaseWhen?: ((project: ProjectMetadata) => Promise<readonly string[] | undefined>) | undefined;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
@@ -364,6 +365,7 @@ export class OdooReleaseService {
       status: existing?.status === 'running' ? 'running' : 'deploying',
       ...(existing ? {} : { createdAt: this.now() }),
     } as Partial<DeploymentMetadata> & { id: string });
+    this.deps.deploymentChanged(ownerId);
   }
 
   async list(ownerId: string, projectId: string): Promise<OdooRelease[]> {
@@ -549,6 +551,7 @@ export class OdooReleaseService {
     const deployment = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId);
     if (!deployment || (deployment.status === status && (!image || deployment.gitappImageTag === image))) return;
     await this.deps.store.infrastructure.saveDeploymentInfo({ id: deployment.id, status, ...(image ? { gitappImageTag: image } : {}) });
+    if (deployment.ownerId) this.deps.deploymentChanged(deployment.ownerId);
   }
 }
 

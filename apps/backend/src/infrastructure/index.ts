@@ -80,6 +80,7 @@ export { RegistryService } from './services/RegistryService.js';
 export { ServerOrderProblem, ServerOrderService } from './services/ServerOrderService.js';
 export { readOverSsh, runScriptOverSsh, sshAnswers } from './services/ssh-session.js';
 export { StorageAdapter } from './services/StorageAdapter.js';
+export { DEPLOYMENT_UPDATED, tellDeploymentChanged } from './services/deployment-told.js';
 export type { GroveRunStatus, TemporalBridge } from './services/TemporalBridge.js';
 export { VpsCatalogService } from './services/VpsCatalogService.js';
 export type { WorkFailureService } from './services/WorkFailureService.js';

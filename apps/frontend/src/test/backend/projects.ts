@@ -64,6 +64,7 @@ import { engineReleaseRuns } from '../../../../backend/src/engine-host/release-r
 import { ODOO_RELEASE_ADAPTER } from '../../../../backend/src/extensions/odoo/release-adapter'
 import type { SlotCluster } from '../../../../backend/src/extensions/releases/slot-cluster'
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
+import { tellDeploymentChanged } from '../../../../backend/src/infrastructure/services/deployment-told'
 import { releaseDecider } from '../../../../backend/src/releases/services/release-decider'
 import { changesIn } from '../../../../backend/src/releases/services/repo-changes'
 import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
@@ -73,7 +74,7 @@ export interface PaperWorkflow {
   workflowId: string
   args: unknown[]
   memo: Record<string, unknown>
-  status: 'RUNNING' | 'CANCELLED'
+  status: 'RUNNING' | 'CANCELLED' | 'COMPLETED'
   signals: { name: string; args: unknown[] }[]
 }
 
@@ -81,15 +82,17 @@ export interface PaperTemporal {
   client: Client
   starter: WorkflowStarter
   workflows: Map<string, PaperWorkflow>
+  complete: (workflowId: string, result: unknown) => void
 }
 
 export function temporalOnPaper(): PaperTemporal {
   const workflows = new Map<string, PaperWorkflow>()
   const ends = new Map<string, (err: Error) => void>()
-  const results = new Map<string, Promise<never>>()
+  const completions = new Map<string, (result: unknown) => void>()
+  const results = new Map<string, Promise<unknown>>()
   const begin = (workflowType: string, workflowId: string, args: unknown[], memo: Record<string, unknown>) => {
     workflows.set(workflowId, { workflowType, workflowId, args, memo, status: 'RUNNING', signals: [] })
-    results.set(workflowId, new Promise<never>((_resolve, reject) => { ends.set(workflowId, reject) }))
+    results.set(workflowId, new Promise<unknown>((resolve, reject) => { ends.set(workflowId, reject); completions.set(workflowId, resolve) }))
   }
   const missing = (workflowId: string) => new WorkflowNotFoundError(`workflow ${workflowId} not found`, workflowId, undefined)
   const known = (workflowId: string): PaperWorkflow => {
@@ -129,7 +132,11 @@ export function temporalOnPaper(): PaperTemporal {
     },
     signal: async (workflowId, name, payload) => { known(workflowId).signals.push({ name, args: payload === undefined ? [] : [payload] }) },
   }
-  return { client: outsideThisTier<Client>('Temporal', { workflow: outsideThisTier<Client['workflow']>('Temporal workflow', workflow as unknown as Partial<Client['workflow']>) }), starter, workflows }
+  const complete = (workflowId: string, result: unknown): void => {
+    known(workflowId).status = 'COMPLETED'
+    completions.get(workflowId)?.(result)
+  }
+  return { client: outsideThisTier<Client>('Temporal', { workflow: outsideThisTier<Client['workflow']>('Temporal workflow', workflow as unknown as Partial<Client['workflow']>) }), starter, workflows, complete }
 }
 
 export interface ProjectsSide {
@@ -275,6 +282,7 @@ export function releasesOf(site: Site, side: ProjectsSide): ReleasesSide {
     runs: engineReleaseRuns({ runs: side.runs, client: () => side.temporal.client.workflow }),
     how,
     chartAt: (owner, repo, commit) => gitea.getRawFile(owner, repo, CHART_FILE, commit).then((found) => found !== null),
+    deploymentChanged: (ownerId) => tellDeploymentChanged(site.io, ownerId),
     releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
     clusterById,
   })

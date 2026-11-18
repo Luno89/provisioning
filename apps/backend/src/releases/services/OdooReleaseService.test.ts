@@ -13,8 +13,8 @@ import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../.
 const made: OdooReleaseService[] = [];
 type Deps = ConstructorParameters<typeof OdooReleaseService>[0];
 class Stopped extends OdooReleaseService {
-  constructor(deps: Omit<Deps, 'decide'> & Partial<Pick<Deps, 'decide'>>) {
-    super({ decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }), ...deps });
+  constructor(deps: Omit<Deps, 'decide' | 'deploymentChanged'> & Partial<Pick<Deps, 'decide' | 'deploymentChanged'>>) {
+    super({ decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }), deploymentChanged: () => undefined, ...deps });
     made.push(this);
   }
 }
@@ -425,14 +425,17 @@ describe('the person\'s decisions', () => {
 });
 
 describe('what the run records', () => {
-  it('tells the person each change, and marks the deployment running with the live image', async () => {
+  it('tells the person each change, and marks the deployment running with the live image, telling its owner each time it changes', async () => {
     const seen: string[] = [];
-    const svc = new Stopped({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => seen.push(`${release.id} ${release.state}`) });
+    const appsTold: string[] = [];
+    const svc = new Stopped({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => seen.push(`${release.id} ${release.state}`), deploymentChanged: (ownerId) => appsTold.push(ownerId) });
     await svc.release(project, run('b1', 'aaa'));
+    expect(appsTold).toEqual(['bo']);
     await engineMarks('r1', { state: 'live', slot: 'a' });
     await runEnds(svc);
     expect(seen).toEqual(['r1 live']);
     expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'running', gitappImageTag: 'reg/bo/shop:aaa' });
+    expect(appsTold).toEqual(['bo', 'bo']);
   });
 
   it('keeps what the run records while the change before it is told, and tells the release as it is now', async () => {

@@ -117,6 +117,7 @@ function harness(state: keyof typeof worlds) {
           runs: temporal.runs,
           how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
           chartAt: async (repoOwner, repo, commit) => (await giteaService.getRawFile(repoOwner, repo, 'deploy/chart/Chart.yaml', commit)) !== null,
+          deploymentChanged: () => undefined,
           diff: (project, base, head) => projectRepos.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
           releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
           clusterById: (id) => clusters.getByIdUnscoped(id),

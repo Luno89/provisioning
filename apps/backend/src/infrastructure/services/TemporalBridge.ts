@@ -13,6 +13,7 @@ import type { DeploymentHealth } from '../store.js'
 import { missingNamespaceReason, namespacesByName, namespaceOf, removalHoldOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
+import { tellDeploymentChanged } from './deployment-told.js'
 import { fileURLToPath } from 'url';
 import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
@@ -335,6 +336,7 @@ export class TemporalBridge {
     const action = followedAction(followed)
     const wfId = followed.record.temporalWorkflowId
     if (!action || !wfId) return
+    if (followed.kind === 'deployment') tellDeploymentChanged(this.io, followed.record.ownerId)
     if (followed.kind === 'deployment') void this.follow(wfId, action, followed.record.id, followed.record.name, followed.record)
     else void this.follow(wfId, action, followed.record.id, followed.record.projectId)
   }
@@ -380,6 +382,7 @@ export class TemporalBridge {
       return meta
     }
     const applied = async () => this.appliedOutcome(wfId, deployment())
+    const ownerId = meta?.ownerId
     let pipelineImageTag: string | undefined
     if (name === 'COMPLETED' && action === 'pipeline-run') {
       pipelineImageTag = (await this.resultOf<Awaited<ReturnType<typeof executePipelineRunWorkflow>>>(wfId, 'the image it built')).imageTag
@@ -397,16 +400,16 @@ export class TemporalBridge {
           await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
         }
       }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'app-destroy') {
       if (name === 'FAILED') {
         await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
         await this.db.infrastructure.deleteDeployment(resourceId)
         await this.db.accounts.forgetDefaultModels([resourceId])
-        if (this.io && meta?.ownerId) this.io.to(`user:${meta.ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
+        if (this.io && ownerId) this.io.to(`user:${ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
       }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'app-resize') {
       const newStorage = { ...meta?.storage, ...meta?.newStorage }
       if (name === 'FAILED') {
@@ -417,7 +420,7 @@ export class TemporalBridge {
         const done = await applied()
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
       }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'app-sync-config') {
       if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
         await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
@@ -425,7 +428,7 @@ export class TemporalBridge {
         const done = await applied()
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
       }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'pipeline-run') {
       if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
         await updatePipelineRunStatus(this.db, resourceId, 'failed', { errorMessage: `Workflow ${name}` })
@@ -519,7 +522,7 @@ export class TemporalBridge {
     }
     const tell = async (dep: DeploymentMetadata, health: DeploymentHealth): Promise<void> => {
       await this.db.infrastructure.patchDeploymentHealth(dep.id, health)
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, dep.ownerId)
     }
 
     for (const dep of deployments) {

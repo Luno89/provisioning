@@ -3,6 +3,7 @@ import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
 import { StorageAdapter } from './StorageAdapter.js';
+import { tellDeploymentChanged } from './deployment-told.js';
 import { appServiceType, placedOnPool } from '../lib/cluster-places.js';
 import { AppStackUnknown, appStackName, appStackOf } from '../lib/deployment-id.js';
 import { listingOf, namespaceOf, namespacesByName, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
@@ -42,7 +43,7 @@ export class AppService extends BaseService {
     return mine.map((dep) => ({ ...dep, listing: listingOf(dep, reads.get(dep.clusterId)!) }));
   }
 
-  async updateModules(id: string, modules: string[], userId: string, io?: SocketServer) {
+  async updateModules(id: string, modules: string[], userId: string, io: SocketServer) {
     const dep = await this.getById(id, userId);
     if (!dep) throw new Error('Deployment not found');
     const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
@@ -54,6 +55,7 @@ export class AppService extends BaseService {
 
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
     await this.db.infrastructure.saveDeployment(updatedMetadata);
+    tellDeploymentChanged(io, dep.ownerId);
 
     const sanitizedName = namespaceOf(dep);
     const logFile = this.infra.getLogPath(`${dep.name}-update-modules`);
@@ -93,9 +95,11 @@ export class AppService extends BaseService {
   
           await this.infra.deploy(appStackName(physicalName, stack.deploymentId), { logFile, io, resourceId: id, env });
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
+          tellDeploymentChanged(io, dep.ownerId);
         } catch (err) {
           this.logger.error(`Module update failed: ${(err as Error).message}`);
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
+          tellDeploymentChanged(io, dep.ownerId);
         }
       })().catch((err: unknown) => this.logger.error(`Unhandled error during module update: ${(err as Error).message}`));
 

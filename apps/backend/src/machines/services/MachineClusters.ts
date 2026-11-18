@@ -6,6 +6,7 @@ export interface MachineClustersDeps {
   store: Pick<Database['infrastructure'], 'getClusters' | 'saveCluster' | 'patchCluster' | 'deleteCluster' | 'getDeployments' | 'deleteDeploymentsOfCluster'>;
   accounts: Pick<Database['accounts'], 'forgetDefaultModels'>;
   dataKey: SecretKey;
+  appsChanged: (ownerId: string) => void;
   koalaMachineId?: string | undefined;
   now?: (() => Date) | undefined;
 }
@@ -76,6 +77,7 @@ export class MachineClusters {
     const apps = appsOn(await this.deps.store.getDeployments(), cluster.id).map((app) => app.id);
     await this.deps.store.deleteDeploymentsOfCluster(cluster.id);
     await this.deps.accounts.forgetDefaultModels(apps);
+    if (apps.length) this.deps.appsChanged(device.ownerId);
     await this.deps.store.deleteCluster(cluster.id);
   }
 }

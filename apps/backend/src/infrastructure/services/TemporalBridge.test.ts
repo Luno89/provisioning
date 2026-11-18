@@ -253,8 +253,10 @@ describe('following work to its end', () => {
     return { followed, spy };
   };
 
-  it('marks an app running once Temporal says the workflow deploying it completed, and tells the browsers', async () => {
+  it('marks an app running once Temporal says the workflow deploying it completed, and tells its owner\'s browsers', async () => {
     const io = mock<SocketServer>();
+    const told = mock<ReturnType<SocketServer['to']>>();
+    io.to.mockReturnValue(told);
     const { db, workflow, ready } = bridge({ io });
     workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
     await db.infrastructure.saveDeployment(deploying);
@@ -262,7 +264,9 @@ describe('following work to its end', () => {
     await ready().follow('wf-1', 'app-deploy', 'd1', 'shop', deploying);
 
     expect(await statusOf(db, 'd1')).toBe('running');
-    expect(io.emit).toHaveBeenCalledWith('deployment-updated');
+    expect(io.to).toHaveBeenCalledWith('user:u1');
+    expect(told.emit).toHaveBeenCalledWith('deployment-updated');
+    expect(io.emit).not.toHaveBeenCalledWith('deployment-updated');
   });
 
   it('keeps why an app failed on it, and clears it when a later deploy of it succeeds', async () => {
@@ -359,6 +363,25 @@ describe('following work to its end', () => {
     await instance.stop();
   });
 
+  it('tells the owner\'s browsers the moment another process\'s record names the work it started, before it ends', async () => {
+    const io = mock<SocketServer>();
+    const told = mock<ReturnType<SocketServer['to']>>();
+    io.to.mockReturnValue(told);
+    const { db, workflow, ready } = bridge({ io });
+    workflow.getHandle.mockReturnValue(closing(() => new Promise<never>(() => undefined), 'RUNNING') as never);
+    const instance = ready();
+    await instance.followWork();
+
+    await db.infrastructure.saveDeployment({ ...deploying, status: 'destroying', temporalWorkflowId: '' });
+    expect(told.emit).not.toHaveBeenCalled();
+    await db.infrastructure.saveDeploymentInfo({ id: 'd1', temporalWorkflowId: 'wf-1' });
+
+    expect(io.to).toHaveBeenCalledWith('user:u1');
+    expect(told.emit).toHaveBeenCalledWith('deployment-updated');
+    expect(await statusOf(db, 'd1')).toBe('destroying');
+    await instance.stop();
+  });
+
   it('follows what was already going when it starts, and nothing that names no workflow or has ended', async () => {
     const { db, workflow, ready } = bridge();
     workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
@@ -393,12 +416,14 @@ describe('checking each app on its cluster', () => {
     const clusterService = mock<ClusterService>();
     Object.assign(clusterService, { access });
     const io = mock<SocketServer>();
+    const told = mock<ReturnType<SocketServer['to']>>();
+    io.to.mockReturnValue(told);
     const made = bridge({ clusterService, io });
-    return { ...made, access, io };
+    return { ...made, access, io, told };
   }
 
   it('marks an app whose namespace is not on its cluster unhealthy with why, keeping its record, and reads the namespaces once a cluster', async () => {
-    const { db, instance, access, io } = checking(['shop-1a2b3c']);
+    const { db, instance, access, io, told } = checking(['shop-1a2b3c']);
     await db.infrastructure.saveCluster(machine);
     await db.infrastructure.saveDeploymentInfo(running({ id: 'shop', name: 'Shop', namespace: 'shop-1a2b3c' }));
     await db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f' }));
@@ -406,14 +431,15 @@ describe('checking each app on its cluster', () => {
     const byId = Object.fromEntries((await db.infrastructure.getDeployments()).map((dep) => [dep.id, [dep.status, dep.healthReason]]));
     expect(byId).toEqual({ shop: ['running', undefined], gone: ['unhealthy', 'its namespace gone-4d5e6f is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] });
     expect(access.kubectl.mock.calls.filter(([, args]) => args[1] === 'namespaces')).toHaveLength(1);
-    expect(io.emit).toHaveBeenCalledWith('deployment-updated');
+    expect(io.to).toHaveBeenCalledWith('user:u1');
+    expect(told.emit).toHaveBeenCalledWith('deployment-updated');
   });
 
   it('says nothing again for an app already marked missing, and judges it by its pods once its namespace is back', async () => {
     const missing = checking([]);
     await missing.db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f', status: 'unhealthy', healthReason: 'its namespace gone-4d5e6f is not on its cluster, so nothing of it runs there; destroy the app or deploy it again' }));
     await missing.instance.checkApps();
-    expect(missing.io.emit).not.toHaveBeenCalled();
+    expect(missing.io.to).not.toHaveBeenCalled();
     const back = checking(['gone-4d5e6f']);
     await back.db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f', status: 'unhealthy', healthReason: 'its namespace gone-4d5e6f is not on its cluster' }));
     await back.instance.checkApps();

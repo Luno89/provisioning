@@ -22,7 +22,7 @@ import { ReleaseSettings } from '../services/ReleaseSettings.js';
 import { CustomizationsService } from '../services/CustomizationsService.js';
 import { ClientImportService } from '../services/ClientImportService.js';
 import { ProjectAppService } from '../services/ProjectAppService.js';
-import { namespaceOf } from '../../infrastructure/index.js';
+import { namespaceOf, tellDeploymentChanged } from '../../infrastructure/index.js';
 import type { TemporalBridge, AppExposureService, ClusterService, InfisicalService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import { releaseSettingsRouter } from '../routes/release-settings.js';
@@ -107,6 +107,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     runs: engineReleaseRuns({ runs: deps.runs, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     chartAt: async (owner, repo, commit) => (await gitea.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
+    deploymentChanged: (ownerId) => tellDeploymentChanged(deps.io, ownerId),
     diff: (project, base, head) => deps.projectRepos.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
     releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
     clusterById,
