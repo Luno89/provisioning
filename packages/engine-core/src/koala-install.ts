@@ -84,7 +84,7 @@ export type ProvisionReason = (typeof PROVISION_REASONS)[number];
 
 export type ProvisionTarget =
   | { kind: 'koala'; clusterId: string }
-  | { kind: 'machine'; clusterId: string; machine: string };
+  | { kind: 'machine'; clusterId: string; machine: string; deviceId: string };
 
 export interface ProvisionPieceView {
   key: ProvisionPieceKey;

@@ -13,7 +13,7 @@ import { commandSafeCode } from '../../platform/index.js';
 import { InstanceReach } from './InstanceReach.js';
 import { provisionReportOf, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
-import { setupHeard, setupSaid, statusSettled } from '../lib/instance-setup.js';
+import { pastRevision, setupHeard, setupSaid, statusSettled, type InstanceSetup } from '../lib/instance-setup.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -625,6 +625,22 @@ export class InstanceService {
   }
 
 
+  private setupOf(followed: InstanceSetup | undefined, raw: unknown): { ok: true; report: ProvisionReport; setup: InstanceSetup } | { ok: false; status: 400 | 409; error: string } {
+    const read = provisionReportOf(raw);
+    if (!read.ok) return { ok: false, status: 400, error: read.problem };
+    const setup = setupHeard(followed, read.value, this.now().toISOString());
+    if (!setup) return { ok: false, status: 409, error: pastRevision(followed!, read.value) };
+    return { ok: true, report: read.value, setup };
+  }
+
+  private async reportMoveSetup(instance: InstanceRecord, raw: unknown): Promise<Outcome<InstanceRecord>> {
+    const move = instance.move!;
+    const heard = this.setupOf(move.setup, raw);
+    if (!heard.ok) return heard;
+    const { detail } = setupSaid(heard.setup, move.target?.machine);
+    return { ok: true, value: await this.save(instance, { move: { ...move, setup: heard.setup, ...(move.state === 'switching' ? {} : { detail }) } }) };
+  }
+
   private async reportSetup(instance: InstanceRecord, raw: unknown): Promise<Outcome<InstanceRecord>> {
     const read = provisionReportOf(raw);
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
@@ -634,7 +650,11 @@ export class InstanceService {
       const handed = await this.settings.installs.setupHeard(instance.install.id, report);
       return handed.ok ? { ok: true, value: instance } : handed;
     }
-    if (instance.pool && (instance.move || (instance.pool.settingUp && instance.status === 'failed'))) return { ok: true, value: instance };
+    if (instance.pool && (instance.move || (instance.pool.settingUp && instance.status === 'failed'))) {
+      const heard = this.setupOf(instance.setup, raw);
+      if (!heard.ok) return heard;
+      return { ok: true, value: await this.save(instance, { setup: heard.setup }) };
+    }
     if (instance.pool?.settingUp) {
       if (!this.poolWorkflows?.setupHeard) return { ok: false, status: 503, error: 'this root cannot follow an instance on Koala\'s servers' };
       try {
@@ -644,8 +664,9 @@ export class InstanceService {
       }
       return { ok: true, value: instance };
     }
-    const setup = setupHeard(instance.setup, report, this.now().toISOString());
-    if (!setup) return { ok: true, value: instance };
+    const heard = this.setupOf(instance.setup, raw);
+    if (!heard.ok) return heard;
+    const { setup } = heard;
     const saved = await this.save(instance, { setup, ...setupSaid(setup, instance.machine) });
     if (saved.status !== instance.status) {
       this.routesChanged();
@@ -657,7 +678,7 @@ export class InstanceService {
   async report(instanceId: unknown, credential: unknown, report: StatusReport): Promise<Outcome<InstanceRecord>> {
     if (report.provision !== undefined && Object.keys(report).some((key) => key !== 'provision')) return { ok: false, status: 400, error: 'a report of Koala\'s setup sends only "provision"' };
     const moving = await this.mover(instanceId, credential);
-    if (moving) return report.provision !== undefined ? { ok: true, value: moving } : this.reportMove(moving, report);
+    if (moving) return report.provision !== undefined ? this.reportMoveSetup(moving, report.provision) : this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     if (report.provision !== undefined) return this.reportSetup(instance, report.provision);

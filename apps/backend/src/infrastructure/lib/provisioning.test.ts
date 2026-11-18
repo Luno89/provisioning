@@ -3,14 +3,14 @@ import { PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, provisionRe
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { PLATFORM_PLAN } from './platform-provision.js';
 import {
-  openedRecord, pieceHeard, pieceProgress, piecesFor, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId,
-  provisionWorkflowId, rootReportOf, runEnded, setUpProgress, startDecision, type ProvisioningRecord,
+  openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId,
+  provisionWorkflowId, recordedOn, rootReportOf, runEnded, setUpProgress, startDecision, type HeardPatch, type ProvisioningRecord,
 } from './provisioning.js';
 
 const AT = '2026-11-18T12:00:00.000Z';
 const LATER = '2026-11-18T12:05:00.000Z';
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
-const OTHER: ProvisionTarget = { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2' };
+const OTHER: ProvisionTarget = { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' };
 
 const opened = (over: Partial<Parameters<typeof openedRecord>[0]> = {}): ProvisioningRecord =>
   openedRecord({ ownerId: 'owner-1', target: KOALA, revision: 7, reason: 'revision', runId: provisionRunId('machine-desk', 's1'), at: AT, ...over });
@@ -135,5 +135,62 @@ describe('what others read of a setup', () => {
     expect(provisionedFor([working, failed, up], 'machine-desk', 7)).toEqual({ state: 'up' });
     expect(provisionedFor([up], 'machine-desk', 8)).toMatchObject({ state: 'waiting' });
     expect(provisionedFor([up], 'machine-desk-2', 7)).toMatchObject({ state: 'waiting' });
+  });
+});
+
+describe('what root hears of a setup, as its record changes', () => {
+  it('says each piece that moved since root last heard, in order, and the setup\'s own last stage once it is up', () => {
+    const egressWorking = pieceHeard(opened(), pieceProgress(opened(), 'egress', { state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }), AT);
+    expect(progressSince(opened(), egressWorking)).toEqual([{ stage: 'egress', title: 'The egress proxy', state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }]);
+    expect(progressSince(egressWorking, egressWorking)).toEqual([]);
+    let all = egressWorking;
+    for (const piece of PROVISION_PIECES) all = pieceHeard(all, pieceProgress(all, piece.key, { state: 'done' }), AT);
+    const up = pieceHeard(all, setUpProgress(), LATER);
+    expect(progressSince(egressWorking, up).map((line) => `${line.stage} ${line.state}`)).toEqual([...PROVISION_PIECES.map((piece) => `${piece.key} done`), `${PROVISION_DONE_STAGE} done`]);
+  });
+
+  it('says everything a run has done when root has heard none of it, as after a restart', () => {
+    const working = pieceHeard(pieceHeard(opened(), pieceProgress(opened(), 'egress', { state: 'done' }), AT), pieceProgress(opened(), 'searxng', { state: 'started' }), AT);
+    expect(progressSince(undefined, working).map((line) => `${line.stage} ${line.state}`)).toEqual(['egress done', 'searxng started']);
+  });
+
+  it('says where a run stopped when it failed without a piece failing, so root never waits on a run that ended', () => {
+    const egressUp = pieceHeard(opened(), pieceProgress(opened(), 'egress', { state: 'done' }), AT);
+    const ended = runEnded(egressUp, 'the setup\'s run was stopped', LATER);
+    expect(progressSince(egressUp, ended)).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'the setup\'s run was stopped' }]);
+    const failedPiece = pieceHeard(egressUp, pieceProgress(egressUp, 'searxng', { state: 'failed', why: 'no room' }), LATER);
+    expect(progressSince(egressUp, failedPiece)).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' }]);
+  });
+});
+
+describe('writing what a piece says onto its run\'s record', () => {
+  const kept = (record: ProvisioningRecord | undefined) => {
+    let now = record;
+    const patched: HeardPatch[] = [];
+    return {
+      patched,
+      records: {
+        getProvisioningRun: async () => now,
+        patchProvisioning: async (_id: string, patch: HeardPatch) => {
+          patched.push(patch);
+          if (now?.state !== 'running') return undefined;
+          now = { ...now, ...patch };
+          return now;
+        },
+      },
+    };
+  };
+
+  it('writes the record\'s state and pieces as one patch, only while the run is under way', async () => {
+    const { records, patched } = kept(opened());
+    const said = await recordedOn(records, opened().id, (record) => pieceHeard(record, pieceProgress(record, 'egress', { state: 'started', line: 'l' }), AT));
+    expect(said).toMatchObject({ recorded: { state: 'running' } });
+    expect(patched).toEqual([{ state: 'running', pieces: expect.arrayContaining([expect.objectContaining({ key: 'egress', state: 'working', line: 'l' })]) as unknown }]);
+  });
+
+  it('answers that the run ended, or is gone, rather than writing over it', async () => {
+    const ended = { ...opened(), state: 'failed' as const, why: 'stopped', endedAt: LATER };
+    expect(await recordedOn(kept(ended).records, ended.id, (record) => record)).toEqual({ ended });
+    expect(await recordedOn(kept(undefined).records, 'nowhere', (record) => record)).toEqual({ gone: true });
   });
 });

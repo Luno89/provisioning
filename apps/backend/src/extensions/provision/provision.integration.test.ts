@@ -8,7 +8,8 @@ import { BUILT_IN_GROUPS, HOST_OP_KIND, WORKFLOW_IMPLEMENTATIONS, runProcedure, 
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { ownerIn, startedFor } from '../../platform/lib/workflow-owner.js';
-import { provisionPieceWorkflowId, provisionRunId, type ProvisionPieceInput, type ProvisioningRecord, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
+import { openedRecord, provisionPieceWorkflowId, provisionRunId, type ProvisionPieceInput, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
+import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
 import { platformCatalogue } from '../installed.js';
 import { createProvisionOperations } from './operations/handlers.js';
 import { provisionPiecesOn } from './pieces.js';
@@ -81,10 +82,10 @@ describe('a piece of a setup, run on the cluster queue', () => {
 
 describe('the provision procedure, its pieces on real Temporal', () => {
   const runOn = async (say: string) => {
-    const records = new Map<string, ProvisioningRecord>();
+    const store = new MemoryInfrastructureStore();
     const order: string[] = [];
     const operations = createProvisionOperations({
-      records: { get: async (id) => records.get(id), save: async (record) => { records.set(record.id, record); } },
+      records: store,
       pieces: { run: async (piece, signal) => { order.push(piece.piece); return pieces().run(piece, signal); } },
     });
     const local = new Map<string, NodeImplementation>(WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const));
@@ -102,6 +103,7 @@ describe('the provision procedure, its pieces on real Temporal', () => {
       },
     };
     const inputs: ProvisionRunInput = { ownerId: 'bo', recordId: provisionRunId(`${WORLD}-own`, say), target: { kind: 'koala', clusterId: `${WORLD}-own` }, revision: 3, reason: 'revision' };
+    await store.openProvisioning(openedRecord({ ownerId: 'bo', target: inputs.target, revision: 3, reason: 'revision', runId: inputs.recordId, at: new Date().toISOString() }));
     const result = await runProcedure({
       procedure: PROVISION,
       catalogue: platformCatalogue(),
@@ -112,7 +114,7 @@ describe('the provision procedure, its pieces on real Temporal', () => {
       inputs: inputs as unknown as Record<string, unknown>,
       bus: { emit: () => undefined, subscribe: () => () => undefined } as never,
     });
-    return { result, order, record: records.get(inputs.recordId)! };
+    return { result, order, record: (await store.getProvisioningRun(inputs.recordId))! };
   };
 
   it('sets up every piece in order and ends up', async () => {

@@ -20,6 +20,7 @@ import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { Provisioning } from '../services/Provisioning.js';
 import { isOff } from '../../platform/index.js';
 import { wireProvisioning } from './provisioning.js';
+import { PROVISION_AGENT } from '../../extensions/provision/names.js';
 
 const OWNER = { id: 'owner-1', email: 'owner@example.com' };
 const WORKFLOWS = fileURLToPath(new URL('../testing/provision.fixture-workflow.ts', import.meta.url));
@@ -84,6 +85,7 @@ async function koalaAt(clusterId: string) {
     io,
     runs,
     client: () => env.client.workflow,
+    root: { setup: async () => ({ ok: true }) },
     koala: { ownerId: OWNER.id, clusterId, revision: 2 },
   });
   if (isOff(provisioning)) throw new Error(provisioning.off);
@@ -124,7 +126,8 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     const db = await testDatabase();
     const provisioning = new Provisioning({
       store: db.infrastructure,
-      runs: engineProvisionRuns({ runs, client: () => env.client.workflow, agent: 'provision' }),
+      runs: engineProvisionRuns({ runs, client: () => env.client.workflow, agent: PROVISION_AGENT }),
+      root: { setup: async () => ({ ok: true }) },
       koala: { ownerId: OWNER.id, clusterId, revision: 2 },
       changed: () => undefined,
       log: () => undefined,

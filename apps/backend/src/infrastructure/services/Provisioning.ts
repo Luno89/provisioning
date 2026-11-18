@@ -1,35 +1,32 @@
-import type { ProvisioningView, ProvisionReason, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisioningView, ProvisionReason, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { reopening } from '@koala/engine-core/reopening';
 import { runStamp, type Watching } from '../../platform/index.js';
 import {
-  openedRecord, provisionedFor, provisioningView, provisionRunId, runEnded, startDecision,
+  heardPatch, openedRecord, progressSince, provisionedFor, provisioningView, provisionRunId, rootReportOf, runEnded, startDecision,
   type Provisioned, type Provisioner, type ProvisioningRecord, type ProvisionRunInput,
 } from '../lib/provisioning.js';
-import type { InfrastructureStore, ProvisioningPatch } from '../store.js';
+import type { InfrastructureStore } from '../store.js';
 
 export interface ProvisionRuns {
   start(input: ProvisionRunInput): Promise<string>;
-  started(runId: string): Promise<string | undefined>;
   ended(workflowId: string): Promise<string>;
+}
+
+export type RootAnswer = { ok: true } | { ok: false; status: number; error: string };
+
+export interface ProvisionRoot {
+  setup(report: ProvisionReport): Promise<RootAnswer>;
 }
 
 export interface ProvisioningDeps {
   store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'patchProvisioning' | 'watchProvisioning'>;
   runs: ProvisionRuns;
+  root: ProvisionRoot;
   koala: { ownerId: string; clusterId: string; revision: number };
   changed(ownerId: string, view: ProvisioningView): void;
   log(line: string): void;
   now?: () => Date;
 }
-
-export const NEVER_STARTED = 'Koala stopped before this setup\'s run started';
-
-const endedPatch = (record: ProvisioningRecord): ProvisioningPatch => ({
-  state: record.state,
-  pieces: record.pieces,
-  ...(record.why !== undefined ? { why: record.why } : {}),
-  ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
-});
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -37,6 +34,8 @@ export class Provisioning implements Provisioner {
   private watching: Watching | undefined;
   private readonly following = new Set<string>();
   private readonly followAgain = reopening();
+  private readonly toldRoot = new Map<string, ProvisioningRecord>();
+  private telling: Promise<void> = Promise.resolve();
   private closed = false;
 
   constructor(private readonly deps: ProvisioningDeps) {}
@@ -57,13 +56,15 @@ export class Provisioning implements Provisioner {
     for (const record of await this.deps.store.getProvisioning()) {
       if (record.state === 'running') await this.resume(record);
     }
-    await this.startRun(this.koalaTarget, 'revision');
+    const current = await this.startRun(this.koalaTarget, 'revision');
+    this.tellRoot(current.id);
   }
 
   async close(): Promise<void> {
     this.closed = true;
     await this.watching?.close();
     this.watching = undefined;
+    await this.telling;
   }
 
   ensure(target: ProvisionTarget, reason: Exclude<ProvisionReason, 'revision'>): Promise<ProvisioningRecord> {
@@ -101,7 +102,27 @@ export class Provisioning implements Provisioner {
 
   private heard(record: ProvisioningRecord): void {
     this.deps.changed(record.ownerId, provisioningView(record));
+    if (record.target.kind === 'koala') this.tellRoot(record.id);
     if (record.state === 'running' && record.workflowId) this.follow(record.id, record.workflowId);
+  }
+
+  private tellRoot(recordId: string): void {
+    this.telling = this.telling.then(async () => {
+      if (this.closed) return;
+      const record = await this.deps.store.getProvisioningRun(recordId);
+      if (!record) return;
+      const lines = progressSince(this.toldRoot.get(recordId), record);
+      this.toldRoot.set(recordId, record);
+      for (const progress of lines) {
+        const report = rootReportOf(record, progress);
+        if (!report) continue;
+        const answer = await this.deps.root.setup(report);
+        if (!answer.ok) this.deps.log(`[provisioning] root refused hearing that ${progress.title} is ${progress.state} (${answer.status}): ${answer.error}`);
+      }
+    }).catch((err: unknown) => {
+      this.deps.log(`[provisioning] root was not told how the setup ${recordId} goes: ${messageOf(err)}; it is told again the next time the setup changes`);
+      this.toldRoot.delete(recordId);
+    });
   }
 
   private async startRun(target: ProvisionTarget, reason: ProvisionReason): Promise<ProvisioningRecord> {
@@ -124,13 +145,16 @@ export class Provisioning implements Provisioner {
   }
 
   private async resume(record: ProvisioningRecord): Promise<void> {
+    this.tellRoot(record.id);
     if (record.workflowId) {
       this.follow(record.id, record.workflowId);
       return;
     }
-    const workflowId = await this.deps.runs.started(record.runId);
-    if (!workflowId) {
-      await this.settle(record, NEVER_STARTED);
+    let workflowId: string;
+    try {
+      workflowId = await this.deps.runs.start({ ownerId: record.ownerId, recordId: record.id, target: record.target, revision: record.revision, reason: record.reason });
+    } catch (err) {
+      await this.settle(record, `the setup could not start: ${messageOf(err)}`);
       return;
     }
     await this.deps.store.patchProvisioning(record.id, { workflowId }, true);
@@ -139,7 +163,7 @@ export class Provisioning implements Provisioner {
 
   private async settle(record: ProvisioningRecord, why: string): Promise<ProvisioningRecord> {
     const ended = runEnded(record, why, this.at().toISOString());
-    return (await this.deps.store.patchProvisioning(record.id, endedPatch(ended), true)) ?? (await this.deps.store.getProvisioningRun(record.id)) ?? ended;
+    return (await this.deps.store.patchProvisioning(record.id, heardPatch(ended), true)) ?? (await this.deps.store.getProvisioningRun(record.id)) ?? ended;
   }
 
   private follow(recordId: string, workflowId: string): void {

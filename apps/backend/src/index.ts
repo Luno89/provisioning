@@ -44,7 +44,7 @@ import { onKoalasCluster } from './engine-host/sandboxes/kube.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
-import { IdentityService, InstanceReach } from './instances/index.js';
+import { IdentityService, InstanceReach, InstanceReporter } from './instances/index.js';
 import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHttp, ToolCallParsers, toolCallParsersRouter } from './models/index.js';
 
 import {
@@ -450,6 +450,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
+      root: new InstanceReporter({ root: { url: role.instance.rootUrl, instanceId: role.instance.id, credential: settings.instance.credential } }),
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },

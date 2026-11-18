@@ -1,10 +1,8 @@
-import type { WorkflowClient } from '@temporalio/client';
+import { WorkflowExecutionAlreadyStartedError, type WorkflowClient } from '@temporalio/client';
 import type { RunStarter } from './registries/run-starter.js';
-import { RUN_ID_MEMO, workflowOfRun } from './temporal/contracts.js';
+import { workflowOfRun } from './temporal/contracts.js';
 import { closedWith, type ClosedAs } from '../platform/lib/workflow-close.js';
 import type { ProvisionRuns } from '../infrastructure/index.js';
-
-const notFound = (err: unknown): boolean => (err as { name?: string } | undefined)?.name === 'WorkflowNotFoundError' || /not\s*found/i.test(String((err as Error)?.message ?? err));
 
 export function endedWhy(closed: { as: ClosedAs; why?: string | undefined }): string {
   switch (closed.as) {
@@ -34,26 +32,19 @@ export function engineProvisionRuns(deps: {
 
   return {
     async start(input) {
-      await deps.runs.start({
-        ownerId: input.ownerId,
-        agentSlug: deps.agent,
-        message: 'Set Koala up.',
-        runId: input.recordId,
-        inputs: { ...input },
-        startedBy: 'platform',
-      });
-      return workflowOfRun(input.recordId);
-    },
-
-    async started(runId) {
-      const workflowId = workflowOfRun(runId);
       try {
-        const described = await handle(workflowId).describe();
-        return described.memo?.[RUN_ID_MEMO] === runId ? workflowId : undefined;
+        await deps.runs.start({
+          ownerId: input.ownerId,
+          agentSlug: deps.agent,
+          message: 'Set Koala up.',
+          runId: input.recordId,
+          inputs: { ...input },
+          startedBy: 'platform',
+        });
       } catch (err) {
-        if (notFound(err)) return undefined;
-        throw err;
+        if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
       }
+      return workflowOfRun(input.recordId);
     },
 
     async ended(workflowId) {

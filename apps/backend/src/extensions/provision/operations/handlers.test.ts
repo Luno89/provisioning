@@ -1,23 +1,35 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
-import { openedRecord, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisionRunInput } from '../../../infrastructure/lib/provisioning.js';
+import { openedRecord, type HeardPatch, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput } from '../../../infrastructure/lib/provisioning.js';
 import { createProvisionOperations } from './handlers.js';
 
 const AT = '2026-11-18T12:00:00.000Z';
 
 const input: ProvisionRunInput = { ownerId: 'bo', recordId: 'provision-machine-desk~1', target: { kind: 'koala', clusterId: 'machine-desk' }, revision: 7, reason: 'revision' };
-const collector: ProvisionRunInput = { ownerId: 'bo', recordId: 'provision-machine-desk2~1', target: { kind: 'machine', clusterId: 'machine-desk2', machine: 'desk-2' }, revision: 7, reason: 'missing' };
+const collector: ProvisionRunInput = { ownerId: 'bo', recordId: 'provision-machine-desk2~1', target: { kind: 'machine', clusterId: 'machine-desk2', machine: 'desk-2', deviceId: 'device-desk-2' }, revision: 7, reason: 'missing' };
 
 let records: Map<string, ProvisioningRecord>;
 let started: ProvisionPieceInput[];
 let answers: Record<string, ProvisionPieceResult | Error>;
 let signals: (AbortSignal | undefined)[];
 
+const kept = (): ProvisioningRecords & { patches: HeardPatch[] } => {
+  const patches: HeardPatch[] = [];
+  return {
+    patches,
+    getProvisioningRun: async (recordId) => records.get(recordId),
+    patchProvisioning: async (recordId, patch) => {
+      patches.push(patch);
+      const now = records.get(recordId);
+      if (now?.state !== 'running') return undefined;
+      records.set(recordId, { ...now, ...patch });
+      return records.get(recordId);
+    },
+  };
+};
+
 const ops = () => createProvisionOperations({
-  records: {
-    get: async (recordId) => records.get(recordId),
-    save: async (record) => { records.set(record.id, record); },
-  },
+  records: kept(),
   pieces: {
     run: async (piece, signal) => {
       started.push(piece);
@@ -46,14 +58,17 @@ beforeEach(() => {
 });
 
 describe('opening a setup', () => {
-  it('records the run with every piece waiting when the record is not there yet, and says which kind of cluster it sets up', async () => {
-    const result = await ops()['provision.open']!(request(input));
+  it('reads the record Koala opened before starting the run, and says which kind of cluster it sets up, writing nothing', async () => {
+    records.set(input.recordId, opened(input));
+    const records_ = kept();
+    const result = await createProvisionOperations({ records: records_, pieces: { run: async () => ({ ok: true }) } })['provision.open']!(request(input));
     expect(result).toEqual({ exit: 'done', outputs: { kind: 'koala' } });
-    const record = records.get(input.recordId)!;
-    expect(record).toMatchObject({ id: input.recordId, runId: input.recordId, ownerId: 'bo', revision: 7, reason: 'revision', state: 'running', startedAt: AT });
-    expect(record.pieces.map((piece) => [piece.key, piece.state])).toEqual([
-      ['egress', 'waiting'], ['searxng', 'waiting'], ['crawl4ai', 'waiting'], ['gitea', 'waiting'], ['verdaccio', 'waiting'], ['infisical', 'waiting'], ['monitoring', 'waiting'],
-    ]);
+    expect(records_.patches).toEqual([]);
+  });
+
+  it('fails with why when no record was opened for the run, rather than making one', async () => {
+    expect(await ops()['provision.open']!(request(input))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} is no longer recorded` } });
+    expect(records.has(input.recordId)).toBe(false);
   });
 
   it('keeps the record the run was started with, and opens another machine\'s setup with its collector alone', async () => {
@@ -63,11 +78,13 @@ describe('opening a setup', () => {
     expect(records.get(collector.recordId)!.pieces).toEqual([{ key: 'monitoring', title: "desk-2's collector", state: 'waiting' }]);
   });
 
-  it('fails with why when the record is someone else\'s, is for another cluster, or has already ended', async () => {
+  it('fails with why when the record is someone else\'s, is for another cluster or revision, or has already ended', async () => {
     records.set(input.recordId, { ...opened(input), ownerId: 'someone' });
     expect(await ops()['provision.open']!(request(input))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} is not bo's` } });
     records.set(input.recordId, { ...opened(input), target: { kind: 'koala', clusterId: 'machine-other' } });
     expect(await ops()['provision.open']!(request(input))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} is for machine-other, not machine-desk` } });
+    records.set(input.recordId, { ...opened(input), revision: 6 });
+    expect(await ops()['provision.open']!(request(input))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} is for revision 6, not 7` } });
     records.set(input.recordId, { ...opened(input), state: 'failed', why: 'Gitea: it broke', endedAt: AT });
     expect(await ops()['provision.open']!(request(input))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} has already ended failed` } });
   });
@@ -76,6 +93,7 @@ describe('opening a setup', () => {
     await expect(ops()['provision.open']!(request({ ownerId: 'bo' }))).rejects.toThrow(/not started for a setup/);
     await expect(ops()['provision.open']!(request({ ...input, revision: 0 }))).rejects.toThrow(/not started for a setup/);
     await expect(ops()['provision.open']!(request({ ...input, target: { kind: 'machine', clusterId: 'x' } }))).rejects.toThrow(/not started for a setup/);
+    await expect(ops()['provision.open']!(request({ ...input, target: { kind: 'machine', clusterId: 'x', machine: 'desk-2' } }))).rejects.toThrow(/not started for a setup/);
   });
 });
 
@@ -85,7 +103,7 @@ describe('setting up a piece', () => {
   it('starts the piece on the cluster, records it working while it runs and up once it is', async () => {
     let during: string | undefined;
     const operations = createProvisionOperations({
-      records: { get: async (id) => records.get(id), save: async (record) => { records.set(record.id, record); } },
+      records: kept(),
       pieces: { run: async (piece) => { started.push(piece); during = pieceOf(input.recordId, piece.piece)?.state; return { ok: true }; } },
       now: () => AT,
     });
@@ -124,6 +142,20 @@ describe('setting up a piece', () => {
     expect(await ops()['provision.monitoring']!(request(collector))).toEqual({ exit: 'done', outputs: {} });
     expect(started.map((piece) => [piece.recordId, piece.piece, piece.target.kind])).toEqual([[input.recordId, 'monitoring', 'koala'], [collector.recordId, 'monitoring', 'machine']]);
     expect(pieceOf(collector.recordId, 'monitoring')).toMatchObject({ title: "desk-2's collector", state: 'up' });
+  });
+
+  it('writes the piece as patches of the record\'s state and pieces, never a whole record, so what Koala named on it stays', async () => {
+    records.set(input.recordId, { ...opened(input), workflowId: 'provision-machine-desk' });
+    const records_ = kept();
+    await createProvisionOperations({ records: records_, pieces: { run: async () => ({ ok: true }) }, now: () => AT })['provision.service']!(request(input, { service: 'egress' }));
+    expect(records_.patches.map((patch) => Object.keys(patch).sort())).toEqual([['pieces', 'state'], ['pieces', 'state']]);
+    expect(records.get(input.recordId)).toMatchObject({ workflowId: 'provision-machine-desk' });
+  });
+
+  it('fails with why, starting nothing, when the run ended while it waited its turn', async () => {
+    records.set(input.recordId, { ...opened(input), state: 'failed', why: 'the setup\'s run was stopped', endedAt: AT });
+    expect(await ops()['provision.service']!(request(input, { service: 'gitea' }))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} has already ended failed` } });
+    expect(started).toEqual([]);
   });
 
   it('fails without starting anything when the record is gone or the service is not a platform service', async () => {

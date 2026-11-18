@@ -41,7 +41,7 @@ afterAll(async () => { await k3s?.stop(); }, 0);
 async function opened(runId: string) {
   const db = await fresh();
   const record = openedRecord({ ownerId: 'owner-1', target: { kind: 'koala', clusterId: 'machine-desk' }, revision: 1, reason: 'revision', runId, at: '2026-11-18T09:00:00.000Z' });
-  await db.infrastructure.saveProvisioning(record);
+  await db.infrastructure.openProvisioning(record);
   const input = (piece: ProvisionPieceInput['piece']): ProvisionPieceInput => ({ ownerId: 'owner-1', recordId: runId, target: record.target, revision: 1, piece });
   return { store: db.infrastructure, input };
 }
@@ -52,7 +52,7 @@ describe('one piece of a Koala\'s setup, applied on a real cluster and kept on i
 
     await ProvisionPieceActivity(input('egress'), { steps, place, lines: recordedLines(store) }, quickly);
 
-    const egress = (await store.getProvisioning('provision-machine-desk~egress'))?.pieces.find((piece) => piece.key === 'egress');
+    const egress = (await store.getProvisioningRun('provision-machine-desk~egress'))?.pieces.find((piece) => piece.key === 'egress');
     expect(egress).toMatchObject({ state: 'working', line: 'the egress proxy: ready' });
     expect(await steps.access.kubectl(steps.access.own(), ['get', 'deployment', 'egress-proxy', '-n', 'koala-egress', '-o', 'jsonpath={.status.availableReplicas}'])).toBe('1');
   }, 0);
@@ -66,7 +66,7 @@ describe('one piece of a Koala\'s setup, applied on a real cluster and kept on i
 
     expect(failed, `the piece ended otherwise: ${String((failed as Error | undefined)?.message ?? failed)}`).toBeInstanceOf(CannotRollOut);
     expect((failed as CannotRollOut).why).toMatch(/^searxng cannot make its pods: .*exceeded quota/);
-    const searxng = (await store.getProvisioning('provision-machine-desk~searxng'))?.pieces.find((piece) => piece.key === 'searxng');
+    const searxng = (await store.getProvisioningRun('provision-machine-desk~searxng'))?.pieces.find((piece) => piece.key === 'searxng');
     expect(searxng).toMatchObject({ state: 'working', line: expect.stringMatching(/^SearXNG/) as unknown });
   }, 0);
 });

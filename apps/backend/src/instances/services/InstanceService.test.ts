@@ -681,10 +681,11 @@ describe('an instance telling root how its setup after the chart goes', () => {
     expect(await service.report(instanceId, credential, { status: 'ready', provision: { revision: 1, progress: setUp } })).toEqual({ ok: false, status: 400, error: 'a report of Koala\'s setup sends only "provision"' });
   });
 
-  it('keeps nothing of a setup for a revision it has moved past', async () => {
+  it('refuses, saying why, a setup for a revision it has moved past, keeping the one it follows', async () => {
     const { instanceId, credential } = await joinedOn();
     await service.report(instanceId, credential, { provision: { revision: 2, progress: gitea('started') } });
-    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: setUp } })).toMatchObject({ ok: true, value: { status: 'installing', setup: { revision: 2, state: 'running' } } });
+    expect(await service.report(instanceId, credential, { provision: { revision: 1, progress: setUp } })).toEqual({ ok: false, status: 409, error: 'root follows the setup of revision 2, so revision 1\'s is no longer this Koala\'s' });
+    expect((await db.instances.getInstances('u1'))[0]!.setup).toMatchObject({ revision: 2, state: 'running' });
   });
 
   it('holds a report naming the revision it runs to that revision\'s setup, never ready before it nor over a piece that failed, while the release it runs is kept', async () => {
@@ -751,13 +752,27 @@ describe('a pool instance setting itself up', () => {
     expect(handed).toEqual([['inst-bo', line]]);
   });
 
-  it('hears nothing more of a placement that failed, and records the setup itself once the placement has ended', async () => {
+  it('records the setup of a placement that failed without undoing why it failed, and records it as its status once the placement has ended', async () => {
     await saved({ status: 'failed', detail: 'no gVisor' });
-    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'failed', detail: 'no gVisor' } });
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'failed', detail: 'no gVisor', setup: { revision: 1, stage: 'searxng', state: 'running' } } });
     await saved({ status: 'ready', url: 'https://bo.koala.dev', pool });
     expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'installing', detail: 'Koala is setting itself up: SearXNG, web search' } });
+    expect(handed).toEqual([]);
+  });
+
+  it('records the pool copy\'s setup while it moves, leaving the instance serving where it is', async () => {
     await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now' } });
-    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready' } });
+    expect(await service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready', setup: { revision: 1, stage: 'searxng', state: 'running' } } });
+    expect(handed).toEqual([]);
+  });
+
+  it('records the setup of the Koala it moves to on the move, for My Machines to show, and how it ends', async () => {
+    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now', detail: 'Copying its data', credentialHash: hashCredential('move-secret'), target: { machine: 'bo-desktop' } } });
+    expect(await service.report('inst-bo', 'move-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready', move: { state: 'copying', setup: { revision: 1, stage: 'searxng', state: 'running' } } } });
+    expect(await service.moveOf('bo')).toMatchObject({ state: 'copying', detail: 'Koala on bo-desktop is setting itself up: SearXNG, web search' });
+    await service.report('inst-bo', 'move-secret', { provision: { revision: 1, progress: { stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' } } });
+    expect(await service.moveOf('bo')).toMatchObject({ state: 'copying', detail: 'Koala on bo-desktop stopped setting itself up at SearXNG, web search: no room' });
+    expect(await service.report('inst-bo', 'move-secret', { provision: { revision: 0, progress: line.progress } })).toMatchObject({ ok: false, status: 400 });
     expect(handed).toEqual([]);
   });
 });

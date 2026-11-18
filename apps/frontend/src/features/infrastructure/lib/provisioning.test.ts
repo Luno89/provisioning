@@ -9,7 +9,7 @@ const koala = (over: Partial<ProvisioningView> = {}): ProvisioningView => ({
 })
 
 const collector = (over: Partial<ProvisioningView> = {}): ProvisioningView => ({
-  id: 'provision-desk-2~1', target: { kind: 'machine', clusterId: 'desk-2', machine: 'desk-2' }, revision: 7, reason: 'missing', state: 'running',
+  id: 'provision-desk-2~1', target: { kind: 'machine', clusterId: 'desk-2', machine: 'desk-2', deviceId: 'device-desk-2' }, revision: 7, reason: 'missing', state: 'running',
   pieces: [{ key: 'monitoring', title: 'desk-2\'s collector', state: 'waiting' }], startedAt: '2026-11-18T10:05:00.000Z', ...over,
 })
 

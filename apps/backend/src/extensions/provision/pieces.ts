@@ -1,6 +1,7 @@
-import { WorkflowExecutionAlreadyStartedError, WorkflowFailedError, type Client, type WorkflowHandle } from '@temporalio/client';
-import { failureReason, startedFor } from '../../platform/index.js';
-import { provisionPieceWorkflowId, type ProvisionPieceInput, type ProvisionPieceResult } from '../../infrastructure/lib/provisioning.js';
+import { WorkflowFailedError, type Client } from '@temporalio/client';
+import { failureReason } from '../../platform/index.js';
+import type { ProvisionPieceResult } from '../../infrastructure/lib/provisioning.js';
+import { provisionPieceStart } from '../../workflows/provision-piece.js';
 import type { ProvisionPieces } from './operations/handlers.js';
 import { PROVISION_PIECE_WORKFLOW } from './names.js';
 
@@ -18,20 +19,10 @@ function resultOf(value: unknown, workflowId: string): ProvisionPieceResult {
   throw new Error(`${workflowId} answered ${JSON.stringify(value)}, which is not what a piece answers: ok, or not ok with why`);
 }
 
-async function started(client: Client, queue: string, piece: ProvisionPieceInput): Promise<WorkflowHandle> {
-  const workflowId = provisionPieceWorkflowId(piece.recordId, piece.piece);
-  try {
-    return await client.workflow.start(PROVISION_PIECE_WORKFLOW, { taskQueue: queue, workflowId, args: [piece], ...startedFor(piece.ownerId) });
-  } catch (err) {
-    if (err instanceof WorkflowExecutionAlreadyStartedError) return client.workflow.getHandle(workflowId);
-    throw err;
-  }
-}
-
 export function provisionPiecesOn(workflows: PieceWorkflows): ProvisionPieces {
   return {
     async run(piece, signal) {
-      const handle = await started(await workflows.client(), workflows.queue, piece);
+      const handle = await (await workflows.client()).workflow.start(PROVISION_PIECE_WORKFLOW, provisionPieceStart(piece, workflows.queue));
       let cancelling: Promise<unknown> | undefined;
       const cancel = () => { cancelling ??= handle.cancel().then(() => undefined, (err: unknown) => err); };
       signal?.addEventListener('abort', cancel, { once: true });

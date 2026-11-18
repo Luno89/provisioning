@@ -44,3 +44,6 @@ export function statusSettled(said: StatusSaid, revision: number | undefined, se
   if (said.status !== 'ready' || !setup || setup.state === 'up') return said;
   return setupSaid(setup, machine);
 }
+
+export const pastRevision = (followed: InstanceSetup, report: ProvisionReport): string =>
+  `root follows the setup of revision ${followed.revision}, so revision ${report.revision}'s is no longer this Koala's`;

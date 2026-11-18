@@ -1,5 +1,6 @@
 import type { InstanceRecord } from './instances.js';
 import type { KubeObject } from './app-move.js';
+import type { InstanceSetup } from './instance-setup.js';
 
 export const MOVE_PARTS = ['keys', 'data', 'mongo', 'gitea-db', 'gitea-data', 'infisical-db', 'terraform-state', 'apps'] as const;
 export type MovePart = typeof MOVE_PARTS[number];
@@ -19,6 +20,7 @@ export interface InstanceMove {
   credentialHash?: string | undefined;
   wasPaused?: boolean | undefined;
   target?: { machine?: string | undefined; meshIp?: string | undefined; url?: string | undefined } | undefined;
+  setup?: InstanceSetup | undefined;
 }
 
 export const poolMoveWorkflowId = (instanceId: string): string => `pool-move-${instanceId}`;

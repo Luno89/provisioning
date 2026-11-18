@@ -1,16 +1,12 @@
-import type { MachineOfCluster, ProvisionPieceInput } from '../infrastructure/index.js';
+import type { ProvisionPieceInput } from '../infrastructure/index.js';
 import { provisionPieceWorkflowId } from '../infrastructure/lib/provisioning.js';
 import { QUEUES } from '../platform/lib/work-places.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
-export interface ProvisionPieceArgs extends ProvisionPieceInput {
-  machine?: MachineOfCluster | undefined;
-}
-
-export const provisionPieceStart = (args: ProvisionPieceArgs, taskQueue: string = QUEUES.cluster) => ({
+export const provisionPieceStart = (args: ProvisionPieceInput, taskQueue: string = QUEUES.cluster) => ({
   workflowId: provisionPieceWorkflowId(args.recordId, args.piece),
   taskQueue,
-  args: [args] as [ProvisionPieceArgs],
+  args: [args] as [ProvisionPieceInput],
   workflowIdConflictPolicy: 'USE_EXISTING' as const,
   ...startedFor(args.ownerId),
 });

@@ -41,6 +41,7 @@ import { CustomizationsService } from './releases/services/CustomizationsService
 import { releaseHowOf, projectChoicesPatch, type ClientImport } from './releases/index.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
+import { provisionPiecesOn } from './extensions/provision/pieces.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
 import { createWorkspaceProjectActivities } from './activities/WorkspaceProjectActivity.js';
@@ -246,6 +247,10 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
           }
         },
       },
+    },
+    provision: {
+      records: db.infrastructure,
+      pieces: provisionPiecesOn({ client: getTemporalClient, queue: QUEUES.cluster }),
     },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,

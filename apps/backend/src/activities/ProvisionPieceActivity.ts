@@ -1,8 +1,8 @@
 import { ApplicationFailure } from '@temporalio/common';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import {
-  pieceHeard, pieceProgress, PLATFORM_PLAN, startedMachine,
-  type PieceChange, type ProvisioningRecord, type ProvisionPieceInput,
+  pieceHeard, pieceProgress, PLATFORM_PLAN, recordedOn, startedMachine,
+  type PieceChange, type ProvisioningRecords, type ProvisionPieceInput,
 } from '../infrastructure/index.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -12,11 +12,6 @@ import type { Pause } from './watched-apply.js';
 
 export interface ProvisionLines {
   heard(input: ProvisionPieceInput, change: PieceChange): Promise<void>;
-}
-
-export interface ProvisioningRecords {
-  getProvisioning(runId: string): Promise<ProvisioningRecord | undefined>;
-  saveProvisioning(record: ProvisioningRecord): Promise<void>;
 }
 
 export type ProvisionPlace = Omit<PlatformPlace, 'reach'>;
@@ -35,9 +30,9 @@ type Report = (line: string) => void;
 
 export const recordedLines = (records: ProvisioningRecords, now: () => string = () => new Date().toISOString()): ProvisionLines => ({
   async heard(input, change) {
-    const record = await records.getProvisioning(input.recordId);
-    if (!record) throw new Error(`the setup ${input.recordId} has no record, so what ${input.piece} says has nowhere to go`);
-    await records.saveProvisioning(pieceHeard(record, pieceProgress(record, input.piece, change), now()));
+    const said = await recordedOn(records, input.recordId, (record) => pieceHeard(record, pieceProgress(record, input.piece, change), now()));
+    if ('gone' in said) throw ApplicationFailure.nonRetryable(`the setup ${input.recordId} has no record, so what ${input.piece} says has nowhere to go`, 'SetupGone');
+    if ('ended' in said) throw ApplicationFailure.nonRetryable(`the setup ${input.recordId} has already ended ${said.ended.state}, so what ${input.piece} says has nowhere to go`, 'SetupEnded');
   },
 });
 

@@ -117,6 +117,32 @@ export function pieceHeard(record: ProvisioningRecord, progress: MachineProgress
   return { ...record, pieces: withPiece(record, { key, title, state: 'up', at }) };
 }
 
+export type HeardPatch = Pick<ProvisioningRecord, 'state' | 'pieces'> & Partial<Pick<ProvisioningRecord, 'why' | 'endedAt'>>;
+
+export interface ProvisioningRecords {
+  getProvisioningRun(id: string): Promise<ProvisioningRecord | undefined>;
+  patchProvisioning(id: string, patch: HeardPatch, whileRunning: true): Promise<ProvisioningRecord | undefined>;
+}
+
+export type Recorded = { recorded: ProvisioningRecord } | { gone: true } | { ended: ProvisioningRecord };
+
+export const heardPatch = (record: ProvisioningRecord): HeardPatch => ({
+  state: record.state,
+  pieces: record.pieces,
+  ...(record.why !== undefined ? { why: record.why } : {}),
+  ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
+});
+
+export async function recordedOn(records: ProvisioningRecords, recordId: string, change: (record: ProvisioningRecord) => ProvisioningRecord): Promise<Recorded> {
+  const record = await records.getProvisioningRun(recordId);
+  if (!record) return { gone: true };
+  if (record.state !== 'running') return { ended: record };
+  const written = await records.patchProvisioning(recordId, heardPatch(change(record)), true);
+  if (written) return { recorded: written };
+  const now = await records.getProvisioningRun(recordId);
+  return now ? { ended: now } : { gone: true };
+}
+
 export function runEnded(record: ProvisioningRecord, why: string, at: string): ProvisioningRecord {
   if (record.state !== 'running') return record;
   return {
@@ -135,6 +161,32 @@ export function provisioningView(record: ProvisioningRecord): ProvisioningView {
 
 export function rootReportOf(record: ProvisioningRecord, progress: MachineProgress): ProvisionReport | undefined {
   return record.target.kind === 'koala' ? { revision: record.revision, progress } : undefined;
+}
+
+const samePiece = (a: ProvisionPieceView | undefined, b: ProvisionPieceView): boolean =>
+  a !== undefined && a.state === b.state && a.line === b.line && a.why === b.why;
+
+const changeOf = (piece: ProvisionPieceView): PieceChange | undefined => {
+  if (piece.state === 'working') return { state: 'started', line: piece.line };
+  if (piece.state === 'up') return { state: 'done' };
+  if (piece.state === 'failed') return { state: 'failed', why: piece.why ?? 'it gave no reason' };
+  return undefined;
+};
+
+export function progressSince(before: ProvisioningRecord | undefined, after: ProvisioningRecord): MachineProgress[] {
+  const lines: MachineProgress[] = [];
+  for (const piece of after.pieces) {
+    if (samePiece(before?.pieces.find((entry) => entry.key === piece.key), piece)) continue;
+    const change = changeOf(piece);
+    if (change) lines.push(pieceProgress(after, piece.key, change));
+  }
+  const newlyEnded = after.state !== 'running' && before?.state !== after.state;
+  if (newlyEnded && after.state === 'up') lines.push(setUpProgress());
+  if (newlyEnded && after.state === 'failed' && !lines.some((line) => line.state === 'failed')) {
+    const stopped = after.pieces.find((piece) => piece.state === 'failed') ?? after.pieces.find((piece) => piece.state !== 'up') ?? after.pieces.at(-1);
+    if (stopped) lines.push(pieceProgress(after, stopped.key, { state: 'failed', why: after.why ?? stopped.why ?? 'it gave no reason' }));
+  }
+  return lines;
 }
 
 function latest(records: readonly ProvisioningRecord[]): ProvisioningRecord | undefined {

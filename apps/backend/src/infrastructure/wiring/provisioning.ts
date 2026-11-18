@@ -6,10 +6,9 @@ import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { RunStarter } from '../../engine-host/registries/run-starter.js';
 import type { Mounts } from '../../hub/index.js';
+import { PROVISION_AGENT } from '../../extensions/provision/names.js';
 import { provisioningRouter } from '../routes/provisioning.js';
-import { Provisioning } from '../services/Provisioning.js';
-
-export const PROVISION_AGENT = 'provision';
+import { Provisioning, type ProvisionRoot } from '../services/Provisioning.js';
 
 export interface ProvisioningWiringDeps {
   tenant: Mounts;
@@ -17,6 +16,7 @@ export interface ProvisioningWiringDeps {
   io: SocketServer;
   runs: Pick<RunStarter, 'start'>;
   client: () => Pick<WorkflowClient, 'getHandle'> | undefined;
+  root: ProvisionRoot;
   koala: { ownerId: string; clusterId: string; revision: number } | Off;
 }
 
@@ -29,6 +29,7 @@ export function wireProvisioning(deps: ProvisioningWiringDeps): Provisioning | O
   const provisioning = new Provisioning({
     store: deps.db.infrastructure,
     runs: engineProvisionRuns({ runs: deps.runs, client: deps.client, agent: PROVISION_AGENT }),
+    root: deps.root,
     koala,
     changed: (ownerId, view) => { deps.io.to(userRoom(ownerId)).emit(PROVISIONING_CHANGED, view); },
     log: (line) => console.warn(line),

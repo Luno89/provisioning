@@ -10,9 +10,9 @@ import { activityInterceptors, WORKER_DEFAULTS, type MachineClusterOp, type Mach
 import type { ProvisionPieceKey, ProvisionTarget } from '@koala/engine-core/koala-install';
 import type { ProvisionPieceRun } from '../activities/ProvisionPieceActivity.js';
 import { DEFAULT_STREAM_TASK_QUEUE, deviceQueue } from '../engine-host/temporal/contracts.js';
-import { provisionPieceWorkflowId } from '../infrastructure/index.js';
+import { provisionPieceWorkflowId, type ProvisionPieceInput } from '../infrastructure/index.js';
 import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
-import { provisionPieceStart, type ProvisionPieceArgs } from './provision-piece.js';
+import { provisionPieceStart } from './provision-piece.js';
 import type { ProvisionPieceWorkflow } from './ProvisionPieceWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +25,7 @@ afterAll(async () => { await env?.teardown(); });
 
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: `${WORLD}-desk` };
 
-const piece = (key: ProvisionPieceKey, target: ProvisionTarget = KOALA, more: Partial<ProvisionPieceArgs> = {}): ProvisionPieceArgs => ({
+const piece = (key: ProvisionPieceKey, target: ProvisionTarget = KOALA, more: Partial<ProvisionPieceInput> = {}): ProvisionPieceInput => ({
   ownerId: 'bo', recordId: `provision-${target.clusterId}~${randomUUID().slice(0, 8)}`, target, revision: 3, piece: key, ...more,
 });
 
@@ -57,7 +57,7 @@ async function running<T>(apply: (run: ProvisionPieceRun) => Promise<void>, driv
   return rest.reduce<() => Promise<T>>((inner, worker) => () => worker.runUntil(inner), () => first!.runUntil(drive(taskQueue)))();
 }
 
-const startOne = (args: ProvisionPieceArgs, taskQueue: string) => env.client.workflow.start<typeof ProvisionPieceWorkflow>('ProvisionPieceWorkflow', provisionPieceStart(args, taskQueue));
+const startOne = (args: ProvisionPieceInput, taskQueue: string) => env.client.workflow.start<typeof ProvisionPieceWorkflow>('ProvisionPieceWorkflow', provisionPieceStart(args, taskQueue));
 
 describe('one piece of a Koala\'s setup, applied on the cluster queue', () => {
   it('applies the piece on Koala\'s own cluster and ends ok, under the id its run and piece name, owned by the Koala\'s owner', async () => {
@@ -101,9 +101,9 @@ describe('one piece of a Koala\'s setup, applied on the cluster queue', () => {
   it('starts another machine\'s cluster for its collector, hands the piece its kubeconfig, and lets the cluster stop once idle', async () => {
     const deviceId = `${WORLD}-desk-2`;
     const seen: string[] = [];
-    const target: ProvisionTarget = { kind: 'machine', clusterId: `${WORLD}-machine-desk-2`, machine: 'desk-2' };
-    const args = piece('monitoring', target, { machine: { deviceId } });
-    const result = await running(async (run) => { seen.push(`applied with ${run.kubeconfig ?? 'nothing'}${'machine' in run ? ' and the machine' : ''}`); }, async (taskQueue) => (await startOne(args, taskQueue)).result(), { deviceId, seen });
+    const target: ProvisionTarget = { kind: 'machine', clusterId: `${WORLD}-machine-desk-2`, machine: 'desk-2', deviceId };
+    const args = piece('monitoring', target);
+    const result = await running(async (run) => { seen.push(`applied with ${run.kubeconfig ?? 'nothing'}`); }, async (taskQueue) => (await startOne(args, taskQueue)).result(), { deviceId, seen });
     expect(result).toEqual({ ok: true });
     expect(seen).toEqual(['machine start', 'recorded started', 'applied with apiVersion: v1 # desk-2', 'asked idle', 'machine stop', 'recorded stopped']);
   }, 120_000);

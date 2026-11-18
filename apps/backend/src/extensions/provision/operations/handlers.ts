@@ -1,16 +1,11 @@
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import { PROVISION_REASONS, type ProvisionPieceKey, type ProvisionTarget } from '@koala/engine-core/koala-install';
 import {
-  openedRecord, pieceHeard, pieceProgress, runEnded, setUpProgress,
-  type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisionRunInput,
+  pieceHeard, pieceProgress, recordedOn, runEnded, setUpProgress,
+  type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput,
 } from '../../../infrastructure/lib/provisioning.js';
 import type { HostOperationRun } from '../../types.js';
 import { PROVISION_SERVICES, PROVISION_STATES_MARKED } from './declarations.js';
-
-export interface ProvisioningRecords {
-  get(recordId: string): Promise<ProvisioningRecord | undefined>;
-  save(record: ProvisioningRecord): Promise<void>;
-}
 
 export interface ProvisionPieces {
   run(piece: ProvisionPieceInput, signal?: AbortSignal): Promise<ProvisionPieceResult>;
@@ -28,7 +23,7 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 function targetOf(value: unknown): ProvisionTarget | undefined {
   if (!isRecord(value) || !isText(value.clusterId)) return undefined;
   if (value.kind === 'koala') return { kind: 'koala', clusterId: value.clusterId };
-  if (value.kind === 'machine' && isText(value.machine)) return { kind: 'machine', clusterId: value.clusterId, machine: value.machine };
+  if (value.kind === 'machine' && isText(value.machine) && isText(value.deviceId)) return { kind: 'machine', clusterId: value.clusterId, machine: value.machine, deviceId: value.deviceId };
   return undefined;
 }
 
@@ -57,44 +52,41 @@ const done = (outputs: Record<string, unknown> = {}): StepResult => ({ exit: 'do
 
 const gone = (recordId: string): StepResult => failed(`the setup ${recordId} is no longer recorded`);
 
+const endedAlready = (record: ProvisioningRecord): StepResult => failed(`the setup ${record.id} has already ended ${record.state}`);
+
 export function createProvisionOperations(deps: ProvisionOperationDeps): Record<string, HostOperationRun> {
   const now = deps.now ?? (() => new Date().toISOString());
   const { records } = deps;
 
-  const heard = async (recordId: string, change: (record: ProvisioningRecord) => ProvisioningRecord): Promise<boolean> => {
-    const record = await records.get(recordId);
-    if (!record) return false;
-    await records.save(change(record));
-    return true;
+  const written = async (recordId: string, change: (record: ProvisioningRecord) => ProvisioningRecord): Promise<StepResult | undefined> => {
+    const said = await recordedOn(records, recordId, change).catch((err: unknown) => ({ broke: reasonOf(err) }));
+    if ('broke' in said) return failed(said.broke);
+    if ('gone' in said) return gone(recordId);
+    if ('ended' in said) return endedAlready(said.ended);
+    return undefined;
   };
 
   const piece = async (request: NodeRequest, key: ProvisionPieceKey): Promise<StepResult> => {
     const run = runInput(request);
-    const record = await records.get(run.recordId);
-    if (!record) return gone(run.recordId);
-    try {
-      await records.save(pieceHeard(record, pieceProgress(record, key, { state: 'started' }), now()));
-    } catch (err) {
-      return failed(reasonOf(err));
-    }
+    const unstarted = await written(run.recordId, (record) => pieceHeard(record, pieceProgress(record, key, { state: 'started' }), now()));
+    if (unstarted) return unstarted;
     const result = await deps.pieces.run({ ownerId: run.ownerId, recordId: run.recordId, target: run.target, revision: run.revision, piece: key }, request.run.signal)
       .catch((err: unknown): ProvisionPieceResult => ({ ok: false, why: reasonOf(err) }));
     const change = result.ok ? { state: 'done' as const } : { state: 'failed' as const, why: result.why };
-    if (!(await heard(run.recordId, (latest) => pieceHeard(latest, pieceProgress(latest, key, change), now())))) return gone(run.recordId);
+    const unheard = await written(run.recordId, (latest) => pieceHeard(latest, pieceProgress(latest, key, change), now()));
+    if (unheard) return unheard;
     return result.ok ? done() : failed(result.why);
   };
 
   return {
     async 'provision.open'(request) {
       const run = runInput(request);
-      const record = await records.get(run.recordId);
-      if (!record) {
-        await records.save(openedRecord({ ownerId: run.ownerId, target: run.target, revision: run.revision, reason: run.reason, runId: run.recordId, at: now() }));
-        return done({ kind: run.target.kind });
-      }
+      const record = await records.getProvisioningRun(run.recordId);
+      if (!record) return gone(run.recordId);
       if (record.ownerId !== run.ownerId) return failed(`the setup ${run.recordId} is not ${run.ownerId}'s`);
       if (record.target.clusterId !== run.target.clusterId) return failed(`the setup ${run.recordId} is for ${record.target.clusterId}, not ${run.target.clusterId}`);
-      if (record.state !== 'running') return failed(`the setup ${run.recordId} has already ended ${record.state}`);
+      if (record.revision !== run.revision) return failed(`the setup ${run.recordId} is for revision ${record.revision}, not ${run.revision}`);
+      if (record.state !== 'running') return endedAlready(record);
       return done({ kind: record.target.kind });
     },
 
@@ -115,14 +107,12 @@ export function createProvisionOperations(deps: ProvisionOperationDeps): Record<
       const run = runInput(request);
       const state = PROVISION_STATES_MARKED.find((known) => known === request.node.settings.state);
       if (!state) return failed(`a setup is marked ${PROVISION_STATES_MARKED.join(' or ')}, not ${String(request.node.settings.state)}`);
-      const record = await records.get(run.recordId);
-      if (!record) return gone(run.recordId);
-      try {
-        if (state === 'up') await records.save(pieceHeard(record, setUpProgress(), now()));
-        else await records.save(runEnded(record, isText(request.inputs.reason) ? request.inputs.reason : 'it gave no reason', now()));
-      } catch (err) {
-        return failed(reasonOf(err));
-      }
+      const said = await recordedOn(records, run.recordId, (record) => (state === 'up'
+        ? pieceHeard(record, setUpProgress(), now())
+        : runEnded(record, isText(request.inputs.reason) ? request.inputs.reason : 'it gave no reason', now()))).catch((err: unknown) => ({ broke: reasonOf(err) }));
+      if ('broke' in said) return failed(said.broke);
+      if ('gone' in said) return gone(run.recordId);
+      if ('ended' in said && said.ended.state !== state) return endedAlready(said.ended);
       return done();
     },
   };

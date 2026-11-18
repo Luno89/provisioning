@@ -58,20 +58,20 @@ describe('setting up one piece of a Koala', () => {
 
   it('installs another machine\'s collector on that machine\'s cluster, sending to this Koala', async () => {
     const { steps, lines } = world();
-    await ProvisionPieceActivity({ ...input('monitoring', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2' }), kubeconfig: 'apiVersion: v1' }, { steps, place: PLACE, lines });
+    await ProvisionPieceActivity({ ...input('monitoring', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' }), kubeconfig: 'apiVersion: v1' }, { steps, place: PLACE, lines });
     expect(vi.mocked(installClusterMonitoring).mock.calls[0]![1]).toMatchObject({ physicalName: 'machine-desk-2', reach: { clusterId: 'machine-desk-2', kind: 'machine', kubeconfig: 'apiVersion: v1' }, pool: false, machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } });
   });
 
   it('refuses another machine\'s collector when it was handed no way to reach that machine', async () => {
     const { steps, heard, lines } = world();
-    await expect(ProvisionPieceActivity(input('monitoring', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2' }), { steps, place: PLACE, lines })).rejects.toMatchObject({ nonRetryable: true, message: expect.stringContaining('machine-desk-2') as unknown });
+    await expect(ProvisionPieceActivity(input('monitoring', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' }), { steps, place: PLACE, lines })).rejects.toMatchObject({ nonRetryable: true, message: expect.stringContaining('machine-desk-2') as unknown });
     expect(installClusterMonitoring).not.toHaveBeenCalled();
     expect(heard).toEqual([]);
   });
 
   it('refuses a platform service on another machine, where only its collector is set up', async () => {
     const { steps, lines } = world();
-    await expect(ProvisionPieceActivity({ ...input('gitea', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2' }), kubeconfig: 'k' }, { steps, place: PLACE, lines })).rejects.toMatchObject({ nonRetryable: true, message: 'desk-2 gets only its collector set up, not Gitea, your repositories and images' });
+    await expect(ProvisionPieceActivity({ ...input('gitea', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' }), kubeconfig: 'k' }, { steps, place: PLACE, lines })).rejects.toMatchObject({ nonRetryable: true, message: 'desk-2 gets only its collector set up, not Gitea, your repositories and images' });
     expect(provisionPlatformService).not.toHaveBeenCalled();
   });
 
@@ -101,11 +101,13 @@ describe('the lines a piece says, kept on its setup\'s record', () => {
   it('mark the piece working with the latest line, leaving the rest of the run as it was', async () => {
     const store = new MemoryInfrastructureStore();
     const opened = openedRecord({ ownerId: 'owner-1', target: { kind: 'koala', clusterId: 'machine-desk' }, revision: 3, reason: 'revision', runId: 'provision-machine-desk~1', at: '2026-11-18T09:00:00.000Z' });
-    await store.saveProvisioning(opened);
+    await store.openProvisioning(opened);
+    await store.patchProvisioning(opened.id, { workflowId: 'provision-machine-desk' });
     const lines = recordedLines(store, at);
     const change: PieceChange = { state: 'started', line: 'Gitea waits: statefulset/gitea in gitea: 0 of 1 ready' };
     await lines.heard(input('gitea'), change);
-    const kept = await store.getProvisioning(opened.runId);
+    const kept = await store.getProvisioningRun(opened.runId);
+    expect(kept?.workflowId).toBe('provision-machine-desk');
     expect(kept?.state).toBe('running');
     expect(kept?.pieces.find((piece) => piece.key === 'gitea')).toEqual({ key: 'gitea', title: 'Gitea, your repositories and images', state: 'working', line: 'Gitea waits: statefulset/gitea in gitea: 0 of 1 ready', at: at() });
     expect(kept?.pieces.filter((piece) => piece.state === 'waiting')).toHaveLength(opened.pieces.length - 1);
@@ -114,5 +116,14 @@ describe('the lines a piece says, kept on its setup\'s record', () => {
   it('refuse a line for a setup that has no record, naming it', async () => {
     const lines = recordedLines(new MemoryInfrastructureStore(), at);
     await expect(lines.heard(input('gitea'), { state: 'started' })).rejects.toThrow('the setup provision-machine-desk~1 has no record');
+  });
+
+  it('refuse a line for a setup that has ended, rather than writing over how it ended', async () => {
+    const store = new MemoryInfrastructureStore();
+    const opened = openedRecord({ ownerId: 'owner-1', target: { kind: 'koala', clusterId: 'machine-desk' }, revision: 3, reason: 'revision', runId: 'provision-machine-desk~1', at: '2026-11-18T09:00:00.000Z' });
+    await store.openProvisioning(opened);
+    await store.patchProvisioning(opened.id, { state: 'failed', why: 'the setup\'s run was stopped', endedAt: at() });
+    await expect(recordedLines(store, at).heard(input('gitea'), { state: 'started', line: 'late' })).rejects.toMatchObject({ nonRetryable: true, message: 'the setup provision-machine-desk~1 has already ended failed, so what gitea says has nowhere to go' });
+    expect((await store.getProvisioningRun(opened.id))?.pieces.find((piece) => piece.key === 'gitea')?.state).toBe('waiting');
   });
 });

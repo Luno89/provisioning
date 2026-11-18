@@ -1,29 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { ProvisioningView, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisioningView, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
 import { openedRecord, pieceHeard, provisionWorkflowId, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
-import { Provisioning, type ProvisionRuns } from './Provisioning.js';
+import { Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
 
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
-const LAB: ProvisionTarget = { kind: 'machine', clusterId: 'machine-lab', machine: 'lab' };
+const LAB: ProvisionTarget = { kind: 'machine', clusterId: 'machine-lab', machine: 'lab', deviceId: 'device-lab' };
 
-function setUp(given: { revision?: number; inTemporal?: Record<string, string> } = {}) {
+function setUp(given: { revision?: number } = {}) {
   const store = new MemoryInfrastructureStore();
   const started: ProvisionRunInput[] = [];
   const endings = new Map<string, (why: string) => void>();
   const runs = mock<ProvisionRuns>();
   runs.start.mockImplementation(async (input) => { started.push(input); return provisionWorkflowId(input.target.clusterId); });
-  runs.started.mockImplementation(async (runId) => given.inTemporal?.[runId]);
   runs.ended.mockImplementation((workflowId) => new Promise<string>((resolve) => { endings.set(workflowId, resolve); }));
   const told: { ownerId: string; view: ProvisioningView }[] = [];
+  const reported: ProvisionReport[] = [];
+  const root = mock<ProvisionRoot>();
+  const hearing: { count: number; done: () => void }[] = [];
+  root.setup.mockImplementation(async (report) => {
+    reported.push(report);
+    for (const wait of hearing.filter((entry) => reported.length >= entry.count)) { hearing.splice(hearing.indexOf(wait), 1); wait.done(); }
+    return { ok: true };
+  });
+  const rootHeard = (count: number) => (reported.length >= count ? Promise.resolve() : new Promise<void>((done) => { hearing.push({ count, done }); }));
+  const logged: string[] = [];
   let clock = Date.parse('2026-11-18T10:00:00.000Z');
   const provisioning = new Provisioning({
     store,
     runs,
+    root,
     koala: { ownerId: 'owner-1', clusterId: KOALA.clusterId, revision: given.revision ?? 4 },
     changed: (ownerId, view) => { told.push({ ownerId, view }); },
-    log: () => undefined,
+    log: (line) => { logged.push(line); },
     now: () => new Date(clock += 1000),
   });
   const end = (workflowId: string, why: string) => {
@@ -32,7 +42,7 @@ function setUp(given: { revision?: number; inTemporal?: Record<string, string> }
     ending(why);
   };
   const followed = (workflowId: string) => endings.has(workflowId);
-  return { store, runs, started, told, provisioning, end, followed };
+  return { store, runs, started, told, reported, rootHeard, root, logged, provisioning, end, followed };
 }
 
 const earlier = (target: ProvisionTarget, revision: number, stamp: string, over: Partial<ProvisioningRecord> = {}): ProvisioningRecord => ({
@@ -123,15 +133,28 @@ describe('setting Koala up after its chart', () => {
     await provisioning.close();
   });
 
-  it('names the workflow of a run Koala stopped beside when Temporal has it, and fails one Temporal never started', async () => {
-    const { provisioning, store, followed } = setUp({ revision: 4, inTemporal: { 'provision-machine-desk~a': 'provision-machine-desk' } });
+  it('starts a run Koala stopped beside before naming its workflow, so one whose start is still under way elsewhere is joined, never failed', async () => {
+    const { provisioning, store, runs, followed } = setUp({ revision: 4 });
     await store.openProvisioning(earlier(KOALA, 4, 'a'));
     await store.openProvisioning(earlier(LAB, 4, 'b'));
     await provisioning.start();
 
+    expect(runs.start).toHaveBeenCalledWith({ ownerId: 'owner-1', recordId: 'provision-machine-desk~a', target: KOALA, revision: 4, reason: 'revision' });
+    expect(runs.start).toHaveBeenCalledWith({ ownerId: 'owner-1', recordId: 'provision-machine-lab~b', target: LAB, revision: 4, reason: 'revision' });
     expect(await store.getProvisioningRun('provision-machine-desk~a')).toMatchObject({ state: 'running', workflowId: 'provision-machine-desk' });
+    expect(await store.getProvisioningRun('provision-machine-lab~b')).toMatchObject({ state: 'running', workflowId: 'provision-machine-lab' });
     expect(followed('provision-machine-desk')).toBe(true);
-    expect(await store.getProvisioningRun('provision-machine-lab~b')).toMatchObject({ state: 'failed', why: 'Koala stopped before this setup\'s run started' });
+    expect(followed('provision-machine-lab')).toBe(true);
+    await provisioning.close();
+  });
+
+  it('fails a run Koala stopped beside only when starting it is refused, saying why', async () => {
+    const { provisioning, store, runs } = setUp({ revision: 4 });
+    await store.openProvisioning(earlier(LAB, 4, 'b'));
+    runs.start.mockRejectedValueOnce(new Error('There is no procedure called "provision".'));
+    await provisioning.start();
+
+    expect(await store.getProvisioningRun('provision-machine-lab~b')).toMatchObject({ state: 'failed', why: 'the setup could not start: There is no procedure called "provision".' });
     await provisioning.close();
   });
 
@@ -195,5 +218,50 @@ describe('setting Koala up after its chart', () => {
   it('knows no run it does not have when asked to wait for one', async () => {
     const { provisioning } = setUp();
     await expect(provisioning.settled('provision-nowhere~x')).rejects.toThrow('there is no setup run provision-nowhere~x');
+  });
+
+  it('tells root each line of its own cluster\'s setup in order, and that it is set up, once', async () => {
+    const { provisioning, store, reported, rootHeard } = setUp();
+    await provisioning.start();
+    const [opened] = await store.getProvisioning(KOALA.clusterId);
+    let record = opened!;
+    for (const [at, change] of [[1, { state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }], [2, { state: 'done' }]] as const) {
+      record = pieceHeard(record, { stage: 'egress', title: 'The egress proxy', ...change }, '2026-11-18T10:00:30.000Z');
+      await store.patchProvisioning(record.id, { pieces: record.pieces });
+      await rootHeard(at);
+    }
+    const up = pieceHeard({ ...record, pieces: upPieces(record) }, setUpProgress(), '2026-11-18T10:09:00.000Z');
+    await store.patchProvisioning(record.id, { pieces: up.pieces, state: up.state, endedAt: up.endedAt! });
+    await provisioning.settled(record.id);
+    await provisioning.close();
+
+    const said = reported.map((report) => `${report.revision} ${report.progress.stage} ${report.progress.state}${report.progress.line ? ` ${report.progress.line}` : ''}`);
+    expect(said.slice(0, 2)).toEqual(['4 egress started deployment/egress-proxy: 0 of 1 ready', '4 egress done']);
+    expect(said.slice(2)).toEqual([...record.pieces.slice(1).map((piece) => `4 ${piece.key} done`), '4 set-up done']);
+  });
+
+  it('tells root where a run stopped when it ended without a piece failing, and nothing of another machine\'s collector', async () => {
+    const { provisioning, store, reported, end } = setUp();
+    await provisioning.ensure(LAB, 'missing');
+    await provisioning.start();
+    const [opened] = await store.getProvisioning(KOALA.clusterId);
+    const settled = provisioning.settled(opened!.id);
+    end('provision-machine-desk', 'the setup\'s run was stopped');
+    await settled;
+    await provisioning.close();
+
+    expect(reported).toEqual([{ revision: 4, progress: { stage: 'egress', title: 'The egress proxy', state: 'failed', why: 'the setup\'s run was stopped' } }]);
+  });
+
+  it('tells root again on a restart how the setup it runs stands, and says when root refused hearing it', async () => {
+    const { provisioning, store, reported, root, logged } = setUp({ revision: 4 });
+    await store.openProvisioning(earlier(KOALA, 4, 'a', { workflowId: 'provision-machine-desk' }));
+    await store.patchProvisioning('provision-machine-desk~a', { state: 'up', pieces: upPieces(earlier(KOALA, 4, 'a')), endedAt: '2026-11-17T09:30:00.000Z' });
+    root.setup.mockImplementationOnce(async (report) => { reported.push(report); return { ok: false, status: 409, error: 'this Koala is moving' }; });
+    await provisioning.start();
+    await provisioning.close();
+
+    expect(reported.map((report) => report.progress.stage)).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea', 'verdaccio', 'infisical', 'monitoring', 'set-up']);
+    expect(logged).toContain('[provisioning] root refused hearing that The egress proxy is done (409): this Koala is moving');
   });
 });
