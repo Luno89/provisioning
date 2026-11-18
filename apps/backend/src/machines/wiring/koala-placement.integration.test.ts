@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -33,6 +33,9 @@ import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { machinesRouter } from '../routes/machines.js';
+import { instancesRouter } from '../../instances/routes/instances.js';
+import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
+import { reopening } from '@koala/engine-core/reopening';
 import { machineSides, temporalInstallWorkflows } from './sides.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -91,6 +94,7 @@ beforeEach(async () => {
   const instances = new InstanceService(db, {
     rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
     reach: new InstanceReach({ open: true, domain: '' }),
+    installs: { setupHeard: (installId, report) => installs.setupHeard(installId, report) },
   }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
   const app = express();
   app.use(express.json());
@@ -112,6 +116,7 @@ beforeEach(async () => {
   accounts = sides.accounts!;
   installs = sides.installs!;
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
+  app.use('/api/instances', instancesRouter({ instances, chart: async () => '/nowhere', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
   await sides.installsWatched!.ready;
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -143,7 +148,7 @@ const reporting = (placed: PlacedKoala, link: RootLink) => rootProgress(`${url}$
 const instanceOf = async () => (await db.instances.getInstances('bo'))[0]!;
 
 describe('Koala put on a machine by root\'s install workflow, the machine doing the work', () => {
-  it('asks the machine the moment it connects on the mesh, records each stage it reports, and is ready with where Koala answers once the last stage is done', async () => {
+  it('asks the machine the moment it connects on the mesh, records each stage it reports and each piece Koala sets up, and is ready with where Koala answers once the last piece is up', async () => {
     const handed: PlacedKoala[] = [];
     const link = agent((raw) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); });
     const placed = await until(async () => handed[0]);
@@ -158,8 +163,15 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await until(async () => ((await instanceOf()).install?.line ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'desk is putting Koala on itself: Putting Koala on this machine, waiting for job/instance-seed-1 runs', install: { state: 'installing', stage: 'koala' } });
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' });
+    await until(async () => ((await instanceOf()).url ? true : undefined));
+    expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { state: 'installing' } });
+    const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, credential: placed.credential }, wait: reopening(1), log: () => undefined });
+    expect(await koala.setup({ revision: 1, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } })).toEqual({ ok: true });
+    await until(async () => ((await instanceOf()).install?.stage === 'gitea' ? true : undefined));
+    expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for statefulset/gitea in gitea: 0 of 1 ready' });
+    expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
     await until(async () => ((await instanceOf()).status === 'ready' ? true : undefined));
-    expect(await instanceOf()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', install: { state: 'ready' } });
+    expect(await instanceOf()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', install: { state: 'ready' }, setup: { revision: 1, state: 'up' } });
     expect(told.length > 3 && told.every((said) => JSON.stringify(said) === '{}')).toBe(true);
     await expect(root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started' })).rejects.toThrow('root did not take this machine\'s progress (409): that install has ended ready');
   });
