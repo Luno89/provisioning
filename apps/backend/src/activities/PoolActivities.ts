@@ -6,9 +6,10 @@ import { hostAccess, hostSettings } from './host-settings.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
   kubeconfigFile, issueMoveToken, type InstanceRecord, COMPONENT_RESOURCES,
-  PLATFORM_TAG, poolChartValues, proxyCaddyfile, type PoolSettings,
+  PLATFORM_TAG, poolChartValues, proxyCaddyfile, setupHeard, setupSaid, type PoolSettings,
 } from '../instances/index.js';
 import { PoolNode } from './pool-node.js';
+import { provisionEnding, type ProvisionEnding, type ProvisionReport } from '@koala/engine-core/koala-install';
 
 const openDatabase = (): Database => {
   const { mongo, keys } = hostSettings();
@@ -126,7 +127,18 @@ export async function PoolReadyActivity(args: { instanceId: string }): Promise<v
   await withInstance(args.instanceId, async (instance, save) => {
     await save({ detail: 'Starting Koala in your space' });
     await poolNode().backendAnswers(pool.address, instance.pool!.ports.backend, `the pool proxy reaching ${instance.name}'s backend`);
-    await save({ status: 'ready', detail: 'Ready', url: `https://${instance.name}.${ingressDomain()}`, meshIp: pool.address });
+    await save({ detail: 'Koala is setting itself up', url: `https://${instance.name}.${ingressDomain()}`, meshIp: pool.address });
+  });
+}
+
+export async function PoolSetupActivity(args: { instanceId: string; report: ProvisionReport }): Promise<ProvisionEnding | undefined> {
+  return withInstance(args.instanceId, async (instance, save) => {
+    const setup = setupHeard(instance.setup, args.report, new Date().toISOString());
+    if (!setup) return undefined;
+    const ending = provisionEnding(args.report.progress);
+    const { settingUp: _placing, ...placed } = instance.pool!;
+    await save({ setup, ...setupSaid(setup, undefined), ...(ending ? { pool: placed } : {}) });
+    return ending;
   });
 }
 
