@@ -14,8 +14,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
+import type { ProvisioningRecord } from './lib/provisioning.js';
 
 export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
+
+export type ProvisioningPatch = Partial<Pick<ProvisioningRecord, 'state' | 'pieces' | 'why' | 'endedAt' | 'workflowId'>>;
+
+export type ProvisioningOpened = { opened: true } | { opened: false; running: ProvisioningRecord };
 
 export interface InfrastructureStore extends AreaStore {
   getClusters(): Promise<ClusterMetadata[]>;
@@ -58,6 +63,11 @@ export interface InfrastructureStore extends AreaStore {
   saveServerOrder(order: ServerOrder): Promise<void>;
   patchServerOrder(id: string, patch: Partial<Omit<ServerOrder, 'id' | 'ownerId'>>): Promise<ServerOrder | undefined>;
   appendServerOrderLog(id: string, lines: readonly string[]): Promise<void>;
+  getProvisioning(clusterId?: string): Promise<ProvisioningRecord[]>;
+  getProvisioningRun(id: string): Promise<ProvisioningRecord | undefined>;
+  openProvisioning(record: ProvisioningRecord): Promise<ProvisioningOpened>;
+  patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning?: boolean): Promise<ProvisioningRecord | undefined>;
+  watchProvisioning(on: (record: ProvisioningRecord) => void): Watching;
 }
 
 type Stored = { _id: string } & Document;
@@ -104,6 +114,10 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     return this.db().collection<Stored>('pendingApprovals');
   }
 
+  private get provisioning(): Collection<Stored> {
+    return this.db().collection<Stored>('provisioning');
+  }
+
   private get serverOrders(): Collection<Stored> {
     return this.db().collection<Stored>('serverOrders');
   }
@@ -121,6 +135,7 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.dropIndex('name_1').catch(ignore('the old name-only index is gone once it has been dropped, and an install made after it never had one'));
     await this.deployments.createIndex({ ownerId: 1, name: 1 }, { unique: true });
+    await this.provisioning.createIndex({ 'target.clusterId': 1 }, { unique: true, partialFilterExpression: { state: 'running' }, name: 'one_running_per_cluster' });
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {
@@ -287,6 +302,37 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   async appendServerOrderLog(id: string, lines: readonly string[]): Promise<void> {
     if (lines.length === 0) return;
     await this.serverOrderLogs.updateOne({ _id: id }, { $push: { log: { $each: [...lines], $slice: -SERVER_ORDER_LOG_LINES } } });
+  }
+
+  async getProvisioning(clusterId?: string): Promise<ProvisioningRecord[]> {
+    const docs = await this.provisioning.find(clusterId === undefined ? {} : { 'target.clusterId': clusterId }).sort({ startedAt: 1, _id: 1 }).toArray();
+    return docs.map((doc) => fromDoc<ProvisioningRecord>(doc));
+  }
+
+  async getProvisioningRun(id: string): Promise<ProvisioningRecord | undefined> {
+    const doc = await this.provisioning.findOne({ _id: id });
+    return doc ? fromDoc<ProvisioningRecord>(doc) : undefined;
+  }
+
+  async openProvisioning(record: ProvisioningRecord): Promise<ProvisioningOpened> {
+    try {
+      await this.provisioning.insertOne({ _id: record.id, ...fieldsOf(record) });
+      return { opened: true };
+    } catch (err) {
+      if ((err as { code?: number }).code !== 11000) throw err;
+    }
+    const running = await this.provisioning.findOne({ 'target.clusterId': record.target.clusterId, state: 'running' });
+    return running ? { opened: false, running: fromDoc<ProvisioningRecord>(running) } : this.openProvisioning(record);
+  }
+
+  async patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning = false): Promise<ProvisioningRecord | undefined> {
+    const changes = fieldChanges({ ...patch });
+    const doc = await this.provisioning.findOneAndUpdate({ _id: id, ...(whileRunning ? { state: 'running' } : {}) }, changes, { returnDocument: 'after' });
+    return doc ? fromDoc<ProvisioningRecord>(doc) : undefined;
+  }
+
+  watchProvisioning(on: (record: ProvisioningRecord) => void): Watching {
+    return watchWrites(() => this.provisioning, {}, (doc) => on(fromDoc<ProvisioningRecord>(doc)));
   }
 
   async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {

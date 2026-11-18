@@ -105,7 +105,7 @@ export const ACCOUNT_DATA = {
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'clientSessions', 'evalScenarios', 'fileShares', 'giteaTokensToRevoke', 'hubLinks', 'instanceJoinTokens', 'instanceWatches', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests',
     'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'passwordResets', 'pendingApprovals', 'planProposals',
-    'procedures', 'projects', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
+    'procedures', 'projects', 'provisioning', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
     'scriptedRequests', 'storedFiles', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings'],
