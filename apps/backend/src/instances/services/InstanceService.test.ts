@@ -639,6 +639,16 @@ describe('putting a person\'s Koala on one of their machines', () => {
     expect(await service.placeOn('u3', desk, 'trial', 'install-5')).toMatchObject({ ok: false, status: 409 });
   });
 
+  it('finds an instance by its install, and takes where Koala answers on the machine only at the instance\'s own mesh address', async () => {
+    await service.placeOn('u1', desk, 'luno', 'install-1');
+    const instance = await service.installOf('install-1');
+    expect(instance).toMatchObject({ id: instanceIdFor('u1'), install: { id: 'install-1' } });
+    expect(await service.installOf('install-0')).toBeUndefined();
+    expect(await service.installedUrl(instance!, 'http://100.64.0.7:30320/')).toEqual({ ok: true, value: 'http://100.64.0.7:30320' });
+    expect(await service.installedUrl(instance!, 'http://100.64.0.8:30320')).toMatchObject({ ok: false, status: 400, error: matching(/^root does not call http:\/\/100\.64\.0\.8:30320/) });
+    expect(await service.installedUrl(instance!, 'javascript:alert(1)')).toMatchObject({ ok: false, status: 400 });
+  });
+
   it('ends an install it could not start as failed, saying why, and shows the person its stage', async () => {
     await service.placeOn('u1', desk, 'luno', 'install-1');
     await service.installNotStarted(instanceIdFor('u1'), 'install-1', 'root could not start putting Koala on desk: Temporal is down');

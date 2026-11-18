@@ -193,4 +193,32 @@ describe('a root and an instance wired as they run, against each other', () => {
     await until(async () => (heard.length === 2 ? true : undefined));
     expect(heard).toEqual([{}, {}]);
   });
+
+  it('root tells the owner\'s browsers when a machine joins again in its own place and when a join is dismissed, and says the machine is connected once its agent is', async () => {
+    const { root, rootSide } = await rootAndInstance();
+    root.io.on('connection', (browser) => { void browser.join('user:bo'); });
+    const heard: unknown[] = [];
+    const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
+    closers.push(async () => { browser.close(); });
+    browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
+    await until(async () => (browser.connected ? true : undefined));
+    const accounts = rootSide.accounts!;
+    const first = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
+    if (!first.ok) throw new Error(first.error);
+    const { code } = await accounts.createJoinCode('bo');
+    expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
+    await until(async () => (heard.length === 1 ? true : undefined));
+    const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replaces: first.value.env.KOALA_DEVICE_TOKEN });
+    if (!again.ok) throw new Error(again.error);
+    expect(again.value.deviceId).toBe(first.value.deviceId);
+    await until(async () => (heard.length === 2 ? true : undefined));
+    const [shown] = await accounts.joins('bo');
+    expect(await accounts.dismissJoin('bo', shown!.id)).toEqual({ ok: true, value: { dismissed: true } });
+    await until(async () => (heard.length === 3 ? true : undefined));
+    expect(await accounts.joins('bo')).toEqual([]);
+    expect((await accounts.listOnline('bo')).map((machine) => machine.online)).toEqual([false]);
+    const machine: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: again.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
+    closers.push(async () => { machine.close(); });
+    expect(await until(async () => ((await accounts.listOnline('bo'))[0]?.online ? true : undefined))).toBe(true);
+  });
 });

@@ -7,10 +7,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
+import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
-import { KOALA_INSTALL_PROGRESS, koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_CHANGED, KOALA_INSTALL_PROGRESS, koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { machineProgressContract } from '@koala/engine-core/testing/machine-progress';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { linkToRoot, type RootLink } from '../../../../local-agent/src/root-link.js';
@@ -18,17 +19,21 @@ import { placedFrom } from '../../../../local-agent/src/koala-install.js';
 import { rootProgress } from '../../../../local-agent/src/root-progress.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { roleFromEnv } from '../../platform/lib/platform-role.js';
+import { generateIdentityKey } from '../../instances/lib/identity-token.js';
 import { InstanceService, hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
+import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { deviceTokenHash } from '../lib/device-tokens.js';
-import { MachineAccounts } from '../services/MachineAccounts.js';
-import { KoalaInstalls } from '../services/KoalaInstalls.js';
+import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import type { GiteaService } from '../../projects/services/GiteaService.js';
+import { userRoom } from '../../engine-host/temporal/stream-worker.js';
+import type { MachineAccounts } from '../services/MachineAccounts.js';
+import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { machinesRouter } from '../routes/machines.js';
-import { wireMachineAccounts } from './accounts.js';
-import { temporalInstallWorkflows } from './sides.js';
+import { machineSides, temporalInstallWorkflows } from './sides.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fresh = await emptiedEachTime();
@@ -44,7 +49,8 @@ let url = '';
 let accounts: MachineAccounts;
 let installs: KoalaInstalls;
 let folder = '';
-let told: string[] = [];
+let told: unknown[] = [];
+let temporalDown = false;
 let closing: (() => Promise<void>) | undefined;
 const links: RootLink[] = [];
 
@@ -80,6 +86,7 @@ beforeEach(async () => {
   db = await fresh();
   current = () => db;
   told = [];
+  temporalDown = false;
   folder = await mkdtemp(path.join(tmpdir(), 'koala-placement-'));
   const instances = new InstanceService(db, {
     rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
@@ -89,31 +96,29 @@ beforeEach(async () => {
   app.use(express.json());
   server = http.createServer(app);
   const io = new SocketServer(server);
-  let sockets: ReturnType<typeof wireMachineAccounts> | undefined;
-  installs = new KoalaInstalls({
-    devices: () => db.machines.getLocalAgentDevices(),
-    places: () => instances,
-    workflows: temporalInstallWorkflows(async () => env.client, taskQueue),
-    toMachines: { placeKoala: (id, placed) => sockets!.placeKoala(id, placed) },
-    toOwner: { installChanged: (ownerId) => { told.push(ownerId); } },
+  io.on('connection', (socket) => { void socket.join(userRoom('bo')); });
+  const sides = machineSides({
+    role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() }),
+    db, io, dataKey: 'koala-placement-key', publicUrl: 'http://root.test',
+    mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
+    devices: { status: () => ({ online: false }), tell: () => true, ask: async () => undefined as never, drop: () => undefined },
+    projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key'),
+    instances: () => ({ places: instances }),
+    installWorkflows: temporalInstallWorkflows(async () => {
+      if (temporalDown) throw new Error('Temporal is not answering');
+      return env.client;
+    }, taskQueue),
   });
-  accounts = new MachineAccounts({
-    store: db.machines,
-    signing: identityKeysFrom(generateIdentityKey()),
-    settings: { url: 'http://root.test' },
-    koala: { of: async () => undefined },
-    followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    toOwner: { machinesChanged: () => undefined },
-    toMachines: { removed: (id) => sockets!.removed(id), koala: (id, koala) => sockets!.koala(id, koala), online: (id) => sockets!.online(id) },
-    installs,
-  });
+  accounts = sides.accounts!;
+  installs = sides.installs!;
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
-  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => installs });
-  const watching = db.instances.watchInstalls((instance) => { void installs.relay(instance); });
-  await watching.ready;
-  closing = () => watching.close();
+  await sides.installsWatched!.ready;
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const browser: ClientSocket = connect(url, { transports: ['websocket'], reconnection: false, forceNew: true });
+  browser.on(KOALA_INSTALL_CHANGED, (said: unknown) => told.push(said));
+  await until(async () => (browser.connected ? true : undefined));
+  closing = async () => { browser.close(); await sides.installsWatched!.close(); await io.close(); };
   await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', tokenHash: deviceTokenHash(TOKEN), koalaWanted: { name: 'bobby' } });
 });
 
@@ -155,7 +160,7 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' });
     await until(async () => ((await instanceOf()).status === 'ready' ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', install: { state: 'ready' } });
-    expect(told.every((ownerId) => ownerId === 'bo') && told.length > 3).toBe(true);
+    expect(told.length > 3 && told.every((said) => JSON.stringify(said) === '{}')).toBe(true);
     await expect(root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started' })).rejects.toThrow('root did not take this machine\'s progress (409): that install has ended ready');
   });
 
@@ -172,6 +177,25 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await reporting(again, second).tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'failed', why: 'job/instance-seed-2 failed: Mongo refused its password' });
     await until(async () => ((await instanceOf()).status === 'failed' ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'failed', detail: 'Putting Koala on desk stopped at Putting Koala on this machine: job/instance-seed-2 failed: Mongo refused its password', install: { state: 'failed', stage: 'koala', why: 'job/instance-seed-2 failed: Mongo refused its password' } });
+  });
+
+  it('stops following the install when the machine is removed on the way, cancelling its workflow', async () => {
+    const handed: PlacedKoala[] = [];
+    agent((raw) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); });
+    const placed = await until(async () => handed[0]);
+    expect(await accounts.remove('bo', 'desk')).toBe(true);
+    const workflow = env.client.workflow.getHandle(koalaInstallWorkflowId(placed.installId));
+    expect(await until(async () => ((await workflow.describe()).status.name === 'CANCELLED' ? true : undefined))).toBe(true);
+    expect(await db.machines.getLocalAgentDevices()).toEqual([]);
+  });
+
+  it('fails the install, saying why, and tells the owner, when root cannot start its workflow', async () => {
+    temporalDown = true;
+    agent(() => true);
+    const failed = await until(async () => { const instance = (await db.instances.getInstances('bo'))[0]; return instance?.install?.state === 'failed' ? instance : undefined; });
+    expect(failed).toMatchObject({ status: 'failed', detail: 'root could not start putting Koala on desk: Temporal is not answering', install: { state: 'failed', why: 'root could not start putting Koala on desk: Temporal is not answering' } });
+    expect((await db.machines.getLocalAgentDevices())[0]).toMatchObject({ koalaRefused: { reason: 'root could not start putting Koala on desk: Temporal is not answering' } });
+    await until(async () => (told.length > 0 ? true : undefined));
   });
 
   it('hears only the machine the install is for, with its own token', async () => {

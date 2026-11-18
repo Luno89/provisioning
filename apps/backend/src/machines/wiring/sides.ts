@@ -2,7 +2,7 @@ import type { Server as SocketServer } from 'socket.io';
 import type { Client } from '@temporalio/client';
 import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
 import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
-import { getTemporalClient, holdsAccounts, QUEUES, runOnce, servesTenants, startedFor, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
+import { getTemporalClient, holdsAccounts, QUEUES, runOnce, servesTenants, startedFor, type Database, type RoleConfig, type SecretKey, type Watching } from '../../platform/index.js';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, RootMachines, type InstanceRecord } from '../../instances/index.js';
 import { KoalaInstallWorkflow } from '../../workflows/KoalaInstallWorkflow.js';
 import { MachineAccounts, type KoalaPlace } from '../services/MachineAccounts.js';
@@ -68,6 +68,7 @@ export interface MachineSides {
   syncMachines?: (() => Promise<void>) | undefined;
   instanceCaller: (instanceId: string, credential: string) => Promise<{ ownerId: string } | undefined>;
   instanceArrived: (instance: Pick<InstanceRecord, 'id' | 'ownerId'>) => void;
+  installsWatched?: Watching | undefined;
 }
 
 export function machineSides(deps: MachineSidesDeps): MachineSides {
@@ -111,6 +112,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   });
   const mirror = root ? new MachineMirror({ store: db.machines, root, machines }) : undefined;
   let syncMachines: (() => Promise<void>) | undefined;
+  let installsWatched: Watching | undefined;
   if (mirror && root) {
     const toRoot = () => runOnce(db.platform, 'machines-to-root', new Date().toISOString(), async () => root.adopt(await db.machines.getLocalAgentDevices()));
     let migrated = toRoot();
@@ -124,7 +126,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   }
   if (accounts && installs) {
     toMachines = wireMachineAccounts({ io: deps.io, db, accounts: () => accounts, installs: () => installs });
-    db.instances.watchInstalls((instance) => {
+    installsWatched = db.instances.watchInstalls((instance) => {
       installs.relay(instance).catch((err: Error) => console.warn(`[machines] ${instance.id}'s install could not be passed on: ${err.message}`));
     });
   }
@@ -135,6 +137,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     clusters,
     mirror,
     syncMachines,
+    installsWatched,
     workTokens: tenants && role.trusted && role.instance ? { keys: role.trusted, audience: role.instance.id } : undefined,
     instanceCaller: async (instanceId, credential) => deps.instances()?.service?.caller(instanceId, credential),
     instanceArrived: (instance) => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { InstanceRecord } from '../../instances/index.js';
-import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
+import { deviceTokenHash, tokenLifetime, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from './KoalaInstalls.js';
 
 const NOW = new Date('2026-11-18T10:00:00Z');
@@ -108,5 +108,18 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     await installs.machineRemoved('desk');
     expect(workflows.reconnected.mock.calls).toEqual([['install-1']]);
     expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
+  });
+
+  it('judges the machine\'s token by the time it is now when given no clock, refusing one that lapsed', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const lapsed = { ...desk, ...tokenLifetime(new Date(Date.now() - 200 * DAY)) };
+    const current = { ...desk, ...tokenLifetime(new Date()) };
+    const devices: LocalAgentDeviceMetadata[] = [lapsed];
+    const clocked = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: () => undefined } });
+    places.installOf.mockResolvedValue(installOf('installing'));
+    const stage = { stage: 'koala', title: 'Koala', state: 'started' };
+    expect(await clocked.report('install-1', TOKEN, stage)).toMatchObject({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
+    devices[0] = current;
+    expect(await clocked.report('install-1', TOKEN, stage)).toEqual({ ok: true, value: { recorded: true } });
   });
 });

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { GitAsk, MachineGitService } from '../services/MachineGitService.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
+import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { routesInProcess } from '../../platform/testing/routes.js';
 import { machinesRouter, type AgentBundle } from './machines.js';
@@ -15,6 +16,7 @@ type Git = Pick<MachineGitService, 'serve'>;
 const SHA = 'ab'.repeat(32);
 
 let machines: ReturnType<typeof mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>>;
+let installs: ReturnType<typeof mock<Pick<KoalaInstalls, 'report'>>>;
 let git: ReturnType<typeof mock<Git>>;
 let bundle: ReturnType<typeof mock<AgentBundle>>;
 let dir: string;
@@ -24,12 +26,13 @@ const asked = (): GitAsk => git.serve.mock.calls[0]![0];
 interface Call { method?: 'GET' | 'POST'; path: string; body?: unknown; headers?: Record<string, string> }
 
 const call = async (over: Call, withGit = true, withAccounts = true) => {
-  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ ...(withAccounts ? { accounts: machines } : {}), bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
+  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ ...(withAccounts ? { accounts: machines, installs } : {}), bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
   return routes.request(over.method ?? 'GET', `/api/machines${over.path}`, { body: over.body, headers: over.headers });
 };
 
 beforeEach(async () => {
   machines = mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>();
+  installs = mock<Pick<KoalaInstalls, 'report'>>();
   git = mock<Git>();
   bundle = mock<AgentBundle>();
   bundle.sha256.mockResolvedValue(SHA);
@@ -62,6 +65,30 @@ describe('/api/machines/join-progress', () => {
   it('sends a machine to root where this Koala holds no accounts', async () => {
     const answer = await call({ method: 'POST', path: '/join-progress', body: stage, headers: { authorization: 'Bearer the-code' } }, true, false);
     expect(answer.status).toBe(404);
+  });
+});
+
+describe('/api/machines/koala-installs/:installId/progress', () => {
+  const stage = { stage: 'koala', title: 'Putting Koala on this machine', state: 'started' };
+
+  it('hands the install a stage with the machine\'s own token as its bearer credential, answering with nothing', async () => {
+    installs.report.mockResolvedValue({ ok: true, value: { recorded: true } });
+    const answer = await call({ method: 'POST', path: '/koala-installs/install%201/progress', body: stage, headers: { authorization: 'Bearer desk-token' } });
+    expect(answer.status).toBe(204);
+    expect(installs.report).toHaveBeenCalledWith('install 1', 'desk-token', stage);
+  });
+
+  it('answers a refusal in plain text with its status', async () => {
+    installs.report.mockResolvedValue({ ok: false, status: 409, error: 'that install has ended ready' });
+    const answer = await call({ method: 'POST', path: '/koala-installs/install-1/progress', body: stage, headers: { authorization: 'Bearer desk-token' } });
+    expect([answer.status, answer.text]).toEqual([409, 'that install has ended ready']);
+    expect(answer.headers['content-type']).toContain('text/plain');
+  });
+
+  it('sends a machine to root where this Koala puts Koala on no machines', async () => {
+    const answer = await call({ method: 'POST', path: '/koala-installs/install-1/progress', body: stage, headers: { authorization: 'Bearer desk-token' } }, true, false);
+    expect([answer.status, answer.text]).toEqual([404, 'machines report putting Koala on themselves to root, which asked them']);
+    expect(installs.report).not.toHaveBeenCalled();
   });
 });
 

@@ -5,7 +5,7 @@ import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/ident
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { KoalaInstalls } from '../services/KoalaInstalls.js';
-import { installView } from '../../instances/index.js';
+import { koalaOfOwner } from '../wiring/machines.js';
 import { myMachinesRouter } from './my-machines.js';
 
 const sites: Harness[] = [];
@@ -36,10 +36,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
           toOwner: { installChanged: () => undefined },
         }),
       });
-      return myMachinesRouter({ accounts, koalaOf: async (owner) => {
-        const instance = (await db.instances.getInstances(owner))[0];
-        return instance ? { machineId: instance.machineId, status: instance.status, ...(instance.install ? { install: installView(instance.install) } : {}) } : undefined;
-      } });
+      return myMachinesRouter({ accounts, koalaOf: koalaOfOwner(db) });
     },
   });
   sites.push(site);
