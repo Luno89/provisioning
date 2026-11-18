@@ -11,6 +11,7 @@ import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
 import { KoalaSection } from './KoalaSection'
 import { ModelTrafficSection } from './ModelTrafficSection'
+import { ProvisioningCard } from './ProvisioningCard'
 import { QuietButton, WorkloadBadge } from './Parts'
 import RunningSection from './RunningSection'
 import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, useRefreshInfrastructure, waitingText, type SectionId } from '../shared'
@@ -146,6 +147,7 @@ export function Overview({ focus }: { focus?: SectionId }) {
       <ClustersSection />
       <RunningSection />
       <ModelTrafficSection />
+      <ProvisioningCard />
       <KoalaSection />
 
       <Section title="Alerts set">
