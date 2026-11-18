@@ -1,23 +1,36 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { localCommands, runSteps, StepFailed, terminalReporter } from '@koala/provision';
-import { loadKey, rootServicesAsked, rootServiceSteps, rootServicesIn } from '../platform/index.js';
+import { localCommands, runSteps, StepFailed, terminalReporter, type Terminal } from '@koala/provision';
+import { loadKey, rootServicesAsked, rootServicesAt, rootServiceSteps, rootServicesIn, type FilesOwner, type RootServicePlaces } from '../platform/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(here, '../../../..');
-const TEMPORAL_RUNS_AS = { uid: 1000, gid: 1000 };
+const TEMPORAL_RUNS_AS: FilesOwner = { uid: 1000, gid: 1000 };
 
-dotenv.config({ path: resolve(here, '../../.env'), quiet: true });
-const { program, names } = rootServicesAsked(process.argv.slice(2));
-const services = {
-  ...rootServicesIn(REPO, program, () => loadKey(process.env, 'temporal')),
-  ...(process.getuid?.() === 0 ? { tlsOwner: TEMPORAL_RUNS_AS } : {}),
-};
+export interface RootServicesRun {
+  places: RootServicePlaces;
+  env: Readonly<Record<string, string | undefined>>;
+  terminal: Terminal;
+  tlsOwner?: FilesOwner | undefined;
+}
 
-try {
-  await runSteps(rootServiceSteps(services, names), { commands: localCommands(process.env) }, terminalReporter(process.stdout));
-} catch (err) {
-  if (!(err instanceof StepFailed)) throw err;
-  process.exitCode = 1;
+export const rootServicesHere = (): RootServicePlaces => rootServicesIn(REPO);
+
+export async function rootServices(argv: readonly string[], run: RootServicesRun): Promise<boolean> {
+  const { program, names } = rootServicesAsked(argv);
+  const services = rootServicesAt(run.places, program, () => loadKey(run.env, 'temporal'), run.tlsOwner);
+  try {
+    await runSteps(rootServiceSteps(services, names), { commands: localCommands(run.env) }, terminalReporter(run.terminal));
+    return true;
+  } catch (err) {
+    if (!(err instanceof StepFailed)) throw err;
+    return false;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  dotenv.config({ path: resolve(here, '../../.env'), quiet: true });
+  const tlsOwner = process.getuid?.() === 0 ? TEMPORAL_RUNS_AS : undefined;
+  process.exitCode = await rootServices(process.argv.slice(2), { places: rootServicesHere(), env: process.env, terminal: process.stdout, tlsOwner }) ? 0 : 1;
 }

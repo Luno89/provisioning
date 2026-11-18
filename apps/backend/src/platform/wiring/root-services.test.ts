@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runSteps, type Command } from '@koala/provision';
 import { fakeCommands, memoryReporter } from '@koala/provision/testing';
 import { temporalJwks } from '../lib/temporal-auth.js';
-import { ROOT_SERVICE_NAMES, rootServicesAsked, rootServiceSteps, rootServicesIn, temporalJwksStep, temporalTlsStep } from './root-services.js';
+import { ROOT_SERVICE_NAMES, rootServicesAsked, rootServicesAt, rootServiceSteps, rootServicesIn, temporalJwksStep, temporalTlsStep } from './root-services.js';
 
 const KEY = 'k'.repeat(64);
 const folders: string[] = [];
@@ -32,7 +32,7 @@ const openssl = () => fakeCommands((command: Command) => {
 
 describe('root\'s services, as steps', () => {
   it('are the compose files and addresses root runs them at, in this checkout', () => {
-    const services = rootServicesIn('/opt/nowrinkles', ['docker', 'compose'], () => KEY);
+    const services = rootServicesAt(rootServicesIn('/opt/nowrinkles'), ['docker', 'compose'], () => KEY);
     expect(services.temporal).toMatchObject({ files: ['/opt/nowrinkles/docker-compose.temporal.yml'], address: '127.0.0.1:7233', namespace: 'default', tlsDir: '/opt/nowrinkles/apps/backend/data/temporal-tls', jwksFile: '/opt/nowrinkles/apps/backend/data/temporal-keys/temporal-jwks.json' });
     expect(services.mongo).toEqual({ files: ['/opt/nowrinkles/docker-compose.mongo.yml'], address: '127.0.0.1:27017' });
     expect(services.headscale).toEqual({ files: ['/opt/nowrinkles/docker-compose.headscale.yml'], url: 'http://127.0.0.1:8080' });
@@ -40,7 +40,7 @@ describe('root\'s services, as steps', () => {
   });
 
   it('are the steps of the services named, in the order named, Temporal\'s keys before Temporal and each step once', () => {
-    const services = rootServicesIn('/repo', ['docker', 'compose'], () => KEY);
+    const services = rootServicesAt(rootServicesIn('/repo'), ['docker', 'compose'], () => KEY);
     expect(rootServiceSteps(services, ['temporal', 'mongo', 'headscale', 'registry']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal', 'mongo', 'headscale', 'registry']);
     expect(rootServiceSteps(services, ['temporal-keys', 'temporal']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal']);
     expect(rootServiceSteps(services, ['registry']).map((step) => step.id)).toEqual(['registry']);

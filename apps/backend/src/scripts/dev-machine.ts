@@ -13,7 +13,7 @@ const DATA = resolve(here, '../../data/dev');
 const ROOT_API = `http://localhost:${DEV.rootApiPort}`;
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(os.homedir(), '.config'), 'koala');
 const say = (line: string) => console.log(`  ${line}`);
-const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 const SERVICE = join(process.env.XDG_CONFIG_HOME || join(os.homedir(), '.config'), 'systemd', 'user', 'koala-machine.service');
 const joinedHere = async (rootUrl: string): Promise<boolean> => {
   const config = await readFile(join(CONFIG, 'machine.json'), 'utf8').then((text) => JSON.parse(text) as { rootUrl?: unknown }).catch(ignore('a computer with no machine file has not joined yet'));
@@ -22,9 +22,15 @@ const joinedHere = async (rootUrl: string): Promise<boolean> => {
 };
 const urlsOfDev = async (): Promise<Record<string, string> | undefined> => readFile(join(DATA, 'urls.env'), 'utf8').then(readEnvFile).catch(ignore('a dev stack with no urls written yet has not started, so nothing joined it'));
 
-async function untilRootAnswers(): Promise<void> {
+export interface RootAsked {
+  rootApi: string;
+  say: (line: string) => void;
+  pause: (ms: number) => Promise<void>;
+}
+
+async function untilRootAnswers({ rootApi, pause }: RootAsked): Promise<void> {
   for (;;) {
-    const ok = (await fetch(`${ROOT_API}/api/identity/keys`).then((answer) => answer.ok).catch(ignore('while root starts it refuses connections, which is what starting looks like; the loop asks again'))) ?? false;
+    const ok = (await fetch(`${rootApi}/api/identity/keys`).then((answer) => answer.ok).catch(ignore('while root starts it refuses connections, which is what starting looks like; the loop asks again'))) ?? false;
     if (ok) return;
     await pause(1000);
   }
@@ -59,13 +65,14 @@ async function joinThisComputer(cookie: string, instanceWeb: string): Promise<vo
   if (code !== 0) throw new Error(`the machine command stopped (${code})`);
 }
 
-async function untilKoalaReady(cookie: string): Promise<void> {
+export async function untilKoalaReady(cookie: string, asked: RootAsked): Promise<void> {
+  const { rootApi, say, pause } = asked;
   let told = '';
   for (;;) {
-    const answer = await fetch(`${ROOT_API}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
+    const answer = await fetch(`${rootApi}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
     if (!answer) {
       say('root stopped answering (its watcher restarts it when its code changes); waiting for it');
-      await untilRootAnswers();
+      await untilRootAnswers(asked);
       continue;
     }
     const koala = koalaReadinessOf(await answer.json());
@@ -77,13 +84,15 @@ async function untilKoalaReady(cookie: string): Promise<void> {
   }
 }
 
+const DEV_ROOT: RootAsked = { rootApi: ROOT_API, say, pause };
+
 async function main(): Promise<void> {
   const root = readEnvFile(await readFile(join(DATA, 'root.env'), 'utf8'));
   const urls = readEnvFile(await readFile(join(DATA, 'urls.env'), 'utf8'));
-  await untilRootAnswers();
+  await untilRootAnswers(DEV_ROOT);
   const cookie = await owner(root.ADMIN_SETUP_CODE!);
   if (!await joinedHere(urls.ROOT_WEB!)) await joinThisComputer(cookie, urls.INSTANCE_WEB!);
-  await untilKoalaReady(cookie);
+  await untilKoalaReady(cookie, DEV_ROOT);
   say(`your Koala runs on this computer: ${urls.INSTANCE_WEB}`);
   process.exit(0);
 }
@@ -93,7 +102,9 @@ async function joinedAlready(): Promise<void> {
   process.exit(urls?.ROOT_WEB && await joinedHere(urls.ROOT_WEB) ? 0 : 1);
 }
 
-(process.argv[2] === 'joined' ? joinedAlready() : main()).catch((err) => {
-  console.error(`dev: ${(err as Error).message}`);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  (process.argv[2] === 'joined' ? joinedAlready() : main()).catch((err) => {
+    console.error(`dev: ${(err as Error).message}`);
+    process.exit(1);
+  });
+}

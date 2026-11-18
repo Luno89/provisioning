@@ -27,21 +27,25 @@ export interface RootServices {
   registry: { files: string[]; push: string };
 }
 
-export function rootServicesIn(repo: string, program: ComposeProject['program'], temporalKey: () => string): RootServices {
+export type RootServicePlaces = Omit<RootServices, 'program' | 'tlsOwner' | 'temporal'> & { temporal: Omit<RootServices['temporal'], 'key'> };
+
+export function rootServicesIn(repo: string): RootServicePlaces {
   return {
-    program,
     temporal: {
       files: [join(repo, 'docker-compose.temporal.yml')],
       address: '127.0.0.1:7233',
       namespace: 'default',
       tlsDir: join(repo, 'apps/backend/data/temporal-tls'),
       jwksFile: join(repo, 'apps/backend/data/temporal-keys/temporal-jwks.json'),
-      key: temporalKey,
     },
     mongo: { files: [join(repo, 'docker-compose.mongo.yml')], address: '127.0.0.1:27017' },
     headscale: { files: [join(repo, 'docker-compose.headscale.yml')], url: 'http://127.0.0.1:8080' },
     registry: { files: [join(repo, 'docker-compose.registry.yml')], push: '127.0.0.1:5000' },
   };
+}
+
+export function rootServicesAt(places: RootServicePlaces, program: ComposeProject['program'], temporalKey: () => string, tlsOwner?: FilesOwner): RootServices {
+  return { ...places, program, temporal: { ...places.temporal, key: temporalKey }, ...(tlsOwner ? { tlsOwner } : {}) };
 }
 
 const TLS_FILES = ['ca.crt', 'server.crt', 'server.key'] as const;

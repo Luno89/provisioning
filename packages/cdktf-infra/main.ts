@@ -545,22 +545,24 @@ class PlatformStack extends TerraformStack {
   }
 }
 
-const app = new App();
+function synthStacks(env: NodeJS.ProcessEnv): void {
+  const app = new App();
+  const stackType = env.STACK_TYPE;
+  const clusterName = env.CLUSTER_NAME || "dev-cluster";
+  const deploymentId = env.DEPLOYMENT_ID || 'default';
 
-const stackType = process.env.STACK_TYPE;
-const clusterName = process.env.CLUSTER_NAME || "dev-cluster";
-// For AppStack, we use a unique ID per deployment for state isolation
-const deploymentId = process.env.DEPLOYMENT_ID || 'default';
+  if (stackType === "cluster") {
+    new ClusterStack(app, clusterName);
+    new ObservabilityStack(app, `${clusterName}-observability`);
+  } else if (stackType === "app") {
+    new AppStack(app, `app-${clusterName}-${deploymentId}`);
+  } else if (stackType === "platform") {
+    const platform = platformSettingsFrom(env);
+    new PlatformStack(app, `platform-${platform.name}`, platform);
+  }
 
-if (stackType === "cluster") {
-  new ClusterStack(app, clusterName);
-  new ObservabilityStack(app, `${clusterName}-observability`);
-} else if (stackType === "app") {
-  new AppStack(app, `app-${clusterName}-${deploymentId}`);
-} else if (stackType === "platform") {
-  const platform = platformSettingsFrom(process.env);
-  new PlatformStack(app, `platform-${platform.name}`, platform);
+  keepState(app, env);
+  app.synth();
 }
 
-keepState(app, process.env);
-app.synth();
+synthStacks(process.env);

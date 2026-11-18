@@ -601,12 +601,12 @@ export interface PodStepSettings {
   clusters: ClusterSettings;
 }
 
-function podStep(read: Reading): PodStepSettings | undefined {
+function podStep(read: Reading, serviceAccountDir = SERVICE_ACCOUNT_DIR): PodStepSettings | undefined {
   const role = read.take(() => roleFromEnv(read.env));
   if (role && role.role !== 'instance') read.problems.push(`this step runs only in an instance's pod, and ROLE is ${role.role}`);
   const here = hereFrom(read.env, false);
   if (!here.koalaMachineId && !here.poolName) read.problems.push('neither INSTANCE_MACHINE_ID nor POOL with INSTANCE_NAME is set, so this step does not know the cluster it runs in');
-  return role ? { role, clusters: { here, serviceAccount: serviceAccountFrom(read.env, SERVICE_ACCOUNT_DIR), rootKubeconfig: { off: 'only root reaches root\'s own cluster' }, chartSources: chartSourcesFrom(read) } } : undefined;
+  return role ? { role, clusters: { here, serviceAccount: serviceAccountFrom(read.env, serviceAccountDir), rootKubeconfig: { off: 'only root reaches root\'s own cluster' }, chartSources: chartSourcesFrom(read) } } : undefined;
 }
 
 export function podStepSettingsFrom(env: Env): PodStepSettings {
@@ -673,9 +673,9 @@ export interface PlatformServicesSettings extends PodStepSettings {
   crawl4aiToken: string;
 }
 
-export function platformServicesSettingsFrom(env: Env): PlatformServicesSettings {
+export function platformServicesSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): PlatformServicesSettings {
   const read = new Reading(env);
-  const step = podStep(read);
+  const step = podStep(read, serviceAccountDir);
   const terraform = terraformFrom(read);
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
   const dataDir = dataDirFrom(read);
