@@ -23,13 +23,16 @@ async function main(): Promise<void> {
   if (branch !== 'main') throw new Error(`ship runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
   if (changed.length > 0) throw new Error(`commit or set aside what is not committed first: ${changed.join(', ')}`);
+  console.log('━━ what main carries that .gitignore lists, and Gitleaks over the commits it adds');
   const ignored = ignoredRefusal(ignoredIn(REPO, 'HEAD'));
   if (ignored) throw new Error(`main ${ignored}`);
   const leaks = leaksRefusal(leaksIn(REPO, 'origin/main..HEAD'));
   if (leaks) throw new Error(`main: ${leaks}`);
+  console.log('━━ known vulnerabilities in the packages (osv-scanner) and when each fix was published');
   const advisories = judgeVulnerabilities(vulnerabilitiesIn(REPO), npmPublishTimes(REPO), new Date());
   for (const line of takeNowLines(advisories.due)) console.log(`to take now: ${line}`);
   for (const line of waitingLines(advisories.waiting)) console.log(`waiting: ${line}`);
+  if (!HOTFIXING) console.log('━━ where the code and what was agreed part (drift)');
   const drifting = HOTFIXING ? undefined : gateRefusal(gateOf((await currentDrift(REPO)).findings, ANSWERS));
   if (drifting) throw new Error(drifting);
 
