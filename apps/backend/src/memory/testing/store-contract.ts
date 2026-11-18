@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DeferredConclusion, KeeperSettings } from '../lib/conclusions.js';
+import type { KeepingState } from '../lib/memory-keeping.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import type { MemoryStore } from '../store.js';
 
@@ -125,6 +126,20 @@ export function memoryStoreContract(make: () => Promise<MemoryStore>): void {
       await store.deleteDeferredConclusion('ann', 'never');
       await store.deleteDeferredConclusion('ann', 'd1');
       expect(await store.getDeferredConclusions('ann')).toEqual([]);
+    });
+  });
+
+  describe('how each person\'s last consolidation went', () => {
+    it('keeps each person\'s state apart, replaces it whole when saved again, and has none for someone never consolidated', async () => {
+      const store = await make();
+      expect(await store.getKeepingState('ann')).toBeUndefined();
+      const down: KeepingState = { ownerId: 'ann', state: 'down', since: '2026-10-01T00:00:00.000Z', reason: 'Qdrant "vectors" is deployed but not answering', at: '2026-10-02T00:00:00.000Z' };
+      await store.saveKeepingState(down);
+      await store.saveKeepingState({ ownerId: 'bob', state: 'kept', at: '2026-10-02T00:00:00.000Z' });
+      expect(await store.getKeepingState('ann')).toEqual(down);
+      await store.saveKeepingState({ ownerId: 'ann', state: 'kept', at: '2026-10-03T00:00:00.000Z' });
+      expect(await store.getKeepingState('ann')).toEqual({ ownerId: 'ann', state: 'kept', at: '2026-10-03T00:00:00.000Z' });
+      expect(await store.getKeepingState('bob')).toEqual({ ownerId: 'bob', state: 'kept', at: '2026-10-02T00:00:00.000Z' });
     });
   });
 

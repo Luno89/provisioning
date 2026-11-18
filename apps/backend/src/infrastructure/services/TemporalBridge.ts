@@ -35,7 +35,7 @@ export type GroveRunStatus =
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
-import { consolidateOwner, type ConsolidationReport } from '../../memory/index.js'
+import { keepEveryOwner, type ConsolidationReport } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '@koala/provision'
 import type { Reach } from '../lib/cluster-places.js'
@@ -591,10 +591,14 @@ export class TemporalBridge {
     if (this.consolidating) return
     this.consolidating = true
     try {
-      const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
       const place = { db: this.db, reach: (ownerId: string) => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId) }
-      for (const ownerId of owners) {
-        const report = await consolidateOwner(place, ownerId)
+      for (const outcome of await keepEveryOwner(place)) {
+        const { ownerId } = outcome.state
+        if (!('report' in outcome)) {
+          console.warn(`[Consolidate] ${ownerId}'s memories are not consolidated since ${outcome.state.since}: ${outcome.state.reason}`)
+          continue
+        }
+        const { report } = outcome
         if (report.deduped || report.promoted || report.decayed) {
           console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
             + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`

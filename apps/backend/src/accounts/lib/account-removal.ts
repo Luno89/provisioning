@@ -108,7 +108,7 @@ export const ACCOUNT_DATA = {
     'procedures', 'projects', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
     'scriptedRequests', 'storedFiles', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
-  byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings'],
+  byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'memoryKeeping', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
   shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'fenceAcks', 'fences', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
