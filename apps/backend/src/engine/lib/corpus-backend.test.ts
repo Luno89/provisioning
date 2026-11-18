@@ -1,10 +1,10 @@
 import { arrayWith, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import {
-  chunkText, chunksFor, pointId, buildIndexQuery, mergeHits, indexConfig, collectionConfig, worthEmbedding,
-  CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE, type CorpusHit,
+  chunkText, chunksFor, pointId, indexConfig, collectionConfig, worthEmbedding,
+  CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE,
 } from './corpus-backend.js';
-import { snippetAround, embed, EMBED_BATCH } from './corpus-client.js';
+import { embed, EMBED_BATCH } from './corpus-client.js';
 
 describe('splitting a page for embedding', () => {
   it('leaves a short page as one chunk', () => {
@@ -50,70 +50,6 @@ describe('point ids', () => {
     expect(pointId('https://x/p#0')).toBe(pointId('https://x/p#0'));
     expect(pointId('https://x/p#0')).not.toBe(pointId('https://x/p#1'));
     expect(pointId('https://x/p#0')).not.toBe(pointId('https://y/p#0'));
-  });
-});
-
-describe('scoping a search to one tenant', () => {
-  it('makes the owner part of the query, not a filter afterwards', () => {
-    expect(buildIndexQuery('licence', { ownerId: 'u1' })).toContain('owner_id:"u1"');
-    expect(buildIndexQuery('licence', { ownerId: 'u1' })).toContain('AND');
-  });
-
-  it('quotes the phrase, so a model cannot inject a field term', () => {
-    const q = buildIndexQuery('owner_id:someone-else', { ownerId: 'u1' });
-    expect(q).toContain('owner_id:"u1"');
-    expect(q).toContain('body:"owner_id:someone-else"');
-  });
-
-  it('removes quotes rather than escaping them', () => {
-    const q = buildIndexQuery('say "hello" now', { ownerId: 'u1' });
-    expect(q).toBe('owner_id:"u1" AND body:"say  hello  now"');
-  });
-
-  it('narrows to one crawl or project when asked', () => {
-    const q = buildIndexQuery('x', { ownerId: 'u1', ingestId: 'i1', projectId: 'p1' });
-    expect(q).toContain('ingest_id:"i1"');
-    expect(q).toContain('project_id:"p1"');
-  });
-
-  it('still scopes when the phrase is empty', () => {
-    expect(buildIndexQuery('   ', { ownerId: 'u1' })).toBe('owner_id:"u1"');
-  });
-});
-
-describe('merging the two halves', () => {
-  const hit = (url: string, via: 'index' | 'vectors'): CorpusHit => ({ url, snippet: 's', via });
-
-  it('puts exact matches first', () => {
-    const merged = mergeHits([hit('https://a', 'index')], [hit('https://b', 'vectors')]);
-    expect(merged.map((h) => h.url)).toEqual(['https://a', 'https://b']);
-  });
-
-  it('counts a page found by both halves once', () => {
-    const merged = mergeHits([hit('https://a', 'index')], [hit('https://a', 'vectors')]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0]!.via).toBe('index');
-  });
-
-  it('caps what reaches a prompt', () => {
-    const many = Array.from({ length: 40 }, (_, i) => hit(`https://a/${i}`, 'index'));
-    expect(mergeHits(many, []).length).toBeLessThanOrEqual(12);
-  });
-
-  it('works with one half missing, so a partial corpus still answers', () => {
-    expect(mergeHits([], [hit('https://a', 'vectors')])).toHaveLength(1);
-    expect(mergeHits([hit('https://a', 'index')], [])).toHaveLength(1);
-  });
-});
-
-describe('snippets', () => {
-  it('centres on the match', () => {
-    const text = `${'a'.repeat(1000)}NEEDLE${'b'.repeat(1000)}`;
-    expect(snippetAround(text, 'needle')).toContain('NEEDLE');
-  });
-
-  it('falls back to the opening when the phrase is not literally present', () => {
-    expect(snippetAround('some text about licences', 'legal terms')).toContain('some text');
   });
 });
 

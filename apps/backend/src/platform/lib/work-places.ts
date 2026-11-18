@@ -32,7 +32,7 @@ export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
   instance: [
     'ServerOrderFollowActivity', 'ServerOrderRebuildActivity', 'ServerOrderSshActivity', 'ServerOrderDnsActivity', 'ServerOrderReleaseActivity',
     'ServerOrderBootstrapActivity', 'ServerOrderReverseDnsActivity', 'ServerOrderMailCheckActivity', 'ServerOrderStoppedActivity', 'ServerOrderFailedActivity',
-    'CrawlBatchActivity', 'NextBatchActivity', 'SeedFrontierActivity', 'DiscardFrontierActivity', 'PurgeCorpusActivity', 'SearchCorpusActivity', 'NewIngestIdActivity',
+    'CrawlBatchActivity', 'NextBatchActivity', 'SeedFrontierActivity', 'DiscardFrontierActivity', 'PurgeCorpusActivity', 'NewIngestIdActivity',
   ],
 };
 

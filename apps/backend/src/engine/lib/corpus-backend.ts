@@ -4,8 +4,6 @@ export const CHUNK_OVERLAP = 150;
 
 export const VECTOR_SIZE = 384;
 
-export const SEARCH_LIMIT = 12;
-
 export interface CorpusDoc {
   url: string;
   host: string;
@@ -67,18 +65,6 @@ export function pointId(chunkId: string): string {
   return `${raw.slice(0, 8)}-${raw.slice(8, 12)}-4${raw.slice(13, 16)}-a${raw.slice(17, 20)}-${raw.slice(20, 32)}`;
 }
 
-export function buildIndexQuery(
-  phrase: string,
-  scope: { ownerId: string; ingestId?: string | undefined; projectId?: string | undefined },
-): string {
-  const safe = phrase.replace(/["\\]/g, ' ').trim();
-  const parts = [`owner_id:"${scope.ownerId}"`];
-  if (scope.ingestId) parts.push(`ingest_id:"${scope.ingestId}"`);
-  if (scope.projectId) parts.push(`project_id:"${scope.projectId}"`);
-  if (safe) parts.push(`body:"${safe}"`);
-  return parts.join(' AND ');
-}
-
 export function indexConfig(indexId: string): unknown {
   return {
     version: '0.8',
@@ -105,22 +91,4 @@ export function collectionConfig(): unknown {
     vectors: { size: VECTOR_SIZE, distance: 'Cosine', on_disk: true },
     quantization_config: { scalar: { type: 'int8', always_ram: true } },
   };
-}
-
-export interface CorpusHit {
-  url: string;
-  snippet: string;
-  via: 'index' | 'vectors';
-}
-
-export function mergeHits(index: CorpusHit[], vectors: CorpusHit[], limit = SEARCH_LIMIT): CorpusHit[] {
-  const seen = new Set<string>();
-  const out: CorpusHit[] = [];
-  for (const hit of [...index, ...vectors]) {
-    if (seen.has(hit.url)) continue;
-    seen.add(hit.url);
-    out.push(hit);
-    if (out.length >= limit) break;
-  }
-  return out;
 }

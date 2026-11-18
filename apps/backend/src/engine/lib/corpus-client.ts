@@ -1,16 +1,9 @@
-import { fieldsOf } from '../../platform/lib/request-fields.js';
-import {
-  indexConfig, collectionConfig, buildIndexQuery, chunksFor, pointId, mergeHits,
-  SEARCH_LIMIT, type CorpusDoc, type CorpusHit,
-} from './corpus-backend.js';
-import { SNIPPET_CHARS } from './corpus.js';
+import { indexConfig, collectionConfig, chunksFor, pointId, type CorpusDoc } from './corpus-backend.js';
 import type { CorpusEndpoints } from './web-tools-resolver.js';
 import { answered, bothOf, refusal, withStores } from './corpus-stores.js';
 
 export const INDEX_ID = 'koala-corpus';
 export const COLLECTION_ID = 'koala-corpus';
-
-const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
 const isVector = (value: unknown): value is number[] => Array.isArray(value) && value.every((entry) => typeof entry === 'number');
 
@@ -40,29 +33,6 @@ export async function indexPages(base: string, docs: CorpusDoc[]): Promise<numbe
   });
   await answered(res, 'Quickwit');
   return docs.length;
-}
-
-export async function searchIndex(
-  base: string,
-  phrase: string,
-  scope: { ownerId: string; ingestId?: string | undefined; projectId?: string | undefined },
-  limit = SEARCH_LIMIT,
-): Promise<CorpusHit[]> {
-  const query = buildIndexQuery(phrase, scope);
-  const url = `${base}/api/v1/${INDEX_ID}/search?query=${encodeURIComponent(query)}&max_hits=${limit}`;
-  const body = await answered(await fetch(url), 'Quickwit');
-  return listOf(fieldsOf(body).hits).map(fieldsOf).map((h) => ({
-    url: String(h.url ?? ''),
-    snippet: snippetAround(String(h.body ?? ''), phrase),
-    via: 'index' as const,
-  })).filter((h) => h.url);
-}
-
-export function snippetAround(text: string, phrase: string): string {
-  const at = text.toLowerCase().indexOf(phrase.trim().toLowerCase());
-  const from = at === -1 ? 0 : Math.max(0, at - Math.floor(SNIPPET_CHARS / 2));
-  const piece = text.slice(from, from + SNIPPET_CHARS).trim();
-  return `${from > 0 ? '…' : ''}${piece}${from + SNIPPET_CHARS < text.length ? '…' : ''}`;
 }
 
 export const EMBED_BATCH = 32;
@@ -153,51 +123,4 @@ export async function purgeCorpus(ends: CorpusEndpoints, ingestId: string): Prom
       }).then((res) => answered(res, 'Qdrant'))
       : Promise.resolve(),
   );
-}
-
-export async function searchVectors(
-  ends: Pick<CorpusEndpoints, 'vectors' | 'embeddings'>,
-  phrase: string,
-  scope: { ownerId: string; ingestId?: string | undefined; projectId?: string | undefined },
-  limit = SEARCH_LIMIT,
-): Promise<CorpusHit[]> {
-  if (!ends.vectors || !ends.embeddings) return [];
-  const [vector] = await embed(ends.embeddings.base, [phrase]);
-  if (!vector) return [];
-
-  const must: unknown[] = [{ key: 'owner_id', match: { value: scope.ownerId } }];
-  if (scope.ingestId) must.push({ key: 'ingest_id', match: { value: scope.ingestId } });
-  if (scope.projectId) must.push({ key: 'project_id', match: { value: scope.projectId } });
-
-  const res = await fetch(`${ends.vectors.base}/collections/${COLLECTION_ID}/points/search`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'api-key': ends.vectors.apiKey },
-    body: JSON.stringify({
-      vector,
-      limit,
-      with_payload: true,
-      filter: { must },
-      params: { quantization: { rescore: true } },
-    }),
-  });
-  const body = await answered(res, 'Qdrant');
-  return listOf(fieldsOf(body).result).map((p) => fieldsOf(fieldsOf(p).payload)).map((payload) => ({
-    url: String(payload.url ?? ''),
-    snippet: String(payload.text ?? '').slice(0, SNIPPET_CHARS).trim(),
-    via: 'vectors' as const,
-  })).filter((h) => h.url);
-}
-
-export async function searchCorpus(
-  ends: CorpusEndpoints,
-  phrase: string,
-  scope: { ownerId: string; ingestId?: string | undefined; projectId?: string | undefined },
-): Promise<CorpusHit[]> {
-  const [index, vectors] = await Promise.all([
-    ends.index
-      ? searchIndex(ends.index.base, phrase, scope).catch(() => [] as CorpusHit[])
-      : Promise.resolve([] as CorpusHit[]),
-    searchVectors(ends, phrase, scope).catch(() => [] as CorpusHit[]),
-  ]);
-  return mergeHits(index, vectors);
 }

@@ -6,7 +6,7 @@ export { retireStoredBuiltInPersonas } from './lib/built-in-personas.js';
 export { retireStoredBuiltInProcedures } from './lib/built-in-procedures.js';
 export { itemChatIdFor, mentionsKoala, personMessage, withAuthorNames } from './lib/conversations.js';
 export type { ChatItem, Conversation, ConversationMessage, ConversationNotice, ConversationToolCall, NoticeAction, NoticeKind } from './lib/conversations.js';
-export { embedPages, ensureCollection, ensureIndex, indexPages, purgeCorpus, searchCorpus } from './lib/corpus-client.js';
+export { embedPages, ensureCollection, ensureIndex, indexPages, purgeCorpus } from './lib/corpus-client.js';
 export { CorpusStoreDown, CorpusStoresMissing, SEARCHABLE, storesMissing, withStores } from './lib/corpus-stores.js';
 export { search, toPage } from './lib/corpus.js';
 export type { CorpusPage, IngestReceipt } from './lib/corpus.js';

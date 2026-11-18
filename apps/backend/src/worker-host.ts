@@ -11,7 +11,7 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { KoalaInstallAskActivity, KoalaInstallStageActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
-import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
+import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
@@ -35,7 +35,7 @@ export const HOST_WORKER_ACTIVITIES = {
   ServerOrderBootstrapActivity, ServerOrderReverseDnsActivity, ServerOrderMailCheckActivity, ServerOrderStoppedActivity, ServerOrderFailedActivity,
   RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity,
   KoalaInstallAskActivity, KoalaInstallStageActivity,
-  CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity,
+  CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity,
 };
 
 export function hostActivitiesFor(role: HostWorkerSettings['role']['role']): Partial<typeof HOST_WORKER_ACTIVITIES> {

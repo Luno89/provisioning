@@ -34,7 +34,7 @@ export type GroveRunStatus =
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
-import { consolidateMemories, type ConsolidationReport, indexMemories, removeMemories, similarTo } from '../../memory/index.js'
+import { consolidateOwner, type ConsolidationReport } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '@koala/provision'
 import type { Reach } from '../lib/cluster-places.js'
@@ -574,48 +574,35 @@ export class TemporalBridge {
 
     }
 
-    let consolidating = false
-    const consolidate = async () => {
-      if (consolidating) return
-      consolidating = true
-      try {
-        const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
-        for (const ownerId of owners) {
-          const reach = () => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId)
-          const ends = await reach().catch(ignore('an owner with no search service has their memories consolidated without an index'))
-          const report = await consolidateMemories({
-            db: this.db,
-            ownerId,
-            unindex: async (retired) => removeMemories(await reach(), retired.map((memory) => memory.id)),
-            ...(ends ? {
-              index: (items) => indexMemories(ends, items),
-              similar: async (ids: string[]) => {
-                const out = new Map<string, { id: string; score: number }[]>()
-                for (const id of ids) {
-                  out.set(id, await similarTo(ends, id, { ownerId }).catch(ignore('a memory the index cannot compare is left apart this pass and compared on the next')) ?? [])
-                }
-                return out
-              },
-            } : {}),
-          })
-
-          if (report.deduped || report.promoted || report.decayed) {
-            console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
-              + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
-              + ` indexed ${report.indexed})`)
-          }
-          this.lastConsolidation = report
-        }
-      } catch (err) {
-        console.warn(`[Consolidate] pass failed: ${(err as Error).message}`)
-      } finally {
-        consolidating = false
-      }
-    }
+    const consolidate = () => this.consolidateMemoryBank()
 
     for (const [pass, every] of [[reconcile, RECONCILE_INTERVAL], [consolidate, CONSOLIDATE_INTERVAL]] as const) {
       void pass()
       setInterval(() => { void pass() }, every)
+    }
+  }
+
+  private consolidating = false
+
+  async consolidateMemoryBank(): Promise<void> {
+    if (this.consolidating) return
+    this.consolidating = true
+    try {
+      const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
+      const place = { db: this.db, reach: (ownerId: string) => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId) }
+      for (const ownerId of owners) {
+        const report = await consolidateOwner(place, ownerId)
+        if (report.deduped || report.promoted || report.decayed) {
+          console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
+            + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
+            + ` indexed ${report.indexed})`)
+        }
+        this.lastConsolidation = report
+      }
+    } catch (err) {
+      console.warn(`[Consolidate] pass failed: ${(err as Error).message}`)
+    } finally {
+      this.consolidating = false
     }
   }
 

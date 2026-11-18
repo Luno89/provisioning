@@ -10,8 +10,8 @@ import { testKeyEnv } from '../platform/testing/keys.js';
 import { testDatabaseAt } from '../platform/lib/test-database.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { dependencyStatesFor } from '../platform/wiring/dependencies.js';
-import { hostClusterAccess } from './host-settings.js';
-import { crawlActivities, crawlPlaceFor } from './CrawlActivity.js';
+import { giveHostActivities, hostClusterAccess } from './host-settings.js';
+import { crawlActivities, crawlPlaceFor, DiscardFrontierActivity, NextBatchActivity, PurgeCorpusActivity, SeedFrontierActivity } from './CrawlActivity.js';
 import { closedPort, startCorpusStandIn, type CorpusStandIn } from '../engine/testing/corpus-stand-in.js';
 import { INDEX_ID } from '../engine/lib/corpus-client.js';
 import { bundled, temporalTestEnvironment } from '../workflows/temporal-test-env.js';
@@ -50,7 +50,7 @@ const settingsWith = (crawl4aiUrl: string) => hostWorkerSettingsFrom({
 const activitiesWith = (ends: () => Promise<Record<string, unknown>>) => {
   const settings = settingsWith(standIn.base);
   const place = crawlPlaceFor(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
-  return crawlActivities({ ...place, endpoints: ends });
+  return crawlActivities(() => ({ ...place, endpoints: ends }));
 };
 
 const claim = (url: string) => ({ url, depth: 0 });
@@ -115,5 +115,29 @@ describe('crawling a site into a person\'s corpus', () => {
 
     await expect(PurgeCorpusActivity({ ownerId: 'owner-1', ingestId: 'kept-1' })).rejects.toThrow('Quickwit refused: HTTP 403 index is read-only');
     expect(await db.engine.getCorpusPages({ ownerId: 'owner-1', ingestId: 'kept-1' })).toHaveLength(1);
+  });
+});
+
+describe('the crawl activities the host worker registers, given the host\'s own settings', () => {
+  it('seed a crawl, hand out its pages still to crawl and discard them, in the database the host\'s settings name', async () => {
+    const settings = settingsWith(standIn.base);
+    giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
+
+    expect(await SeedFrontierActivity({ ingestId: 'host-1', seed: 'https://docs.example.com/', keywords: [] })).toEqual({ queued: 1 });
+    expect(await NextBatchActivity({ ingestId: 'host-1', limit: 8 })).toEqual({ batch: [{ url: 'https://docs.example.com/', depth: 0 }], remaining: 1 });
+    await DiscardFrontierActivity({ ingestId: 'host-1' });
+    expect(await NextBatchActivity({ ingestId: 'host-1', limit: 8 })).toEqual({ batch: [], remaining: 0 });
+  });
+
+  it('purge a crawl of a person with no Quickwit or Qdrant of their own from the database, asking no index', async () => {
+    const settings = settingsWith(standIn.base);
+    giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
+    await db.engine.saveCorpusPages([{ id: 'host-2:https://docs.example.com/', ownerId: 'owner-host', ingestId: 'host-2', url: 'https://docs.example.com/', host: 'docs.example.com', text: PAGE, bytes: PAGE.length, fetchedAt: '2026-11-18T00:00:00.000Z' }]);
+    const indexed = standIn.documents(INDEX_ID).length;
+
+    await PurgeCorpusActivity({ ownerId: 'owner-host', ingestId: 'host-2' });
+
+    expect(await db.engine.getCorpusPages({ ownerId: 'owner-host', ingestId: 'host-2' })).toEqual([]);
+    expect(standIn.documents(INDEX_ID)).toHaveLength(indexed);
   });
 });

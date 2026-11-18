@@ -14,6 +14,9 @@ import { runThenLetGo } from './platform/wiring/fences.js';
 import { mongoClientFor } from './platform/lib/collection.js';
 import { MongoPlatformStore } from './platform/store.js';
 import { testDataDir } from './platform/testing/data-dir.js';
+import type { ToolCallArgs, ToolCallOutcome } from './engine-host/temporal/contracts.js';
+import { seedEngineTools } from './engine/index.js';
+import { anyOf } from './platform/lib/test-matchers.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;
@@ -76,6 +79,29 @@ describe('the engine worker, started the way its entry starts it', () => {
     worker.shutdown();
     await running;
     expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
+  }, 120_000);
+
+  it('on an instance answers a person\'s tool calls with their own corpus and memory, as Mongo holds them', async () => {
+    const settings = engineWorkerSettingsFrom(placeFor('instance'));
+    const { dependencies, fences } = await engineWorkerSetup(settings);
+    const { worker, activities } = await createEngineWorker(settings, dependencies);
+    const running = runThenLetGo(worker, fences);
+    const tools = activities as unknown as { EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> };
+    const call = (agentSlug: string, name: string, args: Record<string, unknown>) => new MockActivityEnvironment().run(tools.EngineToolActivity, {
+      ticket: { runId: `run-${name}`, depth: 0, ownerId: 'owner-tools', agentSlug, trigger: 'user' as const }, nodeId: 'tools', name, arguments: JSON.stringify(args),
+    });
+    await seedEngineTools(db.engine);
+    const at = new Date().toISOString();
+    await db.memory.saveMemory({ id: 'mem-dns', ownerId: 'owner-tools', category: 'environment_facts', scope: 'global', status: 'active', title: 'DNS lives at Cloudflare', text: 'The person manages DNS at Cloudflare.', createdAt: at, updatedAt: at });
+
+    expect(await call('koala', 'start_ingest', { url: 'https://93.184.215.14/' }), 'a crawl is refused, naming the stores the person has not deployed').toMatchObject({
+      ok: false, digest: 'crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Quickwit, Qdrant and TEI: deploy it as an app first. Propose each with propose_deploy_app, then start the crawl once they run',
+    });
+    expect(await call('memory-keeper', 'forget_memory', { id: 'mem-dns', why: 'they moved to Porkbun' }), 'a memory of a person with no index of their own is retired').toMatchObject({ ok: true, content: 'Retired mem-dns.' });
+    expect((await db.memory.getMemories('owner-tools')).find((item) => item.id === 'mem-dns')).toMatchObject({ invalidAt: anyOf(String) });
+
+    worker.shutdown();
+    await running;
   }, 120_000);
 
   it('is refused by its settings on root, which runs no engine worker', () => {

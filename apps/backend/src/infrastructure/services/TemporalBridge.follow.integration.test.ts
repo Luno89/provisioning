@@ -144,5 +144,35 @@ describe('settling the work the bridge itself starts', () => {
     expect(modelSync).toMatchObject({ appType: 'vllm', modelCacheHostPath: resolveVllmCacheHostPath('shared-models') });
     expect(String(modelSync?.modelImage)).toContain('vllm/vllm-openai');
   }, 60_000);
-});
 
+  it('destroys an app still deploying by cancelling its deploy and waiting for it to end before the removal starts', async () => {
+    const db = await testDatabase();
+    const namespace = env.namespace ?? 'default';
+    const connection = await Connection.connect({ address: inject('temporalAddress') });
+    const KEY = 'bridge-stop-key' as never;
+    const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
+    bridge.client = new Client({ connection, namespace });
+    const followings: Promise<void>[] = [];
+    const follow = bridge.follow.bind(bridge);
+    vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
+    await db.infrastructure.saveCluster({ id: 'c2', name: 'desk', provider: 'machine', machineId: 'desk', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
+    const deployQueue = `deploying-${Math.random().toString(36).slice(2, 8)}`;
+    const workers = await Promise.all([
+      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: deployQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) }),
+      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: 'cluster-ops-queue', workflowBundle: await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts')) }),
+    ]);
+
+    let deploy!: Awaited<ReturnType<typeof env.client.workflow.start>>;
+    await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
+      deploy = await env.client.workflow.start('waitsToBeCancelled', { taskQueue: deployQueue, workflowId: `deploy-halfway-${deployQueue}` });
+      await db.infrastructure.saveDeployment({ id: 'halfway', name: 'halfway', clusterId: 'c2', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: deploy.workflowId, appType: 'wordpress', deploymentId: 'halfway-stack' });
+      await bridge.destroyApp('halfway');
+      await Promise.all(followings);
+    }));
+    await bridge.stop();
+    await connection.close();
+
+    expect((await deploy.describe()).status.name).toBe('CANCELLED');
+    expect((await db.infrastructure.getDeployments()).map((dep) => dep.id)).not.toContain('halfway');
+  }, 60_000);
+});

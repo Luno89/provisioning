@@ -4,6 +4,9 @@ import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
 import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
+import { interceptHttp, http, HttpResponse } from '../../platform/testing/http.js';
+import { unindexerFrom } from '../../memory/lib/memory-index.js';
+import { pointId } from '../../engine/lib/corpus-backend.js';
 
 let bank: Map<string, MemoryItem>;
 let ids: number;
@@ -241,5 +244,56 @@ describe('the answer to a memory search, as an agent on a machine gets it', () =
     ];
     expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
     expect(searchAnswer(memories, 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
+  });
+});
+
+describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
+  const QUICKWIT = 'http://quickwit.memory-tools.test:7280';
+  const QDRANT = 'http://qdrant.memory-tools.test:6333';
+  const server = interceptHttp();
+  const withIndex = () => createMemoryTools({
+    store: {
+      list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
+      save: async (item) => { bank.set(item.id, item); },
+      unindex: unindexerFrom(async () => ({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' } })),
+    },
+    now: () => 'now',
+    newId: () => `new-${++ids}`,
+  });
+  const callWithIndex = (name: string, parsed: Record<string, unknown>) =>
+    withIndex()[name]!({ name, parsed, driver: undefined, caller: { ownerId: 'u1', runId: 'run-k' } } as ToolHandlerContext);
+  const asking = (qdrant: () => Response = () => HttpResponse.json({ result: {} })) => {
+    const asked: string[] = [];
+    server.use(
+      http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => { asked.push(`quickwit ${await request.text()}`); return HttpResponse.json({ opstamp: 1 }); }),
+      http.post(`${QDRANT}/collections/:collection/points/delete`, async ({ request }) => { asked.push(`qdrant ${await request.text()}`); return qdrant(); }),
+    );
+    return asked;
+  };
+
+  it('forgetting a memory takes it out of both, then retires it', async () => {
+    const asked = asking();
+
+    expect(await callWithIndex('forget_memory', { id: 'm1', why: 'moved to Porkbun' })).toMatchObject({ ok: true, content: 'Retired m1.' });
+
+    expect(asked).toEqual([`quickwit ${JSON.stringify({ query: 'memory_id:"m1"' })}`, `qdrant ${JSON.stringify({ points: [pointId('m1')] })}`]);
+    expect(bank.get('m1')).toMatchObject({ invalidAt: 'now' });
+  });
+
+  it('a memory Qdrant will not let go of stays current, saying Qdrant\'s answer', async () => {
+    asking(() => HttpResponse.text('collection is read-only', { status: 403 }));
+
+    await expect(callWithIndex('forget_memory', { id: 'm1', why: 'moved to Porkbun' })).rejects.toThrow('Qdrant refused: HTTP 403 collection is read-only');
+
+    expect(bank.get('m1')!.invalidAt).toBeUndefined();
+  });
+
+  it('replacing a memory takes the old one out of both before the new one is saved', async () => {
+    const asked = asking();
+
+    expect(await callWithIndex('save_memory', { title: 'DNS lives at Porkbun', text: 'The person moved their DNS to Porkbun.', category: 'environment_facts', replaces: 'm1' })).toMatchObject({ ok: true, content: 'Saved as new-1, replacing m1.' });
+
+    expect(asked).toEqual([`quickwit ${JSON.stringify({ query: 'memory_id:"m1"' })}`, `qdrant ${JSON.stringify({ points: [pointId('m1')] })}`]);
+    expect(bank.get('m1')).toMatchObject({ invalidAt: 'now', supersededBy: 'new-1' });
   });
 });

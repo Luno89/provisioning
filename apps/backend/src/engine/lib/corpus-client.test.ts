@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { failureOf } from '../../platform/lib/dependencies.js';
-import { embedPages, indexPages, purgeCorpus } from './corpus-client.js';
+import { embedPages, ensureCollection, ensureIndex, indexPages, purgeCorpus } from './corpus-client.js';
 import type { CorpusDoc } from './corpus-backend.js';
 
 const QUICKWIT = 'http://quickwit.test:7280';
@@ -57,5 +57,37 @@ describe('writing pages to the corpus', () => {
 
   it('pages with no TEI to embed them are refused, naming it, rather than left unembedded', async () => {
     await expect(embedPages({ vectors: { base: QDRANT, apiKey: 'k' } }, [doc])).rejects.toThrow('you have no running TEI');
+  });
+});
+
+describe('making the corpus\'s index and collection', () => {
+  it('an index Quickwit refuses to make fails with its answer, and is asked again next time', async () => {
+    const base = 'http://quickwit-refusing.test:7280';
+    let asked = 0;
+    server.use(http.post(`${base}/api/v1/indexes`, () => { asked += 1; return HttpResponse.text('invalid index config', { status: 400 }); }));
+    await expect(ensureIndex(base)).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
+    await expect(ensureIndex(base)).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
+    expect(asked).toBe(2);
+  });
+
+  it('an index that is already there is taken as made, and not asked for again', async () => {
+    const base = 'http://quickwit-made.test:7280';
+    let asked = 0;
+    server.use(http.post(`${base}/api/v1/indexes`, () => { asked += 1; return HttpResponse.text('index `koala-corpus` already exists', { status: 400 }); }));
+    await ensureIndex(base);
+    await ensureIndex(base);
+    expect(asked).toBe(1);
+  });
+
+  it('a collection Qdrant refuses to make fails with its answer', async () => {
+    const base = 'http://qdrant-refusing.test:6333';
+    server.use(http.put(`${base}/collections/:collection`, () => HttpResponse.text('wrong api key', { status: 401 })));
+    await expect(ensureCollection(base, 'k')).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
+  });
+
+  it('a collection that is already there is taken as made', async () => {
+    const base = 'http://qdrant-made.test:6333';
+    server.use(http.put(`${base}/collections/:collection`, () => HttpResponse.text('Collection `koala-corpus` already exists!', { status: 409 })));
+    await expect(ensureCollection(base, 'k')).resolves.toBeUndefined();
   });
 });
