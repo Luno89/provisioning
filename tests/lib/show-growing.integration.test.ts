@@ -1,0 +1,42 @@
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { showGrowing } from './show-growing.js';
+import { until } from './until.js';
+
+const dirs: string[] = [];
+afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+function aLog(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'show-growing-'));
+  dirs.push(dir);
+  const file = join(dir, 'dev.log');
+  writeFileSync(file, '');
+  return file;
+}
+
+describe('a log shown in the terminal as it is written', () => {
+  it('shows a question that waits on the same line for its answer', async () => {
+    const file = aLog();
+    let shown = '';
+    const showing = showGrowing(file, (text) => { shown += text; });
+    appendFileSync(file, 'This machine\'s own cluster\n');
+    appendFileSync(file, '  Install k3s (asks for sudo once)? [y/N] ');
+    await until('the question shown', async () => shown.endsWith('[y/N] '));
+    showing.stop();
+    expect(shown).toBe('This machine\'s own cluster\n  Install k3s (asks for sudo once)? [y/N] ');
+  });
+
+  it('shows what was written before it started, and nothing once stopped', async () => {
+    const file = aLog();
+    appendFileSync(file, 'already there\n');
+    let shown = '';
+    const showing = showGrowing(file, (text) => { shown += text; });
+    appendFileSync(file, 'then this\n');
+    showing.stop();
+    appendFileSync(file, 'after ship is done\n');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(shown).toBe('already there\nthen this\n');
+  });
+});

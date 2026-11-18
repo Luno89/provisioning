@@ -7,6 +7,7 @@ import { imageTagOf } from './release-lab.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, type Failures } from './audits.js';
 import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
 import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
+import { showGrowing } from './show-growing.js';
 import { until } from './until.js';
 
 const gitOut = (repo: string, args: string[]): string =>
@@ -176,7 +177,7 @@ export async function devStackProblem(repo: string): Promise<string | undefined>
 export const DEV_STACK_LOG = 'tests/.dev-stack.log';
 
 export async function freshDevStack(repo: string): Promise<void> {
-  console.log('\n━━ a fresh dev stack: reset, set up from this checkout, then npm run dev, which asks for your password once for the join');
+  console.log('\n━━ a fresh dev stack: reset, set up from this checkout, then npm run dev, which asks you here before the join installs anything');
   for (const script of ['dev:reset', 'setup']) {
     const done = spawnSync('npm', ['run', script], { cwd: repo, stdio: 'inherit' });
     if (done.status !== 0) throw new Error(`npm run ${script} failed (${done.status ?? done.signal})`);
@@ -187,9 +188,13 @@ export async function freshDevStack(repo: string): Promise<void> {
   let ended: string | undefined;
   dev.on('exit', (code, signal) => { ended = `npm run dev stopped (${signal ?? code})`; });
   dev.unref();
-  console.log(`  npm run dev runs on after ship, its output in ${DEV_STACK_LOG}`);
-  await until('the dev stack running this checkout', async () => ((await devStackProblem(repo)) ? undefined : true), async () => (ended ? `${ended}; its last lines:\n${readFileSync(log, 'utf8').trimEnd().split('\n').slice(-20).join('\n')}` : undefined));
-  console.log('━━ ✓ the dev stack is fresh and runs this checkout');
+  const shown = showGrowing(log, (text) => process.stdout.write(text));
+  try {
+    await until('the dev stack running this checkout', async () => ((await devStackProblem(repo)) ? undefined : true), async () => ended);
+  } finally {
+    shown.stop();
+  }
+  console.log(`\n━━ ✓ the dev stack is fresh and runs this checkout; npm run dev runs on after ship, its output in ${DEV_STACK_LOG}`);
 }
 
 export function checkoutProblem(repo: string, commit: string): string | undefined {
