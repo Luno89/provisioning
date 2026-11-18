@@ -7,6 +7,7 @@ import { temporal } from '@temporalio/proto';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Server } from 'socket.io';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { koalaInstallProgressPath, PLACE_KOALA } from '@koala/engine-core/koala-install';
 import { deviceQueue } from './engine-worker.js';
 
 const AGENT = path.join(import.meta.dirname, '..');
@@ -167,17 +168,18 @@ describe('removing this machine, as the agent\'s own program does it, on a throw
 });
 
 describe('Koala placed on this machine by root, as the agent\'s own program takes it, on a machine without Koala\'s k3s', () => {
-  it('tells root it is installing, then that it failed and why, and removes itself when root removes the machine', async () => {
-    const reports: Array<{ status: string; detail: string; instance: string | undefined }> = [];
+  it('tells root the stage it is at on the install root asked for, with its own token, then where and why it failed, and removes itself when root removes the machine', async () => {
+    const reports: Array<{ progress: Record<string, unknown>; auth: string | undefined }> = [];
     const http = createServer((req, res) => {
       let body = '';
       req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
       req.on('end', () => {
-        if (req.method === 'POST' && req.url === '/api/instances/status') {
-          const sent = JSON.parse(body) as { status: string; detail: string };
-          reports.push({ status: sent.status, detail: sent.detail, instance: req.headers['x-instance-id'] as string | undefined });
+        if (req.method === 'POST' && req.url === koalaInstallProgressPath('program-install')) {
+          reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
+          res.writeHead(204).end();
+          return;
         }
-        res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+        res.writeHead(404).end('not here');
       });
     });
     servers.push(http);
@@ -187,18 +189,18 @@ describe('Koala placed on this machine by root, as the agent\'s own program take
     const toRoot: Array<{ emit(event: string): void }> = [];
     io.of('/machine-account').on('connection', (socket) => {
       toRoot.push(socket);
-      socket.emit('machine:place-koala', {
-        instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
+      socket.emit(PLACE_KOALA, {
+        installId: 'program-install', instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
         meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
       });
     });
     const here = await program([]);
     await here.joined(rootUrl);
     const child = here.start();
-    while (!reports.some((report) => report.status === 'failed') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
+    while (!reports.some((report) => report.progress.state === 'failed') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
     expect(reports, here.said.join('')).toEqual([
-      { status: 'installing', detail: 'starting this machine\'s cluster', instance: 'program-koala' },
-      { status: 'failed', detail: 'k3s is not installed on this machine; run the command from My Machines again to install it', instance: 'program-koala' },
+      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' }, auth: 'Bearer program-device-token' },
+      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'failed', why: 'k3s is not installed on this machine; run the command from My Machines again to install it' }, auth: 'Bearer program-device-token' },
     ]);
     const ended = exited(child);
     toRoot[0]!.emit('machine:removed');
