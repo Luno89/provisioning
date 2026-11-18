@@ -32,6 +32,13 @@ if [ -x "$path" ] && [ -f "$marker" ]; then
 fi
 
 mkdir -p "$TOOLS"
+exec 9>"${TOOLS}/.${name}.lock"
+flock 9
+if [ -x "$path" ] && [ -f "$marker" ]; then
+  echo "$path"
+  exit 0
+fi
+
 download="$(mktemp "${TOOLS}/.download.XXXXXX")"
 trap 'rm -f "$download"' EXIT
 echo "fetching ${name} ${version}" >&2
