@@ -63,6 +63,8 @@ export interface MachineAccountsDeps {
 
 export const meshUsable = (server: string | undefined): server is string => Boolean(server);
 
+export const NO_MESH = 'Koala\'s root runs no private network (MESH_LOGIN_SERVER is not set), and a machine takes work only over it, so none can be added';
+
 const text = (value: unknown, limit: number): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : undefined;
 
@@ -129,6 +131,7 @@ export class MachineAccounts {
   }
 
   async createJoinCode(ownerId: string, koalaName?: string): Promise<{ code: string; command: string; expiresAt: string }> {
+    if (!meshUsable(this.deps.settings.meshLoginServer)) throw Object.assign(new Error(NO_MESH), { status: 409 });
     const code = newMachineCode();
     const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
     await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt, ...(koalaName ? { koalaName } : {}) });
@@ -139,8 +142,9 @@ export class MachineAccounts {
     if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
     const rootDir = text(machine.rootDir, 500);
     if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
-    const mesh = meshUsable(this.deps.settings.meshLoginServer);
-    if (mesh && !this.deps.mesh) return { ok: false, status: 503, error: 'this Koala has a mesh address but cannot reach Headscale to let the machine join it' };
+    const meshLoginServer = this.deps.settings.meshLoginServer;
+    if (!meshUsable(meshLoginServer)) return { ok: false, status: 409, error: NO_MESH };
+    if (!this.deps.mesh) return { ok: false, status: 503, error: 'this Koala has a mesh address but cannot reach Headscale to let the machine join it' };
     const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code));
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
@@ -166,7 +170,7 @@ export class MachineAccounts {
     };
     await this.deps.store.saveLocalAgentDevice(device);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
-    const preAuthKey = mesh ? (await this.deps.mesh!.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key : '';
+    const preAuthKey = (await this.deps.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key;
     return {
       ok: true,
       value: {
@@ -176,7 +180,7 @@ export class MachineAccounts {
           KOALA_DEVICE_ID: id,
           KOALA_DEVICE_TOKEN: token,
           KOALA_ROOT_DIR: rootDir,
-          MESH_LOGIN_SERVER: mesh ? this.deps.settings.meshLoginServer! : '',
+          MESH_LOGIN_SERVER: meshLoginServer,
           MESH_AUTH_KEY: preAuthKey,
           KOALA_REGISTRY: this.deps.settings.registry ?? '',
         },

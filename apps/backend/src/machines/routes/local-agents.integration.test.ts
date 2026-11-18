@@ -19,7 +19,7 @@ const signing = identityKeysFrom(generateIdentityKey());
 let service: MachineService | undefined;
 let accounts: MachineAccounts | undefined;
 const meshRemoved: { ownerId: string; meshIp: string }[] = [];
-const machinesOf = (db: Database, mesh?: string, now?: () => Date) => {
+const machinesOf = (db: Database, mesh = 'https://mesh.koala.test', now?: () => Date) => {
   const machines: MachineService = new MachineService({
     store: db.machines,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
@@ -89,7 +89,7 @@ describe('adding a machine with the command from My Machines', () => {
     const joined = await post('/api/machines/join', { code, hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
     expect(joined.status).toBe(200);
     const { env } = await joined.json() as { env: Record<string, string> };
-    expect(env).toMatchObject({ KOALA_ROOT_URL: URL_OF_KOALA, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: '', MESH_AUTH_KEY: '' });
+    expect(env).toMatchObject({ KOALA_ROOT_URL: URL_OF_KOALA, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: 'https://mesh.koala.test', MESH_AUTH_KEY: 'preauth-for-test-user' });
 
     const device = (await harness.db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === env.KOALA_DEVICE_ID)!;
     expect(device).toMatchObject({ ownerId: TEST_USER.id, name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });

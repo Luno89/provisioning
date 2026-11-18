@@ -21,7 +21,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   let mesh: ReturnType<typeof mock<Required<NonNullable<MachineAccountsDeps['mesh']>>>>;
   let clock: Date;
 
-  const accounts = (over: Partial<MachineAccountsDeps> = {}, meshLoginServer?: string) => new MachineAccounts({
+  const accounts = (over: Partial<MachineAccountsDeps> = {}, meshLoginServer: string | undefined = 'https://mesh.koala.example') => new MachineAccounts({
     store: db.machines,
     dataKey: KEY,
     signing,
@@ -75,7 +75,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
       if (!outcome.ok) throw new Error(outcome.error);
       const { deviceId, env } = outcome.value;
-      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: '', MESH_AUTH_KEY: '', KOALA_REGISTRY: '100.64.0.1:5001' });
+      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: 'https://mesh.koala.example', MESH_AUTH_KEY: 'preauth-key', KOALA_REGISTRY: '100.64.0.1:5001' });
       const saved = (await stored(deviceId))!;
       expect(saved).toMatchObject({ ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64', createdAt: clock.toISOString() });
       expect(saved.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));
@@ -143,6 +143,15 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const blind = accounts({ mesh: undefined }, 'https://mesh.koala.example');
       const { code } = await blind.createJoinCode('bo');
       expect(await blind.join(code, { rootDir: '/x' })).toEqual({ ok: false, status: 503, error: 'this Koala has a mesh address but cannot reach Headscale to let the machine join it' });
+    });
+
+    it('adds no machine where root runs no private network, saying why, since a machine takes work only over it', async () => {
+      const meshless = accounts({}, '');
+      const said = 'Koala\'s root runs no private network (MESH_LOGIN_SERVER is not set), and a machine takes work only over it, so none can be added';
+      await expect(meshless.createJoinCode('bo')).rejects.toMatchObject({ status: 409, message: said });
+      const { code } = await accounts().createJoinCode('bo');
+      expect(await meshless.join(code, { rootDir: '/x' })).toEqual({ ok: false, status: 409, error: said });
+      expect(await db.machines.getLocalAgentDevices()).toEqual([]);
     });
 
     it('lists a person\'s machines as their Koala needs them, without any token', async () => {

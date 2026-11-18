@@ -177,7 +177,14 @@ EOF
 chmod 600 "$CONFIG"
 ok "its settings are in $CONFIG, readable only by you"
 
-if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
+mesh_address() {
+  address=$(tailscale ip -4 2>/dev/null | head -n1)
+  [ -n "$address" ] || die "Tailscale gives this machine no private address, so Koala could not reach its cluster; nothing more was installed"
+  printf '%s\n' "$address"
+}
+
+join_mesh() {
+  [ -n "${MESH_LOGIN_SERVER:-}" ] || die "Koala's root named no private network for this machine, and a machine takes work only over it"
   say "Joining your private network"
   if ! have tailscale; then
     [ "$(uname -s)" = Linux ] || die "install Tailscale from https://tailscale.com/download, then run this again: Koala reaches this machine through it, privately"
@@ -187,20 +194,23 @@ if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
   fi
   sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --accept-dns=false
   rm -f "$MESH_KEY_FILE"
-  ok "on the private network as $(tailscale ip -4 | head -n1)"
-fi
+  joined_as=$(mesh_address)
+  ok "on the private network as ${joined_as}"
+}
+
+join_mesh
 
 install_k3s() {
   person=$(id -un)
   group=$(id -gn)
-  mesh_ip=$(tailscale ip -4 2>/dev/null | head -n1 || true)
+  mesh_ip=$(mesh_address)
   installer=$(mktemp)
   curl -fsSL "https://raw.githubusercontent.com/k3s-io/k3s/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/install.sh" -o "$installer"
   [ "$(sha256_of "$installer")" = "$K3S_INSTALLER_SHA256" ] || { rm -f "$installer"; die "the k3s installer downloaded is not the one Koala pins (its sha256 differs); nothing was installed"; }
   sudo mkdir -p /etc/rancher/k3s/config.yaml.d /etc/koala /usr/local/lib/koala /etc/systemd/system/k3s.service.d
   {
     printf 'disable:\n  - traefik\n  - servicelb\n'
-    [ -n "$mesh_ip" ] && printf 'tls-san:\n  - %s\n' "$mesh_ip"
+    printf 'tls-san:\n  - %s\n' "$mesh_ip"
     printf 'write-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: %s\n' "$group"
   } | sudo tee /etc/rancher/k3s/config.yaml >/dev/null
   printf 'kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10\n' | sudo tee /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml >/dev/null

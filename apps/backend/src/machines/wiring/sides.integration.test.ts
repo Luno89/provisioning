@@ -84,7 +84,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   const tellInstance = wireInstancePresence(root.io, presence, (id, token) => instances.caller(id, token), (arrived) => rootSide?.instanceArrived(arrived));
   rootSide = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: pem }),
-    db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh,
+    db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test',
     devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
     instances: () => ({ service: instances, tellInstance }),
   });

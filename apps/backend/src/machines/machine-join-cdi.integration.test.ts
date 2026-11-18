@@ -120,3 +120,37 @@ describe('the join offering NVIDIA\'s CDI support on a machine with an NVIDIA GP
     expect(declined.sudo).toEqual([]);
   });
 });
+
+describe('the join on the private network', () => {
+  const meshStep = (body: string, tailscale: string) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'koala-join-mesh-'));
+    const bin = path.join(dir, 'bin');
+    spawnSync('mkdir', ['-p', bin]);
+    writeFileSync(path.join(bin, 'tailscale'), `#!/bin/sh\n${tailscale}\n`);
+    chmodSync(path.join(bin, 'tailscale'), 0o755);
+    const then = ['set -eu', 'die() { echo "refused: $1" >&2; exit 1; }', 'ok() { echo "ok: $1"; }', 'say() { :; }', `have() { [ -x '${bin}'/"$1" ]; }`, 'sudo() { :; }', `MESH_KEY_FILE='${dir}/key'`, body].join('\n');
+    const run = spawnSync('sh', ['-c', scriptExcerpt(JOIN, ['mesh_address', 'join_mesh'], then)], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, ...excerptEnv() } });
+    return { status: run.status, said: `${run.stdout}${run.stderr}` };
+  };
+
+  it('stops, saying why, when Koala\'s root names no private network, since a machine takes work only over it', () => {
+    const run = meshStep('MESH_LOGIN_SERVER=""\njoin_mesh\necho "carried on"', 'echo 100.64.0.7');
+    expect(run.status).not.toBe(0);
+    expect(run.said).toContain('refused: Koala\'s root named no private network for this machine, and a machine takes work only over it');
+    expect(run.said).not.toContain('carried on');
+  });
+
+  it('installs nothing more when Tailscale gives the machine no private address, saying why', () => {
+    const run = meshStep('mesh_ip=$(mesh_address)\necho "k3s for $mesh_ip"', 'exit 0');
+    expect(run.status).not.toBe(0);
+    expect(run.said).toContain('refused: Tailscale gives this machine no private address, so Koala could not reach its cluster');
+    expect(run.said).not.toContain('k3s for');
+  });
+
+  it('joins and names the machine\'s private address, the one k3s\'s certificate is made for', () => {
+    const run = meshStep('MESH_LOGIN_SERVER=https://mesh.koala.test\njoin_mesh\nmesh_ip=$(mesh_address)\necho "tls-san $mesh_ip"', 'echo 100.64.0.7');
+    expect(run.status, run.said).toBe(0);
+    expect(run.said).toContain('ok: on the private network as 100.64.0.7');
+    expect(run.said).toContain('tls-san 100.64.0.7');
+  });
+});
