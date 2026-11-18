@@ -31,6 +31,7 @@ const seed = async (ownerId: string) => {
   await db.memory.saveMemory({ id: `${ownerId}-m1`, ownerId, title: 'm', text: 't', createdAt: 'then', updatedAt: 'then' } as never);
   await db.projects.saveGiteaAccount({ ownerId, username: `koala-${ownerId}`, passwordEnc: 'x', createdAt: 'then' });
   await db.memory.saveMemoryWatermark(`conversation:${ownerId}-c1`, '4');
+  await db.machines.saveMachineJoinCode({ hash: `${ownerId}-join`, id: `${ownerId}-join`, ownerId, expiresAt: '2026-01-01T00:00:00.000Z', progress: { stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left', at: '2026-01-01T00:00:00.000Z' } });
 };
 
 beforeEach(async () => {
@@ -90,7 +91,9 @@ describe('the steps that remove an account', () => {
   it('removes every record it owns and leaves everyone else\'s', async () => {
     const removed = await createAccountRemovalActivities(deps()).RemoveAccountRecordsActivity({ ownerId: 'bo' });
 
-    expect(removed).toMatchObject({ conversations: 1, trees: 1, memories: 1, giteaAccounts: 1, memoryWatermarks: 1, users: 1 });
+    expect(removed).toMatchObject({ conversations: 1, trees: 1, memories: 1, giteaAccounts: 1, memoryWatermarks: 1, machineJoinCodes: 1, users: 1 });
+    expect(await db.machines.getReportedMachineJoins('bo')).toEqual([]);
+    expect((await db.machines.getReportedMachineJoins('ana')).map((join) => join.id)).toEqual(['ana-join']);
     expect(await db.accounts.getUserById('bo')).toBeUndefined();
     expect(await db.engine.getConversation('bo', 'bo-c1')).toBeUndefined();
     expect(await db.memory.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();

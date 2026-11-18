@@ -35,6 +35,7 @@ export function machinesOf({ db, origin }: Site): Machines {
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },
     koala: { of: async () => ({ url: origin, audience: 'site-instance' }) },
     followers: { joined: (machine) => machines.adopt(machine), removed: (machine) => machines.forget(machine), changed: async () => undefined },
+    toOwner: { machinesChanged: () => undefined },
     toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
     placer: instances,
   })

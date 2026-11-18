@@ -54,13 +54,51 @@ export function machinesStoreContract(make: () => Promise<MachinesStore>): void 
       expect(await store.getLocalAgentDevices()).toEqual([device]);
     });
 
-    it('hands a join code out once', async () => {
+    it('hands a join code out once, keeping the join\'s record with when it was used', async () => {
       const store = await make();
-      const code = { hash: 'h1', ownerId: 'owner-1', expiresAt: '2030-01-01T00:00:00.000Z' };
+      const code = { hash: 'h1', id: 'join-1', ownerId: 'owner-1', expiresAt: '2030-01-01T00:00:00.000Z', keptUntil: '2030-01-01T00:00:00.000Z' };
       await store.saveMachineJoinCode(code);
-      expect(await store.takeMachineJoinCode('h1')).toEqual(code);
-      expect(await store.takeMachineJoinCode('h1')).toBeUndefined();
-      expect(await store.takeMachineJoinCode('never')).toBeUndefined();
+      expect(await store.takeMachineJoinCode('h1', '2029-12-31T23:00:00.000Z')).toEqual(code);
+      expect(await store.takeMachineJoinCode('h1', '2029-12-31T23:30:00.000Z')).toBeUndefined();
+      expect(await store.takeMachineJoinCode('never', '2029-12-31T23:30:00.000Z')).toBeUndefined();
+      expect(await store.getMachineJoin('h1')).toEqual({ ...code, usedAt: '2029-12-31T23:00:00.000Z' });
+      expect(await store.getMachineJoin('never')).toBeUndefined();
+    });
+
+    const join = (hash: string, ownerId: string, more: Record<string, unknown> = {}) =>
+      ({ hash, id: `id-${hash}`, ownerId, expiresAt: '2030-01-01T00:00:00.000Z', keptUntil: '2030-01-01T00:00:00.000Z', ...more });
+    const stage = { stage: 'k3s', title: 'Installing k3s', state: 'failed' as const, why: 'the download differs', at: '2029-12-31T23:10:00.000Z' };
+
+    it('records a join\'s stage and the machine it made, keeps it once told to, and lists only a person\'s joins that reported', async () => {
+      const store = await make();
+      await store.saveMachineJoinCode(join('h1', 'owner-1'));
+      await store.saveMachineJoinCode(join('h2', 'owner-1'));
+      await store.saveMachineJoinCode(join('h3', 'owner-2'));
+      expect(await store.updateMachineJoin('h1', { set: { progress: stage, deviceId: 'desk' }, unset: ['keptUntil'] })).toBe(true);
+      expect(await store.updateMachineJoin('h3', { set: { progress: stage } })).toBe(true);
+      expect(await store.updateMachineJoin('h3', { set: { progress: { stage: 'k3s', title: 'Installing k3s', state: 'started', at: stage.at } } })).toBe(true);
+      expect(await store.updateMachineJoin('gone', { set: { deviceId: 'desk' } })).toBe(false);
+      const { keptUntil: _kept, ...kept } = join('h1', 'owner-1');
+      expect(await store.getReportedMachineJoins('owner-1')).toEqual([{ ...kept, progress: stage, deviceId: 'desk' }]);
+      const [theirs] = await store.getReportedMachineJoins('owner-2');
+      expect(theirs?.progress).toEqual({ stage: 'k3s', title: 'Installing k3s', state: 'started', at: stage.at });
+      expect(theirs?.progress).not.toHaveProperty('why');
+    });
+
+    it('removes one join, or every join of a machine but the one named', async () => {
+      const store = await make();
+      await store.saveMachineJoinCode(join('h1', 'owner-1', { deviceId: 'desk', progress: stage }));
+      await store.saveMachineJoinCode(join('h2', 'owner-1', { deviceId: 'desk', progress: stage }));
+      await store.saveMachineJoinCode(join('h3', 'owner-1', { deviceId: 'laptop', progress: stage }));
+      await store.saveMachineJoinCode(join('h4', 'owner-1', { deviceId: 'desk', progress: stage }));
+      expect((await store.getMachineJoinsOf('desk')).map((each) => each.hash).sort()).toEqual(['h1', 'h2', 'h4']);
+      expect(await store.getMachineJoinsOf('nowhere')).toEqual([]);
+      expect(await store.deleteMachineJoinsOf('desk', 'h4')).toBe(2);
+      expect((await store.getReportedMachineJoins('owner-1')).map((each) => each.hash).sort()).toEqual(['h3', 'h4']);
+      expect(await store.deleteMachineJoin('h3')).toBe(true);
+      expect(await store.deleteMachineJoin('h3')).toBe(false);
+      expect(await store.deleteMachineJoinsOf('desk')).toBe(1);
+      expect(await store.getReportedMachineJoins('owner-1')).toEqual([]);
     });
   });
 }

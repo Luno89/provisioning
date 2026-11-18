@@ -14,7 +14,7 @@ type Git = Pick<MachineGitService, 'serve'>;
 
 const SHA = 'ab'.repeat(32);
 
-let machines: ReturnType<typeof mock<Pick<MachineAccounts, 'join'>>>;
+let machines: ReturnType<typeof mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>>;
 let git: ReturnType<typeof mock<Git>>;
 let bundle: ReturnType<typeof mock<AgentBundle>>;
 let dir: string;
@@ -29,7 +29,7 @@ const call = async (over: Call, withGit = true, withAccounts = true) => {
 };
 
 beforeEach(async () => {
-  machines = mock<Pick<MachineAccounts, 'join'>>();
+  machines = mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>();
   git = mock<Git>();
   bundle = mock<AgentBundle>();
   bundle.sha256.mockResolvedValue(SHA);
@@ -38,6 +38,31 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
+});
+
+describe('/api/machines/join-progress', () => {
+  const stage = { stage: 'k3s', title: 'Installing k3s', state: 'started' };
+
+  it('records a stage with the join code as its bearer credential, answering with nothing', async () => {
+    machines.reportJoinProgress.mockResolvedValue({ ok: true, value: { recorded: true } });
+    const answer = await call({ method: 'POST', path: '/join-progress', body: stage, headers: { authorization: 'Bearer the-code' } });
+    expect(answer.status).toBe(204);
+    expect(machines.reportJoinProgress).toHaveBeenCalledWith('the-code', stage);
+  });
+
+  it('hands on no code when none is sent, and answers a refusal in plain text with its status', async () => {
+    machines.reportJoinProgress.mockResolvedValue({ ok: false, status: 400, error: '"state" is one of started, done, already-done, failed' });
+    const answer = await call({ method: 'POST', path: '/join-progress', body: { ...stage, state: 'skipped' } });
+    expect(machines.reportJoinProgress).toHaveBeenCalledWith(undefined, { ...stage, state: 'skipped' });
+    expect(answer.status).toBe(400);
+    expect(answer.text).toBe('"state" is one of started, done, already-done, failed');
+    expect(answer.headers['content-type']).toContain('text/plain');
+  });
+
+  it('sends a machine to root where this Koala holds no accounts', async () => {
+    const answer = await call({ method: 'POST', path: '/join-progress', body: stage, headers: { authorization: 'Bearer the-code' } }, true, false);
+    expect(answer.status).toBe(404);
+  });
 });
 
 describe('/api/machines/join', () => {

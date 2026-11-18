@@ -1,4 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
+import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
 import { holdsAccounts, runOnce, servesTenants, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
 import { RootMachines, type InstanceRecord } from '../../instances/index.js';
 import { MachineAccounts, type KoalaPlace, type KoalaPlacer } from '../services/MachineAccounts.js';
@@ -7,11 +8,12 @@ import { MachineService, type MachineDeps } from '../services/MachineService.js'
 import { MachineClusters } from '../services/MachineClusters.js';
 import { wireMachineAccounts, type AccountSockets } from './accounts.js';
 import type { WorkTokenTrust } from './sockets.js';
+import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 
 export interface MachineSidesDeps {
   role: RoleConfig;
   db: Database;
-  io: Pick<SocketServer, 'of'>;
+  io: Pick<SocketServer, 'of' | 'to'>;
   dataKey: SecretKey;
   publicUrl: string;
   meshLoginServer?: string | undefined;
@@ -60,6 +62,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
     followers: { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
+    toOwner: { machinesChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(MACHINE_JOINS_CHANGED, {}); } },
     toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), online: (deviceId) => toMachines.online(deviceId) },
     placer: { placeOn: async (ownerId, machine, name) => (deps.instances()?.service?.placeOn ? deps.instances()!.service!.placeOn!(ownerId, machine, name) : { ok: false, status: 503, error: 'this Koala holds no instances to put on machines' }) },
     mesh: deps.mesh,

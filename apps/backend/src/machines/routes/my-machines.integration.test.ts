@@ -21,6 +21,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
         store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
         mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
         koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+        toOwner: { machinesChanged: () => undefined },
         toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
         placer: instances,
       });
@@ -42,7 +43,7 @@ describe('a person\'s machines on root\'s own page', () => {
     const joined = await accounts.join(made.code, { hostname: 'desk', rootDir: '/home/me/koala' });
     if (!joined.ok) throw new Error(joined.error);
     const id = joined.value.deviceId;
-    expect((await axios.get(site.url('/api/my-machines'))).data).toEqual({ koala: null, machines: [expect.objectContaining({ id, name: 'desk', online: false, koalaWanted: true, holdsKoala: false })] });
+    expect((await axios.get(site.url('/api/my-machines'))).data).toEqual({ koala: null, joins: [], machines: [expect.objectContaining({ id, name: 'desk', online: false, koalaWanted: true, holdsKoala: false })] });
     await accounts.recordMeshIp(id, '100.64.0.7');
     expect((await axios.post(site.url(`/api/my-machines/${id}/koala`), {})).data).toEqual({ placing: false });
     expect((await axios.get(site.url('/api/my-machines'))).data).toMatchObject({ koala: { machineId: id, status: 'joined' }, machines: [{ holdsKoala: true, koalaWanted: true }] });

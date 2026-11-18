@@ -4,6 +4,7 @@ import express from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -169,5 +170,27 @@ describe('a root and an instance wired as they run, against each other', () => {
     await report('ready');
     await until(async () => (told.length === 4 ? true : undefined));
     expect(told[3]).toMatchObject({ url: expect.any(String) as unknown, workToken: expect.any(String) as unknown });
+  });
+
+  it('root tells the owner\'s browsers as a join reports, and ends the join when the machine it made first connects', async () => {
+    const { root, rootSide } = await rootAndInstance();
+    root.io.on('connection', (browser) => { void browser.join('user:bo'); });
+    const heard: unknown[] = [];
+    const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
+    closers.push(async () => { browser.close(); });
+    browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
+    await until(async () => (browser.connected ? true : undefined));
+    const accounts = rootSide.accounts!;
+    const { code } = await accounts.createJoinCode('bo');
+    expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
+    await until(async () => (heard.length === 1 ? true : undefined));
+    const joined = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala' });
+    if (!joined.ok) throw new Error(joined.error);
+    expect(await accounts.joins('bo')).toHaveLength(1);
+    const machine: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: joined.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
+    closers.push(async () => { machine.close(); });
+    await until(async () => ((await accounts.joins('bo')).length === 0 ? true : undefined));
+    await until(async () => (heard.length === 2 ? true : undefined));
+    expect(heard).toEqual([{}, {}]);
   });
 });

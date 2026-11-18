@@ -48,6 +48,7 @@ beforeEach(async () => {
     settings: { url: 'http://root.test' },
     koala: { of: async () => undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+    toOwner: { machinesChanged: () => undefined },
     toMachines: { removed: (id) => sockets!.removed(id), koala: (id, koala) => sockets!.koala(id, koala), placeKoala: (id, placed) => sockets!.placeKoala(id, placed), online: (id) => sockets!.online(id) },
     placer: instances,
   });

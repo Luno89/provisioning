@@ -1,5 +1,5 @@
 import { failureOf, statusFailure } from '@koala/engine-core/failures';
-import { JOIN_PROGRESS_PATH, joinProgressCredential, type JoinProgress, type JoinProgressState } from '@koala/engine-core/join-progress';
+import { boundedWhy, JOIN_PROGRESS_PATH, joinProgressCredential, type JoinProgress, type JoinProgressState } from '@koala/engine-core/machine-join';
 import { Hopeless, waitUntil, type Reporter, type StepName, type WaitOptions } from '@koala/provision';
 
 export interface JoinProgressSink {
@@ -43,6 +43,6 @@ export function rootReporter(sink: JoinProgressSink): Reporter {
     alreadyDone: (step) => tell(step, 'already-done'),
     line: () => undefined,
     done: (step) => tell(step, 'done'),
-    failed: (step, failure) => tell(step, 'failed', failure.why),
+    failed: (step, failure) => tell(step, 'failed', boundedWhy(failure.why)),
   };
 }

@@ -5,7 +5,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { joinProgressOf, JOIN_PROGRESS_PATH, type JoinProgress } from '@koala/engine-core/join-progress';
+import { joinProgressOf, JOIN_PROGRESS_PATH, type JoinProgress } from '@koala/engine-core/machine-join';
 import { localCommands } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
 import { localJoinHost } from './host.js';

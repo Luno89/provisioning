@@ -3,6 +3,23 @@ import type { Collection, Db, Document } from 'mongodb';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
+export interface JoinChange {
+  set?: Partial<Pick<MachineJoinCode, 'deviceId' | 'deviceTokenHash' | 'connectedAt' | 'progress' | 'keptUntil'>> | undefined;
+  unset?: readonly ('keptUntil')[] | undefined;
+}
+
+const NOTHING_TO_DROP: readonly unknown[] = [26, 27];
+
+const joinOf = (doc: Document): MachineJoinCode => {
+  const { _id, expiresAt, keptUntil, ...rest } = doc;
+  return {
+    ...(rest as Omit<MachineJoinCode, 'hash' | 'expiresAt' | 'keptUntil'>),
+    hash: String(_id),
+    expiresAt: (expiresAt as Date).toISOString(),
+    ...(keptUntil instanceof Date ? { keptUntil: keptUntil.toISOString() } : {}),
+  };
+};
+
 export interface DeviceChange {
   set?: Partial<LocalAgentDeviceMetadata> | undefined;
   unset?: readonly (keyof LocalAgentDeviceMetadata & string)[] | undefined;
@@ -15,7 +32,13 @@ export interface MachinesStore extends AreaStore {
   updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean>;
   deleteLocalAgentDevice(id: string): Promise<void>;
   saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
-  takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined>;
+  takeMachineJoinCode(hash: string, usedAt: string): Promise<MachineJoinCode | undefined>;
+  getMachineJoin(hash: string): Promise<MachineJoinCode | undefined>;
+  getReportedMachineJoins(ownerId: string): Promise<MachineJoinCode[]>;
+  getMachineJoinsOf(deviceId: string): Promise<MachineJoinCode[]>;
+  updateMachineJoin(hash: string, change: JoinChange): Promise<boolean>;
+  deleteMachineJoin(hash: string): Promise<boolean>;
+  deleteMachineJoinsOf(deviceId: string, keep?: string): Promise<number>;
 }
 
 export class MongoMachinesStore implements MachinesStore {
@@ -30,7 +53,16 @@ export class MongoMachinesStore implements MachinesStore {
   }
 
   async ensureIndexes(): Promise<void> {
-    await this.machineJoinCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.machineJoinCodes.updateMany(
+      { keptUntil: { $exists: false }, progress: { $exists: false } },
+      [{ $set: { keptUntil: '$expiresAt', id: { $ifNull: ['$id', { $toString: '$_id' }] } } }],
+    );
+    await this.machineJoinCodes.dropIndex('expiresAt_1').catch((err: { code?: unknown }) => {
+      if (!NOTHING_TO_DROP.includes(err.code)) throw err;
+    });
+    await this.machineJoinCodes.createIndex({ keptUntil: 1 }, { expireAfterSeconds: 0 });
+    await this.machineJoinCodes.createIndex({ ownerId: 1 });
+    await this.machineJoinCodes.createIndex({ deviceId: 1 }, { sparse: true });
   }
 
   async getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]> {
@@ -56,12 +88,44 @@ export class MongoMachinesStore implements MachinesStore {
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {
-    await this.machineJoinCodes.replaceOne({ _id: code.hash as never }, { ...code, expiresAt: new Date(code.expiresAt) }, { upsert: true });
+    const { hash, expiresAt, keptUntil, ...rest } = code;
+    await this.machineJoinCodes.replaceOne({ _id: hash as never }, { ...rest, expiresAt: new Date(expiresAt), ...(keptUntil ? { keptUntil: new Date(keptUntil) } : {}) }, { upsert: true });
   }
 
-  async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
-    const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
-    if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(typeof doc.koalaName === 'string' ? { koalaName: doc.koalaName } : {}) };
+  async takeMachineJoinCode(hash: string, usedAt: string): Promise<MachineJoinCode | undefined> {
+    const doc = await this.machineJoinCodes.findOneAndUpdate({ _id: hash as never, usedAt: { $exists: false } }, { $set: { usedAt } });
+    return doc ? joinOf(doc) : undefined;
+  }
+
+  async getMachineJoin(hash: string): Promise<MachineJoinCode | undefined> {
+    const doc = await this.machineJoinCodes.findOne({ _id: hash as never });
+    return doc ? joinOf(doc) : undefined;
+  }
+
+  async getReportedMachineJoins(ownerId: string): Promise<MachineJoinCode[]> {
+    return (await this.machineJoinCodes.find({ ownerId, progress: { $exists: true } }).toArray()).map(joinOf);
+  }
+
+  async getMachineJoinsOf(deviceId: string): Promise<MachineJoinCode[]> {
+    return (await this.machineJoinCodes.find({ deviceId }).toArray()).map(joinOf);
+  }
+
+  async updateMachineJoin(hash: string, change: JoinChange): Promise<boolean> {
+    const { keptUntil, ...set } = change.set ?? {};
+    const update = fieldChanges({
+      ...set,
+      ...(keptUntil ? { keptUntil: new Date(keptUntil) } : {}),
+      ...Object.fromEntries((change.unset ?? []).map((field) => [field, undefined])),
+    });
+    if (!update.$set && !update.$unset) return false;
+    return (await this.machineJoinCodes.updateOne({ _id: hash as never }, update)).matchedCount === 1;
+  }
+
+  async deleteMachineJoin(hash: string): Promise<boolean> {
+    return (await this.machineJoinCodes.deleteOne({ _id: hash as never })).deletedCount === 1;
+  }
+
+  async deleteMachineJoinsOf(deviceId: string, keep?: string): Promise<number> {
+    return (await this.machineJoinCodes.deleteMany({ deviceId, ...(keep ? { _id: { $ne: keep as never } } : {}) })).deletedCount;
   }
 }

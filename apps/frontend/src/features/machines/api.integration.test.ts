@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { type AccountMachine, type LocalAgentDevice, type MachineJoinCode, createMachineJoinCode, createMyJoinCode, deleteLocalAgentDevice, installMachineAdapter, listLocalAgentDevices, listMyMachines, putKoalaOn, setMachineAgents } from './api'
+import { type AccountMachine, type LocalAgentDevice, type MachineJoinCode, createMachineJoinCode, createMyJoinCode, deleteLocalAgentDevice, dismissMachineJoin, installMachineAdapter, listLocalAgentDevices, listMyMachines, putKoalaOn, setMachineAgents } from './api'
 import { startBackend } from '../../test/backend/site'
 import { machinesOf, type Machines } from '../../test/backend/machines'
 import type { AccountMachine as RootMachine, MachineAccounts } from '../../../../backend/src/machines/services/MachineAccounts'
@@ -80,7 +80,17 @@ describe('root\'s My Machines page, as the browser asks for it', () => {
     expect(made.command).toBe(`curl -fsSL ${backend.origin}/machine.sh | sh -s -- ${made.code}`)
     const id = await joined('tower', async () => made)
     const view = await listMyMachines()
-    expect(view).toEqual({ koala: null, machines: [objectWith({ id, name: 'tower', rootDir: '/home/me/tower', online: false, koalaWanted: true, holdsKoala: false })] })
+    expect(view).toEqual({ koala: null, joins: [], machines: [objectWith({ id, name: 'tower', rootDir: '/home/me/tower', online: false, koalaWanted: true, holdsKoala: false })] })
+  })
+
+  it('shows a join as its machine reports it, and dismisses one that failed', async () => {
+    const made = await createMyJoinCode()
+    expect(await side!.accounts.reportJoinProgress(made.code, { stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var' })).toMatchObject({ ok: true })
+    const { joins } = await listMyMachines()
+    expect(joins).toEqual([{ id: anyOf(String), stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var', at: anyOf(String), expiresAt: made.expiresAt }])
+    expect(await dismissMachineJoin(joins[0]!.id)).toEqual({ dismissed: true })
+    expect((await listMyMachines()).joins).toEqual([])
+    await expect(dismissMachineJoin(joins[0]!.id)).rejects.toMatchObject({ response: { status: 404, data: { error: 'no such join on your account' } } })
   })
 
   it('puts Koala on a machine on the mesh under the name the page sends, and the list then says it holds Koala', async () => {
@@ -100,6 +110,6 @@ describe('machines are the signed-in person\'s alone', () => {
   it('shows another person none of the first person\'s machines', async () => {
     await backend.signInAnother('second@koala.test')
     expect(await listLocalAgentDevices()).toEqual([])
-    expect(await listMyMachines()).toEqual({ koala: null, machines: [] })
+    expect(await listMyMachines()).toEqual({ koala: null, joins: [], machines: [] })
   })
 })

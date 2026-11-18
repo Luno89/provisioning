@@ -1,14 +1,42 @@
 import crypto from 'crypto';
+import type { JoinProgress, MachineJoinView } from '@koala/engine-core/machine-join';
 import { commandSafeCode } from '../../platform/lib/invite-codes.js';
 
 export const MACHINE_CODE_TTL_SECONDS = 3600;
 
+export interface MachineJoinStage extends JoinProgress {
+  at: string;
+}
+
 export interface MachineJoinCode {
   hash: string;
+  id: string;
   ownerId: string;
   expiresAt: string;
+  keptUntil?: string | undefined;
   koalaName?: string | undefined;
+  usedAt?: string | undefined;
+  deviceId?: string | undefined;
+  deviceTokenHash?: string | undefined;
+  connectedAt?: string | undefined;
+  progress?: MachineJoinStage | undefined;
 }
+
+export const joinShown = (join: MachineJoinCode): join is MachineJoinCode & { progress: MachineJoinStage } =>
+  Boolean(join.progress) && (!join.connectedAt || join.progress?.state === 'failed');
+
+export const machineJoinView = (join: MachineJoinCode & { progress: MachineJoinStage }): MachineJoinView => ({
+  id: join.id,
+  stage: join.progress.stage,
+  title: join.progress.title,
+  state: join.progress.state,
+  ...(join.progress.why ? { why: join.progress.why } : {}),
+  at: join.progress.at,
+  expiresAt: join.expiresAt,
+});
+
+export const joinStillReporting = (join: Pick<MachineJoinCode, 'expiresAt' | 'progress'>, now: Date): boolean =>
+  join.progress?.state !== 'failed' && join.expiresAt > now.toISOString();
 
 export type MachineAgentState = 'checking' | 'ready' | 'needs-adapter' | 'not-answering';
 

@@ -1,7 +1,44 @@
 import { useState } from 'react'
-import { Check, Copy, HardDrive, Loader2, Plus } from 'lucide-react'
+import { AlertTriangle, Check, Copy, HardDrive, Loader2, Plus, X } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
-import { useCreateMyJoinCode, useMyMachines, usePutKoalaOn } from '../api'
+import { useCreateMyJoinCode, useDismissMachineJoin, useMyMachines, useMyMachinesLive, usePutKoalaOn, type MachineJoinView } from '../api'
+import { joinStatus } from '../lib/machine-joins'
+
+function JoinRow({ join, onDismiss, dismissing }: { join: MachineJoinView; onDismiss: (id: string) => void; dismissing: boolean }) {
+  const status = joinStatus(join, new Date())
+  if (status === 'joining') {
+    return (
+      <li className="flex items-center gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2 text-xs text-slate-200">
+        <Loader2 size={14} className="animate-spin text-slate-400" />
+        <span className="text-slate-400">{join.state === 'started' ? 'Joining:' : 'Joining, finished:'}</span>
+        <span>{join.title}</span>
+      </li>
+    )
+  }
+  const dismiss = (
+    <button type="button" onClick={() => onDismiss(join.id)} disabled={dismissing} aria-label="Dismiss" className="text-slate-400 hover:text-slate-100 disabled:opacity-50">
+      <X size={14} />
+    </button>
+  )
+  if (status === 'stopped') {
+    return (
+      <li className="flex items-start justify-between gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2 text-xs text-slate-300">
+        <span>A machine stopped reporting at <span className="text-slate-100">{join.title}</span>: its command expired before it finished joining. Make a new command and run it there.</span>
+        {dismiss}
+      </li>
+    )
+  }
+  return (
+    <li role="alert" className="flex items-start justify-between gap-2 rounded-md border border-rose-800 px-3 py-2 text-xs text-rose-200">
+      <span className="space-y-1">
+        <span className="flex items-center gap-2"><AlertTriangle size={14} /> A machine could not join at <span className="font-medium">{join.title}</span></span>
+        <span className="block whitespace-pre-wrap font-mono text-[11px] text-rose-100">{join.why}</span>
+        <span className="block text-[11px] text-slate-400">Fix that, then run the command again on that machine.</span>
+      </span>
+      {dismiss}
+    </li>
+  )
+}
 
 export interface AccountMachinesProps {
   name: string
@@ -17,7 +54,10 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
   const createCode = useCreateMyJoinCode()
   const mine = useMyMachines(adding || Boolean(createCode.data))
   const place = usePutKoalaOn()
+  const dismissJoin = useDismissMachineJoin()
+  useMyMachinesLive()
   const machines = mine.data?.machines ?? []
+  const joins = mine.data?.joins ?? []
 
   const add = () => {
     setAdding(true)
@@ -31,6 +71,11 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
 
   return (
     <div className="space-y-3" data-testid="account-machines">
+      {joins.length > 0 && (
+        <ul className="space-y-2">
+          {joins.map((join) => <JoinRow key={join.id} join={join} onDismiss={(id) => dismissJoin.mutate(id)} dismissing={dismissJoin.isPending} />)}
+        </ul>
+      )}
       {machines.length > 0 && (
         <ul className="space-y-2">
           {machines.map((machine) => (
@@ -105,7 +150,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
           <p className="text-[10px] text-slate-500">The command works once, until {new Date(createCode.data.expiresAt).toLocaleTimeString()}.</p>
         </div>
       )}
-      {(createCode.isError || place.isError) && <p role="alert" className="text-xs text-rose-300">{errorMessage(createCode.error ?? place.error)}</p>}
+      {(createCode.isError || place.isError || dismissJoin.isError) && <p role="alert" className="text-xs text-rose-300">{errorMessage(createCode.error ?? place.error ?? dismissJoin.error)}</p>}
     </div>
   )
 }

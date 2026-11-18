@@ -25,6 +25,7 @@ async function root() {
         mesh: { createPreAuthKey: async () => ({ key: 'preauth-key' }), removeNode: async () => undefined },
         koala: { of: async () => ({ url: 'https://bo.people.example', audience: 'inst-1' }) },
         followers: { joined: async () => undefined, removed: async (machine) => { removed.push(machine); }, changed: async () => undefined },
+        toOwner: { machinesChanged: () => undefined },
         toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed']); return true; }, koala: () => true },
       });
       return accountMachinesRouter({

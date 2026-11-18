@@ -1,8 +1,8 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { JOIN_PROGRESS_PATH, joinProgressOf } from '@koala/engine-core/join-progress';
-import { joinProgressContract } from '@koala/engine-core/testing/join-progress-contract';
+import { JOIN_PROGRESS_LIMITS, JOIN_PROGRESS_PATH, joinProgressCredential, joinProgressOf } from '@koala/engine-core/machine-join';
+import { joinProgressContract } from '@koala/engine-core/testing/machine-join';
 import { runSteps, StepFailed, type Step } from '@koala/provision';
 import { rootJoinProgress, rootReporter } from './root-progress.js';
 
@@ -31,10 +31,10 @@ afterEach(() => {
 afterAll(() => server.close());
 
 joinProgressContract('the stand-in for root in these tests', async () => ({
-  code: CODE,
-  post: async (credential, body) => (await fetch(`${ROOT}${JOIN_PROGRESS_PATH}`, {
+  code: async () => CODE,
+  post: async (code, body) => (await fetch(`${ROOT}${JOIN_PROGRESS_PATH}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
+    headers: { 'content-type': 'application/json', ...(code === undefined ? {} : joinProgressCredential(code)) },
     body: JSON.stringify(body),
   })).status,
 }));
@@ -72,6 +72,15 @@ describe('telling root how a machine\'s join goes', () => {
     await runSteps(steps, { made: new Set() }, reporterFor()).catch((err: unknown) => err);
     expect(JSON.stringify(heard)).not.toContain('hskey-secret-tail');
     expect(heard.map(({ body }) => (body as { state: string }).state)).toEqual(['started', 'done', 'started', 'failed']);
+  });
+
+  it('shortens a failure longer than root takes, so root still hears where and why it stopped', async () => {
+    const long = { id: 'k3s', title: 'Installing k3s', check: async () => ({ done: false, why: 'not there' }), apply: async () => { throw new Error('x'.repeat(JOIN_PROGRESS_LIMITS.why + 50)); } } satisfies Step<{ made: Set<string> }>;
+    await expect(runSteps([long], { made: new Set() }, reporterFor())).rejects.toBeInstanceOf(StepFailed);
+    const failure = heard.at(-1)!.body as { state: string; why: string };
+    expect(failure.state).toBe('failed');
+    expect(failure.why).toHaveLength(JOIN_PROGRESS_LIMITS.why);
+    expect(joinProgressOf(failure).ok).toBe(true);
   });
 
   it('waits through root answering that it is down, and goes on once it hears', async () => {

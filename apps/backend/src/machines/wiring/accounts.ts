@@ -1,7 +1,7 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { Database } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
+import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { PlacedKoala } from '../../instances/index.js';
@@ -18,12 +18,12 @@ export interface AccountSockets {
 export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
-  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
+  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
   const connected = new Map<string, Set<Socket>>();
-  const admitted = new WeakMap<object, { deviceId: string; via: TokenVia }>();
+  const admitted = new WeakMap<object, { deviceId: string; via: TokenVia; tokenHash: string }>();
 
   namespace.use((socket, next) => {
     const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
@@ -32,7 +32,7 @@ export function wireMachineAccounts(deps: {
       const match = matchDeviceToken(devices, token, (deps.now ?? (() => new Date()))());
       if (!match) return next(new Error('Unauthorized'));
       if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
-      admitted.set(socket, { deviceId: match.device.id, via: match.via });
+      admitted.set(socket, { deviceId: match.device.id, via: match.via, tokenHash: deviceTokenHash(token) });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -43,12 +43,13 @@ export function wireMachineAccounts(deps: {
       socket.disconnect(true);
       return;
     }
-    const { deviceId, via } = machine;
+    const { deviceId, via, tokenHash } = machine;
     const accounts = deps.accounts();
     const sockets = connected.get(deviceId) ?? new Set<Socket>();
     sockets.add(socket);
     connected.set(deviceId, sockets);
     accounts.seen(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it was last seen could not be recorded: ${err.message}`));
+    accounts.joinFinished(deviceId, tokenHash).catch((err: Error) => console.warn(`[machines] ${deviceId}: its join could not be marked finished: ${err.message}`));
     void rotateDeviceToken(socket, deviceId, via, accounts)
       .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
       .catch((err: Error) => console.warn(`[machines] ${deviceId}: its token renewal could not be recorded: ${err.message}`));

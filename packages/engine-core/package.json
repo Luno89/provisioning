@@ -31,9 +31,17 @@
       "types": "./src/failures.ts",
       "default": "./src/failures.ts"
     },
+    "./machine-join": {
+      "types": "./src/machine-join.ts",
+      "default": "./src/machine-join.ts"
+    },
     "./testing/ports": {
       "types": "./testing/ports.ts",
       "default": "./testing/ports.ts"
+    },
+    "./testing/machine-join": {
+      "types": "./testing/machine-join.ts",
+      "default": "./testing/machine-join.ts"
     },
     "./testing/throwaway-containers": {
       "types": "./testing/throwaway-containers.ts",
@@ -54,14 +62,6 @@
     "./work-header": {
       "types": "./src/work-header.ts",
       "default": "./src/work-header.ts"
-    },
-    "./join-progress": {
-      "types": "./src/join-progress.ts",
-      "default": "./src/join-progress.ts"
-    },
-    "./testing/join-progress-contract": {
-      "types": "./testing/join-progress-contract.ts",
-      "default": "./testing/join-progress-contract.ts"
     }
   },
   "dependencies": {

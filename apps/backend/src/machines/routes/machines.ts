@@ -23,7 +23,7 @@ export interface AgentBundle {
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
   const router = Router();
 
   router.post('/metrics', asyncRoute(async (req: Request, res: Response) => {
@@ -57,6 +57,13 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join'> 
     res.status(answer.status);
     for (const [name, value] of Object.entries(answer.headers)) res.setHeader(name, value);
     answer.body.pipe(res);
+  }));
+
+  router.post('/join-progress', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.accounts) return res.status(404).type('text/plain').send('machines report their join to root, which holds accounts');
+    const outcome = await deps.accounts.reportJoinProgress(bearer(req.headers.authorization), req.body);
+    if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
+    res.status(204).end();
   }));
 
   router.post('/join', asyncRoute(async (req: Request, res: Response) => {

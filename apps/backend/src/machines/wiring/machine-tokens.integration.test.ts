@@ -130,6 +130,7 @@ beforeEach(async () => {
     settings: { url: 'http://root.test' },
     koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+    toOwner: { machinesChanged: () => undefined },
     toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });

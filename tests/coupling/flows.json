@@ -4,7 +4,8 @@
     "title": "Add a machine at root",
     "entries": [
       "apps/frontend/src/features/machines/api.ts#createMyJoinCode",
-      "scripts/machine/machine.sh#(script)"
+      "scripts/machine/machine.sh#(script)",
+      "apps/local-agent/src/join/join.ts#runJoin"
     ],
     "concepts": [
       "work",
@@ -17,6 +18,31 @@
     "endings": [
       {
         "title": "My Machines lists the machine",
+        "entries": [
+          "apps/frontend/src/features/machines/api.ts#listMyMachines"
+        ]
+      },
+      {
+        "title": "My Machines shows the join's current stage, or the stage it failed at and why",
+        "entries": [
+          "apps/frontend/src/features/machines/api.ts#listMyMachines",
+          "apps/frontend/src/features/machines/api.ts#useMyMachinesLive"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "dismiss-machine-join",
+    "title": "Dismiss a join that failed or stopped reporting",
+    "entries": [
+      "apps/frontend/src/features/machines/api.ts#dismissMachineJoin"
+    ],
+    "concepts": [
+      "store"
+    ],
+    "endings": [
+      {
+        "title": "My Machines no longer shows the join, and the command it was made with is refused",
         "entries": [
           "apps/frontend/src/features/machines/api.ts#listMyMachines"
         ]

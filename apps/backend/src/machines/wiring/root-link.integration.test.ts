@@ -35,6 +35,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
     store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test' },
     koala: { of: async () => koala ?? undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+    toOwner: { machinesChanged: () => undefined },
     toMachines: sockets,
     now: clock,
   });

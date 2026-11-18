@@ -14,15 +14,15 @@ const nameIn = (body: unknown, field: string): string | undefined => {
 export interface KoalaWhere { machineId?: string | undefined; status?: string | undefined }
 
 export function myMachinesRouter(deps: {
-  accounts: Pick<MachineAccounts, 'listOnline' | 'createJoinCode' | 'putKoalaOn' | 'remove'>;
+  accounts: Pick<MachineAccounts, 'mine' | 'createJoinCode' | 'putKoalaOn' | 'remove' | 'dismissJoin'>;
   koalaOf: (ownerId: string) => Promise<KoalaWhere | undefined>;
 }): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (req: Request, res: Response) => {
     const owner = userOf(req).id;
-    const [machines, koala] = await Promise.all([deps.accounts.listOnline(owner), deps.koalaOf(owner)]);
-    res.json({ machines: machines.map((machine) => ({ ...machine, holdsKoala: koala?.machineId === machine.id })), koala: koala ?? null });
+    const [{ machines, joins }, koala] = await Promise.all([deps.accounts.mine(owner), deps.koalaOf(owner)]);
+    res.json({ machines: machines.map((machine) => ({ ...machine, holdsKoala: koala?.machineId === machine.id })), joins, koala: koala ?? null });
   }));
 
   router.post('/join-code', asyncRoute(async (req: Request, res: Response) => {
@@ -33,6 +33,12 @@ export function myMachinesRouter(deps: {
     const outcome = await deps.accounts.putKoalaOn(userOf(req).id, param(req, 'id'), nameIn(req.body, 'name'));
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.status(202).json(outcome.value);
+  }));
+
+  router.delete('/joins/:id', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.accounts.dismissJoin(userOf(req).id, param(req, 'id'));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
   }));
 
   router.delete('/:id', asyncRoute(async (req: Request, res: Response) => {
