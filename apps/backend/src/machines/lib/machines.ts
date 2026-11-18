@@ -33,10 +33,17 @@ export const machineJoinView = (join: MachineJoinCode & { progress: MachineJoinS
   ...(join.progress.why ? { why: join.progress.why } : {}),
   at: join.progress.at,
   expiresAt: join.expiresAt,
+  joined: join.usedAt !== undefined,
 });
 
-export const joinStillReporting = (join: Pick<MachineJoinCode, 'expiresAt' | 'progress'>, now: Date): boolean =>
-  join.progress?.state !== 'failed' && join.expiresAt > now.toISOString();
+export const joinCodeLapsed = (join: Pick<MachineJoinCode, 'expiresAt' | 'usedAt'>, now: Date): boolean =>
+  join.usedAt === undefined && join.expiresAt <= now.toISOString();
+
+export const joinDismissable = (join: Pick<MachineJoinCode, 'expiresAt' | 'usedAt' | 'progress'>, now: Date): boolean =>
+  join.progress?.state === 'failed' || join.usedAt !== undefined || joinCodeLapsed(join, now);
+
+export const joinEndsOnConnecting = (join: Pick<MachineJoinCode, 'progress'>): boolean =>
+  join.progress === undefined || join.progress.state === 'done' || join.progress.state === 'already-done';
 
 export type MachineAgentState = 'checking' | 'ready' | 'needs-adapter' | 'not-answering';
 

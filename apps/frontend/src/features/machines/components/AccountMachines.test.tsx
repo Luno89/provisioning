@@ -18,7 +18,7 @@ vi.mock('../../../api/client', async (importOriginal) => {
 
 const later = '2099-01-01T00:00:00.000Z'
 const join = (overrides: Partial<MachineJoinView> = {}): MachineJoinView => ({
-  id: 'j1', stage: 'k3s', title: 'Installing k3s', state: 'started', at: '2026-11-18T10:00:00.000Z', expiresAt: later, ...overrides,
+  id: 'j1', stage: 'k3s', title: 'Installing k3s', state: 'started', at: '2026-11-18T10:00:00.000Z', expiresAt: later, joined: false, ...overrides,
 })
 
 const showing = (joins: MachineJoinView[], machines: AccountMachine[] = []) =>
@@ -99,6 +99,16 @@ describe('My Machines on root, while a machine joins', () => {
     renderPanel()
     expect(await screen.findByText(/stopped reporting/i)).toBeDefined()
     expect(screen.getByRole('button', { name: /dismiss/i })).toBeDefined()
+  })
+
+  it('lets the person dismiss a join a machine joined with, which has no deadline, past its command\'s hour', async () => {
+    showing([join({ joined: true, expiresAt: '2026-01-01T00:00:00.000Z' })])
+    vi.mocked(api.delete).mockResolvedValue({ data: { dismissed: true } })
+    renderPanel()
+    expect(await screen.findByText('Installing k3s')).toBeDefined()
+    expect(screen.queryByText(/stopped reporting/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/my-machines/joins/j1'))
   })
 
   it('follows the join live as root says it changed', async () => {

@@ -5,7 +5,7 @@ import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform
 import type { IdentityKeyPair, PlacedKoala, PlacingMachine } from '../../instances/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
-import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinShown, joinStillReporting, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
+import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinCodeLapsed, joinDismissable, joinEndsOnConnecting, joinShown, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import type { MachinesStore } from '../store.js';
 
@@ -169,12 +169,13 @@ export class MachineAccounts {
   async reportJoinProgress(code: unknown, body: unknown): Promise<Outcome<{ recorded: true }>> {
     if (typeof code !== 'string' || !code) return { ok: false, status: 401, error: 'send the code from My Machines as the bearer credential' };
     const join = await this.deps.store.getMachineJoin(hashMachineCode(code));
-    if (!join || join.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: JOIN_GONE };
+    if (!join || joinCodeLapsed(join, this.now())) return { ok: false, status: 401, error: JOIN_GONE };
     const read = joinProgressOf(body);
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
     const progress = { ...read.value, at: this.now().toISOString() };
-    const goesWithItsCode = join.connectedAt !== undefined && progress.state !== 'failed';
-    const recorded = await this.deps.store.updateMachineJoin(join.hash, goesWithItsCode ? { set: { progress, keptUntil: join.expiresAt } } : { set: { progress }, unset: ['keptUntil'] });
+    const recorded = join.connectedAt !== undefined && joinEndsOnConnecting({ progress })
+      ? await this.deps.store.deleteMachineJoin(join.hash)
+      : await this.deps.store.updateMachineJoin(join.hash, { set: { progress }, unset: ['keptUntil'] });
     if (!recorded) return { ok: false, status: 401, error: JOIN_GONE };
     this.deps.toOwner.machinesChanged(join.ownerId);
     return { ok: true, value: { recorded: true } };
@@ -183,7 +184,7 @@ export class MachineAccounts {
   async dismissJoin(ownerId: string, id: string): Promise<Outcome<{ dismissed: true }>> {
     const join = (await this.deps.store.getReportedMachineJoins(ownerId)).filter(joinShown).find((candidate) => candidate.id === id);
     if (!join || !allowed(asPerson(ownerId), 'change', { kind: 'record', noun: 'machine join', ownerId: join.ownerId })) return { ok: false, status: 404, error: NO_SUCH_JOIN };
-    if (joinStillReporting(join, this.now())) return { ok: false, status: 409, error: 'that machine is still joining; it can be dismissed once it fails or its command expires' };
+    if (!joinDismissable(join, this.now())) return { ok: false, status: 409, error: 'that command can still join a machine; it can be dismissed once it fails, its command expires or a machine joins with it' };
     await this.deps.store.deleteMachineJoin(join.hash);
     this.deps.toOwner.machinesChanged(join.ownerId);
     return { ok: true, value: { dismissed: true } };
@@ -195,7 +196,8 @@ export class MachineAccounts {
     const finishing = (await this.deps.store.getMachineJoinsOf(device.id)).filter((join) => join.deviceTokenHash === tokenHash && !join.connectedAt);
     const connectedAt = this.now().toISOString();
     for (const join of finishing) {
-      await this.deps.store.updateMachineJoin(join.hash, { set: { connectedAt, ...(join.progress?.state === 'failed' ? {} : { keptUntil: join.expiresAt }) } });
+      if (joinEndsOnConnecting(join)) await this.deps.store.deleteMachineJoin(join.hash);
+      else await this.deps.store.updateMachineJoin(join.hash, { set: { connectedAt } });
     }
     if (finishing.length) this.deps.toOwner.machinesChanged(device.ownerId);
   }
@@ -231,7 +233,7 @@ export class MachineAccounts {
       ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
     };
     await this.deps.store.saveLocalAgentDevice(device);
-    await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id, deviceTokenHash: device.tokenHash } });
+    await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id, deviceTokenHash: device.tokenHash }, unset: ['keptUntil'] });
     if (await this.deps.store.deleteMachineJoinsOf(id, found.hash)) this.deps.toOwner.machinesChanged(found.ownerId);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
     const preAuthKey = (await this.deps.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key;

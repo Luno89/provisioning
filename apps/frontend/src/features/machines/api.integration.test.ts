@@ -87,7 +87,7 @@ describe('root\'s My Machines page, as the browser asks for it', () => {
     const made = await createMyJoinCode()
     expect(await side!.accounts.reportJoinProgress(made.code, { stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var' })).toMatchObject({ ok: true })
     const { joins } = await listMyMachines()
-    expect(joins).toEqual([{ id: anyOf(String), stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var', at: anyOf(String), expiresAt: made.expiresAt }])
+    expect(joins).toEqual([{ id: anyOf(String), stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var', at: anyOf(String), expiresAt: made.expiresAt, joined: false }])
     expect(await dismissMachineJoin(joins[0]!.id)).toEqual({ dismissed: true })
     expect((await listMyMachines()).joins).toEqual([])
     await expect(dismissMachineJoin(joins[0]!.id)).rejects.toMatchObject({ response: { status: 404, data: { error: 'no such join on your account' } } })

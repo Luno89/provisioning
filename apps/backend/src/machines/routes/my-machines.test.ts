@@ -15,7 +15,7 @@ beforeEach(() => {
 
 describe('/api/my-machines on root', () => {
   it('lists the person\'s machines with which one holds their Koala, and their joins', async () => {
-    const join = { id: 'j1', stage: 'k3s', title: 'Installing k3s', state: 'failed' as const, why: 'no space left', at: 't', expiresAt: 't' };
+    const join = { id: 'j1', stage: 'k3s', title: 'Installing k3s', state: 'failed' as const, why: 'no space left', at: 't', expiresAt: 't', joined: true };
     accounts.mine.mockResolvedValue({ machines: [{ id: 'desk', ownerId: 'test-user', name: 'desk', rootDir: '/x', createdAt: 't', online: true, koalaWanted: false }], joins: [join] });
     const answer = await (await routes()).get('/api/my-machines');
     expect(answer.data).toEqual({ machines: [expect.objectContaining({ id: 'desk', online: true, holdsKoala: true })], joins: [join], koala: { machineId: 'desk', status: 'ready' } });
@@ -23,11 +23,11 @@ describe('/api/my-machines on root', () => {
   });
 
   it('dismisses a join of the person\'s, saying why it cannot', async () => {
-    accounts.dismissJoin.mockResolvedValueOnce({ ok: true, value: { dismissed: true } }).mockResolvedValueOnce({ ok: false, status: 409, error: 'that machine is still joining; it can be dismissed once it fails or its command expires' });
+    accounts.dismissJoin.mockResolvedValueOnce({ ok: true, value: { dismissed: true } }).mockResolvedValueOnce({ ok: false, status: 409, error: 'that command can still join a machine; it can be dismissed once it fails, its command expires or a machine joins with it' });
     const site = await routes();
     expect(await site.request('DELETE', '/api/my-machines/joins/j1')).toMatchObject({ status: 200, data: { dismissed: true } });
     expect(accounts.dismissJoin).toHaveBeenCalledWith('test-user', 'j1');
-    expect(await site.request('DELETE', '/api/my-machines/joins/j2')).toMatchObject({ status: 409, data: { error: 'that machine is still joining; it can be dismissed once it fails or its command expires' } });
+    expect(await site.request('DELETE', '/api/my-machines/joins/j2')).toMatchObject({ status: 409, data: { error: 'that command can still join a machine; it can be dismissed once it fails, its command expires or a machine joins with it' } });
   });
 
   it('makes a join command, asking for Koala on the machine when a name is given', async () => {

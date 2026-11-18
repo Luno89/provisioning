@@ -23,6 +23,7 @@ export interface MachineJoinView {
   why?: string;
   at: string;
   expiresAt: string;
+  joined: boolean;
 }
 
 export const joinProgressCredential = (code: string): { authorization: string } => ({ authorization: `Bearer ${code}` });

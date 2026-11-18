@@ -6,20 +6,24 @@ import { joinStatus } from '../lib/machine-joins'
 
 function JoinRow({ join, onDismiss, dismissing }: { join: MachineJoinView; onDismiss: (id: string) => void; dismissing: boolean }) {
   const status = joinStatus(join, new Date())
-  if (status === 'joining') {
-    return (
-      <li className="flex items-center gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2 text-xs text-slate-200">
-        <Loader2 size={14} className="animate-spin text-slate-400" />
-        <span className="text-slate-400">{join.state === 'started' ? 'Joining:' : 'Joining, finished:'}</span>
-        <span>{join.title}</span>
-      </li>
-    )
-  }
   const dismiss = (
     <button type="button" onClick={() => onDismiss(join.id)} disabled={dismissing} aria-label="Dismiss" className="text-slate-400 hover:text-slate-100 disabled:opacity-50">
       <X size={14} />
     </button>
   )
+  if (status === 'joining') {
+    return (
+      <li className="flex items-center justify-between gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2 text-xs text-slate-200">
+        <span className="flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-slate-400" />
+          <span className="text-slate-400">{join.state === 'started' ? 'Joining:' : 'Joining, finished:'}</span>
+          <span>{join.title}</span>
+          {join.joined && <span className="text-[10px] text-slate-500">last heard {new Date(join.at).toLocaleTimeString()}</span>}
+        </span>
+        {join.joined && dismiss}
+      </li>
+    )
+  }
   if (status === 'stopped') {
     return (
       <li className="flex items-start justify-between gap-2 rounded-md border border-[var(--bark-700)] px-3 py-2 text-xs text-slate-300">

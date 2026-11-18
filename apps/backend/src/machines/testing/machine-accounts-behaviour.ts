@@ -177,12 +177,12 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(await machines.reportJoinProgress(code, { stage: 'node', title: 'Node.js of Koala\'s own', state: 'already-done' })).toEqual({ ok: true, value: { recorded: true } });
       expect(browsersTold).toEqual(['bo']);
       const [first] = await machines.joins('bo');
-      expect(first).toEqual({ id: anyOf(String), stage: 'node', title: 'Node.js of Koala\'s own', state: 'already-done', at: clock.toISOString(), expiresAt });
+      expect(first).toEqual({ id: anyOf(String), stage: 'node', title: 'Node.js of Koala\'s own', state: 'already-done', at: clock.toISOString(), expiresAt, joined: false });
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
       minutes(5);
       expect(await machines.reportJoinProgress(code, started)).toEqual({ ok: true, value: { recorded: true } });
-      expect(await machines.joins('bo')).toEqual([{ id: first!.id, ...started, at: clock.toISOString(), expiresAt }]);
+      expect(await machines.joins('bo')).toEqual([{ id: first!.id, ...started, at: clock.toISOString(), expiresAt, joined: true }]);
       expect(await machines.joins('cy')).toEqual([]);
       expect(JSON.stringify(await machines.joins('bo'))).not.toContain(code);
     });
@@ -213,34 +213,59 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect((await db.machines.getMachineJoin(createHash('sha256').update(code).digest('hex')))?.keptUntil).toBeUndefined();
     });
 
-    it('lets a code nobody ran go with its hour, and keeps one that reported until it ends', async () => {
+    it('lets a code nobody ran go with its hour, and keeps one that reported or joined until it ends', async () => {
       const machines = accounts();
       const quiet = await machines.createJoinCode('bo');
       const reporting = await machines.createJoinCode('bo');
+      const used = await machines.createJoinCode('bo');
       const hashOf = (code: string) => createHash('sha256').update(code).digest('hex');
       expect((await db.machines.getMachineJoin(hashOf(quiet.code)))?.keptUntil).toBe(quiet.expiresAt);
       await machines.reportJoinProgress(reporting.code, started);
       expect((await db.machines.getMachineJoin(hashOf(reporting.code)))?.keptUntil).toBeUndefined();
+      expect(await machines.join(used.code, { hostname: 'desk', rootDir: '/home/me/koala' })).toMatchObject({ ok: true });
+      expect((await db.machines.getMachineJoin(hashOf(used.code)))?.keptUntil).toBeUndefined();
     });
 
-    it('ends a join when the machine it made first connects, so the machine shows in its place, still hearing its last stages', async () => {
+    it('keeps hearing a join after its code\'s hour once the machine joined with it, since a join has no deadline', async () => {
       const machines = accounts();
-      const { code, expiresAt } = await machines.createJoinCode('bo');
-      await machines.reportJoinProgress(code, started);
+      const { code } = await machines.createJoinCode('bo');
+      expect(await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' })).toMatchObject({ ok: true });
+      minutes(180);
+      expect(await machines.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'done' })).toEqual({ ok: true, value: { recorded: true } });
+      expect(await machines.joins('bo')).toEqual([expect.objectContaining({ stage: 'k3s', state: 'done', at: clock.toISOString(), joined: true })]);
+    });
+
+    it('ends a join once the machine it made has connected and its last stage is done, hearing the stage still running when it connected', async () => {
+      const machines = accounts();
+      const { code } = await machines.createJoinCode('bo');
+      const hash = createHash('sha256').update(code).digest('hex');
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
+      await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'started' });
       const token = deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!);
       browsersTold = [];
       await machines.joinFinished(outcome.value.deviceId, token);
       expect(await machines.joins('bo')).toEqual([]);
       expect(browsersTold).toEqual(['bo']);
+      expect(await db.machines.getMachineJoin(hash)).toBeDefined();
       expect(await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'done' })).toMatchObject({ ok: true });
-      expect(await machines.joins('bo')).toEqual([]);
-      expect((await db.machines.getMachineJoin(createHash('sha256').update(code).digest('hex')))?.keptUntil).toBe(expiresAt);
+      expect(await db.machines.getMachineJoin(hash)).toBeUndefined();
+      expect(await machines.reportJoinProgress(code, started)).toMatchObject({ ok: false, status: 401 });
       browsersTold = [];
       await machines.joinFinished(outcome.value.deviceId, token);
       await machines.joinFinished('gone', token);
       expect(browsersTold).toEqual([]);
+    });
+
+    it('ends a join at once when its machine connects after its last stage was done', async () => {
+      const machines = accounts();
+      const { code } = await machines.createJoinCode('bo');
+      const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
+      if (!outcome.ok) throw new Error(outcome.error);
+      await machines.reportJoinProgress(code, { stage: 'helm', title: 'Installing helm', state: 'done' });
+      await machines.joinFinished(outcome.value.deviceId, deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!));
+      expect(await db.machines.getMachineJoin(createHash('sha256').update(code).digest('hex'))).toBeUndefined();
+      expect(await machines.joins('bo')).toEqual([]);
     });
 
     it('shows a stage that fails after the machine connected, until dismissed', async () => {
@@ -248,6 +273,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const { code } = await machines.createJoinCode('bo');
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
+      await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'started' });
       await machines.joinFinished(outcome.value.deviceId, deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!));
       await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'failed', why: 'systemctl --user enable failed' });
       const [shown] = await machines.joins('bo');
@@ -290,12 +316,12 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(browsersTold).toEqual(['bo']);
     });
 
-    it('dismisses only the person\'s own join, and only once it failed or can no longer report', async () => {
+    it('dismisses only the person\'s own join, once it failed, its unused command expired, or the machine joined with it', async () => {
       const machines = accounts();
       const { code } = await machines.createJoinCode('bo');
       await machines.reportJoinProgress(code, started);
       const [join] = await machines.joins('bo');
-      expect(await machines.dismissJoin('bo', join!.id)).toEqual({ ok: false, status: 409, error: 'that machine is still joining; it can be dismissed once it fails or its command expires' });
+      expect(await machines.dismissJoin('bo', join!.id)).toEqual({ ok: false, status: 409, error: 'that command can still join a machine; it can be dismissed once it fails, its command expires or a machine joins with it' });
       await machines.reportJoinProgress(code, failed);
       expect(await machines.dismissJoin('cy', join!.id)).toEqual({ ok: false, status: 404, error: 'no such join on your account' });
       expect(await machines.dismissJoin('bo', 'nothing')).toEqual({ ok: false, status: 404, error: 'no such join on your account' });
@@ -309,6 +335,12 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       minutes(61);
       const [expired] = await machines.joins('bo');
       expect(await machines.dismissJoin('bo', expired!.id)).toMatchObject({ ok: true });
+      const used = await machines.createJoinCode('bo');
+      expect(await machines.join(used.code, { hostname: 'desk', rootDir: '/home/me/koala' })).toMatchObject({ ok: true });
+      await machines.reportJoinProgress(used.code, started);
+      const [joining] = await machines.joins('bo');
+      expect(await machines.dismissJoin('bo', joining!.id)).toMatchObject({ ok: true });
+      expect(await machines.reportJoinProgress(used.code, started)).toMatchObject({ ok: false, status: 401 });
     });
 
     it('lists the person\'s machines with their joins', async () => {

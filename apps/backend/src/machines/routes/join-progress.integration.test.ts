@@ -58,7 +58,7 @@ describe('a joining machine reporting its progress to root', () => {
     expect((await report(site, code, { stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var' })).status).toBe(204);
     const view = (await axios.get(site.url('/api/my-machines'))).data as { machines: Array<{ id: string }>; joins: Array<{ id: string }> };
     expect(view.machines.map((machine) => machine.id)).toEqual([joined.value.deviceId]);
-    expect(view.joins).toEqual([{ id: anyOf(String), stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var', at: anyOf(String), expiresAt: anyOf(String) }]);
+    expect(view.joins).toEqual([{ id: anyOf(String), stage: 'k3s', title: 'Installing k3s', state: 'failed', why: 'no space left on /var', at: anyOf(String), expiresAt: anyOf(String), joined: true }]);
     expect((await axios.delete(site.url(`/api/my-machines/joins/${view.joins[0]!.id}`))).data).toEqual({ dismissed: true });
     expect(((await axios.get(site.url('/api/my-machines'))).data as { joins: unknown[] }).joins).toEqual([]);
     const after = await report(site, code, { stage: 'k3s', title: 'Installing k3s', state: 'started' });
