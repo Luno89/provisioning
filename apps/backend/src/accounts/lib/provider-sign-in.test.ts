@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { githubPrimaryEmail, linkedTo, linksFromLegacyIds, providerMatch, readiedForProviderLink, type ProviderPerson } from './provider-sign-in.js';
+import { githubPrimaryEmail, linkedTo, providerMatch, readiedForProviderLink, type ProviderPerson } from './provider-sign-in.js';
 import type { UserMetadata } from '../../platform/index.js';
 
 const GITHUB = 'https://github.com';
@@ -41,18 +41,12 @@ describe('signing in with a provider', () => {
     expect(githubPrimaryEmail([{ email: 'ann@example.com', primary: true, verified: false }])).toEqual({ email: 'ann@example.com', verified: false });
     expect(githubPrimaryEmail([{ email: 'other@example.com', verified: true }])).toBeUndefined();
   });
-
-  it('moves the ids stored before links onto links under their issuer, once', () => {
-    expect(linksFromLegacyIds({ googleId: 'g-1', githubId: '42' })).toEqual([{ issuer: 'https://accounts.google.com', subject: 'g-1' }, { issuer: GITHUB, subject: '42' }]);
-    expect(linksFromLegacyIds({ githubId: '42', ...at('9') })).toEqual([{ issuer: GITHUB, subject: '9' }]);
-    expect(linksFromLegacyIds({})).toEqual([]);
-  });
 });
 
 describe('readying an account for its first real provider sign-in', () => {
-  const owner = ann({ id: 'owner', email: 'mock-google-user@example.com', emailVerified: false, signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'google-mock-id' }], googleId: 'google-mock-id' } as Partial<UserMetadata>);
+  const owner = ann({ id: 'owner', email: 'mock-google-user@example.com', emailVerified: false, signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'google-mock-id' }] });
 
-  it('takes the given address as confirmed and forgets every link and stored provider id, so the next sign-in links by that address', () => {
+  it('takes the given address as confirmed and forgets every link, so the next sign-in links by that address', () => {
     const readied = readiedForProviderLink(owner, 'owner@gmail.com', undefined);
     expect(readied).toEqual({ ok: true, user: { id: 'owner', email: 'owner@gmail.com', emailVerified: true, twoFactorEnabled: false, createdAt: '' } });
     if (!readied.ok) return;

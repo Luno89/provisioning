@@ -176,19 +176,6 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
       expect(await store.grantOperatorToAdmins()).toBe(0);
     });
 
-    it('moves the Google and GitHub ids an account was saved with onto sign-in links, once', async () => {
-      const store = await make();
-      await store.saveUser(loose(person('old'), { googleId: 'g-1', githubId: 'h-1' }));
-      await store.saveUser(loose(person('mixed'), { githubId: 'h-2', signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'g-2' }] }));
-      await store.saveUser(person('new'));
-      expect(await store.moveProviderIdsToLinks()).toBe(2);
-      expect(await store.getUserById('old')).toEqual({ ...person('old'), signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'g-1' }, { issuer: 'https://github.com', subject: 'h-1' }] });
-      expect(await store.getUserById('mixed')).toEqual({ ...person('mixed'), signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'g-2' }, { issuer: 'https://github.com', subject: 'h-2' }] });
-      expect(await store.getUserById('new')).toEqual(person('new'));
-      expect((await store.getUserBySignInLink('https://github.com', 'h-1'))?.id).toBe('old');
-      expect(await store.moveProviderIdsToLinks()).toBe(0);
-    });
-
     it('forgets the GitHub token an account saved under Cloud providers, keeping its other credentials, once', async () => {
       const store = await make();
       await store.saveUser(loose(person('both'), { credentials: { github: { token: 'sealed' }, huggingface: { hfToken: 'sealed-hf' } } }));

@@ -38,26 +38,12 @@ export function githubPrimaryEmail(emails: readonly GithubEmail[]): { email: str
   return primary ? { email: primary.email.trim().toLowerCase(), verified: primary.verified === true } : undefined;
 }
 
-export interface LegacyProviderIds { googleId?: unknown; githubId?: unknown }
-
-export const LEGACY_ISSUERS = { googleId: 'https://accounts.google.com', githubId: 'https://github.com' } as const;
-
-export function linksFromLegacyIds(user: LegacyProviderIds & Pick<UserMetadata, 'signInLinks'>): SignInLink[] {
-  let links = [...(user.signInLinks ?? [])];
-  for (const field of Object.keys(LEGACY_ISSUERS) as (keyof typeof LEGACY_ISSUERS)[]) {
-    const subject = user[field];
-    const issuer = LEGACY_ISSUERS[field];
-    if (typeof subject === 'string' && subject && !links.some((link) => link.issuer === issuer)) links = [...links, { issuer, subject }];
-  }
-  return links;
-}
-
 export type ReadiedForLink =
   | { ok: true; user: UserMetadata }
   | { ok: false; why: string };
 
-export function readiedForProviderLink(user: UserMetadata & LegacyProviderIds, email: string, emailOwner: Pick<UserMetadata, 'id'> | undefined): ReadiedForLink {
+export function readiedForProviderLink(user: UserMetadata, email: string, emailOwner: Pick<UserMetadata, 'id'> | undefined): ReadiedForLink {
   if (emailOwner && emailOwner.id !== user.id) return { ok: false, why: `${email} is already the address of another account (${emailOwner.id})` };
-  const { googleId: _googleId, githubId: _githubId, signInLinks: _signInLinks, ...rest } = user;
+  const { signInLinks: _signInLinks, ...rest } = user;
   return { ok: true, user: { ...rest, email, emailVerified: true } };
 }

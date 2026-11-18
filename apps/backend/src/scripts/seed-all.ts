@@ -28,7 +28,6 @@ export async function seedAll(db: Database, dataKey: SecretKey) {
   counts.deploymentSecretsSealed = (await runOnce(ledger, 'deployment-secrets-sealed', now, async () => ({ sealed: await db.infrastructure.sealDeploymentSecrets() }))).sealed ?? 0;
   counts.vllmLatestPinned = (await runOnce(ledger, 'vllm-latest-pinned', now, async () => ({ pinned: await db.infrastructure.pinVllmLatest(VLLM_VERSION) }))).pinned ?? 0;
   counts.shareTokensSealed = (await runOnce(ledger, 'share-tokens-sealed', now, async () => ({ sealed: await db.files.sealShareTokens() }))).sealed ?? 0;
-  counts.signInLinksMoved = (await runOnce(ledger, 'sign-in-links', now, async () => ({ moved: await db.accounts.moveProviderIdsToLinks() }))).moved ?? 0;
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.unkeptAttachmentsDropped = (await runOnce(ledger, 'unkept-attachments-dropped', now, async () => ({ conversations: await db.engine.dropUnkeptAttachments() }))).conversations ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;

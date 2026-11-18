@@ -5,7 +5,6 @@ import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import type { InviteLimits } from './lib/project-invite-limits.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
-import { linksFromLegacyIds, type LegacyProviderIds } from './lib/provider-sign-in.js';
 import type { TwoFactorCode } from './lib/second-factor.js';
 import { RESET_CODES_SENT, type PasswordReset } from './lib/password-reset.js';
 
@@ -21,7 +20,6 @@ export interface AccountsStore extends AreaStore {
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
   getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined>;
-  moveProviderIdsToLinks(): Promise<number>;
   dropGitHubCredentials(): Promise<number>;
   forgetDefaultModels(modelIds: readonly string[]): Promise<void>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
@@ -312,15 +310,6 @@ export class MongoAccountsStore implements AccountsStore {
   async getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined> {
     const doc = await this.users.findOne({ signInLinks: { $elemMatch: { issuer, subject } } });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
-  }
-
-  async moveProviderIdsToLinks(): Promise<number> {
-    let moved = 0;
-    for (const doc of await this.users.find({ $or: [{ googleId: { $exists: true } }, { githubId: { $exists: true } }] }).toArray()) {
-      await this.users.updateOne({ _id: doc._id }, { $set: { signInLinks: linksFromLegacyIds(doc as LegacyProviderIds) }, $unset: { googleId: '', githubId: '' } });
-      moved += 1;
-    }
-    return moved;
   }
 
   async dropGitHubCredentials(): Promise<number> {

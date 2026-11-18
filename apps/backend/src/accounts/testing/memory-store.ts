@@ -5,7 +5,6 @@ import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from '../lib/account-removal.js';
 import type { InviteLimits } from '../lib/project-invite-limits.js';
 import { RESET_CODES_SENT, type PasswordReset } from '../lib/password-reset.js';
-import { linksFromLegacyIds, type LegacyProviderIds } from '../lib/provider-sign-in.js';
 import type { TwoFactorCode } from '../lib/second-factor.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from '../lib/sign-up.js';
 import { FIRST_ADMIN_INVITE, type AccountsStore } from '../store.js';
@@ -82,21 +81,6 @@ export class MemoryAccountsStore implements AccountsStore {
         return admin && !roles.includes('operator') ? { ...held, roles: [...roles, 'operator'] } : held;
       });
       if (admin) moved += 1;
-    }
-    return moved;
-  }
-
-  async moveProviderIdsToLinks(): Promise<number> {
-    let moved = 0;
-    for (const user of this.users.all()) {
-      if (!('googleId' in user) && !('githubId' in user)) continue;
-      this.users.change(user.id, (held) => {
-        const next = { ...held, signInLinks: linksFromLegacyIds(held as UserMetadata & LegacyProviderIds) } as unknown as Loose;
-        delete next.googleId;
-        delete next.githubId;
-        return next as unknown as UserMetadata;
-      });
-      moved += 1;
     }
     return moved;
   }
