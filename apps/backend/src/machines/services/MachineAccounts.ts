@@ -1,6 +1,6 @@
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import type { LocalAgentDeviceMetadata, SecretKey } from '../../platform/index.js';
+import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { IdentityKeyPair, PlacedKoala, PlacingMachine } from '../../instances/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
@@ -47,7 +47,6 @@ export interface MachineFollowers {
 
 export interface MachineAccountsDeps {
   store: Store;
-  dataKey: SecretKey;
   signing: IdentityKeyPair;
   settings: { url: string; meshLoginServer?: string | undefined; registry?: string | undefined };
   koala: { of(ownerId: string): Promise<KoalaPlace | undefined> };
@@ -155,13 +154,13 @@ export class MachineAccounts {
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
     const replaced = typeof machine.replaces === 'string' && machine.replaces
-      ? matchDeviceToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)?.device
+      ? matchDeviceToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces)?.device
       : undefined;
     const id = replaced?.id ?? uuidv4();
     const token = newDeviceToken();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, tokenEnc: _formerToken, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, tokenEnc: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
+    const { os: _formerOs, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
     const device: LocalAgentDeviceMetadata = {
       ...kept,
       id,

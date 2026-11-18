@@ -1,5 +1,5 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
-import type { Database, SecretKey } from '../../platform/index.js';
+import type { Database } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
@@ -18,7 +18,6 @@ export interface AccountSockets {
 export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
-  dataKey: SecretKey;
   accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
@@ -30,7 +29,7 @@ export function wireMachineAccounts(deps: {
     const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
     if (!token) return next(new Error('Missing device token'));
     deps.db.machines.getLocalAgentDevices().then((devices) => {
-      const match = matchDeviceToken(devices, token, deps.dataKey, (deps.now ?? (() => new Date()))());
+      const match = matchDeviceToken(devices, token, (deps.now ?? (() => new Date()))());
       if (!match) return next(new Error('Unauthorized'));
       if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
       admitted.set(socket, { deviceId: match.device.id, via: match.via });

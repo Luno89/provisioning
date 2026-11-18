@@ -56,7 +56,6 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   let machines: MachineService | undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
-    dataKey: deps.dataKey,
     signing: role.signing,
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
@@ -91,7 +90,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     deps.side?.hear('machines:changed', quietly);
     deps.side?.hear('connect', quietly);
   }
-  if (accounts) toMachines = wireMachineAccounts({ io: deps.io, db, dataKey: deps.dataKey, accounts: () => accounts });
+  if (accounts) toMachines = wireMachineAccounts({ io: deps.io, db, accounts: () => accounts });
   return {
     accounts,
     machines,

@@ -1,19 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import type { Socket } from 'socket.io';
-import { encryptValue } from '../../platform/lib/crypto.js';
 import type { LocalAgentDeviceMetadata } from '../../platform/lib/types.js';
 import {
-  findDeviceByToken, registerDevice, unregisterDevice, localAgentStatus,
+  deviceTokenHash, findDeviceByToken, registerDevice, unregisterDevice, localAgentStatus,
   execOnDevice, readFileOnDevice, writeFileOnDevice,
   listDirOnDevice, deleteFileOnDevice,
 } from './local-agent-registry.js';
 
-const MASTER_KEY = 'test-master-key';
-
 function device(over: Partial<LocalAgentDeviceMetadata> = {}): LocalAgentDeviceMetadata {
   return {
     id: 'dev-1', ownerId: 'owner-1', name: 'Test box', rootDir: '/home/me',
-    tokenEnc: encryptValue('the-real-token', MASTER_KEY), createdAt: '2026-01-01T00:00:00Z',
+    tokenHash: deviceTokenHash('the-real-token'), createdAt: '2026-01-01T00:00:00Z',
     ...over,
   };
 }
@@ -33,19 +30,8 @@ function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: un
 }
 
 describe('findDeviceByToken', () => {
-  it('finds the device whose decrypted token matches', () => {
-    const d = device();
-    const found = findDeviceByToken([d, device({ id: 'dev-2', tokenEnc: encryptValue('other', MASTER_KEY) })], 'the-real-token', MASTER_KEY);
-    expect(found?.id).toBe('dev-1');
-  });
-
   it('finds nothing for a token that matches no device', () => {
-    expect(findDeviceByToken([device()], 'wrong-token', MASTER_KEY)).toBeUndefined();
-  });
-
-  it('does not throw when a stored token fails to decrypt', () => {
-    const broken = device({ tokenEnc: 'not-even-encrypted' });
-    expect(findDeviceByToken([broken], 'anything', MASTER_KEY)).toBeUndefined();
+    expect(findDeviceByToken([device()], 'wrong-token')).toBeUndefined();
   });
 });
 

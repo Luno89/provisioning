@@ -1,4 +1,3 @@
-import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -17,7 +16,6 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
 
 const fresh = await emptiedEachTime();
-const keys = testKeys('koala-placement-test-secret');
 const TOKEN = 'the-desk-token-0123456789-0123456789';
 
 let db: MongoDB;
@@ -46,7 +44,6 @@ beforeEach(async () => {
   let sockets: ReturnType<typeof wireMachineAccounts> | undefined;
   accounts = new MachineAccounts({
     store: db.machines,
-    dataKey: keys.data,
     signing: identityKeysFrom(generateIdentityKey()),
     settings: { url: 'http://root.test' },
     koala: { of: async () => undefined },
@@ -54,7 +51,7 @@ beforeEach(async () => {
     toMachines: { removed: (id) => sockets!.removed(id), koala: (id, koala) => sockets!.koala(id, koala), placeKoala: (id, placed) => sockets!.placeKoala(id, placed), online: (id) => sockets!.online(id) },
     placer: instances,
   });
-  sockets = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts });
+  sockets = wireMachineAccounts({ io, db, accounts: () => accounts });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', tokenHash: deviceTokenHash(TOKEN), koalaWanted: { name: 'bobby' } });

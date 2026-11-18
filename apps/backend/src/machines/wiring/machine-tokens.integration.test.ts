@@ -126,7 +126,6 @@ beforeEach(async () => {
   let sockets: ReturnType<typeof wireMachineAccounts> = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
   accounts = new MachineAccounts({
     store: db.machines,
-    dataKey: keys.data,
     signing: root,
     settings: { url: 'http://root.test' },
     koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
@@ -134,7 +133,7 @@ beforeEach(async () => {
     toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });
-  sockets = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts, now: () => clock });
+  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, now: () => clock });
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, signsEveryoneIn: false, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],

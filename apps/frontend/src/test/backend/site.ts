@@ -61,7 +61,7 @@ const moveThePageTo = (origin: string): void => {
 
 export async function startBackend(mount: (site: Site) => void | Promise<void>): Promise<Backend> {
   const db = await testDatabase()
-  await seedAll(db, TEST_DATA_KEY)
+  await seedAll(db)
   const app = express()
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))

@@ -196,7 +196,6 @@ export interface LocalAgentDeviceMetadata {
   ownerId: string;
   name: string;
   tokenHash?: string | undefined;
-  tokenEnc?: string | undefined;
   issuedAt?: string | undefined;
   expiresAt?: string | undefined;
   nextTokenHash?: string | undefined;

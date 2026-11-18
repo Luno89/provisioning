@@ -17,7 +17,7 @@ const GITEA: McpServerRecord = {
 
 const hostFor = async (enabled: string[]) => {
   const db = await testDatabase();
-  await seedAll(db, testKeys('mcp-on-host').data);
+  await seedAll(db);
   await db.engine.saveMcpServer(GITEA);
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], mcpServers: enabled, createdAt: 't0', updatedAt: 't0' });
   const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, revokeRegistryPushToken: async () => undefined, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });

@@ -20,7 +20,6 @@ async function root() {
     router: (db) => {
       accounts = new MachineAccounts({
         store: db.machines,
-        dataKey: 'test-secret',
         signing: identityKeysFrom(generateIdentityKey()),
         settings: { url: 'https://app.koala.example', meshLoginServer: 'https://mesh.koala.example' },
         mesh: { createPreAuthKey: async () => ({ key: 'preauth-key' }), removeNode: async () => undefined },

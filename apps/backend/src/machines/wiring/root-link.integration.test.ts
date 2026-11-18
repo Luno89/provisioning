@@ -30,9 +30,9 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   const server = http.createServer();
   const io = new SocketServer(server);
   let accounts: MachineAccounts | undefined;
-  const sockets = wireMachineAccounts({ io, db, dataKey: 'root-link-test', accounts: () => accounts!, now: clock });
+  const sockets = wireMachineAccounts({ io, db, accounts: () => accounts!, now: clock });
   accounts = new MachineAccounts({
-    store: db.machines, dataKey: 'root-link-test', signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test' },
+    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test' },
     koala: { of: async () => koala ?? undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
     toMachines: sockets,

@@ -29,7 +29,6 @@ const machinesOf = (db: Database, mesh = 'https://mesh.koala.test', now?: () => 
   const made: MachineAccounts = new MachineAccounts({
     ...(now ? { now } : {}),
     store: db.machines,
-    dataKey: DATA_KEY,
     signing,
     settings: { url: URL_OF_KOALA, meshLoginServer: mesh },
     koala: { of: async () => ({ url: URL_OF_KOALA, audience: 'inst-1' }) },
@@ -93,7 +92,7 @@ describe('adding a machine with the command from My Machines', () => {
 
     const device = (await harness.db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === env.KOALA_DEVICE_ID)!;
     expect(device).toMatchObject({ ownerId: TEST_USER.id, name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
-    expect(device.tokenEnc).toBeUndefined();
+    expect(device).not.toHaveProperty('tokenEnc');
     expect(device.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));
     expect(JSON.stringify(device)).not.toContain(env.KOALA_DEVICE_TOKEN);
     const project = (await harness.db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === device.id);
@@ -143,8 +142,8 @@ describe('adding a machine with the command from My Machines', () => {
 
 describe('a machine\'s agents on My Machines', () => {
   it('lists only the person\'s own machines, with what each machine found and whether it is connected', async () => {
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-mine', ownerId: TEST_USER.id, name: 'Mine', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-theirs', ownerId: 'someone-else', name: 'Theirs', rootDir: '/y', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-mine', ownerId: TEST_USER.id, name: 'Mine', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-theirs', ownerId: 'someone-else', name: 'Theirs', rootDir: '/y', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     const mineSocket = connect('dev-mine').socket;
     await service!.recordAgents('dev-mine', [
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0', signIn: ['Log in with Google'] },
@@ -163,7 +162,7 @@ describe('a machine\'s agents on My Machines', () => {
   });
 
   it('keeps agents added by hand, tells the machine to look again, and refuses ones it cannot run', async () => {
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-hand', ownerId: TEST_USER.id, name: 'Hand', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-hand', ownerId: TEST_USER.id, name: 'Hand', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     const device = connect('dev-hand');
     const put = (agents: unknown) => fetch(harness.url('/api/mesh/local-agents/dev-hand/agents'), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agents }) });
 
@@ -181,7 +180,7 @@ describe('a machine\'s agents on My Machines', () => {
   });
 
   it('installs an adapter only for an agent that needs one, by asking the machine', async () => {
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-adapter', ownerId: TEST_USER.id, name: 'Adapter', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-adapter', ownerId: TEST_USER.id, name: 'Adapter', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     await service!.recordAgents('dev-adapter', [
       { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp' },
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' },
@@ -202,8 +201,8 @@ describe('a machine\'s agents on My Machines', () => {
   });
 
   it('removes a machine the person owns and no one else\'s', async () => {
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-delete-me', ownerId: TEST_USER.id, name: 'Bye', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-not-mine', ownerId: 'someone-else', name: 'Not mine', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-delete-me', ownerId: TEST_USER.id, name: 'Bye', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-not-mine', ownerId: 'someone-else', name: 'Not mine', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     expect((await fetch(harness.url('/api/mesh/local-agents/dev-delete-me'), { method: 'DELETE' })).status).toBe(200);
     expect((await fetch(harness.url('/api/mesh/local-agents/dev-not-mine'), { method: 'DELETE' })).status).toBe(404);
     const left = (await harness.db.machines.getLocalAgentDevices()).map((device) => device.id);
@@ -212,7 +211,7 @@ describe('a machine\'s agents on My Machines', () => {
   });
 
   it('removing a machine closes its connection here, root alone telling it to forget its token, takes it off the mesh and deletes the project it was added with', async () => {
-    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-gone', ownerId: TEST_USER.id, name: 'Gone', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-gone', ownerId: TEST_USER.id, name: 'Gone', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.projects.saveProject({ id: 'proj-of-gone', name: 'Gone - x', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-gone' }, createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.projects.saveProject({ id: 'proj-kept', name: 'Kept', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-other' }, createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.projects.saveTree({ id: 'tree-on-gone', ownerId: TEST_USER.id, name: 't', projectIds: ['proj-of-gone', 'proj-kept'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never);
@@ -243,7 +242,7 @@ describe('running the command again', () => {
     const joined = await machines.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old' });
     const token = joined.ok ? joined.value.env.KOALA_DEVICE_TOKEN! : '';
     const id = joined.ok ? joined.value.deviceId : '';
-    expect(findDeviceByToken(await devices(), token, DATA_KEY)).toBeUndefined();
+    expect(findDeviceByToken(await devices(), token)).toBeUndefined();
     const again = await machinesOf(harness.db).accounts.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replaces: token });
     expect(again.ok && again.value.deviceId).toBe(id);
   });

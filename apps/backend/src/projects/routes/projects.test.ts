@@ -14,7 +14,7 @@ import { routesInProcess, type RouteAnswer } from '../../platform/testing/routes
 import { projectsRouter } from './projects.js';
 
 const project: ProjectMetadata = { id: 'proj-1', name: 'demo', giteaOwner: 'acme', giteaRepo: 'demo', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: '2026-01-01T00:00:00Z' };
-const device = { id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' };
+const device = { id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' };
 const koalasCluster: ClusterMetadata = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id };
 
 const plain = ({ status, data }: RouteAnswer) => ({ status, body: data });

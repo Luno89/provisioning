@@ -1,6 +1,5 @@
 import type { Socket } from 'socket.io';
-import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
-import { deviceTokenHash, hashesEqual, viaOf, withLifetime, type TokenVia } from './device-tokens.js';
+import { deviceTokenHash, viaOf, withLifetime, type TokenVia } from './device-tokens.js';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 
 interface DeviceConnection {
@@ -23,19 +22,12 @@ export interface TokenMatch {
 export function matchDeviceToken(
   candidates: readonly LocalAgentDeviceMetadata[],
   presentedToken: string,
-  masterKey: SecretKey,
   now: Date = new Date(),
 ): TokenMatch | undefined {
   const presented = deviceTokenHash(presentedToken);
   for (const device of candidates) {
     const found = viaOf(device, presented, now);
     if (found) return { device, ...found };
-    if (device.tokenHash || !device.tokenEnc) continue;
-    try {
-      if (hashesEqual(decryptValue(device.tokenEnc, masterKey), presentedToken)) return { device, via: 'current', expired: false };
-    } catch {
-      continue;
-    }
   }
   return undefined;
 }
@@ -43,25 +35,10 @@ export function matchDeviceToken(
 export function findDeviceByToken(
   candidates: readonly LocalAgentDeviceMetadata[],
   presentedToken: string,
-  masterKey: SecretKey,
   now: Date = new Date(),
 ): LocalAgentDeviceMetadata | undefined {
-  const match = matchDeviceToken(candidates, presentedToken, masterKey, now);
+  const match = matchDeviceToken(candidates, presentedToken, now);
   return match && !match.expired ? match.device : undefined;
-}
-
-export async function hashDeviceTokens(
-  store: { getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>; saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> },
-  masterKey: SecretKey,
-): Promise<number> {
-  let hashed = 0;
-  for (const device of await store.getLocalAgentDevices()) {
-    if (device.tokenHash || !device.tokenEnc) continue;
-    const { tokenEnc, ...rest } = device;
-    await store.saveLocalAgentDevice({ ...rest, tokenHash: deviceTokenHash(decryptValue(tokenEnc, masterKey)) });
-    hashed += 1;
-  }
-  return hashed;
 }
 
 export async function giveDeviceTokenLifetimes(

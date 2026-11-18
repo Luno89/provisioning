@@ -135,7 +135,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
@@ -152,7 +152,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: 'someone-else', name: 'Not mine', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     await expect(axios.post(harness.url('/api/projects'), {
@@ -179,7 +179,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
@@ -199,7 +199,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     await expect(axios.post(harness.url('/api/projects'), {
@@ -229,7 +229,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
     await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
@@ -246,7 +246,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
     await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
@@ -266,7 +266,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
     await harness.db.projects.saveProjectInfo({
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
@@ -283,7 +283,7 @@ describe('POST / — execution target', () => {
     const harness = await mountForCreate();
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
@@ -315,7 +315,7 @@ describe('PATCH /:id — execution target', () => {
     await harness.db.projects.saveProjectInfo(project);
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     const res = await axios.patch<ProjectMetadata>(harness.url(`/api/projects/${project.id}`), {
@@ -352,7 +352,7 @@ describe('PATCH /:id — execution target', () => {
     });
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
@@ -369,7 +369,7 @@ describe('PATCH /:id — execution target', () => {
     });
     await harness.db.machines.saveLocalAgentDevice({
       id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
-      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+      tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
     const res = await axios.patch<ProjectMetadata>(harness.url(`/api/projects/${project.id}`), {

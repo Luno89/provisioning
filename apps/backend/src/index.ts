@@ -111,7 +111,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await operatorsFromAdmins(db, new Date().toISOString());
   await migrateLegacyOwnership(db, claimSettings);
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
-  await seedAll(db, keys.data);
+  await seedAll(db);
 
   const revocations = new AccessRevocations();
   const instanceReach = new InstanceReach(settings.reach);

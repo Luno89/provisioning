@@ -12,7 +12,6 @@ import { MachineAccounts, type MachineAccountsDeps, type MachineFollowers } from
 export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   const DAY = 24 * 60 * 60 * 1000;
   const ROOT_URL = 'https://app.koala.example';
-  const KEY = 'test-secret';
   const signing = identityKeysFrom(generateIdentityKey());
 
   let db: Database;
@@ -23,7 +22,6 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
 
   const accounts = (over: Partial<MachineAccountsDeps> = {}, meshLoginServer: string | undefined = 'https://mesh.koala.example') => new MachineAccounts({
     store: db.machines,
-    dataKey: KEY,
     signing,
     settings: { url: ROOT_URL, meshLoginServer, registry: '100.64.0.1:5001' },
     koala: { of: async (ownerId) => (ownerId === 'bo' ? { url: 'https://bo.people.example', audience: 'inst-bo' } : undefined) },
@@ -274,8 +272,8 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(next).toBeDefined();
       const rotating = (await stored(first.deviceId))!;
       expect(rotating.nextTokenHash).toBe(deviceTokenHash(next!));
-      expect(findDeviceByToken([rotating], first.env.KOALA_DEVICE_TOKEN!, KEY, clock)?.id).toBe(first.deviceId);
-      expect(findDeviceByToken([rotating], next!, KEY, clock)?.id).toBe(first.deviceId);
+      expect(findDeviceByToken([rotating], first.env.KOALA_DEVICE_TOKEN!, clock)?.id).toBe(first.deviceId);
+      expect(findDeviceByToken([rotating], next!, clock)?.id).toBe(first.deviceId);
       expect(await machines.rotationFor(first.deviceId, 'current')).toBeUndefined();
       await machines.tokenTaken(first.deviceId);
       const promoted = (await stored(first.deviceId))!;

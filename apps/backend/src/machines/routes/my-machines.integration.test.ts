@@ -1,4 +1,3 @@
-import { testKeys } from '../../platform/testing/keys.js';
 import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -7,7 +6,6 @@ import { InstanceService } from '../../instances/services/InstanceService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { myMachinesRouter } from './my-machines.js';
 
-const keys = testKeys('my-machines-test-secret');
 const sites: Harness[] = [];
 afterEach(async () => { for (const site of sites.splice(0)) await site.close(); });
 
@@ -20,7 +18,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
       const instances = new InstanceService(db, { rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
         { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
       accounts = new MachineAccounts({
-        store: db.machines, dataKey: keys.data, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
+        store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
         mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
         koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
         toMachines: { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false },
