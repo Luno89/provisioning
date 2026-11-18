@@ -1,5 +1,4 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
-import type { Database } from '../lib/db-interface.js';
 import type { UserMetadata } from '../lib/types.js';
 import type { SocketSession } from '../lib/session-sockets.js';
 import type { SessionSockets } from '../services/SessionSockets.js';
@@ -7,8 +6,6 @@ import type { Auth } from './auth.js';
 
 export interface SocketSignInDeps {
   auth: Pick<Auth, 'sessionFromCookie' | 'securedFor'>;
-  db: Pick<Database, 'accounts'>;
-  signsEveryoneIn: boolean;
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
 }
 
@@ -24,11 +21,6 @@ const signedInData = (socket: Socket): SignedInData => socket.data as SignedInDa
 export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
   io.use((socket, next) => {
     const signIn = async (): Promise<Error | undefined> => {
-      if (deps.signsEveryoneIn) {
-        const users = await deps.db.accounts.getUsers();
-        signedInData(socket).user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
-        return undefined;
-      }
       const signedIn = await deps.auth.sessionFromCookie(socket.handshake.headers.cookie, deps.auth.securedFor(socket.handshake));
       if (!signedIn) return new Error('Unauthorized');
       const data = signedInData(socket);

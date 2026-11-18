@@ -5,13 +5,12 @@ import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
 import { mongoTarget, type MongoTarget } from './mongo-target.js';
 import { labFrom } from './lab.js';
 import { cspModeFrom, type CspMode } from './csp.js';
-import { trustProxyFor } from './client-address.js';
+import { trustProxyFrom, type TrustProxy } from './client-address.js';
 import { ourOrigins, type OurOrigins } from './same-site.js';
 import { emailWayFrom, type EmailWay } from './email-way.js';
 import { mailDomainFrom } from './mail-reputation.js';
 import { podPlaceFrom, type PodPlace } from './drain.js';
 import { settingHostPort, type Settings } from './setting-urls.js';
-import { e2eProblem } from './auth.js';
 import { minioSettingsFrom, type MinioSettings } from '../../files/lib/minio-settings.js';
 import { giteaSettingsFrom, type GiteaSettings } from '../../projects/lib/gitea-settings.js';
 import { infisicalSettingsFrom, type InfisicalSettings } from '../../infrastructure/lib/infisical-settings.js';
@@ -83,7 +82,6 @@ export interface CommonSettings extends ConnectionSettings {
   dataDir: string;
   production: boolean;
   underTest: boolean;
-  e2e: boolean;
   lab: boolean;
   telemetry: TelemetryPlace;
   clusters: ClusterSettings;
@@ -161,7 +159,7 @@ export interface BackendSettings extends CommonSettings {
   appUrl: string;
   origins: OurOrigins;
   csp: CspMode;
-  trustProxy: number | 'loopback';
+  trustProxy: TrustProxy;
   metricsToken: string | Off;
   mail: EmailWay;
   pod: PodPlace | undefined;
@@ -349,7 +347,6 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
     dataDir,
     production,
     underTest: env.NODE_ENV === 'test',
-    e2e: env.IS_E2E === 'true',
     lab: labFrom(env),
     keys,
     mongo,
@@ -466,8 +463,8 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   const port = portSetting(read, 'PORT', 'it is the port the backend listens on (0 for any free port)', true);
   const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the address people and other Koalas reach this backend at');
   const appUrl = urlSetting(read, 'APP_URL', 'it is the address the browser loads Koala\'s pages from (PUBLIC_URL where the backend serves them)');
-  const e2e = e2eProblem(env);
-  if (e2e) read.problems.push(e2e);
+  const trustProxy = trustProxyFrom(env.TRUST_PROXY);
+  if ('problem' in trustProxy) read.problems.push(trustProxy.problem);
   const terraform = role?.role === 'hub' ? { off: 'the hub runs no Terraform' } : terraformFrom(read);
   const tenant = role?.role === 'instance' ? tenantServices(read) : undefined;
   const instance = role?.role === 'instance' ? instanceSettings(read, role) : undefined;
@@ -482,7 +479,7 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   if (twilio.some(Boolean) && !twilio.every(Boolean)) read.problems.push('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER go together, and only some are set');
   const operator = operatorCredentials(read);
   const scriptedBase = tenant ? scriptedModelBase(tenant.checksApi) : undefined;
-  if (!base || port === undefined || !publicUrl || !appUrl || !mail || terraform === undefined
+  if (!base || !('trust' in trustProxy) || port === undefined || !publicUrl || !appUrl || !mail || terraform === undefined
     || (role?.role === 'instance' && (!tenant || !instance))
     || (role?.role === 'root' && !root)
     || (role?.role === 'hub' && (!hubDatabase || !hubGitea))) return finish<BackendSettings>(read, 'the backend');
@@ -492,9 +489,9 @@ export function backendSettingsFrom(env: Env): BackendSettings {
     port,
     publicUrl,
     appUrl,
-    origins: ourOrigins({ PUBLIC_URL: publicUrl, APP_URL: appUrl, NODE_ENV: env.NODE_ENV }),
+    origins: ourOrigins({ PUBLIC_URL: publicUrl, APP_URL: appUrl, SIGN_IN_RETURN_URL: root?.signInReturn.url }),
     csp: cspModeFrom(env),
-    trustProxy: trustProxyFor(env),
+    trustProxy: trustProxy.trust,
     metricsToken: metricsToken ?? { off: 'METRICS_TOKEN is not set, so /api/metrics serves nothing' },
     mail,
     pod: podPlaceFrom(env),

@@ -24,8 +24,9 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     axios.defaults.proxy = false;
     process.env.ROLE = 'root';
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
+    process.env.IS_E2E = 'true';
     Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('routes'), { ROOT_IDENTITY_KEY: testIdentityKey() }, {
-      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local',
+      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local', TRUST_PROXY: 'loopback',
       TEMPORAL_CONNECTION_ADDRESS: NO_SERVICE_HOST, TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: PLAINTEXT_TEMPORAL_CA,
       INSTANCE_IMAGE_TAG: TEST_RELEASE.imageTag, INSTANCE_REGISTRY: TEST_RELEASE.registry,
     });
@@ -52,6 +53,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   }, 30_000);
 
   afterAll(async () => {
+    delete process.env.IS_E2E;
     if (server) {
       server.close();
     }
@@ -61,6 +63,11 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   });
 
   const getUrl = (path: string) => `http://127.0.0.1:${port}${path}`;
+
+  it('a request without a session is refused whatever the environment says', async () => {
+    const res = await axios.get<{ error: string }>(getUrl('/api/auth/me'), { validateStatus: () => true });
+    expect(res.status).toBe(401);
+  });
 
   it('should block protected routes with 401 when no session is provided', async () => {
     const res = await axios.get<{ error: string }>(getUrl('/api/clusters'), { validateStatus: () => true });
@@ -103,6 +110,15 @@ describe('Auth Endpoints & Route Protection Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(invitesRes.status).toBe(200);
+  });
+
+  it('a signed-in request from another origin gets no CORS allowance, outside production too', async () => {
+    expect(session).toBeTruthy();
+    const foreign = await axios.get(getUrl('/api/auth/me'), { headers: { Cookie: session, Origin: 'http://elsewhere.localhost:5173' }, validateStatus: () => true });
+    expect(foreign.headers['access-control-allow-origin']).toBeUndefined();
+    expect(foreign.headers['access-control-allow-credentials']).toBeUndefined();
+    const ours = await axios.get(getUrl('/api/auth/me'), { headers: { Cookie: session, Origin: 'http://127.0.0.1:3001' }, validateStatus: () => true });
+    expect(ours.headers['access-control-allow-origin']).toBe('http://127.0.0.1:3001');
   });
 
   it('no longer starts work the old way: no hand-made leaves, branch chats or legacy chat turns', async () => {

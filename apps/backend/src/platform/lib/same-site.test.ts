@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { crossSiteRefusal, foreignOrigin, ourOrigins } from './same-site.js';
 
 const production = ourOrigins({ NODE_ENV: 'production', PUBLIC_URL: 'https://app.nowrinkles.dev' });
-const dev = ourOrigins({ APP_URL: 'http://localhost:5173' });
+const dev = ourOrigins({ APP_URL: 'http://koala.localhost:5175', SIGN_IN_RETURN_URL: 'http://localhost:5175' });
 
 describe('a request that changes something comes from this site', () => {
   it('lets reads through whoever sent them', () => {
@@ -36,9 +36,11 @@ describe('a request that changes something comes from this site', () => {
     expect(crossSiteRefusal('POST', { host: 'app.nowrinkles.dev' }, production)).toBeUndefined();
   });
 
-  it('takes the dev page on another loopback port, and no loopback page in production', () => {
-    expect(crossSiteRefusal('POST', { host: 'localhost:3001', origin: 'http://localhost:5173', fetchSite: 'same-site' }, dev)).toBeUndefined();
-    expect(crossSiteRefusal('POST', { host: 'localhost:3001', origin: 'http://koala.localhost:5175', fetchSite: 'cross-site' }, dev)).toBeUndefined();
+  it('refuses a write from another loopback page, and takes one from SIGN_IN_RETURN_URL', () => {
+    expect(crossSiteRefusal('POST', { host: 'koala.localhost:5175', origin: 'http://koala.localhost:5175', fetchSite: 'same-origin' }, dev)).toBeUndefined();
+    expect(crossSiteRefusal('POST', { host: 'koala.localhost:5175', origin: 'http://localhost:5175', fetchSite: 'same-site' }, dev)).toBeUndefined();
+    expect(crossSiteRefusal('POST', { host: 'koala.localhost:5175', origin: 'http://localhost:5173', fetchSite: 'same-site' }, dev)).toMatch(/not this site/);
+    expect(crossSiteRefusal('POST', { host: 'localhost:3001', origin: 'http://localhost:5174' }, dev)).toMatch(/not this site/);
     expect(crossSiteRefusal('POST', { host: 'localhost:3001', origin: 'http://localhost:5174' }, production)).toMatch(/not this site/);
     expect(crossSiteRefusal('POST', { host: 'localhost:3001', origin: 'https://evil.example' }, dev)).toMatch(/not this site/);
   });

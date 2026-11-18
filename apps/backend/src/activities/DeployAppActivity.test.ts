@@ -32,7 +32,7 @@ let infra: MockProxy<InfrastructureService>;
 let reached: Reach[];
 let nodes: string;
 
-const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused', e2e: false }, dataKey: 'cluster-steps-test-key' }, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey: 'cluster-steps-test-key' }, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
 
 const deploy = (over: Partial<DeployAppArgs> = {}): DeployAppArgs => ({
   name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk',

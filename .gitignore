@@ -89,9 +89,8 @@ scripts/root-node/.root-node-key*
 # Compiled output that shadows a .ts source.
 #
 # `vite.config.js` and `setup.js` were tracked alongside their .ts originals, so an edit to the
-# source could silently lose to the stale build depending on resolution order. Note the two .js
-# configs that are NOT artifacts and stay tracked: eslint.config.js (flat config must be .js) and
-# playwright.config.js (which has no .ts source at all).
+# source could silently lose to the stale build depending on resolution order. Note the one .js
+# config that is NOT an artifact and stays tracked: eslint.config.js (flat config must be .js).
 apps/*/vite.config.js
 apps/*/vite.config.js.map
 apps/*/vite.config.d.ts
@@ -105,9 +104,6 @@ apps/*/src/test/setup.js
 apps/*/src/test/setup.js.map
 apps/*/src/test/setup.d.ts
 
-# Scratch written by scripts/test-e2e-setup.sh (which cluster it provisioned, what it stopped).
-# Running the E2E suite otherwise leaves the working tree dirty.
-.test-e2e-state/
 apps/local-agent/dist/
 
 packages/cdktf-infra/*.js

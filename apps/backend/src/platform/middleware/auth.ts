@@ -45,7 +45,6 @@ export interface AuthDeps {
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
   sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
-  signsEveryoneIn?: boolean | undefined;
 }
 
 export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
@@ -104,7 +103,7 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds, signsEveryoneIn: everyoneIn }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -202,19 +201,6 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
-    if (everyoneIn) {
-      const users = await db.accounts.getUsers();
-      const mockUser = users[0] || {
-        id: 'test-user-id',
-        email: 'test@example.com',
-        twoFactorEnabled: false,
-        emailVerified: true,
-        createdAt: new Date().toISOString(),
-      };
-      signedIn(req, { user: mockUser, principal: principalFor(mockUser) });
-      return next();
-    }
-
     const secure = securedFor(req);
     if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });

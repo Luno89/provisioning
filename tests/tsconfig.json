@@ -21,8 +21,6 @@
     "../apps/backend/src/*.d.ts"
   ],
   "exclude": [
-    "e2e.spec.ts",
-    "playwright.config.ts",
     "coupling/fixture-refs-workspace",
     "coupling/fixture-graph-workspaces",
     "../scripts/**/node_modules"

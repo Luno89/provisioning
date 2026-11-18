@@ -27,7 +27,7 @@ const CONNECTION = {
   TEMPORAL_TLS_CA: '/nowhere/ca.crt',
 };
 
-const BACKEND_PLACE = { PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', APP_URL: 'http://127.0.0.1:1' };
+const BACKEND_PLACE = { PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', APP_URL: 'http://127.0.0.1:1', TRUST_PROXY: 'loopback' };
 
 const INSTANCE = {
   ...CONNECTION, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred',

@@ -64,6 +64,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     PORT: String(apiPort),
     PUBLIC_URL: url,
     APP_URL: url,
+    TRUST_PROXY: 'loopback',
     MONGO_URI: root.mongoUri,
     ADMIN_SETUP_CODE: root.setupCode,
     TEMPORAL_CONNECTION_ADDRESS: DEV_TEMPORAL_ADDRESS,

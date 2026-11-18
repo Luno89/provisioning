@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, e2eProblem, signsEveryoneIn, sessionToken, signedSession, sessionEnded, deviceToken, deviceOf } from './auth.js';
+import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, sessionToken, signedSession, sessionEnded, deviceToken, deviceOf } from './auth.js';
 
 describe('Auth Utilities', () => {
   describe('Password Hashing', () => {
@@ -100,16 +100,6 @@ describe('Auth Utilities', () => {
       expect(sessionEnded({ sessionAt: 1_000 }, { sessionsEndedAt: new Date(2_000).toISOString() })).toBe(true);
       expect(sessionEnded({ sessionAt: 3_000 }, { sessionsEndedAt: new Date(2_000).toISOString() })).toBe(false);
       expect(sessionEnded({ sessionAt: 3_000 }, {})).toBe(false);
-    });
-  });
-
-  describe('the e2e sign-in', () => {
-    it('signs everyone in only outside production, and production refuses to start with it', () => {
-      expect(signsEveryoneIn({ e2e: true, production: false })).toBe(true);
-      expect(signsEveryoneIn({ e2e: true, production: true })).toBe(false);
-      expect(e2eProblem({ IS_E2E: 'true', NODE_ENV: 'production' })).toContain('refuses to start');
-      expect(e2eProblem({ IS_E2E: 'true' })).toBeUndefined();
-      expect(e2eProblem({ NODE_ENV: 'production' })).toBeUndefined();
     });
   });
 

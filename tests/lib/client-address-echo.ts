@@ -1,8 +1,10 @@
 import express from 'express';
-import { trustProxyFor } from '../../apps/backend/src/platform/lib/client-address.js';
+import { trustProxyFrom } from '../../apps/backend/src/platform/lib/client-address.js';
 
 const app = express();
-app.set('trust proxy', trustProxyFor({ NODE_ENV: 'production' }));
+const trusted = trustProxyFrom('1');
+if (!('trust' in trusted)) throw new Error(trusted.problem);
+app.set('trust proxy', trusted.trust);
 app.use((req, res) => {
   res.json({ ip: req.ip, forwardedFor: req.headers['x-forwarded-for'] ?? null, peer: req.socket.remoteAddress });
 });

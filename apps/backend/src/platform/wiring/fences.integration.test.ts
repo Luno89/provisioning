@@ -17,7 +17,7 @@ describe('a worker holding the fences as it starts', () => {
   it('waits for a Mongo whose replica set has no primary yet, as an instance\'s first start has, and is then live', async () => {
     const server = await MongoMemoryServer.create({ instance: { replSet: 'koala' } });
     started.push(server);
-    const mongo = { uri: server.getUri(), dbName: 'koala', e2e: false };
+    const mongo = { uri: server.getUri(), dbName: 'koala' };
 
     const watch = await holdFencesIn('worker-engine', mongo);
 

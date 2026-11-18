@@ -32,17 +32,6 @@ export interface DestroyTarget {
   isAbort?: boolean
 }
 
-const isMockedAuth = (): boolean =>
-  import.meta.env?.MODE === 'test'
-  || import.meta.env?.VITE_IS_E2E === 'true'
-  || window.location.port === '5174'
-
-const MOCK_USER: AppUser = {
-  id: 'test-user-id',
-  email: 'test@example.com',
-  createdAt: new Date().toISOString(),
-}
-
 interface ShellState {
   view: ViewName
   setView: (view: ViewName, path?: string[]) => void
@@ -111,9 +100,9 @@ export const useShellStore = create<ShellState>((set) => ({
   })),
 
 
-  user: isMockedAuth() ? MOCK_USER : null,
+  user: null,
   setUser: (user) => set({ user }),
-  authLoading: !isMockedAuth(),
+  authLoading: true,
   setAuthLoading: (authLoading) => set({ authLoading }),
 
   notifications: [],

@@ -68,7 +68,7 @@ beforeEach(async () => {
   server = http.createServer();
   io = new SocketServer(server);
   wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, signsEveryoneIn: false, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
+    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines, workTokens, clusters: {} as never, apps: {} as never,

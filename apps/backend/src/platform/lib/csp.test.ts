@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { CSP_REPORT_PATH, cspHeader, cspModeFrom, policyText, SPA_POLICY, violationLine } from './csp.js';
 
 describe('the content security policy', () => {
-  it('is off in development unless asked for, and enforced in production unless asked only to report', () => {
-    expect(cspModeFrom({})).toBe('off');
+  it('enforces unless CSP says otherwise', () => {
+    expect(cspModeFrom({})).toBe('enforce');
+    expect(cspModeFrom({ NODE_ENV: 'test' })).toBe('enforce');
+    expect(cspModeFrom({ CSP: 'off' })).toBe('off');
     expect(cspModeFrom({ NODE_ENV: 'production' })).toBe('enforce');
     expect(cspModeFrom({ NODE_ENV: 'production', CSP: 'report' })).toBe('report');
     expect(cspModeFrom({ NODE_ENV: 'production', CSP: 'enforce' })).toBe('enforce');

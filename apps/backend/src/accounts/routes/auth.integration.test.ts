@@ -50,17 +50,14 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
 describe('auth router', () => {
   let db: Database;
   let ctx: Awaited<ReturnType<typeof serve>>;
-  const wasE2E = process.env.IS_E2E;
 
   beforeEach(async () => {
-    delete process.env.IS_E2E;
     db = await fresh();
     await db.init();
     ctx = await serve(db);
   });
 
   afterEach(async () => {
-    if (wasE2E !== undefined) process.env.IS_E2E = wasE2E;
     await new Promise<void>((r) => ctx.server.close(() => r()));
   });
 

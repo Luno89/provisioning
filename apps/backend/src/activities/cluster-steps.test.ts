@@ -31,7 +31,7 @@ let access: MockProxy<ClusterAccess>;
 let infra: MockProxy<InfrastructureService>;
 let said: Array<{ reach: Reach; args: readonly string[] }>;
 
-const steps = () => ({ access, infra, gitea: gitea as unknown as GiteaService, infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused', e2e: false }, dataKey: 'cluster-steps-test-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } });
+const steps = () => ({ access, infra, gitea: gitea as unknown as GiteaService, infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey: 'cluster-steps-test-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } });
 
 beforeEach(() => {
   access = mock<ClusterAccess>();

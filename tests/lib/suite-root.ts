@@ -47,7 +47,7 @@ export const DEV_TEMPORAL_ADDRESS = '127.0.0.1:7233';
 export const DEV_HEADSCALE = 'http://127.0.0.1:8080';
 
 export const rootIdentity = (publicUrl: string, release: { tag: string; registry: string }): string[] =>
-  ['-e', `PUBLIC_URL=${publicUrl}`, '-e', `APP_URL=${publicUrl}`, '-e', `INSTANCE_IMAGE_TAG=${release.tag}`, '-e', `INSTANCE_REGISTRY=${release.registry}`];
+  ['-e', `PUBLIC_URL=${publicUrl}`, '-e', `APP_URL=${publicUrl}`, '-e', 'TRUST_PROXY=1', '-e', `INSTANCE_IMAGE_TAG=${release.tag}`, '-e', `INSTANCE_REGISTRY=${release.registry}`];
 
 export const workerEnv = (root: SuiteRoot): string[] =>
   ['-e', 'HEALTH_PORT=0', '-e', `TEMPORAL_METRICS_PORT=${root.metricsPort}`];

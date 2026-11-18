@@ -70,7 +70,8 @@ describe('the settings root keeps in its env file', () => {
     expect(env).toMatchObject({ APP_URL: 'https://app.koala.dev', INSTANCE_IMAGE_TAG: commit, TEMPORAL_TLS_CA: `${repo}/apps/backend/data/temporal-tls/ca.crt`, MAIL_RELAYHOST: '[smtp.relay.example]:587' });
 
     const backend = backendSettingsFrom(env);
-    expect(backend).toMatchObject({ port: 4000, production: true, terraform: { kind: 'local' }, mesh: { loginServer: 'https://mesh.koala.dev', headscaleUrl: 'http://127.0.0.1:8080', headscaleApiKey: 'headscale-key' } });
+    expect(env.TRUST_PROXY).toBe('1');
+    expect(backend).toMatchObject({ port: 4000, production: true, trustProxy: 1, terraform: { kind: 'local' }, mesh: { loginServer: 'https://mesh.koala.dev', headscaleUrl: 'http://127.0.0.1:8080', headscaleApiKey: 'headscale-key' } });
     expect(backend.root).toMatchObject({ imageTag: commit, routing: { domain: 'nowrinkles.app' }, pool: { slots: 2, slot: { cpu: 4, storageGiB: 100, memoryMiB: 10240 }, trialDays: 14 }, mailReputation: { domain: 'koala.dev', relayhost: '[smtp.relay.example]:587' } });
     expect(hostWorkerSettingsFrom(env)).toMatchObject({ healthPort: 0, temporalMetricsPort: 9465, publicUrl: 'https://app.koala.dev', root: { imageTag: commit } });
 

@@ -13,6 +13,7 @@ ensure_root_settings() {
   [ -n "$public" ] || { echo "  ✗ PUBLIC_URL is not set in ${file}, so root's other addresses cannot be set from it" >&2; return 1; }
   ensure_root_setting "$file" PORT 3001
   ensure_root_setting "$file" APP_URL "$public"
+  ensure_root_setting "$file" TRUST_PROXY 1
   ensure_root_setting "$file" TEMPORAL_CONNECTION_ADDRESS 127.0.0.1:7233
   ensure_root_setting "$file" TEMPORAL_NAMESPACE default
   ensure_root_setting "$file" TEMPORAL_TLS_CA "${repo}/apps/backend/data/temporal-tls/ca.crt"

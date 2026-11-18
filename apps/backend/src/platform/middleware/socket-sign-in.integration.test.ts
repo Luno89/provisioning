@@ -31,7 +31,7 @@ async function serve(failing = false) {
   const auth = failing ? { ...real, sessionFromCookie: async () => { throw new Error('the database did not answer'); } } : real;
   const server = http.createServer();
   const io = new SocketServer(server);
-  signSocketsIn(io, { auth, db, signsEveryoneIn: false, sessionSockets });
+  signSocketsIn(io, { auth, sessionSockets });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   closing.push(async () => { await Promise.all([io.close(), new Promise<void>((resolve) => server.close(() => resolve()))]); });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -47,6 +47,19 @@ const opened = (url: string, token: string): Promise<{ socket: ClientSocket; clo
 });
 
 const refusal = (url: string, token: string): Promise<Error & { data?: unknown }> => opened(url, token).then(() => { throw new Error('it connected'); }, (err: Error & { data?: unknown }) => err);
+
+describe('signing a connection in', () => {
+  it('a handshake without a session is refused', async () => {
+    const { url } = await serve();
+    const refused = await new Promise<Error>((resolve, reject) => {
+      const socket = connect(url, { transports: ['websocket'], reconnection: false, forceNew: true });
+      closing.push(async () => { socket.close(); });
+      socket.on('connect', () => reject(new Error('it connected')));
+      socket.on('connect_error', resolve);
+    });
+    expect(refused.message).toBe('Unauthorized');
+  });
+});
 
 describe('an open connection ends with its session', () => {
   it('closes the connection made with a session signed out of, keeps the others, and refuses it again', async () => {

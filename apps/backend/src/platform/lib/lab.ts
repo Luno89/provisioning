@@ -22,7 +22,6 @@ export function labFrom(env: Env): boolean {
 }
 
 export function plaintextProblem(name: string, raw: string, env: Env): string | undefined {
-  if (env.NODE_ENV !== 'production') return undefined;
   let url: URL;
   try {
     url = new URL(raw);
@@ -32,5 +31,5 @@ export function plaintextProblem(name: string, raw: string, env: Env): string | 
   if (url.protocol === 'https:') return undefined;
   if (url.protocol !== 'http:') return `${name} is ${raw}, which is neither https nor http`;
   if (labFrom(env) || staysPrivate(url.hostname)) return undefined;
-  return `${name} is ${url.origin}: plain http to an address on the open internet. In production Koala talks to root only over https, so set ${name} to root's https address`;
+  return `${name} is ${url.origin}: plain http to an address on the open internet. Koala talks to root only over https, so set ${name} to root's https address`;
 }

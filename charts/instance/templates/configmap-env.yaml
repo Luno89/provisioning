@@ -17,6 +17,7 @@ data:
   ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
   PUBLIC_URL: {{ required "publicUrl is required: it is the address people reach this instance at" .Values.publicUrl | quote }}
   APP_URL: {{ .Values.publicUrl | quote }}
+  TRUST_PROXY: "1"
   TEMPORAL_CONNECTION_ADDRESS: {{ include "instance.name" . }}-temporal:7233
   TEMPORAL_NAMESPACE: {{ required "temporal.namespace is required" .Values.temporal.namespace | quote }}
   TEMPORAL_TLS_CA: /etc/koala/temporal-tls/ca.crt

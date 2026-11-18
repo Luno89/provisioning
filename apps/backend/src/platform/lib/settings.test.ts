@@ -21,7 +21,7 @@ const CONNECTION = {
   DATA_DIR: '/app/apps/backend/data',
 };
 
-const BACKEND = { ...CONNECTION, PORT: '3001', PUBLIC_URL: 'https://luno.koala.app/', APP_URL: 'https://luno.koala.app' };
+const BACKEND = { ...CONNECTION, PORT: '3001', PUBLIC_URL: 'https://luno.koala.app/', APP_URL: 'https://luno.koala.app', TRUST_PROXY: '1' };
 
 const ROOT = { ...BACKEND, ROLE: 'root', TERRAFORM_STATE: 'local', INSTANCE_IMAGE_TAG: 'a1b2c3d4e5f6', INSTANCE_REGISTRY: '100.64.0.1:5001' };
 
@@ -77,6 +77,15 @@ describe('the settings a backend reads once, at start', () => {
     expect(problemsOf(() => backendSettingsFrom({ ...ROOT, DATA_DIR: 'data' }))).toContain('DATA_DIR is not an absolute path: data');
     expect(problems).toContain('TEMPORAL_CONNECTION_ADDRESS is not a host and port: http://localhost:7233');
     expect(() => backendSettingsFrom({})).toThrow(/the backend cannot start; its settings are not right:\n {2}- ROLE is not set/);
+  });
+
+  it('trust proxy comes from the setting, and a missing one is refused', () => {
+    expect(backendSettingsFrom(ROOT).trustProxy).toBe(1);
+    expect(backendSettingsFrom({ ...ROOT, TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
+    expect(backendSettingsFrom({ ...ROOT, NODE_ENV: 'production', TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
+    const { TRUST_PROXY: _left, ...without } = ROOT;
+    expect(problemsOf(() => backendSettingsFrom(without))).toContainEqual(saying('TRUST_PROXY is not set'));
+    expect(problemsOf(() => backendSettingsFrom({ ...ROOT, TRUST_PROXY: 'true' }))).toContainEqual(saying('TRUST_PROXY is "true"'));
   });
 
   it('guesses no address: root routing instances needs its Caddy named, and the mesh needs Headscale', () => {

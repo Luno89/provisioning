@@ -113,3 +113,17 @@ describe('the destroy confirmation', () => {
     expect(useShellStore.getState().confirmDestroy?.id).toBe('c1')
   })
 })
+
+describe('who is signed in when the page opens', () => {
+  it('starts signed out and loading, whatever port or mode the page is on', async () => {
+    vi.resetModules()
+    vi.stubEnv('MODE', 'test')
+    try {
+      const fresh = await import('./shell')
+      expect(fresh.useShellStore.getState().user).toBeNull()
+      expect(fresh.useShellStore.getState().authLoading).toBe(true)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+})

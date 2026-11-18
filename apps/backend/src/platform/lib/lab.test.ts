@@ -32,14 +32,20 @@ describe('plain http to root', () => {
   const production = { NODE_ENV: 'production' };
 
   it('is refused in production when it would cross the open internet', () => {
-    expect(plaintextProblem('ROOT_URL', 'http://app.nowrinkles.dev', production)).toBe('ROOT_URL is http://app.nowrinkles.dev: plain http to an address on the open internet. In production Koala talks to root only over https, so set ROOT_URL to root\'s https address');
+    expect(plaintextProblem('ROOT_URL', 'http://app.nowrinkles.dev', production)).toBe('ROOT_URL is http://app.nowrinkles.dev: plain http to an address on the open internet. Koala talks to root only over https, so set ROOT_URL to root\'s https address');
     expect(plaintextProblem('ROOT_URL', 'ftp://app.nowrinkles.dev', production)).toMatch(/neither https nor http/);
     expect(plaintextProblem('ROOT_URL', 'not a url', production)).toMatch(/is not an address/);
   });
 
-  it('is fine over https, outside production, in a lab, and to an address that stays private, as the suites and the rehearsal use', () => {
+  it('refuses plain http to the open internet whatever NODE_ENV says', () => {
+    for (const env of [{}, { NODE_ENV: 'test' }, { NODE_ENV: 'development' }, production]) {
+      expect(plaintextProblem('ROOT_URL', 'http://app.nowrinkles.dev', env), JSON.stringify(env)).toMatch(/plain http to an address on the open internet/);
+    }
+    expect(plaintextProblem('ROOT_URL', 'http://localhost:3002', {})).toBeUndefined();
+  });
+
+  it('is fine over https, in a lab, and to an address that stays private, as the suites and the rehearsal use', () => {
     expect(plaintextProblem('ROOT_URL', 'https://app.nowrinkles.dev', production)).toBeUndefined();
-    expect(plaintextProblem('ROOT_URL', 'http://app.nowrinkles.dev', {})).toBeUndefined();
     expect(plaintextProblem('ROOT_URL', 'http://root.example', { ...production, CERTIFICATES: 'internal' })).toBeUndefined();
     for (const url of ['http://localhost:3002', 'http://10.0.2.2:3241', 'http://203.0.113.2:3241', 'http://app.koala.internal:3001']) {
       expect(plaintextProblem('ROOT_URL', url, production), url).toBeUndefined();

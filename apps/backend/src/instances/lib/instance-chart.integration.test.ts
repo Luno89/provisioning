@@ -409,7 +409,7 @@ describe('the instance chart', () => {
       return { ...base, KUBERNETES_SERVICE_HOST: given.KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT: given.KUBERNETES_SERVICE_PORT };
     };
     const backend = backendSettingsFrom(envOf('backend'));
-    expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
+    expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, trustProxy: 1, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
     expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322' });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });

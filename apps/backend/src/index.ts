@@ -20,7 +20,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
-  backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
+  backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
 import { rateLimit } from 'express-rate-limit';
@@ -61,7 +61,7 @@ import { collectorEndpoint, collectorSink, NotificationService, PushService, vap
 import { holdFences } from './platform/wiring/fences.js';
 import { stopBackend } from './platform/wiring/shutdown.js';
 
-const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
+const startsHere = process.env.NODE_ENV !== 'test';
 if (startsHere) dotenv.config({ quiet: true });
 
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database; settings: BackendSettings }> {
@@ -85,7 +85,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const corsAllowed = new Set([PUBLIC_URL, APP_URL]);
   const originAllowed = (origin: string | undefined): boolean =>
-    !origin || !production || corsAllowed.has(origin.replace(/\/$/, ''));
+    !origin || corsAllowed.has(origin.replace(/\/$/, ''));
 
   const ours = settings.origins;
   const io = new SocketServer(httpServer, {
@@ -290,7 +290,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds, signsEveryoneIn: signsEveryoneIn(settings) });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
@@ -309,7 +309,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, signsEveryoneIn: signsEveryoneIn(settings), payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
+  wireSockets({ io, db, role, payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
 
   const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
   const signInReturn = settings.root ? settings.root.signInReturn : {};
@@ -497,7 +497,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use(errorResponder);
 
-  if (!settings.underTest || settings.e2e) {
+  if (!settings.underTest) {
     httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Stop what holds it, or run npm run dev:reset.`);

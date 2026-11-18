@@ -97,10 +97,8 @@ describe('signing in with an OpenID provider and with GitHub', () => {
   let issuer: StandInIssuer;
   let github: StandInGithub;
   let app: Awaited<ReturnType<typeof serve>>;
-  const wasE2E = process.env.IS_E2E;
 
   beforeEach(async () => {
-    delete process.env.IS_E2E;
     db = await fresh();
     await db.init();
     github = await standInGithub();
@@ -113,7 +111,6 @@ describe('signing in with an OpenID provider and with GitHub', () => {
   });
 
   afterEach(async () => {
-    if (wasE2E !== undefined) process.env.IS_E2E = wasE2E;
     await issuer.close();
     await github.close();
     await new Promise<void>((resolve) => { app.server.closeAllConnections(); app.server.close(() => resolve()); });
@@ -298,7 +295,6 @@ describe('a dev box whose providers return to localhost while its sign-in lives 
   let returnUrl: string;
 
   beforeEach(async () => {
-    delete process.env.IS_E2E;
     db = await fresh();
     await db.init();
     place = await listening();

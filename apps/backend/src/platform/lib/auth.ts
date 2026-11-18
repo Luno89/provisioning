@@ -98,15 +98,6 @@ export function generateOTP(): string {
   return val.toString();
 }
 
-export const signsEveryoneIn = (settings: { e2e: boolean; production: boolean }): boolean =>
-  settings.e2e && !settings.production;
-
-export function e2eProblem(env: Record<string, string | undefined>): string | undefined {
-  return env.IS_E2E === 'true' && env.NODE_ENV === 'production'
-    ? 'IS_E2E signs every request in as the first account, so a production server refuses to start with it set'
-    : undefined;
-}
-
 export const SESSION_SECONDS = 24 * 60 * 60;
 
 export const SESSION_COOKIE = 'session';

@@ -13,7 +13,7 @@ let env: TestWorkflowEnvironment;
 beforeAll(async () => {
   env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
-  keepPayloadsIn({ uri, dbName, e2e: false });
+  keepPayloadsIn({ uri, dbName });
 });
 afterAll(async () => { await env.teardown(); });
 

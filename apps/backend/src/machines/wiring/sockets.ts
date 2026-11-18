@@ -48,7 +48,6 @@ export interface SocketsWiringDeps {
   io: SocketServer;
   db: Database;
   role: RoleConfig;
-  signsEveryoneIn: boolean;
   payloadBlobs: PayloadBlobs;
   payloadKey: Keyring;
   dataKey: SecretKey;
@@ -68,7 +67,7 @@ export interface SocketsWiringDeps {
 export function wireSockets(deps: SocketsWiringDeps): void {
   const { io, db, role, payloadKey, clusters, apps } = deps;
   const podLogs = new PodLogTails({ access: clusters.access, say: (room, text) => io.to(room).emit('kube-log', text), log: (message) => console.warn(message) });
-  signSocketsIn(io, { auth: deps.auth, db, signsEveryoneIn: deps.signsEveryoneIn, sessionSockets: deps.sessionSockets });
+  signSocketsIn(io, { auth: deps.auth, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
   const admitted = new WeakMap<object, MachineSocketData>();

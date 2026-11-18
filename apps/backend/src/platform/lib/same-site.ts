@@ -6,11 +6,9 @@ export interface ArrivingRequest {
 
 export interface OurOrigins {
   hosts: ReadonlySet<string>;
-  loopback: boolean;
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const LOOPBACK = /^(localhost|.+\.localhost|127\.0\.0\.1|\[::1\])$/;
 
 const hostOf = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
@@ -18,8 +16,8 @@ const hostOf = (url: string | undefined): string | undefined => {
 };
 
 export function ourOrigins(env: Readonly<Record<string, string | undefined>>): OurOrigins {
-  const hosts = [env.PUBLIC_URL, env.APP_URL].map(hostOf).filter((host): host is string => Boolean(host));
-  return { hosts: new Set(hosts), loopback: env.NODE_ENV !== 'production' };
+  const hosts = [env.PUBLIC_URL, env.APP_URL, env.SIGN_IN_RETURN_URL].map(hostOf).filter((host): host is string => Boolean(host));
+  return { hosts: new Set(hosts) };
 }
 
 export function foreignOrigin(request: ArrivingRequest, ours: OurOrigins): string | undefined {
@@ -29,7 +27,6 @@ export function foreignOrigin(request: ArrivingRequest, ours: OurOrigins): strin
     const from = hostOf(origin);
     if (!from) return `this request came from ${origin}, which is not an address`;
     if (from === request.host?.toLowerCase() || ours.hosts.has(from)) return undefined;
-    if (ours.loopback && LOOPBACK.test(new URL(origin).hostname)) return undefined;
     return `this request came from ${origin}, which is not this site`;
   }
   const site = request.fetchSite?.trim().toLowerCase();

@@ -69,17 +69,13 @@ export class MongoDB implements Database {
   }
 
   async init(): Promise<void> {
-    const { uri, dbName, e2e: isE2E } = this.settings.mongo;
+    const { uri, dbName } = this.settings.mongo;
 
     this.client = new MongoClient(uri, clientOptionsFor(uri));
     for (const reporter of this.reporters) reportMongoReach(this.client, reporter);
     await this.client.connect();
     await ensureReplicaSet(this.client);
     this.db = fencedDb(this.client.db(dbName), theFence());
-
-    if (isE2E) {
-      await this.db.dropDatabase();
-    }
 
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();
