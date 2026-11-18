@@ -36,6 +36,8 @@ export { bindingProjection, bindingSecretName } from './lib/service-binding.js';
 export type { ProjectedBinding } from './lib/service-binding.js';
 export { existingOnCluster, orphanedIngressWebhook, PLATFORM_KINDS, PLATFORM_PLAN, platformSecretManifests, platformStackEnv, platformStackName, secretStamp } from './lib/platform-provision.js';
 export type { PlatformService as PlatformServicePlan, SecretSource, SecretValues } from './lib/platform-provision.js';
+export { openedRecord, pieceHeard, pieceProgress, piecesFor, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId, provisionWorkflowId, rootReportOf, runEnded, setUpProgress, startDecision } from './lib/provisioning.js';
+export type { PieceChange, Provisioned, Provisioner, ProvisioningRecord, ProvisionPieceInput, ProvisionPieceResult, ProvisionRunInput, StartDecision } from './lib/provisioning.js';
 export { serviceNameFor, usableServiceName } from './lib/service-name.js';
 export { bootstrapScript, KOALA_REPOSITORY, READY_MARK, redacted, setupCodeFrom } from './lib/server-orders.js';
 export type { ServerOrder, ServerOrderState } from './lib/server-orders.js';
