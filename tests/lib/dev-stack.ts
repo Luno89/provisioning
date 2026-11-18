@@ -79,8 +79,10 @@ export interface DevOwner {
 export const devRootPage = `http://${DEV.rootHost}.localhost:${DEV.rootWebPort}`;
 export const devKoalaPage = `http://${DEV.instanceName}.localhost:${DEV.instanceWebPort}`;
 
+export const DEV_OWNER_FILE = 'apps/backend/data/dev/owner.json';
+
 export const devOwnerSignIn = (): { email: string; password: string } =>
-  JSON.parse(readFileSync(devFile('apps/backend/data/dev/owner.json'), 'utf8')) as { email: string; password: string };
+  JSON.parse(readFileSync(devFile(DEV_OWNER_FILE), 'utf8')) as { email: string; password: string };
 
 export async function devOwner(): Promise<DevOwner> {
   const saved = devOwnerSignIn();

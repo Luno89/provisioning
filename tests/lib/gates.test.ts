@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { checksToRun, shipRun, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, takeNowLines, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { checksToRun, E2E_STEPS, shipPlan, shipRun, stepFailed, changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, takeNowLines, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -223,6 +223,35 @@ describe('which ship steps a run takes', () => {
   it('runs the coupling rules alone only once the steps that gather what they judge passed on this commit, the live suites not among them', () => {
     expect(shipRun(steps, [passed('test:unit')], 'coupling')).toEqual({ refused: 'the coupling rules judge what the unit and integration tiers gathered on this commit, and integration:coupled has not passed on it yet' });
     expect(shipRun(steps, [passed('test:unit'), passed('test:integration:coupled')], 'coupling')).toEqual({ steps: [steps[2]] });
+  });
+});
+
+describe('the order ship runs its steps in', () => {
+  const tier = (script: string) => ({ name: script, script });
+  const live = E2E_STEPS.slice(0, 2);
+
+  it('runs the tiers, which need no dev stack, before it builds a fresh one for the live suites', () => {
+    const steps = [live[0]!, tier('test:unit'), live[1]!, tier('test:coupling')];
+    expect(shipPlan(steps, undefined)).toEqual({ tiers: [steps[1], steps[3]], live, freshStack: true });
+  });
+
+  it('builds no dev stack when every live suite passed on this commit already', () => {
+    expect(shipPlan([tier('test:unit')], undefined)).toEqual({ tiers: [tier('test:unit')], live: [], freshStack: false });
+  });
+
+  it('runs one step named alone against the dev stack that is running, without building a fresh one', () => {
+    expect(shipPlan([live[0]!], live[0]!.script)).toEqual({ tiers: [], live: [live[0]], freshStack: false });
+    expect(shipPlan([tier('test:unit')], 'unit')).toEqual({ tiers: [tier('test:unit')], live: [], freshStack: false });
+  });
+
+  it('says a step that fails is this commit\'s test step, apart from provisioning the dev stack', () => {
+    expect(stepFailed({ name: 'lint', script: 'lint' }, 2.5)).toBe('this commit failed its test step lint after 2.5 min (npm run lint); the dev stack is not what failed');
+  });
+
+  it('counts every ship step either a tier or a live suite, the live suites last', () => {
+    const plan = shipPlan(SHIP_STEPS, undefined);
+    expect([...plan.tiers, ...plan.live]).toEqual(SHIP_STEPS);
+    expect(plan.live).toEqual(E2E_STEPS);
   });
 });
 

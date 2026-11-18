@@ -200,6 +200,17 @@ export const shipRun = (steps: readonly GateStep[], checked: readonly StepPassed
   return { steps: [step] };
 };
 
+export interface ShipPlan { tiers: GateStep[]; live: GateStep[]; freshStack: boolean }
+
+export const shipPlan = (steps: readonly GateStep[], only: string | undefined): ShipPlan => {
+  const isLive = (step: GateStep): boolean => E2E_STEPS.some((suite) => suite.script === step.script);
+  const live = steps.filter(isLive);
+  return { tiers: steps.filter((step) => !isLive(step)), live, freshStack: only === undefined && live.length > 0 };
+};
+
+export const stepFailed = (step: GateStep, minutes: number): string =>
+  `this commit failed its test step ${step.name} after ${minutes} min (npm run ${step.script}); the dev stack is not what failed`;
+
 export const stillToRun = (steps: readonly GateStep[], checked: readonly StepPassed[]): GateStep[] =>
   steps.filter((step) => !checked.some((passed) => passed.script === step.script));
 

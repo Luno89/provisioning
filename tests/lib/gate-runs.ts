@@ -2,13 +2,14 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
+import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, stepFailed, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
 import { imageTagOf } from './release-lab.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, type Failures } from './audits.js';
-import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
+import { DEV_OWNER_FILE, devKoalaCheckout, devOwnerSignIn, devRootApi } from './dev-stack.js';
+import { DEV_UP_STEP, devStackProblemOf, devStackState, devStepOf, provisioningFailed, type DevStackLooks } from './dev-stack-state.js';
+import { devFile } from './dev-temporal.js';
 import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
 import { showGrowing } from './show-growing.js';
-import { until } from './until.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -160,41 +161,54 @@ function servingFrom(port: string): string | undefined {
   try { return readlinkSync(`/proc/${pid}/cwd`); } catch { return undefined; }
 }
 
+const devStackLooks = (): DevStackLooks => ({
+  rootApi: devRootApi,
+  rootFrom: () => servingFrom(new URL(devRootApi).port),
+  koalaFrom: devKoalaCheckout,
+  ownerSignIn: () => (existsSync(devFile(DEV_OWNER_FILE)) ? devOwnerSignIn() : undefined),
+});
+
 export async function devStackProblem(repo: string): Promise<string | undefined> {
-  const root = await fetch(`${devRootApi}/api/auth/me`).then((res) => res.status, () => 0);
-  if (root !== 401) return `root does not answer on ${devRootApi}; start the dev stack with \`npm run dev\` from this checkout`;
-  const rootFrom = servingFrom(new URL(devRootApi).port);
-  if (!rootFrom) return `cannot tell which checkout root on ${devRootApi} runs from`;
-  if (rootFrom !== repo && !rootFrom.startsWith(`${repo}/`)) return `root on ${devRootApi} runs from ${rootFrom}, not this checkout (${repo}), so it is not running this commit`;
-  const koala = await fetch(`${devKoalaApi}/api/auth/sign-in`).then((res) => res.status, () => 0);
-  if (koala !== 200) return `your Koala does not answer on ${devKoalaApi}; the dev stack puts it on this computer's k3s`;
-  let koalaFrom: string;
-  try { koalaFrom = devKoalaCheckout(); } catch (err) { return `cannot tell which checkout your Koala's pods run: ${(err as Error).message}`; }
-  if (koalaFrom !== repo) return `your Koala's pods run ${koalaFrom || 'no checkout'}, not this checkout (${repo}), so they are not running this commit`;
-  return undefined;
+  return devStackProblemOf(await devStackState(repo, devStackLooks()));
 }
 
 export const DEV_STACK_LOG = 'tests/.dev-stack.log';
 
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
 export async function freshDevStack(repo: string): Promise<void> {
   console.log('\n━━ a fresh dev stack: reset, set up from this checkout, then npm run dev, which asks you here before the join installs anything');
   for (const script of ['dev:reset', 'setup']) {
+    console.log(`\n━━ provisioning the dev stack: npm run ${script}`);
     const done = spawnSync('npm', ['run', script], { cwd: repo, stdio: 'inherit' });
-    if (done.status !== 0) throw new Error(`npm run ${script} failed (${done.status ?? done.signal})`);
+    if (done.status !== 0) throw new Error(provisioningFailed(`npm run ${script} failed (${done.status ?? done.signal})`, {}));
   }
+  console.log('\n━━ provisioning the dev stack: npm run dev, until root reports your Koala ready');
   const log = join(repo, DEV_STACK_LOG);
   const out = openSync(log, 'w');
   const dev = spawn('npm', ['run', 'dev'], { cwd: repo, stdio: ['ignore', out, out] });
-  let ended: string | undefined;
-  dev.on('exit', (code, signal) => { ended = `npm run dev stopped (${signal ?? code})`; });
+  let stopped: string | undefined;
+  dev.on('exit', (code, signal) => { stopped = `npm run dev stopped (${signal ?? code})`; });
   dev.unref();
   const shown = showGrowing(log, (text) => process.stdout.write(text));
   try {
-    await until('the dev stack running this checkout', async () => ((await devStackProblem(repo)) ? undefined : true), async () => ended);
+    let told = '';
+    for (;;) {
+      const state = await devStackState(repo, devStackLooks());
+      const devStep = devStepOf(readFileSync(log, 'utf8'));
+      const said = state.kind === 'provisioning' ? state.stage : state.kind;
+      if (said !== told) console.log(`  ship: ${state.kind === 'provisioning' ? state.stage : `the dev stack is ${state.kind}`}`);
+      told = said;
+      if (state.kind === 'ready' && devStep?.replace(/^\[\d+\] /, '').startsWith(DEV_UP_STEP)) break;
+      if (stopped) throw new Error(provisioningFailed(stopped, { devStep, root: state }));
+      if (state.kind === 'failed') throw new Error(provisioningFailed(state.stage, { devStep }));
+      if (state.kind === 'not this checkout') throw new Error(provisioningFailed(state.why, { devStep }));
+      await pause(2000);
+    }
   } finally {
     shown.stop();
   }
-  console.log(`\n━━ ✓ the dev stack is fresh and runs this checkout; npm run dev runs on after ship, its output in ${DEV_STACK_LOG}`);
+  console.log(`\n━━ ✓ the dev stack is fresh: root reports your Koala ready, running this checkout; npm run dev runs on after ship, its output in ${DEV_STACK_LOG}`);
 }
 
 export function checkoutProblem(repo: string, commit: string): string | undefined {
@@ -233,7 +247,7 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
     hooks.onEnd?.(step);
     const minutes = minutesSince(started);
-    if (result.status !== 0) throw new Error(`${step.name} failed after ${minutes} min (npm run ${step.script})`);
+    if (result.status !== 0) throw new Error(stepFailed(step, minutes));
     const moved = checkoutProblem(repo, commit);
     if (moved) throw new Error(`${moved} while ${step.name} ran, so what it tested is not this commit; run it again once the checkout is back`);
     console.log(`━━ ✓ ${step.name} in ${minutes} min`);

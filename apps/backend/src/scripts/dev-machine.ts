@@ -5,7 +5,7 @@ import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ignore } from '@koala/engine-core/failures';
-import { DEV, devKoalaValues, readEnvFile } from '../instances/index.js';
+import { DEV, devKoalaValues, koalaReadinessOf, MY_KOALA_PATH, readEnvFile } from '../instances/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CHECKOUT = resolve(here, '../../../..');
@@ -62,18 +62,17 @@ async function joinThisComputer(cookie: string, instanceWeb: string): Promise<vo
 async function untilKoalaReady(cookie: string): Promise<void> {
   let told = '';
   for (;;) {
-    const answer = await fetch(`${ROOT_API}/api/instances/mine`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
+    const answer = await fetch(`${ROOT_API}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
     if (!answer) {
       say('root stopped answering (its watcher restarts it when its code changes); waiting for it');
       await untilRootAnswers();
       continue;
     }
-    const { instance } = await answer.json() as { instance: { status?: string; detail?: string } | null };
-    const line = `${instance?.status ?? 'waiting'}: ${instance?.detail ?? 'waiting for this computer to put Koala on itself'}`;
-    if (line !== told) say(`your Koala is ${line}`);
-    told = line;
-    if (instance?.status === 'ready') return;
-    if (instance?.status === 'failed') throw new Error(`putting Koala on this computer failed: ${instance.detail ?? ''}`);
+    const koala = koalaReadinessOf(await answer.json());
+    if (koala.line !== told) say(`your Koala is ${koala.line}`);
+    told = koala.line;
+    if (koala.state === 'ready') return;
+    if (koala.state === 'failed') throw new Error(`putting Koala on this computer failed: ${koala.detail}`);
     await pause(2000);
   }
 }

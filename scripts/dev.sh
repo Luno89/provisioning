@@ -13,34 +13,7 @@ fi
 
 STEP=0
 say() { STEP=$((STEP + 1)); printf '\n\033[1m[%s] %s\033[0m\n' "${STEP}" "$1"; }
-quietly() {
-  local log pid code shown=0 width lines
-  log="$(mktemp)"
-  "$@" >"${log}" 2>&1 &
-  pid=$!
-  if [ -t 1 ]; then
-    width=$(( $(tput cols 2>/dev/null || echo 100) - 6 ))
-    while kill -0 "${pid}" 2>/dev/null; do
-      lines="$(tr '\r' '\n' < "${log}" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -n 8 | cut -c1-"${width}" || true)"
-      [ "${shown}" -gt 0 ] && printf '\033[%dA\033[J' "${shown}"
-      shown=0
-      if [ -n "${lines}" ]; then
-        printf '%s\n' "${lines}" | sed 's/^/    \x1b[2m/; s/$/\x1b[0m/'
-        shown=$(printf '%s\n' "${lines}" | wc -l)
-      fi
-      sleep 0.3
-    done
-    [ "${shown}" -gt 0 ] && printf '\033[%dA\033[J' "${shown}"
-  fi
-  code=0
-  wait "${pid}" || code=$?
-  if [ "${code}" -ne 0 ]; then
-    tr '\r' '\n' < "${log}" | tail -n 40
-    rm -f "${log}"
-    return "${code}"
-  fi
-  rm -f "${log}"
-}
+. "${ROOT}/scripts/quietly.sh"
 
 SUDO_KEPT=""
 stop_keeping_sudo() { [ -n "${SUDO_KEPT}" ] && kill "${SUDO_KEPT}" 2>/dev/null; SUDO_KEPT=""; }

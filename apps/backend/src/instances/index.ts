@@ -14,6 +14,8 @@ export { dataHolds } from './lib/instance-updates.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceWatchRecord } from './lib/instance-watch.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';
+export { koalaReadinessOf, MY_KOALA_PATH } from './lib/koala-readiness.js';
+export type { KoalaReadiness } from './lib/koala-readiness.js';
 export { importLines } from './lib/mongo-move.js';
 export { publicJwkShaped } from './lib/oidc.js';
 export type { SignInKey } from './lib/oidc.js';

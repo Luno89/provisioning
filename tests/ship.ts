@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { CHECKS_STEP, E2E_STEPS, HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, checksToRun, shipRun, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
+import { CHECKS_STEP, HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, checksToRun, shipPlan, shipRun, type GateStep, type StepPassed, shortName, stillToRun, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, takeNowLines, waitingLines } from './lib/gates.js';
 import { e2eEnv, shipChecks } from './lib/e2e-env.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -53,13 +53,9 @@ async function main(): Promise<void> {
     const checked = checkedThrough(gates);
     const run = shipRun(SHIP_STEPS, checked, ONLY);
     if ('refused' in run) throw new Error(run.refused);
-    if (!ONLY && run.steps.some((step) => E2E_STEPS.includes(step))) await freshDevStack(REPO);
-    const stack = await devStackProblem(REPO);
-    if (stack) throw new Error(stack);
-    const owner = (await devOwner()).id;
     const passedBefore = SHIP_STEPS.filter((step) => !run.steps.includes(step)).map((step) => checked.find((passed) => passed.script === step.script)).filter((passed) => passed !== undefined);
     for (const passed of passedBefore) console.log(`already passed on this commit: ${passed.name}`);
-    console.log(`${ONLY ? 'run' : 'ship'} ${commit.slice(0, 12)}: ${run.steps.length} of ${SHIP_STEPS.length} steps against the dev stack, which runs this checkout. Leave it as it is until this ends; work elsewhere.`);
+    console.log(`${ONLY ? 'run' : 'ship'} ${commit.slice(0, 12)}: ${run.steps.length} of ${SHIP_STEPS.length} steps, the tiers first, then the live suites against the dev stack running this checkout. Leave the checkout as it is until this ends; work elsewhere.`);
     const started = Date.now();
     const code = codeCommitOf(REPO, commit);
     const codeRecord = readRecord(REPO, code) ?? { commit: code };
@@ -87,15 +83,28 @@ async function main(): Promise<void> {
       writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
       console.log(`mechanics checks passed on this commit: ${checksKept.length} of ${shipChecks().length}`);
     };
-    runSteps(REPO, commit, run.steps, e2eEnv(owner), {
-      envFor: (step) => step.script === CHECKS_STEP ? { CHECKS_LIVE_SCENARIOS: checksNow.checks.join(','), KOALA_GATE_CHECKS: checksFile } : {},
-      onEnd: (step) => { if (step.script === CHECKS_STEP) keepChecks(); },
-      onPass: (passed) => {
+    const hooks = {
+      envFor: (step: GateStep) => step.script === CHECKS_STEP ? { CHECKS_LIVE_SCENARIOS: checksNow.checks.join(','), KOALA_GATE_CHECKS: checksFile } : {},
+      onEnd: (step: GateStep) => { if (step.script === CHECKS_STEP) keepChecks(); },
+      onPass: (passed: StepPassed) => {
         if (passed.script === CHECKS_STEP && shipChecks().some((check) => !checksKept.includes(check))) return;
         kept = [...kept.filter((step) => step.script !== passed.script), passed];
         writeRecord(REPO, { ...codeRecord, checked: kept, checks: checksKept });
       },
-    });
+    };
+    const plan = shipPlan(run.steps, ONLY);
+    if (plan.tiers.length > 0) {
+      console.log('\n━━ the tiers, which need no dev stack');
+      runSteps(REPO, commit, plan.tiers, {}, hooks);
+    }
+    if (plan.live.length > 0) {
+      if (plan.freshStack) await freshDevStack(REPO);
+      const stack = await devStackProblem(REPO);
+      if (stack) throw new Error(stack);
+      const owner = (await devOwner()).id;
+      console.log('\n━━ the live suites, against the dev stack');
+      runSteps(REPO, commit, plan.live, e2eEnv(owner), hooks);
+    }
     reportSlower(REPO, commit);
     const left = stillToRun(SHIP_STEPS, kept);
     if (left.length > 0) {
