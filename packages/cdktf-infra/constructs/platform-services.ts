@@ -128,6 +128,10 @@ export class InfisicalPlatform extends Construct {
       ],
       set: plain({
         "infisical.service.type": "ClusterIP",
+        "infisical.replicaCount": "1",
+        "infisical.resources.limits.memory": "512Mi",
+        "infisical.resources.requests.memory": "256Mi",
+        "infisical.resources.requests.cpu": "100m",
         "postgresql.enabled": "true",
         "redis.enabled": "true",
         "redis.cluster.enabled": "false",

@@ -178,6 +178,15 @@ describe("Infisical", () => {
     });
   });
 
+  it("runs one Infisical within 512Mi, set where the chart reads them, so a person's machine holds one copy", () => {
+    expect(setOf(releases(s()).find((r) => r.chart === "infisical-standalone"))).toMatchObject({
+      "infisical.replicaCount": "1",
+      "infisical.resources.limits.memory": "512Mi",
+      "infisical.resources.requests.memory": "256Mi",
+      "infisical.resources.requests.cpu": "100m",
+    });
+  });
+
   it("hands its stores their passwords from the Secret Koala made, never as values in the stack", () => {
     const synthesized = s();
     const standalone = releases(synthesized).find((r) => r.chart === "infisical-standalone");
