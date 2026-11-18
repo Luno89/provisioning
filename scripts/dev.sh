@@ -92,11 +92,7 @@ echo "  settings in ${DEV_DATA}"
 set -a; . "${DEV_DATA}/urls.env"; set +a
 with_env() { echo "set -a; . '${DEV_DATA}/$1.env'; set +a; exec $2"; }
 
-for port in 3002 3003 5173 5175 5176; do
-  for pid in $(lsof -ti ":${port}" 2>/dev/null || true); do
-    if [ "$(ps -o uid= -p "$pid" | tr -d ' ')" = "$(id -u)" ]; then kill "$pid" 2>/dev/null || true; fi
-  done
-done
+bash "${ROOT}/scripts/stop-dev-servers.sh" 3002 3003 5173 5175 5176
 
 KOALA_COVERAGE=""
 if [ "${COUPLING_LIVE:-}" = 1 ]; then

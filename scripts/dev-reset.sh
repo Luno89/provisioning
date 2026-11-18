@@ -14,11 +14,7 @@ fi
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 say "Stopping dev's root, hub and web servers"
-for port in 3002 3003 5173 5175 5176; do
-  for pid in $(lsof -ti ":${port}" 2>/dev/null || true); do
-    if [ "$(ps -o uid= -p "$pid" | tr -d ' ')" = "$(id -u)" ]; then kill "$pid"; fi
-  done
-done
+bash "${ROOT}/scripts/stop-dev-servers.sh" 3002 3003 5173 5175 5176
 
 say "Removing this computer as a machine: its k3s with the Koala on it, its token, its service"
 (cd "${ROOT}" && npx tsx apps/local-agent/src/index.ts remove)
