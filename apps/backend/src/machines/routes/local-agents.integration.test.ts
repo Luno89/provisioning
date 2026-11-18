@@ -146,11 +146,11 @@ describe('a machine\'s agents on My Machines', () => {
     await harness.db.machines.saveLocalAgentDevice({ id: 'dev-mine', ownerId: TEST_USER.id, name: 'Mine', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.machines.saveLocalAgentDevice({ id: 'dev-theirs', ownerId: 'someone-else', name: 'Theirs', rootDir: '/y', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     const mineSocket = connect('dev-mine').socket;
-    await service!.recordAgents('dev-mine', [
+    await service!.recordAgents('dev-mine', { agents: [
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0', signIn: ['Log in with Google'] },
       { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp' },
       { id: 'Not An Id', title: 'x', state: 'ready', source: 'found' },
-    ]);
+    ] });
 
     const body = await (await fetch(harness.url('/api/mesh/local-agents'))).json() as { id: string; online: boolean; agents: { id: string }[]; tokenEnc?: string }[];
     expect(body.map((device) => device.id)).toContain('dev-mine');
@@ -182,10 +182,10 @@ describe('a machine\'s agents on My Machines', () => {
 
   it('installs an adapter only for an agent that needs one, by asking the machine', async () => {
     await harness.db.machines.saveLocalAgentDevice({ id: 'dev-adapter', ownerId: TEST_USER.id, name: 'Adapter', rootDir: '/x', tokenHash: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
-    await service!.recordAgents('dev-adapter', [
+    await service!.recordAgents('dev-adapter', { agents: [
       { id: 'claude', title: 'Claude Code', state: 'needs-adapter', source: 'found', adapter: '@agentclientprotocol/claude-agent-acp' },
       { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' },
-    ]);
+    ] });
     const install = (agent: string) => fetch(harness.url(`/api/mesh/local-agents/dev-adapter/agents/${agent}/install`), { method: 'POST' });
 
     const offline = await install('claude');

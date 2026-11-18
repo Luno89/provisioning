@@ -94,6 +94,13 @@ describe('My Machines', () => {
     ]));
   });
 
+  it('says a machine\'s coding agents are not set up, why, and how to set them up, as the machine reported', async () => {
+    renderPanel([machine({ agentsAt: '2026-10-15T12:00:00Z', agentsNotSetUp: 'the ACP registry could not be reached' })]);
+    const said = await screen.findByText(/The coding agents are not set up/);
+    expect(said.textContent).toBe('The coding agents are not set up: the ACP registry could not be reached. Running the command that adds My Laptop again sets them up.');
+    expect(screen.queryByText('None found on this machine.')).toBeNull();
+  });
+
   it('says a machine found no agents, once it has looked', async () => {
     renderPanel([machine({ agentsAt: '2026-10-15T12:00:00Z' })]);
     expect(await screen.findByText('None found on this machine.')).toBeDefined();

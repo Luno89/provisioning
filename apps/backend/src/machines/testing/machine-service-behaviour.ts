@@ -100,15 +100,27 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
     it('records the agents a machine found, as many as are well formed, and when', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'mine' }));
       const machines = service();
-      await machines.recordAgents('mine', [
+      await machines.recordAgents('mine', { agents: [
         { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0' },
         { id: 'Not An Id', title: 'x', state: 'ready', source: 'found' },
-      ]);
+      ] });
       const saved = (await stored('mine'))!;
       expect(saved.agents?.map((agent) => agent.id)).toEqual(['gemini']);
       expect(saved.agentsAt).toBe(clock.toISOString());
-      await machines.recordAgents('gone', []);
+      await machines.recordAgents('gone', { agents: [] });
       expect(await stored('gone')).toBeUndefined();
+    });
+
+    it('shows a machine\'s coding agents as not set up, and why, as long as its own report says so', async () => {
+      await db.machines.saveLocalAgentDevice(device({ id: 'mine' }));
+      const machines = service();
+      devices.status.mockReturnValue({ online: true });
+      await machines.recordAgents('mine', { agents: [], notSetUp: 'the ACP registry could not be reached' });
+      expect((await machines.list('bo'))[0]).toMatchObject({ agents: [], agentsAt: clock.toISOString(), agentsNotSetUp: 'the ACP registry could not be reached' });
+      await machines.recordAgents('mine', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' }] });
+      const [after] = await machines.list('bo');
+      expect(after?.agents.map((agent) => agent.id)).toEqual(['gemini']);
+      expect(after).not.toHaveProperty('agentsNotSetUp');
     });
 
     it('notes when a machine was last connected here', async () => {

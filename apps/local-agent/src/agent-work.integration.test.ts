@@ -63,6 +63,7 @@ describe('the machine agent starting its work for its Koala', () => {
       service: undefined,
       cluster: noKoalaK3s,
       discovery: () => ({ which: async () => undefined, exists: async () => false, probe: async () => { throw new Error('nothing to probe'); } }),
+      agentsNotSetUp: async () => undefined,
       startDeviceWorker,
       onStop: (stop) => { stops.push(stop); },
       exit: () => undefined,

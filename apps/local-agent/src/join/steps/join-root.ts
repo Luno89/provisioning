@@ -1,6 +1,6 @@
 import type { Progress, Step } from '@koala/provision';
 import { configFile } from '../../machine-config.js';
-import { configHome, type Joined, type JoinContext } from '../context.js';
+import { configHome, joinedOf, type Joined, type JoinContext } from '../context.js';
 
 const machineFile = (ctx: JoinContext): string => configFile({ ...ctx.host.env, XDG_CONFIG_HOME: configHome(ctx) });
 
@@ -22,8 +22,10 @@ const savedToken = async (ctx: JoinContext): Promise<string | undefined> => {
   return token;
 };
 
-const settingsOf = (joined: Joined): string =>
-  `${JSON.stringify({ rootUrl: joined.rootUrl, token: joined.token, deviceId: joined.deviceId, rootDir: joined.rootDir }, null, 2)}\n`;
+const settingsOf = (joined: Joined, agentsNotSetUp?: string): string =>
+  `${JSON.stringify({ rootUrl: joined.rootUrl, token: joined.token, deviceId: joined.deviceId, rootDir: joined.rootDir, ...(agentsNotSetUp ? { agentsNotSetUp } : {}) }, null, 2)}\n`;
+
+export const keepAgentsNotSetUp = (ctx: JoinContext, why: string): Promise<void> => ctx.host.writeOwn(machineFile(ctx), settingsOf(joinedOf(ctx), why), 0o600);
 
 const text = (env: Record<string, unknown> | undefined, name: string): string => (typeof env?.[name] === 'string' ? env[name] : '');
 

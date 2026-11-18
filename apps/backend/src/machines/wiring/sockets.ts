@@ -110,8 +110,8 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       if (!reported || !deps.machineClusters) return;
       deps.machineClusters.reported(device, reported.state, reported.gpus, reported.capacity).catch((err: Error) => console.warn(`[machines] ${device.id}: whether it has its own cluster could not be recorded: ${err.message}`));
     });
-    socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
-      deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
+    socket.on('agents:found', (report: unknown) => {
+      deps.machines.recordAgents(device.id, report).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
     });
     let updates = Promise.resolve();
     socket.on('machine:update', (report: unknown) => {

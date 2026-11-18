@@ -167,6 +167,26 @@ export interface Discovered {
   launches: Record<string, AcpLaunch>;
 }
 
+export interface AgentsReport {
+  agents: FoundAgent[];
+  notSetUp?: string;
+}
+
+export async function reportAgents(
+  deps: DiscoveryDeps,
+  manual: readonly ManualAgent[],
+  notSetUp: () => Promise<string | undefined>,
+  tell: (report: AgentsReport, launches: Record<string, AcpLaunch>) => void,
+): Promise<Discovered> {
+  try {
+    const why = await notSetUp();
+    return await discoverAgents(deps, manual, (agents, launches) => tell({ agents, ...(why ? { notSetUp: why } : {}) }, launches));
+  } catch (err) {
+    tell({ agents: [], notSetUp: `Koala could not look for the coding agents here: ${(err as Error).message}` }, {});
+    return { agents: [], launches: {} };
+  }
+}
+
 export async function discoverAgents(deps: DiscoveryDeps, manual: readonly ManualAgent[], report: (agents: FoundAgent[], launches: Record<string, AcpLaunch>) => void = () => {}): Promise<Discovered> {
   const byHand = new Set(manual.map((entry) => entry.id));
   const candidates: Candidate[] = [];

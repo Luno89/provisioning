@@ -214,6 +214,7 @@ export interface LocalAgentDeviceMetadata {
   os?: string | undefined;
   agents?: MachineAgent[] | undefined;
   agentsAt?: string | undefined;
+  agentsNotSetUp?: string | undefined;
   manualAgents?: ManualMachineAgent[] | undefined;
   agentBundle?: string | undefined;
   agentUpdate?: AgentUpdateReport | undefined;

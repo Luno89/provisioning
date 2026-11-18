@@ -40,13 +40,16 @@ export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, 
   };
 }
 
+const savedSettings = (env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> => readFile(configFile(env), 'utf8').then(
+  (raw) => JSON.parse(raw) as Record<string, unknown>,
+  (err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return {};
+    throw new Error(`${configFile(env)} could not be read: ${err.message}`);
+  },
+);
+
 export async function loadMachineConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): Promise<MachineConfig> {
-  const saved = await readFile(configFile(env), 'utf8').then(
-    (raw) => JSON.parse(raw) as Record<string, unknown>,
-    (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ENOENT') return {};
-      throw new Error(`${configFile(env)} could not be read: ${err.message}`);
-    },
-  );
-  return machineConfigFrom(env, saved, cwd);
+  return machineConfigFrom(env, await savedSettings(env), cwd);
 }
+
+export const agentsNotSetUp = async (env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> => text((await savedSettings(env)).agentsNotSetUp);
