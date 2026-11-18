@@ -7,8 +7,11 @@ import { linkToRoot } from './root-link.js';
 import { systemDeps } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
-import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.js';
-import { askOnTerminal } from './terminal-ask.js';
+import { setUpAgents, type AdapterChoice } from './agent-setup.js';
+import { askFolder, askNoByDefault, askOnTerminal } from './terminal-ask.js';
+import { localCommands } from '@koala/provision';
+import { localJoinHost } from './join/host.js';
+import { runJoin } from './join/join.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.js';
@@ -88,17 +91,28 @@ async function main() {
   });
 }
 
-async function setUpAgentsHere(args: string[]): Promise<void> {
-  const flag = args.indexOf('--adapters');
-  const choice = (flag >= 0 ? args[flag + 1] : 'ask') as AdapterChoice;
-  if (!ADAPTER_CHOICES.includes(choice)) throw new Error(`--adapters takes ${ADAPTER_CHOICES.join(', ')}`);
-  const config = await loadMachineConfig();
-  await mkdir(config.rootDir, { recursive: true });
-  await setUpAgents(choice, { discovery: systemDeps(config.rootDir, probeAcp), install: (install) => installAgent(install) }, {
+async function setUpAgentsIn(choice: AdapterChoice, rootDir: string): Promise<void> {
+  await setUpAgents(choice, { discovery: systemDeps(rootDir, probeAcp), install: (install) => installAgent(install) }, {
     ok: (line) => console.log(`  \x1b[32m✓\x1b[0m ${line}`),
     note: (line) => console.log(`  • ${line}`),
     fail: (line) => console.log(`  \x1b[31m✗\x1b[0m ${line}`),
     ask: askOnTerminal,
+  });
+}
+
+async function joinHere(args: string[]): Promise<number> {
+  const env = process.env;
+  const commands = localCommands(env);
+  const user = os.userInfo();
+  const group = (await commands.run({ command: 'id', args: ['-gn'] }, { line: () => undefined })).stdout.trim();
+  return runJoin(args, {
+    host: localJoinHost({ env, machineRoot: env.KOALA_MACHINE_ROOT || '/', user: { uid: user.uid, name: user.username, group, home: os.homedir() }, hostname: os.hostname() }),
+    commands,
+    terminal: process.stdout,
+    ask: { yesNo: askNoByDefault, text: askFolder },
+    agentDir: AGENT_DIR,
+    node: process.execPath,
+    setUpAgents: setUpAgentsIn,
   });
 }
 
@@ -109,11 +123,18 @@ function sayVersion(): Promise<void> {
 
 useDependencyHttp();
 const command = process.argv[2];
-const ONCE = ['agents', 'version', 'remove'];
-const started = command === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : command === 'version' ? sayVersion() : command === 'remove' ? removeHere() : main();
-started.then(() => {
-  if (ONCE.includes(command ?? '')) process.exit(0);
-}, (err: Error) => {
-  console.error(`[koala-local-agent] fatal: ${err.message}`);
-  process.exit(1);
-});
+if (command === 'join') {
+  joinHere(process.argv.slice(3)).then((code) => process.exit(code), (err: Error) => {
+    console.error(`  stopped: ${err.message}`);
+    process.exit(1);
+  });
+} else {
+  const ONCE = ['version', 'remove'];
+  const started = command === 'version' ? sayVersion() : command === 'remove' ? removeHere() : main();
+  started.then(() => {
+    if (ONCE.includes(command ?? '')) process.exit(0);
+  }, (err: Error) => {
+    console.error(`[koala-local-agent] fatal: ${err.message}`);
+    process.exit(1);
+  });
+}

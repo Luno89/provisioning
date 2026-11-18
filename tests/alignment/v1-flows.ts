@@ -41,21 +41,21 @@ export const V1_FLOWS: Flow[] = [
         id: 'B2',
         does: 'They run it as themselves. It brings its own pinned Node, asks which folder Koala may work in, joins the mesh and installs the machine agent as a user service.',
         screen: { on: 'terminal' },
-        code: ['scripts/machine/machine.sh#(script)'],
+        code: ['scripts/machine/machine.sh#(script)', 'apps/local-agent/src/join/join.ts#runJoin'],
         decisions: ['agents-on-the-host', 'pins', 'side-with-the-user'],
       },
       {
         id: 'B3',
         does: 'The agent finds the coding agents on the computer and offers to install any missing adapters.',
         screen: { on: 'terminal' },
-        code: ['scripts/machine/machine.sh#(script)'],
+        code: ['apps/local-agent/src/join/join.ts#runJoin'],
         decisions: ['agents-on-the-host'],
       },
       {
         id: 'B4',
         does: 'The machine gets its one cluster, installed but stopped. Koala never installs Docker.',
         screen: { on: 'terminal' },
-        code: ['scripts/machine/machine.sh#(script)'],
+        code: ['apps/local-agent/src/join/plan.ts#planJoin'],
         decisions: ['one-cluster-per-machine', 'how-a-machine-cluster-is-made', 'cluster-on-demand'],
         branches: [
           { when: 'A GPU is found', outcome: 'One plain question: "Run models on this GPU? It needs your password once to set it up."', decision: 'how-a-machine-cluster-is-made' },
@@ -68,7 +68,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'B5',
         does: 'The GPU toolkit is offered at join when a GPU is found; B4\'s question is that offer.',
         screen: { on: 'terminal' },
-        code: ['scripts/machine/machine.sh#(script)'],
+        code: ['apps/local-agent/src/join/plan.ts#planJoin'],
         decisions: ['gpu-is-core'],
       },
       {

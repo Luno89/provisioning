@@ -294,8 +294,8 @@
           "pattern": "HELM_VERSION=(v[0-9.]+)"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "HELM_VERSION=(v[0-9.]+)"
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "HELM_VERSION = '(v[0-9.]+)'"
         }
       ],
       "sha256s": {
@@ -336,13 +336,13 @@
           "arch": "darwin-arm64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "HELM_SHA256_AMD64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "HELM_SHA256_AMD64 = '([0-9a-f]{64})'",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "HELM_SHA256_ARM64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "HELM_SHA256_ARM64 = '([0-9a-f]{64})'",
           "arch": "linux-arm64"
         }
       ],
@@ -615,8 +615,8 @@
           "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "K3S_VERSION = '(v[0-9.]+\\+k3s[0-9]+)'"
         }
       ],
       "shaUses": [
@@ -633,8 +633,8 @@
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "K3S_INSTALLER_SHA256 = '([0-9a-f]{64})'"
         },
         {
           "file": "scripts/cluster.sh",
@@ -667,13 +667,13 @@
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "K3S_SHA256_AMD64 = '([0-9a-f]{64})'",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "K3S_SHA256_ARM64 = '([0-9a-f]{64})'",
           "arch": "linux-arm64"
         }
       ],
@@ -1456,8 +1456,8 @@
           "pattern": "TAILSCALE_VERSION=([0-9.]+)"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "TAILSCALE_VERSION = '([0-9.]+)'"
         },
         {
           "file": "scripts/root-node/pool-node.sh",
@@ -1480,13 +1480,13 @@
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "TAILSCALE_SHA256_AMD64 = '([0-9a-f]{64})'",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "TAILSCALE_SHA256_ARM64 = '([0-9a-f]{64})'",
           "arch": "linux-arm64"
         },
         {
@@ -2018,12 +2018,12 @@
         "name": "github.com/NVIDIA/nvidia-container-toolkit"
       },
       "usedIn": [
-        "scripts/machine/machine.sh"
+        "apps/local-agent/src/join/pins.ts"
       ],
       "uses": [
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "NVIDIA_TOOLKIT_VERSION=([0-9.]+)-1"
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "NVIDIA_TOOLKIT_VERSION = '([0-9.]+)-1'"
         }
       ],
       "released": "2026-09-19T00:01:48Z"
@@ -2035,12 +2035,12 @@
       "sha256": "c880576d6cf75a48e5027a871bac70fd0421ab07d2b55f30877b21f1c87959c9",
       "source": "https://nvidia.github.io/libnvidia-container/gpgkey",
       "usedIn": [
-        "scripts/machine/machine.sh"
+        "apps/local-agent/src/join/pins.ts"
       ],
       "shaUses": [
         {
-          "file": "scripts/machine/machine.sh",
-          "pattern": "NVIDIA_KEY_SHA256=([0-9a-f]{64})"
+          "file": "apps/local-agent/src/join/pins.ts",
+          "pattern": "NVIDIA_KEY_SHA256 = '([0-9a-f]{64})'"
         }
       ]
     },

@@ -54,6 +54,14 @@
     "./work-header": {
       "types": "./src/work-header.ts",
       "default": "./src/work-header.ts"
+    },
+    "./join-progress": {
+      "types": "./src/join-progress.ts",
+      "default": "./src/join-progress.ts"
+    },
+    "./testing/join-progress-contract": {
+      "types": "./testing/join-progress-contract.ts",
+      "default": "./testing/join-progress-contract.ts"
     }
   },
   "dependencies": {
