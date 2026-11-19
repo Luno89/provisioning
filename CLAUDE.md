@@ -353,6 +353,8 @@ Enforced by lint; each is here because something broke without it.
   by area first.
 - Domain shapes are declared once. A deliberate copy across the wire is marked `── DUPLICATED, KNOWINGLY ──` and names the file that
   wins.
+- No copied code (owner, 2026-11-18: "I would prefer none"), in source or tests; the copies there are only shrink, and a deliberate
+  copy is marked `── DUPLICATED, KNOWINGLY ──` naming its other file.
 - Apps import packages; no package imports an app.
 
 **Backend**
