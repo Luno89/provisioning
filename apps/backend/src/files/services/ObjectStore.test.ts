@@ -4,7 +4,7 @@ import { mock } from 'vitest-mock-extended';
 import type { Client } from 'minio';
 import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
 import { theFence } from '../../platform/index.js';
-import { minioObjectStore, ObjectMissing, type MinioSettings } from './ObjectStore.js';
+import { minioBucketReader, minioObjectStore, ObjectMissing, type MinioSettings } from './ObjectStore.js';
 
 const SETTINGS: MinioSettings = { endPoint: 'luno-minio', port: 9000, useSSL: false, accessKey: 'k', secretKey: 's', bucket: 'koala' };
 
@@ -97,5 +97,23 @@ describe('the instance\'s MinIO as the store of stored files\' bytes', () => {
     expect(client.putObject).not.toHaveBeenCalled();
     expect(client.removeObject).not.toHaveBeenCalled();
     await expect(leaving(() => store.get('f1'))).resolves.toBeDefined();
+  });
+});
+
+describe('a MinIO app\'s old buckets, read for the Archive', () => {
+  it('are read through the client the reader is given, each file with the type it was stored with', async () => {
+    const client = mock<Client>();
+    client.bucketExists.mockResolvedValue(true);
+    client.listObjectsV2.mockReturnValue(Readable.from([{ name: 'p/a.json', size: 7 }, {}, { name: 'p/b.bin' }]) as never);
+    client.statObject.mockResolvedValue({ size: 7, etag: 'e', lastModified: new Date(0), metaData: { 'content-type': 'application/json' } } as never);
+    const body = Readable.from([Buffer.from('{"a":1}')]);
+    client.getObject.mockResolvedValue(body as never);
+    const reader = minioBucketReader(client);
+    expect(await reader.has('koala-files')).toBe(true);
+    const keys: Array<{ key: string; size: number }> = [];
+    for await (const key of reader.keys('koala-files')) keys.push(key);
+    expect(keys).toEqual([{ key: 'p/a.json', size: 7 }, { key: 'p/b.bin', size: 0 }]);
+    expect(await reader.get('koala-files', 'p/a.json')).toEqual({ body, contentType: 'application/json' });
+    expect(client.listObjectsV2).toHaveBeenCalledWith('koala-files', '', true);
   });
 });

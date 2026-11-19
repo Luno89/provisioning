@@ -33,10 +33,11 @@ const missing = (err: unknown): boolean => {
 
 const unreported: DependencyReporter = { failed: () => undefined, answered: () => undefined };
 
-export function minioObjectStore(settings: MinioSettings, given?: MinioClient, reportsTo: DependencyReporter = unreported): ObjectStore {
-  const raw: MinioClient = given ?? new Client({
-    endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
-  });
+export const minioClient = (settings: Omit<MinioSettings, 'bucket'>): Client => new Client({
+  endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
+});
+
+export function minioObjectStore(settings: MinioSettings, raw: MinioClient = minioClient(settings), reportsTo: DependencyReporter = unreported): ObjectStore {
   const reported = async <T>(asked: Promise<T>): Promise<T> => {
     try {
       const answer = await asked;
@@ -126,9 +127,7 @@ export interface OldBucketReader {
   get(bucket: string, key: string): Promise<{ body: Readable; contentType: string }>;
 }
 
-export function minioBucketReader(settings: Omit<MinioSettings, 'bucket'>, client: Pick<Client, 'bucketExists' | 'listObjectsV2' | 'getObject' | 'statObject'> = new Client({
-  endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
-})): OldBucketReader {
+export function minioBucketReader(client: Pick<Client, 'bucketExists' | 'listObjectsV2' | 'getObject' | 'statObject'>): OldBucketReader {
   return {
     has: (bucket) => client.bucketExists(bucket),
     async *keys(bucket) {

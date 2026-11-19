@@ -11,7 +11,7 @@ import type { MinioSettings } from '../lib/minio-settings.js';
 import { STORED_FILES_SWEEP_ID, STORED_FILES_SWEEP_WORKFLOW, type StoredFilesActivities } from '../lib/stored-files-work.js';
 import { ArtifactService } from '../services/ArtifactService.js';
 import { FileService } from '../services/FileService.js';
-import { minioBucketReader, minioObjectStore } from '../services/ObjectStore.js';
+import { minioBucketReader, minioClient, minioObjectStore } from '../services/ObjectStore.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
 import { roomOn } from '../services/room.js';
 import { createStoredFilesActivities } from '../services/stored-files-activities.js';
@@ -68,7 +68,7 @@ export function archiveOldFilesOnce(deps: ArchiveDeps): void {
           .map(async (deployment) => {
             if (!deployment.minioRootUser || !deployment.minioRootPassword) throw new Error(`the MinIO app ${deployment.name} of ${deployment.ownerId} has no stored keys, so its files cannot be read for the Archive`);
             const at = await reach.endpoint(deployment);
-            return { ownerId: deployment.ownerId!, appName: deployment.name, reader: minioBucketReader({ endPoint: at.host, port: at.port, useSSL: false, accessKey: deployment.minioRootUser, secretKey: deployment.minioRootPassword }) };
+            return { ownerId: deployment.ownerId!, appName: deployment.name, reader: minioBucketReader(minioClient({ endPoint: at.host, port: at.port, useSSL: false, accessKey: deployment.minioRootUser, secretKey: deployment.minioRootPassword })) };
           })),
         oldArtifacts: () => deps.db.files.oldArtifacts(),
         forgetOldArtifacts: () => deps.db.files.forgetOldArtifacts(),
