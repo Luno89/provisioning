@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { pipeline } from 'stream';
 import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute } from '../../platform/index.js';
-import type { InstanceService, JoinBundle, StatusReport } from '../services/InstanceService.js';
+import type { InstanceService, StatusReport } from '../services/InstanceService.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitoring/index.js';
 import { isMovePart } from '../lib/instance-move.js';
@@ -19,33 +19,8 @@ const credentialOf = (req: Request): { instanceId: string; credential: string } 
   credential: String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''),
 });
 
-const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
-
-export function bundleAsEnv(bundle: JoinBundle): string {
-  const lines: Array<[string, string]> = [
-    ['INSTANCE_ID', bundle.instanceId],
-    ['INSTANCE_OWNER_ID', bundle.ownerId],
-    ['ROOT_URL', bundle.rootUrl],
-    ['ROOT_PUBLIC_KEYS_B64', Buffer.from(bundle.rootPublicKeys).toString('base64')],
-    ['MESH_LOGIN_SERVER', bundle.meshLoginServer],
-    ['MESH_PREAUTH_KEY', bundle.preAuthKey],
-    ['INSTANCE_REGISTRY', bundle.registry],
-    ['INSTANCE_IMAGE', bundle.image],
-    ['INSTANCE_IMAGE_TAG', bundle.imageTag],
-    ['INSTANCE_IMAGE_DIGEST', bundle.imageDigest ?? ''],
-    ['INSTANCE_CHART_URL', bundle.chartUrl],
-    ['INSTANCE_CHART_SHA256', bundle.chartSha256 ?? ''],
-    ['INSTANCE_CREDENTIAL', bundle.credential],
-    ['INSTANCE_NAME', bundle.name],
-    ['INSTANCE_DOMAIN', bundle.domain],
-    ['INSTANCE_MOVE', bundle.move ? 'yes' : ''],
-    ['INSTANCE_DATA_VERSION', String(bundle.dataVersion ?? 0)],
-  ];
-  return `${lines.map(([key, value]) => `${key}=${shellQuote(value)}`).join('\n')}\n`;
-}
-
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
+  instances: Pick<InstanceService, 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -62,12 +37,6 @@ export function instancesRouter(deps: {
 
   router.get('/name-check', asyncRoute(async (req: Request, res: Response) => {
     res.json(await deps.instances.nameCheck(userOf(req).id, req.query.name));
-  }));
-
-  router.post('/join-tokens', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.createJoinToken(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
   }));
 
   router.get('/pool', asyncRoute(async (req: Request, res: Response) => {
@@ -127,15 +96,6 @@ export function instancesRouter(deps: {
     const { instanceId, credential } = credentialOf(req);
     const outcome = await deps.instances.setWatchAs(instanceId, credential, ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
-  }));
-
-  router.post('/join', asyncRoute(async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { token?: unknown; machine?: unknown };
-    const outcome = await deps.instances.join(body.token, body.machine);
-    res.setHeader('Cache-Control', 'no-store');
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    if (req.query.format === 'env') return res.type('text/plain').send(bundleAsEnv(outcome.value));
     return res.json(outcome.value);
   }));
 

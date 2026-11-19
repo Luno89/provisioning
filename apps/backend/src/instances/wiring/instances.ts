@@ -378,9 +378,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
   app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, poolMonitoring, moveRelay, hubAccess }));
-  const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
-  app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
-  app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));
   return { instanceService, tellInstance };
 }
 

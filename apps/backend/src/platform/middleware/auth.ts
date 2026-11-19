@@ -173,7 +173,6 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
         '/identity/go',
         '/instances/sign-in-key',
         '/hub-link/sign-in-key',
-        '/instances/join',
         '/instances/chart.tgz',
         '/instances/release',
         '/instances/status',

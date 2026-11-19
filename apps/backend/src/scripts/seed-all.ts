@@ -33,6 +33,7 @@ export async function seedAll(db: Database) {
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
   counts.clusterProvidersDropped = (await runOnce(ledger, 'cluster-providers-dropped', now, async () => ({ dropped: await db.infrastructure.dropClusterProviders() }))).dropped ?? 0;
   counts.githubCredentialsDropped = (await runOnce(ledger, 'github-credentials-dropped', now, async () => ({ dropped: await db.accounts.dropGitHubCredentials() }))).dropped ?? 0;
+  counts.joinTokensDropped = (await runOnce(ledger, 'join-tokens-dropped', now, async () => ({ dropped: await db.instances.dropJoinTokens() }))).dropped ?? 0;
   counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.toolCallParsers = await seedToolCallParsers(db.models);

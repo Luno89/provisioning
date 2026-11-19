@@ -2,7 +2,7 @@ import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
 import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
-import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
+import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
@@ -12,8 +12,7 @@ import type { DependencyCheck, DependencyFinding } from './lib/dependency-findin
 
 export interface InstancesStore extends AreaStore {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
-  saveJoinToken(token: JoinToken): Promise<void>;
-  takeJoinToken(hash: string): Promise<JoinToken | undefined>;
+  dropJoinTokens(): Promise<number>;
   getInstances(ownerId?: string): Promise<InstanceRecord[]>;
   saveInstance(instance: InstanceRecord): Promise<void>;
   updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean>;
@@ -61,6 +60,8 @@ export interface InstancesStore extends AreaStore {
 const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> | undefined =>
   doc && typeof doc.payload === 'string' ? JSON.parse(doc.payload) as Record<string, unknown> : undefined;
 
+export const RETIRED_JOIN_TOKENS = 'instanceJoinTokens';
+
 export class MongoInstancesStore implements InstancesStore {
   constructor(private readonly db: () => Db) {}
 
@@ -70,10 +71,6 @@ export class MongoInstancesStore implements InstancesStore {
 
   private get instanceRegistry(): Collection {
     return this.db().collection('instances');
-  }
-
-  private get joinTokens(): Collection {
-    return this.db().collection('instanceJoinTokens');
   }
 
   private get releases(): Collection {
@@ -100,7 +97,6 @@ export class MongoInstancesStore implements InstancesStore {
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
-    await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.oidcArtifacts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.oidcArtifacts.createIndex({ grantId: 1 });
     await this.oidcArtifacts.createIndex({ accountId: 1 });
@@ -120,14 +116,12 @@ export class MongoInstancesStore implements InstancesStore {
     }
   }
 
-  async saveJoinToken(token: JoinToken): Promise<void> {
-    await this.joinTokens.replaceOne({ _id: token.hash as never }, { ...token, expiresAt: new Date(token.expiresAt) }, { upsert: true });
-  }
-
-  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
-    const doc = await this.joinTokens.findOneAndDelete({ _id: hash as never });
-    if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, instanceId: doc.instanceId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(doc.move === true ? { move: true } : {}) };
+  async dropJoinTokens(): Promise<number> {
+    const [found] = await this.db().listCollections({ name: RETIRED_JOIN_TOKENS }, { nameOnly: true }).toArray();
+    if (!found) return 0;
+    const rows = await this.db().collection(RETIRED_JOIN_TOKENS).countDocuments();
+    await this.db().dropCollection(RETIRED_JOIN_TOKENS);
+    return rows;
   }
 
   async getInstances(ownerId?: string): Promise<InstanceRecord[]> {

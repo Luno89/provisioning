@@ -86,7 +86,6 @@ export type StoredShapes = Shaped<{
   fileShares: Written<'files', 'saveFileShare'>;
   giteaTokensToRevoke: Written<'projects', 'saveTokenToRevoke'>;
   hubLinks: Written<'hub', 'saveHubLink'>;
-  instanceJoinTokens: Written<'instances', 'saveJoinToken'>;
   instanceWatches: Read<'instances', 'getWatches'>;
   instances: Written<'instances', 'saveInstance'>;
   leaves: Written<'projects', 'saveLeaf'>;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
+import { InstanceService, hashCredential, instanceIdFor } from './InstanceService.js';
 import { InstanceReach } from './InstanceReach.js';
 import { koalaPlacedAndUp } from '../testing/placed-koala.js';
 
@@ -31,10 +31,13 @@ let routeChanges: number;
 const placedFor = async (ownerId: string, name: string = 'luno', on: InstanceService = service) =>
   koalaPlacedAndUp(on, db, ownerId, { id: `m-${ownerId}`, name: 'm', meshIp: '100.64.0.9' }, name);
 
-const tokenFor = async (ownerId: string, name: string = 'luno') => {
-  const made = await service.createJoinToken(ownerId, name);
-  if (!made.ok) throw new Error(made.error);
-  return made.value;
+const placedOn = async (ownerId: string, name: string = 'luno') => {
+  const machine = { id: `m-${ownerId}`, name: 'm', meshIp: '100.64.0.7' };
+  const placing = await service.placeOn(ownerId, machine, name, `install-${ownerId}`);
+  if (!placing.ok) throw new Error(placing.error);
+  const placed = await service.placedKoala(`install-${ownerId}`, machine);
+  if (!placed.ok) throw new Error(placed.error);
+  return placed.value;
 };
 
 beforeEach(async () => {
@@ -45,72 +48,42 @@ beforeEach(async () => {
 });
 
 describe('bringing a user\'s own machine in as their instance', () => {
-  it('gives the owner a one-line command, and the machine everything it needs, once', async () => {
-    const { token, command } = await tokenFor('u1');
-    expect(command).toBe(`curl -fsSL https://app.example.com/install.sh | sudo sh -s -- ${token}`);
-    expect(await service.mine('u1')).toMatchObject({ id: instanceIdFor('u1'), status: 'waiting' });
-
-    const joined = await service.join(token, 'luno-desktop');
-    expect(joined).toMatchObject({ ok: true, value: {
-      instanceId: instanceIdFor('u1'), ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: 'PEM-1',
-      meshLoginServer: 'https://mesh.example.com', preAuthKey: 'pre-u1', registry: '100.64.0.1:5001',
-      image: '100.64.0.1:5001/nowrinkles/app', imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz',
-      name: 'luno', domain: 'koala.dev',
-    } });
-    expect(await service.mine('u1')).toMatchObject({ status: 'joined' });
-    expect(await service.join(token, 'again')).toMatchObject({ ok: false, status: 401 });
-  });
-
   it('names a person\'s Koala to their machines only once it is in service', async () => {
     expect(await service.koalaOf('u1')).toBeUndefined();
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'luno-desktop');
-    if (!joined.ok) throw new Error(joined.error);
+    const placed = await placedOn('u1');
     expect(await service.koalaOf('u1')).toBeUndefined();
-    await service.report(joined.value.instanceId, joined.value.credential, { status: 'ready', url: 'https://luno.koala.dev' });
-    expect(await service.koalaOf('u1')).toEqual({ url: 'https://luno.koala.dev', audience: joined.value.instanceId });
+    await service.report(placed.instanceId, placed.credential, { status: 'ready', url: 'https://luno.koala.dev' });
+    expect(await service.koalaOf('u1')).toEqual({ url: 'https://luno.koala.dev', audience: placed.instanceId });
     expect(await service.koalaOf('someone-else')).toBeUndefined();
   });
 
-  it('refuses a join command that has expired', async () => {
-    const { token } = await tokenFor('u1');
-    now = new Date(now.getTime() + (JOIN_TOKEN_TTL_SECONDS + 1) * 1000);
-    expect(await new InstanceService(db, settings, mesh, () => now).join(token, 'late')).toMatchObject({ ok: false, status: 401 });
-  });
-
   it('keeps the machine\'s credential only as a hash, and answers only to it', async () => {
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const id = joined.value.instanceId;
+    const placed = await placedOn('u1');
+    const id = placed.instanceId;
 
     const stored = (await db.instances.getInstances('u1'))[0]!;
     expect(stored.credentialHash).toBeDefined();
-    expect(JSON.stringify(stored)).not.toContain(joined.value.credential);
+    expect(JSON.stringify(stored)).not.toContain(placed.credential);
 
-    expect(await service.release(id, joined.value.credential)).toMatchObject({ ok: true, value: { imageTag: 'abc123' } });
+    expect(await service.release(id, placed.credential)).toMatchObject({ ok: true, value: { imageTag: 'abc123' } });
     expect(await service.release(id, 'guess')).toMatchObject({ ok: false, status: 401 });
-    expect(await service.release('inst-someone-else', joined.value.credential)).toMatchObject({ ok: false, status: 401 });
+    expect(await service.release('inst-someone-else', placed.credential)).toMatchObject({ ok: false, status: 401 });
   });
 
   it('records what the machine reports, and where the instance answers', async () => {
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const placed = await placedOn('u1');
+    const { instanceId, credential } = placed;
 
     expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/', meshIp: '100.64.0.7' })).toMatchObject({ ok: true });
-    expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno', watch: { notifyWhenUnreachable: true, alwaysTold: false } });
+    expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno', install: { id: 'install-u1', machineId: 'm-u1', state: 'asked', at: now.toISOString() }, watch: { notifyWhenUnreachable: true, alwaysTold: false } });
     expect(await service.report(instanceId, credential, { status: 'exploded' })).toMatchObject({ ok: false, status: 400 });
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev' })).toMatchObject({ ok: true, value: { url: 'https://luno.koala.dev' } });
   });
 
   it('never takes an address for the instance that root would call somewhere private, unless it is the instance\'s own mesh address', async () => {
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const placed = await placedOn('u1');
+    const { instanceId, credential } = placed;
     await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev', meshIp: '100.64.0.7' });
 
     for (const url of ['http://127.0.0.1:3001', 'http://localhost:8080', 'http://10.0.0.5', 'http://169.254.169.254', 'http://100.64.0.8:30320', 'http://[::1]:3001', 'http://user:pw@luno.koala.dev']) {
@@ -126,10 +99,8 @@ describe('bringing a user\'s own machine in as their instance', () => {
     const publicProblem = async (url: string) => (url.includes('rebound') ? 'rebound.example resolves to 10.0.0.1 is a private, loopback, mesh or reserved address' : undefined);
     const strict = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: false, domain: 'koala.dev' }, { open: fetch, public: fetch, publicProblem, viaCaddy: async () => { throw new Error('nothing here goes through root\'s Caddy'); } }) }, mesh, () => now);
     const lab = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: true, domain: 'koala.dev' }) }, mesh, () => now);
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const placed = await placedOn('u1');
+    const { instanceId, credential } = placed;
     expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://box.example.org' })).toMatchObject({ ok: true, value: { url: 'https://box.example.org' } });
     expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://rebound.example' })).toMatchObject({ ok: false, status: 400 });
     expect(await lab.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ ok: true, value: { url: 'http://127.0.0.1:3001' } });
@@ -138,10 +109,8 @@ describe('bringing a user\'s own machine in as their instance', () => {
   it('stops watching an instance whose check-in comes from a release that never connects, and keeps one that is connected', async () => {
     const connected = new Set<string>();
     service = new InstanceService(db, { ...settings, connected: (id: string) => connected.has(id) }, mesh, () => now, () => undefined);
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const placed = await placedOn('u1');
+    const { instanceId, credential } = placed;
     const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId)!;
     await db.instances.savePresence(instance, true);
 
@@ -155,10 +124,12 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect((await db.instances.getWatch(instanceId))?.presence).toBe(false);
   });
 
-  it('will not let a machine join a root with no mesh or no registry', async () => {
-    const { token } = await tokenFor('u1');
+  it('will not put Koala on a machine of a root with no mesh or no registry', async () => {
+    const machine = { id: 'm-u1', name: 'm', meshIp: '100.64.0.7' };
     const noRegistry = new InstanceService(db, { ...settings, registry: '' }, mesh, () => now);
-    expect(await noRegistry.join(token, 'm')).toMatchObject({ ok: false, status: 503 });
+    const noMesh = new InstanceService(db, { ...settings, meshLoginServer: '' }, mesh, () => now);
+    expect(await noRegistry.placeOn('u1', machine, 'luno', 'install-u1')).toMatchObject({ ok: false, status: 503 });
+    expect(await noMesh.placeOn('u1', machine, 'luno', 'install-u1')).toMatchObject({ ok: false, status: 503 });
   });
 });
 
@@ -323,13 +294,6 @@ describe('a trial instance on Koala\'s servers', () => {
     expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true });
     expect((await db.instances.getInstances('u1'))[0]!.pool!.ports).toEqual(record.pool!.ports);
     expect(started).toHaveLength(2);
-  });
-
-  it('is never replaced by a join command for a machine, which would lose it', async () => {
-    const pool = pooled();
-    await pool.createPoolInstance('u1', 'alice');
-    expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: containing('moving it to your own machine keeps your work') });
-    expect((await db.instances.getInstances('u1'))[0]!.pool).toBeDefined();
   });
 
   it('says so when its install cannot start, and leaves it failed rather than installing forever', async () => {
@@ -514,12 +478,6 @@ describe('moving a trial instance to the person\'s own machine', () => {
     await db.instances.saveInstance({ ...record, status: 'ready' });
     await service.report('inst-bo', 'pool-secret', { status: 'installing', detail: 'Upgrading from a to b' });
     expect(await service.mine('bo')).toMatchObject({ status: 'installing', detail: 'Upgrading from a to b' });
-  });
-
-  it('never lets a normal install command take over an instance on Koala\'s servers', async () => {
-    await db.instances.saveJoinToken({ hash: hashCredential('plain'), ownerId: 'bo', instanceId: 'inst-bo', expiresAt: '2099-01-01T00:00:00.000Z' });
-    expect(await service.join('plain', 'desk')).toMatchObject({ ok: false, status: 409 });
-    expect((await service.ownerOf('inst-bo', 'pool-secret')).ok).toBe(true);
   });
 
   it('says a stopped instance is started again for the move before it waits for the machine', async () => {

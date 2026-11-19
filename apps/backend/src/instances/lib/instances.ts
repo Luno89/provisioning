@@ -72,14 +72,6 @@ export interface InstanceAddresses {
   detail?: string | undefined;
 }
 
-export interface JoinToken {
-  hash: string;
-  ownerId: string;
-  instanceId: string;
-  expiresAt: string;
-  move?: boolean | undefined;
-}
-
 const ID = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
 export function instanceProblem(candidate: { id: string; ownerId: string; url: string }): string | null {

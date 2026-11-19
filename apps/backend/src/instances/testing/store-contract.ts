@@ -36,33 +36,6 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
-  describe('join tokens', () => {
-    it('hands a token out once, as it was saved', async () => {
-      const store = await make();
-      const token = { hash: 'h1', ownerId: 'owner-1', instanceId: 'inst', expiresAt: '2030-01-01T00:00:00.000Z' };
-      await store.saveJoinToken(token);
-      expect(await store.takeJoinToken('h1')).toEqual(token);
-      expect(await store.takeJoinToken('h1')).toBeUndefined();
-      expect(await store.takeJoinToken('never')).toBeUndefined();
-    });
-
-    it('keeps a move token marked and leaves the mark off one that is not a move', async () => {
-      const store = await make();
-      await store.saveJoinToken({ hash: 'moving', ownerId: 'o', instanceId: 'i', expiresAt: '2030-01-01T00:00:00.000Z', move: true });
-      await store.saveJoinToken({ hash: 'staying', ownerId: 'o', instanceId: 'i', expiresAt: '2030-01-01T00:00:00.000Z', move: false });
-      expect(await store.takeJoinToken('moving')).toHaveProperty('move', true);
-      expect(await store.takeJoinToken('staying')).not.toHaveProperty('move');
-    });
-
-    it('gives back the expiry as an ISO time and replaces a token saved again under the same hash', async () => {
-      const store = await make();
-      await store.saveJoinToken({ hash: 'h', ownerId: 'first', instanceId: 'i', expiresAt: '2030-01-01T00:00:00Z' });
-      await store.saveJoinToken({ hash: 'h', ownerId: 'second', instanceId: 'j', expiresAt: '2031-02-03T04:05:06.789Z' });
-      expect(await store.takeJoinToken('h')).toEqual({ hash: 'h', ownerId: 'second', instanceId: 'j', expiresAt: '2031-02-03T04:05:06.789Z' });
-      expect(await store.takeJoinToken('h')).toBeUndefined();
-    });
-  });
-
   describe('the instance registry', () => {
     it('keeps an instance as saved, replaces it whole when saved again and forgets it when deleted', async () => {
       const store = await make();

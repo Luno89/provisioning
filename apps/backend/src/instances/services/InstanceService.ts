@@ -16,8 +16,6 @@ import { boundedLine, type MachineProgress } from '@koala/engine-core/machine-pr
 import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
 import { pastRevision, setupHeard, setupSaid, statusSettled, type InstanceSetup } from '../lib/instance-setup.js';
 
-export const JOIN_TOKEN_TTL_SECONDS = 3600;
-
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
 export interface PoolWorkflows {
@@ -107,26 +105,6 @@ export interface PoolOffer {
   trialDays?: number | undefined;
 }
 
-export interface JoinBundle {
-  instanceId: string;
-  ownerId: string;
-  rootUrl: string;
-  rootPublicKeys: string;
-  meshLoginServer: string;
-  preAuthKey: string;
-  registry: string;
-  image: string;
-  imageTag: string;
-  imageDigest?: string | undefined;
-  chartUrl: string;
-  chartSha256?: string | undefined;
-  dataVersion?: number | undefined;
-  credential: string;
-  name: string;
-  domain: string;
-  move?: boolean | undefined;
-}
-
 export interface PlacingMachine {
   id: string;
   name: string;
@@ -181,35 +159,6 @@ export class InstanceService {
     const next = { ...instance, ...patch, updatedAt: this.now().toISOString() };
     await this.store.instances.saveInstance(next);
     return next;
-  }
-
-  async createJoinToken(ownerId: string, requestedName?: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string; name: string }>> {
-    const current = (await this.store.instances.getInstances(ownerId))[0];
-    if (current?.pool && current.status !== 'failed') return { ok: false, status: 400, error: 'your instance runs on Koala\'s servers; moving it to your own machine keeps your work, and starting afresh there would not' };
-    const named = await this.nameFor(ownerId, requestedName);
-    if (!named.ok) return { ok: false, status: 400, error: named.error };
-    const token = commandSafeCode(24);
-    const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
-    const instanceId = instanceIdFor(ownerId);
-    await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
-
-    const existing = (await this.store.instances.getInstances(ownerId))[0];
-    const now = this.now().toISOString();
-    await this.store.instances.saveInstance({
-      id: instanceId,
-      ownerId,
-      url: existing?.url ?? '',
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      status: 'waiting',
-      detail: 'Waiting for the machine to run the install command',
-      name: named.name,
-      ...(existing?.credentialHash ? { credentialHash: existing.credentialHash } : {}),
-      ...(existing?.addresses ? { addresses: existing.addresses } : {}),
-      ...(existing?.groups?.length ? { groups: existing.groups } : {}),
-    });
-
-    return { ok: true, value: { token, expiresAt, name: named.name, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
   }
 
   private async poolRoom(): Promise<{ ok: true; slots: number; trialDays: number; taken: InstanceRecord[] } | { ok: false; reason: string }> {
@@ -314,59 +263,6 @@ export class InstanceService {
     await this.save(instance, { status: 'paused', detail: 'Being deleted' });
     await this.poolWorkflows.remove(instance.id, instance.ownerId);
     return { ok: true, value: { removing: instance.name } };
-  }
-
-  async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
-    if (typeof token !== 'string' || !token) return { ok: false, status: 400, error: 'send the join token as "token"' };
-    const found = await this.store.instances.takeJoinToken(hashCredential(token));
-    if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that join command has expired or was already used — make a new one from the app' };
-    if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
-    if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
-
-    const credential = crypto.randomBytes(32).toString('base64url');
-    const instance = (await this.store.instances.getInstances(found.ownerId)).find((entry) => entry.id === found.instanceId);
-    const machineName = typeof machine === 'string' ? machine.slice(0, 120) : undefined;
-    if (found.move) {
-      if (!instance?.move || instance.move.state === 'switching' || instance.move.state === 'failed') return { ok: false, status: 401, error: 'that move command is no longer wanted — start the move again from Koala' };
-    } else if (instance?.pool) {
-      return { ok: false, status: 409, error: 'this instance runs on Koala\'s servers; only its move command brings it to a machine' };
-    }
-    const { key } = await this.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
-    const now = this.now().toISOString();
-    if (found.move && instance?.move) {
-      await this.save(instance, {
-        move: { ...instance.move, state: 'joined', detail: 'Your machine has the move command and is setting itself up', credentialHash: hashCredential(credential), target: { machine: machineName } },
-      });
-    } else {
-      await this.save(instance ?? { id: found.instanceId, ownerId: found.ownerId, url: '', createdAt: now, updatedAt: now }, {
-        status: 'joined',
-        detail: 'The machine has the install command and is setting itself up',
-        credentialHash: hashCredential(credential),
-        machine: machineName,
-        setup: undefined,
-      });
-    }
-
-    return {
-      ok: true,
-      value: {
-        instanceId: found.instanceId,
-        ownerId: found.ownerId,
-        rootUrl: this.settings.rootUrl,
-        rootPublicKeys: this.settings.rootPublicKeys().join('\n'),
-        meshLoginServer: this.settings.meshLoginServer,
-        preAuthKey: key,
-        registry: this.settings.registry,
-        image: `${this.settings.registry}/nowrinkles/app`,
-        imageTag: this.settings.imageTag,
-        chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
-        ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
-        credential,
-        name: instance?.name ?? '',
-        domain: this.settings.domain ?? '',
-        ...(found.move ? { move: true } : {}),
-      },
-    };
   }
 
   private moveLive(instance: InstanceRecord): boolean {

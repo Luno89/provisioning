@@ -39,7 +39,7 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
   },
   {
     name: 'joining',
-    paths: ['/hub-link/invite', '/hub-link/invitation', '/machines/join', '/instances/join', '/instances/hub-token'],
+    paths: ['/hub-link/invite', '/hub-link/invitation', '/machines/join', '/instances/hub-token'],
     prefixes: ['/hub/invitations/'],
     windowMs: 15 * MINUTES,
     max: 60,
