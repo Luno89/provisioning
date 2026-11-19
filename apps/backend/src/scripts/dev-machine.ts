@@ -4,6 +4,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
 import { DEV, devKoalaValues, koalaReadinessOf, MY_KOALA_PATH, readEnvFile } from '../instances/index.js';
 
@@ -61,7 +62,7 @@ async function joinThisComputer(cookie: string, instanceWeb: string): Promise<vo
   if (!made.ok) throw new Error(`root gave no machine command: ${made.status} ${await made.text()}`);
   const { command } = await made.json() as { command: string };
   say('this computer joins your account as a machine, as anyone\'s does; it asks for sudo for Tailscale and k3s');
-  const code = await new Promise<number>((done) => spawn('sh', ['-c', `${command} --folder "${join(os.homedir(), 'koala')}"`], { stdio: 'inherit' }).on('exit', (exit) => done(exit ?? 1)));
+  const code = await new Promise<number>((done) => spawn('sh', ['-c', `${command} --folder "${join(os.homedir(), 'koala')}"`], { stdio: 'inherit', env: childEnv(passedOn(PERSON_SESSION)) }).on('exit', (exit) => done(exit ?? 1)));
   if (code !== 0) throw new Error(`the machine command stopped (${code})`);
 }
 

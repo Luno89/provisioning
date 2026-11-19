@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { clampDualBoundary, DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
+import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 
 const execAsync = promisify(execCallback);
 
@@ -53,6 +54,7 @@ export async function runCommand(
     const cwd = targetSubPath ? resolveInRoot(rootDir, targetSubPath) : rootDir;
     const { stdout, stderr } = await execAsync(command, {
       cwd,
+      env: childEnv(passedOn(PERSON_SESSION)),
       timeout: timeoutMs,
       maxBuffer: Math.max(1024 * 1024, maxOutputChars * 4),
     });

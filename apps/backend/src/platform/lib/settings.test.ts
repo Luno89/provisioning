@@ -191,7 +191,7 @@ describe('the settings of a step run in an instance\'s pod', () => {
   });
 
   it('gives the platform services step its cluster, its namespace, its data folder and Crawl4AI\'s token, and refuses a token the chart never makes', () => {
-    const env = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1', CRAWL4AI_API_TOKEN: 'crawlToken40' };
+    const env = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443', CRAWL4AI_API_TOKEN: 'crawlToken40' };
     expect(platformServicesSettingsFrom(env)).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: 'crawlToken40', clusters: { here: { koalaMachineId: 'desk' } } });
     expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: '' }))).toContain('CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
     expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: 'a b' }))).toContain('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');

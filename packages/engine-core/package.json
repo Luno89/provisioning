@@ -55,6 +55,10 @@
       "types": "./testing/throwaway-containers.ts",
       "default": "./testing/throwaway-containers.ts"
     },
+    "./child-env": {
+      "types": "./src/child-env.ts",
+      "default": "./src/child-env.ts"
+    },
     "./http": {
       "types": "./src/http.ts",
       "default": "./src/http.ts"

@@ -1,4 +1,4 @@
-import { BaseService, type Database, failureOf, listAt, textAt } from '../../platform/index.js';
+import { BaseService, type Database, DOCKER_CLIENT, failureOf, listAt, passedOn, textAt } from '../../platform/index.js';
 import axios from 'axios';
 import { execShell, type Shell } from '../lib/shell.js';
 import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
@@ -97,7 +97,7 @@ export class RegistryService extends BaseService {
   async getLocalTags(repo: string): Promise<string[]> {
     try {
       const safeRepo = repo.replace(/(["'$`\\])/g, '\\$1');
-      const { stdout } = await this.shell(`docker images --format "{{.Tag}}" "${safeRepo}"`);
+      const { stdout } = await this.shell(`docker images --format "{{.Tag}}" "${safeRepo}"`, { env: passedOn(DOCKER_CLIENT) });
       return [...new Set(stdout.split('\n').map(t => t.trim()).filter(t => t && t !== '<none>'))];
     } catch (err) {
       this.logger.warn(`Failed to list local image tags for ${repo}: ${(err as Error).message}`);

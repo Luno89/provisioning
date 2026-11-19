@@ -50,8 +50,8 @@ describe('the cluster this Koala runs in', () => {
   });
 
   it('holds Koala\'s own pods in the namespace it keeps its state in, and nowhere when it runs in no cluster of its own', () => {
-    expect(koalaPlace(instance, { kind: 'kubernetes', namespace: 'nowrinkles' })).toEqual({ clusterId: 'machine-dev1', namespace: 'nowrinkles' });
-    expect(koalaPlace({ poolName: 'bob', root: false }, { kind: 'kubernetes', namespace: 'koala' })).toEqual({ clusterId: 'pool-bob', namespace: 'koala' });
+    expect(koalaPlace(instance, { kind: 'kubernetes', namespace: 'nowrinkles', api: { host: '10.43.0.1', port: '443' } })).toEqual({ clusterId: 'machine-dev1', namespace: 'nowrinkles' });
+    expect(koalaPlace({ poolName: 'bob', root: false }, { kind: 'kubernetes', namespace: 'koala', api: { host: '10.43.0.1', port: '443' } })).toEqual({ clusterId: 'pool-bob', namespace: 'koala' });
     expect(koalaPlace(instance, { kind: 'local' })).toBeUndefined();
     expect(koalaPlace(instance, undefined)).toBeUndefined();
     expect(koalaPlace({ root: true }, { kind: 'local' })).toBeUndefined();

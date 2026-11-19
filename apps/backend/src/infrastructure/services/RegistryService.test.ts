@@ -90,7 +90,7 @@ describe('RegistryService.getLocalTags', () => {
     const shell = mockFn<Shell>();
     shell.mockResolvedValue({ stdout: '', stderr: '' });
     await service(shell).getLocalTags('a"; rm -rf /; "');
-    expect(shell).toHaveBeenCalledWith('docker images --format "{{.Tag}}" "a\\"; rm -rf /; \\""');
+    expect(shell.mock.calls[0]?.[0]).toBe('docker images --format "{{.Tag}}" "a\\"; rm -rf /; \\""');
   });
 
   it('lists none when Docker cannot be asked', async () => {

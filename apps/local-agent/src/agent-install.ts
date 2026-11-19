@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
+import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import { expandHome, type AgentInstall } from './agent-discovery.js';
 
 const run = promisify(execFile);
@@ -53,12 +54,12 @@ export const systemInstallDeps = (): InstallDeps => ({
   arch: process.arch,
   nodeVersion: process.version,
   unzip: async (archive, into) => {
-    await run('unzip', ['-o', '-q', archive, '-d', into]).catch((err: NodeJS.ErrnoException) => {
+    await run('unzip', ['-o', '-q', archive, '-d', into], { env: childEnv() }).catch((err: NodeJS.ErrnoException) => {
       throw new Error(err.code === 'ENOENT' ? 'unzip is not installed on this machine' : err.message);
     });
   },
   npm: async (pkg) => {
-    const { stdout, stderr } = await run('npm', ['install', '--global', '--engine-strict', pkg], { maxBuffer: 16 * 1024 * 1024 });
+    const { stdout, stderr } = await run('npm', ['install', '--global', '--engine-strict', pkg], { env: childEnv(passedOn(PERSON_SESSION)), maxBuffer: 16 * 1024 * 1024 });
     return `${stdout}${stderr}`;
   },
 });

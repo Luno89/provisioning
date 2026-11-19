@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import dotenv from 'dotenv';
+import { childEnv } from '@koala/engine-core/child-env';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../../../../');
@@ -58,7 +59,7 @@ async function main() {
     let backupPassword: string;
     try {
       backupPassword = decryptValue(gd.backupPassword, jwtSecret);
-      const obscured = execFileSync(rclone, ['obscure', backupPassword]).toString().trim();
+      const obscured = execFileSync(rclone, ['obscure', backupPassword], { env: childEnv() }).toString().trim();
       lines.push(
         '[gdrive-crypt]',
         'type = crypt',

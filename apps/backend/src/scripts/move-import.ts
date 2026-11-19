@@ -10,7 +10,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import { clusterAccessFrom, InfrastructureService, terraformPlacesFor, type ClusterAccess } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { ensureReplicaSet, failureOf, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings } from '../platform/index.js';
+import { childEnv, ensureReplicaSet, failureOf, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -72,7 +72,7 @@ async function part(name: MovePart | string, saying?: string, absentFromOlder?: 
 
 function run(args: string[], input?: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(args[0]!, args.slice(1), { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(args[0]!, args.slice(1), { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: childEnv() });
     let out = '';
     let said = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });

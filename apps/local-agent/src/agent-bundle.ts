@@ -1,3 +1,4 @@
+import { childEnv } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -41,7 +42,7 @@ export type Run = (file: string, args: string[], cwd: string) => Promise<string>
 
 const realRun: Run = async (file, args, cwd) => {
   try {
-    return (await exec(file, args, { cwd, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    return (await exec(file, args, { cwd, env: childEnv(), maxBuffer: 16 * 1024 * 1024 })).stdout;
   } catch (err) {
     const failed = err as Error & { stderr?: string; stdout?: string };
     const lines = (failed.stderr || failed.stdout || failed.message).split('\n').map((line) => line.trim()).filter(Boolean);

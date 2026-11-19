@@ -1,8 +1,13 @@
 export const stateFilesOf = (stackName: string): string[] => [`terraform.${stackName}.tfstate`, `terraform.${stackName}.tfstate.backup`];
 
-export type TerraformStateKind = { kind: 'local' } | { kind: 'kubernetes'; namespace: string };
+export interface KubernetesApi {
+  host: string;
+  port: string;
+}
 
-export type TerraformStateHome = { kind: 'local'; dir: string } | { kind: 'kubernetes'; namespace: string; dir: string };
+export type TerraformStateKind = { kind: 'local' } | { kind: 'kubernetes'; namespace: string; api: KubernetesApi };
+
+export type TerraformStateHome = { kind: 'local'; dir: string } | { kind: 'kubernetes'; namespace: string; api: KubernetesApi; dir: string };
 
 export function terraformStateFrom(env: Readonly<Record<string, string | undefined>>): TerraformStateKind {
   const kind = env.TERRAFORM_STATE?.trim();
@@ -11,14 +16,18 @@ export function terraformStateFrom(env: Readonly<Record<string, string | undefin
   if (kind !== 'kubernetes') throw new Error(`TERRAFORM_STATE is ${kind}; Koala keeps Terraform's state either local or in kubernetes`);
   const namespace = env.POD_NAMESPACE?.trim();
   if (!namespace) throw new Error('TERRAFORM_STATE is kubernetes, which keeps each stack\'s state in this pod\'s own namespace, but POD_NAMESPACE is not set');
-  if (!env.KUBERNETES_SERVICE_HOST?.trim()) throw new Error('TERRAFORM_STATE is kubernetes, which reaches the cluster with the pod\'s own account, but this process is not running in a pod');
-  return { kind, namespace };
+  const host = env.KUBERNETES_SERVICE_HOST?.trim();
+  const port = env.KUBERNETES_SERVICE_PORT?.trim();
+  if (!host || !port) throw new Error('TERRAFORM_STATE is kubernetes, which reaches the cluster with the pod\'s own account, but this process is not running in a pod');
+  return { kind, namespace, api: { host, port } };
 }
 
 export const stateHomeIn = (kind: TerraformStateKind, dir: string): TerraformStateHome => ({ ...kind, dir });
 
 export const cdktfStateEnv = (home: TerraformStateHome): Record<string, string> =>
-  (home.kind === 'kubernetes' ? { CDKTF_STATE_NAMESPACE: home.namespace } : { CDKTF_STATE_DIR: home.dir });
+  (home.kind === 'kubernetes'
+    ? { CDKTF_STATE_NAMESPACE: home.namespace, KUBERNETES_SERVICE_HOST: home.api.host, KUBERNETES_SERVICE_PORT: home.api.port }
+    : { CDKTF_STATE_DIR: home.dir });
 
 export const MIRRORED_PROVIDERS = [
   'registry.terraform.io/hashicorp/kubernetes',

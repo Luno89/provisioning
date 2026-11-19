@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
+import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import {
   capabilitiesOf,
   scopedPath,
@@ -56,7 +57,7 @@ export function createLocalFsDriver(options: LocalFsDriverOptions): EnvironmentD
       return new Promise<ExecResult>((resolve) => {
         const child = spawn(options.shell ?? '/bin/bash', ['-lc', request.command], {
           cwd,
-          env: { ...process.env, ...(request.env ?? {}) },
+          env: childEnv({ ...passedOn(PERSON_SESSION), ...request.env }),
           detached: true,
         });
 

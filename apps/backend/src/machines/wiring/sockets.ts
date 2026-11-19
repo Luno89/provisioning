@@ -5,7 +5,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
   type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
-  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets,
+  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets, childEnv,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
@@ -182,7 +182,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
           }
         }
 
-        const tail = spawn('tail', ['-n', String(LOG_TAIL_LINES), '-f', logPath]);
+        const tail = spawn('tail', ['-n', String(LOG_TAIL_LINES), '-f', logPath], { env: childEnv() });
         socketTails.set(id, tail);
 
         tail.stdout.on('data', (data: Buffer) => {

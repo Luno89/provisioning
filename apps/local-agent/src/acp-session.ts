@@ -1,3 +1,4 @@
+import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -76,6 +77,14 @@ export interface AcpSession {
   exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 }
 
+export const AGENT_SIGN_IN = [
+  'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR',
+  'OPENAI_API_KEY', 'CODEX_HOME',
+  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION', 'GOOGLE_GENAI_USE_VERTEXAI', 'GOOGLE_APPLICATION_CREDENTIALS',
+] as const;
+
+const agentEnv = (launch: AcpLaunch): Record<string, string> => childEnv({ ...passedOn([...PERSON_SESSION, ...AGENT_SIGN_IN]), ...launch.env });
+
 export class AcpSessionError extends Error {
   constructor(message: string, readonly stderr: string) {
     super(stderr ? `${message}\n${stderr}` : message);
@@ -106,7 +115,7 @@ const stopChild = async (child: ChildProcess, exited: Promise<unknown>): Promise
 export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSession> {
   const child = spawn(options.launch.command, options.launch.args, {
     cwd: options.cwd,
-    env: { ...process.env, ...(options.launch.env ?? {}) },
+    env: agentEnv(options.launch),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const stderr: string[] = [];
@@ -255,7 +264,7 @@ export interface AcpProbe {
 }
 
 export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe> {
-  const child = spawn(launch.command, launch.args, { cwd, env: { ...process.env, ...(launch.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(launch.command, launch.args, { cwd, env: agentEnv(launch), stdio: ['pipe', 'pipe', 'pipe'] });
   const stderr: string[] = [];
   child.stderr!.setEncoding('utf8').on('data', (chunk: string) => {
     stderr.push(...chunk.split('\n').filter(Boolean));

@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { childEnv } from '@koala/engine-core/child-env';
 
 const execFileAsync = promisify(execFile);
 
@@ -17,7 +18,7 @@ export async function generateSshKeypair(comment: string): Promise<SshKeypair> {
     'id_ed25519',
   );
   try {
-    await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', comment]);
+    await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', comment], { env: childEnv() });
     const [privateKey, publicKey] = await Promise.all([
       fs.readFile(keyPath, 'utf-8'),
       fs.readFile(`${keyPath}.pub`, 'utf-8'),

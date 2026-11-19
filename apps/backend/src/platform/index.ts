@@ -118,7 +118,7 @@ export { PayloadStorageService } from './services/PayloadStorageService.js';
 export { SessionEnds } from './services/SessionEnds.js';
 export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
-export { childEnv, inheritedEnv } from './services/child-env.js';
+export { childEnv, passedOn, DOCKER_CLIENT, PERSON_SESSION } from './services/child-env.js';
 export { nodeProcesses, nodeStreams } from './services/processes.js';
 export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';
 export type { Tx } from './lib/transaction.js';
