@@ -130,7 +130,7 @@ describe('a machine reaching Temporal through the gateway', () => {
     const tokens = new Set(upstreamAuth.map((auth) => String(auth).replace(/^Bearer /, '')));
     expect(tokens.size).toBe(1);
     const [head, body, signature] = [...tokens][0]!.split('.');
-    const verifier = crypto.createPublicKey({ key: temporalJwks(TEMPORAL_KEY).keys[0]!, format: 'jwk' });
+    const verifier = crypto.createPublicKey({ key: { ...temporalJwks(TEMPORAL_KEY).keys[0]! } as crypto.JsonWebKey, format: 'jwk' });
     expect(crypto.verify('sha256', Buffer.from(`${head}.${body}`), { key: verifier, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature!, 'base64url'))).toBe(true);
     expect(JSON.parse(Buffer.from(body!, 'base64url').toString('utf8'))).toMatchObject({ sub: 'koala-machine-gateway', permissions: [`${env.namespace ?? 'default'}:write`] });
   });
