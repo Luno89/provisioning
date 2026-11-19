@@ -47,6 +47,15 @@ describe('a default that cannot run Koala\'s chats', () => {
   });
 });
 
+describe('a default that runs Koala\'s chats', () => {
+  it('names it, where it is served from, and nothing else', async () => {
+    vi.mocked(modelsApi.listModels).mockResolvedValue([{ id: 'm1', name: 'Qwen-Tools', source: 'deployment', kind: 'tabbyapi', model: 'Qwen/Qwen3-8B' }]);
+    setup(false);
+    expect(await screen.findByText((_, element) => element?.textContent === 'Currently: [TabbyAPI] Qwen/Qwen3-8B · Qwen-Tools')).toBeInTheDocument();
+    expect(screen.queryByText(/cannot run Koala's chats/)).toBeNull();
+  });
+});
+
 describe('the override toggle', () => {
   it('reads off, explaining that an agent keeps its own model', () => {
     setup(false);

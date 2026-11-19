@@ -60,13 +60,15 @@ const shell = {
   openDashboard: vi.fn(),
 } as unknown as ShellContext
 
-const show = () => render(
+const show = (context: ShellContext = shell) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <ShellContextInstance.Provider value={shell}>
+    <ShellContextInstance.Provider value={context}>
       <InfrastructureView />
     </ShellContextInstance.Provider>
   </QueryClientProvider>,
 )
+
+const refused = (error: string) => Object.assign(new Error('Request failed with status code 503'), { response: { status: 503, data: { error } } })
 
 const cluster: ClusterRow = {
   id: 'machine-koala', name: 'machine-koala', state: 'warning', reasons: ['the disk is 95% full'],
@@ -475,5 +477,79 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByText('Books is healthy.')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Open in Grafana/ })).toBeNull()
+  })
+
+  it('says why the failures could not be cleared, and keeps them listed', async () => {
+    vi.mocked(infrastructureApi.clearFailures).mockRejectedValueOnce(refused('Koala\'s database is not answering since 10:02: connection refused'))
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear all 2 failures' }))
+    expect(await screen.findByText('Koala\'s database is not answering since 10:02: connection refused')).toBeInTheDocument()
+    expect(screen.getAllByTestId('attention-failure')).toHaveLength(2)
+  })
+
+  it('links an app put on the internet to the address it is at', async () => {
+    const exposed = { ...shell, deployments: [{ id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'machine-koala', status: 'running', isExposed: true, exposureUrl: 'https://books.example.com', exposurePath: '/library', listing: { checked: true, onCluster: true } }] } as unknown as ShellContext
+    show(exposed)
+    const row = await screen.findByTestId('app-row')
+    expect(within(row).getByRole('link', { name: 'https://books.example.com/library' })).toHaveAttribute('href', 'https://books.example.com/library')
+  })
+
+  it('says how long ago a firing alert began', async () => {
+    const firing = [{ ...monitoring.firing[0]!, since: new Date(Date.now() - 3 * 3_600_000).toISOString() }]
+    vi.mocked(monitoringApi.getAlerts).mockResolvedValue({ firing, episodes: [], rules: [] })
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, monitoring: { ...monitoring, firing } })
+    show()
+    expect(await screen.findByRole('list', { name: 'Firing alerts' })).toHaveTextContent('Shop is not answeringsince 3h ago')
+  })
+
+  it('sends someone to My Machines to remove a cluster that is not the one Koala runs in', async () => {
+    const edge: ClusterRow = { ...cluster, id: 'c2', name: 'edge', own: false }
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, monitoring: { ...monitoring, clusters: [cluster, edge] } })
+    params.kind = 'cluster'
+    params.id = 'c2'
+    show()
+    expect(await screen.findByRole('link', { name: 'Goes when its machine is removed under My Machines' })).toHaveAttribute('href', '#/mesh')
+    fireEvent.click(screen.getByRole('button', { name: /Logs/ }))
+    expect(shell.openDashboard).toHaveBeenCalledWith('cluster', 'c2')
+  })
+
+  it('says why what is on a cluster could not be read, rather than showing it empty', async () => {
+    params.kind = 'cluster'
+    params.id = cluster.id
+    vi.mocked(infrastructureApi.getClusterContents).mockRejectedValue(refused('machine-koala is stopped until something runs on it'))
+    show()
+    expect(await screen.findByText('machine-koala is stopped until something runs on it')).toBeInTheDocument()
+    expect(screen.queryByTestId('workload-group-apps')).toBeNull()
+  })
+
+  it('says why a cluster\'s monitoring could not be read', async () => {
+    params.kind = 'cluster'
+    params.id = cluster.id
+    vi.mocked(monitoringApi.getClusterHealth).mockRejectedValue(refused('Prometheus on machine-koala is not answering since 09:00: its pod is not ready'))
+    show()
+    expect(await screen.findByText('Prometheus on machine-koala is not answering since 09:00: its pod is not ready')).toBeInTheDocument()
+    expect(screen.queryByTestId('cluster-health')).toBeNull()
+  })
+
+  it('says why a new length of history was not kept', async () => {
+    params.kind = 'cluster'
+    params.id = cluster.id
+    vi.mocked(monitoringApi.setHistoryDays).mockRejectedValueOnce(refused('Prometheus could not be reconfigured: the cluster is stopped'))
+    show()
+    fireEvent.change(await screen.findByRole('spinbutton', { name: 'Days of history' }), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Prometheus could not be reconfigured: the cluster is stopped')).toBeInTheDocument()
+  })
+
+  it('says why an alert could not be removed, and keeps it listed', async () => {
+    params.kind = 'app'
+    params.id = 'books'
+    vi.mocked(monitoringApi.removeAlertRule).mockRejectedValueOnce(refused('the alert could not be removed from machine-koala: the cluster is stopped'))
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: /Remove/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove it' }))
+    const rules = screen.getByRole('list', { name: 'Alerts set' })
+    expect(await within(rules).findByText('the alert could not be removed from machine-koala: the cluster is stopped')).toBeInTheDocument()
+    expect(rules).toHaveTextContent('Books has not answered for 5 minutes')
   })
 })

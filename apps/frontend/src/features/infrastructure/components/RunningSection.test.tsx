@@ -18,6 +18,8 @@ const show = () => render(
   </QueryClientProvider>,
 )
 
+const refused = (error: string) => Object.assign(new Error('Request failed with status code 503'), { response: { status: 503, data: { error } } })
+
 const since = new Date(Date.now() - 5 * 60_000).toISOString()
 
 describe('the Running section', () => {
@@ -59,6 +61,32 @@ describe('the Running section', () => {
     await waitFor(() => expect(runningApi.pauseBench).toHaveBeenCalledWith(true, expect.anything()))
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
     await waitFor(() => expect(runningApi.pauseKeeper).toHaveBeenCalledWith(false, expect.anything()))
+  })
+
+  it('says why what runs could not be read, rather than that nothing runs', async () => {
+    vi.mocked(runningApi.getRunning).mockRejectedValue(refused('Temporal is not answering since 09:14: connection refused'))
+    show()
+    expect(await screen.findByText('Temporal is not answering since 09:14: connection refused')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing is running.')).toBeNull()
+  })
+
+  it('says why a run could not be cancelled', async () => {
+    vi.mocked(runningApi.cancelRunning).mockRejectedValueOnce(refused('it is not yours to cancel'))
+    show()
+    fireEvent.click((await screen.findAllByRole('button', { name: /Cancel/ }))[1]!)
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, cancel it' }))
+    expect(await screen.findByText('it is not yours to cancel')).toBeInTheDocument()
+    expect(screen.queryByText(/Cancelling — it runs its own ending/)).toBeNull()
+  })
+
+  it('says why the bench or the memory keeper could not be paused or resumed', async () => {
+    vi.mocked(runningApi.pauseBench).mockRejectedValueOnce(refused('the bench schedule could not be saved: the database is not answering'))
+    vi.mocked(runningApi.pauseKeeper).mockRejectedValueOnce(refused('the memory keeper did not answer'))
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }))
+    expect(await screen.findByText('the bench schedule could not be saved: the database is not answering')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(await screen.findByText('the memory keeper did not answer')).toBeInTheDocument()
   })
 
   it('says when nothing runs', async () => {

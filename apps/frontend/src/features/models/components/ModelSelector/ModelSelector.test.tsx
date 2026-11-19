@@ -100,6 +100,19 @@ describe('ModelSelector popover', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
+  it('shows on the closed trigger whether the chosen model runs on a cluster of yours or through a gateway', async () => {
+    const { unmount } = renderSelector({ value: 'tabby-local' })
+    const local = screen.getByRole('button', { name: 'Model' })
+    await waitFor(() => expect(local).toHaveTextContent('Tabbyapi-Production · turboderp/Qwen3.8-27B-exl3Cluster'))
+    expect(local.querySelector('.lucide-server')).not.toBeNull()
+    unmount()
+
+    renderSelector({ value: 'openai-gpt4' })
+    const gateway = screen.getByRole('button', { name: 'Model' })
+    await waitFor(() => expect(gateway).toHaveTextContent('GPT-4o · gpt-4oOpenAI'))
+    expect(gateway.querySelector('.lucide-globe')).not.toBeNull()
+  })
+
   it('allows selecting Account Default (empty value)', () => {
     const { onChange } = renderSelector({ value: 'openai-gpt4' })
     fireEvent.click(screen.getByRole('button'))
