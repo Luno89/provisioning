@@ -6,7 +6,7 @@ import { deploymentsRouter } from './deployments.js';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { until } from '../../platform/testing/three-roles.js';
+import { until, waiting } from '../../platform/testing/three-roles.js';
 import { AppService } from '../services/AppService.js';
 import { ClusterService } from '../services/ClusterService.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
@@ -46,7 +46,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of workflows) await env.client.workflow.getHandle(id).terminate('the test is over').catch(() => undefined);
-  await until(async () => ((await db.infrastructure.getDeployments()).every((dep) => dep.status === 'failed') ? true : undefined));
+  await until('every deployment to be failed', async () => {
+    const notYet = (await db.infrastructure.getDeployments()).filter((dep) => dep.status !== 'failed');
+    return notYet.length === 0 ? true : waiting(notYet.map((dep) => `${dep.name}: ${dep.status}`).join(', '));
+  });
   await h?.close();
   await env?.teardown();
 });

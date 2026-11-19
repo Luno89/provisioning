@@ -11,7 +11,7 @@ import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PRACTICES_LIVE_URL ?? 'http://localhost:3001/api';
@@ -24,7 +24,7 @@ interface Run { id: string; state: string; results: { scenarioId: string; passed
 
 const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, async () => {
   const traces = ((await http.get(`/engine/runs/${runId}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? [];
-  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
+  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : waiting(`${traces.length} traces, the last is ${traces.at(-1)?.kind ?? 'none'}`);
 }, () => runEndedBadly(http, runId));
 
 async function main(): Promise<void> {
@@ -43,9 +43,9 @@ async function main(): Promise<void> {
   };
   const scenarioRun = async (only: string[]) => {
     const run = (await http.post('/evals/level2/runs', { only })).data as Run;
-    return until(`scenario run ${run.id}`, async () => {
+    return until<Run>(`scenario run ${run.id}`, async () => {
       const current = (await http.get(`/evals/level2/runs/${run.id}`)).data as Run;
-      return current.state === 'running' ? undefined : current;
+      return current.state === 'running' ? waiting(`the run is ${current.state}`) : current;
     });
   };
 
@@ -81,7 +81,8 @@ async function main(): Promise<void> {
     const keeperRun = await until('the memory keeper to run on the conversation', async () => {
       const length = (await db.engine.getConversation(OWNER, conversationId))?.messages.length ?? 0;
       const id = `memory-conversation-${conversationId}-${length}`;
-      return ((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]).length > 0 ? id : undefined;
+      const found = ((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]).length;
+      return found > 0 ? id : waiting(`${id} has ${found} traces after ${length} messages`);
     }, async () => ((await db.engine.getConversation(OWNER, conversationId)) ? keeperPaused(http) : 'the conversation is gone, so the keeper has nothing to read'));
     touched.add(keeperRun);
     const kept = await finished(http, keeperRun);
@@ -94,7 +95,7 @@ async function main(): Promise<void> {
     console.log('[4/5] at the next idle moment the bench tries it on koala\'s scenarios, and settles it');
     const settled = await until('the practice to be settled', async () => {
       const now = ((await http.get('/evals/level2/practices')).data.practices as Practice[]).find((practice) => practice.id === practiceId);
-      return now && now.status !== 'trial' ? now : undefined;
+      return now && now.status !== 'trial' ? now : waiting(now ? `the practice is ${now.status}` : 'the practice is not listed');
     }, async () => {
       const now = ((await http.get('/evals/level2/practices')).data.practices as Practice[]).find((practice) => practice.id === practiceId);
       if (!now) return 'the practice is gone';

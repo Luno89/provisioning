@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
-import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { textOf, type Received, type SmtpSink } from '../platform/testing/smtp-sink.js';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 
@@ -52,12 +52,13 @@ const rootCall = (path: string, init: { method?: string; body?: unknown; cookie?
 const me = async (cookie: string | undefined) => (await rootCall('/api/auth/me', { cookie })).status;
 const to = (message: Received, email: string) => message.to.some((address) => address.toLowerCase() === email.toLowerCase());
 const mailsTo = (email: string, subject: string, from = 0) => mail.received.slice(from).filter((message) => to(message, email) && mail.subjectOf(message) === subject);
-const mailed = async (email: string, subject: string, from: number): Promise<string> => until(async () => {
-  for (const message of mailsTo(email, subject, from)) {
+const mailed = async (email: string, subject: string, from: number): Promise<string> => until(`a "${subject}" mail with a code to ${email}`, async () => {
+  const found = mailsTo(email, subject, from);
+  for (const message of found) {
     const code = /\b(\d{6})\b/.exec(textOf(message))?.[1];
     if (code) return code;
   }
-  return undefined;
+  return waiting(`${found.length} mails with that subject to them, ${mail.received.length - from} mails received since`);
 });
 const invite = async () => {
   const minted = await rootCall('/api/admin/invites', { body: {}, cookie: owner.cookie });
@@ -148,7 +149,10 @@ describe('an account is hard to take over, on a root of its own beside an instan
     const reset = await rootCall('/api/auth/password/reset', { body: { id: resetId, code: ownerResetCode, password: ownerPassword } });
     expect(reset.status, JSON.stringify(reset.body)).toBe(200);
     expect(await me(owner.cookie)).toBe(401);
-    await until(async () => ((await call(`${instance.url}/api/auth/me`, { cookie: keptOnInstance })).status === 401 ? true : undefined));
+    await until('the instance to end the kept session', async () => {
+      const status = (await call(`${instance.url}/api/auth/me`, { cookie: keptOnInstance })).status;
+      return status === 401 ? true : waiting(`the instance answers ${status}`);
+    });
     expect(await keptSocket.closed).toBe('io server disconnect');
     const ownerAgain = await rootCall('/api/auth/login', { body: { email: owner.email, password: ownerPassword } });
     expect(ownerAgain.status, JSON.stringify(ownerAgain.body)).toBe(200);
@@ -242,7 +246,10 @@ describe('an account is hard to take over, on a root of its own beside an instan
     const lockedOut = await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } });
     expect(lockedOut.status, JSON.stringify(lockedOut.body)).toBe(429);
     expect((lockedOut.body as { error: string }).error).toMatch(/failed sign-ins/);
-    await until(async () => (mailsTo(patEmail, SUBJECTS.lock).length > 0 ? true : undefined));
+    await until('the lock mail to arrive', async () => {
+      const count = mailsTo(patEmail, SUBJECTS.lock).length;
+      return count > 0 ? true : waiting(`${count} lock mails to them, ${mail.received.length} mails received`);
+    });
     const told = mailsTo(patEmail, SUBJECTS.lock).map(textOf);
     expect(told).toHaveLength(1);
     expect(told[0]).toMatch(/tried your Koala password 10 times from \S+/);

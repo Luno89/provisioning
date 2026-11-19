@@ -1,4 +1,4 @@
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 export interface SignUpAccount {
   email: string;
@@ -38,9 +38,9 @@ export async function codeFromMailpit(mailpitApi: string, email: string, after: 
     const sent = listed.messages.find((message) => message.Subject === subject
       && Date.parse(message.Created) >= after - 1000
       && message.To.some((to) => to.Address.toLowerCase() === email.toLowerCase()));
-    if (!sent) return undefined;
+    if (!sent) return waiting(`${listed.messages.length} messages in the mailbox, none with that subject to that address`);
     const message = await (await fetch(`${mailpitApi}/api/v1/message/${sent.ID}`)).json() as { Text: string };
-    return /\b(\d{6})\b/.exec(message.Text)?.[1];
+    return /\b(\d{6})\b/.exec(message.Text)?.[1] ?? waiting('the email holds no six-digit code');
   }, async () => ((await fetch(`${mailpitApi}/api/v1/messages`).then(() => true, () => false)) ? undefined : `the test mailbox at ${mailpitApi} is not answering`));
 }
 

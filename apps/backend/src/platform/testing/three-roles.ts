@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
 import { inject } from 'vitest';
+import { waiting, waitUntil, type Found, type Waiting } from '@koala/provision';
 import { roleFromEnv } from '../lib/platform-role.js';
 import { testIdentityKey, testKeyEnv } from './keys.js';
 import { createDatabase } from '../lib/db-interface.js';
@@ -69,7 +70,7 @@ async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, invite
   const said = await asked.json() as { verify?: string; user?: { id: string }; error?: string };
   if (!asked.ok) throw new Error(`${email} could not sign up on root: ${asked.status} ${JSON.stringify(said)}`);
   if (said.verify) {
-    const sent = await until(async () => mail.received.find((message) => message.to.includes(email) && /sign-up code/i.test(mail.subjectOf(message) ?? '')));
+    const sent = await until(`the sign-up code mail to ${email}`, async () => mail.received.find((message) => message.to.includes(email) && /sign-up code/i.test(mail.subjectOf(message) ?? '')) ?? waiting(`${mail.received.length} mails received, subjects: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ').slice(0, 200)}`));
     const code = /\b(\d{6})\b/.exec(sent.data)?.[1];
     const verified = await post('/auth/register/verify', { id: said.verify, code });
     if (!verified.ok) throw new Error(`${email} could not confirm the sign-up: ${verified.status} ${await verified.text()}`);
@@ -86,12 +87,22 @@ async function workerEnv(): Promise<Record<string, string>> {
   return { TEMPORAL_METRICS_PORT: String(await portToHandOn()), TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()) };
 }
 
-export async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const found = await look().catch(ignore('what is waited for may not answer yet, which is what waiting looks like; the loop asks again'));
-    if (found !== undefined) return found;
-    await new Promise((done) => setTimeout(done, 250));
-  }
+export { waiting };
+
+export const SAY_EVERY_LOOKS = 120;
+
+export async function until<T extends Found>(what: string, look: () => Promise<T | Waiting>): Promise<T> {
+  return waitUntil(what, async () => {
+    try {
+      return await look();
+    } catch (err) {
+      return waiting(`it does not answer yet: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, undefined, {
+    pause: () => new Promise((done) => setTimeout(done, 250)),
+    sayEvery: SAY_EVERY_LOOKS,
+    waiting: (waited, last) => { console.log(`    still waiting for ${waited}${last ? ` (${last})` : ''}`); },
+  });
 }
 
 async function signedIn(from: string, cookie: string, target: string, first: string): Promise<string> {
@@ -207,10 +218,11 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     }
     const goes = async (query: string, to: string) => {
       const answer = await fetch(`${root.url}/api/identity/go${query}`, { redirect: 'manual', headers: { Cookie: cookie } });
-      return answer.headers.get('location') === to ? true : undefined;
+      const location = answer.headers.get('location');
+      return location === to ? true : waiting(`root answered ${answer.status} with location ${location}`);
     };
-    await until(() => goes('?to=hub', `${hub.url}/api/auth/oidc/start`));
-    await until(() => goes('', `${instance.url}/api/auth/oidc/start`));
+    await until('root to send the owner on to the hub', () => goes('?to=hub', `${hub.url}/api/auth/oidc/start`));
+    await until('root to send the owner on to the instance', () => goes('', `${instance.url}/api/auth/oidc/start`));
     return {
       root, instance, hub, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri, keys: testKeyEnv(secret),
       ownerOnInstance: () => signedIn(root.url, cookie, instance.url, '/api/identity/go'),

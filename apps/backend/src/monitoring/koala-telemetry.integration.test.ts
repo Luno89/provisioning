@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import { otlpSink, type OtlpSink, type OtlpSpan } from '../platform/testing/otlp-sink.js';
-import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { TRACE_ID_HEADER } from '../platform/services/MetricsService.js';
 import { TURN_PROCEDURE_ID } from '../checks/lib/turn-check.js';
 
@@ -35,7 +35,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (checkRunId) await until(async () => (((await call(`/api/evals/level2/runs/${checkRunId}`)).body as { state: string }).state === 'running' ? undefined : true));
+  if (checkRunId) await until('the check run to end', async () => {
+    const state = ((await call(`/api/evals/level2/runs/${checkRunId}`)).body as { state: string }).state;
+    return state === 'running' ? waiting('the check run is still running') : true;
+  });
   await roles?.close();
   await collector?.close();
 });
@@ -69,13 +72,14 @@ describe('Koala reports its own telemetry to the collector it is pointed at', ()
   it('one trace, found by that id, spans the request, the check workflow\'s start, the engine run\'s request, its workflow start, its activities and the model call, across both processes', async () => {
     onTestFailed(() => console.log(`backend:\n${backend.logs(120)}\n\nengine worker:\n${worker.logs(120)}\n\nspans of the trace: ${JSON.stringify(collector.spans().filter((span) => span.traceId === traceId).map((span) => `${span.service} ${span.name}`))}`));
     const wanted = ['POST /api/evals/level2/runs', 'workflow.start CheckRunWorkflow', 'POST /api/engine/runs', 'workflow.start AgentRunWorkflow', 'model.call'];
-    const spans = await until(async () => {
+    const spans = await until('the trace to hold every wanted span', async () => {
       const inTrace = collector.spans().filter((span) => span.traceId === traceId);
       const names = inTrace.map((span) => span.name);
       const engineActivity = inTrace.some((span) => span.name.startsWith('activity ') && span.service === 'koala-worker-engine');
       const ids = new Set(inTrace.map((span) => span.spanId));
       const whole = inTrace.every((span) => !span.parentSpanId || ids.has(span.parentSpanId));
-      return wanted.every((name) => names.includes(name)) && engineActivity && whole ? inTrace : undefined;
+      const missing = wanted.filter((name) => !names.includes(name));
+      return missing.length === 0 && engineActivity && whole ? inTrace : waiting(`${inTrace.length} spans, missing: ${missing.join(', ') || 'none'}; engine activity ${engineActivity}; whole ${whole}`);
     });
     const named = (name: string): OtlpSpan => spans.find((span) => span.name === name)!;
     expect(named('POST /api/evals/level2/runs').service).toBe('koala-backend');
@@ -97,9 +101,10 @@ describe('Koala reports its own telemetry to the collector it is pointed at', ()
       ['koala_activity_seconds', 'koala-worker-engine'],
       ['koala_model_call_seconds', 'koala-backend'],
     ];
-    await until(async () => {
+    await until('the collector to hold every wanted metric', async () => {
       const metrics = collector.metrics();
-      return wanted.every(([name, service]) => metrics.some((metric) => metric.name === name && metric.service === service && metric.points.length > 0)) ? true : undefined;
+      const missing = wanted.filter(([name, service]) => !metrics.some((metric) => metric.name === name && metric.service === service && metric.points.length > 0));
+      return missing.length === 0 ? true : waiting(`missing: ${missing.map(([name, service]) => `${name} from ${service}`).join(', ')}`);
     });
     const metrics = collector.metrics();
     const points = (name: string) => metrics.filter((metric) => metric.name === name).flatMap((metric) => metric.points);

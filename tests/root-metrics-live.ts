@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import { COLLECTOR_VALUES } from '../packages/cdktf-infra/constructs/telemetry-values.js';
 import { excerptEnv, scriptExcerpt } from './coupling/shell-trace.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning, startedContainerStopped } from './lib/dead-states.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -70,8 +70,8 @@ const valueOf = (text: string, name: string, labels: Record<string, string>): nu
 
 const seen = (name: string, labels: Record<string, string>, wanted?: number) => until(`${name}${JSON.stringify(labels)}${wanted === undefined ? '' : ` = ${wanted}`}`, async () => {
   const value = valueOf(await series(), name, labels);
-  if (value === undefined) return undefined;
-  return wanted === undefined || value === wanted ? value : undefined;
+  if (value === undefined) return waiting('the series is not in the collector yet');
+  return wanted === undefined || value === wanted ? value : waiting(`the series is ${value}, wanted ${wanted}`);
 }, () => startedContainerStopped(Object.values(CONTAINERS)));
 
 const mongosh = (container: string, script: string) => spawnSync('docker', ['exec', '-i', container, 'mongosh', '--quiet', 'mongodb://127.0.0.1:27017/admin?directConnection=true'], { input: script, encoding: 'utf8' });
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
     "try { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] }); } catch (e) { if (e.codeName !== 'AlreadyInitialized') throw e; }",
   ].join('\n'));
   assert.equal(initiated.status, 0, initiated.stderr);
-  await until('Mongo to be its replica set\'s primary', async () => (mongosh(mongo, `db.getSiblingDB('admin').auth('admin', '${setting('MONGO_ROOT_PASSWORD')}'); print(db.hello().isWritablePrimary)`).stdout.includes('true') ? true : undefined), () => containerNotRunning(mongo));
+  await until('Mongo to be its replica set\'s primary', async () => { const hello = mongosh(mongo, `db.getSiblingDB('admin').auth('admin', '${setting('MONGO_ROOT_PASSWORD')}'); print(db.hello().isWritablePrimary)`); return hello.stdout.includes('true') ? true : waiting(`isWritablePrimary printed ${hello.stdout.trim().slice(-100) || 'nothing'}`); }, () => containerNotRunning(mongo));
 
   step('root-telemetry.sh makes Mongo\'s and Postgres\'s monitoring accounts, their passwords kept in the compose env and printed nowhere');
   const made = telemetryShell([

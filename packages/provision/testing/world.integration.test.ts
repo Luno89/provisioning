@@ -8,7 +8,7 @@ import { sharedTmp } from '@koala/engine-core/testing/shared';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { localCommands } from '../src/local-commands.js';
 import { removeSteps, runSteps } from '../src/steps.js';
-import { waitUntil } from '../src/wait-until.js';
+import { waiting, waitUntil } from '../src/wait-until.js';
 import { memoryReporter } from './memory-reporter.js';
 import { leftoversStep, RUN_VARIABLE, runEnv, runFolder, runFolderStep, runOf, type TestRun } from './world.js';
 
@@ -120,7 +120,10 @@ describe('the leftovers of this checkout\'s gone runs', () => {
     const worktree = await made('koala-worktree-');
     await mkdir(join(worktree, 'apps'));
     const stranded = sleeper({}, join(worktree, 'apps'), 'node vitest');
-    await waitUntil('the stranded process to run as vitest', async () => (await readFile(`/proc/${stranded.pid}/cmdline`, 'utf8')).includes('vitest'));
+    await waitUntil('the stranded process to run as vitest', async () => {
+      const cmdline = (await readFile(`/proc/${stranded.pid}/cmdline`, 'utf8')).split('\0').join(' ');
+      return cmdline.includes('vitest') ? true : waiting(`it runs as ${cmdline}`);
+    });
     await rm(worktree, { recursive: true });
     const said = await sweep(ours);
     await ended(stranded);

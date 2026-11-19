@@ -5,7 +5,7 @@ import { runningRouter } from './running.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { until } from '../../platform/testing/three-roles.js';
+import { until, waiting } from '../../platform/testing/three-roles.js';
 import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
@@ -76,9 +76,9 @@ describe('/api/running', () => {
     expect((await axios.get(h.url('/api/running'))).data).toEqual({ items: [], bench: { paused: false }, keeper: { paused: false, held: 0 } });
     await env.client.workflow.start('executePipelineRunWorkflow', { taskQueue: 'nobody-works-this-queue', workflowId: mine, ...startedFor(TEST_USER.id) });
     await env.client.workflow.start('executePipelineRunWorkflow', { taskQueue: 'nobody-works-this-queue', workflowId: theirs, ...startedFor('someone-else') });
-    await until(async () => {
+    await until('the person\'s run to be listed as running', async () => {
       const listed = (await axios.get(h!.url('/api/running'))).data as { items: { workflowId: string }[] };
-      return listed.items.some((item) => item.workflowId === mine) ? true : undefined;
+      return listed.items.some((item) => item.workflowId === mine) ? true : waiting(`${listed.items.length} running: ${listed.items.map((item) => item.workflowId).join(', ')}`);
     });
     expect((await axios.post(h.url(`/api/running/${mine}/cancel`), {})).status).toBe(202);
     expect(await cancelRequested(mine)).toBe(true);

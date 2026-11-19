@@ -11,6 +11,7 @@ import { devFile } from './dev-temporal.js';
 import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
 import { showGrowing } from './show-growing.js';
 import { refuseWithoutRoom } from '../tiers/room.js';
+import { watchQuiet } from './quiet-watch.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -246,7 +247,13 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
   steps.forEach((step, index) => {
     console.log(`\n━━ ${index + 1}/${steps.length} ${step.name} (npm run ${step.script})`);
     const started = Date.now();
-    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
+    const watch = watchQuiet();
+    let result;
+    try {
+      result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, ...(hooks.envFor?.(step) ?? {}), ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE), ...watch.env } });
+    } finally {
+      watch.stop();
+    }
     hooks.onEnd?.(step);
     const minutes = minutesSince(started);
     if (result.status !== 0) throw new Error(stepFailed(step, minutes));

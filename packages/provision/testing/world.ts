@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { removeThrowaway, throwawayOrphans } from '@koala/engine-core/testing/throwaway-containers';
 import type { CommandRunner } from '../src/commands.js';
 import type { Progress, Step } from '../src/steps.js';
-import { waitUntil } from '../src/wait-until.js';
+import { waiting, waitUntil } from '../src/wait-until.js';
 
 export const RUN_VARIABLE = 'KOALA_TEST_RUN';
 export const TESTS_FOLDER = 'koala-tests';
@@ -167,7 +167,7 @@ async function leftProcesses(run: TestRun): Promise<Leftover[]> {
         } catch (err) {
           if (!gone(err)) throw err;
         }
-        await waitUntil(`process ${pid} to end`, async () => !(await alive(pid, stat.started)));
+        await waitUntil(`process ${pid} to end`, async () => ((await alive(pid, stat.started)) ? waiting(`process ${pid} is still running`) : true));
       },
     });
   }

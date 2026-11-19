@@ -25,7 +25,7 @@ import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { agentWillNotBeReady, runEndedBadly } from './lib/dead-states.js';
 
 const run = promisify(execFile);
@@ -65,12 +65,12 @@ async function main(): Promise<void> {
     step('whatever the memory keeper keeps from this made-up story is retired');
     const runIds = new Set<string>();
     await until('the memory keeper to finish', async () => {
-      let running = false;
+      let running = 0;
       for await (const workflow of temporal.workflow.list({ query: `WorkflowId STARTS_WITH "memory-" AND StartTime >= "${began}"` })) {
         runIds.add(workflow.workflowId);
-        if (workflow.status.name === 'RUNNING') running = true;
+        if (workflow.status.name === 'RUNNING') running += 1;
       }
-      return running ? undefined : true;
+      return running ? waiting(`${running} of ${runIds.size} memory keeper runs still running`) : true;
     });
     const forgotten = await forgetWhatRunsLeft(db, owner, runIds);
     console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
     if (found && found.state !== 'ready') console.log(`  ${AGENT}: ${found.state}${found.reason ? `, ${found.reason}` : ''}`);
-    return found?.state === 'ready' ? true : undefined;
+    return found?.state === 'ready' ? true : waiting(`${AGENT} is ${found?.state ?? 'not listed on the machine'}`);
   }, () => agentWillNotBeReady(api!, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
@@ -113,7 +113,8 @@ async function main(): Promise<void> {
   const plannerRun = (planned.data as { runId: string }).runId;
   const proposal = await until('the plan', async () => {
     const plans = (await api!.get('/plans', { params: { conversationId } })).data as { id: string; status: string }[] | { plans: { id: string; status: string }[] };
-    return (Array.isArray(plans) ? plans : plans.plans).find((entry) => entry.status === 'proposed');
+    const all = Array.isArray(plans) ? plans : plans.plans;
+    return all.find((entry) => entry.status === 'proposed') ?? waiting(`${all.length} plans, statuses: ${all.map((entry) => entry.status).join(', ') || 'none'}`);
   }, () => runEndedBadly(api!, plannerRun));
   console.log(`  planner run ${plannerRun} proposed plan ${proposal.id}`);
 
@@ -129,8 +130,8 @@ async function main(): Promise<void> {
   const first = temporal.workflow.getHandle(groveRunWorkflowId(treeId));
   await api.post(`/trees/${treeId}/run/stop`, {});
   await first.result().catch(() => undefined);
-  const waiting = ((await api.get('/leaves')).data as Leaf[]).find((entry) => entry.id === leafId);
-  console.log(`  the run approving starts was stopped before its agents were moved; the story is ${waiting?.state ?? waiting?.status}`);
+  const stillThere = ((await api.get('/leaves')).data as Leaf[]).find((entry) => entry.id === leafId);
+  console.log(`  the run approving starts was stopped before its agents were moved; the story is ${stillThere?.state ?? stillThere?.status}`);
 
   step('every agent in the tree\'s work is put on the machine for this tree');
   const rows = (await api.get(`/trees/${treeId}/models`)).data as { rows: { agent: string; noMachine?: true }[] };

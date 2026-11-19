@@ -27,7 +27,7 @@ import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { agentWillNotBeReady, runEndedBadly } from './lib/dead-states.js';
 
 const run = promisify(execFile);
@@ -87,12 +87,12 @@ async function main(): Promise<void> {
     step('whatever the memory keeper keeps from this made-up story is retired');
     const runIds = new Set<string>();
     await until('the memory keeper to finish', async () => {
-      let running = false;
+      let running = 0;
       for await (const workflow of temporal.workflow.list({ query: `WorkflowId STARTS_WITH "memory-" AND StartTime >= "${began}"` })) {
         runIds.add(workflow.workflowId);
-        if (workflow.status.name === 'RUNNING') running = true;
+        if (workflow.status.name === 'RUNNING') running += 1;
       }
-      return running ? undefined : true;
+      return running ? waiting(`${running} of ${runIds.size} memory keeper runs still running`) : true;
     });
     const forgotten = await forgetWhatRunsLeft(db, owner, runIds);
     console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     const waitingSince = Date.now();
     const started = await until('the tree to start running', async () => {
       const state = (await http.get(`/trees/${treeId}/run`)).data as { state: string; turnId?: string };
-      return state.state === 'running' && state.turnId ? state.turnId : undefined;
+      return state.state === 'running' && state.turnId ? state.turnId : waiting(`the tree is ${state.state}${state.turnId ? '' : ' with no turn yet'}`);
     }, async () => {
       const described = await temporal.workflow.getHandle(groveRunWorkflowId(treeId!)).describe();
       return described.closeTime && described.closeTime.getTime() >= waitingSince - 1000 ? `the tree's run ended ${described.status.name.toLowerCase()} before it was seen running` : undefined;
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
   };
   const replanCard = async (leafId: string, after: Set<string>): Promise<Proposal> => until('the planner\'s replan card', async () => {
     const plans = (await http.get('/plans', { params: { treeId } })).data as Proposal[];
-    return plans.find((plan) => plan.status === 'proposed' && plan.leafPlan?.leafId === leafId && !after.has(plan.id));
+    return plans.find((plan) => plan.status === 'proposed' && plan.leafPlan?.leafId === leafId && !after.has(plan.id)) ?? waiting(`${plans.length} plans, statuses: ${plans.map((plan) => plan.status).join(', ') || 'none'}`);
   }, async () => (((await http.get('/trees/' + treeId + '/run')).data as { state: string }).state === 'running' ? undefined : 'the tree\'s run ended without a replan card'));
 
   step('a scripted ACP agent is added by hand to the person\'s machine, and the machine finds it ready');
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await http.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
     if (found && found.state !== 'ready') console.log(`  ${AGENT}: ${found.state}${found.reason ? `, ${found.reason}` : ''}`);
-    return found?.state === 'ready' ? true : undefined;
+    return found?.state === 'ready' ? true : waiting(`${AGENT} is ${found?.state ?? 'not listed on the machine'}`);
   }, () => agentWillNotBeReady(http, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
@@ -167,7 +167,8 @@ async function main(): Promise<void> {
   const plannerRun = (planned.data as { runId: string }).runId;
   const proposal = await until('the plan', async () => {
     const plans = (await http.get('/plans', { params: { conversationId } })).data as Proposal[] | { plans: Proposal[] };
-    return (Array.isArray(plans) ? plans : plans.plans).find((entry) => entry.status === 'proposed');
+    const all = Array.isArray(plans) ? plans : plans.plans;
+    return all.find((entry) => entry.status === 'proposed') ?? waiting(`${all.length} plans, statuses: ${all.map((entry) => entry.status).join(', ') || 'none'}`);
   }, () => runEndedBadly(http, plannerRun));
 
   step('the plan is approved: the tree, its project and its Odoo 20 starter are made; every agent of the tree is put on the machine');
@@ -288,18 +289,18 @@ async function main(): Promise<void> {
   step('the starter went live in slot a; the landed story is built and prepared in slot b as a preview with the module installed');
   const releases = async (): Promise<Release[]> => ((await http.get(`/projects/${projectId}/releases`)).data as { releases: Release[] }).releases;
   const failedRelease = (all: Release[]) => all.find((release) => release.state === 'failed');
-  const live = await until('the starter to be live', async () => {
+  const live = await until<Release>('the starter to be live', async () => {
     const all = await releases();
     const broken = failedRelease(all);
     if (broken) assert.fail(`a release failed: ${broken.reason}`);
-    return all.find((release) => release.state === 'live');
+    return all.find((release) => release.state === 'live') ?? waiting(`releases: ${all.map((release) => `${release.slot} ${release.state}`).join(', ') || 'none'}`);
   });
   assert.equal(live.slot, 'a');
-  const preview = await until('the landed story\'s preview', async () => {
+  const preview = await until<Release>('the landed story\'s preview', async () => {
     const all = await releases();
     const broken = failedRelease(all);
     if (broken) assert.fail(`a release failed: ${broken.reason}`);
-    return all.find((release) => release.state === 'preview');
+    return all.find((release) => release.state === 'preview') ?? waiting(`releases: ${all.map((release) => `${release.slot} ${release.state}`).join(', ') || 'none'}`);
   });
   assert.equal(preview.slot, 'b');
   const named = (await db.projects.getProjects()).find((entry) => entry.id === projectId)!;

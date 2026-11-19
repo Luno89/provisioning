@@ -10,7 +10,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.CHANGES_LIVE_URL ?? 'http://localhost:3001/api';
@@ -22,7 +22,7 @@ interface Run { id: string; state: string; results: { scenarioId: string; passed
 
 const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, async () => {
   const traces = ((await http.get(`/engine/runs/${runId}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? [];
-  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
+  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : waiting(`${traces.length} traces, the last is ${traces.at(-1)?.kind ?? 'none'}`);
 }, () => runEndedBadly(http, runId));
 
 async function main(): Promise<void> {
@@ -59,9 +59,9 @@ async function main(): Promise<void> {
     }
     await db.checks.saveBenchState({ ownerId: OWNER, benched, lastFullAt: new Date().toISOString() });
     const baselineId = ((await http.post('/evals/level2/runs', { only: [scenarioId] })).data as Run).id;
-    const baseline = await until('the baseline run', async () => {
+    const baseline = await until<Run>('the baseline run', async () => {
       const run = (await http.get(`/evals/level2/runs/${baselineId}`)).data as Run;
-      return run.state === 'running' ? undefined : run;
+      return run.state === 'running' ? waiting(`the run is ${run.state}`) : run;
     });
     console.log(`  baseline: ${baseline.results[0]?.passed ? 'passed' : 'failed'}`);
     assert.equal(baseline.results[0]?.passed, false, 'the bad prompt already passes, so the comparison cannot show an improvement');
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     console.log('[3/5] at the next idle moment the bench compares the prompt change');
     const compared = await until('the comparison', async () => {
       const change = ((await http.get('/evals/level2/changes')).data.changes as Change[]).find((entry) => entry.id === promptChange.id);
-      return change?.status === 'ready' ? change : undefined;
+      return change?.status === 'ready' ? change : waiting(change ? `the change is ${change.status}` : 'the change is not listed');
     }, async () => {
       const change = ((await http.get('/evals/level2/changes')).data.changes as Change[]).find((entry) => entry.id === promptChange.id);
       return !change ? 'the change is gone' : ['accepted', 'handed-over', 'dismissed'].includes(change.status) ? `the change was ${change.status} before its comparison was ready` : undefined;
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
         console.log('  it asked to save the procedure; denying, so the test changes nothing of the person\'s');
         await http.post(`/engine/runs/${handed.runId}/approve`, { callId: call.id, allowed: false }).catch(() => undefined);
       }
-      return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
+      return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : waiting(`${traces.length} traces, the last is ${traces.at(-1)?.kind ?? 'none'}`);
     }, () => runEndedBadly(http, handed.runId!));
     const builderCalls = builderTraces.filter((trace) => trace.kind === 'run-tool-calls').flatMap((trace) => trace.outputs?.results ?? []).map((call) => call.name);
     console.log(`  the builder called: ${builderCalls.join(', ') || 'nothing'}`);

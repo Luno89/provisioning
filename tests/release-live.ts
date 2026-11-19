@@ -11,7 +11,7 @@ import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js
 import { dataVersionOf } from '../apps/backend/src/instances/lib/instance-updates.js';
 import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
-import { until, Hopeless } from './lib/until.js';
+import { until, Hopeless, waiting } from './lib/until.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
@@ -222,8 +222,8 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), previous, 'root is not on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
-  const rootAnswers = async () => https(`app.${DOMAIN}`, '/api/identity/keys').status === 200;
-  await until('root answering through its Caddy', async () => ((await rootAnswers()) ? true : undefined), gone);
+  const rootAnswers = async () => { const answer = https(`app.${DOMAIN}`, '/api/identity/keys'); return answer.status === 200 ? true as const : waiting(`app.${DOMAIN} answered ${answer.status}: ${answer.body.slice(0, 200)}`); };
+  await until('root answering through its Caddy', rootAnswers, gone);
   note(`https://app.${DOMAIN} answers through Caddy with a certificate from its own authority`);
 
   step('the first account signs up on root with the setup code bootstrap made, and becomes its admin');
@@ -273,7 +273,7 @@ async function main(): Promise<void> {
   const placed = await until('the owner\'s Koala installed on the machine and reporting ready to root', async () => {
     const found = koala();
     if (found?.status === 'failed') throw new Hopeless(`putting Koala on the machine failed: ${found.detail}`);
-    return found?.status === 'ready' ? found : undefined;
+    return found?.status === 'ready' ? found : waiting(`its Koala is ${found?.status ?? 'not placed yet'}`);
   }, gone);
   note(`the machine join and putting Koala on the machine took ${minutes(installed)}`);
   const instanceId = placed.id;
@@ -281,7 +281,7 @@ async function main(): Promise<void> {
   const machines = json<{ machines: Array<{ id: string; holdsKoala: boolean }> }>(asOwner('/api/my-machines')).machines;
   assert.equal(machines.filter((machine) => machine.holdsKoala).length, 1, `root does not list the machine holding Koala: ${JSON.stringify(machines)}`);
   const instanceHost = `${NAME}.${DOMAIN}`;
-  await until(`https://${instanceHost} through root's Caddy over the mesh`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
+  await until(`https://${instanceHost} through root's Caddy over the mesh`, async () => { const answer = https(instanceHost, '/api/auth/sign-in'); return answer.status === 200 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
 
   const kubectl = (args: string) => sh(instance!, `sudo kubectl -n ${NAMESPACE} ${args}`);
   const helm = (args: string) => sh(instance!, `sudo ~/.local/share/koala/bin/helm -n ${NAMESPACE} --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
@@ -326,7 +326,7 @@ async function main(): Promise<void> {
   const listing = await until("the project's repository", async () => {
     const answer = onInstance(`/api/projects/${project.id}/files`);
     const entries = answer.status === 200 ? json<{ entries: Array<{ path: string; type: string }> }>(answer).entries.filter((entry) => entry.type === 'file') : [];
-    return entries.length ? entries : undefined;
+    return entries.length ? entries : waiting(`the files answered ${answer.status} with no file`);
   }, gone);
   const repoFile = listing[0]!.path;
   const repositoryWorks = (mark: string) => {
@@ -344,13 +344,13 @@ async function main(): Promise<void> {
     const found = json<Array<{ id: string; status: string }>>(onInstance('/api/deployments')).find((entry) => entry.id === deploymentId);
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
-    return found.status === 'running' ? found : undefined;
+    return found.status === 'running' ? found : waiting(`it is ${found.status}`);
   }, gone);
   const exposed = onInstance(`/api/deployments/${deploymentId}/expose`, { method: 'POST', body: { mode: 'public' } });
   assert.equal(exposed.status, 200, exposed.body);
   const appHost = `books-${NAME}.${DOMAIN}`;
   assert.equal(json<{ publicExposureUrl: string }>(exposed).publicExposureUrl, `https://${appHost}`);
-  const appAnswers = () => until(`the app at https://${appHost}`, async () => (https(appHost, '/').status < 400 ? true : undefined), gone);
+  const appAnswers = () => until(`the app at https://${appHost}`, async () => { const answer = https(appHost, '/'); return answer.status < 400 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
   await appAnswers();
   note(`https://${appHost} answers through root's Caddy and the instance's edge`);
   const sandboxedRun = async (id: string) => {
@@ -359,7 +359,7 @@ async function main(): Promise<void> {
     const started = json<{ runId: string }>(onInstance('/api/engine/runs', { method: 'POST', body: { agent: 'executor', message: 'live', procedure: id } }));
     const traces = await until(`the sandboxed run ${id} finishing`, async () => {
       const list = json<{ traces: Array<{ node: string; exit?: string; outputs?: { host?: string }; finish?: { outcome: string } }> }>(onInstance(`/api/engine/runs/${started.runId}/traces`)).traces;
-      return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
+      return list.some((trace) => trace.node === 'cleaned') ? list : waiting(`${list.length} traces, the last at ${list.at(-1)?.node ?? 'none'}`);
     }, gone);
     assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', 'the code did not run');
     assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
@@ -375,7 +375,7 @@ async function main(): Promise<void> {
   };
   const jobEnds = (name: string) => until(`the self-upgrade job ${name} ending`, async () => {
     const conditions = (await kubectl(`get job ${name} -o jsonpath='{.status.conditions[*].type}'`)).trim();
-    return conditions.includes('Complete') || conditions.includes('Failed') ? conditions : undefined;
+    return conditions.includes('Complete') || conditions.includes('Failed') ? conditions : waiting(`its conditions: ${conditions || 'none yet'}`);
   }, gone);
   const checkIn = async (name: string) => {
     const stop = watchReports();
@@ -389,7 +389,8 @@ async function main(): Promise<void> {
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) assert.equal(images[`instance-${process}`]?.replace(/@sha256:[0-9a-f]+$/, ''), `${registry}:${tag}`, `instance-${process} is not on ${tag}`);
     await until(`every deployment ready on ${tag}`, async () => {
       const ready = (await kubectl(`get deploy -o jsonpath='{range .items[*]}{.metadata.name}={.status.readyReplicas}{"\\n"}{end}'`)).trim().split('\n');
-      return ready.filter((line) => line.startsWith('instance-')).every((line) => line.endsWith('=1')) ? true : undefined;
+      const notReady = ready.filter((line) => line.startsWith('instance-') && !line.endsWith('=1'));
+      return notReady.length === 0 ? true : waiting(`not ready: ${notReady.join(', ')}`);
     }, gone);
   };
   const checkedIn = await checkIn('check-in-before');
@@ -403,7 +404,7 @@ async function main(): Promise<void> {
   await sh(root, `sudo docker exec ${temporal} sh -c 'for address in 127.0.0.1:7236 temporal:7233; do temporal workflow start --address $address --task-queue release-live-in-flight --type ReleaseRehearsalInFlight --workflow-id release-live-in-flight >/dev/null && exit 0; done; exit 1'`);
   await until('root\'s Temporal listing the workflow in flight', async () => {
     const listed = await sh(root!, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 --query 'WorkflowId="release-live-in-flight" AND ExecutionStatus="Running"'`);
-    return /\brelease-live-in-flight\b/.test(listed) ? true : undefined;
+    return /\brelease-live-in-flight\b/.test(listed) ? true : waiting(`the list: ${listed.trim().slice(0, 200) || 'empty'}`);
   }, gone);
   const refused = await inVm(root, `sudo bash ${UPDATE_SH} ${candidate}`);
   assert.notEqual(refused.code, 0, `update.sh went ahead with a workflow in flight:\n${refused.out.slice(-1500)}`);
@@ -422,7 +423,7 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), candidate, 'root is not on the candidate');
   assert.equal(await rootReleaseTag(), candidateTag, 'root does not offer instances the candidate image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
-  await until('root answering on the candidate', async () => ((await rootAnswers()) ? true : undefined), gone);
+  await until('root answering on the candidate', rootAnswers, gone);
   keepRootSession(candidateTag);
   const tags = JSON.parse(await sh(root, `curl -fsS http://127.0.0.1:5000/v2/${IMAGE_REPO}/tags/list`)) as { tags: string[] };
   assert.ok(tags.tags.includes(candidateTag), `root's registry holds ${tags.tags.join(', ')}, not ${candidateTag}`);
@@ -432,7 +433,7 @@ async function main(): Promise<void> {
   const chartSha = (await sh(root, `sudo sha256sum ${REPO_DIR}/apps/backend/data/instance-charts/${candidateTag}.tgz | cut -d' ' -f1`)).trim();
   const recorded = await until(`root recording ${candidateTag} with its digest and chart`, async () => {
     const found = JSON.parse((await sh(root!, `sudo docker exec $(sudo docker ps --filter label=com.docker.compose.service=mongodb --format '{{.Names}}' | head -1) mongosh --quiet "mongodb://admin:$(sudo grep '^MONGO_ROOT_PASSWORD=' ${REPO_DIR}/.env | cut -d= -f2-)@127.0.0.1:27017/provisioning?authSource=admin" --eval 'JSON.stringify(db.instanceReleases.findOne({ _id: "${candidateTag}" }) ?? {})'`)).trim()) as { digest?: string; chartSha256?: string };
-    return found.chartSha256 ? found : undefined;
+    return found.chartSha256 ? found : waiting(`the release record has no chart digest yet: ${JSON.stringify(found).slice(0, 200)}`);
   }, gone);
   assert.deepEqual({ digest: recorded.digest, chartSha256: recorded.chartSha256 }, { digest: registryDigest, chartSha256: chartSha }, 'root does not hand instances the digest and chart sha256 it released');
   note(`root offers ${candidateTag} as ${registryDigest}, its chart as sha256 ${chartSha.slice(0, 12)}…`);
@@ -454,12 +455,12 @@ async function main(): Promise<void> {
   const routeFile = `${routes}/${(await sh(root, `sudo ls ${routes}`)).split('\n').map((name) => name.trim()).find((name) => name.includes(NAME))}`;
   const since = Number((await sh(root, 'date +%s')).trim());
   await sh(root, `sudo rm ${routeFile}`);
-  await until("the backend writing the instance's route again, as koala", async () => ((await sh(root!, `sudo stat -c %U ${routeFile} 2>/dev/null || true`)).trim() === 'koala' ? true : undefined), gone);
+  await until("the backend writing the instance's route again, as koala", async () => { const owner = (await sh(root!, `sudo stat -c %U ${routeFile} 2>/dev/null || true`)).trim(); return owner === 'koala' ? true : waiting(owner ? `the route is ${owner}'s` : 'no route file'); }, gone);
   await until("Caddy taking the backend's reload on its admin socket", async () => {
     const loads = (await sh(root!, `sudo grep '"uri":"/load"' /var/log/koala-caddy/caddy.log || true`)).trim().split('\n').filter(Boolean);
-    return loads.some((line) => (JSON.parse(line) as { ts: number }).ts >= since) ? true : undefined;
+    return loads.some((line) => (JSON.parse(line) as { ts: number }).ts >= since) ? true : waiting(`${loads.length} loads in the log, none since the restart`);
   }, gone);
-  await until(`https://${instanceHost} through root's Caddy again`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
+  await until(`https://${instanceHost} through root's Caddy again`, async () => { const answer = https(instanceHost, '/api/auth/sign-in'); return answer.status === 200 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
   note('root runs its backend as koala, without Docker, beside its workers as root; Caddy\'s admin API is off localhost, the backend reloads it through its socket, and its cluster account reaches the pool\'s Prometheus but not Gitea\'s secrets');
 
   step(`the instance upgrades itself through the real check-in, from ${previousTag} to ${candidateTag}`);
@@ -489,7 +490,7 @@ async function main(): Promise<void> {
   assert.deepEqual({ auto: held.auto, picked: held.picked, checking: held.checking }, { auto: false, picked: candidateTag, checking: undefined });
   const nothing = `nothing-${STAMP}`;
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the newer release', async () => ((await rootAnswers()) ? true : undefined), gone);
+  await until('root answering with the newer release', rootAnswers, gone);
   await sh(instance, `curl -fsSL ${ROOT_URL}/api/instances/chart.tgz -o /tmp/current-chart.tgz`);
   await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --wait --timeout 720h');
   const stayed = await checkIn('check-in-held');
@@ -519,7 +520,7 @@ async function main(): Promise<void> {
   const helmHistory = await helm('history instance');
   note(helmHistory.trim().split('\n').slice(-4).join('\n  '));
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${candidateTag}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
-  await until('root answering with the candidate release again', async () => ((await rootAnswers()) ? true : undefined), gone);
+  await until('root answering with the candidate release again', rootAnswers, gone);
   const following = changeUpdates({ auto: true });
   assert.deepEqual({ auto: following.auto, target: following.target, checking: following.checking }, { auto: true, target: candidateTag, checking: undefined }, 'automatic updates back on moved the instance off the release root runs');
   note(`automatic updates are back on, following root's ${candidateTag} without another check-in`);
@@ -530,7 +531,7 @@ async function main(): Promise<void> {
   note(`update.sh ${PREVIOUS_LABEL} took ${minutes(back)}`);
   assert.equal(await rootHead(), previous, 'root is not back on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
-  await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined), gone);
+  await until('root answering on the previous release', rootAnswers, gone);
   keepRootSession(previousTag);
   const previousSplits = run('git', ['ls-tree', '--name-only', previous, 'scripts/root-node/units.sh']).trim() !== ''
     && run('git', ['show', `${previous}:scripts/root-node/units.sh`]).includes('nowrinkles-workers');

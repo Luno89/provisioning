@@ -20,7 +20,7 @@ import { renderStarterFiles, versionVars } from '../apps/backend/src/projects/li
 import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/projects/lib/tree-type-seeds.js';
 import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 import { channelIdFor } from '../apps/backend/src/engine/lib/conversations.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const run = promisify(execFile);
 const BASE = process.env.ODOO_IMPORT_LIVE_URL ?? 'http://localhost:3001/api';
@@ -94,9 +94,9 @@ async function main(): Promise<void> {
     const before = new Set((await releases(entry)).map((release) => release.id));
     return liveAfter(entry, before);
   };
-  const liveAfter = (entry: Made, before: ReadonlySet<string>) => until(`live release of ${entry.name}`, async () => {
+  const liveAfter = (entry: Made, before: ReadonlySet<string>) => until<Release>(`live release of ${entry.name}`, async () => {
     const all = (await releases(entry)).filter((release) => !before.has(release.id));
-    return all.find((release) => release.state === 'live');
+    return all.find((release) => release.state === 'live') ?? waiting(`${all.length} new releases: ${all.map((release) => release.state).join(', ') || 'none'}`);
   }, () => releaseFailed(entry, before));
   const importOf = async (entry: Made) => (await http.get(`/projects/${entry.id}/import`)).data as { open: boolean; why?: string; import?: { state: string; mode: string; version?: string; modules?: string[]; missing?: string[]; reason?: string } };
   const upload = async (entry: Made, file: string, mode: 'copy' | 'live') => http.put(`/projects/${entry.id}/import`, createReadStream(file), {
@@ -113,7 +113,10 @@ async function main(): Promise<void> {
     const signIn = ((await http.get(`/projects/${client.id}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0]!;
     const forward = spawn(KUBECTL, ['-n', client.place.namespace, 'port-forward', `svc/${client.place.release}-live`, `${APP_PORT}:8069`], { env, stdio: 'ignore' });
     try {
-      await until('the live Odoo answering through the port-forward', async () => ((await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)) ? true : undefined), async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
+      await until('the live Odoo answering through the port-forward', async () => {
+        const status = await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status, (err: Error) => err.message);
+        return status === 200 ? true : waiting(`health answered ${status}`);
+      }, async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
         const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
         if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
@@ -165,9 +168,9 @@ async function main(): Promise<void> {
     assert.equal(uploaded.status, 201, JSON.stringify(uploaded.data));
     assert.equal(uploaded.data.state, 'uploaded');
     await seed(copy);
-    const refused = await until('the restore to refuse it', async () => {
+    const refused = await until<NonNullable<Awaited<ReturnType<typeof importOf>>['import']>>('the restore to refuse it', async () => {
       const entry = (await importOf(copy)).import;
-      return entry?.state === 'refused' && entry.missing ? entry : undefined;
+      return entry?.state === 'refused' && entry.missing ? entry : waiting(entry ? `import is ${entry.state}, missing ${entry.missing?.join(', ') ?? 'unset'}` : 'no import recorded');
     }, async () => (await releaseFailed(copy)) ?? ((await releases(copy)).some((release) => release.state === 'live') ? 'something went live from a refused backup' : undefined));
     assert.deepEqual(refused.missing, ['web_studio']);
     assert.equal((await releases(copy)).some((release) => release.state === 'live'), false, 'something went live from a refused backup');
@@ -181,7 +184,10 @@ async function main(): Promise<void> {
     assert.ok((accepted.data.modules as string[]).includes(MODULE));
     const restored = await liveAfter(copy, refusedReleases);
     assert.equal(restored.slot, 'a');
-    await until('the import to be recorded as done', async () => ((await importOf(copy)).import?.state === 'imported' ? true : undefined), async () => {
+    await until('the import to be recorded as done', async () => {
+      const recorded = (await importOf(copy)).import?.state;
+      return recorded === 'imported' ? true : waiting(`import is ${recorded ?? 'not recorded'}`);
+    }, async () => {
       const state = (await importOf(copy)).import;
       return state && (state.state === 'refused' || state.state === 'failed') ? `the import is ${state.state}${state.reason ? `: ${state.reason}` : ''}` : undefined;
     });
@@ -218,7 +224,10 @@ async function main(): Promise<void> {
     for (const entry of made.splice(0)) {
       const removing = await http.delete(`/projects/${entry.id}`, { data: { confirm: entry.name } });
       assert.ok(removing.status < 300, JSON.stringify(removing.data));
-      await until(`${entry.place.namespace} to go`, async () => ((await run(KUBECTL, ['get', 'namespace', entry.place.namespace, '--ignore-not-found', '-o', 'name'], { env })).stdout.trim() === '' ? true : undefined), async () => {
+      await until(`${entry.place.namespace} to go`, async () => {
+        const found = (await run(KUBECTL, ['get', 'namespace', entry.place.namespace, '--ignore-not-found', '-o', 'name'], { env })).stdout.trim();
+        return found === '' ? true : waiting(`${found} still exists`);
+      }, async () => {
         const removal = await http.get(`/projects/${entry.id}/removal`, { validateStatus: () => true });
         const state = (removal.data as { state?: { state: string; reason?: string } }).state;
         return state?.state === 'failed' ? `deleting ${entry.name} failed: ${state.reason}` : undefined;

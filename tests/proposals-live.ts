@@ -9,7 +9,7 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PROPOSALS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -22,7 +22,7 @@ interface Run { id: string; state: string; results: { scenarioId: string; passed
 
 const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to finish`, async () => {
   const traces = ((await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[]) ?? [];
-  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : undefined;
+  return traces.some((trace) => trace.kind === 'finish' && trace.finish) ? traces : waiting(`${traces.length} traces, the last is ${traces.at(-1)?.kind ?? 'none'}`);
 }, () => runEndedBadly(http, runId));
 
 async function main(): Promise<void> {
@@ -52,7 +52,8 @@ async function main(): Promise<void> {
     const keeperRun = await until('the memory keeper to run on the conversation', async () => {
       const length = (await db.engine.getConversation(OWNER, conversationId))?.messages.length ?? 0;
       const id = `memory-conversation-${conversationId}-${length}`;
-      return (((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? []).length > 0 ? id : undefined;
+      const found = (((await http.get(`/engine/runs/${id}/traces`).catch(() => ({ data: { traces: [] } }))).data.traces as Trace[]) ?? []).length;
+      return found > 0 ? id : waiting(`${id} has ${found} traces after ${length} messages`);
     }, async () => ((await db.engine.getConversation(OWNER, conversationId)) ? keeperPaused(http) : 'the conversation is gone, so the keeper has nothing to read'));
     touched.add(keeperRun);
     const kept = await finished(http, keeperRun);
@@ -71,9 +72,9 @@ async function main(): Promise<void> {
     const scenario = (await http.post(`/evals/level2/proposals/${chosen.id}/accept`, {})).data.scenario as { id: string };
     accepted = scenario.id;
     const run = (await http.post('/evals/level2/runs', { only: [scenario.id] })).data as Run;
-    const done = await until(`scenario run ${run.id}`, async () => {
+    const done = await until<Run>(`scenario run ${run.id}`, async () => {
       const current = (await http.get(`/evals/level2/runs/${run.id}`)).data as Run;
-      return current.state === 'running' ? undefined : current;
+      return current.state === 'running' ? waiting(`the run is ${current.state}`) : current;
     });
     const result = done.results[0];
     console.log(`  ${scenario.id}: ${result?.passed ? 'passed' : 'failed'}; called ${result?.calls.map((call) => call.name).join(', ') || 'nothing'}; ${result?.checks.map((check) => `${check.what}: ${check.detail}`).join('; ')}`);

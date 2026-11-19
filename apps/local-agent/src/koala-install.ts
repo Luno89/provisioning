@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { KOALA_INSTALL_LAST_STAGE, KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_PLATFORM_NAMESPACES, koalaInstallLastStage, koalaInstallProgressPath, koalaStopOf, MOVED_FOR_LABEL, type KoalaMove, type PlacedKoala } from '@koala/engine-core/koala-install';
-import { allReporters, chartInputs, chartStep, runSteps, runsInputs, StepFailed, waitUntil, type ChartCluster, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
+import { allReporters, chartInputs, chartStep, runSteps, runsInputs, StepFailed, waiting, waitUntil, type ChartCluster, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
 import { K3S_BINARY, K3S_KUBECONFIG, clusterState, koalaEverRan, runMachineCluster, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
 import { askRoot, rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
@@ -156,7 +156,10 @@ export async function removeKoala(host: ClusterHost, helm: string, instanceId: s
   await cluster.kubectl(['delete', 'clusterrolebinding', '-l', RELEASE_PARTS, '--ignore-not-found']);
   if (found.length) {
     await cluster.kubectl(['delete', 'namespace', ...found, '--ignore-not-found', '--wait=false']);
-    await waitUntil('what was put on this machine for Koala to be gone', async () => ((await spaces()).length === 0 ? true : undefined), undefined, wait);
+    await waitUntil('what was put on this machine for Koala to be gone', async () => {
+      const left = await spaces();
+      return left.length === 0 ? true : waiting(`${left.join(', ')} still there`);
+    }, undefined, wait);
   }
   await host.letKoalaGo();
   if (what.length) line('nothing of that Koala is left on this machine');

@@ -6,7 +6,7 @@ import { sanitiseNamespaceName } from '../apps/backend/src/projects/lib/projects
 import { machineClusterId } from '../apps/backend/src/infrastructure/lib/cluster-name.js';
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
 import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKubectl, devOwner } from './lib/dev-stack.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { deploymentFailed } from './lib/dead-states.js';
 
 async function secretValue(namespace: string, key: string): Promise<string | undefined> {
@@ -66,19 +66,19 @@ async function check(http: AxiosInstance, db: Database, ownerId: string): Promis
     await provideThroughCard(http, db, ownerId, project.id, key, first);
 
     await http.post(`/projects/${project.id}/runs/${runId}/promote`);
-    const synced = await until(`${namespace}-secrets on ${cluster}`, () => secretValue(namespace, key), () => deploymentFailed(http, name));
+    const synced = await until(`${namespace}-secrets on ${cluster}`, async () => (await secretValue(namespace, key)) ?? waiting(`${namespace}-secrets holds no ${key}`), () => deploymentFailed(http, name));
     assert.equal(synced, first);
     notes.push(`the operator wrote the vault value into ${namespace}-secrets`);
 
-    const inPod = await until(`a running pod on ${cluster}`, () => podEnv(namespace, key), () => deploymentFailed(http, name));
+    const inPod = await until(`a running pod on ${cluster}`, async () => (await podEnv(namespace, key)) ?? waiting('no running pod with the variable set'), () => deploymentFailed(http, name));
     assert.equal(inPod, first);
     notes.push('the pod\'s environment carries it');
 
     await inVault(`await vault.setSecret(${JSON.stringify(project.id)}, ${JSON.stringify(key)}, ${JSON.stringify(rotated)});`);
-    const resynced = await until('the rotated value to sync', async () => ((await secretValue(namespace, key)) === rotated ? true : undefined), () => deploymentFailed(http, name));
+    const resynced = await until('the rotated value to sync', async () => { const current = await secretValue(namespace, key); return current === rotated ? true : waiting(current === undefined ? `${namespace}-secrets holds no ${key}` : `${namespace}-secrets still holds the old value`); }, () => deploymentFailed(http, name));
     assert.ok(resynced);
     notes.push(`a changed value reached ${namespace}-secrets with no redeploy`);
-    await until('the pod to restart with the rotated value', async () => ((await podEnv(namespace, key)) === rotated ? true : undefined), () => deploymentFailed(http, name));
+    await until('the pod to restart with the rotated value', async () => { const current = await podEnv(namespace, key); return current === rotated ? true : waiting(current === undefined ? 'no running pod with the variable' : 'the pod still has the old value'); }, () => deploymentFailed(http, name));
     notes.push('the pod restarted onto the changed value');
     return notes;
   } finally {

@@ -10,7 +10,7 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { ActionProposal } from '../apps/backend/src/engine/lib/action-proposals.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { deploymentFailed, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.PLATFORM_LIVE_URL ?? 'http://localhost:3001/api';
@@ -23,7 +23,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
   console.log(`  run ${runId}`);
   const traces = await until(`run ${runId}`, async () => {
     const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    return all.some((trace) => trace.finish !== undefined) ? all : undefined;
+    return all.some((trace) => trace.finish !== undefined) ? all : waiting(`${all.length} traces, none finished`);
   }, () => runEndedBadly(http, runId));
   const seen = new Map<string, Result>();
   for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     assert.equal(applied.status, 'applied', `applying failed: ${applied.reason}`);
     const running = await until(`${name} to run`, async () => {
       const dep = ((await http.get('/deployments')).data as { name: string; status: string }[]).find((entry) => entry.name === name);
-      return dep?.status === 'running' ? dep : undefined;
+      return dep?.status === 'running' ? dep : waiting(dep ? `${name} is ${dep.status}` : `${name} is not in the deployments`);
     }, () => deploymentFailed(http, name));
     console.log(`  applying the card deployed ${running.name}: ${running.status}`);
     console.log('platform live — PASS');

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 const run = promisify(execFile);
 const SCRIPTS = resolve(import.meta.dirname, '..', '..', 'scripts');
@@ -80,7 +80,7 @@ describe('fetching a pinned test tool', () => {
 
     await until('every caller is downloading or waiting its turn', async () => {
       const busy = (await descendantsOf(pids)).filter((comm) => comm === 'curl' || comm === 'flock');
-      return busy.length >= callers.length;
+      return busy.length >= callers.length ? true : waiting(`${busy.length} of ${callers.length} callers are downloading or waiting`);
     });
     server.release();
     const results = await Promise.all(callers.map(({ ended }) => ended));

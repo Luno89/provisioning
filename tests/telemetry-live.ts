@@ -15,7 +15,7 @@ import { TRACE_ID_HEADER } from '../apps/backend/src/platform/services/MetricsSe
 import { TURN_PROCEDURE_ID } from '../apps/backend/src/checks/lib/turn-check.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { signUp } from './lib/sign-up.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { devKoalaTemporal } from './lib/dev-stack.js';
 import { removeAccountWorkflowId } from '../apps/backend/src/accounts/lib/account-removal.js';
 
@@ -95,10 +95,10 @@ async function main(): Promise<void> {
 
   try {
     await stage('the collector and Tempo are on the system cluster, applied when the cluster worker started if they were missing', async () => {
-      await until('otel-collector and tempo in the monitoring namespace', async () => ((await serviceExists('otel-collector')) && (await serviceExists('tempo')) ? true : undefined));
-      const koala = await until('the backend seeing them too', async () => {
+      await until('otel-collector and tempo in the monitoring namespace', async () => { const collector = await serviceExists('otel-collector'); const tempo = await serviceExists('tempo'); return collector && tempo ? true : waiting(`otel-collector ${collector ? 'exists' : 'is missing'}, tempo ${tempo ? 'exists' : 'is missing'}`); });
+      const koala = await until<KoalaView>('the backend seeing them too', async () => {
         const view = (await adminHttp.get('/api/infrastructure')).data as { koala: KoalaView };
-        return view.koala.telemetry.collector && view.koala.telemetry.tempo ? view.koala : undefined;
+        return view.koala.telemetry.collector && view.koala.telemetry.tempo ? view.koala : waiting(`the backend sees the collector as ${view.koala.telemetry.collector}, tempo as ${view.koala.telemetry.tempo}`);
       });
       console.log(`    Koala: ${koala.lines[0]}`);
     });
@@ -133,9 +133,9 @@ async function main(): Promise<void> {
       const traceId = String(started.headers[TRACE_ID_HEADER] ?? '');
       assert.match(traceId, /^[0-9a-f]{32}$/, `the response carries no trace id in ${TRACE_ID_HEADER}`);
       const id = (started.data as { id: string }).id;
-      const finished = await until('the check run to finish', async () => {
+      const finished = await until<CheckRun>('the check run to finish', async () => {
         const check = (await me!.get(`/api/evals/level2/runs/${id}`)).data as CheckRun;
-        if (check.state === 'running') return undefined;
+        if (check.state === 'running') return waiting(`the check run is ${check.state}`);
         return check;
       });
       assert.equal(finished.state, 'done', `the check run ended ${finished.state}: ${finished.error ?? ''}`);
@@ -153,11 +153,12 @@ async function main(): Promise<void> {
       const wanted = ['POST /api/evals/level2/runs', 'workflow.start CheckRunWorkflow', 'POST /api/engine/runs', 'workflow.start AgentRunWorkflow', 'model.call'];
       const names = await until(`the trace ${traceId} with ${wanted.join(', ')}`, async () => {
         const answer = await http.get(`/api/traces/${traceId}`);
-        if (answer.status === 404) return undefined;
+        if (answer.status === 404) return waiting('Tempo answered 404, the trace is not stored yet');
         if (answer.status >= 500) throw stillDown(`Tempo answered ${answer.status}`);
         assert.ok(answer.status === 200, `Tempo answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
         const names = spanNames(answer.data);
-        return wanted.every((name) => names.includes(name)) ? names : undefined;
+        const missing = wanted.filter((name) => !names.includes(name));
+        return missing.length === 0 ? names : waiting(`${names.length} spans, missing ${missing.join(', ')}`);
       }, forwardGone);
       const activities = names.filter((name) => name.startsWith('activity ')).length;
       console.log(`    ${names.length} spans, ${activities} of them activities; the model call: ${names.filter((name) => name === 'model.call').length}`);
@@ -187,17 +188,17 @@ async function main(): Promise<void> {
       ] as const) {
         const found = await until(`${metric} from ${service}`, async () => {
           const result = await query(`${metric}{service_name="${service}"}`);
-          return result.length ? result : undefined;
+          return result.length ? result : waiting('Prometheus answered with no series');
         }, forwardGone);
         console.log(`    ${metric}{service_name="${service}"}: ${found.length} series`);
       }
     });
 
     await stage('the Koala section on GET /api/infrastructure carries them', async () => {
-      const koala = await until('the Koala section measuring requests and model calls', async () => {
+      const koala = await until<KoalaView>('the Koala section measuring requests and model calls', async () => {
         const view = (await me!.get('/api/infrastructure')).data as { koala: KoalaView };
         const { numbers, services } = view.koala;
-        return numbers.requestsPerSecond !== undefined && numbers.modelCallsPerMinute !== undefined && services.includes('koala-backend') && services.includes('koala-worker-engine') ? view.koala : undefined;
+        return numbers.requestsPerSecond !== undefined && numbers.modelCallsPerMinute !== undefined && services.includes('koala-backend') && services.includes('koala-worker-engine') ? view.koala : waiting(`requests per second ${numbers.requestsPerSecond}, model calls per minute ${numbers.modelCallsPerMinute}, services ${services.join(', ') || 'none'}`);
       });
       assert.ok(koala.state === 'ok' || koala.state === 'warning', `Koala is ${koala.state}: ${koala.reasons.join('; ')}`);
       for (const line of koala.lines) console.log(`    ${line}`);
@@ -217,7 +218,7 @@ async function main(): Promise<void> {
       if (removed.status === 202) {
         const temporal = await devKoalaTemporal();
         try {
-          await until('the account to be removed', async () => ((await db.accounts.getUserById(myId!)) ? undefined : true), async () => {
+          await until('the account to be removed', async () => ((await db.accounts.getUserById(myId!)) ? waiting('the account still exists') : true), async () => {
             const status = (await temporal.client.workflow.getHandle(removeAccountWorkflowId(myId!)).describe()).status.name;
             return status === 'RUNNING' || status === 'COMPLETED' ? undefined : `the removal workflow ${status.toLowerCase()}`;
           });

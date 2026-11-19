@@ -40,6 +40,7 @@
     "test:unit": "npm run typecheck && npm run test:copies && npm run test:unit -w packages/context-engine -w packages/engine-core -w packages/agent-engine -w apps/frontend -w apps/backend -w apps/local-agent -w packages/cdktf-infra -w packages/provision",
     "test:integration": "tsx tests/tiers/room.ts && npm run test:integration -w packages/context-engine -w packages/engine-core -w packages/agent-engine -w apps/frontend -w apps/backend -w apps/local-agent -w packages/cdktf-infra -w packages/provision",
     "test:integration:coupled": "tsx tests/coupling/gather.ts",
+    "test:status": "tsx tests/lib/test-status.ts",
     "test:e2e": "tsx tests/e2e.ts",
     "test:coupling": "tsx tests/coupling/audit.ts --require in-process --prune",
     "test:copies": "tsx tests/copies/audit.ts --prune",

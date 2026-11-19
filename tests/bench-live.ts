@@ -10,7 +10,7 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const BASE = process.env.BENCH_LIVE_URL ?? 'http://localhost:3001/api';
 const ORIGIN = BASE.replace(/\/api$/, '');
@@ -40,11 +40,11 @@ async function main(): Promise<void> {
   });
   const runsOf = async () => ((await http.get('/evals/level2/runs')).data.runs as Run[]).filter((run) => run.trigger?.kind === 'changed' && run.trigger.agents?.includes(slug));
   const benchRun = async (what: string, after: number) => {
-    const started = await until(`the bench to start on its own (${what})`, async () => (await runsOf()).find((run) => Date.parse(run.startedAt) > after), async () => (((await http.get('/evals/level2/bench')).data as { settings: { enabled: boolean } }).settings.enabled ? undefined : 'the bench was switched off, so it will not start'));
+    const started = await until<Run>(`the bench to start on its own (${what})`, async () => { const runs = await runsOf(); return runs.find((run) => Date.parse(run.startedAt) > after) ?? waiting(`${runs.length} runs for this agent, none started after the change`); }, async () => (((await http.get('/evals/level2/bench')).data as { settings: { enabled: boolean } }).settings.enabled ? undefined : 'the bench was switched off, so it will not start'));
     console.log(`  bench run ${started.id} started on its own (${started.trigger?.kind}: ${started.trigger?.agents?.join(', ')})`);
-    return until(`bench run ${started.id} to finish`, async () => {
+    return until<Run>(`bench run ${started.id} to finish`, async () => {
       const run = (await http.get(`/evals/level2/runs/${started.id}`)).data as Run;
-      return run.state === 'running' ? undefined : run;
+      return run.state === 'running' ? waiting(`the run is ${run.state}`) : run;
     });
   };
 
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     assert.deepEqual(second.regressions, [scenarioId], 'the bench did not name the broken scenario as a regression');
 
     console.log('[4/4] the owner is told');
-    await until('the regression notice', async () => (regressionsSeen.some((event) => event.runId === second.id) ? true : undefined), async () => (socket.connected ? undefined : 'the socket to Koala closed, so the notice cannot arrive'));
+    await until('the regression notice', async () => (regressionsSeen.some((event) => event.runId === second.id) ? true : waiting(`${regressionsSeen.length} regression notices seen, none for run ${second.id}`)), async () => (socket.connected ? undefined : 'the socket to Koala closed, so the notice cannot arrive'));
     console.log(`  notice: ${JSON.stringify(regressionsSeen.find((event) => event.runId === second.id))}`);
     console.log('bench live — PASS');
   } finally {

@@ -21,7 +21,7 @@ import { call, envArgs, minioRun, ownerOnInstance, startSplitStack, type SplitSt
 import { firstAdmin, withDatabase } from './lib/suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning } from './lib/dead-states.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -136,7 +136,7 @@ async function refusesToStart(image: string, what: string, env: Record<string, s
   const name = `${NAMES.refused}-${command}-${randomBytes(3).toString('hex')}`;
   run(name, ['--network', 'host', '--env-file', devFile('apps/backend/.env'), ...extra, ...envArgs(env), image, command]);
   const said = (): string => execFileSync('sh', ['-c', `docker logs ${name} 2>&1`], { encoding: 'utf8' });
-  await until(`${what} stopping`, async () => (docker(['inspect', '-f', '{{.State.Running}}', name]) === 'false' ? true : undefined));
+  await until(`${what} stopping`, async () => { const running = docker(['inspect', '-f', '{{.State.Running}}', name]); return running === 'false' ? true : waiting(`the container's Running is ${running}`); });
   const exit = docker(['inspect', '-f', '{{.State.ExitCode}}', name]);
   const text = said();
   assert.notEqual(exit, '0', `${what} ended well: ${text.slice(-400)}`);
@@ -194,7 +194,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
     ROLE: 'root', PORT: String(port), PUBLIC_URL: rootUrl, TRUST_PROXY: '1', MONGO_URI: mongoUri, ADMIN_SETUP_CODE: setupCode, TEMPORAL_NAMESPACE: stack.names.namespace,
     MACHINE_GATEWAY_PORT: String(await portToHandOn()), MAIL_SMTP_URL: `smtp://127.0.0.1:${stack.ports.smtp}`, MAIL_FROM: 'koala@hardening.test',
   }), image, 'backend']);
-  await until('the root answering', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), () => containerNotRunning(NAMES.root));
+  await until('the root answering', async () => { const answer = await fetch(`${rootUrl}/api/identity/keys`).catch((err: unknown) => err instanceof Error ? err.message : String(err)); return typeof answer !== 'string' && answer.ok ? true : waiting(typeof answer === 'string' ? `root did not answer: ${answer.slice(0, 200)}` : `root answered ${answer.status}`); }, () => containerNotRunning(NAMES.root));
   const owner = await firstAdmin(rootUrl, { suite: 'hardening', database, mongoUri, setupCode, namespace: stack.names.namespace, metricsPort: 0, env: [] });
 
   let heard = 0;
@@ -226,7 +226,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
       assert.equal(ended.status, 200, JSON.stringify(ended.body));
       const delivery = await until('root trying to tell the instance', async () => {
         const [pending] = await db.instances.pendingLogouts();
-        return pending?.lastError ? pending : undefined;
+        return pending?.lastError ? pending : waiting(pending ? 'a logout is pending with no error yet' : 'no logout is pending'); 
       }, () => containerNotRunning(NAMES.root));
       assert.match(delivery.lastError!, /Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/);
       assert.equal(heard, 0, 'root called the made-up address');

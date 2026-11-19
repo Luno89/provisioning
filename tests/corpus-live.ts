@@ -10,7 +10,7 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { devKoalaTemporal } from './lib/dev-stack.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { deploymentFailed, runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.CORPUS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -23,7 +23,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
   console.log(`  run ${runId}`);
   const traces = await until(`run ${runId}`, async () => {
     const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    return all.some((trace) => trace.finish !== undefined) ? all : undefined;
+    return all.some((trace) => trace.finish !== undefined) ? all : waiting(`${all.length} traces, none finished`);
   }, () => runEndedBadly(http, runId));
   const seen = new Map<string, Result>();
   for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
       await http.post(`/actions/${card.id}/apply`);
       await until('crawl4ai to run', async () => {
         const dep = ((await http.get('/deployments')).data as { name: string; status: string }[]).find((entry) => entry.name === crawler);
-        return dep?.status === 'running' ? dep : undefined;
+        return dep?.status === 'running' ? dep : waiting(dep ? `${crawler} is ${dep.status}` : `${crawler} is not in the deployments`);
       }, () => deploymentFailed(http, crawler!));
       console.log(`  deployed ${crawler} through its card`);
     }
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     try {
       ingestId = await until('the crawl to store a page', async () => {
         const pages = await db.engine.getCorpusPages({ ownerId });
-        return pages.find((entry) => entry.url.includes('example.com'))?.ingestId;
+        return pages.find((entry) => entry.url.includes('example.com'))?.ingestId ?? waiting(`${pages.length} pages stored, none from example.com`);
       }, async () => {
         const status = (await temporal.client.workflow.getHandle(id).describe()).status.name;
         return status === 'RUNNING' ? undefined : `the crawl ${status.toLowerCase()} without storing a page`;

@@ -8,7 +8,7 @@ import { devKoalaApi, devKoalaDatabase, devKoalaTemporal, devOwner } from './lib
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DROP_TYPE, dropBody } from '../apps/backend/src/files/lib/drops.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const BASE = process.env.FILES_LIVE_URL ?? `${devKoalaApi}/api`;
 const STAMP = Date.now().toString(36);
@@ -63,7 +63,7 @@ async function deleteProject(project: Project): Promise<void> {
     const answer = await api!.get(`/projects/${project.id}/removal`);
     if (answer.status === 404) return true;
     const state = (answer.data as { state?: { state: string; reason?: string } }).state;
-    return state?.state === 'finished' ? true : undefined;
+    return state?.state === 'finished' ? true : waiting(`the removal is ${state?.state ?? 'not reported'}`);
   }, async () => {
     const state = ((await api!.get(`/projects/${project.id}/removal`)).data as { state?: { state: string; reason?: string } }).state;
     return state?.state === 'failed' ? `deleting ${project.name} failed: ${state.reason}` : undefined;

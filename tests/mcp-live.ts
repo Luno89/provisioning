@@ -11,7 +11,7 @@ import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.
 import { slugify } from '../apps/backend/src/engine/lib/mcp-tools.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { io as connect } from 'socket.io-client';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.MCP_LIVE_URL ?? 'http://localhost:3001/api';
@@ -22,7 +22,7 @@ interface Trace { finish?: unknown; outputs?: { results?: { name: string; ok: bo
 async function finished(http: AxiosInstance, runId: string): Promise<Trace[]> {
   return until(`run ${runId} to finish`, async () => {
     const traces = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    return traces.some((trace) => trace.finish !== undefined) ? traces : undefined;
+    return traces.some((trace) => trace.finish !== undefined) ? traces : waiting(`${traces.length} traces, none finished`);
   }, () => runEndedBadly(http, runId));
 }
 
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   const events: EngineEvent[] = [];
   const socket = connect(ORIGIN, { extraHeaders: { Cookie: cookie }, transports: ['websocket'] });
   socket.on('turn-log', (entry: { events: EngineEvent[] }) => { events.push(...entry.events); });
-  await until('the event socket to connect', async () => (socket.connected ? true : undefined));
+  await until('the event socket to connect', async () => (socket.connected ? true : waiting('the event socket is not connected')));
   const readTools = server.tools.map((tool) => tool.name).filter((name) => /^(list|get|read|search|compare)_/.test(name));
   try {
     const saved = await http.put(`/agents/${persona}`, {
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
       }
       const traces = (await http.get(`/engine/runs/${gatedRun}/traces`)).data.traces as Trace[];
       if (traces.some((trace) => trace.finish !== undefined)) finishedTraces = traces;
-      return finishedTraces;
+      return finishedTraces ?? waiting(`${traces.length} traces, none finished; ${answered.size} calls denied so far`);
     }, () => runEndedBadly(http, gatedRun));
     assert.ok(answered.size > 0, 'nothing asked before a tool the server does not describe ran');
     const gatedTraces = finishedTraces!;
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     assert.equal(before.length, 0, 'its tools were available before anyone approved them');
     const request = await until('the switch-on request', async () => {
       const list = (await http.get('/mcp/requests', { params: { conversationId: asked } })).data as { id: string; server: string; status: string }[];
-      return list.find((entry) => entry.server === server.name && entry.status === 'requested');
+      return list.find((entry) => entry.server === server.name && entry.status === 'requested') ?? waiting(`${list.length} requests for this chat, none from ${server.name} awaiting`);
     }, async () => 'the turn that was to ask for it has ended without a request');
     await http.post(`/mcp/requests/${request.id}/enable`);
     const after = called(await turn(http, 'koala', 'Thanks, it is on now. List my repositories — just the names.', asked), prefix);

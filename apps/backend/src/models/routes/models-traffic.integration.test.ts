@@ -5,7 +5,7 @@ import { ModelService } from '../services/ModelService.js';
 import { CredentialService } from '../../infrastructure/services/CredentialService.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { anyOf } from '../../platform/lib/test-matchers.js';
-import { until } from '../../platform/testing/three-roles.js';
+import { until, waiting } from '../../platform/testing/three-roles.js';
 import { startModelStandIn } from '../testing/model-stand-in.js';
 
 const KEY = 'models-traffic-key';
@@ -39,7 +39,7 @@ describe('model traffic', () => {
     for (let call = 0; call < 5; call += 1) await ask(answering.baseUrl, { rateLimitKey: 'tabby', ownerId: TEST_USER.id, label: 'Tabby' });
     await ask(answering.baseUrl, { rateLimitKey: 'theirs', ownerId: 'someone-else', label: 'Theirs' });
     const inFlight = ask(holding.baseUrl, { rateLimitKey: 'tabby', ownerId: TEST_USER.id, label: 'Tabby' });
-    await until(async () => (holding.waiting() === 1 ? true : undefined));
+    await until('the model server to hold the call', async () => (holding.waiting() === 1 ? true : waiting(`${holding.waiting()} calls held, wants 1`)));
 
     const res = await fetch(harness.url('/api/models/rate-limits'));
 

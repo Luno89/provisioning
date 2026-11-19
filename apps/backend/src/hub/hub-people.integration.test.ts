@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../platform/lib/settings.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from '../platform/testing/handoff.js';
-import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
 import { HUB_REPO, hubOrgOf } from './services/HubRepos.js';
 import { mainHeads } from './services/HubRepoSync.js';
@@ -56,7 +56,7 @@ async function accountGone(id: string): Promise<boolean> {
 async function removeAccount(who: Person): Promise<void> {
   const removed = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: who.email, password: who.password }, cookie: who.cookie });
   expect(removed.status, JSON.stringify(removed.body)).toBe(202);
-  await until(async () => ((await accountGone(who.id)) ? true : undefined));
+  await until(`root to remove the account of ${who.email}`, async () => ((await accountGone(who.id)) ? true : waiting('the account is still on root')));
 }
 
 beforeAll(async () => {
@@ -232,7 +232,10 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
     const other = projects[1]!;
     expect((await call(hubUrl(`/projects/${other.id}`), { method: 'DELETE', body: { name: 'not its name' }, cookie: ann.hub })).status).toBe(400);
     expect((await call(hubUrl(`/projects/${other.id}`), { method: 'DELETE', body: { name: other.name }, cookie: ann.hub })).status).toBe(200);
-    await until(async () => ((await call<{ shared?: unknown }>(`${roles.instance.url}/api/project-sharing/${other.onInstance}`, { cookie: ownerOnInstance })).body.shared === undefined ? true : undefined));
+    await until('the instance to stop showing the deleted project as shared', async () => {
+      const read = await call<{ shared?: unknown }>(`${roles.instance.url}/api/project-sharing/${other.onInstance}`, { cookie: ownerOnInstance });
+      return read.body.shared === undefined ? true : waiting(`the instance answers ${read.status} with shared ${JSON.stringify(read.body.shared).slice(0, 150)}`);
+    });
     expect((await call<{ blockers: string[] }>(`${roles.root.url}/api/account/removal`, { cookie: ann.person.cookie })).body.blockers).toEqual([]);
     await removeAccount(ann.person);
     const client = new MongoClient(roles.mongoUri);

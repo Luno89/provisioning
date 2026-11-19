@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { assessWorkload, waitUntil, type WaitOptions } from '@koala/provision';
+import { assessWorkload, waiting, waitUntil, type WaitOptions } from '@koala/provision';
 import {
   cleaned, drained, GITEA_DATA, movedNamespaceObject, MOVED_POSTGRES, MoveParts, PG_RESTORE, restoreOrder, textOf, volumePart, type AppsManifest, type KubeObject,
 } from '../instances/index.js';
@@ -31,7 +31,10 @@ const kubectl = ({ deps }: Moving, args: string[], input?: Readable): Promise<st
 };
 
 async function untilNone(moving: Moving, what: string, namespace: string, selector: string): Promise<void> {
-  await waitUntil(what, async () => (await kubectl(moving, ['get', 'pods', '-n', namespace, '-l', selector, '-o', 'name'])).trim() === '', undefined, moving.deps.wait);
+  await waitUntil(what, async () => {
+    const left = (await kubectl(moving, ['get', 'pods', '-n', namespace, '-l', selector, '-o', 'name'])).trim();
+    return left === '' ? true : waiting(`${left.split('\n').join(', ')} still there`);
+  }, undefined, moving.deps.wait);
 }
 
 async function untilPodReady(moving: Moving, namespace: string, pod: string): Promise<void> {
@@ -41,7 +44,9 @@ async function untilPodReady(moving: Moving, namespace: string, pod: string): Pr
     async () => {
       last = JSON.parse(await kubectl(moving, ['get', 'pod', pod, '-n', namespace, '-o', 'json']));
       const conditions = (last as { status?: { conditions?: Array<{ type?: string; status?: string }> } }).status?.conditions ?? [];
-      return conditions.some((condition) => condition.type === 'Ready' && condition.status === 'True');
+      return conditions.some((condition) => condition.type === 'Ready' && condition.status === 'True')
+        ? true
+        : waiting(`its conditions are ${conditions.map((condition) => `${condition.type}=${condition.status}`).join(', ') || 'none yet'}`);
     },
     async () => {
       if (!last) return undefined;

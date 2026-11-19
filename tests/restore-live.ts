@@ -10,7 +10,7 @@ import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
 import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
 import { restoreRunNames, restoreRunStamp } from './lib/restore-lab.js';
 import { mailCheckFrom } from '../apps/backend/src/platform/lib/mail-reputation.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const DOMAIN = 'koala.internal';
@@ -115,7 +115,7 @@ async function signsInWithStandIn(root: Root, ca: string, label: string): Promis
   assert.deepEqual(offeredBy(root, ca), [{ id: 'oidc', label: SIGN_IN_LABEL }], `${label} does not offer the stand-in issuer`);
   const started = await until(`${label} starting a sign-in with the stand-in issuer`, async () => {
     const answer = https(root.tlsPort, ca, '/api/auth/provider/oidc');
-    return answer.status === 302 && answer.location.startsWith(`${issuer!.issuer}/auth?`) ? answer : undefined;
+    return answer.status === 302 && answer.location.startsWith(`${issuer!.issuer}/auth?`) ? answer : waiting(`HTTP ${answer.status}, location ${String(answer.location).slice(0, 200)}`);
   }, () => root.vm.gone());
   const asked = new URL(started.location).searchParams;
   assert.equal(asked.get('client_id'), issuer!.clientId, `${label} asked the issuer as another client`);
@@ -153,7 +153,10 @@ async function standUpRoot(label: string, commit: string, signInEnv: Record<stri
   await sh(vm, 'sudo systemctl start nowrinkles.service nowrinkles-workers.service');
   const ca = join(work, `${label}-ca.crt`);
   writeFileSync(ca, await sh(vm, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
-  await until(`${label} answering through its Caddy`, async () => (https(tlsPort, ca, '/api/identity/keys').status === 200 ? true : undefined), () => vm.gone());
+  await until(`${label} answering through its Caddy`, async () => {
+    const status = https(tlsPort, ca, '/api/identity/keys').status;
+    return status === 200 ? true : waiting(`HTTP ${status} through its Caddy`);
+  }, () => vm.gone());
   note(`${label}: bootstrapped and answering in ${minutes(begun)}`);
   return root;
 }
@@ -232,15 +235,18 @@ async function main(): Promise<void> {
   await sh(first.vm, 'sudo rm /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml && sudo systemctl restart k3s-provisioning-lunorica');
   const exposed = await until('a node port of root answering from outside', async () => {
     const open = await fromOutside();
-    return open.length ? open : undefined;
+    return open.length ? open : waiting(`none of ${forwards.size} node ports answers from outside`);
   }, () => first.vm.gone());
   note(`without it, ${exposed.join(', ')} answered this computer through the VM's own address`);
   const hardened = await sh(first.vm, `sudo LAB=1 bash ${REPO_DIR}/scripts/root-node/harden-host.sh`);
   assert.match(hardened, /k3s restarted, so kube-proxy takes the node port addresses/);
-  await until('root\'s node ports to close to the outside again', async () => ((await fromOutside()).length === 0 ? true : undefined), () => first.vm.gone());
+  await until('root\'s node ports to close to the outside again', async () => {
+    const open = await fromOutside();
+    return open.length === 0 ? true : waiting(`node ports ${open.join(', ')} still answer from outside`);
+  }, () => first.vm.gone());
   await until('root\'s node ports answering on its loopback and mesh again', async () => {
     const [loopback, mesh] = await Promise.all([inside('127.0.0.1'), inside(meshIp)]);
-    return loopback.length === onLoopback.length && mesh.length === onLoopback.length ? true : undefined;
+    return loopback.length === onLoopback.length && mesh.length === onLoopback.length ? true : waiting(`${loopback.length} of ${onLoopback.length} answer on loopback, ${mesh.length} on the mesh`);
   }, () => first.vm.gone());
   note('harden-host.sh wrote the setting back and restarted k3s: nothing answers from outside, everything answers on loopback and the mesh');
 
@@ -271,7 +277,10 @@ async function main(): Promise<void> {
     `-e TS_AUTHKEY=${key} -e TS_HOSTNAME=${PROBE} -e TS_USERSPACE=true -e TS_STATE_DIR=/var/lib/tailscale`,
     `-e "TS_EXTRA_ARGS=--login-server=https://mesh.${DOMAIN}" -e TS_SOCKET=/tmp/probe.sock -e TS_TAILSCALED_EXTRA_ARGS=--port=0 ${TAILSCALE_IMAGE} >/dev/null`,
   ].join(' '));
-  await until('the probe node on the first root\'s mesh', async () => ((await nodeNames(first)).includes(PROBE) ? true : undefined), () => first.vm.gone());
+  await until('the probe node on the first root\'s mesh', async () => {
+    const names = await nodeNames(first);
+    return names.includes(PROBE) ? true : waiting(`mesh nodes: ${names.join(', ') || 'none'}`);
+  }, () => first.vm.gone());
   const firstMeshIp = (await sh(first.vm, 'tailscale ip -4')).trim().split('\n')[0]!;
   await temporal(first, `workflow start --type RestoreLiveProbe --task-queue restore-live --workflow-id ${WORKFLOW} --search-attribute 'KoalaOwner="platform"'`);
   note(`${EMAIL} is its admin, ${INSTANCE_ID} is their instance, ${PROBE} is on its mesh beside root at ${firstMeshIp}, and Temporal holds workflow ${WORKFLOW}`);
@@ -292,7 +301,10 @@ async function main(): Promise<void> {
   note(`restore.sh took ${minutes(restored)}`);
   const secondCa = join(work, 'restore-second-restored-ca.crt');
   writeFileSync(secondCa, await sh(second.vm, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
-  await until('the restored root answering through its Caddy', async () => (https(second.tlsPort, secondCa, '/api/identity/keys').status === 200 ? true : undefined), () => second.vm.gone());
+  await until('the restored root answering through its Caddy', async () => {
+    const status = https(second.tlsPort, secondCa, '/api/identity/keys').status;
+    return status === 200 ? true : waiting(`HTTP ${status} through its Caddy`);
+  }, () => second.vm.gone());
 
   step('the restored root is the first one: the same certificate authority, account, instance, mesh and history');
   assert.equal(https(second.tlsPort, firstCa, '/api/identity/keys').status, 200, 'the restored root does not serve the first root\'s certificates');

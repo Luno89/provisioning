@@ -1,4 +1,4 @@
-import { until } from '../../platform/testing/three-roles.js';
+import { until, waiting } from '../../platform/testing/three-roles.js';
 import { resolve } from 'node:path';
 import axios from 'axios';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -84,7 +84,10 @@ beforeAll(async () => {
   const ended = await start('r1', [], { runId: 'r1', agent: 'koala', conversation: 'c1' });
   await ended.signal('cancelRun');
   await ended.result();
-  await until(async () => ((await listed(TEST_USER.id)).length === 2 ? true : undefined));
+  await until('two workflows to be listed', async () => {
+    const count = (await listed(TEST_USER.id)).length;
+    return count === 2 ? true : waiting(`${count} listed, wants 2`);
+  });
 });
 
 afterAll(async () => {
@@ -251,9 +254,9 @@ describe('/api/infrastructure', () => {
   it('says when the instance cannot reach root, and which dependency a worker recorded down, and says nothing where it is not an instance', async () => {
     const rootPort = await portToHandOn();
     await app({ rootPort });
-    const dependencies = await until(async () => {
+    const dependencies = await until('the instance to say root is down', async () => {
       const said = (await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.dependencies;
-      return said.some((down) => down.dependency === 'root') ? said : undefined;
+      return said.some((down) => down.dependency === 'root') ? said : waiting(`${said.length} dependencies down: ${said.map((down) => down.dependency).join(', ')}`);
     });
     expect(dependencies).toEqual([
       { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: `http://127.0.0.1:${rootPort}` },

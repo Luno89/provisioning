@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { containerProvider, k3sStep, localCommands, removeSteps, runSteps, waitUntil, type ContainerContext, type Step } from '@koala/provision';
+import { containerProvider, k3sStep, localCommands, removeSteps, runSteps, waiting, waitUntil, type ContainerContext, type Step, type Waiting } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import type { ServiceAccount } from '../lib/cluster-places.js';
 import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
@@ -44,18 +44,19 @@ async function mirrorsThroughCaches(ctx: ContainerContext): Promise<string> {
 
 function addOnsStep(name: string, adminFile: () => string, ended: () => Promise<string | undefined>): Step<ContainerContext> {
   const kubectl = (ctx: ContainerContext, args: string[], accept = [0]) => ctx.commands.run({ command: TOOLS.kubectl, args: ['--kubeconfig', adminFile(), ...args], accept }, quiet);
-  const applied = async (ctx: ContainerContext): Promise<boolean> => {
+  const applied = async (ctx: ContainerContext): Promise<true | Waiting> => {
     const manifests = (await ctx.commands.run({ command: 'docker', args: ['exec', name, 'ls', '/var/lib/rancher/k3s/server/manifests'] }, quiet)).stdout.split('\n').filter((file) => file.endsWith('.yaml'));
-    if (manifests.includes('traefik.yaml')) return false;
+    if (manifests.includes('traefik.yaml')) return waiting('traefik.yaml is still among its manifests');
     const events = (await kubectl(ctx, ['get', 'events', '-n', 'kube-system', '--field-selector', 'involvedObject.kind=Addon,reason=AppliedManifest', '-o', 'jsonpath={range .items[*]}{.involvedObject.name}{"\\n"}{end}'])).stdout.split('\n');
-    return manifests.every((file) => events.includes(file.replace(/\.yaml$/, '')));
+    const unapplied = manifests.filter((file) => !events.includes(file.replace(/\.yaml$/, '')));
+    return unapplied.length === 0 ? true : waiting(`${unapplied.join(', ')} not applied yet`);
   };
   return {
     id: 'k3s-add-ons',
     title: 'k3s\'s own add-ons applied and available, and Koala\'s account on it',
     check: async (ctx) => ((await kubectl(ctx, ['get', 'serviceaccount', 'koala', '-n', 'default'], [0, 1])).code === 0 ? { done: true } : { done: false, why: 'Koala has no account on it yet' }),
     async apply(ctx) {
-      await waitUntil('k3s to make its default service account', async () => (await kubectl(ctx, ['get', 'serviceaccount', 'default', '-n', 'default'], [0, 1])).code === 0, ended);
+      await waitUntil('k3s to make its default service account', async () => ((await kubectl(ctx, ['get', 'serviceaccount', 'default', '-n', 'default'], [0, 1])).code === 0 ? true : waiting('no default service account yet')), ended);
       await waitUntil('k3s to apply its own add-ons', () => applied(ctx), ended);
       await kubectl(ctx, ['wait', '--for=condition=Available', 'deployment', '--all', '-n', 'kube-system', '--timeout=720h']);
       await kubectl(ctx, ['create', 'serviceaccount', 'koala', '-n', 'default']);

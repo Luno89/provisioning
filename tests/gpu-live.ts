@@ -4,7 +4,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 import { noAppHoldsAGpu } from './lib/gpus-free.js';
-import { until, Hopeless } from './lib/until.js';
+import { until, waiting, Hopeless } from './lib/until.js';
 
 const NAME = `gpu-${Date.now().toString(36)}`;
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       const cluster = await until('the machine\'s GPU report', async () => {
         const found = ((await api.get('/api/clusters')).data as Cluster[]).find((entry) => entry.id === clusterId);
         if (!found) throw new Hopeless(`${clusterId} is not among the owner's clusters`);
-        return found.gpus ? found : undefined;
+        return found.gpus ? found : waiting(`${clusterId} has reported no GPUs yet`);
       });
       const nvidia = (cluster.gpus ?? []).filter((gpu) => gpu.vendor === 'nvidia');
       console.log(`    ${nvidia.map((gpu) => `${gpu.count} × ${gpu.model} (${gpu.memoryMiB} MiB, toolkit ${gpu.runtime ? 'there' : 'missing'})`).join(', ')}${cluster.gpuProblems?.length ? `; problems: ${cluster.gpuProblems.join('; ')}` : ''}`);
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
         const found = (await mine(api)).find((entry) => entry.id === id);
         if (!found) throw new Hopeless('the deployment is gone from the list');
         if (found.status === 'failed') throw new Hopeless(`the app failed to deploy: ${String(found.failure ?? 'and its record says no reason')}`);
-        return found.status === 'running' ? found : undefined;
+        return found.status === 'running' ? found : waiting(`${NAME} is ${found.status}`);
       });
       const imagesAfter = await vllmImages();
       console.log(`    vLLM image ${imagesBefore.length ? `was already on the machine: ${imagesBefore.join(', ')}` : `was pulled this run: ${imagesAfter.join(', ')}`}`);
@@ -105,7 +105,8 @@ async function main(): Promise<void> {
       const vllm = axios.create({ baseURL: `http://127.0.0.1:${LOCAL_PORT}`, proxy: false, validateStatus: () => true });
       const served = await until('the model listing its name', async () => {
         const listed = await vllm.get('/v1/models');
-        return listed.status === 200 ? (listed.data as { data: { id: string }[] }).data[0]?.id : undefined;
+        const served = listed.status === 200 ? (listed.data as { data: { id: string }[] }).data[0]?.id : undefined;
+        return served ?? waiting(`/v1/models answered ${listed.status} ${JSON.stringify(listed.data).slice(0, 200)}`);
       }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the model\'s service exited'));
       const answer = await vllm.post('/v1/chat/completions', { model: served, messages: [{ role: 'user', content: 'Reply with the single word: ready' }], max_tokens: 8, temperature: 0 });
       assert.equal(answer.status, 200, JSON.stringify(answer.data));
@@ -126,7 +127,7 @@ async function main(): Promise<void> {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);
         if (gone.status >= 300 && gone.status !== 404) console.log(`    destroying answered ${gone.status}: ${JSON.stringify(gone.data)}`);
-        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true), async () => {
+        await until(`${NAME} gone`, async () => { const found = (await mine(api)).find((entry) => entry.id === id); return found ? waiting(`${NAME} is still listed as ${found.status}`) : true; }, async () => {
           const found = (await mine(api)).find((entry) => entry.id === id);
           return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
         });

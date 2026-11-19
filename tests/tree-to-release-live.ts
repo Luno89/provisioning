@@ -12,7 +12,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { devGiteaUrl, devDataDir } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const run = promisify(execFile);
 const BASE = process.env.TREE_LIVE_URL ?? 'http://localhost:3001/api';
@@ -75,9 +75,10 @@ async function main(): Promise<void> {
     console.log(`    project ${odoo.id}: ${odoo.giteaOwner}/${odoo.giteaRepo}, webhook, cluster ${CLUSTER}, deploys itself, starter on main`);
 
     console.log('[2] its starter builds and is released into slot a with nobody touching it');
-    const live = await until('live release', async () => {
+    const live = await until<{ state: string; slot?: string; reason?: string }>('live release', async () => {
       const releases = (await http.get(`/projects/${odoo.id}/releases`)).data.releases as { state: string; slot?: string; reason?: string }[];
-      return releases.find((entry) => entry.state === 'live');
+      const found = releases.find((entry) => entry.state === 'live');
+      return found ? found : waiting(`${releases.length} releases: ${releases.map((entry) => entry.state).join(', ') || 'none'}`);
     }, async () => {
       const broken = (await runsOf(odoo.id)).find((entry) => entry.status === 'failed' || entry.releaseRefused);
       if (broken) return `the starter's build did not reach a release: ${broken.errorMessage ?? broken.releaseRefused}`;
@@ -116,7 +117,7 @@ async function main(): Promise<void> {
     const latestBuild = async () => (await db.releases.getPipelineRuns()).filter((entry) => entry.projectId === odoo.id).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
     const docsBuild = await until('the README build', async () => {
       const latest = await latestBuild();
-      return latest && latest.status === 'succeeded' && latest.releaseSkipped ? latest : undefined;
+      return latest && latest.status === 'succeeded' && latest.releaseSkipped ? latest : waiting(latest ? `latest build ${latest.status}, releaseSkipped ${latest.releaseSkipped ?? 'unset'}` : 'no build yet');
     }, async () => {
       const latest = await latestBuild();
       return latest?.status === 'failed' ? `the README build failed: ${latest.errorMessage}` : undefined;
@@ -130,7 +131,7 @@ async function main(): Promise<void> {
     const api = await homed(await newTree(API, 'api-service'), ['Dockerfile', 'package.json', 'src/server.js']);
     const deployed = await until('running deployment', async () => {
       const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === api.id);
-      return deployment?.status === 'running' ? deployment : undefined;
+      return deployment?.status === 'running' ? deployment : waiting(deployment ? `deployment ${deployment.name} is ${deployment.status}` : 'no deployment yet');
     }, async () => {
       const broken = (await runsOf(api.id)).find((entry) => entry.status === 'failed');
       if (broken) return `the API starter's build failed: ${broken.errorMessage}`;
@@ -151,7 +152,10 @@ async function main(): Promise<void> {
       const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === project.id);
       if (deployment) {
         console.log(`    destroying ${deployment.name}: ${(await http.delete(`/deployments/${deployment.id}`)).status}`);
-        await until(`${deployment.name} to be destroyed`, async () => ((await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id) ? undefined : true), async () => {
+        await until(`${deployment.name} to be destroyed`, async () => {
+          const present = (await db.infrastructure.getDeployments()).find((entry) => entry.id === deployment.id);
+          return present ? waiting(`${deployment.name} is ${present.status}`) : true;
+        }, async () => {
           const left = (await db.infrastructure.getDeployments()).find((entry) => entry.id === deployment.id);
           return left?.status === 'failed' ? `destroying ${deployment.name} failed` : undefined;
         }).catch((err: Error) => console.log(`    ${err.message}`));
@@ -159,7 +163,10 @@ async function main(): Promise<void> {
       const removed = await http.delete(`/projects/${project.id}`, { data: { confirm: project.name } });
       console.log(`    deleting project ${project.name}: ${removed.status}${removed.status >= 300 ? ` ${JSON.stringify(removed.data)}` : ''}`);
     }
-    await until('the projects to be deleted', async () => ((await db.projects.getProjects()).some((entry) => madeProjects.some((made) => made.id === entry.id)) ? undefined : true), async () => {
+    await until('the projects to be deleted', async () => {
+      const left = (await db.projects.getProjects()).filter((entry) => madeProjects.some((made) => made.id === entry.id));
+      return left.length ? waiting(`${left.length} still there: ${left.map((entry) => entry.name).join(', ')}`) : true;
+    }, async () => {
       for (const project of madeProjects) {
         const state = ((await http.get(`/projects/${project.id}/removal`, { validateStatus: () => true })).data as { state?: { state: string; reason?: string } }).state;
         if (state?.state === 'failed') return `deleting ${project.name} failed: ${state.reason}`;
