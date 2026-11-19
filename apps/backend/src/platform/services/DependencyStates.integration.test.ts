@@ -7,7 +7,7 @@ import { mongoTarget } from '../lib/mongo-target.js';
 import { downAcross } from '../lib/dependencies.js';
 import { testDatabase, TEST_DATA_KEY } from '../lib/test-database.js';
 import { answersHttp } from '../wiring/dependencies.js';
-import { until } from '../testing/three-roles.js';
+import { until, waiting } from '../testing/three-roles.js';
 import { startMinio, testBucket, type RealMinio } from '../../files/testing/real-minio.js';
 import { minioObjectStore, type ObjectStore } from '../../files/services/ObjectStore.js';
 
@@ -47,15 +47,22 @@ describe('a dependency that stops answering and comes back', () => {
       const down = states.stateOf('minio');
       if (down.state !== 'down') throw new Error(`MinIO is stopped and still taken as answering`);
       expect(down.reason).toMatch(/^it refused the connection \(ECONNREFUSED\)$|^the connection to it was cut off/);
-      const recorded = await until(async () => {
-        const seen = downAcross([], await records.platform.dependencyStates());
-        return seen.length ? seen : undefined;
+      const recorded = await until('the database to record MinIO as down', async () => {
+        const rows = await records.platform.dependencyStates();
+        const seen = downAcross([], rows);
+        return seen.length ? seen : waiting(`${rows.length} rows recorded: ${rows.map((row) => `${row.dependency} ${row.state}`).join(', ')}`);
       });
       expect(recorded).toEqual([{ dependency: 'minio', name: 'file storage (MinIO)', since: down.since, reason: down.reason, process: 'worker-engine' }]);
 
       await minio.resume();
-      await until(async () => (states.stateOf('minio').state === 'answering' ? true : undefined));
-      await until(async () => ((await records.platform.dependencyStates()).every((row) => row.state === 'answering') ? true : undefined));
+      await until('MinIO to be taken as answering', async () => {
+        const state = states.stateOf('minio').state;
+        return state === 'answering' ? true : waiting(`MinIO is ${state}`);
+      });
+      await until('every recorded dependency to answer', async () => {
+        const notYet = (await records.platform.dependencyStates()).filter((row) => row.state !== 'answering');
+        return notYet.length === 0 ? true : waiting(notYet.map((row) => `${row.dependency} ${row.state}`).join(', '));
+      });
       expect(downAcross([], await records.platform.dependencyStates())).toEqual([]);
     } finally {
       states.stop();
@@ -88,14 +95,17 @@ describe('the database stopping and starting again', () => {
       expect(states.stateOf('mongo')).toEqual({ state: 'answering' });
 
       await server.stop({ doCleanup: false });
-      const down = await until(async () => {
+      const down = await until<{ state: 'down'; since: string; reason: string }>('Mongo to be taken as down', async () => {
         const state = states.stateOf('mongo');
-        return state.state === 'down' ? state : undefined;
+        return state.state === 'down' ? state : waiting(`Mongo is ${state.state}`);
       });
       expect(down.reason).toMatch(/^it cannot be reached: |^it refused the connection|^the connection to it was cut off/);
 
       await server.start(true);
-      await until(async () => (states.stateOf('mongo').state === 'answering' ? true : undefined));
+      await until('Mongo to be taken as answering', async () => {
+        const state = states.stateOf('mongo').state;
+        return state === 'answering' ? true : waiting(`Mongo is ${state}`);
+      });
       await db.ping();
     } finally {
       states.stop();
@@ -109,14 +119,18 @@ describe('a dependency reported on by its open connection', () => {
     const records = await testDatabase();
     const states = new DependencyStates({ process: 'backend', described: ['root'], record: (row) => records.platform.saveDependencyState(row), firstMs: 50, log: quiet });
     states.toldByConnection('root');
+    const rootRecorded = async (wanted: string) => {
+      const rows = (await records.platform.dependencyStates()).filter((row) => row.dependency === 'root');
+      return rows.some((row) => row.state === wanted) ? true : waiting(`root is recorded ${rows.map((row) => row.state).join(', ') || 'nowhere'}, wants ${wanted}`);
+    };
     try {
       await states.start();
-      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'answering') ? true : undefined));
+      await until('root to be recorded answering', async () => rootRecorded('answering'));
       states.wentDown('root', 'this instance\'s connection to it is closed', new Date().toISOString());
-      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'down') ? true : undefined));
+      await until('root to be recorded down', async () => rootRecorded('down'));
       expect(states.stateOf('root')).toMatchObject({ state: 'down', reason: 'this instance\'s connection to it is closed' });
       states.answered('root');
-      await until(async () => ((await records.platform.dependencyStates()).some((row) => row.dependency === 'root' && row.state === 'answering') ? true : undefined));
+      await until('root to be recorded answering again', async () => rootRecorded('answering'));
       expect(states.stateOf('root').state).toBe('answering');
     } finally {
       states.stop();

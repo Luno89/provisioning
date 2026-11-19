@@ -16,7 +16,7 @@ import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { runEndedBadly } from './lib/dead-states.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   const planned = await until('the planner to finish', async () => {
     const entries = ((await http.get(`/turns/${plannerRun}`, { params: { after: 0 } })).data as { entries: { events: { type: string; runId: string; outcome?: string; reason?: string }[] }[] }).entries;
     const finished = entries.flatMap((entry) => entry.events).find((event) => event.runId === plannerRun && event.type === 'run.finished');
-    return finished ? { outcome: finished.outcome ?? 'unknown', reason: finished.reason } : undefined;
+    return finished ? { outcome: finished.outcome ?? 'unknown', reason: finished.reason } : waiting(`${entries.length} turn entries, no run.finished for ${plannerRun}`);
   }, () => runEndedBadly(http, plannerRun));
   const proposal = (await db.projects.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
   assert.ok(proposal?.plan, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
@@ -198,7 +198,7 @@ async function main(): Promise<void> {
   const namespace = workspaceName(treeWorkspaceRunId(treeId));
   await until(`the tree's workspace ${namespace} to go`, async () => {
     const listed = await kube(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']);
-    return listed.exitCode === 0 && listed.stdout.trim() === '' ? true : undefined;
+    return listed.exitCode === 0 && listed.stdout.trim() === '' ? true : waiting(`kubectl exited ${listed.exitCode}, namespace listing: ${listed.stdout.trim().slice(0, 200) || 'empty'}`);
   }, async () => {
     const status = (await client.workflow.getHandle(`conclude-workspace-tree-${treeId}`).describe()).status.name;
     return status === 'RUNNING' || status === 'COMPLETED' ? undefined : `its workspace's conclusion ${status.toLowerCase()}`;

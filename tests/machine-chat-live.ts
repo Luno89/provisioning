@@ -21,7 +21,7 @@ import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/setting
 import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { agentWillNotBeReady } from './lib/dead-states.js';
 
 const run = promisify(execFile);
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
   assert.equal(added.status, 200, JSON.stringify(added.data));
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
-    return found?.state === 'ready' ? true : undefined;
+    return found?.state === 'ready' ? true : waiting(`${AGENT} is ${found?.state ?? 'not listed on the machine'}`);
   }, () => agentWillNotBeReady(api!, deviceId, AGENT));
   console.log(`  ${AGENT} is ready on ${device.name}`);
 
@@ -198,7 +198,10 @@ async function main(): Promise<void> {
   step('a chat not in auto mode asks before research runs something on the machine, naming the machine, and a decline is answered');
   const second = await newChat('Machine chat live, asking');
   const secondRun = await turn(second, 'koala', 'Ask research the second question.');
-  const ask = await until('research to ask', async () => (await events(secondRun)).find((event) => event.type === 'notice' && event.level === 'warn' && event.callId?.startsWith('ext-')), async () => {
+  const ask = await until('research to ask', async () => {
+    const seen = await events(secondRun);
+    return seen.find((event) => event.type === 'notice' && event.level === 'warn' && event.callId?.startsWith('ext-')) ?? waiting(`${seen.length} events, none a warning asking about a call; the last is ${seen[seen.length - 1]?.type ?? 'none yet'}`);
+  }, async () => {
     const status = (await temporal.workflow.getHandle(secondRun).describe()).status.name;
     return status === 'RUNNING' ? undefined : `the run ended ${status.toLowerCase()} without asking`;
   });

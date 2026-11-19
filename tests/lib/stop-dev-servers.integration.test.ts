@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:net';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 const SCRIPT = resolve(import.meta.dirname, '..', '..', 'scripts', 'stop-dev-servers.sh');
 const NODE = process.execPath;
@@ -38,7 +38,7 @@ describe('stopping dev\'s servers before a run starts its own', () => {
 
     expect(await stopServersOn(server.port)).toBe(0);
 
-    await until('the server stopped', async () => !alive(server.child));
+    await until('the server stopped', async () => alive(server.child) ? waiting('the server process is still alive') : true);
     const answer = Promise.race([new Promise<string>((done) => client.stdout!.once('data', (line: Buffer) => done(String(line).trim()))), clientEnded]);
     client.stdin!.on('error', () => {}).write('are you there\n');
     expect(await answer).toBe('still here');

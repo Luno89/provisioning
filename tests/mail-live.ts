@@ -7,7 +7,7 @@ import { alertMail } from '../apps/backend/src/platform/lib/mail.js';
 import { dkimValue } from '../apps/backend/src/infrastructure/lib/mail-dns.js';
 import { emailWayFrom } from '../apps/backend/src/platform/lib/email-way.js';
 import { MailReputation, reachPort25 } from '../apps/backend/src/platform/services/MailReputation.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning } from './lib/dead-states.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', CONTAINERS.mail, '--network', NETWORK, '-p', `127.0.0.1:${SMTP_PORT}:2525`,
     '-e', `MAIL_DOMAIN=${DOMAIN}`, '-e', 'MAIL_LISTEN=all', '-e', 'MAIL_TRUSTED=172.16.0.0/12 192.168.0.0/16 10.0.0.0/8',
     '-e', `MAIL_RELAYHOST=[${CONTAINERS.pit}]:1025`, IMAGE]);
-  await until('the mail server', async () => (run('docker', ['logs', CONTAINERS.mail]).includes('daemon started') ? true : undefined), () => containerNotRunning(CONTAINERS.mail));
+  await until('the mail server', async () => { const logs = run('docker', ['logs', CONTAINERS.mail]); return logs.includes('daemon started') ? true : waiting(`last log line: ${logs.trim().split('\n').at(-1)?.slice(0, 200) ?? 'none'}`); }, () => containerNotRunning(CONTAINERS.mail));
   const dkim = dkimValue(run('docker', ['exec', CONTAINERS.mail, 'cat', '/var/lib/dkim/koala.txt']));
   console.log(`  its key: ${dkim.slice(0, 40)}…`);
 
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   step('it arrives, and its DKIM signature checks out against the key the DNS script publishes');
   const listed = await until('the message', async () => {
     const answer = await (await fetch(`http://127.0.0.1:${PIT_PORT}/api/v1/messages`)).json() as { messages: Array<{ ID: string; Subject: string; To: Array<{ Address: string }>; From: { Address: string } }> };
-    return answer.messages.find((entry) => entry.Subject === message.subject);
+    return answer.messages.find((entry) => entry.Subject === message.subject) ?? waiting(`${answer.messages.length} messages in the mailbox, none with the subject ${message.subject}`);
   }, async () => (await containerNotRunning(CONTAINERS.mail)) ?? (await containerNotRunning(CONTAINERS.pit)));
   assert.equal(listed.To[0]?.Address, TO);
   assert.equal(listed.From.Address, `alerts@${DOMAIN}`);
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   });
   run('docker', ['rm', '-f', CONTAINERS.mail]);
   run('docker', ['run', '-d', '--name', CONTAINERS.mail, '--network', NETWORK, '-e', `MAIL_DOMAIN=${DOMAIN}`, '-e', 'MAIL_LISTEN=all', '-e', `MAIL_RELAYHOST=[${CONTAINERS.pit}]:1025`, IMAGE]);
-  await until('the mail server, trusting only itself', async () => (run('docker', ['logs', CONTAINERS.mail]).includes('daemon started') ? true : undefined), () => containerNotRunning(CONTAINERS.mail));
+  await until('the mail server, trusting only itself', async () => { const logs = run('docker', ['logs', CONTAINERS.mail]); return logs.includes('daemon started') ? true : waiting(`last log line: ${logs.trim().split('\n').at(-1)?.slice(0, 200) ?? 'none'}`); }, () => containerNotRunning(CONTAINERS.mail));
   assert.ok(refused(), 'the mail server relayed for a host it does not trust');
   const log = run('docker', ['logs', CONTAINERS.mail]);
   assert.match(log, /NOQUEUE: reject: RCPT from .*: 554 5\.7\.1 .*Access denied/, 'the refusal was not the mail server\'s own');

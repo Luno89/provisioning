@@ -1,7 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startModelStandIn, type ModelStandIn } from '../models/testing/model-stand-in.js';
-import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 
 interface Member { name: 'client' | 'collaborator'; person: Person; hub: string }
 interface Grant { runId: string; personId: string; state: string; revokedBecause?: string; principal?: { claims?: { role: string; project?: string; as?: string }[] } }
@@ -60,9 +60,9 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     expect(code.body.command.startsWith(`curl -fsSL ${roles.root.url}/machine.sh`), `the command does not join at root: ${code.body.command}`).toBe(true);
     const joined = await call(`${roles.root.url}/api/machines/join`, { method: 'POST', body: { code: code.body.code, hostname: `split-${STAMP}`, rootDir: '/home/koala/work', os: 'linux' } });
     expect(joined.status, JSON.stringify(joined.body)).toBe(200);
-    const machine = await until(async () => {
+    const machine = await until('the instance to list the machine taken from root', async () => {
       const machines = (await call<{ id: string; name: string }[]>(onInstance('/mesh/local-agents'), { cookie: atInstance })).body;
-      return Array.isArray(machines) ? machines.find((entry) => entry.name === `split-${STAMP}`) : undefined;
+      return (Array.isArray(machines) ? machines.find((entry) => entry.name === `split-${STAMP}`) : undefined) ?? waiting(Array.isArray(machines) ? `${machines.length} machines listed: ${machines.map((entry) => entry.name).join(', ')}` : `the list is ${JSON.stringify(machines).slice(0, 200)}`);
     });
     machineId = machine.id;
   });
@@ -73,9 +73,9 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     projectId = made.body.id;
     const shared = await call(onInstance(`/project-sharing/${projectId}`), { method: 'POST', body: { group: GROUP }, cookie: atInstance });
     expect(shared.status, `sharing was refused: ${JSON.stringify(shared.body)}`).toBe(200);
-    const onTheHub = await until(async () => {
+    const onTheHub = await until('the hub to show the project', async () => {
       const listed = (await call<{ project: { id: string; name: string; group?: string } }[]>(onHub('/projects'), { cookie: ownerHub })).body;
-      return Array.isArray(listed) ? listed.find((entry) => entry.project.name === PROJECT)?.project : undefined;
+      return (Array.isArray(listed) ? listed.find((entry) => entry.project.name === PROJECT)?.project : undefined) ?? waiting(Array.isArray(listed) ? `${listed.length} projects listed: ${listed.map((entry) => entry.project.name).join(', ')}` : `the list is ${JSON.stringify(listed).slice(0, 200)}`);
     });
     expect(onTheHub.group).toBe(GROUP);
     hubProjectId = onTheHub.id;
@@ -106,18 +106,21 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     const opened = await call<{ channel: { id: string } }>(onInstance(`/projects/${projectId}/channel`), { cookie: atInstance });
     expect(opened.status, `the project's channel could not be opened: ${JSON.stringify(opened.body)}`).toBeLessThan(300);
     channel = opened.body.channel.id;
-    await until(async () => {
+    await until('the hub board to show the project\'s channel to the client', async () => {
       const read = (await call<{ chats?: { id: string }[] }>(onHub(`/projects/${hubProjectId}/board`), { cookie: clientMember.hub })).body;
-      return read.chats?.some((chat) => chat.id === channel) ? true : undefined;
+      return read.chats?.some((chat) => chat.id === channel) ? true : waiting(`the board lists ${read.chats?.length ?? 'no'} chats`);
     });
     const asked = await call<{ asked?: { id: string } }>(onHub(`/projects/${hubProjectId}/conversations/${channel}/messages`), { method: 'POST', body: { content: 'Koala, store a note called client.txt', askKoala: true }, cookie: clientMember.hub });
     expect(asked.status, `the client's message was refused: ${asked.status} ${JSON.stringify(asked.body)}`).toBeLessThan(300);
     expect(asked.body.asked?.id, 'the client\'s message asked Koala nothing').toBeTruthy();
-    clientGrant = await until(async () => (await grants()).find((grant) => grant.personId === clientMember.person.id));
+    clientGrant = await until<Grant>('the instance to grant the client\'s run', async () => {
+      const all = await grants();
+      return all.find((grant) => grant.personId === clientMember.person.id) ?? waiting(`${all.length} grants, none for the client`);
+    });
     const role = clientGrant.principal?.claims?.find((claim) => claim.role === 'shared');
     expect(role?.as, `the turn does not carry the client's role: ${JSON.stringify(clientGrant.principal)}`).toBe('client');
-    await until(async () => ((await instanceDb().collection('turnLogs').findOne({ turnId: clientGrant.runId })) ? true : undefined));
-    await until(async () => (model.waiting() > 0 ? true : undefined));
+    await until('the client\'s turn to be logged', async () => ((await instanceDb().collection('turnLogs').findOne({ turnId: clientGrant.runId })) ? true : waiting(`no turn log for run ${clientGrant.runId}`)));
+    await until('the model to be asked', async () => (model.waiting() > 0 ? true : waiting(`${model.waiting()} calls waiting on the model`)));
   });
 
   it('the collaborator posts, and is not asked about; the owner removes the client on the hub, the client\'s run on the instance loses its grant, and the hub\'s channel says the run was ended', async () => {
@@ -125,16 +128,16 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     expect((await call(onHub(`/projects/${hubProjectId}/conversations/${channel}/messages`), { method: 'POST', body: { content: 'noted' }, cookie: collaboratorMember.hub })).status).toBeLessThan(300);
     const removed = await call(onHub(`/projects/${hubProjectId}/members/${clientMember.person.id}`), { method: 'DELETE', cookie: ownerHub });
     expect(removed.status, `the client could not be removed: ${JSON.stringify(removed.body)}`).toBe(200);
-    const revoked = await until(async () => {
+    const revoked = await until<Grant>('the client\'s run to lose its grant', async () => {
       const grant = (await grants()).find((entry) => entry.runId === clientGrant.runId);
-      return grant?.state === 'revoked' ? grant : undefined;
+      return grant?.state === 'revoked' ? grant : waiting(`the grant is ${grant?.state ?? 'not there'}`);
     });
     expect(revoked.revokedBecause).toBe('removed-from-shared-project');
     expect((await call(onHub(`/projects/${hubProjectId}/board`), { cookie: clientMember.hub })).status, 'the removed client still reads the project').toBe(404);
     model.release();
-    const told = await until(async () => {
+    const told = await until('the channel to say the run was ended', async () => {
       const read = (await call<{ messages?: { role: string; content: string }[] }>(onHub(`/projects/${hubProjectId}/conversations/${channel}`), { cookie: collaboratorMember.hub })).body;
-      return read.messages?.find((message) => message.role === 'notice' && /removed from the shared project/.test(message.content));
+      return read.messages?.find((message) => message.role === 'notice' && /removed from the shared project/.test(message.content)) ?? waiting(`${read.messages?.length ?? 0} messages, none a removal notice`);
     });
     expect(told.content).toMatch(/This run was ended because/);
   });
@@ -143,7 +146,10 @@ describe('a project shared from its owner\'s instance and worked on the hub by i
     const collaboratorMember = members[1]!;
     const back = await call(onInstance(`/project-sharing/${projectId}`), { method: 'DELETE', body: { confirm: PROJECT }, cookie: atInstance });
     expect(back.status, `taking it back was refused: ${JSON.stringify(back.body)}`).toBe(200);
-    await until(async () => ((await call(onHub(`/projects/${hubProjectId}`), { cookie: ownerHub })).status === 404 ? true : undefined));
+    await until('the hub to drop the project', async () => {
+      const status = (await call(onHub(`/projects/${hubProjectId}`), { cookie: ownerHub })).status;
+      return status === 404 ? true : waiting(`the hub answers ${status}`);
+    });
     expect((await call(onHub(`/projects/${hubProjectId}/board`), { cookie: collaboratorMember.hub })).status, 'the collaborator still reads a project taken back').toBe(404);
   });
 });

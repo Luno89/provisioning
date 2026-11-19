@@ -16,7 +16,7 @@ import { conversationConclusionId } from '../apps/backend/src/engine-host/tempor
 import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
 import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { keeperPaused, runEndedBadly } from './lib/dead-states.js';
 
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
@@ -33,7 +33,7 @@ const traces = async (http: AxiosInstance, runId: string): Promise<Trace[]> =>
 const finished = (http: AxiosInstance, runId: string) =>
   until(`run ${runId} to finish`, async () => {
     const found = await traces(http, runId).catch(() => []);
-    return found.some((trace) => trace.finish && trace.kind === 'finish') ? found : undefined;
+    return found.some((trace) => trace.finish && trace.kind === 'finish') ? found : waiting(`${found.length} traces, the last is ${found.at(-1)?.kind ?? 'none'}`);
   }, () => runEndedBadly(http, runId));
 
 const touched = new Set<string>();
@@ -83,7 +83,8 @@ async function main(): Promise<void> {
     console.log(`[4/5] ${QUIET_MS / 60_000} quiet minutes after the last turn, the memory keeper runs`);
     const keeperRun = await until('the memory keeper to start on that conversation', async () => {
       const id = await keeperRunId();
-      return (await startedAt(id)) ? id : undefined;
+      const began = await startedAt(id);
+      return began ? id : waiting(`${id} has not started`);
     }, () => keeperPaused(http));
     const waited = Date.now() - secondEnded;
     console.log(`  it started ${(waited / 60_000).toFixed(1)} minutes after the last turn ended`);

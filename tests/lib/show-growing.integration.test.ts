@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { showGrowing } from './show-growing.js';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -23,7 +23,7 @@ describe('a log shown in the terminal as it is written', () => {
     const showing = showGrowing(file, (text) => { shown += text; });
     appendFileSync(file, 'This machine\'s own cluster\n');
     appendFileSync(file, '  Install k3s (asks for sudo once)? [y/N] ');
-    await until('the question shown', async () => shown.endsWith('[y/N] '));
+    await until('the question shown', async () => shown.endsWith('[y/N] ') ? true : waiting(`shown ends with ${JSON.stringify(shown.slice(-40))}`));
     showing.stop();
     expect(shown).toBe('This machine\'s own cluster\n  Install k3s (asks for sudo once)? [y/N] ');
   });

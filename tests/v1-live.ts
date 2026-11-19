@@ -8,7 +8,7 @@ import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
 import { noAppHoldsAGpu } from './lib/gpus-free.js';
-import { until, Hopeless } from './lib/until.js';
+import { until, Hopeless, waiting } from './lib/until.js';
 
 const STAMP = Date.now().toString(36);
 const LOCAL_PORT = 19124;
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
       const found = (await mine(api)).find((entry) => entry.id === deploymentId);
       if (!found) throw new Hopeless('the deployment is gone from the list');
       if (found.status === 'failed') throw new Hopeless(`the app failed to deploy: ${found.failure ?? 'and its record says no reason'}`);
-      return found.status === 'running' ? found : undefined;
+      return found.status === 'running' ? found : waiting(`${NAME} is ${found.status}`);
     });
     await page.reload();
     await expect(appRow.getByText(/running|healthy/i).first()).toBeVisible({ timeout: 60_000 });
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     await page.goto(`${devKoalaPage}/#/infrastructure`);
     await appRow.getByRole('button', { name: `Destroy ${NAME}` }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();
-    await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true), async () => {
+    await until(`${NAME} gone`, async () => { const left = (await mine(api)).find((entry) => entry.id === deploymentId); return left ? waiting(`it is still listed, ${left.status}`) : true; }, async () => {
       const found = (await mine(api)).find((entry) => entry.id === deploymentId);
       return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
     });
@@ -295,7 +295,7 @@ async function main(): Promise<void> {
     if (deploymentId) {
       const gone = await api.delete(`/api/deployments/${deploymentId}`);
       console.log(`  ${current} destroyed after the failure: ${gone.status}`);
-      await until(`${current} gone`, async () => ((await mine(api)).some((entry) => entry.id === deploymentId) ? undefined : true), async () => {
+      await until(`${current} gone`, async () => { const left = (await mine(api)).find((entry) => entry.id === deploymentId); return left ? waiting(`it is still listed, ${left.status}`) : true; }, async () => {
       const found = (await mine(api)).find((entry) => entry.id === deploymentId);
       return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
     });

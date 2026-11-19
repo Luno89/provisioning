@@ -13,7 +13,7 @@ import { infisicalSettingsFrom } from '../apps/backend/src/infrastructure/lib/in
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
 import { devDataDir } from './lib/dev-stack.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.SECRETS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -26,7 +26,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
   console.log(`  run ${runId}`);
   await until('the turn to be saved', async () => {
     const after = (await http.get(`/conversations/${conversationId}`)).data.messages.length as number;
-    return after > before + 1 ? true : undefined;
+    return after > before + 1 ? true : waiting(`${after} messages, wanted more than ${before + 1}`);
   }, () => runEndedBadly(http, runId));
   return runId;
 }
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
 
     const request = await until('the secret request', async () => {
       const list = (await http.get('/secret-requests', { params: { conversationId } })).data as SecretRequest[];
-      return list.find((entry) => entry.key === key);
+      return list.find((entry) => entry.key === key) ?? waiting(`${list.length} secret requests for this chat, none for ${key}`);
     }, async () => 'the turn that was to ask for it was saved without a request');
     assert.equal(request.status, 'requested');
     assert.equal(request.projectId, project.id);

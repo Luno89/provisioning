@@ -3,7 +3,7 @@ import { mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 const QUIETLY = resolve(import.meta.dirname, '..', '..', 'scripts', 'quietly.sh');
 
@@ -30,7 +30,7 @@ describe('a dev step\'s output when npm run dev writes to a file, as under ship'
     const dir = aPlace();
     const go = join(dir, 'go');
     const { out, ended, stopped } = quietlyToFile(dir, `printf "\\033[1mpulling temporal\\033[0m\\n"; until [ -e "${go}" ]; do sleep 0.1; done; printf "extracting 10%%\\rextracting 100%%\\n\\ndone\\n"`);
-    await until('the step\'s first line in the file while it still runs', async () => readFileSync(out, 'utf8').includes('pulling temporal'), async () => stopped());
+    await until('the step\'s first line in the file while it still runs', async () => { const written = readFileSync(out, 'utf8'); return written.includes('pulling temporal') ? true : waiting(`the file holds ${written.length} characters`); }, async () => stopped());
     writeFileSync(go, '');
     expect(await ended).toBe(0);
     expect(readFileSync(out, 'utf8')).toBe('    pulling temporal\n    extracting 10%\n    extracting 100%\n    done\n');

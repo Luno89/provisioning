@@ -17,7 +17,7 @@ import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platfo
 import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
 import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { keeperPaused } from './lib/dead-states.js';
 
 const run = promisify(execFile);
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   await kubectl('create', 'namespace', NAMESPACE);
   namespaceMade = true;
   await kubectl('create', 'deployment', WORKLOAD, '-n', NAMESPACE, '--image=registry.invalid/nothing-here:1');
-  const broken = await until('it to show as needing attention', async () => (await overview()).workloads.find((workload) => workload.namespace === NAMESPACE), async () => (await kubectl('get', 'deployment', WORKLOAD, '-n', NAMESPACE).then(() => undefined, () => `${WORKLOAD} is gone from ${NAMESPACE}, so it will never show as broken`)));
+  const broken = await until<Workload>('it to show as needing attention', async () => { const workloads = (await overview()).workloads; return workloads.find((workload) => workload.namespace === NAMESPACE) ?? waiting(`${workloads.length} broken workloads shown, none in ${NAMESPACE}`); }, async () => (await kubectl('get', 'deployment', WORKLOAD, '-n', NAMESPACE).then(() => undefined, () => `${WORKLOAD} is gone from ${NAMESPACE}, so it will never show as broken`)));
   assert.equal(broken.name, WORKLOAD);
   assert.equal(broken.state, 'down');
   assert.equal(broken.group, 'other');
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   step('it is removed, and leaves the list');
   await kubectl('delete', 'namespace', NAMESPACE, '--wait=true');
   namespaceMade = false;
-  await until('it to leave Needs attention', async () => ((await overview()).workloads.some((workload) => workload.namespace === NAMESPACE) ? undefined : true));
+  await until('it to leave Needs attention', async () => { const here = (await overview()).workloads.find((workload) => workload.namespace === NAMESPACE); return here ? waiting(`${here.name} is still shown, ${here.state}`) : true; });
   console.log('  gone');
 
   step('a Koala chat turn fails, asked to run on a model that does not exist');
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   const runId = (started.data as { runId: string }).runId;
   runIds.add(runId);
   runIds.add(memoryRunId(runId));
-  const failure = await until('the failure to show', async () => (await overview()).failures.find((entry) => entry.id === `run:${runId}`), async () => {
+  const failure = await until('the failure to show', async () => { const failures = (await overview()).failures; return failures.find((entry) => entry.id === `run:${runId}`) ?? waiting(`${failures.length} failures shown, none for run ${runId}`); }, async () => {
     const ended = ((await api.get('/engine/runs/endings', { params: { ids: runId } })).data as { endings: { runId: string; ended?: { how: string } }[] }).endings.find((entry) => entry.runId === runId)?.ended;
     return ended && ended.how !== 'failed' ? `the run ${ended.how} instead of failing, so no failed work will show` : undefined;
   });
@@ -109,11 +109,11 @@ async function main(): Promise<void> {
   const temporal = await getTemporalClient();
   await until('the memory keeper to finish', async () => {
     const described = await temporal.workflow.getHandle(memoryRunId(runId)).describe().catch(() => undefined);
-    return described && described.status.name !== 'RUNNING' ? described.status.name : undefined;
+    return described && described.status.name !== 'RUNNING' ? described.status.name : waiting(described ? `the workflow is ${described.status.name}` : 'the workflow cannot be described');
   }, () => keeperPaused(api));
   await until('the conversation to go quiet', async () => {
     const described = await temporal.workflow.getHandle(`conclude-conversation-${conversationId}`).describe().catch(() => undefined);
-    return !described || described.status.name !== 'RUNNING' ? true : undefined;
+    return !described || described.status.name !== 'RUNNING' ? true : waiting(`the workflow is ${described.status.name}`);
   });
   await until('the memory keeper to finish reading the conversation', async () => {
     let running = false;
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
       runIds.add(workflow.workflowId);
       if (workflow.status.name === 'RUNNING') running = true;
     }
-    return running ? undefined : true;
+    return running ? waiting(`a memory-conversation workflow for ${conversationId} is still running`) : true;
   }, () => keeperPaused(api));
   const forgotten = await forgetWhatRunsLeft(db, OWNER, runIds);
   console.log(`  ${forgotten} kept thing${forgotten === 1 ? '' : 's'} retired`);

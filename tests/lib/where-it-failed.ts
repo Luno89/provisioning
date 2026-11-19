@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { devPortForward } from './dev-stack.js';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 import { callerLines, failuresUnder, flowsThrough, spansOf, whereLines, type CodeSite, type FlowSnapshot } from './failure-trace.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '../..');
@@ -23,9 +23,9 @@ const freePort = (): Promise<number> => new Promise((done, fail) => {
 async function traceFrom(base: string, traceId: string, spanId: string, forward: ChildProcess): Promise<{ lines: string[]; sites: CodeSite[] } | string> {
   return until(`Tempo to hold the trace ${traceId}`, async () => {
     const answer = await fetch(`${base}/api/traces/${traceId}`);
-    if (!answer.ok) return undefined;
+    if (!answer.ok) return waiting(`Tempo answered ${answer.status}`);
     const spans = spansOf(await answer.json() as Parameters<typeof spansOf>[0]);
-    if (!spans.some((span) => span.spanId === spanId)) return undefined;
+    if (!spans.some((span) => span.spanId === spanId)) return waiting(`the trace holds ${spans.length} spans, none is ${spanId}`);
     const failures = failuresUnder(spans, spanId);
     return failures.length > 0 ? { lines: whereLines(failures), sites: failures.flatMap((failure) => failure.sites) } : 'its trace holds no request or step that failed, so it failed in what the check runner judged itself';
   }, async () => {

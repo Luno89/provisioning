@@ -1,7 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from '../platform/testing/handoff.js';
-import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { providerCallbackUrl } from '../accounts/lib/sign-in-providers.js';
 import { startStandInIssuer, type StandInIssuer } from '../accounts/testing/stand-in-issuer.js';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
@@ -34,7 +34,7 @@ let instanceId: string;
 let mongoUri: string;
 let databases: ThreeRoles['databases'];
 
-const mailTo = (subject: RegExp) => until(async () => mail.received.find((message) => subject.test(mail.subjectOf(message) ?? '')));
+const mailTo = (subject: RegExp) => until(`a mail with a subject matching ${subject}`, async () => mail.received.find((message) => subject.test(mail.subjectOf(message) ?? '')) ?? waiting(`${mail.received.length} mails received, subjects: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ').slice(0, 200)}`));
 
 async function signedInThrough(from: Side, target: Side, first: string): Promise<{ session: string; callback: string; startCookie: string }> {
   const handed = await handOff(from, target, first);
@@ -107,7 +107,10 @@ describe('signing in across root, an instance and the hub, each its own process'
   let hubSession = '';
 
   it('root signs the owner in to the instance by code, PKCE and state, once and only in the browser that started it; the instance makes no accounts', async () => {
-    await until(async () => ((await call(`${root.url}/api/identity/go`, { cookie: owner.cookie })).location === `${instance.url}/api/auth/oidc/start` ? true : undefined));
+    await until('root to send the owner on to the instance', async () => {
+      const went = await call(`${root.url}/api/identity/go`, { cookie: owner.cookie });
+      return went.location === `${instance.url}/api/auth/oidc/start` ? true : waiting(`root answered ${went.status} with location ${went.location}`);
+    });
     const atInstance = fetchSide(instance.url);
     const signedIn = await signedInThrough(fetchSide(root.url, owner.cookie), atInstance, '/api/identity/go');
     expect((await atInstance(signedIn.callback, { cookie: signedIn.startCookie })).status).toBe(401);
@@ -128,7 +131,7 @@ describe('signing in across root, an instance and the hub, each its own process'
     const strangerEmail = `stranger-${STAMP}@across.test`;
     const asked = await call(`${root.url}/api/auth/register`, { method: 'POST', body: { email: strangerEmail, password: `pw-${STAMP}-stranger-long`, inviteCode: (invite.body as { code: string }).code } });
     expect(asked.status, JSON.stringify(asked.body)).toBe(200);
-    const codeMail = await until(async () => mail.received.find((message) => message.to.includes(strangerEmail) && /sign-up code/i.test(mail.subjectOf(message) ?? '')));
+    const codeMail = await until(`the sign-up code mail to ${strangerEmail}`, async () => mail.received.find((message) => message.to.includes(strangerEmail) && /sign-up code/i.test(mail.subjectOf(message) ?? '')) ?? waiting(`${mail.received.length} mails received, subjects: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ').slice(0, 200)}`));
     const code = /\b(\d{6})\b/.exec(codeMail.data)?.[1];
     const verified = await fetch(`${root.url}/api/auth/register/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: (asked.body as { verify: string }).verify, code }) });
     expect(verified.status, await verified.clone().text()).toBe(200);
@@ -143,7 +146,7 @@ describe('signing in across root, an instance and the hub, each its own process'
   it('the instance has root send its mail with a service token, and root refuses a wrong credential', async () => {
     const sent = await call(`${instance.url}/api/notifications/test-email`, { method: 'POST', body: {}, cookie: session });
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
-    await until(async () => (mail.received.some((message) => message.to.includes(owner.email)) ? true : undefined));
+    await until('a mail to the owner', async () => (mail.received.some((message) => message.to.includes(owner.email)) ? true : waiting(`${mail.received.length} mails received, none to the owner`)));
     const forged = await call(`${root.url}/api/instances/mail`, { method: 'POST', body: { subject: 'x', text: 'x' }, headers: { 'X-Instance-Id': instanceId, Authorization: 'Bearer not-it' } });
     expect(forged.status).toBe(401);
   });
@@ -166,21 +169,21 @@ describe('signing in across root, an instance and the hub, each its own process'
     await rootClient.connect();
     const presentAtRoot = async () => {
       const watch = await rootClient.db(databases.root).collection('instanceWatches').findOne({ _id: instanceId as never }) as { presence?: boolean; reach?: { reachable?: boolean } } | null;
-      return watch?.presence === true && watch.reach?.reachable === true ? true : undefined;
+      return watch?.presence === true && watch.reach?.reachable === true ? true : waiting(`presence ${watch?.presence}, reachable ${watch?.reach?.reachable}`);
     };
     try {
-      await until(presentAtRoot);
+      await until('root to see the instance present and reachable', presentAtRoot);
       expect(await rootDown()).toBe(false);
       await instance.stop();
       const down = await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) has not answered for \\d+ minutes`));
       expect(down.to).toEqual([owner.email]);
       await instance.start();
       await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) answers again`));
-      await until(presentAtRoot);
+      await until('root to see the instance present and reachable again', presentAtRoot);
       await root.stop();
-      await until(async () => ((await rootDown()) ? true : undefined));
+      await until('the instance to show root as down', async () => ((await rootDown()) ? true : waiting('the instance does not list root as down')));
       await root.start();
-      await until(async () => ((await rootDown()) ? undefined : true));
+      await until('the instance to stop showing root as down', async () => ((await rootDown()) ? waiting('the instance still lists root as down') : true));
     } finally {
       await rootClient.close();
     }
@@ -194,12 +197,24 @@ describe('signing in across root, an instance and the hub, each its own process'
     await client.connect();
     const grantOf = async () => client.db(databases.instance).collection('runGrants').findOne({ runId }) as Promise<{ state: string; personId: string; revokedBecause?: string } | null>;
     try {
-      await until(async () => ((await grantOf())?.state === 'live' ? true : undefined));
+      await until('the run\'s grant to be live', async () => {
+        const state = (await grantOf())?.state;
+        return state === 'live' ? true : waiting(`the grant is ${state ?? 'not there'}`);
+      });
       expect((await grantOf())?.personId).toBe(owner.id);
       expect((await call(`${root.url}/api/auth/sessions/end-others`, { method: 'POST', body: {}, cookie: owner.cookie })).status).toBe(200);
-      await until(async () => ((await call(`${instance.url}/api/auth/me`, { cookie: session })).status === 401 ? true : undefined));
-      await until(async () => ((await call(`${hub.url}/api/auth/me`, { cookie: hubSession })).status === 401 ? true : undefined));
-      await until(async () => ((await grantOf())?.state === 'revoked' ? true : undefined));
+      await until('the instance to end the owner\'s session', async () => {
+        const status = (await call(`${instance.url}/api/auth/me`, { cookie: session })).status;
+        return status === 401 ? true : waiting(`the instance answers ${status}`);
+      });
+      await until('the hub to end the owner\'s session', async () => {
+        const status = (await call(`${hub.url}/api/auth/me`, { cookie: hubSession })).status;
+        return status === 401 ? true : waiting(`the hub answers ${status}`);
+      });
+      await until('the run\'s grant to be revoked', async () => {
+        const state = (await grantOf())?.state;
+        return state === 'revoked' ? true : waiting(`the grant is ${state ?? 'not there'}`);
+      });
       expect((await grantOf())?.revokedBecause).toBe('signed-out-everywhere');
     } finally {
       await client.close();

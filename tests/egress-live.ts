@@ -10,7 +10,7 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { runEndedBadly } from './lib/dead-states.js';
 
 const BASE = process.env.EGRESS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -23,7 +23,7 @@ async function run(http: AxiosInstance, agent: string, message: string): Promise
   console.log(`  run ${runId}`);
   const traces = await until(`run ${runId}`, async () => {
     const all = (await http.get(`/engine/runs/${runId}/traces`)).data.traces as Trace[];
-    return all.some((trace) => trace.finish !== undefined) ? all : undefined;
+    return all.some((trace) => trace.finish !== undefined) ? all : waiting(`${all.length} traces, none finished`);
   }, () => runEndedBadly(http, runId));
   const seen = new Map<string, Result>();
   for (const result of traces.flatMap((trace) => trace.outputs?.results ?? [])) seen.set(`${result.name}:${result.digest}`, result);

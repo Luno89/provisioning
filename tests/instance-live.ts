@@ -11,7 +11,7 @@ import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const keys = await until('root answering', async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
-    return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;
+    return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : waiting(`HTTP ${response.status} from ${ROOT_URL}/api/identity/keys`);
   }, rootGone);
   const publicKeyFile = join(work, 'root.pub');
   writeFileSync(publicKeyFile, keys[0]!.publicKey);
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
   const started = await (await http('/api/engine/runs', { method: 'POST', body: JSON.stringify({ agent: 'executor', message: 'live', procedure: 'instance-live' }) })).json() as { runId: string };
   const traces = await until('the run finishing', async () => {
     const list = (await (await http(`/api/engine/runs/${started.runId}/traces`)).json() as { traces: { node: string; exit?: string; outputs?: { host?: string }; finish?: { outcome: string } }[] }).traces;
-    return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
+    return list.some((trace) => trace.node === 'cleaned') ? list : waiting(`${list.length} traces, last ${list.at(-1)?.node ?? 'none'}`);
   }, async () => (await rootGone()) ?? runEndedBadlyOver(http, started.runId));
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', 'the code did not run');
@@ -153,8 +153,10 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
     const found = JSON.parse(out.split('KNOCKED ')[1]!.split('\n')[0]!) as string[];
     return Object.fromEntries(only.map(([host, port], index) => [`${host.split('.')[0]}:${port}`, found[index]!]));
   };
-  await until('the network policies knowing the pods started for this check', async () =>
-    (knockFrom('nowrinkles', [targets[1]])['searxng:8080'] === 'reached' ? true : undefined), rootGone);
+  await until('the network policies knowing the pods started for this check', async () => {
+    const answer = knockFrom('nowrinkles', [targets[1]])['searxng:8080'];
+    return answer === 'reached' ? true : waiting(`searxng:8080 from nowrinkles answers ${answer}`);
+  }, rootGone);
   const shown = (namespace: string, answers: Record<string, string>) => {
     console.log(`  from ${namespace}: ${Object.entries(answers).map(([target, answer]) => `${target} ${answer}`).join(' · ')}`);
     return answers;
@@ -244,8 +246,14 @@ process.exit(0);`;
   assert.equal(removed.status, 202, await removed.clone().text());
   assert.match(removed.headers.get('set-cookie') ?? '', /session=;/, 'root did not sign them out');
   assert.equal((await asLeaving('/api/auth/me')).status, 401, 'the removed account is still signed in');
-  await until('the account gone from root', async () => ((await people()).some((person) => person.id === leaving.id) ? undefined : true), rootGone);
-  await until('their instance let go of', async () => (instances(['list']).includes(theirInstance) ? undefined : true), rootGone);
+  await until('the account gone from root', async () => {
+    const all = await people();
+    return all.some((person) => person.id === leaving.id) ? waiting(`${all.length} accounts, still including ${leaving.id}`) : true;
+  }, rootGone);
+  await until('their instance let go of', async () => {
+    const listed = instances(['list']);
+    return listed.includes(theirInstance) ? waiting(`root still lists ${theirInstance}`) : true;
+  }, rootGone);
   console.log('  the instance points at root; the account removed itself there, signed out at once, its instance let go of');
 
   const users = run(bin('kubectl'), ['-n', 'nowrinkles', 'exec', 'live-mongo-0', '--', 'sh', '-c', 'mongosh -u admin -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin provisioning --quiet --eval "db.users.countDocuments()"'], { KUBECONFIG }).trim();

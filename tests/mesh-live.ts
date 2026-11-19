@@ -10,7 +10,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning } from './lib/dead-states.js';
 
 const GATEWAY_PORT = 30322;
@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     ...devDataMounts(),
     '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }),
     '-e', `MESH_LOGIN_SERVER=${MESH}`, IMAGE, 'backend']);
-  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
+  await until('root answering', async () => { const answer = await fetch(`${ROOT_FOR_HOST}/api/identity/keys`); return answer.ok ? true : waiting(`/api/identity/keys answered ${answer.status}`); }, gone);
   run('docker', ['run', '-d', '--name', WORKER_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', `MESH_LOGIN_SERVER=${MESH}`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   assert.match(joinedHere, /helm v[0-9.]+ installed/, 'the join brought no helm');
   const placed = await until('the owner\'s Koala installed on the machine and reporting ready to root', async () => {
     const { instance } = await (await asOwner('/api/instances/mine')).json() as { instance: { id: string; status: string; detail?: string; url?: string } | null };
-    return instance?.status === 'ready' ? instance : undefined;
+    return instance?.status === 'ready' ? instance : waiting(instance ? `${instance.status}${instance.detail ? `: ${instance.detail}` : ''}` : 'no instance yet');
   }, async () => {
     const { instance } = await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } | null };
     return (await gone()) ?? (instance?.status === 'failed' ? `putting Koala on the machine failed: ${instance.detail}` : undefined);
@@ -186,17 +186,17 @@ async function main(): Promise<void> {
   const machine = await until('the machine connecting to the instance', async () => {
     const list = await (await onInstance('/api/mesh/local-agents')).json() as { id: string; online: boolean; agents: { id: string; state: string }[] }[];
     const found = list.find((entry) => entry.id === settings.deviceId);
-    return found?.online && found.agents.some((agent) => agent.id === 'gemini' && agent.state === 'ready') ? found : undefined;
+    return found?.online && found.agents.some((agent) => agent.id === 'gemini' && agent.state === 'ready') ? found : waiting(found ? `${found.online ? 'online' : 'offline'}, agents ${found.agents.map((agent) => `${agent.id} ${agent.state}`).join(', ') || 'none'}` : `${list.length} machines listed, not this one`);
   }, gone);
   const log = await until('the machine\'s worker polling', async () => {
     const text = await inVm(machineVm, 'journalctl --user -u koala-machine --no-pager');
-    return text.includes(`engine worker polling device-${machine.id} at ${instanceMeshIp}:${GATEWAY_PORT}`) ? text : undefined;
+    return text.includes(`engine worker polling device-${machine.id} at ${instanceMeshIp}:${GATEWAY_PORT}`) ? text : waiting(`the journal's last line: ${text.trim().split('\n').at(-1)?.slice(0, 200) ?? ''}`);
   }, gone);
   assert.ok(log);
   const pollers = await until('the instance\'s Temporal seeing the machine\'s worker', async () => {
     const pod = (await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get pod -l app.kubernetes.io/component=temporal -o jsonpath="{.items[0].metadata.name}"')).trim();
     const described = await inVm(instanceVm, `sudo k3s kubectl -n nowrinkles exec ${pod} -- tctl --address localhost:7236 taskqueue describe --taskqueue device-${machine.id} --taskqueuetype activity`);
-    return described.includes(`mesh-mach-${STAMP}`) ? described : undefined;
+    return described.includes(`mesh-mach-${STAMP}`) ? described : waiting(`the task queue lists: ${described.trim().slice(0, 200)}`);
   }, gone);
   console.log(`  ${machineMeshIp} polls device-${machine.id} through the gateway on ${instanceMeshIp}:${GATEWAY_PORT}; the instance's Temporal lists it:\n    ${pollers.trim().split('\n').join('\n    ')}`);
 
@@ -215,7 +215,7 @@ async function main(): Promise<void> {
   const clusterOf = async () => ((await (await onInstance('/api/clusters')).json()) as Array<{ id: string; status: string; provider: string }>).find((entry) => entry.id === clusterId);
   assert.deepEqual(await until('the instance recording the machine\'s cluster', async () => {
     const found = await clusterOf();
-    return found ? { provider: found.provider, status: found.status } : undefined;
+    return found ? { provider: found.provider, status: found.status } : waiting(`no ${clusterId} yet`);
   }, gone), { provider: 'machine', status: 'stopped' });
   const kubectlOnMachine = (args: string) => inVm(machineVm, `k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
 
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
   const appOf = async (id: string) => ((await (await onInstance('/api/deployments')).json()) as Array<{ id: string; status: string; namespace?: string }>).find((entry) => entry.id === id);
   const running = (id: string) => until(`${id} running on the machine`, async () => {
     const found = await appOf(id);
-    return found?.status === 'running' ? found : undefined;
+    return found?.status === 'running' ? found : waiting(found ? `it is ${found.status}` : 'it is not listed');
   }, async () => (await gone()) ?? ((await appOf(id))?.status === 'failed' ? `${id} failed to deploy on the machine` : undefined));
   const books = await deployOn('books');
   const booksApp = await running(books);
@@ -249,17 +249,17 @@ async function main(): Promise<void> {
   assert.doesNotMatch(monitoringPods, /grafana|alertmanager|pod\/prometheus-/, `the machine runs a monitoring stack of its own: ${monitoringPods}`);
   const health = await until('the instance reading books from what the machine sends', async () => {
     const view = await (await onInstance(`/api/monitoring/apps/${books}`)).json() as { app: { state: string; numbers: { probed?: number; up?: number; podsRunning?: number } } };
-    return view.app.numbers.probed && view.app.numbers.up === 1 && view.app.numbers.podsRunning ? view.app : undefined;
+    return view.app.numbers.probed && view.app.numbers.up === 1 && view.app.numbers.podsRunning ? view.app : waiting(`state ${view.app.state}, probed ${view.app.numbers.probed ?? 'unmeasured'}, up ${view.app.numbers.up ?? 'unmeasured'}, pods running ${view.app.numbers.podsRunning ?? 'unmeasured'}`);
   }, gone);
   const firingOnMachine = async () => ((await (await onInstance('/api/monitoring/alerts')).json()) as { firing: Array<{ clusterId: string; name: string; about: { kind: string; deploymentId?: string } }> }).firing
     .filter((alert) => alert.clusterId === clusterId && alert.about.kind === 'app' && alert.about.deploymentId === books);
   await kubectlOnMachine(`scale deployment --all -n ${booksApp.namespace} --replicas=0`);
   const fired = await until('an alert on the instance about books, stopped on the machine', async () => {
     const alerts = await firingOnMachine();
-    return alerts.length ? alerts : undefined;
+    return alerts.length ? alerts : waiting('nothing firing on the machine');
   }, gone);
   await kubectlOnMachine(`scale deployment --all -n ${booksApp.namespace} --replicas=1`);
-  await until('the alert about books resolving once it answers again', async () => ((await firingOnMachine()).length ? undefined : true), gone);
+  await until('the alert about books resolving once it answers again', async () => { const firing = await firingOnMachine(); return firing.length ? waiting(`${firing.length} still firing`) : true; }, gone);
   await running(books);
   console.log(`  books read on the instance as ${health.state} (${JSON.stringify(health.numbers)}); stopped, ${fired.map((alert) => alert.name).join(', ')} fired for it there and resolved once it answered`);
 
@@ -267,14 +267,15 @@ async function main(): Promise<void> {
   await inVm(machineVm, 'systemctl --user stop koala-machine');
   await until('the instance seeing the machine offline', async () => {
     const list = await (await onInstance('/api/mesh/local-agents')).json() as { id: string; online: boolean }[];
-    return list.find((entry) => entry.id === machine.id)?.online === false ? true : undefined;
+    const found = list.find((entry) => entry.id === machine.id);
+    return found?.online === false ? true : waiting(found ? 'it is still online' : 'it is not listed');
   }, gone);
   const notes = await deployOn('notes');
-  const waiting = await until('Needs attention naming the offline machine', async () => {
+  const attention = await until('Needs attention naming the offline machine', async () => {
     const overview = await (await onInstance('/api/monitoring')).json() as { attention: Array<{ subject: { id: string }; state: string; reasons: string[] }> };
-    return overview.attention.find((entry) => entry.subject.id === notes && entry.reasons.some((reason) => reason.includes('offline')));
+    return overview.attention.find((entry) => entry.subject.id === notes && entry.reasons.some((reason) => reason.includes('offline'))) ?? waiting(`attention names ${overview.attention.map((entry) => `${entry.subject.id}: ${entry.reasons.join('; ')}`).join(' | ').slice(0, 200) || 'nothing'}`);
   }, gone);
-  console.log(`  ${waiting.state}: ${waiting.reasons.join('; ')}`);
+  console.log(`  ${attention.state}: ${attention.reasons.join('; ')}`);
   await inVm(machineVm, 'systemctl --user start koala-machine');
   await running(notes);
 
@@ -283,8 +284,8 @@ async function main(): Promise<void> {
     const destroyed = await onInstance(`/api/deployments/${id}`, { method: 'DELETE' });
     assert.ok(destroyed.status < 300, await destroyed.clone().text());
   }
-  await until('both apps gone', async () => ((await appOf(books)) || (await appOf(notes)) ? undefined : true), gone);
-  await until('k3s stopped on the machine', async () => (/inactive|failed/.test(await inVm(machineVm, 'systemctl is-active k3s || true')) ? true : undefined), gone);
+  await until('both apps gone', async () => { const left = [await appOf(books), await appOf(notes)].filter((app) => app !== undefined); return left.length ? waiting(left.map((app) => `${app.id}: ${app.status}`).join(', ')) : true; }, gone);
+  await until('k3s stopped on the machine', async () => { const state = (await inVm(machineVm, 'systemctl is-active k3s || true')).trim(); return /inactive|failed/.test(state) ? true : waiting(`k3s is ${state}`); }, gone);
   assert.equal((await clusterOf())?.status, 'stopped');
   assert.equal(await reaches(instanceVm, machineMeshIp, 6443), false, 'the machine\'s cluster still answers after it was stopped');
   console.log('  k3s is stopped and the machine\'s cluster shows stopped');
@@ -320,11 +321,11 @@ async function main(): Promise<void> {
   assert.equal(removed.status, 200, await removed.clone().text());
   await until('the machine\'s node leaving the mesh', async () => {
     const nodes = JSON.parse(headscale('nodes', 'list', '-o', 'json')) as Array<{ ip_addresses?: string[] }>;
-    return nodes.some((entry) => entry.ip_addresses?.includes(machineMeshIp)) ? undefined : true;
+    return nodes.some((entry) => entry.ip_addresses?.includes(machineMeshIp)) ? waiting(`headscale still lists ${machineMeshIp}`) : true;
   }, gone);
   const stopped = await until('the machine\'s agent stopping', async () => {
     const state = (await inVm(machineVm, 'systemctl --user is-active koala-machine; test -e ~/.config/koala/machine.json && echo token-kept || echo token-gone; test -e ~/.config/systemd/user/koala-machine.service && echo unit-kept || echo unit-gone')).trim();
-    return /^(inactive|failed|unknown)/.test(state) ? state : undefined;
+    return /^(inactive|failed|unknown)/.test(state) ? state : waiting(state.trim().split('\n').join(', '));
   }, gone);
   assert.match(stopped, /token-gone/, stopped);
   assert.match(stopped, /unit-gone/, stopped);
@@ -333,7 +334,7 @@ async function main(): Promise<void> {
   const k3sLeft = (await inVm(machineVm, 'for f in /usr/local/bin/k3s /etc/sudoers.d/koala-k3s /etc/koala/machine-k3s /etc/systemd/system/k3s.service.d/koala-firewall.conf; do sudo test -e $f && echo $f; done; true')).trim();
   assert.equal(k3sLeft, '', `the machine kept ${k3sLeft}`);
   assert.equal(await clusterOf(), undefined, 'the instance still lists the removed machine\'s cluster');
-  await until('the instance dropping the removed machine from the mesh, so it no longer reaches the machine gateway', async () => ((await reaches(machineVm, instanceMeshIp!, GATEWAY_PORT)) ? undefined : true), gone);
+  await until('the instance dropping the removed machine from the mesh, so it no longer reaches the machine gateway', async () => ((await reaches(machineVm, instanceMeshIp!, GATEWAY_PORT)) ? waiting(`the machine still reaches ${instanceMeshIp}:${GATEWAY_PORT}`) : true), gone);
   console.log(`  ${machineMeshIp} is off the mesh, its agent ${stopped.split('\n').join(', ')}, its project gone`);
 
   console.log('\nmesh live — PASS');

@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const STAMP = Date.now().toString(36);
@@ -92,7 +92,9 @@ async function nodeReady(vm: DisposableVm, since: number): Promise<void> {
   await until(`k3s on ${vm.host}:${vm.port} to answer DNS after its start`, async () => {
     const dns = await inVm(vm, kubectlAsPerson(`-n kube-system get pod -l k8s-app=kube-dns -o jsonpath='${DNS_READY}'`)).catch(() => '');
     const [status, at] = dns.trim().split(' ');
-    return status === 'True' && at && Date.parse(at) / 1000 >= since && await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s')) ? true : undefined;
+    if (status !== 'True' || !at) return waiting(`the DNS pod's ready condition is '${dns.trim() || 'not readable'}'`);
+    if (Date.parse(at) / 1000 < since) return waiting(`the DNS pod has been ready since ${at}, before the start`);
+    return await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s')) ? true : waiting('the DNS pod is ready and the node is not');
   }, k3sFailed(vm));
 }
 
@@ -111,7 +113,7 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
   await inVm(vm, `echo ${Buffer.from(manifest).toString('base64')} | base64 -d | ${kubectlAsPerson('apply -f -')}`);
   const phase = await until(`pod ${name} to finish`, async () => {
     const now = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.phase}`))).trim();
-    return now === 'Succeeded' || now === 'Failed' ? now : undefined;
+    return now === 'Succeeded' || now === 'Failed' ? now : waiting(`pod ${name} is ${now || 'not listed'}`);
   }, async () => (await vm.gone()) ?? stuckPod(vm, name));
   const logs = await inVm(vm, kubectlAsPerson(`logs ${name}`));
   if (phase === 'Succeeded') await inVm(vm, kubectlAsPerson(`delete pod ${name} --wait=false`));

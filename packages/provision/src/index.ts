@@ -5,7 +5,7 @@ export { allReporters } from './reporters.js';
 export { keptSudo, SUDO_REFRESH_MS, type Every, type KeptSudo, type KeptSudoOptions } from './kept-sudo.js';
 export { downloadChecked, type Download } from './download.js';
 export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-reporter.js';
-export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
+export { Hopeless, waiting, Waiting, waitUntil, type Found, type WaitOptions } from './wait-until.js';
 export { composeCommand, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
 export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseOptions, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
 export { chartInputs, chartStep, followRelease, INPUTS_VALUE, type ChartCluster, type ChartContext, type ChartRelease } from './chart.js';

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 export const HOLD_SESSION = 'HOLD-THIS-SESSION';
 
@@ -47,7 +47,7 @@ async function turn(api: Api, conversationId: string, modelId: string, message: 
     const { data } = await api('GET', `/conversations/${conversationId}`);
     const conversation = data as Conversation;
     const answer = conversation.messages.find((one) => one.role === 'assistant' && one.runId === runId);
-    return answer && !conversation.liveTurn ? answer : undefined;
+    return answer && !conversation.liveTurn ? answer : waiting(`${conversation.messages.length} messages, ${answer ? 'the turn is still live' : 'no assistant message for the run'}`);
   });
 }
 

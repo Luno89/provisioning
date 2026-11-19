@@ -1,4 +1,4 @@
-import { waitUntil, type WaitOptions } from '@koala/provision';
+import { waiting, waitUntil, type WaitOptions } from '@koala/provision';
 
 export interface SetupWaitsDeps {
   job(name: string): Promise<unknown>;
@@ -23,7 +23,7 @@ export async function setupWaits(step: string, after: readonly string[], deps: S
       `${name} to finish before ${step}`,
       async () => {
         last = await deps.job(name) as JobLike;
-        return (last.status?.succeeded ?? 0) > 0 ? true : undefined;
+        return (last.status?.succeeded ?? 0) > 0 ? true : waiting(`${name}: ${(last.status?.conditions ?? []).map((condition) => `${condition.type}=${condition.status}`).join(', ') || 'running, not succeeded yet'}`);
       },
       async () => {
         const failed = last ? failure(last) : undefined;

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { releaseRollout, ROLLOUT_KINDS, type ReleaseRollout } from './rollout.js';
 import type { Progress, Step, StepName, StepState } from './steps.js';
-import { waitUntil, type WaitOptions } from './wait-until.js';
+import { waiting, waitUntil, type WaitOptions } from './wait-until.js';
 
 export interface ChartCluster {
   helm(args: readonly string[]): Promise<string>;
@@ -99,12 +99,12 @@ export async function followRelease(ctx: ChartContext, release: Pick<ChartReleas
       if (rollout.state === 'done') return true;
       if (rollout.state === 'hopeless') {
         hopeless = rollout.job ? `${rollout.reason}${await logTail(ctx, release, rollout.job)}` : rollout.reason;
-        return undefined;
+        return waiting(rollout.reason);
       }
       const line = `waiting for ${rollout.waiting.join('; ')}`;
       if (line !== said) progress.line(line);
       said = line;
-      return undefined;
+      return waiting(rollout.waiting.join('; '));
     },
     async () => hopeless,
     ctx.wait,

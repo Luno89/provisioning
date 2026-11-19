@@ -1,6 +1,6 @@
 import { AssertionError } from 'node:assert';
-import { describe, expect, it } from 'vitest';
-import { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { Hopeless, Waiting, waiting, waitUntil, type WaitOptions } from './wait-until.js';
 
 const paused: number[] = [];
 const instant = (): WaitOptions => {
@@ -9,22 +9,42 @@ const instant = (): WaitOptions => {
 };
 
 describe('waitUntil', () => {
-  it('returns the first answer that is not nothing, keeping a zero and an empty string', async () => {
+  it('returns the first answer that is not a state it waits through, keeping a zero and an empty string', async () => {
     let looks = 0;
-    expect(await waitUntil('a zero', async () => { looks += 1; return looks < 3 ? undefined : 0; }, undefined, instant())).toBe(0);
+    expect(await waitUntil('a zero', async () => { looks += 1; return looks < 3 ? waiting(`look ${looks}`) : 0; }, undefined, instant())).toBe(0);
     expect(looks).toBe(3);
     expect(await waitUntil('an empty answer', async () => '', undefined, instant())).toBe('');
   });
 
-  it('looks again after false and null as after nothing', async () => {
-    const answers: (boolean | null | undefined | string)[] = [false, null, undefined, 'up'];
-    expect(await waitUntil('root', async () => answers.shift(), undefined, instant())).toBe('up');
+  it('stops at once when a look answers nothing, false or null, since a look says what it found or the state it waits through', async () => {
+    for (const nothing of [undefined, false, null]) {
+      await expect(waitUntil('root', async () => nothing as unknown as string, undefined, instant())).rejects.toThrow('root: a look answered nothing; answer what was found, or waiting(the state it is in)');
+    }
+  });
+
+  it('says the state each look handed it while it waits', async () => {
+    let looks = 0;
+    const said: string[] = [];
+    await waitUntil('every deployment to be failed', async () => {
+      looks += 1;
+      return looks < 30 ? waiting(`shop-3f2a1b: ${looks < 20 ? 'deploying' : 'stopping'}`) : true;
+    }, undefined, { ...instant(), waiting: (what, last) => { said.push(`${what} (${last})`); } });
+    expect(said[0]).toBe('every deployment to be failed (shop-3f2a1b: deploying)');
+    expect(said.at(-1)).toBe('every deployment to be failed (shop-3f2a1b: stopping)');
+  });
+
+  it('says it is waiting as seldom as its caller asks', async () => {
+    let looks = 0;
+    const said: string[] = [];
+    await waitUntil('root', async () => { looks += 1; return looks < 100 ? waiting('down') : true; }, undefined, { ...instant(), sayEvery: 40, waiting: (_what, last) => { said.push(last); } });
+    expect(said).toEqual(['down', 'down']);
   });
 
   it('ends with the reason the moment what it waits on can never come', async () => {
     let looks = 0;
-    await expect(waitUntil('the app', async () => { looks += 1; return undefined; }, async () => 'the app failed: no image', instant())).rejects.toThrow('the app: the app failed: no image');
+    await expect(waitUntil('the app', async () => { looks += 1; return waiting('deploying'); }, async () => 'the app failed: no image', instant())).rejects.toThrow('the app: the app failed: no image (deploying)');
     expect(looks).toBe(1);
+    await expect(waitUntil('the job', async () => waiting('job/seed failed'), async () => 'job/seed failed: its log ends here', instant())).rejects.toThrow(/^the job: job\/seed failed: its log ends here$/);
   });
 
   it('asks again after a lost connection or an answer of not there yet, and never after a final one or a hopeless answer', async () => {
@@ -47,14 +67,14 @@ describe('waitUntil', () => {
 
   it('keeps waiting while its end cannot be read for now, and stops when reading it fails for good', async () => {
     let looks = 0;
-    expect(await waitUntil('root', async () => { looks += 1; return looks > 1 ? true : undefined; }, async () => { throw Object.assign(new Error('reset'), { code: 'ECONNRESET' }); }, instant())).toBe(true);
-    await expect(waitUntil('root', async () => undefined, async () => { throw new TypeError('no such field'); }, instant())).rejects.toThrow('no such field');
+    expect(await waitUntil('root', async () => { looks += 1; return looks > 1 ? true : waiting('starting'); }, async () => { throw Object.assign(new Error('reset'), { code: 'ECONNRESET' }); }, instant())).toBe(true);
+    await expect(waitUntil('root', async () => waiting('starting'), async () => { throw new TypeError('no such field'); }, instant())).rejects.toThrow('no such field');
   });
 
   it('backs off from short pauses to longer ones and never stops on a count', async () => {
     let looks = 0;
     const options = instant();
-    expect(await waitUntil('a slow thing', async () => { looks += 1; return looks > 30 ? 'there' : undefined; }, undefined, options)).toBe('there');
+    expect(await waitUntil('a slow thing', async () => { looks += 1; return looks > 30 ? 'there' : waiting('not there'); }, undefined, options)).toBe('there');
     expect(paused).toHaveLength(30);
     expect(paused[0]).toBeLessThan(paused.at(-1)!);
     expect([...paused].sort((a, b) => a - b)).toEqual(paused);
@@ -71,5 +91,14 @@ describe('waitUntil', () => {
     expect(said.length).toBeGreaterThan(0);
     expect(said.length).toBeLessThan(10);
     expect(said[0]).toBe('root: connect ECONNREFUSED');
+  });
+
+  it('cannot be handed a look that answers nothing, false or null where it should say the state it waits through: the type refuses it', () => {
+    type Look = Parameters<typeof waitUntil<true>>[1];
+    expectTypeOf<() => Promise<true | undefined>>().not.toExtend<Look>();
+    expectTypeOf<() => Promise<boolean>>().not.toExtend<Look>();
+    expectTypeOf<() => Promise<true | null>>().not.toExtend<Look>();
+    expectTypeOf<() => Promise<true | Waiting>>().toExtend<Look>();
+    expect(waiting('deploying')).toEqual(new Waiting('deploying'));
   });
 });

@@ -1,11 +1,13 @@
 import path from 'node:path';
-import { waitUntil, type Progress, type Step } from '@koala/provision';
+import { waiting, waitUntil, type Progress, type Step, type Waiting } from '@koala/provision';
 import { archOf, daemonReload, joinedOf, SILENT, type JoinContext } from '../context.js';
 
 const TAILSCALE_DEFAULTS = '/etc/default/tailscaled';
 
-const tailscaleAnswers = async (ctx: JoinContext): Promise<boolean> =>
-  (await ctx.commands.run({ command: 'tailscale', args: ['debug', 'prefs'], accept: [0, 1] }, SILENT)).code === 0;
+async function tailscaleAnswers(ctx: JoinContext): Promise<true | Waiting> {
+  const asked = await ctx.commands.run({ command: 'tailscale', args: ['debug', 'prefs'], accept: [0, 1] }, SILENT);
+  return asked.code === 0 ? true : waiting(`tailscale debug prefs ended with ${asked.code}${asked.stdout.trim() ? `: ${asked.stdout.trim().slice(0, 200)}` : ''}`);
+}
 
 async function installTailscale(ctx: JoinContext, progress: Progress): Promise<void> {
   const { tailscale } = ctx.pins;

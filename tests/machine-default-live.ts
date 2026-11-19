@@ -19,7 +19,7 @@ import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/setting
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { agentWillNotBeReady } from './lib/dead-states.js';
 
 const BASE = process.env.MACHINE_DEFAULT_LIVE_URL ?? 'http://localhost:3001/api';
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   assert.equal(added.status, 200, JSON.stringify(added.data));
   await until(`${AGENT} to be ready on ${device.name}`, async () => {
     const found = ((await api!.get('/mesh/local-agents')).data as Device[]).find((entry) => entry.id === deviceId)?.agents.find((entry) => entry.id === AGENT);
-    return found?.state === 'ready' ? true : undefined;
+    return found?.state === 'ready' ? true : waiting(`${AGENT} is ${found?.state ?? 'not listed on the machine'}`);
   }, () => agentWillNotBeReady(api!, deviceId, AGENT));
 
   step('the agent on the machine becomes the account default, and a machine that is not theirs is refused');

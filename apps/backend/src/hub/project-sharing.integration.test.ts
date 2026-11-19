@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../platform/lib/settings.js';
-import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
 import { HUB_REPO, hubOrgOf } from './services/HubRepos.js';
@@ -144,28 +144,34 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
   it('the channel goes to the hub with what was said in it, and what is said afterwards follows', async () => {
     expect(await said()).toEqual(['said before sharing']);
     expect((await call(onInstance(`/conversations/${project.channelId}/messages`), { method: 'POST', body: { content: 'said after sharing' }, cookie: owner })).status).toBeLessThan(300);
-    await until(async () => ((await said()).includes('said after sharing') ? true : undefined));
+    await until('the hub to hold the message said after sharing', async () => {
+      const heard = await said();
+      return heard.includes('said after sharing') ? true : waiting(`the hub holds ${heard.length} messages: ${JSON.stringify(heard).slice(0, 200)}`);
+    });
   });
 
   it('while the hub does not answer, a message waits on the instance, which shows the hub down under Needs attention, and goes once the hub answers again', async () => {
     await roles.hub.stop();
     expect((await call(onInstance(`/conversations/${project.channelId}/messages`), { method: 'POST', body: { content: 'said while the hub was away' }, cookie: owner })).status).toBeLessThan(300);
-    const down = await until(async () => {
+    const down = await until('the instance to show the hub down', async () => {
       const read = await call<{ dependencies?: { dependency: string; reason: string }[] }>(onInstance('/infrastructure'), { cookie: owner });
-      return read.body.dependencies?.find((entry) => entry.dependency === 'hub');
+      return read.body.dependencies?.find((entry) => entry.dependency === 'hub') ?? waiting(`the instance answers ${read.status} listing ${read.body.dependencies?.map((entry) => entry.dependency).join(', ') ?? 'no dependencies'}`);
     });
     expect(down.reason.length).toBeGreaterThan(0);
     expect(await said()).not.toContain('said while the hub was away');
     await roles.hub.start();
-    await until(async () => ((await said()).includes('said while the hub was away') ? true : undefined));
+    await until('the hub to hold the message said while it was away', async () => {
+      const heard = await said();
+      return heard.includes('said while the hub was away') ? true : waiting(`the hub holds ${heard.length} messages: ${JSON.stringify(heard).slice(0, 200)}`);
+    });
   });
 
   it('the owner reads the hub\'s board: the channel is there and the owner\'s instance is online; the owner who shared it cannot leave it on the hub', async () => {
-    const board = await until(async () => {
+    const board = await until('the hub board to show the channel and the instance online', async () => {
       const read = await call<Board>(onHub(`/projects/${hubId}/board`), { cookie: ownerHub });
       expect(read.status, JSON.stringify(read.body)).toBe(200);
       const has = read.body.chats.some((chat) => chat.id === project.channelId && chat.kind === 'channel');
-      return has && read.body.online === true ? read.body : undefined;
+      return has && read.body.online === true ? read.body : waiting(`channel listed ${has}, online ${read.body.online}`);
     });
     expect(board.role).toBe('owner');
     expect(board.can).toContain('approve-changes');
@@ -192,9 +198,9 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     expect(board.body.can).not.toContain('approve-changes');
     expect(board.body.chats.some((chat) => chat.kind === 'channel')).toBe(true);
     expect(board.body.can).not.toContain('change-files');
-    await until(async () => {
+    await until('the client\'s board to match the owner\'s', async () => {
       const [theirs, owners] = await Promise.all([call<Board>(onHub(`/projects/${hubId}/board`), { cookie: memberHub }), call<Board>(onHub(`/projects/${hubId}/board`), { cookie: ownerHub })]);
-      return JSON.stringify(theirs.body.board) === JSON.stringify(owners.body.board) ? true : undefined;
+      return JSON.stringify(theirs.body.board) === JSON.stringify(owners.body.board) ? true : waiting(`the client's board is ${JSON.stringify(theirs.body.board).slice(0, 100)}, the owner's ${JSON.stringify(owners.body.board).slice(0, 100)}`);
     });
     const refused = await call(onHub(`/projects/${hubId}/requests`), { method: 'POST', body: { kind: 'accept-task', taskId: 'nothing' }, cookie: memberHub });
     expect(refused.status, JSON.stringify(refused.body)).toBe(403);
@@ -204,9 +210,10 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     const posted = await call<{ asked?: unknown }>(onHub(`/projects/${hubId}/conversations/${project.channelId}/messages`), { method: 'POST', body: { content: 'from the client', askKoala: false }, cookie: memberHub });
     expect(posted.status, JSON.stringify(posted.body)).toBeLessThan(300);
     expect(posted.body.asked).toBeUndefined();
-    const seen = await until(async () => {
+    const seen = await until('the instance to hold the client\'s message', async () => {
       const read = await call<{ conversation?: { messages?: Message[] }; messages?: Message[] }>(onInstance(`/conversations/${project.channelId}`), { cookie: owner });
-      return ((read.body.conversation ?? read.body).messages ?? []).find((message) => message.content === 'from the client');
+      const messages = (read.body.conversation ?? read.body).messages ?? [];
+      return messages.find((message) => message.content === 'from the client') ?? waiting(`${messages.length} messages in the channel`);
     });
     expect(seen.authorName).toBe(memberEmail);
     const code = await call<{ files: string[] }>(onHub(`/projects/${hubId}/repository`), { cookie: memberHub });
@@ -222,9 +229,15 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
 
   it('the owner\'s main reaches the hub, and work pushed to the hub\'s main reaches the owner', async () => {
     await gitea.putFile(project.giteaOwner, project.giteaRepo, 'from-owner.txt', 'the owner wrote this\n', 'From the owner', 'main');
-    await until(async () => ((await gitea.getRawFile(hubOrgOf(hubId), HUB_REPO, 'from-owner.txt', 'main')) === 'the owner wrote this\n' ? true : undefined));
+    await until('the hub\'s main to hold the owner\'s file', async () => {
+      const raw = await gitea.getRawFile(hubOrgOf(hubId), HUB_REPO, 'from-owner.txt', 'main');
+      return raw === 'the owner wrote this\n' ? true : waiting(`the hub\'s file reads ${JSON.stringify(raw)}`);
+    });
     await gitea.putFile(hubOrgOf(hubId), HUB_REPO, 'from-member.txt', 'a member wrote this\n', 'From a member', 'main');
-    await until(async () => ((await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'from-member.txt', 'main')) === 'a member wrote this\n' ? true : undefined));
+    await until('the owner\'s main to hold the member\'s file', async () => {
+      const raw = await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'from-member.txt', 'main');
+      return raw === 'a member wrote this\n' ? true : waiting(`the owner\'s file reads ${JSON.stringify(raw)}`);
+    });
     expect(await gitea.getRawFile(hubOrgOf(hubId), HUB_REPO, 'from-owner.txt', 'main')).toBe('the owner wrote this\n');
     expect(await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'from-member.txt', 'main')).toBe('a member wrote this\n');
   });
@@ -267,7 +280,7 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     for (const who of [member, roles.owner]) {
       const removed = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: who.email, password: who.password }, cookie: who.cookie });
       expect(removed.status, JSON.stringify(removed.body)).toBe(202);
-      await until(async () => ((await accountGone(who.id)) ? true : undefined));
+      await until(`root to remove the account of ${who.email}`, async () => ((await accountGone(who.id)) ? true : waiting('the account is still on root')));
     }
   });
 });

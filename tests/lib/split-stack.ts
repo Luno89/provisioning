@@ -14,7 +14,8 @@ import { unreachedPlatformServices } from '../../apps/backend/src/platform/testi
 import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
+import type { Waiting } from '@koala/provision';
 import { containerNotRunning } from './dead-states.js';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
@@ -93,9 +94,10 @@ const docker = (args: string[]): string => execFileSync('docker', args, { encodi
 
 export { temporal, temporalContainer } from './suite-root.js';
 
-export const answers = async (url: string): Promise<true | undefined> => {
-  const response = await fetch(url, { redirect: 'manual' }).catch(() => undefined);
-  return response && response.status < 500 ? true : undefined;
+export const answers = async (url: string): Promise<true | Waiting> => {
+  const response = await fetch(url, { redirect: 'manual' }).catch((err: unknown) => err instanceof Error ? err.message : String(err));
+  if (typeof response === 'string') return waiting(`${url} did not answer: ${response.slice(0, 200)}`);
+  return response.status < 500 ? true : waiting(`${url} answered ${response.status}`);
 };
 
 export const MINIO_BUCKET = 'koala';
@@ -118,9 +120,10 @@ export function minioRun(port: number): { args: string[]; env: MinioEnv } {
   };
 }
 
-export const minioReady = async (port: number): Promise<true | undefined> => {
-  const response = await fetch(`http://127.0.0.1:${port}/minio/health/ready`).catch(() => undefined);
-  return response?.status === 200 ? true : undefined;
+export const minioReady = async (port: number): Promise<true | Waiting> => {
+  const response = await fetch(`http://127.0.0.1:${port}/minio/health/ready`).catch((err: unknown) => err instanceof Error ? err.message : String(err));
+  if (typeof response === 'string') return waiting(`MinIO on port ${port} did not answer: ${response.slice(0, 200)}`);
+  return response.status === 200 ? true : waiting(`MinIO on port ${port} answered ${response.status}`);
 };
 
 export async function startSplitStack(options: { engine?: boolean; rootEnv?: (rootUrl: string) => Promise<Record<string, string>> } = {}): Promise<SplitStack> {
@@ -218,7 +221,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['hub']));
     const asOwner = fetchSide(place.rootUrl, owner.cookie);
     await until('the hub naming its sign-in key to root', async () =>
-      ((await asOwner('/api/identity/go?to=hub')).location === `${place.hubUrl}/api/auth/oidc/start` ? true : undefined), () => containerNotRunning(names.containers['hub']));
+      { const { location } = await asOwner('/api/identity/go?to=hub'); return location === `${place.hubUrl}/api/auth/oidc/start` ? true : waiting(`root sent the owner to ${location}`); }, () => containerNotRunning(names.containers['hub']));
 
     const instanceDb = async () => {
       const client = new MongoClient(withDatabase(mongoUri, names.databases.instance));
@@ -248,7 +251,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
 export async function ownerOnInstance(stack: SplitStack): Promise<string> {
   const root = fetchSide(stack.rootUrl, stack.owner.cookie);
   await until('root sending the owner to the instance\'s OpenID sign-in', async () =>
-    ((await root('/api/identity/go')).location === `${stack.instanceUrl}/api/auth/oidc/start` ? true : undefined), () => containerNotRunning(stack.names.containers.instance));
+    { const { location } = await root('/api/identity/go'); return location === `${stack.instanceUrl}/api/auth/oidc/start` ? true : waiting(`root sent the owner to ${location}`); }, () => containerNotRunning(stack.names.containers.instance));
   const handed = await handOff(root, fetchSide(stack.instanceUrl), '/api/identity/go');
   const session = sessionFrom(handed.exchange.setCookies);
   if (!signedInLanding(handed.exchange) || !session) throw new Error(`the instance did not sign its owner in: ${handed.exchange.status} ${handed.exchange.body.slice(0, 300)}`);

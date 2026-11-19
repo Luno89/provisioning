@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { localCommands } from './local-commands.js';
-import { waitUntil } from './wait-until.js';
+import { waiting, waitUntil } from './wait-until.js';
 
 const runner = localCommands(process.env);
 const quiet = { line: () => undefined };
@@ -22,7 +22,7 @@ describe('waitUntil with real waits', () => {
   it('waits through real pauses until a real process has made what it waits for', async () => {
     const marker = join(folder(), 'ready');
     const making = runner.run({ command: 'sh', args: ['-c', `sleep 1; touch '${marker}'`] }, quiet);
-    expect(await waitUntil('the marker', async () => existsSync(marker))).toBe(true);
+    expect(await waitUntil('the marker', async () => (existsSync(marker) ? true : waiting(`${marker} is not there yet`)))).toBe(true);
     await making;
   });
 
@@ -33,7 +33,7 @@ describe('waitUntil with real waits', () => {
       () => { ended = 'it finished without making the marker'; },
       (err: unknown) => { ended = (err as Error).message; },
     );
-    await expect(waitUntil('the marker', async () => existsSync(marker), async () => ended)).rejects.toThrow(`the marker: sh -c 'sleep 1; echo the disk is full >&2; exit 1' exited with 1`);
+    await expect(waitUntil('the marker', async () => (existsSync(marker) ? true : waiting(`${marker} is not there yet`)), async () => ended)).rejects.toThrow(`the marker: sh -c 'sleep 1; echo the disk is full >&2; exit 1' exited with 1`);
     await making;
   });
 });

@@ -1,16 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import { Hopeless, until } from './until.js';
+import { describe, expect, it, vi } from 'vitest';
+import { Hopeless, until, waiting } from './until.js';
 
 describe('until', () => {
   it('returns the first answer that is not nothing, keeping a zero', async () => {
     let looks = 0;
-    expect(await until('a zero', async () => { looks += 1; return looks < 2 ? undefined : 0; })).toBe(0);
+    expect(await until('a zero', async () => { looks += 1; return looks < 2 ? waiting('not yet') : 0; })).toBe(0);
     expect(looks).toBe(2);
   });
 
   it('ends with the reason the moment what it waits on can never come', async () => {
     let looks = 0;
-    await expect(until('the app', async () => { looks += 1; return undefined; }, async () => 'the app failed: no image')).rejects.toThrow('the app: the app failed: no image');
+    await expect(until('the app', async () => { looks += 1; return waiting('deploying'); }, async () => 'the app failed: no image')).rejects.toThrow('the app: the app failed: no image (deploying)');
     expect(looks).toBe(1);
   });
 
@@ -27,7 +27,22 @@ describe('until', () => {
 
   it('keeps waiting while its end cannot be read for now, and stops when reading it fails for good', async () => {
     let looks = 0;
-    expect(await until('root', async () => { looks += 1; return looks > 1 ? true : undefined; }, async () => { throw Object.assign(new Error('reset'), { code: 'ECONNRESET' }); })).toBe(true);
-    await expect(until('root', async () => undefined, async () => { throw new TypeError('no such field'); })).rejects.toThrow('no such field');
+    expect(await until('root', async () => { looks += 1; return looks > 1 ? true : waiting('starting'); }, async () => { throw Object.assign(new Error('reset'), { code: 'ECONNRESET' }); })).toBe(true);
+    await expect(until('root', async () => waiting('starting'), async () => { throw new TypeError('no such field'); })).rejects.toThrow('no such field');
+  });
+
+  it('prints the state it is watching while it waits, so a stuck test says what it is stuck on', async () => {
+    const printed = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    let looks = 0;
+    try {
+      const done = until('every deployment to be failed', async () => { looks += 1; return looks < 13 ? waiting('shop-3f2a1b: deploying') : true; });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(await done).toBe(true);
+      expect(printed).toHaveBeenCalledWith('    still waiting for every deployment to be failed (shop-3f2a1b: deploying)');
+    } finally {
+      vi.useRealTimers();
+      printed.mockRestore();
+    }
   });
 });

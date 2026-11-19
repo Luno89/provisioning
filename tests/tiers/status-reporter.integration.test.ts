@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { liveRuns, type RunningFile } from '../lib/test-runs.js';
-import { until } from '../lib/until.js';
+import { until, waiting } from '../lib/until.js';
 import { CHECKOUT, startHeldRun } from './fixture-run/start.js';
 
 const dirs: string[] = [];
@@ -26,7 +26,7 @@ describe('the status every test run keeps while it runs', () => {
     const run = startHeldRun(runs);
     const inTest = await until('the held run to show its held test and what it said', async () => {
       const file = runningIn(runs, run.pid);
-      return file?.doing === 'a held run › says a line and is held' && file.lastLine === 'the line it said last' ? file : undefined;
+      return file?.doing === 'a held run › says a line and is held' && file.lastLine === 'the line it said last' ? file : waiting(JSON.stringify(file ?? 'no status for it'));
     }, run.stopped);
     expect(liveRuns(runs).find((one) => one.pid === run.pid)).toMatchObject({ checkout: CHECKOUT, workspace: 'tests/tiers/fixture-run' });
     expect(inTest.file).toBe('tests/tiers/fixture-run/run.held.ts');
@@ -34,7 +34,7 @@ describe('the status every test run keeps while it runs', () => {
     run.release('test');
     const inHook = await until('the held run to show its afterAll and what it said there', async () => {
       const file = runningIn(runs, run.pid);
-      return file?.doing === 'afterAll' && file.lastLine?.startsWith('still waiting') ? file : undefined;
+      return file?.doing === 'afterAll' && file.lastLine?.startsWith('still waiting') ? file : waiting(JSON.stringify(file ?? 'no status for it'));
     }, run.stopped);
     expect(inHook.lastLine).toBe('still waiting for the fixture to be let go (it is held)');
 
@@ -46,7 +46,7 @@ describe('the status every test run keeps while it runs', () => {
   it('carries the group of whoever started the run, so they can watch only their own', async () => {
     const runs = aPlace();
     const run = startHeldRun(runs, { KOALA_TEST_GROUP: 'gather-1' });
-    const status = await until('the grouped run to be live', async () => liveRuns(runs).find((one) => one.pid === run.pid), run.stopped);
+    const status = await until('the grouped run to be live', async () => liveRuns(runs).find((one) => one.pid === run.pid) ?? waiting(`live: ${liveRuns(runs).map((one) => one.pid).join(', ') || 'none'}`), run.stopped);
     expect(status.group).toBe('gather-1');
     run.release('test');
     run.release('after');

@@ -10,7 +10,7 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -51,7 +51,7 @@ async function startRoot(releaseTag: string): Promise<void> {
     ...devDataMounts(),
     '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: releaseTag, registry: '10.0.2.2:5001' }),
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', IMAGE, 'backend']);
-  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
+  await until('root answering', async () => { const answered = await fetch(`${ROOT_FOR_HOST}/api/identity/keys`); return answered.ok ? true : waiting(`root answered ${answered.status}`); }, gone);
 }
 let instanceId: string | undefined;
 
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   const started = await (await http('/api/engine/runs', { method: 'POST', body: JSON.stringify({ agent: 'executor', message: 'live', procedure: 'byo-live' }) })).json() as { runId: string };
   const traces = await until('the run finishing', async () => {
     const list = (await (await http(`/api/engine/runs/${started.runId}/traces`)).json() as { traces: { node: string; exit?: string; finish?: { outcome: string } }[] }).traces;
-    return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
+    return list.some((trace) => trace.node === 'cleaned') ? list : waiting(`${list.length} traces so far, the last at ${list[list.length - 1]?.node ?? 'no node yet'}`);
   }, async () => (await gone()) ?? runEndedBadlyOver(http, started.runId));
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
   const jobEnds = async (name: string, outcome: 'complete' | 'failed') => {
     const conditions = await until(`the self-upgrade job ${name} ending`, async () => {
       const found = (await kubectl(`get job ${name} -o jsonpath='{.status.conditions[?(@.status=="True")].type}'`)).toLowerCase();
-      return found.includes('complete') || found.includes('failed') ? found : undefined;
+      return found.includes('complete') || found.includes('failed') ? found : waiting(`the job's true conditions are '${found}'`);
     }, gone);
     assert.ok(conditions.includes(outcome), `the self-upgrade job ${name} ended ${conditions}, not ${outcome}`);
   };
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
   expect(await reported(), { status: 'ready', detail: UPGRADE_WORDS.upgraded('upgrade-ok') });
   assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
-  assert.ok(await until('the upgraded instance answering', async () => ((await answers()) ? true : undefined), gone));
+  assert.ok(await until('the upgraded instance answering', async () => ((await answers()) ? true : waiting('the sign-in page did not answer 200')), gone));
 
   step('root publishes a broken release, and the instance rolls itself back');
   execFileSync('docker', ['build', '-q', '-t', '127.0.0.1:5000/nowrinkles/app:upgrade-broken', '-'], {
@@ -222,7 +222,7 @@ async function main(): Promise<void> {
   assert.equal(brokenReport.status, 'failed');
   assert.ok(brokenReport.detail?.startsWith(`${UPGRADE_WORDS.rolledBack('upgrade-broken', 'upgrade-ok')}: `), `root heard ${brokenReport.detail}`);
   assert.match(await backendImage(), /:upgrade-ok$/, 'the rollback did not put the working release back');
-  assert.ok(await until('the rolled-back instance answering', async () => ((await answers()) ? true : undefined), gone));
+  assert.ok(await until('the rolled-back instance answering', async () => ((await answers()) ? true : waiting('the sign-in page did not answer 200')), gone));
   const history = await inVm(vm, 'sudo helm history instance -n nowrinkles --kubeconfig /etc/rancher/k3s/k3s.yaml');
   console.log(`  ${history.trim().split('\n').slice(-3).join('\n  ')}`);
 

@@ -11,7 +11,7 @@ import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.
 import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 import { madeHere } from './lib/made-here.js';
 import { groveRunWorkflowId } from '../apps/backend/src/engine-host/temporal/contracts.js';
-import { until } from './lib/until.js';
+import { until, waiting } from './lib/until.js';
 
 const BASE = process.env.ODOO_RELEASE_LIVE_URL ?? `${devKoalaApi}/api`;
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
@@ -168,11 +168,11 @@ async function main(): Promise<void> {
 
     const releases = async (): Promise<Release[]> => (await http.get(`/projects/${projectId}/releases`)).data.releases;
     let lastSeen = '';
-    const waitFor = (what: string, ok: (all: Release[]) => Release | undefined): Promise<Release> => until(what, async () => {
+    const waitFor = (what: string, ok: (all: Release[]) => Release | undefined): Promise<Release> => until<Release>(what, async () => {
       const all = await releases();
       const now = all.map((release) => `${release.state}${release.slot ? `/${release.slot}` : ''}`).join(', ');
       if (now !== lastSeen) { console.log(`    ${new Date().toISOString().slice(11, 19)} ${now || 'no release yet'}`); lastSeen = now; }
-      return ok(all);
+      return ok(all) ?? waiting(`${all.length} releases: ${now || 'none yet'}`);
     }, async () => {
       const failed = (await releases()).find((release) => release.state === 'failed');
       return failed ? `a release failed: ${failed.reason}` : undefined;
@@ -199,7 +199,10 @@ async function main(): Promise<void> {
     assert.ok(signIn, 'the project has no sign-in for its app');
     const forward = devPortForward(place.namespace, `svc/${place.release}-live`, `${APP_PORT}:8069`);
     try {
-      await until('the live Odoo answering through the port-forward', async () => ((await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)) ? true : undefined), async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
+      await until('the live Odoo answering through the port-forward', async () => {
+        const status = await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status, (err: Error) => err.message);
+        return status === 200 ? true : waiting(`health answered ${status}`);
+      }, async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
         const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
         if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
@@ -348,7 +351,7 @@ async function main(): Promise<void> {
     const through = (host: string, expected: RegExp): Promise<string> => until(`${host} reaching an Odoo`, async () => {
       const page = await axios.get(`http://${traefik.spec.clusterIP}:${web.port}/web/login`, { headers: { Host: host }, proxy: false, timeout: 5_000, validateStatus: () => true })
         .then((answer) => String(answer.data), (err: Error) => err.message);
-      return expected.test(page) ? page : undefined;
+      return expected.test(page) ? page : waiting(`${host} answered ${page.slice(0, 200)}`);
     }, async () => {
       const failed = (await releases()).find((release) => release.state === 'failed');
       return failed ? `a release failed: ${failed.reason}` : undefined;
@@ -380,7 +383,10 @@ async function main(): Promise<void> {
 
     console.log('[4a] rolling back returns the app to slot a exactly as it was at the cutover');
     await psql('odoo_b', "insert into koala_probe (name, create_date, write_date) values ('entered after the cutover', now(), now())");
-    const offer = await until('the rollback offer', async () => ((await http.get(`/projects/${projectId}/releases`)).data.rollBack as { from: string; to: string; commit: string; liveSince?: string } | undefined), async () => {
+    const offer = await until('the rollback offer', async () => {
+      const answer = (await http.get(`/projects/${projectId}/releases`)).data as { rollBack?: { from: string; to: string; commit: string; liveSince?: string }; releases: { state: string }[] };
+      return answer.rollBack ?? waiting(`no rollback offered; releases ${answer.releases.map((release) => release.state).join(', ') || 'none'}`);
+    }, async () => {
       const failed = (await releases()).find((release) => release.state === 'failed');
       return failed ? `a release failed: ${failed.reason}` : undefined;
     });
@@ -406,14 +412,18 @@ async function main(): Promise<void> {
       assert.equal(card.status, 201, JSON.stringify(card.data));
       const approved = await http.post(`/plans/${card.data.id}/approve`, {});
       assert.ok(approved.status < 300, JSON.stringify(approved.data));
-      const treeId = await until('the card to be adopted', async () => ((await http.get(`/plans/${card.data.id}`)).data as { adopted?: { treeId: string } }).adopted?.treeId, async () => {
+      const treeId = await until('the card to be adopted', async () => {
+        const plan = (await http.get(`/plans/${card.data.id}`)).data as { status: string; adopted?: { treeId: string } };
+        return plan.adopted?.treeId ?? waiting(`the card's plan is ${plan.status}, adopted ${plan.adopted ? 'without a tree' : 'nothing yet'}`);
+      }, async () => {
         const plan = (await http.get(`/plans/${card.data.id}`)).data as { status: string; reason?: string };
         return plan.status === 'failed' ? `the card's plan failed: ${plan.reason}` : undefined;
       });
       console.log(`    the card made tree ${treeId} for the project, with the story that brings them in`);
       const storyEnded = async () => {
         const branches = ((await http.get('/branches')).data as { id: string; treeId: string }[]).filter((branch) => branch.treeId === treeId).map((branch) => branch.id);
-        return ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string; landed?: { outcome: string } }[]).find((leaf) => branches.includes(leaf.branchId) && (['failed', 'cancelled'].includes(leaf.status) || (leaf.status === 'succeeded' && leaf.landed)));
+        const leaves = ((await http.get('/leaves')).data as { branchId: string; status: string; findings?: string; landed?: { outcome: string } }[]).filter((leaf) => branches.includes(leaf.branchId));
+        return leaves.find((leaf) => ['failed', 'cancelled'].includes(leaf.status) || (leaf.status === 'succeeded' && leaf.landed)) ?? waiting(`${branches.length} branches, leaves ${leaves.map((leaf) => leaf.status).join(', ') || 'none'}`);
       };
       const temporalForTree = await devKoalaTemporal();
       const story = await until('the story to end', storyEnded, async () => {
@@ -459,7 +469,10 @@ async function main(): Promise<void> {
     assert.deepEqual(removal.apps, [NAME], `the deletion does not say the app goes with it: ${JSON.stringify(removal)}`);
     const removing = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
     assert.equal(removing.status, 202, JSON.stringify(removing.data));
-    await until('the project to be deleted', async () => ((await http.get(`/projects/${projectId}/removal`)).status === 404 ? true : undefined), () => removalFailed(http, projectId!));
+    await until('the project to be deleted', async () => {
+      const status = (await http.get(`/projects/${projectId}/removal`)).status;
+      return status === 404 ? true : waiting(`removal answers HTTP ${status}`);
+    }, () => removalFailed(http, projectId!));
     const gone = projectId;
     projectId = undefined;
     assert.equal(await namespaceThere(), false, 'the app\'s namespace outlived the project');
@@ -470,7 +483,10 @@ async function main(): Promise<void> {
     console.log(`    the app, its namespace ${place.namespace} and its release run (${workflow.status.name.toLowerCase()}) went with the project`);
     if (releaseIds.length > 0) {
       const filesLeft = async () => (await Promise.all(releaseIds.map((id) => db.files.storedFilesIn(OWNER, { kind: 'run', id })))).flat().length;
-      await until('the release artifacts to go', async () => ((await filesLeft()) === 0 ? true : undefined), async () => 'the project is deleted and its release artifacts are still there');
+      await until('the release artifacts to go', async () => {
+        const left = await filesLeft();
+        return left === 0 ? true : waiting(`${left} release files still stored`);
+      }, async () => 'the project is deleted and its release artifacts are still there');
       console.log('    the browser tests\' files went with the project');
     }
     await projects.untouched();
@@ -483,7 +499,10 @@ async function main(): Promise<void> {
       console.log('[6] the run stopped early: removing what it made');
       const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
       console.log(`    deleting the project, its app with it: ${removed.status} ${removed.status >= 300 ? JSON.stringify(removed.data) : ''}`);
-      await until('the project to be deleted', async () => ((await http.get(`/projects/${projectId}/removal`)).status === 404 ? true : undefined), () => removalFailed(http, projectId!)).catch((err: Error) => console.log(`    ${err.message}`));
+      await until('the project to be deleted', async () => {
+        const status = (await http.get(`/projects/${projectId}/removal`)).status;
+        return status === 404 ? true : waiting(`removal answers HTTP ${status}`);
+      }, () => removalFailed(http, projectId!)).catch((err: Error) => console.log(`    ${err.message}`));
       const namespaceLeft = await namespaceThere();
       console.log(`    namespace ${place.namespace} ${namespaceLeft ? 'is still there' : 'is gone'}`);
     }

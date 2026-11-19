@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
 import { devKoalaApi, devKoalaEnv, devKubectl, devOwner, devPortForward } from './lib/dev-stack.js';
-import { until, Hopeless } from './lib/until.js';
+import { until, waiting, Hopeless } from './lib/until.js';
 
 const NAME = `hermes-${Date.now().toString(36)}`;
 const LOCAL_PORT = 19119;
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
         const found = (await mine(api)).find((entry) => entry.id === id);
         if (!found) throw new Hopeless('the deployment is gone from the list');
         if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
-        return found.status === 'running' ? found : undefined;
+        return found.status === 'running' ? found : waiting(`${NAME} is ${found.status}`);
       });
     });
     const namespace = deployed.namespace ?? NAME;
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       const hermes = axios.create({ baseURL: `http://127.0.0.1:${LOCAL_PORT}`, proxy: false, validateStatus: () => true, timeout: 10_000 });
       const providers = await until('the dashboard answering through the port-forward', async () => {
         const answer = await hermes.get('/api/auth/providers');
-        return answer.status === 200 ? answer.data as unknown : undefined;
+        return answer.status === 200 ? answer.data as object : waiting(`the dashboard answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
       }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the dashboard exited'));
       const listed = JSON.stringify(providers);
       const provider = /"(?:id|name)":"(basic[^"]*)"/.exec(listed)?.[1] ?? 'basic';
@@ -106,7 +106,10 @@ async function main(): Promise<void> {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);
         if (gone.status >= 300 && gone.status !== 404) console.log(`    destroying answered ${gone.status}: ${JSON.stringify(gone.data)}`);
-        await until(`${NAME} gone`, async () => ((await mine(api)).some((entry) => entry.id === id) ? undefined : true), async () => {
+        await until(`${NAME} gone`, async () => {
+          const left = (await mine(api)).find((entry) => entry.id === id);
+          return left ? waiting(`${NAME} is ${left.status}`) : true;
+        }, async () => {
           const found = (await mine(api)).find((entry) => entry.id === id);
           return found?.status === 'failed' ? `destroying it failed: ${String(found.failure ?? 'and its record says no reason')}` : undefined;
         });

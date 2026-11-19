@@ -14,7 +14,7 @@ import { devDataMounts, devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 import { signUp } from './lib/sign-up.js';
-import { until, Hopeless } from './lib/until.js';
+import { until, Hopeless, waiting } from './lib/until.js';
 import { startedContainerStopped } from './lib/dead-states.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', CONTAINERS.mesh, '--cap-add', 'NET_ADMIN', '--device', '/dev/net/tun', '-p', `127.0.0.1:${TLS_PORT}:443`,
     '-e', `TS_AUTHKEY=${meshKey('tag:platform')}`, '-e', `TS_EXTRA_ARGS=--login-server=http://${BRIDGE}:${RELAY_PORT} --accept-dns=false`,
     '-e', 'TS_HOSTNAME=nw-pool-root', '-e', 'TS_USERSPACE=false', '-e', 'TS_STATE_DIR=/var/lib/tailscale', TAILSCALE_IMAGE]);
-  await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined, gone);
+  await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || waiting('tailscale has no IPv4 address yet'), gone);
   run('docker', ['run', '-d', '--name', CONTAINERS.caddy, '--network', `container:${CONTAINERS.mesh}`,
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-v', `${join(caddyDir, 'tls')}:/etc/caddy/tls:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       throw new Hopeless(`root's Caddy stopped: ${run('sh', ['-c', `docker logs --tail 5 ${CONTAINERS.caddy} 2>&1`]).trim()}`);
     }
     run('docker', ['cp', `${CONTAINERS.caddy}:/data/caddy/pki/authorities/local/root.crt`, join(work, 'ca.crt')]);
-    return existsSync(join(work, 'ca.crt')) ? true : undefined;
+    return existsSync(join(work, 'ca.crt')) ? true : waiting('Caddy has not written its root.crt yet');
   }, gone);
 
   step('a disposable VM becomes a pool node through scripts/root-node/pool-node.sh: k3s, the mesh as tag:pool, root\'s registry, gVisor');
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, '-v', `${join(work, 'ca.crt')}:/etc/koala/lab-ca.crt:ro`, '-e', 'NODE_EXTRA_CA_CERTS=/etc/koala/lab-ca.crt', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
-  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
+  await until('root answering', async () => { const answer = await fetch(`${ROOT_FOR_HOST}/api/identity/keys`); return answer.ok ? true : waiting(`/api/identity/keys answered ${answer.status}`); }, gone);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
   const session = sessionToken(owner, loadKeys(process.env).session);
@@ -227,7 +227,7 @@ async function main(): Promise<void> {
     const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string; url: string } }).instance;
     if (mine.detail && mine.detail !== said) { said = mine.detail; console.log(`  ${mine.status}: ${said}`); }
     if (mine.status === 'failed') throw new Hopeless(`the install failed: ${mine.detail}`);
-    return mine.status === 'ready' ? mine : undefined;
+    return mine.status === 'ready' ? mine : waiting(`${mine.status}${mine.detail ? `: ${mine.detail}` : ''}`);
   }, gone);
   assert.equal(ready.url, `https://${NAME}.${DOMAIN}`);
   const namespace = `pool-${NAME}`;
@@ -241,8 +241,8 @@ async function main(): Promise<void> {
   assert.equal(nodePorts.split('\n').filter((line) => line.startsWith(namespace)).length, 0, `the pool instance opened a node port: ${nodePorts}`);
 
   step(`https://${NAME}.${DOMAIN} answers through root's Caddy, over the mesh to the pool node's proxy`);
-  await until('root\'s route to the instance', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? true : undefined), gone);
-  await until('the instance through Caddy', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
+  await until('root\'s route to the instance', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? true : waiting(`no instances/${NAME}.caddy yet`)), gone);
+  await until('the instance through Caddy', async () => { const answer = https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in'); return answer.status === 200 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
 
   step('signing in at root lands on the pool instance');
   const { exchange, location } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
@@ -276,7 +276,7 @@ async function main(): Promise<void> {
   const runId = (JSON.parse(onInstance('/api/engine/runs', { method: 'POST', body: { agent: 'executor', message: 'live', procedure: 'pool-live' } }).body) as { runId: string }).runId;
   const traces = await until('the run finishing', async () => {
     const list = (JSON.parse(onInstance(`/api/engine/runs/${runId}/traces`).body) as { traces: { node: string; exit?: string; outputs?: { host?: string; reason?: string }; finish?: { outcome: string } }[] }).traces;
-    return list.some((trace) => trace.node === 'cleaned') ? list : undefined;
+    return list.some((trace) => trace.node === 'cleaned') ? list : waiting(`${list.length} traces, the last at ${list.at(-1)?.node ?? 'none'}`);
   }, gone);
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', `the code did not run: ${JSON.stringify(traces.find((trace) => trace.node === 'unavailable' || trace.node === 'broke'))}`);
@@ -294,7 +294,7 @@ async function main(): Promise<void> {
       const log = json<{ content?: string }>(onInstance(`/api/logs/app/${deploymentId}`)).content ?? '';
       throw new Hopeless(`the app failed to deploy: ${JSON.stringify(found)}\n${log.slice(-4000)}`);
     }
-    return found.status === 'running' ? found : undefined;
+    return found.status === 'running' ? found : waiting(`books is ${found.status}`);
   }, gone);
   const appNamespace = app.namespace ?? 'books';
   const inside = (virtual: string) => pool(['get', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/namespace=${virtual}`, '-o', 'name']).trim();
@@ -308,15 +308,15 @@ async function main(): Promise<void> {
   assert.equal(json<{ publicExposureUrl: string }>(exposed).publicExposureUrl, `https://books-${NAME}.${DOMAIN}`);
   const served = await until('the app at its address', async () => {
     const answer = https(`books-${NAME}.${DOMAIN}`, '/');
-    return answer.status < 400 ? answer : undefined;
+    return answer.status < 400 ? answer : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`);
   }, gone);
   console.log(`  ${served.status} from books-${NAME}.${DOMAIN}`);
 
   step('root probes it on the pool node, and the instance reads it healthy through root');
-  await until('root\'s probe of the app', async () => pool(['get', 'probes.monitoring.coreos.com', '-n', namespace, '-l', 'koala.dev/pool-probe=true', '-o', 'name']).trim() || undefined, gone);
+  await until('root\'s probe of the app', async () => pool(['get', 'probes.monitoring.coreos.com', '-n', namespace, '-l', 'koala.dev/pool-probe=true', '-o', 'name']).trim() || waiting(`no pool probe in ${namespace} yet`), gone);
   const health = await until('the app healthy through root', async () => {
     const view = json<{ app: { state: string; numbers: { up?: number; memoryBytes?: number } }; history: { byKoala?: boolean }; lines: string[] }>(onInstance(`/api/monitoring/apps/${deploymentId}?range=1h`));
-    return view.app.state === 'ok' && view.app.numbers.up === 1 && (view.app.numbers.memoryBytes ?? 0) > 0 ? view : undefined;
+    return view.app.state === 'ok' && view.app.numbers.up === 1 && (view.app.numbers.memoryBytes ?? 0) > 0 ? view : waiting(`state ${view.app.state}, up ${view.app.numbers.up ?? 'unmeasured'}, memory ${view.app.numbers.memoryBytes ?? 'unmeasured'}`);
   }, gone);
   assert.equal(health.history.byKoala, true, 'the app\'s history is not said to be kept by Koala\'s servers');
   console.log(`  ${health.lines.join(' ')}`);
@@ -339,27 +339,27 @@ async function main(): Promise<void> {
   const proposed = await until('the alert proposed', async () => {
     const list = json<{ traces: Array<{ node: string; outputs?: { text?: string; reason?: string } }> }>(onInstance(`/api/engine/runs/${alertRun}/traces`)).traces;
     if (list.some((trace) => trace.node === 'broke')) throw new Hopeless(`propose_alert failed: ${JSON.stringify(list.find((trace) => trace.node === 'propose'))}`);
-    return list.some((trace) => trace.node === 'done') ? true : undefined;
+    return list.some((trace) => trace.node === 'done') ? true : waiting(`${list.length} traces, the last at ${list.at(-1)?.node ?? 'none'}`);
   }, gone);
   assert.ok(proposed);
   const card = json<Array<{ id: string; kind: string; status: string }>>(onInstance('/api/actions')).find((entry) => entry.kind === 'set_alert' && entry.status === 'proposed');
   assert.ok(card, 'no alert card waits for the owner');
   const applied = onInstance(`/api/actions/${card.id}/apply`, { method: 'POST' });
   assert.equal(applied.status, 200, applied.body);
-  await until('root\'s rule on the pool node', async () => pool(['get', 'prometheusrules', '-n', namespace, '-l', 'koala.dev/pool-rule=true', '-o', 'name']).trim() || undefined, gone);
+  await until('root\'s rule on the pool node', async () => pool(['get', 'prometheusrules', '-n', namespace, '-l', 'koala.dev/pool-rule=true', '-o', 'name']).trim() || waiting(`no pool rule in ${namespace} yet`), gone);
   const worker = pool(['get', 'pods', '-n', namespace, '-o', 'name']).trim().split('\n').find((line) => line.startsWith('pod/instance-worker-cluster-'));
   assert.ok(worker, 'the instance\'s cluster worker pod is not found');
   const scale = (replicas: number) => pool(['exec', '-n', namespace, worker.slice(4), '--', 'kubectl', 'scale', 'deployment', '--all', '-n', appNamespace, `--replicas=${replicas}`]);
   scale(0);
   const fired = await until('the alert firing in the instance', async () => {
     const alerts = json<{ firing: Array<{ ruleId?: string; summary: string }> }>(onInstance('/api/monitoring/alerts'));
-    return alerts.firing.find((alert) => alert.ruleId);
+    return alerts.firing.find((alert) => alert.ruleId) ?? waiting(`${alerts.firing.length} firing, none from a rule`);
   }, gone);
   console.log(`  fired: ${fired.summary}`);
   scale(1);
   await until('the alert resolved', async () => {
     const alerts = json<{ firing: Array<{ ruleId?: string }>; episodes: Array<{ ruleId?: string; resolvedAt?: string }> }>(onInstance('/api/monitoring/alerts'));
-    return !alerts.firing.some((alert) => alert.ruleId) && alerts.episodes.some((episode) => episode.ruleId && episode.resolvedAt) ? true : undefined;
+    return !alerts.firing.some((alert) => alert.ruleId) && alerts.episodes.some((episode) => episode.ruleId && episode.resolvedAt) ? true : waiting(`${alerts.firing.filter((alert) => alert.ruleId).length} rule alerts firing, ${alerts.episodes.filter((episode) => episode.ruleId && episode.resolvedAt).length} resolved`);
   }, gone);
   console.log('  resolved once the app answered again');
 
@@ -390,7 +390,7 @@ async function main(): Promise<void> {
   const listing = await until('the project\'s repository', async () => {
     const answer = onInstance(`/api/projects/${project.id}/files`);
     const entries = answer.status === 200 ? json<{ entries: Array<{ name: string; path: string; type: string }> }>(answer).entries.filter((entry) => entry.type === 'file') : [];
-    return entries.length ? entries : undefined;
+    return entries.length ? entries : waiting(`the files answered ${answer.status} with no file`);
   }, gone);
   const movedFile = listing[0]!.path;
   const opened = json<{ content: string; sha: string }>(onInstance(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(movedFile)}`));
@@ -406,10 +406,10 @@ async function main(): Promise<void> {
   assert.equal(moved.status, 200, await moved.clone().text());
   await until('the instance paused', async () => {
     const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance;
-    return mine.status === 'paused' ? true : undefined;
+    return mine.status === 'paused' ? true : waiting(`it is ${mine.status}`);
   }, gone);
-  await until('its pods gone', async () => (pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase!=Succeeded,status.phase!=Failed', '-o', 'name']).trim() === '' ? true : undefined), gone);
-  await until('root\'s route removed', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? undefined : true), gone);
+  await until('its pods gone', async () => { const left = pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase!=Succeeded,status.phase!=Failed', '-o', 'name']).trim(); return left === '' ? true : waiting(`still there: ${left.split('\n').join(', ').slice(0, 200)}`); }, gone);
+  await until('root\'s route removed', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? waiting(`instances/${NAME}.caddy is still there`) : true), gone);
   console.log('  stopped: nothing running in its namespace, and no route');
 
   step('the admin moves the end two weeks ahead: it starts again, with its work as it was');
@@ -418,22 +418,22 @@ async function main(): Promise<void> {
   await until('the instance running again', async () => {
     const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
     if (mine.status === 'failed') throw new Hopeless(`it did not start again: ${mine.detail}`);
-    return mine.status === 'ready' ? true : undefined;
+    return mine.status === 'ready' ? true : waiting(`${mine.status}${mine.detail ? `: ${mine.detail}` : ''}`);
   }, gone);
-  await until('the instance through Caddy again', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
+  await until('the instance through Caddy again', async () => { const answer = https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in'); return answer.status === 200 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
   assert.equal(onInstance('/api/procedures/pool-live').status, 200, 'the procedure saved before the pause is gone');
   console.log('  running again, and the procedure saved before the pause is still there');
 
   if (ENDING === 'move') {
     step('the trial ends again, and the owner moves the stopped instance to a machine of their own from root\'s page');
     assert.equal((await admin(`/instances/${instanceId}/trial`, { method: 'PUT', body: JSON.stringify({ trialEndsAt: new Date(Date.now() + 90_000).toISOString() }) })).status, 200);
-    await until('the instance paused again', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance.status === 'paused' ? true : undefined), gone);
+    await until('the instance paused again', async () => { const status = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance.status; return status === 'paused' ? true : waiting(`it is ${status}`); }, gone);
     const moving = await asOwner('/api/instances/move', { method: 'POST' });
     assert.equal(moving.status, 200, await moving.clone().text());
     const moveToken = ((await moving.json()) as { command: string }).command.split(' ').pop()!;
     await until('the stopped instance started for the move', async () => {
       const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { move?: { state: string; detail?: string } } }).instance;
-      return mine.move?.state === 'waiting' && mine.move.detail === 'Waiting for your machine to run the move command' ? true : undefined;
+      return mine.move?.state === 'waiting' && mine.move.detail === 'Waiting for your machine to run the move command' ? true : waiting(mine.move ? `the move is ${mine.move.state}: ${mine.move.detail ?? ''}` : 'no move yet');
     }, gone);
     assert.notEqual(pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase=Running', '-o', 'name']).trim(), '', 'the stopped instance said it was ready to move before it ran');
 
@@ -451,16 +451,16 @@ async function main(): Promise<void> {
       await until('root switching the instance to the new machine', async () => {
         const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; trialEndsAt?: string; move?: { state: string; detail?: string } } }).instance;
         if (mine.move?.state === 'failed') throw new Hopeless(`the move stopped: ${mine.move.detail}`);
-        return mine.status === 'ready' && !mine.trialEndsAt && !mine.move ? true : undefined;
+        return mine.status === 'ready' && !mine.trialEndsAt && !mine.move ? true : waiting(`${mine.status}${mine.trialEndsAt ? ', still a trial' : ''}${mine.move ? `, the move is ${mine.move.state}` : ''}`);
       }, gone);
     } finally {
       clearInterval(follow);
     }
-    await until('the pool copy gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined), gone);
+    await until('the pool copy gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : waiting(`${namespace} is still on the pool`)), gone);
     assert.ok(!pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']).includes(namespace), 'the proxy still serves the moved instance');
 
     step('the owner signs in at root and lands on the new machine, with their work there');
-    await until('the instance through Caddy on its new machine', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
+    await until('the instance through Caddy on its new machine', async () => { const answer = https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in'); return answer.status === 200 ? true : waiting(`${answer.status}: ${answer.body.slice(0, 200)}`); }, gone);
     const { exchange: againExchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
     assert.ok(signedInLanding(againExchange), `the moved instance did not sign the owner in: ${againExchange.status} ${againExchange.body.slice(0, 300)}`);
     const movedCookie = (sessionFrom(againExchange.setCookies) ?? '');
@@ -471,7 +471,7 @@ async function main(): Promise<void> {
     assert.match(json<{ content: string }>(file).content, new RegExp(`made on Koala's servers as ${NAME}`));
     const carried = await until('the app running on the new machine with its volume', async () => {
       const read = await inVm(target!, `sudo kubectl get pods -n ${appNamespace} -o name | head -1 | xargs -I{} sudo kubectl exec -n ${appNamespace} {} -c ${withVolume.container} -- cat ${marker}`).catch(() => '');
-      return read.trim() === NAME ? read.trim() : undefined;
+      return read.trim() === NAME ? read.trim() : waiting(`the marker reads ${JSON.stringify(read.trim().slice(0, 100))}`);
     }, gone);
     assert.equal(carried, NAME);
     const hosts = (await inVm(target, 'hostname')).trim();
@@ -482,8 +482,8 @@ async function main(): Promise<void> {
     assert.equal(wrong.status, 400);
     const deleted = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: NAME }) });
     assert.equal(deleted.status, 202, await deleted.clone().text());
-    await until('the namespace gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : undefined), gone);
-    await until('the record gone', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: unknown }).instance === null ? true : undefined), gone);
+    await until('the namespace gone', async () => (pool(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name']).trim() === '' ? true : waiting(`${namespace} is still on the pool`)), gone);
+    await until('the record gone', async () => { const instance = (await (await asOwner('/api/instances/mine')).json() as { instance: { status?: string } | null }).instance; return instance === null ? true : waiting(`the record is still there, ${instance.status ?? 'with no status'}`); }, gone);
     const proxy = pool(['get', 'configmap', 'pool-proxy', '-n', 'kube-system', '-o', 'jsonpath={.data.Caddyfile}']);
     assert.ok(!proxy.includes(namespace), 'the proxy still serves the deleted instance');
     instanceId = undefined;
@@ -508,7 +508,7 @@ async function main(): Promise<void> {
   const removedAccount = await asOwner(`/api/admin/people/${throwaway.id}`, { method: 'DELETE', body: JSON.stringify({ confirm: email }) });
   assert.equal(removedAccount.status, 202, await removedAccount.clone().text());
   assert.equal((await fetch(`${ROOT_FOR_HOST}/api/auth/me`, { headers: { Cookie: `session=${theirs}` } })).status, 401, 'the removed account is still signed in');
-  await until('the account gone from root', async () => ((await people()).some((person) => person.id === throwaway.id) ? undefined : true), gone);
+  await until('the account gone from root', async () => ((await people()).some((person) => person.id === throwaway.id) ? waiting('root still lists the account') : true), gone);
   throwawayId = undefined;
   const second = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const secondEmail = `pool-live-${NAME}-c@example.com`;
@@ -522,7 +522,7 @@ async function main(): Promise<void> {
   assert.ok(nameFree.ok, `the removed account's instance name is still taken: ${nameFree.problem}`);
   const secondRemoved = await asOwner(`/api/admin/people/${secondId}`, { method: 'DELETE', body: JSON.stringify({ confirm: secondEmail }) });
   assert.equal(secondRemoved.status, 202, await secondRemoved.clone().text());
-  await until('the second account gone from root', async () => ((await people()).some((person) => person.id === secondId) ? undefined : true), gone);
+  await until('the second account gone from root', async () => ((await people()).some((person) => person.id === secondId) ? waiting('root still lists the account') : true), gone);
   throwawayId = undefined;
   console.log('  removed, signed out at once, and its instance\'s name is free again');
 

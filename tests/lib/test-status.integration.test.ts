@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CHECKOUT, startHeldRun } from '../tiers/fixture-run/start.js';
 import { liveRuns } from './test-runs.js';
-import { until } from './until.js';
+import { until, waiting } from './until.js';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -25,7 +25,7 @@ describe('npm run test:status', () => {
     const two = startHeldRun(runs);
     await until('both held runs to be in their held test', async () => {
       const held = liveRuns(runs).filter((run) => Object.values(run.files).some((file) => file.lastLine === 'the line it said last'));
-      return held.length === 2 ? held : undefined;
+      return held.length === 2 ? held : waiting(`${held.length} of 2 held, ${liveRuns(runs).length} live`);
     }, async () => (await one.stopped()) ?? (await two.stopped()));
 
     const printed = status(runs);
