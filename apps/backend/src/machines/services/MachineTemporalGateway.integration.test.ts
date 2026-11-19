@@ -1,5 +1,6 @@
 import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
+import crypto from 'node:crypto';
 import http2 from 'node:http2';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +12,7 @@ import { buildDataConverter, type BlobReach } from '@koala/engine-core/payloads'
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
 import { MachineTemporalGateway } from './MachineTemporalGateway.js';
+import { temporalApiKey, temporalJwks } from '../../platform/lib/temporal-auth.js';
 import { askMachine } from '../testing/MachineTemporalGateway.fixture-workflow.js';
 
 let env: TestWorkflowEnvironment;
@@ -19,6 +21,7 @@ let address = '';
 const refusals: string[] = [];
 const { blobs, stored } = testPayloadBlobs();
 const PAYLOAD_KEY = 'p'.repeat(64);
+const TEMPORAL_KEY = 'machine-gateway-temporal-key';
 const handedBlobs = new Set<string>();
 const upstreamAuth: (string | undefined)[] = [];
 let relay: http2.Http2Server;
@@ -55,7 +58,7 @@ beforeAll(async () => {
   env = await temporalTestEnvironment();
   gateway = new MachineTemporalGateway({
     upstream: await recordingRelay(env.address),
-    upstreamKey: () => 'the-gateway-token',
+    upstreamKey: temporalApiKey(TEMPORAL_KEY, { subject: 'koala-machine-gateway', namespace: env.namespace ?? 'default', role: 'write' }),
     namespace: env.namespace ?? 'default',
     keys: () => ['the-key'],
     deviceOf: async (token) => ({ 'token-d1': { id: 'd1' }, 'token-d2': { id: 'd2' } } as Record<string, { id: string }>)[token],
@@ -122,9 +125,14 @@ describe('a machine reaching Temporal through the gateway', () => {
     expect((await blobs.getHanded('d2', offloaded)).size).toBe(0);
   });
 
-  it('speaks to Temporal with its own token, never the machine\'s', () => {
+  it('speaks to Temporal with its own token for its one role on the namespace, signed by the install\'s Temporal key, never the machine\'s', () => {
     expect(upstreamAuth.length).toBeGreaterThan(0);
-    expect(new Set(upstreamAuth)).toEqual(new Set(['Bearer the-gateway-token']));
+    const tokens = new Set(upstreamAuth.map((auth) => String(auth).replace(/^Bearer /, '')));
+    expect(tokens.size).toBe(1);
+    const [head, body, signature] = [...tokens][0]!.split('.');
+    const verifier = crypto.createPublicKey({ key: temporalJwks(TEMPORAL_KEY).keys[0]!, format: 'jwk' });
+    expect(crypto.verify('sha256', Buffer.from(`${head}.${body}`), { key: verifier, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature!, 'base64url'))).toBe(true);
+    expect(JSON.parse(Buffer.from(body!, 'base64url').toString('utf8'))).toMatchObject({ sub: 'koala-machine-gateway', permissions: [`${env.namespace ?? 'default'}:write`] });
   });
 
   it('never lets a machine take another machine\'s work', async () => {
