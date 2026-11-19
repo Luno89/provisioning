@@ -83,7 +83,7 @@ describe('engine routes', () => {
     const grove = res.data.find((extension) => extension.id === 'grove');
     expect(grove).toMatchObject({ requires: ['platform'], personas: arrayWith(['grove', 'grove-leaf']), procedures: arrayWith(['grove-run', 'grove-leaf']) });
     expect(grove?.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
-    expect(res.data.map((extension) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false]]);
+    expect(res.data.map((extension) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false], ['provision', true, true]]);
 
     const needed = await axios.put<{ error: string }>(h.url('/api/engine/extensions/grove/enabled'), { enabled: false }, { validateStatus: () => true });
     expect(needed.status).toBe(409);
@@ -134,7 +134,7 @@ describe('engine routes', () => {
     const gone = await axios.delete<Summary[]>(h.url('/api/engine/extensions/loud/operations/shout'));
     expect(gone.data.find((extension) => extension.id === 'loud')?.latest).toEqual([]);
     const deleted = await axios.delete<Summary[]>(h.url('/api/engine/extensions/loud'));
-    expect(deleted.data.map((extension) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring', 'files']);
+    expect(deleted.data.map((extension) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring', 'files', 'provision']);
     await h.close();
   });
 
@@ -146,7 +146,7 @@ describe('engine routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.map((a) => a.slug).sort())
-      .toEqual(['agent-builder', 'antigravity', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'mcp-capture', 'memory-keeper', 'paper-writer', 'planner', 'release', 'release-replace', 'release-roll-back', 'research', 'workspace']);
+      .toEqual(['agent-builder', 'antigravity', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'mcp-capture', 'memory-keeper', 'paper-writer', 'planner', 'provision', 'release', 'release-replace', 'release-roll-back', 'research', 'workspace']);
     expect(res.data.find((a) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();

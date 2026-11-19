@@ -32,6 +32,9 @@ describe('which extensions an owner has on', () => {
 describe('switching an extension', () => {
   it('refuses to switch off the platform, or what something still on needs', () => {
     expect(switchProblem(INSTALLED, [], 'platform', false)).toMatch(/cannot be switched off/);
+    const withSetup = [...INSTALLED, { id: 'provision', title: 'Koala setup', requires: ['platform'] }];
+    expect(switchProblem(withSetup, [], 'provision', false)).toMatch(/Koala setup is part of Koala itself, so it cannot be switched off/);
+    expect(enabledExtensions(withSetup, { disabled: ['provision'] }).map((extension) => extension.id)).toContain('provision');
     expect(switchProblem(INSTALLED, [], 'grove', false)).toMatch(/Notes needs Grove/);
     expect(switchProblem(INSTALLED, ['notes'], 'grove', false)).toBeNull();
   });

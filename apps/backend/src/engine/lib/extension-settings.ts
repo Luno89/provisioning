@@ -14,7 +14,7 @@ export interface ExtensionShape {
   personas?: readonly { slug: string }[] | undefined;
 }
 
-export const ALWAYS_ON: readonly string[] = ['platform'];
+export const ALWAYS_ON: readonly string[] = ['platform', 'provision'];
 
 export function enabledExtensions<T extends ExtensionShape>(installed: readonly T[], settings: Pick<ExtensionSettings, 'disabled'> | undefined): T[] {
   const off = new Set((settings?.disabled ?? []).filter((id) => !ALWAYS_ON.includes(id)));
@@ -24,7 +24,7 @@ export function enabledExtensions<T extends ExtensionShape>(installed: readonly 
 export function switchProblem(installed: readonly ExtensionShape[], disabled: readonly string[], id: string, enabled: boolean): string | null {
   const target = installed.find((extension) => extension.id === id);
   if (!target) return `there is no extension called "${id}"`;
-  if (!enabled && ALWAYS_ON.includes(id)) return `${target.title} is the platform itself, so it cannot be switched off`;
+  if (!enabled && ALWAYS_ON.includes(id)) return `${target.title} is part of Koala itself, so it cannot be switched off`;
   const off = new Set(disabled);
   if (enabled) {
     const missing = (target.requires ?? []).filter((required) => off.has(required));
