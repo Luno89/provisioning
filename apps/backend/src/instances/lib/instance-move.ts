@@ -8,7 +8,9 @@ export const isMovePart = (value: unknown): value is MovePart => typeof value ==
 
 export const MOVED_KEYS = ['SESSION_KEY', 'DATA_KEY', 'PAYLOAD_KEY', 'EGRESS_KEY'] as const;
 
-export const SKIPPED_COLLECTIONS: readonly string[] = ['temporal_payload_chunks'];
+const SKIPPED = ['temporal_payload_chunks'] as const;
+export type SkippedCollection = (typeof SKIPPED)[number];
+export const SKIPPED_COLLECTIONS: readonly string[] = SKIPPED;
 
 export const MOVE_STATES = ['waiting', 'joined', 'copying', 'switching', 'failed'] as const;
 export type MoveStateName = typeof MOVE_STATES[number];

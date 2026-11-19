@@ -114,6 +114,10 @@ export const ACCOUNT_DATA = {
   shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'fenceAcks', 'fences', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
 } as const;
 
+type AccountData = typeof ACCOUNT_DATA;
+
+export type AccountCollection = AccountData['byOwner' | 'byId' | 'shared'][number] | keyof AccountData['related'] | AccountData['last'];
+
 export interface AccountIds {
   runIds: string[];
   treeIds: string[];
