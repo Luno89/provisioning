@@ -53,6 +53,8 @@ const isProxyCall = (node: ts.Node | undefined): node is ts.CallExpression =>
 
 export interface TemporalTables { workers: Partial<Record<Queue, string>>; startedOn: Record<string, Queue> }
 
+const WORKER_BUILDERS = /(Worker\.create|\bcreateWorker|\bbackendWorker|\bbackendWorkerOnceTemporalAnswers)$/;
+
 export function temporalWorld(program: ts.Program, src: string, tables: TemporalTables = { workers: WORKERS, startedOn: STARTED_ON }): TemporalWorld {
   const checker = program.getTypeChecker();
   const sourceOf = (path: string): ts.SourceFile => {
@@ -65,7 +67,7 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
     visit(sourceOf(path), (node) => {
       if (!(ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) || node.name.getText() !== 'activities') return;
       const created = node.parent.parent;
-      if (!ts.isCallExpression(created) || !created.expression.getText().endsWith('Worker.create')) return;
+      if (!ts.isCallExpression(created) || !WORKER_BUILDERS.test(created.expression.getText())) return;
       const value = ts.isPropertyAssignment(node) ? node.initializer : node.name;
       for (const symbol of checker.getPropertiesOfType(checker.getApparentType(checker.getTypeAtLocation(value)))) {
         found.set(symbol.getName(), (symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol).getDeclarations() ?? []);

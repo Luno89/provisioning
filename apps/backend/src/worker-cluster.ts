@@ -83,12 +83,16 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  const worker = await backendWorkerOnceTemporalAnswers('koala-worker-cluster', settings, queue, () => clusterActivities(steps, {
+  const worker = await backendWorkerOnceTemporalAnswers(settings, { tag: '[ClusterWorker]', logger, dependencies }, {
+    subject: 'koala-worker-cluster',
+    taskQueue: queue,
+    activities: clusterActivities(steps, {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),
           provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
           moveOver: { instanceId: settings.root.instanceId, steps, records: db.infrastructure, parts: (say) => new MoveParts({ root: settings.root, say }) },
-        }, settings.tests.huggingFaceUrl), { tag: '[ClusterWorker]', logger, dependencies });
+        }, settings.tests.huggingFaceUrl),
+  });
 
   return { worker, steps, telemetry, fences };
 }

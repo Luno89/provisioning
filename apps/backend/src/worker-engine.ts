@@ -532,7 +532,7 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
 
 export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
   const activities = built ?? await buildActivities(settings, dependencies);
-  const worker = await backendWorker('koala-worker-engine', settings, QUEUES.engine, activities);
+  const worker = await backendWorker(settings, { subject: 'koala-worker-engine', taskQueue: QUEUES.engine, activities });
   return { worker, activities };
 }
 

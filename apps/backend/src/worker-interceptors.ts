@@ -15,7 +15,13 @@ export interface BackendWorkerSettings {
   role: RoleConfig;
 }
 
-export async function backendWorker(subject: string, settings: BackendWorkerSettings, taskQueue: string, activities: object): Promise<Worker> {
+export interface BackendWorker {
+  subject: string;
+  taskQueue: string;
+  activities: object;
+}
+
+export async function backendWorker(settings: BackendWorkerSettings, { subject, taskQueue, activities }: BackendWorker): Promise<Worker> {
   const connection = await connectTemporalWorker(subject, settings);
   return createWorker({
     connection,
@@ -28,11 +34,11 @@ export async function backendWorker(subject: string, settings: BackendWorkerSett
   });
 }
 
-export async function backendWorkerOnceTemporalAnswers(subject: string, settings: BackendWorkerSettings, taskQueue: string, activities: () => object, said: { tag: string; logger: Logger; dependencies: DependencyStates }): Promise<Worker> {
+export async function backendWorkerOnceTemporalAnswers(settings: BackendWorkerSettings, said: { tag: string; logger: Logger; dependencies: DependencyStates }, worker: BackendWorker): Promise<Worker> {
   const connecting = reopening();
   for (;;) {
     try {
-      return await backendWorker(subject, settings, taskQueue, activities());
+      return await backendWorker(settings, worker);
     } catch (err) {
       said.dependencies.failed('temporal', err);
       said.logger.warn(`${said.tag} ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);

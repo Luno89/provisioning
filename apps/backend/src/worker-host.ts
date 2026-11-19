@@ -62,7 +62,11 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   const { address } = settings.temporal;
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  const worker = await backendWorkerOnceTemporalAnswers('koala-worker-host', settings, queue, () => hostActivitiesFor(settings.role.role), { tag: '[HostWorker]', logger, dependencies });
+  const worker = await backendWorkerOnceTemporalAnswers(settings, { tag: '[HostWorker]', logger, dependencies }, {
+    subject: 'koala-worker-host',
+    taskQueue: queue,
+    activities: hostActivitiesFor(settings.role.role),
+  });
 
   return { worker, telemetry, fences };
 }
