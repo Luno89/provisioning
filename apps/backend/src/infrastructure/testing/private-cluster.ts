@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { waitUntil } from '@koala/provision';
 import { inject } from 'vitest';
 import { installVcluster, vclusterSecret } from '../../activities/vcluster.js';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
@@ -49,6 +50,10 @@ export async function privateCluster(file: string): Promise<PrivateCluster> {
     const admin = signIn.replace(/server: \S+/, `server: https://${nodeAddress}:${nodePort}`);
     writeFileSync(join(folder, 'admin.yaml'), admin, { mode: 0o600 });
     const inside = startedMachine(`private-${namespace}`, admin);
+    await waitUntil(`the vcluster in ${namespace} to answer at ${nodeAddress}:${nodePort}`, async () => { await access.kubectl(inside, ['get', '--raw', '/readyz']); return true; }, async () => {
+      const left = await access.kubectl(host, ['get', 'statefulset', RELEASE, '-n', namespace, '--ignore-not-found', '-o', 'name']);
+      return left.trim() ? undefined : 'its statefulset is gone';
+    });
     await access.kubectl(inside, ['wait', '--for=create', 'serviceaccount/default', '-n', 'default', '--timeout=720h']);
     await access.kubectl(inside, ['wait', '--for=create', 'deployment/coredns', '-n', 'kube-system', '--timeout=720h']);
     await access.kubectl(inside, ['wait', '--for=condition=Available', 'deployment/coredns', '-n', 'kube-system', '--timeout=720h']);
