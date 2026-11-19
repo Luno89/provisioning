@@ -1,4 +1,6 @@
-import { commandOutput, type Command, type CommandRunner } from '../src/commands.js';
+import { recordingProcesses } from '@koala/engine-core/testing/processes';
+import type { Command, CommandRunner } from '../src/commands.js';
+import { commandsOver } from '../src/local-commands.js';
 
 export interface Answer {
   code?: number;
@@ -17,12 +19,8 @@ export function fakeCommands(answer: (command: Command) => Answer | undefined): 
     ran,
     run: async (command, progress) => {
       ran.push(command);
-      const output = commandOutput(command, progress);
       const answered = answer(command);
-      if (!answered) return output.ended({ notStarted: `spawn ${command.command} ENOENT` });
-      if (answered.stdout !== undefined) output.stdout(answered.stdout);
-      if (answered.stderr !== undefined) output.stderr(answered.stderr);
-      return output.ended(answered.signal !== undefined ? { signal: answered.signal } : { code: answered.code ?? 0 });
+      return commandsOver(recordingProcesses(() => answered)).run(command, progress);
     },
   };
 }

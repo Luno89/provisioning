@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { nodeStreams } from '@koala/engine-core/node-processes';
+import { ProcessNotStarted, type Followed, type Named, type Streams } from '@koala/engine-core/processes';
 import type { Provider } from './service.js';
 import { tail } from './tail.js';
-import { childEnv, type Named } from '@koala/engine-core/child-env';
 
 export interface ProcessSpec {
   name: string;
@@ -17,38 +17,36 @@ export interface ProcessProvider extends Provider<object> {
 
 const LAST_LINES = 5;
 
-export function processProvider(spec: ProcessSpec): ProcessProvider {
-  let child: ChildProcess | undefined;
+export function processProvider(spec: ProcessSpec, streams: Streams = nodeStreams): ProcessProvider {
+  let running: Followed | undefined;
   let endedWhy: string | undefined;
   let stopping = false;
   let exited: Promise<void> = new Promise(() => undefined);
   const said = tail(LAST_LINES);
   const listeners: Array<(why: string) => void> = [];
-  const heard = (chunk: Buffer): void => { for (const line of chunk.toString().split('\n')) if (line.trim()) said.add(line.trim()); };
+  const heard = (chunk: string): void => { for (const line of chunk.split('\n')) if (line.trim()) said.add(line.trim()); };
+  const lastSaid = (): string => said.lines().join(' | ') || 'nothing';
   return {
     pid() {
-      if (!child?.pid) throw new Error(`${spec.name} is not started`);
-      return child.pid;
+      if (running?.pid === undefined) throw new Error(`${spec.name} is not started`);
+      return running.pid;
     },
     onEnded(listener) { listeners.push(listener); },
-    running: async () => (child && !endedWhy ? { done: true } : { done: false, why: endedWhy ?? `${spec.name} is not started` }),
+    running: async () => (running && !endedWhy ? { done: true } : { done: false, why: endedWhy ?? `${spec.name} is not started` }),
     async start() {
       endedWhy = undefined;
-      const started = spawn(spec.command, [...spec.args], { env: childEnv(spec.env), stdio: ['ignore', 'pipe', 'pipe'] });
-      child = started;
-      started.stdout.on('data', heard);
-      started.stderr.on('data', heard);
-      exited = new Promise((done) => {
-        started.once('error', (err) => {
-          endedWhy = `${spec.name} could not start: ${err.message}`;
-          done();
-        });
-        started.once('exit', (code, signal) => {
-          endedWhy = `${spec.name} ${signal ? `was killed by ${signal}` : `exited with ${code}`} (last said: ${said.lines().join(' | ') || 'nothing'})`;
-          done();
+      const started = streams.start({ command: spec.command, args: spec.args, env: spec.env }, { heard: { stdout: heard, stderr: heard } });
+      running = started;
+      exited = started.ended.then(
+        (result) => {
+          endedWhy = `${spec.name} ${result.signal !== undefined ? `was killed by ${result.signal}` : `exited with ${result.code}`} (last said: ${lastSaid()})`;
           if (!stopping) for (const listener of listeners) listener(endedWhy);
-        });
-      });
+        },
+        (err: unknown) => {
+          if (!(err instanceof ProcessNotStarted)) throw err;
+          endedWhy = `${spec.name} could not start: ${err.reason}`;
+        },
+      );
     },
     ended: async () => endedWhy,
     ending: async () => {
@@ -56,9 +54,9 @@ export function processProvider(spec: ProcessSpec): ProcessProvider {
       return endedWhy!;
     },
     async remove() {
-      if (!child || endedWhy) return;
+      if (!running || endedWhy) return;
       stopping = true;
-      child.kill('SIGTERM');
+      running.stop('SIGTERM');
       await exited;
     },
   };

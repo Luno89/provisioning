@@ -1,21 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Command } from '../src/commands.js';
-import { CONTRACT, commandRunnerContract } from './command-runner-contract.js';
-import { fakeCommands, type Answer } from './fake-commands.js';
-
-const same = (a: Command, b: Command): boolean => a.command === b.command && JSON.stringify(a.args ?? []) === JSON.stringify(b.args ?? []);
-
-const asShWould = (command: Command): Answer | undefined => {
-  if (same(command, CONTRACT.bothStreams)) return { stdout: 'one\ntwo\n', stderr: 'three\n' };
-  if (same(command, CONTRACT.unfinishedLine)) return { stdout: 'partial' };
-  if (same(command, CONTRACT.failing)) return { stdout: 'before\n', code: 3 };
-  if (same(command, CONTRACT.redrawn)) return { stdout: '10%\r20%\rdone\n' };
-  if (same(command, CONTRACT.echoed)) return { stdout: command.stdin ?? '' };
-  if (same(command, CONTRACT.withEnv)) return { stdout: `${command.env?.['KOALA_PROVISION_SAID'] ?? ''}\n` };
-  return undefined;
-};
-
-commandRunnerContract('fakeCommands', () => fakeCommands(asShWould));
+import { fakeCommands } from './fake-commands.js';
 
 describe('fakeCommands', () => {
   it('keeps every command it was asked to run, in order', async () => {
