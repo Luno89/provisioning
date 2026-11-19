@@ -71,4 +71,9 @@ describe('what root keeps of Koala being put on a machine', () => {
   it('shows the person the stage, the line and why, and nothing else it keeps', () => {
     expect(installView({ ...asked, state: 'failed', stage: 'koala', title: 'Putting Koala', why: 'no room' })).toEqual({ id: 'install-1', machineId: 'desk', state: 'failed', stage: 'koala', title: 'Putting Koala', why: 'no room', at: asked.at });
   });
+
+  it('marks a move as a move, so the person reads it as Koala moving to the machine', () => {
+    expect(installView({ ...asked, move: true })).toEqual({ id: 'install-1', machineId: 'desk', state: 'asked', at: asked.at, move: true });
+    expect(installView(asked)).not.toHaveProperty('move');
+  });
 });

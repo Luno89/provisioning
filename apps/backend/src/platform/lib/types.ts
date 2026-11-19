@@ -211,7 +211,7 @@ export interface LocalAgentDeviceMetadata {
   manualAgents?: ManualMachineAgent[] | undefined;
   agentBundle?: string | undefined;
   agentUpdate?: AgentUpdateReport | undefined;
-  koalaWanted?: { name: string } | undefined;
+  koalaWanted?: { name: string; move?: true | undefined } | undefined;
   koalaRefused?: { reason: string; at: string } | undefined;
   tokenRenewal?: { reason: string; failedAt: string } | undefined;
   [key: string]: unknown;

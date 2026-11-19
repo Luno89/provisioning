@@ -15,6 +15,7 @@ export interface KoalaInstallRecord {
   askedAt?: string | undefined;
   koalaUp?: boolean | undefined;
   setUp?: boolean | undefined;
+  move?: true | undefined;
   at: string;
 }
 
@@ -107,4 +108,5 @@ export const installView =(install: KoalaInstallRecord): KoalaInstallView => ({
   ...(install.line ? { line: install.line } : {}),
   ...(install.why ? { why: install.why } : {}),
   at: install.at,
+  ...(install.move ? { move: true } : {}),
 });
