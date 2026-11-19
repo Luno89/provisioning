@@ -15,7 +15,7 @@ export async function startWorld(options: LeftoversOptions): Promise<() => Promi
   const outer = tmpdir();
   const run = await runOf(process.pid, join(outer, TESTS_FOLDER), THIS_CHECKOUT);
   const ctx: WorldContext = { commands: localCommands(process.env) };
-  const steps: Step<WorldContext>[] = [runFolderStep(run), leftoversStep(run, options), await roomStep({ id: 'room', what: 'test runs', path: outer, needs: RUN_NEEDS })];
+  const steps: Step<WorldContext>[] = [runFolderStep(run), leftoversStep(run, options), await roomStep({ id: 'room', for: 'a test run', path: outer, needs: RUN_NEEDS })];
   await runSteps(steps, ctx, reporter);
   const before = process.env.TMPDIR;
   process.env.TMPDIR = runFolder(run);

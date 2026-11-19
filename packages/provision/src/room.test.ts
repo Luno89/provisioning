@@ -17,8 +17,8 @@ const failureOf = async (run: Promise<void>): Promise<StepFailed> => {
 
 describe('the room where something writes', () => {
   it('says in its title how much is free and how much is needed, and is done when that fits', async () => {
-    const step = await roomStep({ id: 'room', what: 'tests', path: '/tmp', needs: 2 * GB, free: async () => 20 * GB });
-    expect(step.title).toBe('Room where tests write: 20.0 GB free in /tmp, 2.0 GB needed');
+    const step = await roomStep({ id: 'room', for: 'a test run', path: '/tmp', needs: 2 * GB, free: async () => 20 * GB });
+    expect(step.title).toBe('Room in /tmp: 20.0 GB free, 2.0 GB needed for a test run');
     const reporter = memoryReporter();
     await runSteps([step], { commands: du('') }, reporter);
     expect(reporter.reported.map((entry) => entry.kind)).toEqual(['started', 'already-done']);
@@ -26,9 +26,9 @@ describe('the room where something writes', () => {
 
   it('refuses when less is free than needed, naming what uses the room, largest first', async () => {
     const commands = du(`${3 * GB}\t/tmp/mongo-mem-a\n${12 * GB}\t/tmp/koala-tests\n${5 * MB}\t/tmp/socket-caddy-b\n${17 * GB}\t/tmp\n`);
-    const step = await roomStep({ id: 'room', what: 'tests', path: '/tmp', needs: 2 * GB, free: async () => 30 * MB });
+    const step = await roomStep({ id: 'room', for: 'a test run', path: '/tmp', needs: 2 * GB, free: async () => 30 * MB });
     const failure = await failureOf(runSteps([step], { commands }, memoryReporter()));
-    expect(failure.why).toBe('only 30.0 MB is free in /tmp and tests need 2.0 GB; using it: /tmp/koala-tests (12.0 GB), /tmp/mongo-mem-a (3.0 GB), /tmp/socket-caddy-b (5.0 MB)');
+    expect(failure.why).toBe('only 30.0 MB is free in /tmp, and 2.0 GB is needed for a test run; using it: /tmp/koala-tests (12.0 GB), /tmp/mongo-mem-a (3.0 GB), /tmp/socket-caddy-b (5.0 MB)');
     expect(commands.ran[0]).toMatchObject({ command: 'du', args: ['-x', '-a', '-b', '-d', '1', '/tmp'] });
   });
 

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { commitOf, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
 import { fileHashes } from './impact.js';
 import { WORKSPACES, type Workspace } from './workspaces.js';
+import { refuseWithoutRoom } from '../tiers/room.js';
 
 interface Options { only: Workspace[]; out: string; cost: boolean }
 
@@ -24,6 +25,7 @@ function suite(workspace: Workspace, log: string, coverage: string | undefined):
 }
 
 const options = optionsFrom(process.argv.slice(2));
+refuseWithoutRoom(ROOT);
 const folder = join(options.out, 'in-process');
 const runs = runsOf(options.out, 'in-process');
 const source = sourceOf();

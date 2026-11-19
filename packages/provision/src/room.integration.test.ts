@@ -17,9 +17,9 @@ describe('the room where something writes, on this computer', () => {
     await mkdir(join(dir, 'held'));
     await writeFile(join(dir, 'held', 'data'), Buffer.alloc(3 * 1024 * 1024));
     await writeFile(join(dir, 'small'), 'x');
-    const step = await roomStep({ id: 'room', what: 'tests', path: dir, needs: (await freeAt(dir)) + 1024 ** 3 });
+    const step = await roomStep({ id: 'room', for: 'a test run', path: dir, needs: (await freeAt(dir)) + 1024 ** 3 });
     const failure: unknown = await runSteps([step], { commands: localCommands(process.env) }, memoryReporter()).then(() => undefined, (err: unknown) => err);
     expect(failure).toBeInstanceOf(StepFailed);
-    expect((failure as StepFailed).why).toMatch(new RegExp(`^only .+ is free in ${dir} and tests need .+; using it: ${join(dir, 'held')} \\(3\\.0 MB\\), ${join(dir, 'small')}`));
+    expect((failure as StepFailed).why).toMatch(new RegExp(`^only .+ is free in ${dir}, and .+ is needed for a test run; using it: ${join(dir, 'held')} \\(3\\.0 MB\\), ${join(dir, 'small')}`));
   });
 });

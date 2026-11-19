@@ -8,7 +8,7 @@ export interface RoomContext {
 
 export interface RoomOptions {
   id: string;
-  what: string;
+  for: string;
   path: string;
   needs: number;
   free?: (path: string) => Promise<number>;
@@ -43,10 +43,10 @@ async function using(ctx: RoomContext, path: string): Promise<string> {
 
 export async function roomStep(options: RoomOptions): Promise<Step<RoomContext>> {
   const free = options.free ?? freeAt;
-  const short = (left: number): string => `only ${bytes(left)} is free in ${options.path} and ${options.what} need ${bytes(options.needs)}`;
+  const short = (left: number): string => `only ${bytes(left)} is free in ${options.path}, and ${bytes(options.needs)} is needed for ${options.for}`;
   return {
     id: options.id,
-    title: `Room where ${options.what} write: ${bytes(await free(options.path))} free in ${options.path}, ${bytes(options.needs)} needed`,
+    title: `Room in ${options.path}: ${bytes(await free(options.path))} free, ${bytes(options.needs)} needed for ${options.for}`,
     async check() {
       const left = await free(options.path);
       return left >= options.needs ? { done: true } : { done: false, why: short(left) };
