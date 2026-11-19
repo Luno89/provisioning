@@ -1,5 +1,4 @@
 export * from './agent.js';
 export * from './seeds.js';
 export * from './procedure-source.js';
-export * from './seed-diff.js';
 export * from './grants.js';
