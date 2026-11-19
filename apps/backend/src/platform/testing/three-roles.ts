@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
@@ -204,7 +204,10 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
-    const instanceEnv = { ...plan.instanceEnv, ...shared, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
+    const gatewayPort = await portToHandOn();
+    const temporalTls = dirname(inject('temporalCa'));
+    const machineGateway = { MACHINE_GATEWAY_PORT: String(gatewayPort), MACHINE_TEMPORAL_ADDRESS: `127.0.0.1:${gatewayPort}`, MACHINE_GATEWAY_TLS_CERT: join(temporalTls, 'server.crt'), MACHINE_GATEWAY_TLS_KEY: join(temporalTls, 'server.key') };
+    const instanceEnv = { ...plan.instanceEnv, ...shared, ...machineGateway, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
     const [instance, hub] = await Promise.all([
       startRole('instance', instanceEnv, ports.instance),
       startRole('hub', { ...plan.hubEnv, ...shared, DATA_DIR: hubData, ...giteaFor(place.hubUrl) }, ports.hub),
