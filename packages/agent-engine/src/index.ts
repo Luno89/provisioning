@@ -33,6 +33,7 @@ export {
   type MonitorSet,
   type MonitorContext,
 } from './runtime/monitors.js';
+export type { ModelThinkingProfile } from './model/thinking-classifier.js';
 
 // Approval Gates
 export {
