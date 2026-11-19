@@ -217,7 +217,6 @@
  "src apps/frontend/src/features/projects/components/ProjectEditor/useOpenFiles.ts <-> apps/frontend/src/features/projects/components/ProjectEditor/useOpenFiles.ts #a80e059be3fc": 1,
  "src apps/frontend/src/features/projects/components/TreeTypes/Bindings.tsx <-> apps/frontend/src/features/projects/components/TreeTypes/Bindings.tsx #13c84e4ba3f4": 1,
  "src apps/frontend/src/features/projects/components/TreeTypes/TreeTypeEditor.tsx <-> apps/frontend/src/features/projects/components/TreeTypes/TreeTypeEditor.tsx #231ebab69b8d": 1,
- "src apps/frontend/src/features/projects/components/Workspace/TreeModels.tsx <-> apps/frontend/src/features/projects/components/Workspace/TreeModels.tsx #705d396b6061": 1,
  "src apps/local-agent/src/acp-events.ts <-> apps/local-agent/src/acp-events.ts #ebba30161e0c": 1,
  "src apps/local-agent/src/acp-session.ts <-> apps/local-agent/src/acp-session.ts #2bb26b7d6b79": 1,
  "src packages/agent-engine/src/procedure/nodes/control.ts <-> packages/agent-engine/src/procedure/nodes/model.ts #adf65dad1c5b": 1,

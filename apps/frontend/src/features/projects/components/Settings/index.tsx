@@ -24,7 +24,7 @@ function Section({ title, children, danger = false }: { title: string; children:
   )
 }
 
-function TreeAutoMode({ treeId }: { treeId: string }) {
+export function TreeAutoMode({ treeId }: { treeId: string }) {
   return (
     <AutoModeSwitch
       state={useTreeAutoMode(treeId)}

@@ -16,7 +16,7 @@ export default function ExtensionsView() {
   const [fresh, setFresh] = useState({ id: '', title: '', describe: '' })
 
   if (extensions.isPending) return <p className="flex items-center gap-2 text-sm text-slate-400"><Loader2 size={14} className="animate-spin" /> Loading extensions…</p>
-  if (extensions.isError) return <p className="text-sm text-rose-400">{errorMessage(extensions.error)}</p>
+  if (extensions.isError) return <p role="alert" className="text-sm text-rose-400">{errorMessage(extensions.error)}</p>
 
   return (
     <div className="space-y-4">

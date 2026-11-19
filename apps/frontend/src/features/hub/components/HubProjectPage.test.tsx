@@ -126,6 +126,14 @@ describe('a shared project on the hub', () => {
     expect(await screen.findByText('Opening the chat…')).toBeTruthy()
   })
 
+  it('asks the owner\'s instance to open a feature chat that is not on the hub yet', async () => {
+    api.getHubBoard.mockResolvedValue(view())
+    wrap(<HubProjectPage id="h1" me="bo" />)
+    fireEvent.click(await screen.findByText('The field'))
+    await waitFor(() => expect(api.sendHubRequest).toHaveBeenCalledWith('h1', 'open-chat', { item: 'feature', id: 'b1' }))
+    expect(await screen.findByText('Opening the chat…')).toBeTruthy()
+  })
+
   it('says when the owner\'s instance is offline', async () => {
     api.getHubBoard.mockResolvedValue(view({ online: false }))
     wrap(<HubProjectPage id="h1" me="bo" />)

@@ -69,7 +69,7 @@ export function StoryTasks({ tasks }: { tasks: readonly EngineTask[] }) {
               </li>
             ))}
           </ul>
-          {failed && <p className="text-[11px] text-red-400">{errorMessage(failed) || 'That did not go through.'}</p>}
+          {failed && <p role="alert" className="text-[11px] text-red-400">{errorMessage(failed) || 'That did not go through.'}</p>}
         </div>
       )}
 

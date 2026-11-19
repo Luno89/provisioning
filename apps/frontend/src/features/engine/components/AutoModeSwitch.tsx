@@ -18,7 +18,7 @@ export default function AutoModeSwitch({ state, label, explain }: { state: AutoM
         {state.switching && <Loader2 size={11} className="animate-spin text-slate-400" />}
       </label>
       <span className="text-[11px] text-slate-500">{explain}</span>
-      {state.error ? <span className="text-[11px] text-rose-300">{errorMessage(state.error)}</span> : null}
+      {state.error ? <span role="alert" className="text-[11px] text-rose-300">{errorMessage(state.error)}</span> : null}
     </div>
   )
 }

@@ -24,6 +24,8 @@ const SERVERS = [
     ], at: '2026-10-12T10:00:00Z' },
   },
   { id: 'd1', name: 'docs', runs: { where: 'hosted' as const, url: 'http://docs.test/mcp' }, status: { state: 'failed', why: 'connection refused' }, createdAt: 't', updatedAt: 't' },
+  { id: 'c1', name: 'browser', runs: { ...RUNS, port: 8932 }, status: { state: 'capturing' }, createdAt: 't', updatedAt: 't' },
+  { id: 'h1', name: 'search', runs: { where: 'hosted' as const, url: 'http://search.test/mcp' }, status: { state: 'capturing' }, createdAt: 't', updatedAt: 't' },
 ]
 
 vi.mock('../../api/workspaceDependencies', async (importOriginal) => ({
@@ -89,6 +91,16 @@ describe('the MCP servers explorer', () => {
     params.id = 'd1'
     render(<McpServerExplorer />)
     expect(screen.getByRole('alert')).toHaveTextContent('connection refused')
+  })
+
+  it('says a server run in the workspace is built before it is asked while it is captured, and one at an address is only asked', () => {
+    params.id = 'c1'
+    const workspace = render(<McpServerExplorer />)
+    expect(screen.getByText(/^Being captured/)).toHaveTextContent('Being captured: its image is built (minutes, the first time), then it is started and asked. Its tools are offered once it answers.')
+    workspace.unmount()
+    params.id = 'h1'
+    render(<McpServerExplorer />)
+    expect(screen.getByText(/^Being captured/)).toHaveTextContent(/^Being captured\. Its tools are offered once it answers\.$/)
   })
 
   it('lets the person choose which tools to offer and say what each really does', async () => {
