@@ -7,6 +7,7 @@ export interface ComposeProject {
   program: readonly [string, ...string[]];
   files: readonly string[];
   project?: string;
+  build?: boolean;
 }
 
 export interface ComposeContext {
@@ -88,7 +89,7 @@ export function composeProvider(title: string, compose: ComposeProject): Provide
     running: (ctx) => containersState(ctx, compose),
     async start(ctx, progress, unanswered) {
       if (unanswered !== undefined) progress.line(`${title} runs with the compose file's settings but does not answer (${unanswered}), so its containers are made again`);
-      await ctx.commands.run(composeCommand(compose, ['up', '-d', ...(unanswered !== undefined ? ['--force-recreate'] : [])]), progress);
+      await ctx.commands.run(composeCommand(compose, ['up', '-d', ...(compose.build ? ['--build'] : []), ...(unanswered !== undefined ? ['--force-recreate'] : [])]), progress);
     },
     ended: (ctx, progress) => endedForGood(ctx, compose, progress),
   };

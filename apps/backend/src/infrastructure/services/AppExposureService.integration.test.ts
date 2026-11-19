@@ -1,25 +1,25 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
-import { encryptValue, nodeProcesses, nodeStreams, succeeded, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
+import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { adminEdge } from '../../instances/services/InstanceAddresses.js';
 import { startK3s, TOOLS } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
 import { ClusterAccess } from './ClusterAccess.js';
-import { removeThrowaway, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { localCommands, removeSteps, runSteps, type ContainerContext } from '@koala/provision';
+import { memoryReporter } from '@koala/provision/testing';
+import { edgeCaddy, type EdgeCaddy } from '../../platform/testing/edge-caddy.js';
 
 const KEY = 'test-key' as never;
 const k3s = await startK3s();
 const REPO = resolve(import.meta.dirname, '../../../../..');
-const EDGE_IMAGE = 'caddy:2.10.2-alpine';
 const NAMESPACE = `shop-${randomUUID().slice(0, 6)}`;
-const docker = (...args: string[]): Promise<string> => succeeded(nodeProcesses, { command: 'docker', args });
 
 function chartEdgeCaddyfile(): string {
   const rendered = execFileSync(join(REPO, 'bin/helm'), ['template', 'luno', join(REPO, 'charts/instance'), '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi'], { encoding: 'utf8' });
@@ -46,7 +46,9 @@ spec:
   ports: [{name: web, port: 80, targetPort: 80}]
 `;
 
+let edge: EdgeCaddy | undefined;
 let edgeName = '';
+const edgeCtx: ContainerContext = { commands: localCommands(process.env) };
 let sites = '';
 let admin = '';
 let local = '';
@@ -70,23 +72,15 @@ beforeAll(async () => {
   mkdirSync(sites);
   chmodSync(folder, 0o755);
   chmodSync(sites, 0o777);
-  writeFileSync(join(folder, 'Caddyfile'), chartEdgeCaddyfile());
-  edgeName = `koala-edge-test-${randomUUID().slice(0, 8)}`;
-  await docker('run', '-d', '--name', edgeName, ...throwawayLabel(), '-p', '127.0.0.1::2019', '-p', '127.0.0.1::8000',
-    '-v', `${join(folder, 'Caddyfile')}:/etc/edge/Caddyfile:ro`, '-v', `${sites}:/app/apps/backend/data/caddy/apps:ro`,
-    EDGE_IMAGE, 'caddy', 'run', '--config', '/etc/edge/Caddyfile');
-  const port = async (inside: string) => (await docker('port', edgeName, inside)).split('\n')[0]!.split(':').pop()!.trim();
-  admin = `http://127.0.0.1:${await port('2019')}`;
-  local = `http://127.0.0.1:${await port('8000')}`;
-  for (;;) {
-    const answered = await fetch(`${admin}/config/`).then((r) => r.ok, () => false);
-    if (answered) break;
-    await new Promise((done) => setTimeout(done, 200));
-  }
+  edge = edgeCaddy(chartEdgeCaddyfile(), { folder, publish: [8000], mounts: [`${sites}:/app/apps/backend/data/caddy/apps:ro`] });
+  await runSteps([edge.step], edgeCtx, memoryReporter());
+  edgeName = edge.container.name;
+  admin = edge.admin();
+  local = `http://127.0.0.1:${edge.container.published(8000)}`;
 });
 
 afterAll(async () => {
-  if (edgeName) await removeThrowaway(edgeName, (args) => docker(...args));
+  if (edge) await removeSteps([edge.step], edgeCtx, memoryReporter());
   await k3s.stop();
 }, 0);
 

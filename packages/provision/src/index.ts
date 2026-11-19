@@ -8,6 +8,7 @@ export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-repor
 export { bytes, freeAt, roomStep, type RoomContext, type RoomOptions } from './room.js';
 export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
 export { containerProvider, removeContainer, type ContainerContext, type ContainerProvider, type ContainerSpec } from './container.js';
+export { k3sAnswers, k3sStep, readySince, type Kubectl } from './k3s.js';
 export { processProvider, type ProcessProvider, type ProcessSpec } from './process.js';
 export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
 export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';

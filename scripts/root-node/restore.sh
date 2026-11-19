@@ -76,7 +76,7 @@ REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
 (cd "$REPO_DIR" && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" temporal-keys) \
   || die "Temporal's certificate and key could not be made from the restored env; the step that failed says why above"
 ok "env and data restored, keeping this host's own Mongo password, collector address and trial slots"
-(cd "$REPO_DIR" && COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup >/dev/null && docker compose -f docker-compose.caddy.yml up -d >/dev/null) \
+(cd "$REPO_DIR" && COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup >/dev/null && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" caddy) \
   || die "Caddy's certificate and DNS settings could not be made from the restored env; run: COMPOSE_ENV=$COMPOSE_ENV npx tsx scripts/root-node/dns.ts setup"
 
 docker stop "$CADDY" >/dev/null

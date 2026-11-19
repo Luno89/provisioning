@@ -294,9 +294,8 @@ REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
 
 # ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
-npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" mongo temporal headscale \
+npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" mongo temporal headscale caddy \
   || die "root's services did not all start; the step that failed says why above"
-docker compose -f docker-compose.caddy.yml up -d --build
 docker compose -f docker-compose.mail.yml up -d --build
 ok "Mongo, Temporal, Headscale, Caddy and the mail server running"
 if [ "$LAB" -eq 1 ]; then

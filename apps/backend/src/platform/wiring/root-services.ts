@@ -1,15 +1,17 @@
 import { chmod, chown, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { Connection } from '@temporalio/client';
 import { composeProvider, composeStep, serviceStep, type ComposeContext, type ComposeProject, type Provider, type ServiceContext, type Step, type StepState } from '@koala/provision';
 import { mongoClientFor } from '../lib/collection.js';
+import { answerFailure } from '../lib/dependencies.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
 import { temporalApiKey, temporalJwks } from '../lib/temporal-auth.js';
 import { temporalTls } from '../lib/temporal-tls.js';
 import { answersHttp } from './dependencies.js';
 
-export const ROOT_SERVICE_NAMES = ['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry'] as const;
+export const ROOT_SERVICE_NAMES = ['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry', 'caddy'] as const;
 export type RootServiceName = typeof ROOT_SERVICE_NAMES[number];
 
 export interface FilesOwner {
@@ -25,7 +27,10 @@ export interface RootServices {
   mongo: { files: string[]; address: string };
   headscale: { files: string[]; url: string };
   registry: { files: string[]; push: string };
+  caddy: { files: string[]; admin: CaddyAdmin };
 }
+
+export type CaddyAdmin = { socket: string } | { url: string };
 
 export type RootServicePlaces = Omit<RootServices, 'program' | 'tlsOwner' | 'temporal'> & { temporal: Omit<RootServices['temporal'], 'key'> };
 
@@ -41,6 +46,7 @@ export function rootServicesIn(repo: string): RootServicePlaces {
     mongo: { files: [join(repo, 'docker-compose.mongo.yml')], address: '127.0.0.1:27017' },
     headscale: { files: [join(repo, 'docker-compose.headscale.yml')], url: 'http://127.0.0.1:8080' },
     registry: { files: [join(repo, 'docker-compose.registry.yml')], push: '127.0.0.1:5000' },
+    caddy: { files: [join(repo, 'docker-compose.caddy.yml')], admin: { socket: '/run/koala-caddy/admin.sock' } },
   };
 }
 
@@ -171,6 +177,30 @@ export function mongoAnswers(address: () => string): () => Promise<StepState> {
   };
 }
 
+function adminStatus(admin: CaddyAdmin): Promise<number> {
+  if ('url' in admin) return fetch(`${admin.url}/config/`).then((answer) => answer.status);
+  return new Promise((done, failed) => {
+    const asked = request({ socketPath: admin.socket, path: '/config/', method: 'GET' }, (answer) => {
+      answer.resume();
+      done(answer.statusCode ?? 0);
+    });
+    asked.once('error', failed);
+    asked.end();
+  });
+}
+
+export function caddyAnswers(admin: CaddyAdmin): () => Promise<StepState> {
+  return async () => {
+    const status = await adminStatus(admin);
+    if (status !== 200) throw answerFailure(status, null);
+    return { done: true };
+  };
+}
+
+export function caddyStep<Context extends ServiceContext>(provider: Provider<Context>, admin: () => CaddyAdmin): Step<Context> {
+  return serviceStep({ id: 'caddy', title: 'Caddy, answering on its admin API', provider, answers: () => caddyAnswers(admin())() });
+}
+
 export const MONGO_TITLE = 'Mongo, as a replica set';
 
 export function mongoStep<Context extends ServiceContext>(provider: Provider<Context>, address: () => string): Step<Context> {
@@ -195,6 +225,8 @@ function stepsOf(services: RootServices, name: RootServiceName): Step<ComposeCon
       return [mongoStep(composeProvider(MONGO_TITLE, project(services, services.mongo.files)), () => services.mongo.address)];
     case 'headscale':
       return [composeStep({ id: 'headscale', title: 'Headscale, the mesh\'s coordination server', compose: project(services, services.headscale.files), answers: httpAnswers(`${services.headscale.url}/health`) })];
+    case 'caddy':
+      return [caddyStep(composeProvider('Caddy', { ...project(services, services.caddy.files), build: true }), () => services.caddy.admin)];
     case 'registry':
       return [composeStep({ id: 'registry', title: 'The image registry for instances', compose: project(services, services.registry.files), answers: httpAnswers(`http://${services.registry.push}/v2/`) })];
   }

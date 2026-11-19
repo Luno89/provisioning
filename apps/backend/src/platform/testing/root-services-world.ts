@@ -64,6 +64,7 @@ export async function rootServicesWorld(): Promise<RootServicesWorld> {
       ].join('\n'))],
       push: `127.0.0.1:${writer}`,
     },
+    caddy: { files: [join(REPO, 'docker-compose.caddy.yml')], admin: { socket: join(folder, 'caddy-admin.sock') } },
   };
   const down = async (): Promise<void> => {
     const commands = localCommands(process.env);

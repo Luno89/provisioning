@@ -3,7 +3,7 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { ignore } from '@koala/engine-core/failures';
+import { allReporters, k3sStep, runSteps, type Provider, type ServiceContext } from '@koala/provision';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
 
@@ -62,15 +62,7 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedA
 
 const kubectl = (host: ClusterHost, args: string[]) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]);
 
-const STARTING = 'while k3s starts its API refuses kubectl, which is what starting looks like; the loop asks again';
-
-const DNS_READY = '{.items[0].status.conditions[?(@.type=="Ready")].status} {.items[0].status.conditions[?(@.type=="Ready")].lastTransitionTime}';
-const NODE_READY = '{.items[0].status.conditions[?(@.type=="Ready")].status} {.items[0].status.conditions[?(@.type=="Ready")].lastTransitionTime}';
-
-export const readySince = (answer: string, since: number): boolean => {
-  const [status, at] = answer.trim().split(' ');
-  return status === 'True' && Boolean(at) && Date.parse(at!) >= since;
-};
+export { readySince } from '@koala/provision';
 
 export const kubeconfigOnMesh = (kubeconfig: string, meshIp: string): string =>
   kubeconfig.replace(/server:\s*https:\/\/(127\.0\.0\.1|localhost|\[::1\]):6443/g, `server: https://${meshIp}:6443`);
@@ -81,15 +73,17 @@ async function unitFailed(host: ClusterHost): Promise<string | undefined> {
   return (await host.run('systemctl', ['status', 'k3s', '--no-pager', '--lines=30']).catch((err: Error & { stdout?: string }) => err.stdout ?? err.message)).trim();
 }
 
-async function readyAfter(host: ClusterHost, since: number): Promise<void> {
-  for (;;) {
-    const node = await kubectl(host, ['get', 'nodes', '-o', `jsonpath=${NODE_READY}`]).catch(ignore(STARTING)) ?? '';
-    const dns = await kubectl(host, ['-n', 'kube-system', 'get', 'pod', '-l', 'k8s-app=kube-dns', '-o', `jsonpath=${DNS_READY}`]).catch(ignore(STARTING)) ?? '';
-    if (readySince(node, since) && readySince(dns, since)) return;
-    const failed = await unitFailed(host);
-    if (failed) throw new Error(`k3s stopped while it started on this machine:\n${failed}`);
-    await host.pause(2000);
-  }
+function machineK3s(host: ClusterHost): Provider<ServiceContext> {
+  return {
+    running: async () => (await clusterState(host) === 'running' ? { done: true } : { done: false, why: 'k3s is not running on this machine' }),
+    async start() {
+      if (await clusterState(host) !== 'running') await host.run('sudo', ['-n', 'systemctl', 'start', 'k3s']);
+    },
+    async ended() {
+      const failed = await unitFailed(host);
+      return failed ? `k3s stopped while it started on this machine:\n${failed}` : undefined;
+    },
+  };
 }
 
 export async function clusterState(host: ClusterHost): Promise<'absent' | 'stopped' | 'running'> {
@@ -114,8 +108,7 @@ export async function runMachineCluster(host: ClusterHost, op: MachineClusterOp)
   const running = await clusterState(host) === 'running';
   const since = running ? 0 : host.now() - 1000;
   await host.wanted(true);
-  if (!running) await host.run('sudo', ['-n', 'systemctl', 'start', 'k3s']);
-  await readyAfter(host, since);
+  await runSteps([k3sStep(machineK3s(host), (args) => kubectl(host, [...args]), () => since)], { wait: { pause: host.pause } }, allReporters());
   return { state: 'running', meshIp, kubeconfig: kubeconfigOnMesh(await host.read(K3S_KUBECONFIG), meshIp) };
 }
 
