@@ -80,6 +80,42 @@ describe('a service started through its compose file', () => {
     expect(asked).toBeGreaterThanOrEqual(3);
   });
 
+  it('waits through a connection that does not open yet while it starts, saying what the connection said, and ends answered', async () => {
+    const host: Host = { configured: { temporal: 't' }, containers: {}, afterUp: (h) => { h.containers['temporal'] = { state: 'running', hash: 't' }; } };
+    const waited: string[] = [];
+    let asked = 0;
+    const answers = async (): Promise<StepState> => {
+      asked += 1;
+      if (asked <= 12) throw new Error('Failed to connect before the deadline');
+      return { done: true };
+    };
+    const reporter = memoryReporter();
+    await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands: docker(host), wait: { ...instant, waiting: (_what, last) => { waited.push(last); } } }, reporter);
+    expect(asked).toBeGreaterThan(12);
+    expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'temporal' });
+    expect(waited[0]).toContain('Failed to connect before the deadline');
+  });
+
+  it('fails with the exit and the log tail when its container exits while its connection never opened', async () => {
+    let asked = 0;
+    const host: Host = {
+      configured: { temporal: 't' },
+      containers: {},
+      logs: 'temporal-1  | unable to start: listen tcp :7233: bind: address already in use\n',
+      afterUp: (h) => { h.containers['temporal'] = { state: 'running', hash: 't' }; },
+      onPs: (h) => { if (asked === 3) h.containers['temporal'] = { state: 'exited', exitCode: 1, hash: 't' }; },
+    };
+    const answers = async (): Promise<StepState> => {
+      asked += 1;
+      throw new Error('Failed to connect before the deadline');
+    };
+    const commands = docker(host);
+    const failure = await failureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands, wait: instant }, memoryReporter()));
+    expect(failure.why).toContain('Temporal to answer: temporal exited with 1');
+    expect(failure.tail).toContain('temporal-1  | unable to start: listen tcp :7233: bind: address already in use');
+    expect(asked).toBe(3);
+  });
+
   it('is started again with its new settings when its container runs with older ones', async () => {
     const host: Host = { configured: { mongodb: 'new' }, containers: { mongodb: { state: 'running', hash: 'old' } }, afterUp: (h) => { h.containers['mongodb'] = { state: 'running', hash: 'new' }; } };
     const commands = docker(host);
