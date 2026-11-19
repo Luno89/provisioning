@@ -31,7 +31,8 @@ vi.mock('axios', () => ({
 import path from 'path';
 import { InfisicalService } from './InfisicalService.js';
 import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
-import { theFence } from '../../platform/index.js';
+import { DependencyDownError, DependencyStates, theFence } from '../../platform/index.js';
+import { objectWith } from '../../platform/lib/test-matchers.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
 
 const dataDir = testDataDir();
@@ -55,17 +56,19 @@ describe('InfisicalService', () => {
     service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir);
   });
 
-  it('tells its dependency state how Infisical answered: a 503 as down, a 404 as an answer, and a lost connection as down', async () => {
-    const said: string[] = [];
-    const reporter = { failed: (_dependency: string, err: unknown) => { said.push(`failed: ${(err as Error).message}`); return err; }, answered: () => { said.push('answered'); } };
-    const watched = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir, reporter as never);
+  it('tells Needs attention how Infisical answered: a 503 as down with why, any other answer as up again, and a lost connection as down', async () => {
+    const states = new DependencyStates({ process: 'backend', described: ['infisical'], log: () => undefined });
+    const watched = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false }, dataDir, states);
     post.mockImplementationOnce(() => status(503));
     await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow(/^Infisical answered 503 to POST/);
+    expect(states.down()).toEqual([objectWith({ dependency: 'infisical', name: 'Infisical', reason: 'it answered 503' })]);
     post.mockImplementationOnce(() => status(404));
     await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow(/^Infisical answered 404 to POST/);
+    expect(states.down()).toEqual([]);
     post.mockImplementationOnce(unreachable);
-    await expect(watched.setSecret('p1', 'K', 'v')).rejects.toThrow();
-    expect(said).toEqual(['failed: it answered 503', 'answered', expect.stringMatching(/^failed: /)]);
+    await expect(watched.setSecret('p1', 'K', 'v')).rejects.toBeInstanceOf(DependencyDownError);
+    expect(states.stateOf('infisical')).toMatchObject({ state: 'down' });
+    states.stop();
   });
 
   it('reaches Infisical only at the address it was given', async () => {
