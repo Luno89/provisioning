@@ -160,6 +160,23 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(heard).toEqual(['inst-installed asked', 'inst-installed ready']);
     });
 
+    it('hears each write of an instance on Koala\'s servers or moving from them, which its owner\'s page follows', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const watching = store.watchInstalls((written) => { heard.push(`${written.id} ${written.move?.state ?? written.status}`); if (written.move?.state === 'failed') finish(); });
+      await watching.ready;
+      const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-11-18T10:00:00.000Z', trialEndsAt: '2026-12-02T10:00:00.000Z' };
+      await store.saveInstance(instance('inst-plain', 'o1'));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'installing' }));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'waiting', startedAt: '2026-11-18T10:01:00.000Z' } }));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'failed', startedAt: '2026-11-18T10:01:00.000Z', detail: 'you stopped the move' } }));
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['inst-pool installing', 'inst-pool waiting', 'inst-pool failed']);
+    });
+
     it('changes only the fields named, only while the install named is the instance\'s, and stamps when it first served once ready', async () => {
       const store = await make();
       const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, line: 'waiting', askedAt: '2026-11-18T10:00:00.000Z', at: '2026-11-18T10:00:00.000Z' };

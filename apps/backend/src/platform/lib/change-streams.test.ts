@@ -51,6 +51,12 @@ describe('following writes to a collection', () => {
     expect(opened).toHaveLength(2);
   });
 
+  it('follows records matching any of several conditions on the written record', () => {
+    const { collection, opened } = watched();
+    void watchWrites(() => collection, { $or: [{ install: { $exists: true } }, { move: { $exists: true } }] }, () => undefined);
+    expect(opened).toEqual([{ pipeline: [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, $or: [{ 'fullDocument.install': { $exists: true } }, { 'fullDocument.move': { $exists: true } }] } }], options: { fullDocument: 'updateLookup' } }]);
+  });
+
   it('is ready when every one of several is', async () => {
     const one = watched();
     const two = watched();

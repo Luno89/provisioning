@@ -88,7 +88,7 @@ export class MemoryInstancesStore implements InstancesStore {
     }
     const stored = asStored(copied(stampServed(instance)));
     this.instances.set(instance.id, stored);
-    if (stored.install) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    if (stored.install || stored.move || stored.pool) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
   }
 
   async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {

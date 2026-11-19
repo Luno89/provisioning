@@ -149,7 +149,7 @@ export class MongoInstancesStore implements InstancesStore {
   }
 
   watchInstalls(on: (instance: InstanceRecord) => void): Watching {
-    return watchWrites(() => this.instanceRegistry, { install: { $exists: true } }, ({ _id, ...rest }) => on(rest as unknown as InstanceRecord));
+    return watchWrites(() => this.instanceRegistry, { $or: [{ install: { $exists: true } }, { move: { $exists: true } }, { pool: { $exists: true } }] }, ({ _id, ...rest }) => on(rest as unknown as InstanceRecord));
   }
 
   async deleteInstance(id: string): Promise<void> {
