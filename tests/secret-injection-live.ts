@@ -41,7 +41,7 @@ async function provideThroughCard(http: AxiosInstance, db: Database, ownerId: st
 }
 
 async function check(http: AxiosInstance, db: Database, ownerId: string): Promise<string[]> {
-  const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
+  const machine = (await devKoalaEnv()).INSTANCE_MACHINE_ID;
   assert.ok(machine, 'dev\'s Koala names no machine of its own (INSTANCE_MACHINE_ID)');
   const cluster = machineClusterId(machine);
   const stamp = Date.now().toString(36);
@@ -92,7 +92,7 @@ async function check(http: AxiosInstance, db: Database, ownerId: string): Promis
 
 async function main(): Promise<void> {
   const owner = await devOwner();
-  const db = devKoalaDatabase();
+  const db = await devKoalaDatabase();
   await db.init();
   const http = axios.create({ baseURL: `${devKoalaApi}/api`, proxy: false, headers: { Cookie: owner.cookie } });
   const notes: string[] = [];

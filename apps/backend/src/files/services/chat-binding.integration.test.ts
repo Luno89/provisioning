@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../../platform/lib/mongo-lease.js';
 import { describe, expect, it } from 'vitest';
 import { testDatabaseAt } from '../../platform/lib/test-database.js';
 import { storedFilesOn } from '../testing/stored-files-twin.js';
@@ -13,7 +13,7 @@ describe('a chat becoming a project\'s on a real Mongo replica set', () => {
     const { files } = storedFilesOn(db.files);
     await db.engine.saveConversation(chat as never);
     for (const name of ['a.txt', 'b.txt']) await files.at('bo', { kind: 'conversation', id: 'c1' }).upload(name, Readable.from([Buffer.from(name)]), name.length, 'text/plain', { replace: true });
-    const client = await MongoClient.connect(uri);
+    const { client, release } = await leaseMongo(uri);
     try {
       await client.db(dbName).command({ collMod: 'storedFiles', validator: { path: { $ne: 'chats/c1/b.txt' } }, validationAction: 'error' });
       await expect(bindChatWithItsFiles(db)('bo', 'c1', { treeId: 't1', projectId: 'p1' })).rejects.toThrow('Document failed validation');
@@ -26,7 +26,7 @@ describe('a chat becoming a project\'s on a real Mongo replica set', () => {
       const moved = await files.at('bo', { kind: 'project', id: 'p1' }).list('chats/c1');
       expect(moved.ok && moved.value.map((entry) => entry.path)).toEqual(['chats/c1/a.txt', 'chats/c1/b.txt']);
     } finally {
-      await client.close();
+      await release();
     }
   });
 });

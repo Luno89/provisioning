@@ -9,8 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
-import { createDatabase, roleFromEnv } from '../apps/backend/src/platform/index.js';
+import { createDatabase, leaseMongo, roleFromEnv } from '../apps/backend/src/platform/index.js';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { instanceRouteFiles } from '../apps/backend/src/instances/lib/instance-routes.js';
 import { PROXY_IMAGE, proxyCaddyfile } from '../apps/backend/src/instances/lib/pool.js';
@@ -241,18 +240,17 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
 }
 
 async function dropDatabases(): Promise<void> {
-  const client = new MongoClient(process.env.MONGO_URI || DEV_MONGO);
+  const { client, release } = await leaseMongo(process.env.MONGO_URI || DEV_MONGO);
   try {
-    await client.connect();
     for (const database of databases) if (database.startsWith('koala_hardening_')) await client.db(database).dropDatabase();
   } finally {
-    await client.close();
+    await release();
   }
 }
 
 async function main(): Promise<void> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
-  const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
+  const image = await buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
   try {
     await clientAddresses(image);
     await plaintextRefusals(image);
@@ -262,7 +260,7 @@ async function main(): Promise<void> {
       await noStubClouds(stack);
       await rootNeverCallsMadeUpAddresses(stack, image);
     } catch (err) {
-      for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);
+      for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${await stack.logs(side, 40)}`);
       throw err;
     } finally {
       await stack.stop();

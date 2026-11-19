@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { asPerson, encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { TOOLS } from '../testing/real-k3s.js';
-import { ClusterAccess, runnersByRecord } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess, runnersByRecord } from './ClusterAccess.js';
 import { ClusterContentsService } from './ClusterContentsService.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 
@@ -23,7 +22,7 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
   it('reads the app\'s workload, the nodes and the releases on the real cluster, and says why for a cluster it cannot reach', async () => {
     const db = await testDatabase();
     for (const record of [desk, { ...resting, status: 'stopped' as const }]) await db.infrastructure.saveCluster(record);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-contents-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-contents-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.kubectl(desk.id, ['create', 'namespace', SHOP]);
     await access.kubectl(desk.id, ['create', 'deployment', 'shop', '-n', SHOP, '--image=registry.k8s.io/pause:3.9']);
     await access.kubectl(desk.id, ['rollout', 'status', 'deployment/shop', '-n', SHOP, '--timeout=720h']);
@@ -53,7 +52,7 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
   it('shows Koala\'s own pods as the platform on the cluster Koala runs in, and nowhere else', async () => {
     const db = await testDatabase();
     await db.infrastructure.saveCluster(desk);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-contents-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-contents-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.kubectl(desk.id, ['create', 'namespace', KOALA]);
     await access.kubectl(desk.id, ['create', 'deployment', 'instance-backend', '-n', KOALA, '--image=registry.k8s.io/pause:3.9']);
     await access.kubectl(desk.id, ['rollout', 'status', 'deployment/instance-backend', '-n', KOALA, '--timeout=720h']);

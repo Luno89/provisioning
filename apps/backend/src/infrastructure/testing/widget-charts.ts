@@ -6,7 +6,8 @@ import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { startedMachine, type Reach } from '../lib/cluster-places.js';
 import { ClusterAccess } from '../services/ClusterAccess.js';
 import { chartFolder, chartSourcesStandIn, type ChartSourcesStandIn } from './chart-sources-stand-in.js';
-import { startK3s, TOOLS } from './real-k3s.js';
+import { startK3s } from './real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 export interface WidgetCluster {
   access: ClusterAccess;
@@ -47,7 +48,7 @@ ${fields.map((field) => `                ${field}: { type: string }`).join('\n')
   const access = new ClusterAccess({
     here: { koalaMachineId: 'dev1', root: false },
     folder: mkdtempSync(join(tmpdir(), `koala-${machine}-`)),
-    processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account,
+    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account,
     ...(helm.readsSources ? { chartSources: sources.url } : {}),
   });
   const reach = startedMachine(machine, k3s.admin);

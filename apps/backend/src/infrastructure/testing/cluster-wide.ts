@@ -1,5 +1,5 @@
 import { nodeProcesses, succeeded } from '../../platform/index.js';
-import { TOOLS } from './real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 const CLUSTER_SCOPED = [
   'clusterroles', 'clusterrolebindings', 'customresourcedefinitions', 'runtimeclasses', 'priorityclasses', 'storageclasses',
@@ -11,7 +11,7 @@ const KUBE_SYSTEM = ['deployments', 'daemonsets', 'statefulsets', 'services', 'j
 interface Listed { items: { kind: string; metadata: { name: string } }[] }
 
 const listed = async (kubeconfig: string, args: string[]): Promise<Listed['items']> =>
-  (JSON.parse(await succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', kubeconfig, 'get', ...args, '-o', 'json'] })) as Listed).items;
+  (JSON.parse(await succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', kubeconfig, 'get', ...args, '-o', 'json'] })) as Listed).items;
 
 export async function clusterWide(kubeconfig: string): Promise<string[]> {
   const scoped = await listed(kubeconfig, [CLUSTER_SCOPED.join(',')]);

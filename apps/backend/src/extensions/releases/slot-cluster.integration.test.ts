@@ -6,7 +6,7 @@ import { giteaStandIn, type GiteaStandIn } from '../../projects/testing/gitea-ap
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess } from '../../infrastructure/index.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { createSlotCluster } from './slot-cluster.js';
 import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
@@ -36,7 +36,7 @@ beforeAll(async () => {
     folder: mkdtempSync(join(tmpdir(), 'koala-slot-cluster-')),
     processes: nodeProcesses,
     streams: nodeStreams,
-    tools: TOOLS,
+    tools: CLUSTER_TOOL_PATHS,
     dataKey: KEY,
   });
 });

@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
 import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from '../infrastructure/testing/hugging-face-stand-in.js';
-import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { startK3s } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
 import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
@@ -18,7 +19,7 @@ import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
 const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
 const k3s = await startK3s();
-const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });
+const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account });
 const DESK: Reach = startedMachine('machine-desk', k3s.admin);
 
 let env: TestWorkflowEnvironment;

@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   try {
     console.log('[1/4] the bench idles after one minute; every other agent counts as already benched');
     await http.put('/evals/level2/bench', { enabled: true, idleMinutes: 1, fullEveryHours: 24 * 365 });
-    const host = liveEngineHost(db);
+    const host = await liveEngineHost(db);
     const others = (await http.get('/evals/level2/scenarios')).data.scenarios as { agent: string }[];
     const benched: Record<string, string> = {};
     for (const name of new Set(others.map((scenario) => scenario.agent))) {

@@ -2,11 +2,11 @@ import { spawn } from 'child_process';
 import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
-  appsOnCluster, InstanceReporter, MOVE_STEP_WORDS, MoveParts, movedStateSecrets, restoreMongo as restoreMongoFrom, retargetCluster, retargetedStateSecrets, textOf,
+  InstanceReporter, MOVE_STEP_WORDS, MoveParts, movedRecordsIn, movedStateSecrets, restoreMongo as restoreMongoFrom, retargetedStateSecrets, textOf,
   type KubeObject, type MovePart,
 } from '../instances/index.js';
 import { clusterAccessFrom, MOVE_IN_ID, type ClusterAccess } from '../infrastructure/index.js';
-import { childEnv, createDatabase, ensureReplicaSet, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings, type PlatformKeys } from '../platform/index.js';
+import { childEnv, createDatabase, failureOf, leaseMongo, moveImportSettingsFrom, reopening, type MongoLease, type MoveImportSettings, type PlatformKeys } from '../platform/index.js';
 
 function run(args: string[], input?: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -28,19 +28,21 @@ export const kubectlOn = (cluster: Pick<ClusterAccess, 'kubectl' | 'pipe' | 'own
   (input ? cluster.pipe(cluster.own(), args, input) : cluster.kubectl(cluster.own(), args));
 
 export async function restoreMongoInto(target: { uri: string; dbName: string }, gzipped: Readable, log: (line: string) => void): Promise<number> {
-  const client = mongoClientFor(target.uri);
   const again = reopening(3_000);
-  for (;;) {
-    const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
-    if (unreachable === undefined) break;
-    log(`  waiting for this machine's Mongo: ${unreachable}; trying again in ${again.seconds} s`);
-    await again.after();
+  let lease: MongoLease | undefined;
+  while (!lease) {
+    lease = await leaseMongo(target.uri).catch((err: Error) => {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw err;
+      log(`  waiting for this machine's Mongo: ${failure.reason}; trying again in ${again.seconds} s`);
+      return undefined;
+    });
+    if (!lease) await again.after();
   }
   try {
-    await ensureReplicaSet(client);
-    return await restoreMongoFrom(client, target.dbName, gzipped);
+    return await restoreMongoFrom(lease.client, target.dbName, gzipped);
   } finally {
-    await client.close();
+    await lease.release();
   }
 }
 
@@ -59,12 +61,11 @@ export interface MoveMongoDeps {
 
 export async function moveMongo(deps: MoveMongoDeps): Promise<void> {
   deps.say(`  ${await restoreMongoInto(deps.target, await deps.parts.part('mongo'), deps.say)} records`);
-  const client = mongoClientFor(deps.target.uri);
+  const lease = await leaseMongo(deps.target.uri);
   try {
-    await client.connect();
-    const db = client.db(deps.target.dbName);
-    const deploymentIds = await appsOnCluster(db, deps.from);
-    deps.say(`  ${await retargetCluster(db, deps.from, deps.onto)} records moved from ${deps.from} onto ${deps.onto}`);
+    const moved = movedRecordsIn(lease.client.db(deps.target.dbName));
+    const deploymentIds = await moved.appsOnCluster(deps.from);
+    deps.say(`  ${await moved.retargetCluster(deps.from, deps.onto)} records moved from ${deps.from} onto ${deps.onto}`);
     const given = await deps.parts.part('terraform-state', undefined, true);
     if (given) {
       const secrets = retargetedStateSecrets(movedStateSecrets({ items: JSON.parse(await textOf(given)) as KubeObject[] }), { from: deps.from, onto: deps.onto, deploymentIds });
@@ -72,7 +73,7 @@ export async function moveMongo(deps: MoveMongoDeps): Promise<void> {
       if (secrets.length) await deps.kubectl(['apply', '-n', deps.namespace, '--server-side', '--force-conflicts', '-f', '-'], Readable.from([JSON.stringify({ apiVersion: 'v1', kind: 'List', items: secrets })]));
     }
   } finally {
-    await client.close();
+    await lease.release();
   }
   const records = createDatabase({ mongo: deps.target, dataKey: deps.dataKey });
   try {

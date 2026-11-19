@@ -157,7 +157,7 @@ async function exercise(scope: string, label: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const db = devKoalaDatabase();
+  const db = await devKoalaDatabase();
   await db.init();
   const signedIn = await devOwner();
   const owner = signedIn.id;

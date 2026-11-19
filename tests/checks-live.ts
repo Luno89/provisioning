@@ -15,7 +15,7 @@ interface Result { scenarioId: string; runId: string; trace?: { traceId: string;
 
 async function main(): Promise<void> {
   const owner = await devOwner();
-  const db = devKoalaDatabase();
+  const db = await devKoalaDatabase();
   await db.init();
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: owner.cookie }, validateStatus: () => true });
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;

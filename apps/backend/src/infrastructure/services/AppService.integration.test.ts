@@ -7,9 +7,8 @@ import { objectWith } from '../../platform/lib/test-matchers.js';
 import { PALWORLD_SECRET } from '../lib/app-sign-in.js';
 import type { Server as SocketServer } from 'socket.io';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { TOOLS } from '../testing/real-k3s.js';
 import { AppService } from './AppService.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 
 const KEY = 'test-key' as never;
@@ -22,7 +21,7 @@ const SHOP = namespaces.name('shop');
 const machine = (id: string, status: ClusterMetadata['status']): ClusterMetadata =>
   ({ id, name: id, provider: 'machine', machineId: id, status, ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) }) as ClusterMetadata;
 const accessOver = (db: Awaited<ReturnType<typeof testDatabase>>): ClusterAccess =>
-  new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-apps-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+  new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-apps-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
 
 afterAll(async () => { await namespaces.removeAll(); }, 0);
 
@@ -103,6 +102,6 @@ describe('updating an Odoo app\'s modules', () => {
     const env = await applied.promise;
 
     expect(env).toMatchObject({ CLUSTER_NAME: 'machine-shop', DEPLOYMENT_ID: 'shop1a2b', WEB_IMAGE_TAG: 'mods' });
-    expect((await succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', env.KUBECONFIG!, 'get', 'namespace', SHOP, '-o', 'name'] })).trim()).toBe(`namespace/${SHOP}`);
+    expect((await succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', env.KUBECONFIG!, 'get', 'namespace', SHOP, '-o', 'name'] })).trim()).toBe(`namespace/${SHOP}`);
   });
 });

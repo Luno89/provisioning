@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
-import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
+import { devKoalaApi, devKoalaEnv, devKubectl, devKubectlCluster, devOwner, devPortForward, type DevPortForward } from './lib/dev-stack.js';
 import { noAppHoldsAGpu } from './lib/gpus-free.js';
 import { until, waiting, Hopeless } from './lib/until.js';
 
@@ -38,7 +37,7 @@ const vllmImages = async (): Promise<string[]> => (await nodes()).flatMap((node)
 async function main(): Promise<void> {
   const owner = await devOwner();
   const api = client(owner.cookie);
-  const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
+  const machine = (await devKoalaEnv()).INSTANCE_MACHINE_ID;
   assert.ok(machine, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
   const clusterId = `machine-${machine}`;
   const apps = madeHere<Deployment>({ name: 'deployments', list: () => mine(api), idOf: (app) => app.id, stampOf: () => undefined });
@@ -46,7 +45,7 @@ async function main(): Promise<void> {
   const defaultModel = async () => ((await api.get('/api/models/default')).data as { defaultModelId: string | null }).defaultModelId;
   const defaultBefore = await defaultModel();
   let id: string | undefined;
-  let forward: ChildProcess | undefined;
+  let forward: DevPortForward | undefined;
 
   try {
     const reported = await stage(`the machine Koala runs on, ${clusterId}, reports its NVIDIA GPUs, with the container toolkit there`, async () => {
@@ -101,13 +100,13 @@ async function main(): Promise<void> {
       const services = JSON.parse(await devKubectl(namespace, 'get', 'services', '-o', 'json')) as { items: { metadata: { name: string }; spec: { ports: { port: number }[] } }[] };
       const service = services.items.find((entry) => entry.spec.ports.some((port) => port.port === 8000));
       assert.ok(service, `no service on port 8000 in ${namespace}`);
-      forward = devPortForward(namespace, `svc/${service.metadata.name}`, `${LOCAL_PORT}:8000`);
+      forward = await devPortForward(namespace, `svc/${service.metadata.name}`, `${LOCAL_PORT}:8000`);
       const vllm = axios.create({ baseURL: `http://127.0.0.1:${LOCAL_PORT}`, proxy: false, validateStatus: () => true });
       const served = await until('the model listing its name', async () => {
         const listed = await vllm.get('/v1/models');
         const served = listed.status === 200 ? (listed.data as { data: { id: string }[] }).data[0]?.id : undefined;
         return served ?? waiting(`/v1/models answered ${listed.status} ${JSON.stringify(listed.data).slice(0, 200)}`);
-      }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the model\'s service exited'));
+      }, async () => (!forward?.exited() ? undefined : 'the port-forward to the model\'s service exited'));
       const answer = await vllm.post('/v1/chat/completions', { model: served, messages: [{ role: 'user', content: 'Reply with the single word: ready' }], max_tokens: 8, temperature: 0 });
       assert.equal(answer.status, 200, JSON.stringify(answer.data));
       const said = (answer.data as { choices: { message: { content: string } }[] }).choices[0]?.message.content ?? '';
@@ -122,7 +121,7 @@ async function main(): Promise<void> {
       assert.equal(pods.items[0]?.spec.containers[0]?.resources?.limits?.['nvidia.com/gpu'], '1', 'the model\'s pod holds no GPU');
     });
   } finally {
-    forward?.kill();
+    forward?.stop();
     if (id) {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);

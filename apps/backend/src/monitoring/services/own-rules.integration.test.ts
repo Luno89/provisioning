@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptValue, K3S_TRAEFIK_CONFIG, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess, runnersByRecord } from '../../infrastructure/index.js';
-import { startK3s, TOOLS, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { startK3s, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { chartFolder, chartSourcesStandIn, type ChartSourcesStandIn } from '../../infrastructure/testing/chart-sources-stand-in.js';
 import { PROMETHEUS_CHART, PROMETHEUS_CHART_REPO } from '../lib/monitoring-history.js';
 import type { PoolProbe } from '../lib/pool-monitoring.js';
@@ -55,7 +56,7 @@ async function watched(id: string, given: { instanceAlerts?: boolean; pool?: Poo
   const db = await testDatabase();
   const home = { id, name: id, provider: 'machine', machineId: id, status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
   await db.infrastructure.saveCluster(home);
-  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-own-rules-watch-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY, chartSources: sources.url });
+  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-own-rules-watch-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY, chartSources: sources.url });
   const prom = await prometheusStandIn();
   prom.set('vector(1)', 1);
   const monitoring = new MonitoringService({
@@ -77,7 +78,7 @@ describe('the alerts a Koala sets on the cluster it runs in, applied to a real c
     const db = await testDatabase();
     const home = { id: 'machine-home', name: 'home', provider: 'machine', machineId: 'home', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
     await db.infrastructure.saveCluster(home);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-own-rules-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-own-rules-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.apply(home.id, RULE_TYPE);
     await access.kubectl(home.id, ['wait', '--for=condition=Established', 'crd/prometheusrules.monitoring.coreos.com', '--timeout=720h']);
     await access.kubectl(home.id, ['create', 'namespace', 'monitoring', '--dry-run=client', '-o', 'yaml']).then((namespace) => access.apply(home.id, namespace));

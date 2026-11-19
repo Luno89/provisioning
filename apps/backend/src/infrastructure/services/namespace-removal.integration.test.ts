@@ -5,8 +5,7 @@ import { describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { removalHoldOf, removeNamespace } from '../lib/app-namespace.js';
-import { TOOLS } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 
 const k3s = inject('k3s');
 const KEY = 'namespace-key' as never;
@@ -15,7 +14,7 @@ const CLUSTER = 'machine-namespaces';
 async function onK3s() {
   const db = await testDatabase();
   await db.infrastructure.saveCluster({ id: CLUSTER, name: CLUSTER, provider: 'machine', machineId: 'namespaces', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
-  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-namespaces-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-namespaces-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
   return { access, kubectl: (...args: string[]) => access.kubectl(CLUSTER, args), remove: (namespace: string) => removeNamespace((args) => access.kubectl(CLUSTER, args), namespace) };
 }
 

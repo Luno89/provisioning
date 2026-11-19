@@ -5,7 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, InfrastructureService, PLATFORM_PLAN, terraformPlacesFor, type Reach } from '../infrastructure/index.js';
 import { INGRESS_WEBHOOK } from '../infrastructure/lib/platform-provision.js';
-import { startK3s, TOOLS, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { startK3s, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { CannotRollOut } from './watched-apply.js';
 import { provisionPlatformService, type PlatformPlace } from './platform-provision.js';
@@ -25,7 +26,7 @@ beforeAll(async () => {
   access = new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-platform-')),
-    processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account,
+    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account,
   });
   own = access.own();
   const dataDir = testDataDir();

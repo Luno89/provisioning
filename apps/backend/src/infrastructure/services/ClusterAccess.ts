@@ -204,6 +204,8 @@ export const runnersByRecord = (access: Pick<ClusterAccess, 'kubectl' | 'helm' |
 });
 
 const REPO = resolve(import.meta.dirname, '../../../../../');
+
+export const CLUSTER_TOOL_PATHS = { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') } as const;
 export interface ClusterAccessFrom {
   role: PlatformRole;
   clusters?: Pick<InfrastructureStore, 'getClusters'> | undefined;
@@ -214,7 +216,7 @@ export function clusterAccessOfKubeconfig(kubeconfig: string, clusterId: string)
   const folder = join(tmpdir(), `koala-clusters-${process.pid}`);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   return {
-    access: new ClusterAccess({ here: { root: false }, folder, processes: nodeProcesses, streams: nodeStreams, tools: { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') } }),
+    access: new ClusterAccess({ here: { root: false }, folder, processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS }),
     target: { clusterId, kind: 'machine', kubeconfig },
   };
 }
@@ -228,7 +230,7 @@ export function clusterAccessFrom(settings: ClusterSettings, from: ClusterAccess
     folder,
     processes: nodeProcesses,
     streams: nodeStreams,
-    tools: { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') },
+    tools: CLUSTER_TOOL_PATHS,
     clusters: from.clusters,
     dataKey: from.dataKey,
     serviceAccount: settings.serviceAccount,

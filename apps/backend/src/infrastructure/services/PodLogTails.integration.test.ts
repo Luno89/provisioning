@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { TOOLS } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { PodLogTails } from './PodLogTails.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 
@@ -23,7 +22,7 @@ beforeAll(async () => {
   const db = await testDatabase();
   await db.infrastructure.saveCluster({ id: CLUSTER, name: CLUSTER, provider: 'machine', machineId: 'logs', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
   await db.infrastructure.saveCluster({ id: 'machine-resting', name: 'machine-resting', provider: 'machine', machineId: 'resting', status: 'stopped', ownerId: 'bo', createdAt: 't' } as ClusterMetadata);
-  access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-pod-logs-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+  access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'elsewhere', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-pod-logs-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
   await access.kubectl(CLUSTER, ['create', 'namespace', NAMESPACE]);
   await access.kubectl(CLUSTER, ['run', 'shop-0', '-n', NAMESPACE, '--image=busybox:1.37', '--restart=Never', '--command', '--', 'sh', '-c', 'echo first; while true; do echo tick; sleep 1; done']);
   await access.kubectl(CLUSTER, ['wait', 'pod/shop-0', '-n', NAMESPACE, '--for=condition=Ready', '--timeout=720h']);

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from '../platform/testing/handoff.js';
 import { call, removeAccountOnRoot, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
@@ -220,8 +220,7 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
     });
     expect((await call<{ blockers: string[] }>(`${roles.root.url}/api/account/removal`, { cookie: ann.person.cookie })).body.blockers).toEqual([]);
     await removeAccountOnRoot(roles, ann.person);
-    const client = new MongoClient(roles.mongoUri);
-    await client.connect();
+    const { client, release } = await leaseMongo(roles.mongoUri);
     try {
       const databases = (await client.db().admin().listDatabases()).databases.map((entry) => entry.name);
       for (const project of projects) expect(databases, `${HUB_DATABASE_PREFIX}${project.id} is still there`).not.toContain(`${HUB_DATABASE_PREFIX}${project.id}`);
@@ -232,7 +231,7 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
       expect(await registry.collection('shared_memberships').countDocuments({ projectId: { $in: ids } })).toBe(0);
       expect(await registry.collection('shared_invites').countDocuments({ projectId: { $in: ids } })).toBe(0);
     } finally {
-      await client.close();
+      await release();
     }
   });
 });

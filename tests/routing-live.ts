@@ -106,9 +106,9 @@ async function teardown(): Promise<void> {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
-  if (ownerId) forgetMeshUser(ownerId);
+  if (ownerId) await forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
-  dropSuiteNamespace(ROOT);
+  await dropSuiteNamespace(ROOT);
   await vm?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
 }
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
 
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  makeSuiteNamespace(ROOT);
+  await makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
     ...devDataMounts(),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,

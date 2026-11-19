@@ -3,7 +3,7 @@ import {
   type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig,
   type ProjectMetadata, type MailService, type DependencyStates,
 } from '../../platform/index.js';
-import { mongoHubStore } from '../lib/hub-mongo.js';
+import { mongoHubStore } from '../registry-store.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
 import { runsUnder, type ConversationNotice } from '../../engine/index.js';
 import { hashCredential, InstanceGroups, type RootProvider, type UsedTokenClaim } from '../../instances/index.js';

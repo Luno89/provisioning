@@ -1,47 +1,7 @@
-import { BSON, type Db, type Document } from 'mongodb';
+import type { Document } from 'mongodb';
 import type { AccountCollection } from '../../accounts/index.js';
 import type { Database } from '../../platform/index.js';
-import { SKIPPED_COLLECTIONS, type SkippedCollection } from './instance-move.js';
-
-const BATCH = 500;
-
-export async function* exportLines(db: Db): AsyncGenerator<string> {
-  const collections = (await db.listCollections({}, { nameOnly: true }).toArray())
-    .map((entry) => entry.name)
-    .filter((name) => !name.startsWith('system.') && !SKIPPED_COLLECTIONS.includes(name))
-    .sort();
-  for (const name of collections) {
-    for await (const doc of db.collection(name).find({})) {
-      yield `${JSON.stringify({ c: name, d: BSON.EJSON.serialize(doc, { relaxed: false }) })}\n`;
-    }
-  }
-}
-
-export async function importLines(lines: AsyncIterable<string>, db: Db): Promise<number> {
-  const reading = lines[Symbol.asyncIterator]();
-  await db.dropDatabase();
-  let collection = '';
-  let batch: Document[] = [];
-  let count = 0;
-  const flush = async () => {
-    if (batch.length) await db.collection(collection).insertMany(batch, { ordered: false });
-    count += batch.length;
-    batch = [];
-  };
-  for (let next = await reading.next(); !next.done; next = await reading.next()) {
-    const line = next.value;
-    if (!line.trim()) continue;
-    const entry = JSON.parse(line) as { c: string; d: Document };
-    if (entry.c !== collection) {
-      await flush();
-      collection = entry.c;
-    }
-    batch.push(BSON.EJSON.deserialize(entry.d, { relaxed: false }) as Document);
-    if (batch.length >= BATCH) await flush();
-  }
-  await flush();
-  return count;
-}
+import type { SkippedCollection } from './instance-move.js';
 
 type Stores = { [A in keyof Database as Database[A] extends (...args: never[]) => unknown ? never : A]: Database[A] };
 type Call<A extends keyof Stores, M extends keyof Stores[A]> = Stores[A][M] extends (...args: infer P) => infer R ? { args: P; result: R } : never;
@@ -219,31 +179,4 @@ function retargetOf(collection: MovedCollection, field: string, from: string, to
 export function retargetedCluster(from: string, to: string): RecordRetarget[] {
   return (Object.entries(CLUSTER_FIELDS) as [MovedCollection, readonly string[]][])
     .flatMap(([collection, fields]) => fields.map((field) => retargetOf(collection, field, from, to)));
-}
-
-async function rekeyed(db: Db, retarget: Extract<RecordRetarget, { kind: 'rekey' }>): Promise<number> {
-  const records = db.collection<{ _id: string }>(retarget.collection);
-  const found = await records.findOne({ _id: retarget.from });
-  if (!found) return 0;
-  await records.insertOne({ ...found, _id: retarget.to });
-  await records.deleteOne({ _id: retarget.from });
-  return 1;
-}
-
-export async function retargetCluster(db: Db, from: string, to: string): Promise<number> {
-  let moved = 0;
-  for (const retarget of retargetedCluster(from, to)) {
-    if (retarget.kind === 'rekey') {
-      moved += await rekeyed(db, retarget);
-      continue;
-    }
-    const done = await db.collection(retarget.collection).updateMany(retarget.filter, retarget.update, retarget.arrayFilters ? { arrayFilters: retarget.arrayFilters } : {});
-    moved += done.modifiedCount;
-  }
-  return moved;
-}
-
-export async function appsOnCluster(db: Db, clusterId: string): Promise<string[]> {
-  const deployments = await db.collection<{ deploymentId?: unknown }>('deployments').find({ clusterId }, { projection: { deploymentId: 1 } }).toArray();
-  return deployments.map((deployment) => deployment.deploymentId).filter((id): id is string => typeof id === 'string' && id !== '');
 }

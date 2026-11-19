@@ -29,7 +29,7 @@ interceptHttp(
 const looks = (overrides: Partial<DevStackLooks> = {}): DevStackLooks => ({
   rootApi: ROOT,
   rootFrom: () => `${REPO}/apps/backend`,
-  koalaFrom: () => REPO,
+  koalaFrom: async () => REPO,
   ownerSignIn: () => OWNER,
   ...overrides,
 });
@@ -65,7 +65,7 @@ describe('whether the dev stack is up, as root records it', () => {
   it('never asks the Koala\'s pods which checkout they run before root reports the Koala ready', async () => {
     fresh();
     instance = null;
-    const state = await devStackState(REPO, looks({ koalaFrom: () => { throw new Error('no deployment yet'); } }));
+    const state = await devStackState(REPO, looks({ koalaFrom: async () => { throw new Error('no deployment yet'); } }));
     expect(state).toEqual({ kind: 'provisioning', stage: 'root has your Koala waiting: waiting for this computer to put Koala on itself' });
   });
 
@@ -85,8 +85,8 @@ describe('whether the dev stack is up, as root records it', () => {
     fresh();
     expect(await devStackState(REPO, looks({ rootFrom: () => '/elsewhere' }))).toEqual({ kind: 'not this checkout', why: `root on ${ROOT} runs from /elsewhere, not this checkout (${REPO}), so it is not running this commit` });
     expect(await devStackState(REPO, looks({ rootFrom: () => undefined }))).toEqual({ kind: 'not this checkout', why: `cannot tell which checkout root on ${ROOT} runs from` });
-    expect(await devStackState(REPO, looks({ koalaFrom: () => '/elsewhere' }))).toEqual({ kind: 'not this checkout', why: `your Koala's pods run /elsewhere, not this checkout (${REPO}), so they are not running this commit` });
-    expect(await devStackState(REPO, looks({ koalaFrom: () => { throw new Error('deployments.apps "instance-backend" not found'); } })))
+    expect(await devStackState(REPO, looks({ koalaFrom: async () => '/elsewhere' }))).toEqual({ kind: 'not this checkout', why: `your Koala's pods run /elsewhere, not this checkout (${REPO}), so they are not running this commit` });
+    expect(await devStackState(REPO, looks({ koalaFrom: async () => { throw new Error('deployments.apps "instance-backend" not found'); } })))
       .toEqual({ kind: 'not this checkout', why: 'root reports your Koala ready, and its pods cannot be asked which checkout they run: deployments.apps "instance-backend" not found' });
   });
 });

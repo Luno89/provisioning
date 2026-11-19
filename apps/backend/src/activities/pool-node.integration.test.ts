@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, ROOT_CLUSTER_ID } from '../infrastructure/index.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { PoolNode } from './pool-node.js';
 
 const k3s = inject('k3s');
@@ -13,7 +13,7 @@ function rootsNode(): { access: ClusterAccess; pool: PoolNode } {
   const folder = mkdtempSync(join(tmpdir(), 'koala-pool-node-'));
   const rootKubeconfig = join(folder, 'pool.yaml');
   writeFileSync(rootKubeconfig, k3s.admin, { mode: 0o600 });
-  const access = new ClusterAccess({ here: { root: true }, folder, processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, rootKubeconfig });
+  const access = new ClusterAccess({ here: { root: true }, folder, processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, rootKubeconfig });
   return { access, pool: new PoolNode({ access, node: ROOT_CLUSTER_ID, sleep: async () => undefined }) };
 }
 

@@ -63,7 +63,7 @@ export { PodLogTails, podLogRoom } from './services/PodLogTails.js';
 export { ProvisionAsks, Provisioning } from './services/Provisioning.js';
 export type { ProvisionAsksDeps, ProvisioningDeps, ProvisionRoot, ProvisionRuns, RootAnswer } from './services/Provisioning.js';
 export type { PodLogTailsDeps, PodToTail } from './services/PodLogTails.js';
-export { ClusterAccess, ClusterCommandFailed, ClusterUnreachable, clusterAccessFrom, clusterAccessOfKubeconfig, runnersByRecord } from './services/ClusterAccess.js';
+export { CLUSTER_TOOL_PATHS, ClusterAccess, ClusterCommandFailed, ClusterUnreachable, clusterAccessFrom, clusterAccessOfKubeconfig, runnersByRecord } from './services/ClusterAccess.js';
 export type { ClusterAccessDeps, ClusterAccessFrom, RecordRunners, Target } from './services/ClusterAccess.js';
 export { sharedClusterProxy } from './services/ClusterProxyService.js';
 export type { ClusterProxyService } from './services/ClusterProxyService.js';

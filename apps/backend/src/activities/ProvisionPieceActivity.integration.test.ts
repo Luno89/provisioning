@@ -6,7 +6,8 @@ import { mock } from 'vitest-mock-extended';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import { ClusterAccess, InfrastructureService, openedRecord, terraformPlacesFor, type ProvisionPieceInput } from '../infrastructure/index.js';
-import { startK3s, TOOLS, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { startK3s, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { CannotRollOut } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -26,7 +27,7 @@ beforeAll(async () => {
   const access = new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-provision-piece-')),
-    processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account,
+    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account,
   });
   const dataDir = testDataDir();
   mkdirSync(dataDir, { recursive: true });
@@ -64,7 +65,7 @@ async function accessReadingNoJobs(): Promise<ClusterAccess> {
   return new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-provision-piece-')),
-    processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: { ...k3s.account, caFile: join(folder, 'ca.crt'), tokenFile: join(folder, 'token') },
+    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: { ...k3s.account, caFile: join(folder, 'ca.crt'), tokenFile: join(folder, 'token') },
   });
 }
 

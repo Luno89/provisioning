@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 
 const REPO = resolve(import.meta.dirname, '../../../../..');
 const CHART = resolve(REPO, 'charts/instance');
@@ -37,7 +37,7 @@ function healthy(container: string): Promise<void> {
   });
 }
 
-const temporalPod = (): Doc => parseAllDocuments(execFileSync(TOOLS.helm, [
+const temporalPod = (): Doc => parseAllDocuments(execFileSync(CLUSTER_TOOL_PATHS.helm, [
   'template', 'luno', CHART, '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com',
   '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
 ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc).find((doc) => doc?.kind === 'Deployment' && doc.metadata.name === 'luno-temporal')!;

@@ -1,6 +1,7 @@
-import crypto, { randomUUID } from 'node:crypto';
-import { MongoClient, type Db } from 'mongodb';
-import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
+import crypto from 'node:crypto';
+import type { Db } from 'mongodb';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { freshDb } from './test-database.js';
 import { decryptValue, encryptValue } from './crypto.js';
 import { reencrypt } from './key-rotation.js';
 
@@ -12,18 +13,11 @@ const unversioned = (plaintext: string, secret: string): string => {
 };
 
 describe('a secret stored before keys had ids', () => {
-  let client: MongoClient;
   let db: Db;
   const ring = { current: 'new-key', previous: ['old-key'] };
 
   beforeAll(async () => {
-    client = await MongoClient.connect(inject('mongoUri'));
-    db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
-  });
-
-  afterAll(async () => {
-    await db.dropDatabase();
-    await client.close();
+    db = await freshDb();
   });
 
   it('is refused when read, naming npm run keys, and npm run keys moves it onto the current key', async () => {

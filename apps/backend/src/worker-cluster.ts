@@ -21,13 +21,13 @@ import { GiteaService } from './projects/index.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
-import { collectorEndpoint, collectorSink } from './monitoring/index.js';
-import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
+import { collectorSink } from './monitoring/index.js';
+import { checkServices } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
-import { runAsProgram } from './worker-program.js';
+import { runAsProgram, watchedWorker } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -58,9 +58,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(access);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = workerDependencies(settings, settings.mongo);
-  reportCollectorTo(telemetry, dependencies);
-  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
+  const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);

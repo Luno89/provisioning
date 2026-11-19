@@ -1,6 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AxiosInstance } from 'axios';
+import { localCommands } from '@koala/provision';
+import { containersOn } from '@koala/provision/testing';
+
+export const hostContainers = containersOn(localCommands(process.env));
 
 export async function runEndedBadly(http: AxiosInstance, runId: string): Promise<string | undefined> {
   const { endings } = (await http.get('/engine/runs/endings', { params: { ids: runId } })).data as { endings: { runId: string; ended?: { how: string; reason?: string } }[] };
@@ -23,14 +25,12 @@ export async function keeperPaused(http: AxiosInstance): Promise<string | undefi
   return keeper.paused ? 'the memory keeper is paused, so it will not run' : undefined;
 }
 
-const docker = promisify(execFile);
-
 export async function containerNotRunning(name: string): Promise<string | undefined> {
-  const inspected = await docker('docker', ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', name]).then((out) => out.stdout.trim(), () => undefined);
+  const inspected = await hostContainers.status(name);
   if (inspected === undefined) return `the container ${name} is gone`;
-  const [status, code] = inspected.split(' ');
+  const { state: status, code } = inspected;
   if (status === 'running' || status === 'created' || status === 'restarting') return undefined;
-  const logs = await docker('docker', ['logs', '--tail', '15', name]).then((out) => `${out.stdout}${out.stderr}`.trim(), () => '');
+  const logs = await hostContainers.logs(name, 15).catch(() => '');
   return `the container ${name} is ${status} (exit code ${code})${logs ? `, its last lines:\n${logs}` : ''}`;
 }
 
@@ -50,11 +50,11 @@ export async function runEndedBadlyOver(get: (path: string) => Promise<Response>
 
 export async function startedContainerStopped(names: readonly string[]): Promise<string | undefined> {
   for (const name of names) {
-    const inspected = await docker('docker', ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', name]).then((out) => out.stdout.trim(), () => undefined);
+    const inspected = await hostContainers.status(name);
     if (inspected === undefined) continue;
-    const [status, code] = inspected.split(' ');
+    const { state: status, code } = inspected;
     if (status === 'exited' || status === 'dead') {
-      const logs = await docker('docker', ['logs', '--tail', '15', name]).then((out) => `${out.stdout}${out.stderr}`.trim(), () => '');
+      const logs = await hostContainers.logs(name, 15).catch(() => '');
       return `the container ${name} is ${status} (exit code ${code})${logs ? `, its last lines:\n${logs}` : ''}`;
     }
   }

@@ -1,9 +1,9 @@
-import { spawnSync, type ChildProcess } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { devPortForward } from './dev-stack.js';
+import { devPortForward, type DevPortForward } from './dev-stack.js';
 import { until, waiting } from './until.js';
 import { callerLines, failuresUnder, flowsThrough, spansOf, whereLines, type CodeSite, type FlowSnapshot } from './failure-trace.js';
 
@@ -20,7 +20,7 @@ const freePort = (): Promise<number> => new Promise((done, fail) => {
   });
 });
 
-async function traceFrom(base: string, traceId: string, spanId: string, forward: ChildProcess): Promise<{ lines: string[]; sites: CodeSite[] } | string> {
+async function traceFrom(base: string, traceId: string, spanId: string, forward: DevPortForward): Promise<{ lines: string[]; sites: CodeSite[] } | string> {
   return until(`Tempo to hold the trace ${traceId}`, async () => {
     const answer = await fetch(`${base}/api/traces/${traceId}`);
     if (!answer.ok) return waiting(`Tempo answered ${answer.status}`);
@@ -29,7 +29,7 @@ async function traceFrom(base: string, traceId: string, spanId: string, forward:
     const failures = failuresUnder(spans, spanId);
     return failures.length > 0 ? { lines: whereLines(failures), sites: failures.flatMap((failure) => failure.sites) } : 'its trace holds no request or step that failed, so it failed in what the check runner judged itself';
   }, async () => {
-    if (forward.exitCode !== null) return 'the port-forward to Tempo exited';
+    if (forward.exited()) return 'the port-forward to Tempo exited';
     const answer = await fetch(`${base}/api/traces/${traceId}`).catch(() => undefined);
     return answer && answer.status >= 400 && answer.status < 500 && answer.status !== 404 ? `Tempo answered ${answer.status}` : undefined;
   });
@@ -65,7 +65,7 @@ function toolsOn(sites: readonly CodeSite[]): string[] {
 export async function whereItFailed(failed: readonly Failed[]): Promise<string[]> {
   if (failed.length === 0) return [];
   const port = await freePort();
-  const forward = devPortForward('monitoring', 'svc/tempo', `${port}:3200`);
+  const forward = await devPortForward('monitoring', 'svc/tempo', `${port}:3200`);
   try {
     const base = `http://127.0.0.1:${port}`;
     const lines: string[] = [];
@@ -87,6 +87,6 @@ export async function whereItFailed(failed: readonly Failed[]): Promise<string[]
     if (tools.length > 0) lines.push('\n    the code it failed in:', ...tools);
     return lines;
   } finally {
-    forward.kill();
+    forward.stop();
   }
 }

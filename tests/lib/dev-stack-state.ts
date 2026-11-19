@@ -11,7 +11,7 @@ export type DevStackState =
 export interface DevStackLooks {
   rootApi: string;
   rootFrom: () => string | undefined;
-  koalaFrom: () => string;
+  koalaFrom: () => Promise<string>;
   ownerSignIn: () => { email: string; password: string } | undefined;
 }
 
@@ -48,7 +48,7 @@ export async function devStackState(repo: string, looks: DevStackLooks): Promise
   if (koala.state === 'failed') return { kind: 'failed', stage: `root reports putting your Koala on this computer failed: ${koala.detail}` };
   if (koala.state === 'not yet') return { kind: 'provisioning', stage: `root has your Koala ${koala.line}` };
   let koalaFrom: string;
-  try { koalaFrom = looks.koalaFrom(); } catch (err) { return { kind: 'not this checkout', why: `root reports your Koala ready, and its pods cannot be asked which checkout they run: ${(err as Error).message}` }; }
+  try { koalaFrom = await looks.koalaFrom(); } catch (err) { return { kind: 'not this checkout', why: `root reports your Koala ready, and its pods cannot be asked which checkout they run: ${(err as Error).message}` }; }
   if (koalaFrom !== repo) return { kind: 'not this checkout', why: `your Koala's pods run ${koalaFrom || 'no checkout'}, not this checkout (${repo}), so they are not running this commit` };
   return { kind: 'ready' };
 }

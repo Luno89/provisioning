@@ -2,8 +2,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
-import { generateKey, keyId, loadKey, missingKeyLines, reencrypt, sealedBeforeKeys } from '../platform/index.js';
+import { generateKey, keyId, leaseMongo, loadKey, missingKeyLines, reencrypt, sealedBeforeKeys, type Keyring } from '../platform/index.js';
 import { generateIdentityKey } from '../instances/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +28,36 @@ function writeMissingKeys(): void {
   if (jwtSecret) console.log('keys: what was sealed under JWT_SECRET moves onto DATA_KEY with --apply; JWT_SECRET is read only by this program now');
 }
 
+export interface Resealed {
+  counts: Array<{ at: string; values: number }>;
+  unreadable: string[];
+}
+
+export async function resealDatabases(mongoUri: string, databases: readonly string[], ring: Keyring, apply: boolean): Promise<Resealed> {
+  const lease = await leaseMongo(mongoUri);
+  const resealed: Resealed = { counts: [], unreadable: [] };
+  try {
+    for (const database of databases) {
+      const db = lease.client.db(database);
+      for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
+        const collection = db.collection(name);
+        let count = 0;
+        for await (const doc of collection.find({})) {
+          const result = reencrypt(doc, ring);
+          resealed.unreadable.push(...result.unreadable.map((path) => `${database}.${name}/${String(doc._id)}: ${path}`));
+          if (result.rewritten.length === 0) continue;
+          count += result.rewritten.length;
+          if (apply) await collection.replaceOne({ _id: doc._id }, result.value);
+        }
+        if (count > 0) resealed.counts.push({ at: `${database}.${name}`, values: count });
+      }
+    }
+  } finally {
+    await lease.release();
+  }
+  return resealed;
+}
+
 async function main(): Promise<void> {
   if (args.has('--write-env')) {
     writeMissingKeys();
@@ -41,28 +70,10 @@ async function main(): Promise<void> {
   const ring = sealedBeforeKeys(loadKey(process.env, 'data'), process.env.JWT_SECRET, 'data');
   console.log(`${apply ? 'rewriting' : 'dry run — pass --apply to rewrite'} ${databases.join(', ')}: onto DATA_KEY ${keyId(ring.current)}, from ${ring.previous?.length ? 'JWT_SECRET and the key derived from it' : 'nothing else, since JWT_SECRET is not set'}`);
 
-  const client = new MongoClient(mongoUri);
-  await client.connect();
-  let total = 0;
-  const unreadable: string[] = [];
-
-  for (const database of databases) {
-    const db = client.db(database);
-    for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
-      const collection = db.collection(name);
-      let count = 0;
-      for await (const doc of collection.find({})) {
-        const result = reencrypt(doc, ring);
-        unreadable.push(...result.unreadable.map((path) => `${database}.${name}/${String(doc._id)}: ${path}`));
-        if (result.rewritten.length === 0) continue;
-        count += result.rewritten.length;
-        if (apply) await collection.replaceOne({ _id: doc._id }, result.value);
-      }
-      if (count > 0) console.log(`  ${database}.${name}: ${count} value(s)`);
-      total += count;
-    }
-  }
-  await client.close();
+  const resealed = await resealDatabases(mongoUri, databases, ring, apply);
+  for (const { at, values } of resealed.counts) console.log(`  ${at}: ${values} value(s)`);
+  let total = resealed.counts.reduce((sum, { values }) => sum + values, 0);
+  const unreadable = [...resealed.unreadable];
 
   for (const file of KEY_FILES) {
     const path = resolve(DATA_DIR, file);
@@ -85,7 +96,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

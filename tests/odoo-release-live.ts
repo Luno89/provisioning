@@ -8,7 +8,7 @@ import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/projects/li
 import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 import { releaseRunWorkflowId } from '../apps/backend/src/releases/lib/release-run.js';
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
-import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
+import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward, type DevPortForward } from './lib/dev-stack.js';
 import { madeHere } from './lib/made-here.js';
 import { groveRunWorkflowId } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { until, waiting } from './lib/until.js';
@@ -135,7 +135,7 @@ interface Release { id: string; state: string; commit: string; image: string; ag
 async function main(): Promise<void> {
   const owner = await devOwner();
   const OWNER = owner.id;
-  const db = devKoalaDatabase();
+  const db = await devKoalaDatabase();
   await db.init();
   const http = axios.create({ baseURL: BASE, proxy: false, timeout: 60_000, validateStatus: () => true, headers: { Cookie: owner.cookie } });
   let place = releasePlace(NAME);
@@ -179,7 +179,7 @@ async function main(): Promise<void> {
     });
 
     console.log('[2] the Odoo starter and a module, dropped on the repository, land on main in one commit: it builds and releases into slot a');
-    const registryHost = devKoalaEnv().REGISTRY_PULL_HOST;
+    const registryHost = (await devKoalaEnv()).REGISTRY_PULL_HOST;
     assert.ok(registryHost, 'your Koala names no REGISTRY_PULL_HOST for its images');
     await commit(http, project.id, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost, ...ODOO_VERSION }), ...PROBE], 'Scaffold the Odoo project with the probe module');
     const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'));
@@ -197,12 +197,12 @@ async function main(): Promise<void> {
     console.log('[2a] someone works in the live app: a field made in the app, the probe form edited in the app, and probes with notes');
     const signIn = ((await http.get(`/projects/${projectId}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0];
     assert.ok(signIn, 'the project has no sign-in for its app');
-    const forward = devPortForward(place.namespace, `svc/${place.release}-live`, `${APP_PORT}:8069`);
+    const forward = await devPortForward(place.namespace, `svc/${place.release}-live`, `${APP_PORT}:8069`);
     try {
       await until('the live Odoo answering through the port-forward', async () => {
         const status = await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status, (err: Error) => err.message);
         return status === 200 ? true : waiting(`health answered ${status}`);
-      }, async () => (forward.exitCode === null ? undefined : 'the port-forward to the live Odoo exited'));
+      }, async () => (!forward.exited() ? undefined : 'the port-forward to the live Odoo exited'));
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
         const answer = (await axios.post(`http://127.0.0.1:${APP_PORT}/jsonrpc`, { jsonrpc: '2.0', method: 'call', params: { service, method, args } }, { proxy: false, timeout: 60_000 })).data as { result?: unknown; error?: { data?: { message?: string } } };
         if (answer.error) throw new Error(`Odoo refused ${method}: ${answer.error.data?.message ?? JSON.stringify(answer.error)}`);
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
       await call('ir.ui.view', 'write', [[form!.res_id], { arch: '<form><sheet><field name="name"/><field name="x_koala_note"/></sheet></form>' }]);
       await call('koala.probe', 'create', [[{ name: 'first', note: 'leave at the back door' }, { name: 'second', note: 'ring twice' }, { name: 'third' }]]);
     } finally {
-      forward.kill();
+      forward.stop();
     }
     assert.equal(await psql('odoo_a', "select count(*) from koala_probe where note is not null"), '2');
     assert.equal(await psql('odoo_a', "select arch_updated from ir_ui_view where id = (select res_id from ir_model_data where module = 'koala_probe' and name = 'probe_form')"), 't', 'the edit did not mark the view edited in the app');

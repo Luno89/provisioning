@@ -2,9 +2,13 @@ import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { removeThrowaway, sweepThrowaways, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { localCommands } from '../src/local-commands.js';
+import { containersOn, throwawayLabel } from './containers.js';
 
 const run = promisify(execFile);
+const containers = containersOn(localCommands(process.env));
+const removeThrowaway = (name: string): Promise<void> => containers.remove(name);
+const sweepThrowaways = (checkout?: string): Promise<string[]> => containers.sweepThrowaways(checkout);
 const IMAGE = 'alpine:3.20';
 const made: string[] = [];
 afterEach(async () => { for (const name of made.splice(0).reverse()) if (await alive(name)) await removeThrowaway(name); });
@@ -26,7 +30,8 @@ async function slowToTearDown(target: string): Promise<() => Promise<void>> {
   await run('docker', ['run', '-d', '--name', holder, ...throwawayLabel(), '--privileged', '--pid=host', IMAGE, 'sh', '-c', `nsenter -t ${pid} -p sleep infinity & echo $! > /held; wait`]);
   const inside = (script: string) => run('docker', ['exec', holder, 'sh', '-c', script]);
   const entered = `h=$(cat /held) && c=$(cat /proc/$h/task/$h/children | tr -d ' ') && [ -n "$c" ] && [ "$(readlink /proc/$c/ns/pid)" = "$(readlink /proc/${pid}/ns/pid)" ]`;
-  while (await inside(entered).then(() => false, () => true)) {
+  const holds = async (): Promise<boolean> => (await inside(`${entered} && echo in || echo out`)).stdout.trim() === 'in';
+  while (!await holds()) {
     for (const name of [target, holder]) {
       if ((await run('docker', ['inspect', '-f', '{{.State.Running}}', name])).stdout.trim() !== 'true') throw new Error(`${name} stopped before the holder entered ${target}'s processes: ${(await run('docker', ['logs', holder])).stderr}`);
     }

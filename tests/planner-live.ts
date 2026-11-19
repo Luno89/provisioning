@@ -16,7 +16,7 @@ const GOAL = process.env.PLANNER_LIVE_GOAL
 async function main(): Promise<void> {
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
-  const host = liveEngineHost(db);
+  const host = await liveEngineHost(db);
 
   const runnable = await host.registry.runnable(OWNER, 'planner');
   assert.ok(runnable, 'there is no planner');

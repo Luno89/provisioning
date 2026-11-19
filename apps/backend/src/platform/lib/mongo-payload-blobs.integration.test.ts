@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from './mongo-lease.js';
 import { mongoTarget } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 
@@ -9,9 +9,9 @@ const RESULT = '2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a';
 
 afterAll(async () => {
   const { uri, dbName } = mongoTarget(process.env);
-  const client = await new MongoClient(uri).connect();
+  const { client, release } = await leaseMongo(uri);
   await client.db(dbName).dropDatabase();
-  await client.close();
+  await release();
 });
 
 describe('payloads stored outside Temporal, on Mongo', () => {
