@@ -34,6 +34,7 @@ export interface Followed {
 export interface Io {
   input?: string | Buffer | NodeJS.ReadableStream | undefined;
   output?: NodeJS.WritableStream | undefined;
+  outputFd?: number | undefined;
   heard?: Heard | undefined;
   group?: boolean | undefined;
 }

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { childEnv } from './child-env.js';
 import { ignore } from './failures.js';
 import { ProcessNotStarted, SIGNALLED, type Followed, type Heard, type Io, type Named, type ProcessResult, type ProcessRun, type Processes, type Streams } from './processes.js';
@@ -18,15 +18,16 @@ const ending = (code: number | null, signal: NodeJS.Signals | null): Pick<Proces
 const notPiped = (err: NodeJS.ErrnoException): boolean => err.code !== 'EPIPE';
 
 interface Child {
-  child: ChildProcessWithoutNullStreams;
+  child: ChildProcess & { stdin: NodeJS.WritableStream & { on(event: 'error', listener: (err: NodeJS.ErrnoException) => void): unknown } };
   closed: Promise<Pick<ProcessResult, 'code' | 'signal'>>;
   exited: Promise<Pick<ProcessResult, 'code' | 'signal'>>;
   over(): boolean;
   failed(err: Error): void;
 }
 
-function begin(envOf: EnvOf, run: ProcessRun, group: boolean): Child {
-  const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: envOf(run.env), stdio: ['pipe', 'pipe', 'pipe'], detached: group });
+function begin(envOf: EnvOf, run: ProcessRun, group: boolean, outputFd: number | undefined): Child {
+  const out = outputFd ?? 'pipe';
+  const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: envOf(run.env), stdio: ['pipe', out, out], detached: group }) as Child['child'];
   let failed: (err: Error) => void = () => undefined;
   let over = false;
   const closed = new Promise<Pick<ProcessResult, 'code' | 'signal'>>((done, fail) => {
@@ -87,15 +88,16 @@ function stopper(started: Child, group: boolean): (signal?: NodeJS.Signals) => v
 
 function started(envOf: EnvOf, run: ProcessRun, io: Io): Followed {
   const group = io.group === true;
-  const begun = begin(envOf, run, group);
+  const begun = begin(envOf, run, group, io.outputFd);
   const { child } = begun;
   const { output, heard } = io;
   const written = output
     ? new Promise<void>((done, fail) => { output.on('finish', done); output.on('error', fail); })
     : Promise.resolve();
-  const stdout = output ? () => '' : collect(child.stdout, heard?.stdout);
-  if (output) child.stdout.pipe(output);
-  const stderr = collect(child.stderr, heard?.stderr);
+  const nothing = (): string => '';
+  const stdout = output || !child.stdout ? nothing : collect(child.stdout, heard?.stdout);
+  if (output && child.stdout) child.stdout.pipe(output);
+  const stderr = child.stderr ? collect(child.stderr, heard?.stderr) : nothing;
   feed(begun, io.input ?? run.input);
   const ended = Promise.all([begun.closed, written]).then(([end]) => ({ ...end, stdout: stdout(), stderr: stderr() }));
   return { pid: child.pid, stop: stopper(begun, group), exited: begun.exited, ended };

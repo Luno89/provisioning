@@ -1,3 +1,4 @@
+import { writeSync } from 'node:fs';
 import { ignore } from '../src/failures.js';
 import { ProcessNotStarted, SIGNALLED, type Followed, type Heard, type Io, type ProcessResult, type ProcessRun, type Processes, type Streams } from '../src/processes.js';
 
@@ -59,9 +60,13 @@ export function recordingProcesses(script: Script): RecordingProcesses {
         io.output!.on('error', failed);
         io.output!.end(Buffer.from(stdout), () => { done(); });
       });
-      else if (stdout !== undefined) io.heard?.stdout?.(asText(stdout));
-      if (answer.stderr !== undefined) io.heard?.stderr?.(answer.stderr);
-      const said = { stdout: io.output ? '' : asText(stdout), stderr: answer.stderr ?? '' };
+      else if (io.outputFd !== undefined) {
+        if (stdout !== undefined) writeSync(io.outputFd, Buffer.from(stdout));
+        if (answer.stderr !== undefined) writeSync(io.outputFd, answer.stderr);
+      } else if (stdout !== undefined) io.heard?.stdout?.(asText(stdout));
+      if (answer.stderr !== undefined && io.outputFd === undefined) io.heard?.stderr?.(answer.stderr);
+      const handedOn = io.output !== undefined || io.outputFd !== undefined;
+      const said = { stdout: handedOn ? '' : asText(stdout), stderr: io.outputFd !== undefined ? '' : answer.stderr ?? '' };
       if (answer.runsUntilStopped) {
         const signal = await stop;
         entry.stoppedWith = signal;

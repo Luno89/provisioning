@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,5 +39,20 @@ describe('the quiet line gather, gate and ship print while a run they started ha
     for (const held of [run, other]) { held.release('test'); held.release('after'); }
     expect(await run.ended).toBe(0);
     expect(await other.ended).toBe(0);
+  });
+
+  it('prints the quiet line even while the process that started the watch is busy in a synchronous call, as gather is while its tier runs', async () => {
+    const place = aPlace();
+    const runs = join(place, 'runs');
+    const printed = join(place, 'terminal');
+    const watch = watchQuiet({ after: 1500, out: openSync(printed, 'w'), env: { KOALA_TEST_RUNS: runs } });
+    stops.push(watch.stop);
+    const run = startHeldRun(runs, watch.env);
+    const waited = spawnSync('sh', ['-c', 'until grep -q "quiet [0-9]* s; last said: the line it said last" "$1"; do sleep 0.2; done', 'sh', printed]);
+    expect(waited.status).toBe(0);
+    expect(readFileSync(printed, 'utf8')).toMatch(QUIET);
+    run.release('test');
+    run.release('after');
+    expect(await run.ended).toBe(0);
   });
 });

@@ -1,3 +1,6 @@
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { ProcessFailed, ProcessNotStarted, succeeded, type ProcessRun, type Processes, type Streams } from '../src/processes.js';
@@ -89,6 +92,17 @@ export function processesContract(name: string, make: () => Processes & Streams)
       const out = sink();
       expect(await make().start(CONTRACT.bytes, { output: out.stream }).ended).toEqual({ code: 0, stdout: '', stderr: '' });
       expect(out.bytes()).toEqual(Buffer.from([0, 200, 10, 255]));
+    });
+
+    it('hands both outputs straight to a file it was given, so they reach it even while this process is busy', async () => {
+      const folder = mkdtempSync(join(tmpdir(), 'koala-processes-'));
+      const fd = openSync(join(folder, 'said'), 'w');
+      const result = await make().start(CONTRACT.bothStreams, { outputFd: fd }).ended;
+      closeSync(fd);
+      const said = readFileSync(join(folder, 'said'), 'utf8');
+      rmSync(folder, { recursive: true, force: true });
+      expect(result).toEqual({ code: 0, stdout: '', stderr: '' });
+      expect([...said.split('\n')].sort()).toEqual(['', 'one', 'three', 'two']);
     });
 
     it('stops a program that would run on, and says the signal that ended it', async () => {
