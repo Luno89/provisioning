@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import { succeeded, type ProcessRun, type Processes } from '../lib/processes.js';
+import { succeeded, type ProcessRun, type Processes } from '@koala/engine-core/processes';
 import type { WorkflowRun, Workflows } from '../lib/workflows.js';
 import { interceptHttp } from './http.js';
 

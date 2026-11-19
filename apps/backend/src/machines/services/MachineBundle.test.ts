@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { Processes } from '../../platform/lib/processes.js';
+import type { Processes } from '@koala/engine-core/processes';
 import { MachineBundle } from './MachineBundle.js';
 
 let dir: string;

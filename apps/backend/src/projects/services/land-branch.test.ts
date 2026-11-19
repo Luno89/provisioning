@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { ProcessResult, ProcessRun, Processes } from '../../platform/lib/processes.js';
+import type { ProcessResult, ProcessRun, Processes } from '@koala/engine-core/processes';
 import { landBranch, type LandRequest } from './land-branch.js';
 
 const BASE = 'b'.repeat(40);

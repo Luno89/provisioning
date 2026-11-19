@@ -3,8 +3,11 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ProcessFailed, succeeded } from '../lib/processes.js';
-import { nodeProcesses, nodeStreams } from './processes.js';
+import { processesContract } from '../testing/processes-contract.js';
+import { ProcessFailed, succeeded } from './processes.js';
+import { nodeProcesses, nodeStreams, spawnedProcesses, withEnvironment } from './node-processes.js';
+
+processesContract('spawnedProcesses', () => spawnedProcesses(withEnvironment(process.env)));
 
 describe('running a program on this machine', () => {
   it('hands back what it printed and how it exited, without a shell between', async () => {

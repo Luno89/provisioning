@@ -8,7 +8,7 @@ import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { GiteaConflictError, GiteaService } from './GiteaService.js';
-import type { ProcessResult, Processes } from '../../platform/lib/processes.js';
+import type { ProcessResult, Processes } from '@koala/engine-core/processes';
 
 const KEY = 'test-master-key-for-unit-tests-only' as never;
 const BASE = 'http://gitea.test';

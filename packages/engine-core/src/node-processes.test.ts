@@ -2,8 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessFailed, succeeded } from '../lib/processes.js';
-import { nodeProcesses, nodeStreams } from './processes.js';
+import { ProcessFailed, succeeded } from './processes.js';
+import { nodeProcesses, nodeStreams } from './node-processes.js';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import type { Processes } from '../../platform/lib/processes.js';
+import type { Processes } from '@koala/engine-core/processes';
 import { mainHeads, syncMain } from './HubRepoSync.js';
 
 type GitRun = Parameters<Processes['run']>[0];
