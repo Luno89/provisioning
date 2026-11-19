@@ -29,7 +29,7 @@ export interface AgentBundle {
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report' | 'follow'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report' | 'follow'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined; followBeatMs?: number | undefined }): Router {
   const router = Router();
 
   router.post('/metrics', asyncRoute(async (req: Request, res: Response) => {
@@ -88,7 +88,7 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' |
       if (res.headersSent) return;
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
       res.flushHeaders();
-      beat = setInterval(() => { res.write(': beat\n\n'); }, KOALA_INSTALL_FOLLOW_BEAT_MS);
+      beat = setInterval(() => { res.write(': beat\n\n'); }, deps.followBeatMs ?? KOALA_INSTALL_FOLLOW_BEAT_MS);
     };
     const told = (following: InstallFollowing): void => {
       if (res.writableEnded) return;

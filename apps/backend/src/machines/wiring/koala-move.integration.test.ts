@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type https from 'node:https';
 import type { AddressInfo } from 'node:net';
@@ -8,11 +8,16 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { afterAll, beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import type { PlacedKoala } from '@koala/engine-core/koala-install';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { SETUP_LABEL } from '@koala/provision';
-import { installKoala, koalaPlacements, KOALA_NAMESPACE, KOALA_RELEASE } from '../../../../local-agent/src/koala-install.js';
+import { installKoala, koalaPlacements, KOALA_NAMESPACE, KOALA_RELEASE, placedFrom } from '../../../../local-agent/src/koala-install.js';
+import { linkToRoot, type RootLink } from '../../../../local-agent/src/root-link.js';
+import { reopening } from '@koala/engine-core/reopening';
+import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
+import { until } from '../testing/wiring-world.js';
+import { installWorkflowWorld, placingRoot, type InstallWorkflowWorld } from '../testing/placing-root.js';
 import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, hostCluster, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -216,6 +221,11 @@ const secretData = async (): Promise<Record<string, string>> => {
 let db: MongoDB;
 beforeEach(async () => { db = await fresh(); });
 
+const nothingOfKoalaLeft = async (): Promise<void> => {
+  await helm('uninstall', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '--ignore-not-found');
+  await kubectl('delete', 'namespace', KOALA_NAMESPACE, '--ignore-not-found', '--wait=true');
+};
+
 describe('a machine brings Koala over from Koala\'s servers, its keys from root\'s real move route, on a real k3s', () => {
   it('stops at the keys, putting nothing on the cluster, when root does not know the move\'s credential, and tells root why', async () => {
     const root = await rootWithAMovingKoala(db, 'install-refused');
@@ -293,10 +303,7 @@ describe('a move root stops on the machine, on a real k3s', () => {
     return { files, said, placements, reached, stopped: () => stopped };
   };
 
-  beforeEach(async () => {
-    await helm('uninstall', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '--ignore-not-found');
-    await kubectl('delete', 'namespace', KOALA_NAMESPACE, '--ignore-not-found', '--wait=true');
-  }, 0);
+  beforeEach(nothingOfKoalaLeft, 0);
 
   it('stops between its steps when root stops it, tells root nothing more, then removes all it made and lets the cluster go, so nothing of Koala is left', async () => {
     const root = await rootWithAMovingKoala(db, 'install-stopped');
@@ -360,6 +367,46 @@ describe('a move root stops on the machine, on a real k3s', () => {
       expect(await kubectl('get', 'deployment', `${KOALA_RELEASE}-backend`, '-n', KOALA_NAMESPACE, '-o', 'jsonpath={.status.availableReplicas}')).toBe('1');
       expect(await kubectl('get', 'secret', `${KOALA_RELEASE}-keys`, '-n', KOALA_NAMESPACE, '-o', 'name')).toBe(`secret/${KOALA_RELEASE}-keys\n`);
     } finally {
+      await root.close();
+    }
+  }, 0);
+});
+
+describe('Koala put on a machine by root\'s install workflow, the machine\'s own agent doing the work, on a real k3s', () => {
+  let temporal: InstallWorkflowWorld;
+  beforeAll(async () => { temporal = await installWorkflowWorld(() => db); });
+  afterAll(async () => { await temporal?.close(); });
+  beforeEach(nothingOfKoalaLeft, 0);
+
+  it('asks the machine once it is on the mesh, and the machine puts Koala on its cluster from root\'s chart, telling root each stage, until Koala is ready', async () => {
+    const root = await placingRoot({ db, workflows: temporal.workflows(), rootUrlIsServed: true, chart: chartFile });
+    const files = mkdtempSync(join(work, 'machine-'));
+    const links: RootLink[] = [];
+    try {
+      await db.machines.saveLocalAgentDevice({ id: DESK.id, ownerId: 'bo', name: DESK.name, rootDir: '/home/bo/koala', createdAt: new Date().toISOString(), tokenHash: deviceTokenHash(DEVICE_TOKEN), koalaWanted: { name: 'bobby' } });
+      const said: string[] = [];
+      const handed: PlacedKoala[] = [];
+      const token = () => (links[0]!.socket.auth as { token: string }).token;
+      const placements = koalaPlacements({ cluster: thisMachine(files), helm: HELM, fetch, token, say: (line) => said.push(line) });
+      links.push(linkToRoot({
+        rootUrl: root.url, token: DEVICE_TOKEN, configFile: join(files, 'machine.json'), meshIp: async () => DESK.meshIp,
+        onKoala: () => undefined, onRemoved: () => undefined, say: () => undefined,
+        onPlaceKoala: (raw) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return placements.place(raw); },
+        onStopKoala: (raw) => { void placements.stop(raw); },
+      }));
+      const instanceOf = async () => (await db.instances.getInstances('bo'))[0];
+      const settingUp = await until(async () => { const instance = await instanceOf(); return instance?.detail === 'Koala on desk is setting itself up' ? instance : undefined; });
+      expect(settingUp).toMatchObject({ status: 'installing', machineId: DESK.id, url: 'http://100.64.0.7:30320', install: { state: 'installing', stage: 'koala' } });
+      expect(said.at(-1)).toBe('Koala runs on this machine at http://100.64.0.7:30320');
+      expect(await kubectl('logs', `job/${KOALA_RELEASE}-setup-1`, '-n', KOALA_NAMESPACE)).toBe('seeded\n');
+      expect(await kubectl('get', 'deployment', `${KOALA_RELEASE}-backend`, '-n', KOALA_NAMESPACE, '-o', 'jsonpath={.status.availableReplicas}')).toBe('1');
+      expect(readFileSync(join(files, 'koala-here'), 'utf8')).toMatch(new RegExp(`^${handed[0]!.instanceId} ${handed[0]!.installId} \\d{4}-`));
+
+      const koala = new InstanceReporter({ root: { url: root.url, instanceId: handed[0]!.instanceId, credential: handed[0]!.credential }, wait: reopening(1), log: () => undefined });
+      expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
+      expect(await until(async () => { const instance = await instanceOf(); return instance?.status === 'ready' ? instance : undefined; })).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', install: { state: 'ready' } });
+    } finally {
+      for (const link of links) link.close();
       await root.close();
     }
   }, 0);
