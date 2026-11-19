@@ -8,19 +8,16 @@ import type { ClusterAccess, ClusterService, InfisicalService, InfrastructureSer
 import { startAppDeploy } from '../infrastructure/services/AppDeploy.js';
 import { TemporalBridge } from '../infrastructure/services/TemporalBridge.js';
 import type { GiteaService } from '../projects/index.js';
-import type { AppSettings, ClusterMetadata, Database, DeploymentMetadata } from '../platform/index.js';
+import type { AppSettings, ClusterMetadata, DeploymentMetadata } from '../platform/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import type { ToolCallParsers } from '../models/index.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
 import type { SyncConfigArgs } from './SyncConfigActivity.js';
+import { records } from './testing/recorded-database.js';
+import { answerAsACluster } from './testing/answering-cluster.js';
 
-const records = vi.hoisted(() => ({ db: undefined as Database | undefined }));
-
-vi.mock('../platform/index.js', async (actual) => ({
-  ...(await actual<typeof import('../platform/index.js')>()),
-  createDatabase: () => records.db!,
-}));
+vi.mock('../platform/index.js', async (actual) => (await import('./testing/recorded-database.js')).withRecordedDatabase(await actual<typeof import('../platform/index.js')>()));
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { SyncConfigActivity } = await import('./SyncConfigActivity.js');
@@ -102,17 +99,8 @@ beforeEach(async () => {
   records.db = memoryDatabase();
   await records.db.infrastructure.saveCluster(CLUSTER);
   access = mock<ClusterAccess>();
-  Object.defineProperty(access, 'here', { value: { root: false, koalaMachineId: 'koala' }, configurable: true });
   infra = mock<InfrastructureService>();
-  access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).clusterId}`);
-  access.apply.mockResolvedValue('');
-  access.helm.mockImplementation(async (_target, args) => (args[0] === 'list' ? '[]' : ''));
-  access.kubectl.mockImplementation(async (_target, args) => {
-    if (args[0] === 'api-resources') return 'probes.monitoring.coreos.com\n';
-    if (args[0] === 'get' && args[1] === 'nodes') return '64Gi';
-    if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
-    return '';
-  });
+  answerAsACluster(access);
   infra.deploy.mockResolvedValue({ stdout: '', logFile: LOG });
 });
 

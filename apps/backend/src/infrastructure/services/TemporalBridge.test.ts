@@ -20,6 +20,13 @@ const project = { id: 'proj-1', name: 'notes', ownerId: 'u1', giteaOwner: 'acme'
 const envKeys = ['NODE_ENV'] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 
+function ownerBrowsers() {
+  const io = mock<SocketServer>();
+  const told = mock<ReturnType<SocketServer['to']>>();
+  io.to.mockReturnValue(told);
+  return { io, told };
+}
+
 function bridge(options: { io?: SocketServer; clusterService?: ClusterService } = {}) {
   const db = memoryDatabase();
   const workflow = mock<WorkflowClient>();
@@ -254,9 +261,7 @@ describe('following work to its end', () => {
   };
 
   it('marks an app running once Temporal says the workflow deploying it completed, and tells its owner\'s browsers', async () => {
-    const io = mock<SocketServer>();
-    const told = mock<ReturnType<SocketServer['to']>>();
-    io.to.mockReturnValue(told);
+    const { io, told } = ownerBrowsers();
     const { db, workflow, ready } = bridge({ io });
     workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
     await db.infrastructure.saveDeployment(deploying);
@@ -280,9 +285,7 @@ describe('following work to its end', () => {
   });
 
   it('removes an app once the workflow destroying it ends, tells its owner\'s browsers, and a model it served is nobody\'s default any more', async () => {
-    const io = mock<SocketServer>();
-    const told = mock<ReturnType<SocketServer['to']>>();
-    io.to.mockReturnValue(told);
+    const { io, told } = ownerBrowsers();
     const { db, workflow, ready } = bridge({ io });
     const person = { email: 'u1@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-11-01T00:00:00Z' };
     await db.accounts.saveUser({ id: 'u1', ...person, defaultModelId: 'd1' });
@@ -364,9 +367,7 @@ describe('following work to its end', () => {
   });
 
   it('tells the owner\'s browsers the moment another process\'s record names the work it started, before it ends', async () => {
-    const io = mock<SocketServer>();
-    const told = mock<ReturnType<SocketServer['to']>>();
-    io.to.mockReturnValue(told);
+    const { io, told } = ownerBrowsers();
     const { db, workflow, ready } = bridge({ io });
     workflow.getHandle.mockReturnValue(closing(() => new Promise<never>(() => undefined), 'RUNNING') as never);
     const instance = ready();
@@ -415,9 +416,7 @@ describe('checking each app on its cluster', () => {
     access.kubectl.mockImplementation(async (_reach, args) => (args[1] === 'namespaces' ? listOf(namespaces.map((name) => (typeof name === 'string' ? { metadata: { name } } : name))) : listOf([readyPod])));
     const clusterService = mock<ClusterService>();
     Object.assign(clusterService, { access });
-    const io = mock<SocketServer>();
-    const told = mock<ReturnType<SocketServer['to']>>();
-    io.to.mockReturnValue(told);
+    const { io, told } = ownerBrowsers();
     const made = bridge({ clusterService, io });
     return { ...made, access, io, told };
   }

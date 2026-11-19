@@ -7,17 +7,13 @@ import { mock, type MockProxy } from 'vitest-mock-extended';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import type { GiteaService } from '../projects/index.js';
-import type { Database } from '../platform/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { interceptHttp } from '../platform/testing/http.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
+import { records } from './testing/recorded-database.js';
+import { answerAsACluster } from './testing/answering-cluster.js';
 
-const records = vi.hoisted(() => ({ db: undefined as Database | undefined }));
-
-vi.mock('../platform/index.js', async (actual) => ({
-  ...(await actual<typeof import('../platform/index.js')>()),
-  createDatabase: () => records.db!,
-}));
+vi.mock('../platform/index.js', async (actual) => (await import('./testing/recorded-database.js')).withRecordedDatabase(await actual<typeof import('../platform/index.js')>()));
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { clusterActivities } = await import('../worker-cluster.js');
@@ -27,7 +23,6 @@ const MODEL_TREE = 'https://huggingface.co/api/models/org/model/tree/*';
 
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1\nkind: Config\n' };
 const LOG = join(mkdtempSync(join(tmpdir(), 'deploy-app-')), 'deploy.log');
-const PROBES = 'probes.monitoring.coreos.com\n';
 
 let access: MockProxy<ClusterAccess>;
 let infra: MockProxy<InfrastructureService>;
@@ -46,23 +41,10 @@ beforeEach(async () => {
   records.db = memoryDatabase();
   await records.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy' } as never);
   access = mock<ClusterAccess>();
-  Object.defineProperty(access, 'here', { value: { root: false, koalaMachineId: 'koala' }, configurable: true });
   infra = mock<InfrastructureService>();
   reached = [];
   nodes = '64Gi';
-  access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).clusterId}`);
-  access.apply.mockImplementation(async (target) => { reached.push(target as Reach); return ''; });
-  access.helm.mockImplementation(async (target, args) => { reached.push(target as Reach); return args[0] === 'list' ? '[]' : ''; });
-  access.kubectl.mockImplementation(async (target, args) => {
-    reached.push(target as Reach);
-    if (args[0] === 'api-resources') return PROBES;
-    if (args[0] === 'get' && args[1] === 'service') return `service/${args[2]}`;
-    if (args[0] === 'get' && args[1] === 'nodes') return nodes;
-    if (args[0] === 'create' && args.includes('--dry-run=client')) return 'apiVersion: v1\nkind: Secret\n';
-    if (args[0] === 'get' && args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
-    if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
-    return '';
-  });
+  answerAsACluster(access, { reached: (target) => reached.push(target), nodes: () => nodes });
   infra.deploy.mockResolvedValue({ stdout: '', logFile: LOG });
 });
 
