@@ -480,6 +480,7 @@ export const DECISIONS: Decision[] = [
     subject: 'Koala is told when something happens, through events, rather than asking again until it does',
     terms: ['wait', 'waits', 'poll', 'polling', 'socket', 'event', 'events', 'prober'],
     words: [
+      { at: '2026-11-02T17:21', text: 'we need to make most of these event driven, waiting is not a good solution to anything' },
       { at: '2026-11-19T18:37', text: 'I don\'t want anymore waits on stuff, there has to be a better way to implement the provisioning than waiting, so yeah I guess build that but I think we need to actualy look at how these are all implemented so that its a socket like implementation vs a wait' },
       { at: '2026-11-19T19:05', asked: 'Some things Koala depends on can\'t tell it anything: a server order at the provider, an SSH port opening, public DNS answering', text: 'One visible prober (Recommended)' },
       { at: '2026-11-19T19:05', asked: 'Stopping something is a different case from waiting for it to be ready.', text: 'Process kill grace only (Recommended)' },
