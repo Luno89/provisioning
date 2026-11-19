@@ -1,6 +1,6 @@
 export type Kind = 'source' | 'test' | 'other';
 
-export interface GateState { head: string; red?: { tests: string[]; at: string } }
+export interface GateState { head: string; red?: { tests: string[]; at: string }; refactor?: { files: string[]; at: string } }
 export interface TestRun { passed: boolean; output: string }
 export type Verdict = { allow: true; red?: { tests: string[] } } | { allow: false; why: string };
 
