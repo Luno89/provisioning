@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
@@ -31,6 +32,14 @@ const TAG = 'mesh-live';
 const ROOT_CONTAINER = 'nw-mesh-root';
 const WORKER_CONTAINER = 'nw-mesh-worker';
 const OTHER_USER = `mesh-live-other-${STAMP}`;
+const INSIDE_WATCH = [
+  'echo $$ > /tmp/inside.pid',
+  'while true; do',
+  '  printf "%s %s\\n" "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$(curl -s -o /dev/null -m 5 -w "%{http_code} %{time_total}" http://127.0.0.1:30320/api/auth/sign-in)"',
+  '  sleep 0.5',
+  'done',
+  '',
+].join('\n');
 
 const run = (cmd: string, args: string[], input?: string) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', input, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
 const headscale = (...args: string[]) => run('docker', ['exec', 'provisioning-headscale', 'headscale', ...args]);
@@ -104,6 +113,15 @@ async function teardown(): Promise<void> {
   for (const vm of vms) await vm.destroy();
 }
 
+async function startRoot(releaseTag: string): Promise<void> {
+  try { run('docker', ['rm', '-f', ROOT_CONTAINER]); } catch { /* not running */ }
+  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
+    ...devDataMounts(),
+    '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: releaseTag, registry: '10.0.2.2:5001' }),
+    '-e', `MESH_LOGIN_SERVER=${MESH}`, IMAGE, 'backend']);
+  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
+}
+
 async function main(): Promise<void> {
   const k3s = await k3sMirror();
   step('root\'s registry holds the image');
@@ -113,11 +131,7 @@ async function main(): Promise<void> {
   step('root starts, with the mesh at its address on this computer');
   for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   makeSuiteNamespace(ROOT);
-  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...devDataMounts(),
-    '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }),
-    '-e', `MESH_LOGIN_SERVER=${MESH}`, IMAGE, 'backend']);
-  await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined), gone);
+  await startRoot(TAG);
   run('docker', ['run', '-d', '--name', WORKER_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', `MESH_LOGIN_SERVER=${MESH}`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
@@ -159,6 +173,21 @@ async function main(): Promise<void> {
   assert.equal(await reaches(instanceVm, ownAddress, 7233), false, `Temporal answers on ${ownAddress}, the instance's own network`);
   assert.equal(await reaches(instanceVm, instanceMeshIp, GATEWAY_PORT), true, 'the machine gateway does not answer on the instance\'s mesh address');
   console.log(`  Temporal answers on neither ${instanceMeshIp}:7233 nor ${ownAddress}:7233; the gateway answers on ${instanceMeshIp}:${GATEWAY_PORT}`);
+
+  step('the machine answers on its node ports on itself and on the mesh, never on its network address, and Infisical, SearXNG and Crawl4AI have none');
+  const answer = async (host: string, port: number) => (await inVm(instanceVm, `curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${host}:${port}/ || true`)).trim();
+  for (const [what, port] of Object.entries({ backend: 30320, gitea: 31737 })) {
+    const here = await answer('127.0.0.1', port);
+    const onMesh = await answer(instanceMeshIp, port);
+    const there = await answer(ownAddress, port);
+    console.log(`  ${what} :${port} on 127.0.0.1 ${here}, on the mesh at ${instanceMeshIp} ${onMesh}, on ${ownAddress} ${there}`);
+    assert.notEqual(here, '000', `the ${what} did not answer on the machine itself`);
+    assert.notEqual(onMesh, '000', `the ${what} did not answer on the machine's mesh address`);
+    assert.equal(there, '000', `the ${what} answered on the machine's network address`);
+  }
+  for (const [namespace, service] of [['infisical', 'infisical-infisical-standalone-infisical'], ['searxng', 'searxng'], ['crawl4ai', 'crawl4ai']]) {
+    assert.equal((await inVm(instanceVm, `sudo k3s kubectl -n ${namespace} get service ${service} -o jsonpath='{.spec.type}'`)).trim(), 'ClusterIP', `${service} is published on the machine`);
+  }
 
   step('the owner signs in to the instance');
   const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
@@ -335,6 +364,81 @@ async function main(): Promise<void> {
   assert.equal(await clusterOf(), undefined, 'the instance still lists the removed machine\'s cluster');
   await until('the instance dropping the removed machine from the mesh, so it no longer reaches the machine gateway', async () => ((await reaches(machineVm, instanceMeshIp!, GATEWAY_PORT)) ? undefined : true), gone);
   console.log(`  ${machineMeshIp} is off the mesh, its agent ${stopped.split('\n').join(', ')}, its project gone`);
+
+  const kubectl = (args: string) => inVm(instanceVm, `sudo k3s kubectl -n nowrinkles ${args}`);
+  const jobEnds = async (name: string, outcome: 'complete' | 'failed') => {
+    const conditions = await until(`the self-upgrade job ${name} ending`, async () => {
+      const found = (await kubectl(`get job ${name} -o jsonpath='{.status.conditions[?(@.status=="True")].type}'`)).toLowerCase();
+      return found.includes('complete') || found.includes('failed') ? found : undefined;
+    }, gone);
+    assert.ok(conditions.includes(outcome), `the self-upgrade job ${name} ended ${conditions}, not ${outcome}`);
+  };
+  const upgradeOnce = async (name: string, outcome: 'complete' | 'failed') => {
+    await kubectl(`create job --from=cronjob/instance-self-upgrade ${name}`);
+    await jobEnds(name, outcome);
+  };
+  const reported = async () => {
+    const { instance } = await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } };
+    return { status: instance.status, detail: instance.detail };
+  };
+  const backendImage = async () => (await kubectl("get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'")).trim();
+  const answers = async () => (await fetch(`${INSTANCE_URL}/api/auth/sign-in`)).status === 200;
+  const watchAvailability = () => {
+    const misses: string[] = [];
+    let checks = 0;
+    const timer = setInterval(() => {
+      checks += 1;
+      void fetch(`${INSTANCE_URL}/api/auth/sign-in`, { signal: AbortSignal.timeout(5000) })
+        .then((response) => { if (response.status !== 200) misses.push(`${new Date().toISOString()} ${response.status}`); })
+        .catch((err: Error) => { misses.push(`${new Date().toISOString()} ${err.message}`); });
+    }, 3000);
+    return () => { clearInterval(timer); return { checks, misses }; };
+  };
+
+  step('the instance checks root for the version it should run, and reports in');
+  await upgradeOnce('self-upgrade-now', 'complete');
+  assert.deepEqual(await reported(), { status: 'ready', detail: UPGRADE_WORDS.running(TAG) }, 'root did not hear the instance check in');
+
+  step('root publishes a new release, and the instance upgrades itself to it without dropping a request');
+  run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
+  run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
+  await startRoot('upgrade-ok');
+  await inVm(instanceVm, `echo ${Buffer.from(INSIDE_WATCH).toString('base64')} | base64 -d > /tmp/inside-watch.sh && setsid sh /tmp/inside-watch.sh > /tmp/inside.log 2>&1 < /dev/null &`);
+  const duringGood = watchAvailability();
+  await upgradeOnce('upgrade-to-ok', 'complete');
+  const good = duringGood();
+  await inVm(instanceVm, 'pkill -F /tmp/inside.pid');
+  console.log(`  answered ${good.checks - good.misses.length} of ${good.checks} checks while upgrading`);
+  if (good.misses.length > 0) {
+    const inside = (await inVm(instanceVm, 'cat /tmp/inside.log')).trim().split('\n');
+    const odd = inside.filter((line) => { const [, code, seconds] = line.split(' '); return code !== '200' || Number(seconds) > 1; });
+    console.log(`  from inside the machine, every half second: ${inside.length} asked, ${odd.length} slow or failed:\n    ${odd.join('\n    ')}`);
+    console.log(`  what Kubernetes did:\n    ${(await kubectl('get events --sort-by=.lastTimestamp -o custom-columns=AT:.lastTimestamp,OBJECT:.involvedObject.name,REASON:.reason,MESSAGE:.message')).trim().split('\n').slice(-40).join('\n    ')}`);
+    console.log(`  the new backend's start:\n    ${(await kubectl('logs deploy/instance-backend -c backend --timestamps')).trim().split('\n').slice(0, 40).join('\n    ')}`);
+  }
+  assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
+  assert.deepEqual(await reported(), { status: 'ready', detail: UPGRADE_WORDS.upgraded('upgrade-ok') });
+  assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
+  assert.ok(await until('the upgraded instance answering', async () => ((await answers()) ? true : undefined), gone));
+
+  step('root publishes a broken release, and the instance rolls itself back without dropping a request, telling root it failed');
+  execFileSync('docker', ['build', '-q', '-t', '127.0.0.1:5000/nowrinkles/app:upgrade-broken', '-'], {
+    input: `FROM ${IMAGE}\nENTRYPOINT ["sh", "-c", "echo broken on purpose; exit 1"]\n`, cwd: REPO, stdio: ['pipe', 'ignore', 'pipe'],
+  });
+  run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-broken']);
+  await startRoot('upgrade-broken');
+  const duringBroken = watchAvailability();
+  await upgradeOnce('upgrade-to-broken', 'failed');
+  const broken = duringBroken();
+  console.log(`  answered ${broken.checks - broken.misses.length} of ${broken.checks} checks while the broken release failed and was rolled back`);
+  assert.deepEqual(broken.misses, [], 'the instance stopped answering while a broken release failed');
+  const brokenReport = await reported();
+  assert.equal(brokenReport.status, 'failed');
+  assert.ok(brokenReport.detail?.startsWith(`${UPGRADE_WORDS.rolledBack('upgrade-broken', 'upgrade-ok')}: `), `root heard ${brokenReport.detail}`);
+  assert.match(await backendImage(), /:upgrade-ok$/, 'the rollback did not put the working release back');
+  assert.ok(await until('the rolled-back instance answering', async () => ((await answers()) ? true : undefined), gone));
+  const history = await inVm(instanceVm, '~/.local/share/koala/bin/helm history instance -n nowrinkles --kubeconfig /etc/rancher/k3s/k3s.yaml');
+  console.log(`  ${history.trim().split('\n').slice(-3).join('\n  ')}`);
 
   console.log('\nmesh live — PASS');
 }
