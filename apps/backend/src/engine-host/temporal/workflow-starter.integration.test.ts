@@ -81,7 +81,7 @@ describe('two processes starting the same run at once through Temporal', () => {
     expect(live).toHaveLength(1);
     const history = await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).fetchHistory();
     const started = history.events?.[0]?.workflowExecutionStartedEventAttributes?.input?.payloads?.[0];
-    const input = started ? await naming.options.loadedDataConverter.payloadConverter.fromPayload<ProcedureRunInput>(started) : undefined;
+    const input = started ? naming.options.loadedDataConverter.payloadConverter.fromPayload<ProcedureRunInput>(started) : undefined;
     expect(input?.ticket.grantId).toBe(live[0]!.id);
     await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).cancel();
   }, 60_000);
