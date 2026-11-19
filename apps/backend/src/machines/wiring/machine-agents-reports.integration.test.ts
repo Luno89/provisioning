@@ -44,7 +44,10 @@ async function listening(server: http.Server): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-function wired(io: SocketServer, db: MongoDB, machines: SocketsWiringDeps['machines']): void {
+async function wired(db: MongoDB, machines: SocketsWiringDeps['machines']): Promise<{ io: SocketServer; url: string }> {
+  const server = http.createServer();
+  const io = new SocketServer(server);
+  closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
@@ -52,6 +55,7 @@ function wired(io: SocketServer, db: MongoDB, machines: SocketsWiringDeps['machi
     machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' }, clusters: {} as never, apps: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
   });
+  return { io, url: await listening(server) };
 }
 
 async function connected(koalaUrl: string, deviceId: string) {
@@ -73,11 +77,7 @@ async function koala() {
   app.use('/api/machines', machinesRouter({ accounts, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const rootUrl = await listening(http.createServer(app));
   const machines = onlineMachines(db.machines);
-  const server = http.createServer();
-  const io = new SocketServer(server);
-  closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-  wired(io, db, machines);
-  const koalaUrl = await listening(server);
+  const koalaUrl = (await wired(db, machines)).url;
   return { accounts, machines, rootUrl, koalaUrl };
 }
 
@@ -131,13 +131,10 @@ describe('a machine whose coding agents its join could not set up', () => {
         if (recorded.length === 1) await new Promise<void>((done) => { releaseFirst = done; });
       },
     } as unknown as Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
-    const server = http.createServer();
-    const io = new SocketServer(server);
-    closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-    wired(io, db, machines);
+    const { io, url } = await wired(db, machines);
     let arrived = 0;
     io.of('/agent').on('connection', (socket) => { socket.on('agents:found', () => { arrived += 1; }); });
-    const socket = await connected(await listening(server), 'desk');
+    const socket = await connected(url, 'desk');
     socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'checking', source: 'found' }] });
     socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' }] });
     await until(() => (arrived === 2 ? true : undefined));

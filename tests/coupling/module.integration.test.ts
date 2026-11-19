@@ -31,22 +31,23 @@ describe('a module\'s top-level code, judged', () => {
   });
   const topLevelCallOn = (judged: readonly Judged[], line: number): Judged | undefined =>
     judged.find((entry) => graph.units[entry.edge.from]?.name === '(module)' && entry.edge.site.file === 'src/script.ts' && entry.edge.site.line === line && entry.edge.to.some((id) => graph.units[id]?.name === 'shout'));
+  const takenButNotUntaken = (runs: Ran[]): void => {
+    const judged = judge(graph, runs, () => 'component');
+    expect(topLevelCallOn(judged, 3)?.covered.map((entry) => entry.level)).toEqual(['component']);
+    expect(topLevelCallOn(judged, 6)?.covered).toEqual([]);
+  };
 
   it('counts a top-level call as run when a test starts the script, and not one in a branch it never took', async () => {
     const runs = await ranWhile(async (env) => {
       expect(execFileSync(TSX, [SCRIPT], { encoding: 'utf8', env: { ...process.env, ...env } })).toBe('HELLO\n');
     });
-    const judged = judge(graph, runs, () => 'component');
-    expect(topLevelCallOn(judged, 3)?.covered.map((entry) => entry.level)).toEqual(['component']);
-    expect(topLevelCallOn(judged, 6)?.covered).toEqual([]);
+    takenButNotUntaken(runs);
   });
 
   it('counts a top-level call as run when a test imports the module, and not one in a branch it never took', async () => {
     const runs = await ranWhile(async () => {
       await import(SCRIPT);
     });
-    const judged = judge(graph, runs, () => 'component');
-    expect(topLevelCallOn(judged, 3)?.covered.map((entry) => entry.level)).toEqual(['component']);
-    expect(topLevelCallOn(judged, 6)?.covered).toEqual([]);
+    takenButNotUntaken(runs);
   });
 });
