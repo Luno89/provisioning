@@ -68,7 +68,7 @@ describe('the move\'s Mongo step on the new machine', () => {
       { c: 'deployments', d: { _id: 'd1', id: 'd1', name: 'shop', clusterId: 'pool-shop', deploymentId: '40213377', strategy: 'helm', status: 'running', ownerId: 'bo' } },
       { c: 'deployments', d: { _id: 'd2', id: 'd2', name: 'lab-app', clusterId: 'machine-lab', deploymentId: '11111111', strategy: 'helm', status: 'running', ownerId: 'bo' } },
     ]);
-    const state = [stateSecret('app-pool-shop-40213377-state'), stateSecret('app-machine-lab-11111111-state'), stateSecret('platform-gitea-state')];
+    const state = [stateSecret('app-pool-shop-40213377-state'), stateSecret('app-machine-lab-11111111-state'), stateSecret('platform-gitea-state'), stateSecret('pool-shop-state'), stateSecret('pool-shop-observability-state')];
     const asked: string[] = [];
     const said: string[] = [];
     const parts = {

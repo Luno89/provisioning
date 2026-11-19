@@ -23,6 +23,11 @@ describe('the Terraform state a move brings onto the machine', () => {
     ]);
   });
 
+  it('leaves out the state of the pool\'s monitoring, which the machine\'s cluster never uses, and keeps another cluster\'s', () => {
+    const carried = [secret('pool-shop-state'), secret('pool-shop-observability-state'), secret('platform-gitea-state'), secret('pool-other-observability-state')];
+    expect(retargetedStateSecrets(carried, { from: 'pool-shop', onto: 'machine-desk', deploymentIds: [] })).toEqual([secret('platform-gitea-state'), secret('pool-other-observability-state')]);
+  });
+
   it('finds an app\'s state by the name Terraform gave it, hashed where the stack\'s name is too long for a label', () => {
     const carried = [secret(`app-pool-${'b'.repeat(39)}-3e401760-state`)];
     expect(retargetedStateSecrets(carried, { from: long, onto: 'machine-desk', deploymentIds: ['40213377'] })).toEqual([secret('app-machine-desk-40213377-state')]);
