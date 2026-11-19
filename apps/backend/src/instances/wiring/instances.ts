@@ -10,7 +10,7 @@ import {
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
-import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
+import { MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
 import { POOL_SETUP_HEARD, poolInstanceWorkflowId, poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
@@ -335,9 +335,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
         workflowIdReusePolicy: 'ALLOW_DUPLICATE',
         ...startedFor(ownerId),
       });
-    },
-    moveFinished: async (instanceId) => {
-      await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_FINISHED);
     },
     moveStopped: async (instanceId, reason) => {
       await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);

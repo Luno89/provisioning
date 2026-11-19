@@ -25,7 +25,6 @@ export interface PoolWorkflows {
   trialChanged(instanceId: string): Promise<void>;
   remove(instanceId: string, ownerId: string): Promise<void>;
   move?(instanceId: string, ownerId: string): Promise<void>;
-  moveFinished?(instanceId: string): Promise<void>;
   moveStopped?(instanceId: string, reason: string): Promise<void>;
   setupHeard?(instanceId: string, report: ProvisionReport): Promise<void>;
 }

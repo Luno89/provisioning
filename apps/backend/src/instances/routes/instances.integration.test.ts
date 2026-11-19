@@ -298,7 +298,7 @@ describe('the new machine reading a moving instance through root', () => {
           rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', domain: 'koala.dev',
           moves: { joinCode: async () => ({ command: 'curl', expiresAt: 'later' }), poolClusterId: (name) => `pool-${name}` },
         }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => now, () => {}, {
-          start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveFinished: async () => {}, moveStopped: async () => {},
+          start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveStopped: async () => {},
         });
         const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
         const placing = await instances.placeOn(TEST_USER.id, desk, undefined, 'install-1');
