@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
-import { memoryReporter } from '../testing/memory-reporter.js';
+import { memoryReporter } from './memory-reporter.js';
 import { containerProvider, type ContainerProvider } from './container.js';
-import { localCommands } from './local-commands.js';
-import { serviceStep } from './service.js';
-import { removeSteps, runSteps, StepFailed, type Step } from './steps.js';
+import { localCommands } from '../src/local-commands.js';
+import { serviceStep } from '../src/service.js';
+import { removeSteps, runSteps, StepFailed, type Step } from '../src/steps.js';
 
 const IMAGE = 'alpine:3.20';
 const ctx = { commands: localCommands(process.env) };

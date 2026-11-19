@@ -13,8 +13,8 @@ import { adminEdge } from '../../instances/services/InstanceAddresses.js';
 import { startK3s, TOOLS } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
 import { ClusterAccess } from './ClusterAccess.js';
-import { localCommands, removeSteps, runSteps, type ContainerContext } from '@koala/provision';
-import { memoryReporter } from '@koala/provision/testing';
+import { localCommands, removeSteps, runSteps } from '@koala/provision';
+import { memoryReporter, type ContainerContext } from '@koala/provision/testing';
 import { edgeCaddy, type EdgeCaddy } from '../../platform/testing/edge-caddy.js';
 
 const KEY = 'test-key' as never;

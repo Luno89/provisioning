@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { localCommands, removeSteps, runSteps, StepFailed, type ContainerContext, type Step } from '@koala/provision';
-import { memoryReporter } from '@koala/provision/testing';
+import { localCommands, removeSteps, runSteps, StepFailed, type Step } from '@koala/provision';
+import { memoryReporter, type ContainerContext } from '@koala/provision/testing';
 import { edgeCaddy } from '../testing/edge-caddy.js';
 
 const ctx: ContainerContext = { commands: localCommands(process.env) };

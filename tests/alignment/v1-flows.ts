@@ -69,7 +69,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The GPU toolkit is offered at join when a GPU is found; B4\'s question is that offer.',
         screen: { on: 'terminal' },
         code: ['apps/local-agent/src/join/plan.ts#planJoin'],
-        decisions: ['gpu-is-core'],
+        decisions: ['gpu-is-core', 'how-a-machine-cluster-is-made'],
       },
       {
         id: 'B6',
@@ -263,7 +263,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'Removing a machine lists its apps, asks once, then destroys them with it; removing the one holding Koala removes Koala too, typed to confirm.',
         screen: { on: 'instance', route: '/mesh', component: `${UI}/machines/components/MyMachines.tsx#MyMachines` },
         code: ['apps/frontend/src/features/machines/api.ts#deleteLocalAgentDevice'],
-        decisions: ['machine-lifecycle'],
+        decisions: ['machine-lifecycle', 'cluster-on-demand'],
       },
     ],
   },

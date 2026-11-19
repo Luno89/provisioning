@@ -1,6 +1,6 @@
-import type { CommandRunner } from './commands.js';
-import type { Provider, ServiceContext } from './service.js';
-import type { Progress, StepState } from './steps.js';
+import type { CommandRunner } from '../src/commands.js';
+import type { Provider, ServiceContext } from '../src/service.js';
+import type { Progress, StepState } from '../src/steps.js';
 
 export interface ContainerContext extends ServiceContext {
   commands: CommandRunner;

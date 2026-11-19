@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
-import { containerProvider, localCommands, removeSteps, runSteps, StepFailed, type ContainerContext, type Step } from '@koala/provision';
-import { memoryReporter } from '@koala/provision/testing';
+import { localCommands, removeSteps, runSteps, StepFailed, type Step } from '@koala/provision';
+import { containerProvider, type ContainerContext, memoryReporter } from '@koala/provision/testing';
 import { MINIO_TEST_IMAGE, startMinio } from '../testing/real-minio.js';
 import { minioStep } from './minio-step.js';
 
