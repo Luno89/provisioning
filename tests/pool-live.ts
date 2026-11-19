@@ -498,7 +498,7 @@ async function main(): Promise<void> {
     instanceId = undefined;
   }
 
-  step('an admin on root removes a throwaway account, which is signed out at once, and another after it');
+  step(`an admin on root removes a throwaway account whose trial took the name "${NAME}b": it is signed out at once, and a new account then takes the same name`);
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const email = `pool-live-${NAME}@example.com`;
   const registered = await signUp(`${ROOT_FOR_HOST}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { production: true, mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
@@ -509,6 +509,12 @@ async function main(): Promise<void> {
   assert.ok(throwaway, 'root\'s admin page does not list the new account');
   throwawayId = throwaway.id;
   const theirs = sessionToken({ id: throwaway.id, email }, loadKeys(process.env).session, { seconds: 3600 });
+  const kept = `${NAME}b`;
+  const trialAs = (session: string) => fetch(`${ROOT_FOR_HOST}/api/instances/pool`, { method: 'POST', headers: { 'content-type': 'application/json', Cookie: `session=${session}` }, body: JSON.stringify({ name: kept }) });
+  const theirTrial = await trialAs(theirs);
+  assert.equal(theirTrial.status, 202, await theirTrial.clone().text());
+  const listedTrial = (await people()).find((person) => person.id === throwaway.id)?.instance;
+  assert.deepEqual({ where: listedTrial?.where, name: listedTrial?.name }, { where: 'pool', name: kept }, 'the admin page does not show the throwaway account\'s trial by its name');
   const removedAccount = await asOwner(`/api/admin/people/${throwaway.id}`, { method: 'DELETE', body: JSON.stringify({ confirm: email }) });
   assert.equal(removedAccount.status, 202, await removedAccount.clone().text());
   assert.equal((await fetch(`${ROOT_FOR_HOST}/api/auth/me`, { headers: { Cookie: `session=${theirs}` } })).status, 401, 'the removed account is still signed in');
@@ -521,11 +527,17 @@ async function main(): Promise<void> {
   const secondId = (await people()).find((person) => person.email === secondEmail)?.id;
   assert.ok(secondId, 'root\'s admin page does not list the second account');
   throwawayId = secondId;
+  const asSecond = sessionToken({ id: secondId, email: secondEmail }, loadKeys(process.env).session, { seconds: 3600 });
+  const nameFree = await (await fetch(`${ROOT_FOR_HOST}/api/instances/name-check?name=${kept}`, { headers: { Cookie: `session=${asSecond}` } })).json() as { ok: boolean; problem?: string };
+  assert.ok(nameFree.ok, `the removed account's Koala name is still taken: ${nameFree.problem}`);
+  const secondTrial = await trialAs(asSecond);
+  assert.equal(secondTrial.status, 202, `the removed account's Koala name was not given to a new account: ${await secondTrial.clone().text()}`);
+  assert.equal((await secondTrial.json() as { name: string }).name, kept);
   const secondRemoved = await asOwner(`/api/admin/people/${secondId}`, { method: 'DELETE', body: JSON.stringify({ confirm: secondEmail }) });
   assert.equal(secondRemoved.status, 202, await secondRemoved.clone().text());
   await until('the second account gone from root', async () => ((await people()).some((person) => person.id === secondId) ? undefined : true), gone);
   throwawayId = undefined;
-  console.log('  both removed, the first signed out at once');
+  console.log(`  removed and signed out at once, and "${kept}" was free for the next account's trial, which went with its account`);
 
   console.log('\npool live — PASS');
 }
