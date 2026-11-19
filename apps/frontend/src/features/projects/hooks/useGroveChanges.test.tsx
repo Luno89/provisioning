@@ -5,11 +5,9 @@ import type { ReactNode } from 'react'
 import { useGroveChanges } from './useGroveChanges'
 import { GROVE_CHANGED, groveKeys } from '../api/grove'
 import { projectKeys } from '../api/projects'
+import { socketHandlers as handlers } from '../../../test/socket-events'
 
-const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }))
-vi.mock('../../platform/stores/socket', () => ({
-  useSocketEvent: (event: string, handler: () => void) => { handlers.set(event, handler) },
-}))
+vi.mock('../../platform/stores/socket', () => import('../../../test/socket-events'))
 
 describe('the grove changing elsewhere', () => {
   it('refreshes the trees the sidebar lists, their stories and the projects when the server says the grove changed', () => {

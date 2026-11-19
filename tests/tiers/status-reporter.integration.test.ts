@@ -1,19 +1,11 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { readdirSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 import { liveRuns, type RunningFile } from '../lib/test-runs.js';
 import { until, waiting } from '../lib/until.js';
 import { CHECKOUT, startHeldRun } from './fixture-run/start.js';
+import { freshPlaces } from '../lib/fresh-places.js';
 
-const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-
-function aPlace(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'test-runs-'));
-  dirs.push(dir);
-  return dir;
-}
+const aPlace = freshPlaces('test-runs-');
 
 const runningIn = (runs: string, pid: number): RunningFile | undefined => {
   const run = liveRuns(runs).find((one) => one.pid === pid);

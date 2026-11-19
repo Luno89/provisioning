@@ -1,7 +1,7 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { childEnvWorld, namesIn } from '@koala/engine-core/testing/child-env';
 import { mainHeads } from '../../hub/services/HubRepoSync.js';
 import { ClusterAccess } from '../../infrastructure/services/ClusterAccess.js';
 import { InfrastructureService, terraformPlacesFor } from '../../infrastructure/services/InfrastructureService.js';
@@ -9,34 +9,9 @@ import { KEY_NAMES } from '../lib/keys.js';
 import { nodeProcesses, nodeStreams } from './processes.js';
 
 const KEYS = Object.values(KEY_NAMES);
-const dir = mkdtempSync(join(tmpdir(), 'koala-child-env-'));
-const bin = join(dir, 'bin');
-
-const printsNames = (name: string, to: 'out' | 'err', code: number): string => {
-  const file = join(bin, name);
-  writeFileSync(file, `#!/bin/sh\nenv | cut -d= -f1 ${to === 'err' ? '>&2' : ''}\nexit ${code}\n`);
-  chmodSync(file, 0o755);
-  return file;
-};
-
-const namesIn = (said: string): string[] => said.split('\n').map((line) => line.trim()).filter(Boolean);
 
 describe('what a child process of the backend is handed', () => {
-  const before: Record<string, string | undefined> = {};
-
-  beforeAll(() => {
-    mkdirSync(bin, { recursive: true });
-    for (const name of [...KEYS, 'PATH']) before[name] = process.env[name];
-    for (const name of KEYS) process.env[name] = `${name.toLowerCase()}-never-handed-on-to-a-child-process`;
-    process.env.PATH = `${bin}:${process.env.PATH ?? ''}`;
-  });
-
-  afterAll(() => {
-    for (const [name, value] of Object.entries(before)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  });
+  const { dir, printsNames } = childEnvWorld('koala-child-env-', KEYS);
 
   it('gives helm no platform key', async () => {
     const helm = printsNames('helm', 'out', 0);

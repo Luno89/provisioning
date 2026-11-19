@@ -1,0 +1,172 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { matching } from '../../platform/lib/test-matchers.js';
+import type { Database } from '../../platform/lib/db-interface.js';
+import { ExtensionService, extensionServiceFor } from '../services/ExtensionService.js';
+import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
+import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
+import type { ProcedureSource } from '../lib/procedure-source.js';
+
+let db: Database;
+let service: ExtensionService;
+
+export function extensionServiceBehaviour(make: () => Promise<Database>): void {
+  beforeEach(async () => {
+    db = await make();
+    service = new ExtensionService({ store: db.engine, installed: INSTALLED_EXTENSIONS, now: () => 'now' });
+  });
+
+  describe('an owner\'s extensions', () => {
+    it('are all on until the owner switches one off, and the platform says it is always on', async () => {
+      const states = await service.list('u1');
+      expect(states.map((state) => [state.extension.id, state.enabled, state.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false], ['provision', true, false]]);
+    });
+
+    it('switch off for that owner alone, hiding what the extension brings, and back on again', async () => {
+      const off = await service.setEnabled('u1', 'workspace', false);
+      expect(off.ok && off.value.find((state) => state.extension.id === 'workspace')?.enabled).toBe(false);
+      expect((await service.hidden('u1')).agents.has('workspace')).toBe(true);
+      expect((await service.hidden('u1')).operations.has('workspace.read')).toBe(true);
+      expect((await service.hidden('u2')).agents.size).toBe(0);
+      expect(await db.engine.getExtensionSettings('u1')).toEqual({ ownerId: 'u1', disabled: ['workspace'], updatedAt: 'now' });
+
+      await service.setEnabled('u1', 'workspace', true);
+      expect((await service.hidden('u1')).agents.size).toBe(0);
+    });
+
+    it('refuse to switch off one another needs, saying which', async () => {
+      expect(await service.setEnabled('u1', 'grove', false)).toMatchObject({ ok: false, status: 409, error: 'Workspace needs Grove, so switch that off first' });
+    });
+
+    it('refuse to switch off the platform, and know no extension that is not installed', async () => {
+      expect(await service.setEnabled('u1', 'platform', false)).toMatchObject({ ok: false, status: 409, error: matching(/cannot be switched off/) });
+      expect(await service.setEnabled('u1', 'ghost', false)).toMatchObject({ ok: false, status: 404 });
+    });
+  });
+
+  describe('an extension of the owner\'s own', () => {
+    const shout = (exitName = 'done') => defineGroup('shout', {
+      title: 'Shout',
+      describe: 'Says the text louder.',
+      inputs: { text: { type: 'text', describe: 'What to say.', required: true }, environment: { type: 'environment', describe: 'Where the code runs.', required: true } },
+      outputs: { loud: { type: 'any', describe: 'The text, louder.' } },
+      exits: { [exitName]: { describe: 'It was said.' }, empty: { describe: 'There was nothing to say.' } },
+    }, (g) => {
+      const upper = g.code('upper', { text: g.inputs.text, environment: g.inputs.environment }, {
+        body: 'return { loud: String(inputs.text).toUpperCase() }',
+        inputs: [{ name: 'text', type: 'text' }],
+        outputs: [{ name: 'loud', type: 'any' }],
+      });
+      const said = g.condition('said', { value: upper.loud! }, { expression: 'not empty(value)' });
+      g.start(said);
+      said.on('true', (g.exits as unknown as Record<string, never>)[exitName]!);
+      said.on('false', g.exits.empty);
+      g.output('loud', upper.loud!);
+      g.layout({ upper: [0, 0], said: [260, 0] });
+    });
+
+    const using = (version: number): ProcedureSource => {
+      const procedure: Procedure = {
+        schema: PROCEDURE_SCHEMA, id: 'greeter', version: '1', name: 'Greeter', describe: 'greets loudly', budget: {},
+        start: 'provision',
+        nodes: [
+          { id: 'provision', kind: 'provision-sandbox', settings: {}, position: { x: 0, y: 160 } },
+          { id: 'hello', kind: 'text', settings: { text: 'hello' }, position: { x: 0, y: 0 } },
+          { id: 'shout', kind: 'group', group: `loud.shout@${version}`, settings: {}, position: { x: 260, y: 0 } },
+          { id: 'done', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 520, y: 0 } },
+          { id: 'silent', kind: 'finish', settings: { outcome: 'ok' }, position: { x: 520, y: 160 } },
+          { id: 'unavailable', kind: 'finish', settings: { outcome: 'failed' }, position: { x: 260, y: 320 } },
+        ],
+        wires: [
+          { from: { node: 'hello', socket: 'text' }, to: { node: 'shout', socket: 'text' } },
+          { from: { node: 'provision', socket: 'environment' }, to: { node: 'shout', socket: 'environment' } },
+          { from: { node: 'shout', socket: 'loud' }, to: { node: 'done', socket: 'result' } },
+        ],
+        flow: [{ from: 'provision', exit: 'ready', to: 'shout' }, { from: 'provision', exit: 'unavailable', to: 'unavailable' }, { from: 'shout', exit: 'done', to: 'done' }, { from: 'shout', exit: 'empty', to: 'silent' }],
+        groups: [],
+      };
+      return { id: 'greeter', ownerId: 'u1', version: '1', source: JSON.stringify(procedure), updatedAt: 'then' };
+    };
+
+    beforeEach(() => {
+      service = new ExtensionService({
+        store: db.engine,
+        installed: INSTALLED_EXTENSIONS,
+        catalogue: platformCatalogue,
+        sharedGroups: platformGroups,
+        owned: async () => ({ agents: new Set(['loud-agent']), tools: new Set(['loud_tool']), procedures: new Set(['greeter']) }),
+        now: () => 'now',
+      });
+    });
+
+    it('is created beside the installed ones, can be switched off, and bundles only the owner\'s own things', async () => {
+      expect((await service.create('u1', { id: 'loud', title: 'Loud' })).ok).toBe(true);
+      expect((await service.create('u1', { id: 'grove', title: 'Mine' }))).toMatchObject({ ok: false, error: matching(/already an extension/) });
+
+      expect(await service.update('u1', 'loud', { personas: ['koala'] })).toMatchObject({ ok: false, error: 'koala is not agents of your own' });
+      expect((await service.update('u1', 'loud', { personas: ['loud-agent'], tools: ['loud_tool'], procedures: ['greeter'] })).ok).toBe(true);
+
+      const states = await service.list('u1');
+      expect(states.find((state) => state.extension.id === 'loud')).toMatchObject({ enabled: true, authored: true });
+      expect(await service.list('u2')).toHaveLength(INSTALLED_EXTENSIONS.length);
+
+      await service.setEnabled('u1', 'loud', false);
+      const hidden = await service.hidden('u1');
+      expect([...hidden.agents]).toEqual(['loud-agent']);
+      expect([...hidden.tools]).toEqual(['loud_tool']);
+    });
+
+    it('publishes a group as an operation at version 1, and refuses one that does not check', async () => {
+      await service.create('u1', { id: 'loud', title: 'Loud' });
+
+      expect(await service.publish('u1', 'loud', 'shout', shout())).toMatchObject({ ok: true, value: { id: 'loud.shout@1', version: 1, moved: [] } });
+      expect((await service.groups('u1')).map((group) => group.id)).toEqual(['loud.shout@1']);
+
+      const broken = { ...shout(), start: 'nowhere' };
+      expect(await service.publish('u1', 'loud', 'mumble', broken)).toMatchObject({ ok: false, status: 400, error: matching(/does not check/) });
+    });
+
+    it('moves every procedure using an operation onto its new version when it is saved, keeping the old versions', async () => {
+      await service.create('u1', { id: 'loud', title: 'Loud' });
+      await service.publish('u1', 'loud', 'shout', shout());
+      await db.engine.saveProcedure(using(1));
+
+      expect(await service.publish('u1', 'loud', 'shout', shout())).toMatchObject({ ok: true, value: { id: 'loud.shout@2', version: 2, moved: ['greeter'] } });
+      const saved = JSON.parse((await db.engine.getProcedures('u1')).find((source) => source.id === 'greeter')!.source) as Procedure;
+      expect(saved.nodes.find((node) => node.id === 'shout')?.group).toBe('loud.shout@2');
+      expect((await service.groups('u1')).map((group) => group.id)).toEqual(['loud.shout@1', 'loud.shout@2']);
+    });
+
+    it('refuses a version that would break a procedure using it, and says which', async () => {
+      await service.create('u1', { id: 'loud', title: 'Loud' });
+      await service.publish('u1', 'loud', 'shout', shout());
+      await db.engine.saveProcedure(using(1));
+
+      expect(await service.publish('u1', 'loud', 'shout', shout('said'))).toMatchObject({ ok: false, status: 409, error: matching(/would break greeter/) });
+      const stored = JSON.parse((await db.engine.getProcedures('u1'))[0]!.source) as { nodes: { id: string; group?: string }[] };
+      expect(stored.nodes.find((node) => node.id === 'shout')?.group).toBe('loud.shout@1');
+    });
+
+    it('will not remove an operation, or the extension, while a procedure uses it', async () => {
+      await service.create('u1', { id: 'loud', title: 'Loud' });
+      await service.publish('u1', 'loud', 'shout', shout());
+      await db.engine.saveProcedure(using(1));
+
+      expect(await service.removeOperation('u1', 'loud', 'shout')).toMatchObject({ ok: false, status: 409, error: matching(/greeter still uses it/) });
+      expect(await service.remove('u1', 'loud')).toMatchObject({ ok: false, status: 409 });
+    });
+  });
+
+  describe('the extensions service built for a database', () => {
+    it('lets an extension bundle only the owner\'s own agents, tools and procedures, and lists the installed ones beside it', async () => {
+      const own = extensionServiceFor(db);
+      await db.engine.saveProcedure({ id: 'greeter', ownerId: 'u1', version: '1', source: '{}', updatedAt: 'then' });
+      await db.engine.saveProcedure({ id: 'theirs', ownerId: 'u2', version: '1', source: '{}', updatedAt: 'then' });
+
+      expect((await own.list('u1')).map((state) => state.extension.id)).toEqual(INSTALLED_EXTENSIONS.map((extension) => extension.id));
+      await own.create('u1', { id: 'loud', title: 'Loud' });
+      expect(await own.update('u1', 'loud', { procedures: ['greeter'] })).toMatchObject({ ok: true });
+      expect(await own.update('u1', 'loud', { procedures: ['theirs'] })).toMatchObject({ ok: false, status: 400, error: 'theirs is not procedures of your own' });
+      expect(await own.update('u1', 'loud', { personas: ['koala'] })).toMatchObject({ ok: false, status: 400 });
+    });
+  });
+}

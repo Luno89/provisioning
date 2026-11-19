@@ -1,35 +1,25 @@
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { describe, expect, it } from 'vitest';
 import { WorkflowFailedError } from '@temporalio/client';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import { poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
 import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => { env = await temporalTestEnvironment(); });
-afterAll(async () => { await env?.teardown(); });
+const temporal = environmentForFile(temporalTestEnvironment);
 
 type Handle = { signal: (name: string, ...args: unknown[]) => Promise<void>; cancel: () => Promise<void> };
 
 async function run(answers: (heard: InstallHeard) => InstallAnswer, drive: (handle: Handle, seen: string[]) => Promise<void>, ask: () => InstallAnswer = () => 'asked') {
   const seen: string[] = [];
-  const taskQueue = `koala-install-test-${Math.random().toString(36).slice(2, 8)}`;
-  const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  const taskQueue = uniqueName('koala-install-test');
+  const installId = uniqueName('install');
+  const worker = await testWorker(temporal.env, {
     taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'KoalaInstallWorkflow.ts')),
+    workflows: 'KoalaInstallWorkflow.ts',
     activities: {
       KoalaInstallAskActivity: async () => { seen.push('ask'); return ask(); },
       KoalaInstallStageActivity: async (heard: InstallHeard) => {
@@ -41,7 +31,7 @@ async function run(answers: (heard: InstallHeard) => InstallAnswer, drive: (hand
     },
   });
   const result = await worker.runUntil(async () => {
-    const handle = await env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', {
+    const handle = await temporal.env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', {
       workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] },
     });
     await drive({ signal: (name, ...args) => handle.signal(name, ...args), cancel: async () => { await handle.cancel(); } }, seen);
@@ -114,14 +104,12 @@ describe('root driving Koala onto a machine', () => {
   it('ends a move the way the install ended, telling the move of the instance it names', async () => {
     const moves: string[] = [];
     const moved = async (ending: InstallAnswer, signal: { name: string; args: unknown[] } | 'cancel') => {
-      const taskQueue = `koala-move-test-${Math.random().toString(36).slice(2, 8)}`;
-      const instanceId = `inst-${Math.random().toString(36).slice(2, 8)}`;
-      const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
-      const worker = await Worker.create({
-        interceptors: { activity: activityInterceptors() },
-        ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+      const taskQueue = uniqueName('koala-move-test');
+      const instanceId = uniqueName('inst');
+      const installId = uniqueName('install');
+      const worker = await testWorker(temporal.env, {
         taskQueue,
-        workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
+        workflows: 'index.ts',
         activities: {
           KoalaInstallAskActivity: async () => 'asked',
           KoalaInstallStageActivity: async () => (typeof ending === 'object' ? { ...ending, instanceId } : ending),
@@ -132,9 +120,9 @@ describe('root driving Koala onto a machine', () => {
         },
       });
       return worker.runUntil(async () => {
-        const move = await env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', { workflowId: poolMoveWorkflowId(instanceId), taskQueue, args: [{ instanceId }], searchAttributes: { KoalaOwner: ['bo'] } });
+        const move = await temporal.env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', { workflowId: poolMoveWorkflowId(instanceId), taskQueue, args: [{ instanceId }], searchAttributes: { KoalaOwner: ['bo'] } });
         while (!moves.includes('start')) await new Promise((done) => setTimeout(done, 20));
-        const install = await env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] } });
+        const install = await temporal.env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] } });
         if (signal === 'cancel') await install.cancel();
         else await install.signal(signal.name, ...signal.args);
         return { install: await install.result().then((ended) => ended, (err: unknown) => (err instanceof WorkflowFailedError ? err.cause?.name : err)), move: await move.result() };
@@ -160,7 +148,7 @@ describe('root driving Koala onto a machine', () => {
   it('waits on the machine however long it takes, and stops only when cancelled', async () => {
     const { seen, result } = await run(installing, async (handle, heard) => {
       await until(heard, 1);
-      await env.sleep('30 days');
+      await temporal.env.sleep('30 days');
       await handle.cancel();
     });
     expect(seen).toEqual(['ask', 'stopped']);

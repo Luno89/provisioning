@@ -1,20 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { until, waiting } from './until.js';
+import { freshPlaces } from './fresh-places.js';
 
 const QUIETLY = resolve(import.meta.dirname, '..', '..', 'scripts', 'quietly.sh');
 
-const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-
-function aPlace(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'quietly-'));
-  dirs.push(dir);
-  return dir;
-}
+const aPlace = freshPlaces('quietly-');
 
 function quietlyToFile(dir: string, step: string): { out: string; ended: Promise<number | null>; stopped: () => string | undefined } {
   const out = join(dir, 'dev-stack.log');

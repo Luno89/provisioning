@@ -1,35 +1,18 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { describe, it, expect } from 'vitest';
 import { ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import { koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import type { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
+const temporal = environmentForFile(temporalTestEnvironment);
 
 const run = async (poolInstanceId: string | undefined, installId?: string) => {
   const seen: string[] = [];
-  const taskQueue = `root-removal-test-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  const taskQueue = uniqueName('root-removal-test');
+  const worker = await testWorker(temporal.env, {
     taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'RootAccountRemovalWorkflow.ts')),
+    workflows: 'RootAccountRemovalWorkflow.ts',
     activities: {
       RootRemovalInstanceActivity: async () => { seen.push('find instance'); return { ...(poolInstanceId ? { poolInstanceId } : {}), ...(installId ? { installId } : {}) }; },
       PoolRemoveActivity: async ({ instanceId }: { instanceId: string }) => { seen.push(`remove pool instance ${instanceId}`); },
@@ -37,7 +20,7 @@ const run = async (poolInstanceId: string | undefined, installId?: string) => {
       RootRemovalRecordsActivity: async () => { seen.push('records'); return { users: 1, instances: 1 }; },
     },
   });
-  const result = await worker.runUntil(env.client.workflow.execute<typeof RootAccountRemovalWorkflow>(ROOT_REMOVAL_WORKFLOW, {
+  const result = await worker.runUntil(temporal.env.client.workflow.execute<typeof RootAccountRemovalWorkflow>(ROOT_REMOVAL_WORKFLOW, {
     workflowId: removeAccountWorkflowId('bo'), taskQueue, args: [{ ownerId: 'bo' }], searchAttributes: { KoalaOwner: ['bo'] },
   }));
   return { seen, result };
@@ -51,8 +34,8 @@ describe('removing an account on root', () => {
   });
 
   it('stops Koala being put on the person\'s machine, by cancelling its install, before anything else goes', async () => {
-    const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
-    const installing = await env.client.workflow.start('KoalaInstallStandIn', { workflowId: koalaInstallWorkflowId(installId), taskQueue: 'nobody-runs-this', args: [], searchAttributes: { KoalaOwner: ['bo'] } });
+    const installId = uniqueName('install');
+    const installing = await temporal.env.client.workflow.start('KoalaInstallStandIn', { workflowId: koalaInstallWorkflowId(installId), taskQueue: 'nobody-runs-this', args: [], searchAttributes: { KoalaOwner: ['bo'] } });
     const { seen } = await run(undefined, installId);
     expect(seen).toEqual(['find instance', 'mesh', 'records']);
     const history = await installing.fetchHistory();

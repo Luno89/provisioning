@@ -1,24 +1,10 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { describe, expect, it } from 'vitest';
 import { ApplicationFailure } from '@temporalio/common';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => {
-  env = await clockSkippingEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
+const temporal = environmentForFile(clockSkippingEnvironment);
 
 interface Script {
   undelivered?: number;
@@ -61,9 +47,9 @@ function activities(script: Script, done: string[]) {
 
 async function run(script: Script): Promise<string[]> {
   const done: string[] = [];
-  const taskQueue = `root-node-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RootNodeWorkflow.ts')), activities: activities(script, done) });
-  await worker.runUntil(env.client.workflow.execute('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') }));
+  const taskQueue = uniqueName('root-node');
+  const worker = await testWorker(temporal.env, { taskQueue, workflows: 'RootNodeWorkflow.ts', activities: activities(script, done) });
+  await worker.runUntil(temporal.env.client.workflow.execute('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') }));
   return done;
 }
 
@@ -95,13 +81,13 @@ describe('following a bought server until root runs on it', () => {
 
   it('records that it stopped following when cancelled, and says the server is still bought', async () => {
     const done: string[] = [];
-    const taskQueue = `root-node-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RootNodeWorkflow.ts')), activities: activities({ undelivered: 1_000_000 }, done) });
+    const taskQueue = uniqueName('root-node');
+    const worker = await testWorker(temporal.env, { taskQueue, workflows: 'RootNodeWorkflow.ts', activities: activities({ undelivered: 1_000_000 }, done) });
     await worker.runUntil(async () => {
-      const handle = await env.client.workflow.start('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') });
+      const handle = await temporal.env.client.workflow.start('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') });
       const follows = async (count: number) => { while (done.filter((step) => step === 'follow').length < count) await new Promise((wait) => setTimeout(wait, 50)); };
       await follows(1);
-      await env.sleep('1 minute');
+      await temporal.env.sleep('1 minute');
       await follows(2);
       await handle.cancel();
       await handle.result();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
+import { expectReadyOnlySinceStart } from '@koala/provision/testing';
 import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterOnConnect, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
@@ -121,10 +122,7 @@ describe('a machine\'s own cluster', () => {
   });
 
   it('judges readiness only from a transition since the start, and points the kubeconfig at the mesh', () => {
-    expect(readySince(`True ${at(START + 1)}`, START)).toBe(true);
-    expect(readySince(`True ${at(START - 1)}`, START)).toBe(false);
-    expect(readySince(`False ${at(START + 1)}`, START)).toBe(false);
-    expect(readySince('', START)).toBe(false);
+    expectReadyOnlySinceStart(readySince);
     expect(kubeconfigOnMesh('server: https://localhost:6443', '100.64.0.2')).toBe('server: https://100.64.0.2:6443');
   });
 });

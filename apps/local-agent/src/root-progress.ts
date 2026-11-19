@@ -6,7 +6,7 @@ export interface ProgressSink {
   tell(progress: MachineProgress): Promise<void>;
 }
 
-const reasonOf = (err: unknown): string => {
+export const reasonOf = (err: unknown): string => {
   const message = err instanceof Error ? err.message : String(err);
   return err instanceof Error && err.cause instanceof Error ? `${message} (${err.cause.message})` : message;
 };

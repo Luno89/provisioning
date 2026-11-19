@@ -55,6 +55,10 @@
       "types": "./testing/machine-progress.ts",
       "default": "./testing/machine-progress.ts"
     },
+    "./testing/child-env": {
+      "types": "./testing/child-env.ts",
+      "default": "./testing/child-env.ts"
+    },
     "./testing/shared": {
       "types": "./testing/shared.ts",
       "default": "./testing/shared.ts"

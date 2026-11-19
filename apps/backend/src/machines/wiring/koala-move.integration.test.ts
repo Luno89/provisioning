@@ -279,6 +279,19 @@ describe('a move root stops on the machine, on a real k3s', () => {
       }
     };
   };
+  const stoppedAtTheMove = (root: Root, installId: string, remove: boolean) => {
+    const files = mkdtempSync(join(work, 'machine-'));
+    const said: string[] = [];
+    const placements = koalaPlacements({ cluster: thisMachine(files), helm: HELM, fetch, token: () => DEVICE_TOKEN, say: (line) => said.push(line) });
+    let stopped: Promise<void> | undefined;
+    const reached = new Promise<void>((done) => {
+      stoppingAt(root, 'koala-moved', () => {
+        stopped = placements.stop({ installId, remove });
+        done();
+      });
+    });
+    return { files, said, placements, reached, stopped: () => stopped };
+  };
 
   beforeEach(async () => {
     await helm('uninstall', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '--ignore-not-found');
@@ -288,20 +301,11 @@ describe('a move root stops on the machine, on a real k3s', () => {
   it('stops between its steps when root stops it, tells root nothing more, then removes all it made and lets the cluster go, so nothing of Koala is left', async () => {
     const root = await rootWithAMovingKoala(db, 'install-stopped');
     try {
-      const files = mkdtempSync(join(work, 'machine-'));
-      const said: string[] = [];
-      const placements = koalaPlacements({ cluster: thisMachine(files), helm: HELM, fetch, token: () => DEVICE_TOKEN, say: (line) => said.push(line) });
-      let stopped: Promise<void> | undefined;
-      const reached = new Promise<void>((done) => {
-        stoppingAt(root, 'koala-moved', () => {
-          stopped = placements.stop({ installId: 'install-stopped', remove: true });
-          done();
-        });
-      });
+      const { files, said, placements, reached, stopped } = stoppedAtTheMove(root, 'install-stopped', true);
       expect(placements.place(root.placed)).toBe(true);
       await reached;
       expect(await kubectl('get', 'secret', `${KOALA_RELEASE}-keys`, '-n', KOALA_NAMESPACE, '-o', 'name')).toBe(`secret/${KOALA_RELEASE}-keys\n`);
-      await stopped;
+      await stopped();
       expect(stages(root.heard).at(-1)).toBe('koala-moved started');
       expect(root.heard.some((progress) => progress.state === 'failed')).toBe(false);
       expect(said).toContain('Moving Koala here stopped: root stopped it before it finished');
@@ -315,19 +319,10 @@ describe('a move root stops on the machine, on a real k3s', () => {
   it('clears what a stopped move left before a retry when the machine was not told to remove it, and the retry starts clean and finishes', async () => {
     const root = await rootWithAMovingKoala(db, 'install-left');
     try {
-      const files = mkdtempSync(join(work, 'machine-'));
-      const said: string[] = [];
-      const placements = koalaPlacements({ cluster: thisMachine(files), helm: HELM, fetch, token: () => DEVICE_TOKEN, say: (line) => said.push(line) });
-      let stopped: Promise<void> | undefined;
-      const reached = new Promise<void>((done) => {
-        stoppingAt(root, 'koala-moved', () => {
-          stopped = placements.stop({ installId: 'install-left', remove: false });
-          done();
-        });
-      });
+      const { files, said, placements, reached, stopped } = stoppedAtTheMove(root, 'install-left', false);
       placements.place(root.placed);
       await reached;
-      await stopped;
+      await stopped();
       expect(JSON.parse(await helm('history', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '-o', 'json'))).toHaveLength(1);
 
       const again = await root.placedAgain('install-retry');

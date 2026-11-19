@@ -1,7 +1,7 @@
 import { failureOf, statusFailure } from '@koala/engine-core/failures';
 import { KOALA_INSTALL_FOLLOW_BEAT_MS, KOALA_INSTALL_FOLLOW_PATH, KOALA_INSTALL_FOLLOW_STOPPED, koalaInstallFollowedOf, koalaInstallStoppedOf, type KoalaInstallFollowed } from '@koala/engine-core/koala-install';
 import { Hopeless, waitUntil, type WaitOptions } from '@koala/provision';
-import { rootUrlOf } from '../root-progress.js';
+import { reasonOf, rootUrlOf } from '../root-progress.js';
 
 export type FollowEnd = 'none' | 'ready' | 'failed' | 'stopped' | 'interrupted';
 
@@ -19,11 +19,6 @@ const QUIET_BEATS = 4;
 
 const PUTTING = 'Putting Koala on this machine';
 const MOVING = 'Moving your Koala to this machine';
-
-const reasonOf = (err: unknown): string => {
-  const message = err instanceof Error ? err.message : String(err);
-  return err instanceof Error && err.cause instanceof Error ? `${message} (${err.cause.message})` : message;
-};
 
 class Dropped extends Error {}
 

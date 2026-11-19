@@ -1,40 +1,23 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { describe, it, expect } from 'vitest';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import { mock } from 'vitest-mock-extended';
 import { createProjectRemovalActivities, type ProjectRemovalActivities, type ProjectRemovalDeps } from '../activities/RemoveProjectActivities.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { testDatabase } from '../platform/lib/test-database.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
+const temporal = environmentForFile(temporalTestEnvironment);
 
 describe('deleting a project through Temporal', () => {
   it('fences the project, stops its runs and deletes its repositories, destroys its app on the cluster worker, then deletes its workspaces, secrets, files and records, saying how far it has got', async () => {
     const seen: string[] = [];
-    const clusterQueue = `remove-project-apps-${Math.random().toString(36).slice(2, 8)}`;
-    const clusterWorker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    const clusterQueue = uniqueName('remove-project-apps');
+    const clusterWorker = await testWorker(temporal.env, {
       taskQueue: clusterQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'DestroyAppWorkflow.ts')),
+      workflows: 'DestroyAppWorkflow.ts',
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { seen.push(`destroy ${args.name} in ${args.namespace}`); return { status: 'destroyed', msg: '' }; } },
     });
     const db = await testDatabase();
@@ -59,24 +42,22 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectFilesActivity: async () => { seen.push('files'); return 2; },
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
     };
-    const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RemoveProjectWorkflow.ts')), activities });
+    const taskQueue = uniqueName('remove-project-test');
+    const worker = await testWorker(temporal.env, { taskQueue, workflows: 'RemoveProjectWorkflow.ts', activities });
 
     const told: string[] = [];
-    const streamWorker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    const streamWorker = await testWorker(temporal.env, {
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { told.push(ownerId); } },
     });
 
     await streamWorker.runUntil(clusterWorker.runUntil(worker.runUntil(async () => {
-      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
+      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporal.env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
       await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId('p1'), [{ projectId: 'p1' }], 'bo');
       await atSecrets;
       expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'repositories', 'apps', 'workspaces'] });
       release();
-      expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
+      expect(await temporal.env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
         stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 2, records: { projects: 1 },
       });
     })));

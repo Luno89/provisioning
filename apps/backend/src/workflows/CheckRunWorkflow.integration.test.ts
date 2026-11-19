@@ -1,34 +1,15 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { describe, it, expect } from 'vitest';
 import { Context } from '@temporalio/activity';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { passed, scenario } from '../checks/testing/check-scenarios.js';
 import type { CheckProgressArgs, CheckRunActivities } from '../activities/CheckRunActivities.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
-import type { Scenario } from '../eval/level2/scenario.js';
-import type { ScenarioResult } from '../eval/level2/results.js';
 import type { CheckRunOutcome } from './CheckRunWorkflow.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
-
-const scenario = (id: string): Scenario => ({ id, name: id, describe: id, agent: 'research', procedure: { id: 'research' }, input: { message: 'go' }, expect: { outcome: 'ok' } });
-const passed = (id: string): ScenarioResult => ({ scenarioId: id, name: id, runId: `run-${id}`, procedure: { id: 'research', version: '1' }, passed: true, outcome: 'ok', answer: '', checks: [], calls: [], counters: { rounds: 1, toolCalls: 0, totalTokens: 1 }, tasks: [], durationMs: 1 });
+const temporal = environmentForFile(temporalTestEnvironment);
 
 function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], leaks: ReadonlySet<string> = new Set(), noticing: Array<{ kind: 'canary' | 'unvouched-host'; said: string }> = []) {
   const log: string[] = [];
@@ -53,12 +34,10 @@ function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], le
     RemoveAccountRecordsActivity: async ({ ownerId }) => { log.push(`removed ${ownerId.startsWith('space-') ? 'space' : ownerId}`); return {}; },
   };
   const run = async (body: (taskQueue: string) => Promise<void>) => {
-    const taskQueue = `check-run-test-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+    const taskQueue = uniqueName('check-run-test');
+    const worker = await testWorker(temporal.env, {
       taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
+      workflows: 'index.ts',
       activities: { ...check, ...removal, CheckProgressActivity: async (args: CheckProgressArgs) => { progress.push(args); } },
     });
     await worker.runUntil(() => body(taskQueue));
@@ -73,7 +52,7 @@ describe('running checks through Temporal', () => {
       return { result: passed(chosen.id), runIds: [`run-${chosen.id}`, `run-${chosen.id}-child`] };
     });
     await run(async (taskQueue) => {
-      const outcome = await env.client.workflow.execute('CheckRunWorkflow', {
+      const outcome = await temporal.env.client.workflow.execute('CheckRunWorkflow', {
         workflowId: 'check-run-1', taskQueue,
         args: [{ checkRunId: 'c1', person: 'bo', scenarios: [scenario('a'), scenario('b')], tools: [] }],
       }) as CheckRunOutcome;
@@ -101,7 +80,7 @@ describe('running checks through Temporal', () => {
       throw context.cancellationSignal.reason;
     });
     await run(async (taskQueue) => {
-      const handle = await env.client.workflow.start('CheckRunWorkflow', {
+      const handle = await temporal.env.client.workflow.start('CheckRunWorkflow', {
         workflowId: 'check-run-2', taskQueue,
         args: [{ checkRunId: 'c2', person: 'bo', scenarios: [scenario('a'), scenario('b')], tools: [] }],
       });
@@ -123,7 +102,7 @@ describe('running checks through Temporal', () => {
       return { result: { ...passed(chosen.id), runId: `run-${tries}`, passed: ok, checks: [{ what: 'chooses read_file', passed: ok, detail: ok ? 'it called read_file' : 'called list_dir instead of read_file' }] }, runIds: [`run-${tries}`] };
     });
     await run(async (taskQueue) => {
-      const outcome = await env.client.workflow.execute('CheckRunWorkflow', {
+      const outcome = await temporal.env.client.workflow.execute('CheckRunWorkflow', {
         workflowId: 'check-run-3', taskQueue,
         args: [{ checkRunId: 'c3', person: 'bo', scenarios: [{ ...scenario('t'), turn: true, repeats: 3, passAt: 2 }], tools: [] }],
       }) as CheckRunOutcome;
@@ -149,7 +128,7 @@ describe('running checks through Temporal', () => {
       return { result: passed(chosen.id), runIds: [] };
     }, { has: (spaceId: string) => spaceId === spaces[1] } as ReadonlySet<string>);
     await run(async (taskQueue) => {
-      const outcome = await env.client.workflow.execute('CheckRunWorkflow', {
+      const outcome = await temporal.env.client.workflow.execute('CheckRunWorkflow', {
         workflowId: 'check-run-4', taskQueue,
         args: [{ checkRunId: 'c4', person: 'bo', scenarios: [{ ...scenario('r'), repeats: 3, passAt: 1 }], tools: [] }],
       }) as CheckRunOutcome;
@@ -170,11 +149,11 @@ describe('running checks through Temporal', () => {
       return { result: passed(chosen.id), runIds: [] };
     });
     await run(async (taskQueue) => {
-      await env.client.workflow.execute('CheckRunWorkflow', {
+      await temporal.env.client.workflow.execute('CheckRunWorkflow', {
         workflowId: 'check-run-5', taskQueue, ...startedFor('bo'),
         args: [{ checkRunId: 'c5', person: 'someone-the-input-names', scenarios: [scenario('o')], tools: [] }],
       });
-      const removal = await env.client.workflow.getHandle(removeAccountWorkflowId(spaces[0]!)).describe();
+      const removal = await temporal.env.client.workflow.getHandle(removeAccountWorkflowId(spaces[0]!)).describe();
       expect(ownerIn(removal.typedSearchAttributes)).toBe('bo');
     });
   });
@@ -182,7 +161,7 @@ describe('running checks through Temporal', () => {
   it('fails a check whose runs Koala noticed something in that it did not expect, and passes one that expected it', async () => {
     const { run } = harness(async ({ scenario: chosen }) => ({ result: passed(chosen.id), runIds: [] }), new Set(), [{ kind: 'canary', said: 'store_file was given the canary' }]);
     await run(async (taskQueue) => {
-      const outcome = await env.client.workflow.execute('CheckRunWorkflow', {
+      const outcome = await temporal.env.client.workflow.execute('CheckRunWorkflow', {
         workflowId: 'check-run-6', taskQueue,
         args: [{ checkRunId: 'c6', person: 'bo', scenarios: [scenario('quiet'), { ...scenario('canary'), noticed: ['canary'] }], tools: [] }],
       }) as CheckRunOutcome;

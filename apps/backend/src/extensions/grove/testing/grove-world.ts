@@ -1,6 +1,8 @@
 import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS, type ToolContract } from '@koala/engine-core';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { afterAll, beforeAll, beforeEach } from 'vitest';
+import { temporalTestEnvironment } from '../../../workflows/testing/temporal-test-env.js';
 import type { WorkflowHandle } from '@temporalio/client';
 import { ApplicationFailure } from '@temporalio/common';
 import { Worker } from '@temporalio/worker';
@@ -89,6 +91,14 @@ const classify = (seen: string, system: string): string => {
   return 'unknown';
 };
 
+export function groveWorldPerFile(environment: () => Promise<TestWorkflowEnvironment> = temporalTestEnvironment): GroveWorld {
+  const grove = new GroveWorld();
+  beforeAll(() => grove.startOn(environment));
+  afterAll(() => grove.stop());
+  beforeEach(() => grove.reset());
+  return grove;
+}
+
 const pad = (value: number) => String(value).padStart(4, '0');
 
 export class GroveWorld {
@@ -102,8 +112,23 @@ export class GroveWorld {
   writerFails: string | undefined;
   private clock = 0;
 
-  constructor(readonly env: TestWorkflowEnvironment) {
+  private temporal: TestWorkflowEnvironment | undefined;
+
+  constructor() {
     this.reset();
+  }
+
+  get env(): TestWorkflowEnvironment {
+    if (!this.temporal) throw new Error('the grove world has no Temporal: its file\'s beforeAll has not started one');
+    return this.temporal;
+  }
+
+  async startOn(environment: () => Promise<TestWorkflowEnvironment>): Promise<void> {
+    this.temporal = await environment();
+  }
+
+  async stop(): Promise<void> {
+    await this.temporal?.teardown();
   }
 
   private readonly now = (): string => `now-${pad(++this.clock)}`;

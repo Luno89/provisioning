@@ -1,14 +1,8 @@
-import fs from 'fs/promises';
-import { createServer } from 'node:http';
-import os from 'os';
-import path from 'path';
 import { temporal } from '@temporalio/proto';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
-import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
+import { describe, expect, it } from 'vitest';
+import { koalaAnsweringPayloads, temporalBehindTls } from './testing/temporal-world.js';
 import { followEngineWorker } from './device-worker-follow.js';
 import { createDeviceActivities, deviceQueue, startDeviceWorker, type DeviceWorkerOptions } from './engine-worker.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
@@ -17,46 +11,21 @@ import { IdleGate } from './idle-gate.js';
 import { LocalMcpServer } from './local-mcp.js';
 import { hostCluster, type ClusterHost } from './machine-cluster.js';
 
-let env: TestWorkflowEnvironment;
-let rootDir: string;
-let certificates: TestCertificates;
-let front: { address: string; close(): Promise<void> };
-
-beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal({ server: { executable: temporalServerExecutable() } });
-  rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-follow-'));
-  certificates = makeCertificates();
-  front = await tlsInFrontOf(env.address, certificates);
-});
-
-afterAll(async () => {
-  await front.close();
-  await env.teardown();
-  await fs.rm(rootDir, { recursive: true, force: true });
-});
+const world = temporalBehindTls('koala-follow-', { server: { executable: temporalServerExecutable() } });
 
 describe('the machine agent following its Koala for its device worker', () => {
   it('asks Koala over its socket where Temporal is and for the payload keys, then starts the device worker, which polls this machine\'s queue', async () => {
-    const http = createServer();
-    const koala = new Server(http);
     const asked: string[] = [];
-    koala.on('connection', (socket) => {
-      socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
-        asked.push('machine:payloads');
-        ack({ ring: { current: 'follow-payload-key-0123456789abcdef' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
-      });
-    });
-    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
-    const { port } = http.address() as { port: number };
+    const { koala, port } = await koalaAnsweringPayloads(world, { at: '/', key: 'follow-payload-key-0123456789abcdef', asked: () => asked.push('machine:payloads') });
     const socket = connect(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
     const gate = new IdleGate();
-    const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
+    const sessions = new ExternalAgentSessions({ rootDir: world.rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
     const handed: DeviceWorkerOptions[] = [];
     const noKoalaK3s: ClusterHost = { ...hostCluster(async () => undefined), exists: async () => false };
-    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
+    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir: world.rootDir } as never, `http://127.0.0.1:${port}`, { value: 'work-token' }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
     expect(host).toBeDefined();
 
-    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
+    const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
       namespace: 'default', taskQueue: { name: deviceQueue('follow-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
@@ -74,7 +43,7 @@ describe('the machine agent following its Koala for its device worker', () => {
   it('follows nothing on a machine that has not joined, having no device', () => {
     const gate = new IdleGate();
     const socket = connect('http://127.0.0.1:1', { autoConnect: false });
-    const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
-    expect(followEngineWorker(socket, { rootDir } as never, 'http://127.0.0.1:1', { value: '' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker)).toBeUndefined();
+    const sessions = new ExternalAgentSessions({ rootDir: world.rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
+    expect(followEngineWorker(socket, { rootDir: world.rootDir } as never, 'http://127.0.0.1:1', { value: '' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker)).toBeUndefined();
   });
 });

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
-import { inject } from 'vitest';
+import { expect, inject } from 'vitest';
 import { waiting, waitUntil, type Found, type Waiting } from '@koala/provision';
 import { roleFromEnv } from '../lib/platform-role.js';
 import { testIdentityKey, testKeyEnv } from './keys.js';
@@ -254,4 +254,20 @@ export async function call<T = Record<string, unknown>>(url: string, init: { met
     ignore('an answer that is not JSON is kept as its text')(failure);
   }
   return { status: response.status, location: response.headers.get('location') ?? '', body: body as T };
+}
+
+async function accountGoneFromRoot(roles: ThreeRoles, id: string): Promise<boolean> {
+  const db = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
+  await db.init();
+  try {
+    return (await db.accounts.getUserById(id)) === undefined;
+  } finally {
+    await db.close?.();
+  }
+}
+
+export async function removeAccountOnRoot(roles: ThreeRoles, who: Person): Promise<void> {
+  const removed = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: who.email, password: who.password }, cookie: who.cookie });
+  expect(removed.status, JSON.stringify(removed.body)).toBe(202);
+  await until(`root to remove the account of ${who.email}`, async () => ((await accountGoneFromRoot(roles, who.id)) ? true : waiting('the account is still on root')));
 }

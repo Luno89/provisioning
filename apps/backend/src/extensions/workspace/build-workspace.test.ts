@@ -1,18 +1,9 @@
 import { containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
-import {
-  BUILT_IN_GROUPS,
-  HOST_OP_KIND,
-  WORKFLOW_IMPLEMENTATIONS,
-  createOrchestrationNodes,
-  runProcedure,
-  type NodeExecutor,
-  type NodeImplementation,
-  type QuestionRequest,
-} from '@koala/agent-engine/procedure';
+import type { QuestionRequest } from '@koala/agent-engine/procedure';
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
-import { platformCatalogue } from '../installed.js';
+import { askingNodes, runOnHost } from '../testing/host-op-runs.js';
 import { createWorkspaceOperations } from './operations/handlers.js';
 import { BUILD_WORKSPACE, DO_NOT_INSTALL, INSTALL_IT } from './procedures.js';
 
@@ -44,37 +35,10 @@ function build(over: { file?: unknown; answer?: string | undefined; fails?: stri
       grow: async (_ownerId, treeId) => { grown.push(treeId); return { started: true }; },
     },
   });
-  const local = new Map<string, NodeImplementation>([
-    ...WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const),
-    ...createOrchestrationNodes({
-      runTool: async () => { throw new Error('no tools here'); },
-      runChild: async () => { throw new Error('no children here'); },
-      approve: async () => false,
-      ask: async (request) => { asked.push(request); return over.answer ? { answered: true, value: over.answer } : { answered: false, reason: 'nobody answered in time' }; },
-    }).map((implementation) => [implementation.kind, implementation] as const),
-  ]);
-  const executor: NodeExecutor = {
-    async step(request) {
-      if (request.node.kind === HOST_OP_KIND) return operations[String(request.node.settings.operation)]!(request);
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'step') throw new Error(`no step for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-    async value(request) {
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'value') throw new Error(`no value for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-  };
-  const run = () => runProcedure({
-    procedure: BUILD_WORKSPACE,
-    catalogue: platformCatalogue(),
-    groups: BUILT_IN_GROUPS,
-    executor,
-    identity: { runId: 'workspace-build-t1-abc', depth: 0, agentId: 'workspace', loopId: 'build-workspace', loopVersion: '1', trigger: 'user' },
-    launch: { ownerId: 'u1' },
-    inputs: { treeId: 't1', commit: 'abc' },
-    bus: { emit: (event: { type: string; post?: { kind: string } }) => { if (event.type === 'notice' && event.post) posted.push(event.post.kind); }, subscribe: () => () => undefined } as never,
+  const nodes = askingNodes(async (request) => { asked.push(request); return over.answer ? { answered: true, value: over.answer } : { answered: false, reason: 'nobody answered in time' }; });
+  const run = () => runOnHost({
+    procedure: BUILD_WORKSPACE, operations, nodes, runId: 'workspace-build-t1-abc', agentId: 'workspace', ownerId: 'u1', inputs: { treeId: 't1', commit: 'abc' },
+    emit: (event: { type: string; post?: { kind: string } }) => { if (event.type === 'notice' && event.post) posted.push(event.post.kind); },
   });
   return { run, saved, posted, asked, leaves, grown };
 }

@@ -1,21 +1,7 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { GroveWorld } from './testing/grove-world.js';
+import { describe, expect, it } from 'vitest';
+import { groveWorldPerFile } from './testing/grove-world.js';
 
-let env: TestWorkflowEnvironment;
-let grove: GroveWorld;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-  grove = new GroveWorld(env);
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
-
-beforeEach(() => grove.reset());
+const grove = groveWorldPerFile();
 
 describe('the grove agent\'s procedure, when a leaf fails', () => {
   it('plans a failed leaf again with its failure in its worktree, and reports the plan waiting for a person', async () => {

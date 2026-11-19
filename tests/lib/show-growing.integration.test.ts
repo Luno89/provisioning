@@ -1,17 +1,14 @@
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { freshPlaces } from './fresh-places.js';
 import { showGrowing } from './show-growing.js';
 import { until, waiting } from './until.js';
 
-const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+const aPlace = freshPlaces('show-growing-');
 
 function aLog(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'show-growing-'));
-  dirs.push(dir);
-  const file = join(dir, 'dev.log');
+  const file = join(aPlace(), 'dev.log');
   writeFileSync(file, '');
   return file;
 }

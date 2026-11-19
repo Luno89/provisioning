@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BUILT_IN_GROUPS, HOST_OP_KIND, WORKFLOW_IMPLEMENTATIONS, runProcedure, type NodeExecutor, type NodeImplementation } from '@koala/agent-engine/procedure';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import { MOVE_IN_ID, openedRecord, type MoveIn, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
-import { INSTALLED_EXTENSIONS, platformCatalogue } from '../installed.js';
+import { INSTALLED_EXTENSIONS } from '../installed.js';
+import { runOnHost } from '../testing/host-op-runs.js';
 import { createProvisionOperations } from './operations/handlers.js';
 import { PROVISION } from './procedures.js';
 import { PROVISION_AGENT, PROVISION_PROCEDURE } from './names.js';
@@ -20,33 +20,10 @@ function world(answers: Partial<Record<string, ProvisionPieceResult>> = {}) {
     pieces: { run: async (piece) => { started.push(piece); return answers[piece.piece] ?? { ok: true }; } },
     now: () => AT,
   });
-  const local = new Map<string, NodeImplementation>(WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const));
-  const executor: NodeExecutor = {
-    async step(request) {
-      if (request.node.kind === HOST_OP_KIND) return operations[String(request.node.settings.operation)]!(request);
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'step') throw new Error(`no step for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-    async value(request) {
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'value') throw new Error(`no value for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-  };
   const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId, moveIn?: MoveIn) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT, moveIn }));
   const run = async (inputs: ProvisionRunInput, opened: boolean | MoveIn = true) => {
     if (opened) await open(inputs, inputs.ownerId, opened === true ? undefined : opened);
-    return runProcedure({
-    procedure: PROVISION,
-    catalogue: platformCatalogue(),
-    groups: BUILT_IN_GROUPS,
-    executor,
-    identity: { runId: inputs.recordId, depth: 0, agentId: PROVISION_AGENT, loopId: PROVISION.id, loopVersion: '1', trigger: 'user' },
-    launch: { ownerId: inputs.ownerId },
-    inputs: inputs as unknown as Record<string, unknown>,
-    bus: { emit: () => undefined, subscribe: () => () => undefined } as never,
-    });
+    return runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: inputs.ownerId, inputs });
   };
   const record = async (inputs: ProvisionRunInput) => (await store.getProvisioningRun(inputs.recordId))!;
   return { run, open, started, record };

@@ -19,6 +19,11 @@ const credentialOf = (req: Request): { instanceId: string; credential: string } 
   credential: String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''),
 });
 
+const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false; status: number; error: string }) =>
+  (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.error }));
+
+const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
+
 export function instancesRouter(deps: {
   instances: Pick<InstanceService, 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
   chart: () => Promise<string>;
@@ -52,21 +57,15 @@ export function instancesRouter(deps: {
   const admin: RequestHandler = deps.operatorOnly ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
 
   router.get('/pool/admin', admin, asyncRoute(async (_req: Request, res: Response) => {
-    const outcome = await deps.instances.poolAdmin();
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.poolAdmin());
   }));
 
   router.put('/pool/admin/trial-days', admin, asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.setTrialDays(userOf(req).id, ((req.body ?? {}) as { days?: unknown }).days);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setTrialDays(userOf(req).id, ((req.body ?? {}) as { days?: unknown }).days));
   }));
 
   router.put('/pool/admin/instances/:id/trial', admin, asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.setTrialEnd(String(req.params.id), ((req.body ?? {}) as { trialEndsAt?: unknown }).trialEndsAt);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setTrialEnd(String(req.params.id), ((req.body ?? {}) as { trialEndsAt?: unknown }).trialEndsAt));
   }));
 
   router.delete('/pool/admin/instances/:id', admin, asyncRoute(async (req: Request, res: Response) => {
@@ -80,23 +79,17 @@ export function instancesRouter(deps: {
   }));
 
   router.put('/mine/watch', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.setWatchOf(userOf(req).id, ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setWatchOf(userOf(req).id, notifyOf(req)));
   }));
 
   router.get('/watch', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.watchAs(instanceId, credential);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.watchAs(instanceId, credential));
   }));
 
   router.put('/watch', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.setWatchAs(instanceId, credential, ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setWatchAs(instanceId, credential, notifyOf(req)));
   }));
 
   router.get('/chart.tgz', asyncRoute(async (_req: Request, res: Response) => {
@@ -112,9 +105,7 @@ export function instancesRouter(deps: {
 
   router.get('/updates', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.updates(instanceId, credential);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.updates(instanceId, credential));
   }));
 
   const administers: RequestHandler = deps.administers ?? admin;
@@ -156,49 +147,34 @@ export function instancesRouter(deps: {
 
   router.put('/updates', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.setUpdates(instanceId, credential, (req.body ?? {}) as { auto?: unknown; version?: unknown });
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setUpdates(instanceId, credential, (req.body ?? {}) as { auto?: unknown; version?: unknown }));
   }));
 
   router.get('/release', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.release(instanceId, credential);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.release(instanceId, credential));
   }));
 
 
   router.get('/trial', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.trialOf(instanceId, credential);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.trialOf(instanceId, credential));
   }));
 
   router.get('/addresses', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.addresses(instanceId, credential);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.addresses(instanceId, credential));
   }));
 
   router.put('/sign-in-key', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.announceSignIn(instanceId, credential, ((req.body ?? {}) as { jwk?: unknown }).jwk);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.announceSignIn(instanceId, credential, ((req.body ?? {}) as { jwk?: unknown }).jwk));
   }));
 
   router.put('/addresses', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.setAddresses(instanceId, credential, ((req.body ?? {}) as { nested?: unknown }).nested);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
+    return answer(res, await deps.instances.setAddresses(instanceId, credential, ((req.body ?? {}) as { nested?: unknown }).nested));
   }));
-
-  const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false; status: number; error: string }) =>
-    (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.error }));
 
   router.get('/groups/check', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);

@@ -5,16 +5,10 @@ import { PROVISION_PIECES, PROVISIONING_CHANGED, type ProvisioningView, type Pro
 import { ProvisioningCard } from './ProvisioningCard'
 import type { ProvisioningAnswer } from '../api/provisioning'
 import { api } from '../../../api/client'
+import { socketHandlers as handlers } from '../../../test/socket-events'
 
-const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }))
-vi.mock('../../platform/stores/socket', () => ({
-  useSocketEvent: (event: string, handler: () => void) => { handlers.set(event, handler) },
-}))
-
-vi.mock('../../../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../api/client')>()
-  return { ...original, api: { get: vi.fn(), post: vi.fn() } }
-})
+vi.mock('../../platform/stores/socket', () => import('../../../test/socket-events'))
+vi.mock('../../../api/client', async (importOriginal) => (await import('../../../test/mocked-api')).mockedApi(importOriginal, 'get', 'post'))
 
 const pieces = (change: (piece: ProvisionPieceView, index: number) => ProvisionPieceView = (piece) => piece): ProvisionPieceView[] =>
   PROVISION_PIECES.map((piece, index) => change({ key: piece.key, title: piece.title, state: 'waiting' }, index))

@@ -1,10 +1,7 @@
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import express, { type NextFunction, type Request, type Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -34,11 +31,8 @@ import type { ClusterSteps } from '../../activities/cluster-steps.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { temporalInstallWorkflows } from '../../machines/wiring/sides.js';
 import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
-import { KoalaInstalls } from '../../machines/services/KoalaInstalls.js';
-import { InstanceService } from '../../instances/services/InstanceService.js';
-import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
-import { instancesRouter } from '../../instances/routes/instances.js';
+import { rootInstallsServed } from '../../instances/testing/root-installs.js';
 import { ClusterAccess, InfrastructureService, terraformPlacesFor, type ProvisioningRecord } from '../index.js';
 import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
 import { Provisioning } from '../services/Provisioning.js';
@@ -100,26 +94,8 @@ function clusterSteps(): { steps: Pick<ClusterSteps, 'access' | 'infra' | 'datab
 
 async function rootSide(rootDb: Database) {
   const workflows = temporalInstallWorkflows(async () => env.client, ROOT_QUEUE);
-  let installs: KoalaInstalls | undefined;
-  const instances = new InstanceService(rootDb, {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
-    reach: new InstanceReach({ open: true, domain: '' }),
-    installs: { setupHeard: (installId, report) => installs!.setupHeard(installId, report), progressHeard: (installId, progress) => installs!.progressHeard(installId, progress), stop: (installId) => installs!.stop(installId) },
-  }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
-  installs = new KoalaInstalls({
-    devices: () => rootDb.machines.getLocalAgentDevices(),
-    places: () => instances,
-    workflows,
-    toMachines: { placeKoala: async () => false, stopKoala: () => false },
-    toOwner: { installChanged: () => undefined },
-  });
-  const app = express();
-  app.use(express.json());
-  app.use('/api/instances', instancesRouter({ instances, chart: async () => '/nowhere', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
-  const server = http.createServer(app);
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  closing.push(() => new Promise<void>((done) => { server.close(() => done()); }));
-  return { instances, workflows, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  const { instances, url } = await rootInstallsServed(rootDb, workflows, closing);
+  return { instances, workflows, url };
 }
 
 beforeAll(async () => {

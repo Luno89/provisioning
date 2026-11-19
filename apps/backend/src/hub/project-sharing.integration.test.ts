@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../platform/lib/settings.js';
-import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { call, removeAccountOnRoot, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
 import { HUB_REPO, hubOrgOf } from './services/HubRepos.js';
@@ -46,16 +46,6 @@ const said = async (): Promise<string[]> => withMongo(async (client) => {
   const channel = await client.db(`${HUB_DATABASE_PREFIX}${hubId}`).collection('board_conversations').findOne({ _id: project.channelId as never });
   return ((channel?.messages as Message[] | undefined) ?? []).map((message) => message.content);
 });
-
-async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
-  await db.init();
-  try {
-    return (await db.accounts.getUserById(id)) === undefined;
-  } finally {
-    await db.close?.();
-  }
-}
 
 beforeAll(async () => {
   roles = await startThreeRoles('sharing', { gitea: true, ownerInvited: true, rootWorkers: ['host'] });
@@ -277,10 +267,6 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
   });
 
   it('the client and then the owner remove their accounts on root', async () => {
-    for (const who of [member, roles.owner]) {
-      const removed = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: who.email, password: who.password }, cookie: who.cookie });
-      expect(removed.status, JSON.stringify(removed.body)).toBe(202);
-      await until(`root to remove the account of ${who.email}`, async () => ((await accountGone(who.id)) ? true : waiting('the account is still on root')));
-    }
+    for (const who of [member, roles.owner]) await removeAccountOnRoot(roles, who);
   });
 });

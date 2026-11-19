@@ -1,10 +1,8 @@
 import crypto from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createDatabase } from '../platform/lib/db-interface.js';
-import { databaseSettingsFrom } from '../platform/lib/settings.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from '../platform/testing/handoff.js';
-import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
+import { call, removeAccountOnRoot, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
 import { HUB_REPO, hubOrgOf } from './services/HubRepos.js';
 import { mainHeads } from './services/HubRepoSync.js';
@@ -41,22 +39,6 @@ async function toHub(person: Person): Promise<string> {
   const cookie = sessionFrom(exchange.setCookies);
   expect(signedInLanding(exchange) && cookie, `the hub did not sign the person in: ${exchange.status} ${exchange.body.slice(0, 300)}`).toBeTruthy();
   return cookie!;
-}
-
-async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
-  await db.init();
-  try {
-    return (await db.accounts.getUserById(id)) === undefined;
-  } finally {
-    await db.close?.();
-  }
-}
-
-async function removeAccount(who: Person): Promise<void> {
-  const removed = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: who.email, password: who.password }, cookie: who.cookie });
-  expect(removed.status, JSON.stringify(removed.body)).toBe(202);
-  await until(`root to remove the account of ${who.email}`, async () => ((await accountGone(who.id)) ? true : waiting('the account is still on root')));
 }
 
 beforeAll(async () => {
@@ -224,7 +206,7 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
     const refused = await call(`${roles.root.url}/api/account`, { method: 'DELETE', body: { confirm: ann.person.email, password: ann.person.password }, cookie: ann.person.cookie });
     expect(refused.status, JSON.stringify(refused.body)).toBe(409);
     expect((await call(hubUrl(`/projects/${shop.id}`), { cookie: ann.hub })).status, 'a refused removal still let the owner go').toBe(200);
-    await removeAccount(people.eve!.person);
+    await removeAccountOnRoot(roles, people.eve!.person);
     expect((await call<Opened>(hubUrl(`/projects/${other.id}`), { cookie: ann.hub })).body.members.map((member) => member.email)).toEqual([ann.person.email]);
   });
 
@@ -237,7 +219,7 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
       return read.body.shared === undefined ? true : waiting(`the instance answers ${read.status} with shared ${JSON.stringify(read.body.shared).slice(0, 150)}`);
     });
     expect((await call<{ blockers: string[] }>(`${roles.root.url}/api/account/removal`, { cookie: ann.person.cookie })).body.blockers).toEqual([]);
-    await removeAccount(ann.person);
+    await removeAccountOnRoot(roles, ann.person);
     const client = new MongoClient(roles.mongoUri);
     await client.connect();
     try {

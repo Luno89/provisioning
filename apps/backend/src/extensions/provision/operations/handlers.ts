@@ -4,6 +4,7 @@ import {
   pieceHeard, pieceProgress, recordedOn, runEnded, setUpProgress,
   type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput,
 } from '../../../infrastructure/lib/provisioning.js';
+import { innermostMessage } from '../../../platform/index.js';
 import type { HostOperationRun } from '../../types.js';
 import { PROVISION_SERVICES, PROVISION_STATES_MARKED } from './declarations.js';
 
@@ -38,13 +39,7 @@ function runInput(request: NodeRequest): ProvisionRunInput {
   return { ownerId: input.ownerId, recordId: input.recordId, target, revision: input.revision, reason };
 }
 
-const reasonOf = (err: unknown): string => {
-  let reason = 'the setup failed';
-  for (let at = err as { message?: string; cause?: unknown } | undefined; at; at = at.cause as typeof at) {
-    if (typeof at.message === 'string' && at.message) reason = at.message;
-  }
-  return reason;
-};
+const reasonOf = (err: unknown): string => innermostMessage(err, 'the setup failed');
 
 const failed = (reason: string): StepResult => ({ exit: 'failed', outputs: { reason } });
 

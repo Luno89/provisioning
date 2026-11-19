@@ -6,16 +6,10 @@ import { KOALA_INSTALL_CHANGED, type KoalaInstallView } from '@koala/engine-core
 import AccountMachines from './AccountMachines'
 import type { AccountMachine, MachineJoinView } from '../api'
 import { api } from '../../../api/client'
+import { socketHandlers as handlers } from '../../../test/socket-events'
 
-const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }))
-vi.mock('../../platform/stores/socket', () => ({
-  useSocketEvent: (event: string, handler: () => void) => { handlers.set(event, handler) },
-}))
-
-vi.mock('../../../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../api/client')>()
-  return { ...original, api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }
-})
+vi.mock('../../platform/stores/socket', () => import('../../../test/socket-events'))
+vi.mock('../../../api/client', async (importOriginal) => (await import('../../../test/mocked-api')).mockedApi(importOriginal, 'get', 'post', 'delete'))
 
 const later = '2099-01-01T00:00:00.000Z'
 const join = (overrides: Partial<MachineJoinView> = {}): MachineJoinView => ({

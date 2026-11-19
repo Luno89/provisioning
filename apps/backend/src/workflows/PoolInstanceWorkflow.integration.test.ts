@@ -1,31 +1,18 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { describe, it, expect } from 'vitest';
+import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { ApplicationFailure } from '@temporalio/common';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { clockSkippingEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, testWorker, uniqueName } from './testing/test-worker.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { POOL_SETUP_HEARD } from '../instances/lib/pool-trial.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
+const file = environmentForFile(temporalTestEnvironment);
 
 type Signal = (name: string, ...args: unknown[]) => Promise<void>;
 
-const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>, drive: (signal: Signal) => Promise<void> = async () => undefined, world: TestWorkflowEnvironment = env) => {
-  const taskQueue = `pool-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: world.nativeConnection, namespace: world.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'index.ts')), activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
+const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>, drive: (signal: Signal) => Promise<void> = async () => undefined, world: TestWorkflowEnvironment = file.env) => {
+  const taskQueue = uniqueName('pool');
+  const worker = await testWorker(world, { taskQueue, workflows: 'index.ts', activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
   return worker.runUntil(async () => {
     const handle = await world.client.workflow.start('PoolInstanceWorkflow', { workflowId: `pool-instance-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') });
     await drive((name, ...args) => handle.signal(name, ...args));
@@ -63,7 +50,7 @@ describe('installing a pool instance', () => {
       await signal(POOL_SETUP_HEARD, line('set-up', 'done'));
     })).toBe('done');
     expect(seen).toEqual(['host', 'vcluster inst-1', 'proxy', 'chart inst-1', 'ready inst-1', 'setup gitea started', 'setup gitea done', 'setup set-up done']);
-    const trial = await env.client.workflow.getHandle('pool-trial-inst-1').describe();
+    const trial = await file.env.client.workflow.getHandle('pool-trial-inst-1').describe();
     expect(trial.type).toBe('PoolTrialWorkflow');
   });
 

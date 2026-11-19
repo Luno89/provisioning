@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import dotenv from 'dotenv';
-import { ignore } from '@koala/engine-core/failures';
-import { Worker, Runtime } from '@temporalio/worker';
+import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 
 import { DeployAppActivity, type DeployAppArgs } from './activities/DeployAppActivity.js';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from './activities/CheckWorkloadActivity.js';
@@ -17,8 +15,8 @@ import type { ClusterSteps } from './activities/cluster-steps.js';
 import type { MoveOverDeps } from './activities/move-over.js';
 import { MoveParts } from './instances/index.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
-import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
-import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
+import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
+import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -28,7 +26,8 @@ import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies 
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
-import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
+import { holdFencesIn } from './platform/wiring/fences.js';
+import { runAsProgram } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -118,31 +117,10 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   return { worker: worker!, steps, telemetry, fences };
 }
 
-async function main() {
-  dotenv.config({ quiet: true });
-  const settings = clusterWorkerSettingsFrom(process.env);
-  Runtime.install({
-    logger,
-    telemetryOptions: {
-      metrics: {
-        prometheus: {
-          bindAddress: `${settings.listenHost}:${settings.temporalMetricsPort}`,
-        },
-      },
-    },
-  });
-  const { worker, telemetry, fences } = await startClusterWorker(settings);
-  logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
-  if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => worker.getState() === 'RUNNING');
-  await runThenLetGo(worker, fences);
-  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
-}
-
-const startedAsProgram = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
-
-if (startedAsProgram) main().then(() => {
-  process.exit(0);
-}, (err: Error) => {
-  logger.error(err instanceof SettingsError ? `[ClusterWorker] ${err.message}` : `[ClusterWorker] FATAL: ${err.stack || err.message}`);
-  process.exit(1);
+runAsProgram(import.meta.url, {
+  tag: '[ClusterWorker]',
+  logger,
+  settingsFrom: clusterWorkerSettingsFrom,
+  start: startClusterWorker,
+  listening: () => 'Listening for app deployment tasks',
 });

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { temporal } from '@temporalio/proto';
@@ -37,6 +37,42 @@ const listening = async (): Promise<{ io: Server; url: string }> => {
 };
 
 const exited = (child: ChildProcess): Promise<number | null> => new Promise((done) => child.once('exit', (code) => done(code)));
+
+interface RootPlacingKoala {
+  rootUrl: string;
+  reports: Array<{ progress: Record<string, unknown>; auth: string | undefined }>;
+  toRoot: Array<{ emit(event: string, payload?: unknown): void }>;
+}
+
+const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessage, res: ServerResponse) => boolean = () => false): Promise<RootPlacingKoala> => {
+  const reports: RootPlacingKoala['reports'] = [];
+  const http = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      if (req.method === 'POST' && req.url === koalaInstallProgressPath(installId)) {
+        reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
+        res.writeHead(204).end();
+        return;
+      }
+      if (answers(req, res)) return;
+      res.writeHead(404).end('not here');
+    });
+  });
+  servers.push(http);
+  const io = new Server(http);
+  await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
+  const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
+  const toRoot: RootPlacingKoala['toRoot'] = [];
+  io.of('/machine-account').on('connection', (socket) => {
+    toRoot.push(socket);
+    socket.emit(PLACE_KOALA, {
+      installId, instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
+      meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
+    });
+  });
+  return { rootUrl, reports, toRoot };
+};
 
 describe('the machine agent\'s own program, on a computer that is only a throwaway home', () => {
   it('reads its machine.json, connects to root, works for the Koala root names, and stops on SIGTERM', async () => {
@@ -169,31 +205,7 @@ describe('removing this machine, as the agent\'s own program does it, on a throw
 
 describe('Koala placed on this machine by root, as the agent\'s own program takes it, on a machine without Koala\'s k3s', () => {
   it('tells root the stage it is at on the install root asked for, with its own token, then where and why it failed, and removes itself when root removes the machine', async () => {
-    const reports: Array<{ progress: Record<string, unknown>; auth: string | undefined }> = [];
-    const http = createServer((req, res) => {
-      let body = '';
-      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-      req.on('end', () => {
-        if (req.method === 'POST' && req.url === koalaInstallProgressPath('program-install')) {
-          reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
-          res.writeHead(204).end();
-          return;
-        }
-        res.writeHead(404).end('not here');
-      });
-    });
-    servers.push(http);
-    const io = new Server(http);
-    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
-    const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
-    const toRoot: Array<{ emit(event: string): void }> = [];
-    io.of('/machine-account').on('connection', (socket) => {
-      toRoot.push(socket);
-      socket.emit(PLACE_KOALA, {
-        installId: 'program-install', instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
-        meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
-      });
-    });
+    const { rootUrl, reports, toRoot } = await rootPlacingKoala('program-install');
     const here = await program([]);
     await here.joined(rootUrl);
     const child = here.start();
@@ -211,35 +223,11 @@ describe('Koala placed on this machine by root, as the agent\'s own program take
 
 describe('Koala placed on this machine by root and then stopped by root, as the agent\'s own program takes it', () => {
   it('stops fetching the chart the moment root says the install is stopped, tells root nothing more, says it stopped, and keeps running', async () => {
-    const reports: Array<Record<string, unknown>> = [];
     const hanging: Array<{ end(): void }> = [];
-    const http = createServer((req, res) => {
-      let body = '';
-      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-      req.on('end', () => {
-        if (req.method === 'POST' && req.url === koalaInstallProgressPath('program-stopped')) {
-          reports.push(JSON.parse(body) as Record<string, unknown>);
-          res.writeHead(204).end();
-          return;
-        }
-        if (req.url === '/api/instances/chart/v1.tgz') {
-          hanging.push(res);
-          return;
-        }
-        res.writeHead(404).end('not here');
-      });
-    });
-    servers.push(http);
-    const io = new Server(http);
-    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
-    const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
-    const toRoot: Array<{ emit(event: string, payload?: unknown): void }> = [];
-    io.of('/machine-account').on('connection', (socket) => {
-      toRoot.push(socket);
-      socket.emit(PLACE_KOALA, {
-        installId: 'program-stopped', instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
-        meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
-      });
+    const { rootUrl, reports, toRoot } = await rootPlacingKoala('program-stopped', (req, res) => {
+      if (req.url !== '/api/instances/chart/v1.tgz') return false;
+      hanging.push(res);
+      return true;
     });
     const here = await program([]);
     await here.joined(rootUrl);
@@ -251,7 +239,7 @@ describe('Koala placed on this machine by root and then stopped by root, as the 
       expect(child.exitCode, here.said.join('')).toBeNull();
       toRoot[0]!.emit(STOP_KOALA, { installId: 'program-stopped', remove: false });
       while (!here.said.join('').includes('Putting Koala on this machine stopped: root stopped it before it finished') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
-      expect(reports.map((report) => `${String(report.stage)} ${String(report.state)}`), here.said.join('')).toEqual(['cluster started', 'cluster already-done', 'chart started']);
+      expect(reports.map(({ progress }) => `${String(progress.stage)} ${String(progress.state)}`), here.said.join('')).toEqual(['cluster started', 'cluster already-done', 'chart started']);
       expect(child.exitCode, here.said.join('')).toBeNull();
     } finally {
       for (const res of hanging) res.end();

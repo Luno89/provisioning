@@ -1,16 +1,10 @@
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import express, { type NextFunction, type Request, type Response } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
 import { reopening } from '@koala/engine-core/reopening';
 import { PROVISION_DONE_STAGE, PROVISION_DONE_TITLE, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { InstanceService } from '../services/InstanceService.js';
-import { InstanceReach } from '../services/InstanceReach.js';
 import { InstanceReporter } from '../services/InstanceReporter.js';
-import { KoalaInstalls } from '../../machines/services/KoalaInstalls.js';
-import { instancesRouter } from './instances.js';
+import { rootInstallsServed } from '../testing/root-installs.js';
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
@@ -22,26 +16,7 @@ const setUp = { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state:
 async function root() {
   const db: Database = await testDatabase();
   const handed: Array<[string, ProvisionReport]> = [];
-  let installs: KoalaInstalls | undefined;
-  const instances = new InstanceService(db, {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
-    reach: new InstanceReach({ open: true, domain: '' }),
-    installs: { setupHeard: (installId, report) => installs!.setupHeard(installId, report), progressHeard: (installId, progress) => installs!.progressHeard(installId, progress), stop: (installId) => installs!.stop(installId) },
-  }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
-  installs = new KoalaInstalls({
-    devices: () => db.machines.getLocalAgentDevices(),
-    places: () => instances,
-    workflows: { start: async () => undefined, progress: async () => undefined, setup: async (installId, report) => { handed.push([installId, report]); }, reconnected: async () => undefined, cancel: async () => undefined },
-    toMachines: { placeKoala: async () => false, stopKoala: () => false },
-    toOwner: { installChanged: () => undefined },
-  });
-  const app = express();
-  app.use(express.json());
-  app.use('/api/instances', instancesRouter({ instances, chart: async () => '/nowhere', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
-  const server = http.createServer(app);
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  closers.push(() => new Promise<void>((done) => { server.close(() => done()); }));
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const { instances, url } = await rootInstallsServed(db, { start: async () => undefined, progress: async () => undefined, setup: async (installId, report) => { handed.push([installId, report]); }, reconnected: async () => undefined, cancel: async () => undefined }, closers);
   const placed = await instances.placeOn('bo', DESK, 'bobby', 'install-1');
   if (!placed.ok) throw new Error(placed.error);
   const koala = await instances.placedKoala('install-1', DESK);

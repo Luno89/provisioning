@@ -1,22 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { describe, expect, it } from 'vitest';
 import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { GroveWorld } from './testing/grove-world.js';
+import { groveWorldPerFile } from './testing/grove-world.js';
 import { cancelSignal } from '../../workflows/AgentRunWorkflow.js';
 
-let env: TestWorkflowEnvironment;
-let grove: GroveWorld;
-
-beforeAll(async () => {
-  env = await realTemporalEnvironment();
-  grove = new GroveWorld(env);
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
-
-beforeEach(() => grove.reset());
+const grove = groveWorldPerFile(realTemporalEnvironment);
 
 describe('stopping the grove agent\'s work', () => {
   it('cancelling one leaf stops its run alone, and the rest of the tree is still worked', async () => {
@@ -27,7 +14,7 @@ describe('stopping the grove agent\'s work', () => {
         const leafA = grove.leafOf('leafA')!;
         expect(leafA.runId, 'the leaf does not say which run is working it').toBeTruthy();
         grove.leaves = grove.leaves.map((leaf) => (leaf.id === 'leafA' ? { ...leaf, status: 'cancelled' } : leaf));
-        await env.client.workflow.getHandle(leafA.runId!).signal(cancelSignal);
+        await grove.env.client.workflow.getHandle(leafA.runId!).signal(cancelSignal);
       },
     });
 

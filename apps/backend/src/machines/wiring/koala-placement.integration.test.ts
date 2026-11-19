@@ -23,7 +23,7 @@ import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { generateIdentityKey } from '../../instances/lib/identity-token.js';
 import { InstanceService, hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
 import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
-import { InstanceReach } from '../../instances/services/InstanceReach.js';
+import { NO_MESH, rootInstanceSettings } from '../../instances/testing/root-installs.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { deviceTokenHash } from '../lib/device-tokens.js';
@@ -87,12 +87,10 @@ beforeEach(async () => {
   temporalDown = false;
   folder = await mkdtemp(path.join(tmpdir(), 'koala-placement-'));
   const instances = new InstanceService(db, {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
-    reach: new InstanceReach({ open: true, domain: '' }),
-    installs: { setupHeard: (installId, report) => installs.setupHeard(installId, report), progressHeard: (installId, progress) => installs.progressHeard(installId, progress), stop: (installId) => installs.stop(installId) },
+    ...rootInstanceSettings(() => installs),
     pool: { slots: 1, trialDays: 14 },
     moves: { joinCode: (ownerId, koalaName) => accounts.createJoinCode(ownerId, koalaName, true), poolClusterId: (name) => `pool-${name}` },
-  }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined }, () => new Date(), () => undefined, {
+  }, NO_MESH, () => new Date(), () => undefined, {
     start: async () => undefined, trialChanged: async () => undefined, remove: async () => undefined,
     move: async (instanceId) => { movesStarted.push(instanceId); },
   });

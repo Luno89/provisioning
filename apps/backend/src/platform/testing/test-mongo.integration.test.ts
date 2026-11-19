@@ -3,8 +3,8 @@ import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { removeSteps, runSteps, StepFailed, type Step, type ServiceContext } from '@koala/provision';
-import { memoryReporter } from '@koala/provision/testing';
+import { removeSteps, runSteps, type Step, type ServiceContext } from '@koala/provision';
+import { memoryReporter, stepFailureOf } from '@koala/provision/testing';
 import { mongoClientFor } from '../lib/collection.js';
 import { mongoStep } from '../wiring/root-services.js';
 import { madePrimary, testMongo } from './test-mongo.js';
@@ -30,12 +30,6 @@ function stepFor(dbPath: string) {
   return { mongo, step };
 }
 
-const failureOf = async (run: Promise<void>): Promise<StepFailed> => {
-  const err: unknown = await run.then(() => undefined, (thrown: unknown) => thrown);
-  if (!(err instanceof StepFailed)) throw new Error(`expected StepFailed, the run ended with ${String(err)}`);
-  return err;
-};
-
 describe('the test Mongo, a mongod of this run started by the step root\'s Mongo is', () => {
   it('starts as a writable primary in its folder, and its removal stops it and takes the folder away', async () => {
     const dbPath = join(await folder(), 'mongo');
@@ -54,7 +48,7 @@ describe('the test Mongo, a mongod of this run started by the step root\'s Mongo
     const dbPath = join(await folder(), 'read-only');
     await mkdir(dbPath);
     await chmod(dbPath, 0o500);
-    const failure = await failureOf(runSteps([stepFor(dbPath).step], ctx, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([stepFor(dbPath).step], ctx, memoryReporter()));
     expect(failure.stepId).toBe('mongo');
     expect(failure.why).toMatch(new RegExp(`^Mongo, as a replica set to answer: the test Mongo could not start: mongod exited with \\d+ .+ \\(disk where it writes: ${dbPath}, [0-9.]+ [KMGT]?B free\\)( \\(.+\\))?$`, 's'));
   });

@@ -1,23 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { GroveWorld } from './testing/grove-world.js';
+import { describe, expect, it } from 'vitest';
+import { groveWorldPerFile } from './testing/grove-world.js';
 import type { Procedure } from '@koala/agent-engine/procedure';
 import { seededAgents, seededProcedures } from '../seeds.js';
 
-let env: TestWorkflowEnvironment;
-let grove: GroveWorld;
-
-beforeAll(async () => {
-  env = await temporalTestEnvironment();
-  grove = new GroveWorld(env);
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
-
-beforeEach(() => grove.reset());
+const grove = groveWorldPerFile();
 
 describe('the grove agent\'s procedure, on other kinds of work', () => {
   it('puts aside a leaf whose tasks wait for the workspace — not failed, not planned again — and leaves what depends on it waiting', async () => {

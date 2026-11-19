@@ -1,52 +1,18 @@
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import axios from 'axios';
 import express from 'express';
 import http from 'node:http';
-import { Client } from '@temporalio/client';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
-import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
+import { currentTraceId, withSpan } from '@koala/engine-core/telemetry';
+import { tracedClient, tracedTemporal, tracedWorker } from '../../workflows/testing/traced-temporal.js';
 import { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import { MetricsService, TRACE_ID_HEADER } from '../services/MetricsService.js';
 import { carryingTrace, telemetrySettings } from './telemetry.js';
 import { testDatabase } from './test-database.js';
 import { createWorkspaceProjectActivities } from '../../activities/WorkspaceProjectActivity.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const TREE = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
 
-interface SentSpan { name: string; traceId: string; spanId: string; parentSpanId?: string }
-
-const collecting = () => {
-  const spans: SentSpan[] = [];
-  const sink: TelemetrySink = {
-    async send(signal: TelemetrySignal, body: Uint8Array) {
-      if (signal !== 'traces') return;
-      const parsed = JSON.parse(Buffer.from(body).toString('utf8')) as { resourceSpans: { scopeSpans: { spans: SentSpan[] }[] }[] };
-      for (const resource of parsed.resourceSpans) for (const scope of resource.scopeSpans) spans.push(...scope.spans);
-    },
-  };
-  return { sink, spans };
-};
-
-let env: TestWorkflowEnvironment;
-let telemetry: Telemetry;
-const sent = collecting();
-
-beforeAll(async () => {
-  telemetry = startTelemetry({ service: 'koala-test', sink: sent.sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-  await telemetry?.shutdown();
-});
+const traced = tracedTemporal();
 
 describe('the settings every process starts telemetry with', () => {
   it('names the service, the role and the instance, and exports only where the environment names a collector', () => {
@@ -61,15 +27,9 @@ describe('the settings every process starts telemetry with', () => {
 describe('one trace from the request through the workflow to the activity', () => {
   it('carries the request\'s trace into the workflow it starts and on to the activity the worker runs', async () => {
     const taskQueue = `telemetry-test-${Math.random().toString(36).slice(2, 8)}`;
-    const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [traceWorkflowStarts()] } });
+    const client = tracedClient(traced.env);
     const inActivity: (string | undefined)[] = [];
-    const worker = await Worker.create({
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, '../../workflows/ConcludeWorkspaceWorkflow.ts'), [resolve(__dirname, '../../workflows/telemetry-interceptors.ts')]),
-      interceptors: { activity: [traceActivities()] },
-      activities: { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
-    });
+    const worker = await tracedWorker(traced.env, taskQueue, 'ConcludeWorkspaceWorkflow.ts', { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) });
 
     const metrics = new MetricsService({ role: 'instance' });
     const app = express();
@@ -96,8 +56,8 @@ describe('one trace from the request through the workflow to the activity', () =
 
     expect(requestTrace).toBe(callerTrace);
     expect(inActivity).toEqual([callerTrace]);
-    await telemetry.flush();
-    const mine = sent.spans.filter((span) => span.traceId === callerTrace);
+    await traced.telemetry.flush();
+    const mine = traced.spans.filter((span) => span.traceId === callerTrace);
     const names = mine.map((span) => span.name);
     expect(names).toEqual(expect.arrayContaining(['the caller', 'POST /api/trees/:id/conclude', 'workflow.start ConcludeWorkspaceWorkflow', 'activity ConcludeWorkspaceActivity']));
     expect(names.join(' ')).not.toContain(TREE);

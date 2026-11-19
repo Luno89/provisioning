@@ -1,20 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BUILT_IN_GROUPS,
-  HOST_OP_KIND,
-  WORKFLOW_IMPLEMENTATIONS,
-  createOrchestrationNodes,
-  runProcedure,
-  type NodeExecutor,
-  type NodeImplementation,
-  type Procedure,
-  type QuestionRequest,
-} from '@koala/agent-engine/procedure';
+import type { Procedure, QuestionRequest } from '@koala/agent-engine/procedure';
 import type { OdooRelease, SlotState } from '../../releases/lib/odoo-release.js';
 import { CUT_OVER, CUT_OVER_LOSING, DISCARD, RETEST, type ReleaseRunInput, type RollBackRunInput } from '../../releases/lib/release-run.js';
 import type { SchemaSnapshot } from '../../releases/lib/release-compare.js';
 import { SNAPSHOT_SQL } from './postgres-compare.js';
-import { platformCatalogue } from '../installed.js';
+import { askingNodes, runOnHost } from '../testing/host-op-runs.js';
 import type { SlotAdapter } from './adapter.js';
 import { createReleaseOperations } from './operations/handlers.js';
 import { REPLACE, SLOTS, SLOTS_ROLL_BACK } from './procedures.js';
@@ -97,42 +87,13 @@ function world(over: { state: SlotState; records: OdooRelease[]; answers?: strin
     },
     now: () => '2026-10-15T00:00:00Z',
   });
-  const local = new Map<string, NodeImplementation>([
-    ...WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const),
-    ...createOrchestrationNodes({
-      runTool: async () => { throw new Error('no tools here'); },
-      runChild: async () => { throw new Error('no children here'); },
-      approve: async () => false,
-      ask: async (request) => {
-        asked.push(request);
-        const answer = answers.shift();
-        return answer ? { answered: true, value: answer } : { answered: false, reason: 'the run was stopped' };
-      },
-    }).map((implementation) => [implementation.kind, implementation] as const),
-  ]);
-  const executor: NodeExecutor = {
-    async step(request) {
-      if (request.node.kind === HOST_OP_KIND) return operations[String(request.node.settings.operation)]!(request);
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'step') throw new Error(`no step for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-    async value(request) {
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'value') throw new Error(`no value for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-  };
-  const run = (procedure: Procedure, inputs: ReleaseRunInput | RollBackRunInput | Record<string, unknown>) => runProcedure({
-    procedure,
-    catalogue: platformCatalogue(),
-    groups: BUILT_IN_GROUPS,
-    executor,
-    identity: { runId: 'release-p1~1', depth: 0, agentId: 'release', loopId: procedure.id, loopVersion: '1', trigger: 'user' },
-    launch: { ownerId: 'bo' },
-    inputs: inputs as unknown as Record<string, unknown>,
-    bus: { emit: () => undefined, subscribe: () => () => undefined } as never,
+  const nodes = askingNodes(async (request) => {
+    asked.push(request);
+    const answer = answers.shift();
+    return answer ? { answered: true, value: answer } : { answered: false, reason: 'the run was stopped' };
   });
+  const run = (procedure: Procedure, inputs: ReleaseRunInput | RollBackRunInput | Record<string, unknown>) =>
+    runOnHost({ procedure, operations, nodes, runId: 'release-p1~1', agentId: 'release', ownerId: 'bo', inputs });
   return { run, actions, asked, records: () => records, state: () => state };
 }
 

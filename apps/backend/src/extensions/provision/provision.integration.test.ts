@@ -1,16 +1,13 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { BUILT_IN_GROUPS, HOST_OP_KIND, WORKFLOW_IMPLEMENTATIONS, runProcedure, type NodeExecutor, type NodeImplementation } from '@koala/agent-engine/procedure';
+import type { WorkflowHandle } from '@temporalio/client';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
-import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { ownerIn, startedFor } from '../../platform/lib/workflow-owner.js';
 import { openedRecord, provisionPieceWorkflowId, provisionRunId, type ProvisionPieceInput, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
-import { platformCatalogue } from '../installed.js';
+import { fixtureWorker, type FixtureWorker } from '../testing/fixture-worker.js';
+import { runOnHost } from '../testing/host-op-runs.js';
 import { createProvisionOperations } from './operations/handlers.js';
 import { provisionPiecesOn } from './pieces.js';
 import { PROVISION } from './procedures.js';
@@ -18,33 +15,35 @@ import { PROVISION_AGENT, PROVISION_PIECE_WORKFLOW } from './names.js';
 
 const WORLD = `provision-${randomUUID().slice(0, 8)}`;
 const QUEUE = `${WORLD}-cluster`;
-let env: TestWorkflowEnvironment;
-let worker: Worker;
-let running: Promise<void>;
+let fixture: FixtureWorker;
 
 beforeAll(async () => {
-  env = await realTemporalEnvironment();
-  worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowBundle: await bundled(resolve(__dirname, 'testing/piece.fixture-workflow.ts')) });
-  running = worker.run();
+  fixture = await fixtureWorker(QUEUE, resolve(__dirname, 'testing/piece.fixture-workflow.ts'));
 });
 
 afterAll(async () => {
-  worker?.shutdown();
-  await running;
-  await env?.teardown();
+  await fixture?.stop();
 });
 
-const pieces = () => provisionPiecesOn({ client: async () => env.client, queue: QUEUE });
+const pieces = () => provisionPiecesOn({ client: async () => fixture.env.client, queue: QUEUE });
 
 const pieceFor = (say: string, piece: ProvisionPieceInput['piece'] = 'gitea'): ProvisionPieceInput => ({
   ownerId: 'bo', recordId: provisionRunId(`${WORLD}-desk`, say), target: { kind: 'koala', clusterId: `${WORLD}-desk` }, revision: 7, piece,
 });
 
+const stoppedWhileHeld = async (piece: ProvisionPieceInput, handle: Pick<WorkflowHandle, 'describe'>) => {
+  const stop = new AbortController();
+  const ending = pieces().run(piece, stop.signal);
+  stop.abort('the run was stopped');
+  expect(await ending).toEqual({ ok: false, why: 'the run was stopped' });
+  expect((await handle.describe()).status.name).toBe('CANCELLED');
+};
+
 describe('a piece of a setup, run on the cluster queue', () => {
   it('starts the piece\'s workflow by name on the queue it is given, as the person\'s own work, and hands back that the piece is up', async () => {
     const piece = pieceFor('up');
     expect(await pieces().run(piece)).toEqual({ ok: true });
-    const described = await env.client.workflow.getHandle(provisionPieceWorkflowId(piece.recordId, 'gitea')).describe();
+    const described = await fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(piece.recordId, 'gitea')).describe();
     expect(described.type).toBe(PROVISION_PIECE_WORKFLOW);
     expect(described.taskQueue).toBe(QUEUE);
     expect(ownerIn(described.typedSearchAttributes)).toBe('bo');
@@ -61,22 +60,13 @@ describe('a piece of a setup, run on the cluster queue', () => {
 
   it('cancels the piece\'s workflow when the run is stopped, and hands back that it was stopped', async () => {
     const piece = pieceFor('held');
-    const stop = new AbortController();
-    const ending = pieces().run(piece, stop.signal);
-    const handle = env.client.workflow.getHandle(provisionPieceWorkflowId(piece.recordId, 'gitea'));
-    stop.abort('the run was stopped');
-    expect(await ending).toEqual({ ok: false, why: 'the run was stopped' });
-    expect((await handle.describe()).status.name).toBe('CANCELLED');
+    await stoppedWhileHeld(piece, fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(piece.recordId, 'gitea')));
   });
 
   it('follows the piece already under way when it is asked again, rather than starting a second', async () => {
     const piece = pieceFor('held-again');
-    const handle = await env.client.workflow.start(PROVISION_PIECE_WORKFLOW, { taskQueue: QUEUE, workflowId: provisionPieceWorkflowId(piece.recordId, 'gitea'), args: [{ ...piece, recordId: `${piece.recordId}-x~held` }], ...startedFor('bo') });
-    const stop = new AbortController();
-    const ending = pieces().run(piece, stop.signal);
-    stop.abort('the run was stopped');
-    expect(await ending).toEqual({ ok: false, why: 'the run was stopped' });
-    expect((await handle.describe()).status.name).toBe('CANCELLED');
+    const handle = await fixture.env.client.workflow.start(PROVISION_PIECE_WORKFLOW, { taskQueue: QUEUE, workflowId: provisionPieceWorkflowId(piece.recordId, 'gitea'), args: [{ ...piece, recordId: `${piece.recordId}-x~held` }], ...startedFor('bo') });
+    await stoppedWhileHeld(piece, handle);
   });
 });
 
@@ -88,32 +78,9 @@ describe('the provision procedure, its pieces on real Temporal', () => {
       records: store,
       pieces: { run: async (piece, signal) => { order.push(piece.piece); return pieces().run(piece, signal); } },
     });
-    const local = new Map<string, NodeImplementation>(WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const));
-    const executor: NodeExecutor = {
-      async step(request) {
-        if (request.node.kind === HOST_OP_KIND) return operations[String(request.node.settings.operation)]!(request);
-        const implementation = local.get(request.node.kind);
-        if (implementation?.role !== 'step') throw new Error(`no step for ${request.node.kind}`);
-        return implementation.run(request) as never;
-      },
-      async value(request) {
-        const implementation = local.get(request.node.kind);
-        if (implementation?.role !== 'value') throw new Error(`no value for ${request.node.kind}`);
-        return implementation.run(request) as never;
-      },
-    };
     const inputs: ProvisionRunInput = { ownerId: 'bo', recordId: provisionRunId(`${WORLD}-own`, say), target: { kind: 'koala', clusterId: `${WORLD}-own` }, revision: 3, reason: 'revision' };
     await store.openProvisioning(openedRecord({ ownerId: 'bo', target: inputs.target, revision: 3, reason: 'revision', runId: inputs.recordId, at: new Date().toISOString() }));
-    const result = await runProcedure({
-      procedure: PROVISION,
-      catalogue: platformCatalogue(),
-      groups: BUILT_IN_GROUPS,
-      executor,
-      identity: { runId: inputs.recordId, depth: 0, agentId: PROVISION_AGENT, loopId: PROVISION.id, loopVersion: '1', trigger: 'user' },
-      launch: { ownerId: 'bo' },
-      inputs: inputs as unknown as Record<string, unknown>,
-      bus: { emit: () => undefined, subscribe: () => () => undefined } as never,
-    });
+    const result = await runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: 'bo', inputs });
     return { result, order, record: (await store.getProvisioningRun(inputs.recordId))! };
   };
 
@@ -129,6 +96,6 @@ describe('the provision procedure, its pieces on real Temporal', () => {
     expect(result).toMatchObject({ outcome: 'failed', reason: 'pod gitea-0 is Init:Error: the volume is full' });
     expect(order).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea']);
     expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
-    await expect(env.client.workflow.getHandle(provisionPieceWorkflowId(record.runId, 'verdaccio')).describe()).rejects.toThrow();
+    await expect(fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(record.runId, 'verdaccio')).describe()).rejects.toThrow();
   });
 });

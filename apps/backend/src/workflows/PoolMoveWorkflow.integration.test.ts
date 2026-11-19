@@ -1,29 +1,20 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { describe, it, expect } from 'vitest';
+import { TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, testWorker, uniqueName } from './testing/test-worker.js';
 import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 import { failureReason } from '../platform/lib/temporal-failure.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => { env = await temporalTestEnvironment(); });
-afterAll(async () => { await env?.teardown(); });
+const file = environmentForFile(temporalTestEnvironment);
 
 const run = async (signal: (handle: { signal: (name: string, ...args: unknown[]) => Promise<void> }) => Promise<void>, start: () => Promise<void> = async () => undefined) => {
   const seen: string[] = [];
-  const taskQueue = `pool-move-test-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  const { env } = file;
+  const taskQueue = uniqueName('pool-move-test');
+  const worker = await testWorker(env, {
     taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'PoolMoveWorkflow.ts')),
+    workflows: 'PoolMoveWorkflow.ts',
     activities: {
       PoolMoveStartActivity: async () => { await start(); seen.push('start'); },
       PoolMoveSwitchActivity: async () => { seen.push('switch'); return { name: 'bo' }; },

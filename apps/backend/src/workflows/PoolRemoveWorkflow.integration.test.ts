@@ -1,27 +1,19 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { describe, it, expect } from 'vitest';
+import { clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { failureReason } from '../platform/lib/temporal-failure.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-let env: TestWorkflowEnvironment;
-
-beforeAll(async () => { env = await clockSkippingEnvironment(); });
-afterAll(async () => { await env?.teardown(); });
+const temporal = environmentForFile(clockSkippingEnvironment);
 
 const remove = async (step: () => Promise<void>): Promise<string> => {
-  const taskQueue = `pool-remove-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'PoolRemoveWorkflow.ts')),
+  const taskQueue = uniqueName('pool-remove');
+  const worker = await testWorker(temporal.env, {
+    taskQueue,
+    workflows: 'PoolRemoveWorkflow.ts',
     activities: { PoolRemoveActivity: step },
   });
-  return worker.runUntil(env.client.workflow.execute('PoolRemoveWorkflow', { workflowId: `pool-remove-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') })
+  return worker.runUntil(temporal.env.client.workflow.execute('PoolRemoveWorkflow', { workflowId: `pool-remove-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') })
     .then(() => 'removed', (error: unknown) => `failed: ${failureReason('FAILED', error)}`));
 };
 

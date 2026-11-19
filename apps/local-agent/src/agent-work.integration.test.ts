@@ -1,33 +1,11 @@
-import fs from 'fs/promises';
-import { createServer } from 'node:http';
-import os from 'os';
-import path from 'path';
 import { temporal } from '@temporalio/proto';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Server } from 'socket.io';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { deviceQueue, startDeviceWorker } from './engine-worker.js';
 import type { ClusterHost } from './machine-cluster.js';
-import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
+import { koalaAnsweringPayloads, temporalBehindTls } from './testing/temporal-world.js';
 
-let env: TestWorkflowEnvironment;
-let rootDir: string;
-let certificates: TestCertificates;
-let front: { address: string; close(): Promise<void> };
-
-beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal();
-  rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-work-'));
-  certificates = makeCertificates();
-  front = await tlsInFrontOf(env.address, certificates);
-});
-
-afterAll(async () => {
-  await front.close();
-  await env.teardown();
-  await fs.rm(rootDir, { recursive: true, force: true });
-});
+const world = temporalBehindTls('koala-agent-work-');
 
 const noKoalaK3s: ClusterHost = {
   platform: 'linux',
@@ -52,23 +30,20 @@ const noKoalaK3s: ClusterHost = {
 
 describe('the machine agent starting its work for its Koala', () => {
   it('connects to its Koala with its work token, reports its agents, its cluster and its GPUs, and starts its device worker, which polls the machine\'s queue', async () => {
-    const http = createServer();
-    const koala = new Server(http);
     const heard: Record<string, unknown> = {};
-    koala.of('/agent').on('connection', (socket) => {
-      heard.token = (socket.handshake.auth as { token?: string }).token;
-      socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
-      socket.on('agents:found', (found: unknown) => { heard.agents = found; });
-      socket.on('machine:cluster', (state: unknown) => { heard.cluster = state; });
-      socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
-        ack({ ring: { current: 'agent-work-payload-key-0123456789abcdef' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
-      });
+    const { koala, port } = await koalaAnsweringPayloads(world, {
+      at: '/agent',
+      key: 'agent-work-payload-key-0123456789abcdef',
+      connected: (socket) => {
+        heard.token = (socket.handshake.auth as { token?: string }).token;
+        socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
+        socket.on('agents:found', (found: unknown) => { heard.agents = found; });
+        socket.on('machine:cluster', (state: unknown) => { heard.cluster = state; });
+      },
     });
-    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
-    const { port } = http.address() as { port: number };
     const stops: Array<() => void> = [];
     const place: AgentPlace = {
-      agentDir: rootDir,
+      agentDir: world.rootDir,
       ownBundle: 'bundle-sha',
       service: undefined,
       cluster: noKoalaK3s,
@@ -79,10 +54,10 @@ describe('the machine agent starting its work for its Koala', () => {
       exit: () => undefined,
     };
 
-    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir, deviceId: 'work-desk' }, `http://127.0.0.1:${port}`, 'work-token', () => undefined, () => undefined);
+    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir: world.rootDir, deviceId: 'work-desk' }, `http://127.0.0.1:${port}`, 'work-token', () => undefined, () => undefined);
     expect(work.url).toBe(`http://127.0.0.1:${port}`);
 
-    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
+    const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
       namespace: 'default', taskQueue: { name: deviceQueue('work-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));

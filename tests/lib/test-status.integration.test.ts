@@ -1,20 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CHECKOUT, startHeldRun } from '../tiers/fixture-run/start.js';
 import { liveRuns } from './test-runs.js';
 import { until, waiting } from './until.js';
+import { freshPlaces } from './fresh-places.js';
 
-const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-
-function aPlace(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'test-runs-'));
-  dirs.push(dir);
-  return dir;
-}
+const aPlace = freshPlaces('test-runs-');
 
 const status = (runs: string) => spawnSync('npm', ['run', '--silent', 'test:status'], { cwd: CHECKOUT, env: { ...process.env, KOALA_TEST_RUNS: runs }, encoding: 'utf8' });
 

@@ -1,17 +1,9 @@
 import { containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
-import {
-  BUILT_IN_GROUPS,
-  HOST_OP_KIND,
-  WORKFLOW_IMPLEMENTATIONS,
-  type NodeExecutor,
-  type NodeImplementation,
-  runProcedure,
-} from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import type { McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import { runsFingerprint } from '../../engine/lib/mcp-servers.js';
-import { platformCatalogue } from '../installed.js';
+import { runOnHost } from '../testing/host-op-runs.js';
 import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';
 import { PLAYWRIGHT } from './templates.js';
@@ -65,30 +57,7 @@ function capture(server: McpServerRecord, over: { buildFails?: string | undefine
     fetch: hostedFetch,
     now: () => '2026-10-12T12:00:00Z',
   });
-  const local = new Map<string, NodeImplementation>(WORKFLOW_IMPLEMENTATIONS.map((implementation) => [implementation.kind, implementation] as const));
-  const executor: NodeExecutor = {
-    async step(request) {
-      if (request.node.kind === HOST_OP_KIND) return operations[String(request.node.settings.operation)]!(request);
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'step') throw new Error(`no step for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-    async value(request) {
-      const implementation = local.get(request.node.kind);
-      if (implementation?.role !== 'value') throw new Error(`no value for ${request.node.kind}`);
-      return implementation.run(request) as never;
-    },
-  };
-  const run = () => runProcedure({
-    procedure: CAPTURE_MCP_SERVER,
-    catalogue: platformCatalogue(),
-    groups: BUILT_IN_GROUPS,
-    executor,
-    identity: { runId: 'mcp-capture-s1', depth: 0, agentId: 'mcp-capture', loopId: 'capture-mcp-server', loopVersion: '1', trigger: 'user' },
-    launch: { ownerId: 'u1' },
-    inputs: { serverId: server.id },
-    bus: { emit: () => undefined, subscribe: () => () => undefined } as never,
-  });
+  const run = () => runOnHost({ procedure: CAPTURE_MCP_SERVER, operations, runId: 'mcp-capture-s1', agentId: 'mcp-capture', ownerId: 'u1', inputs: { serverId: server.id } });
   return { run, records, opened, commands, released };
 }
 

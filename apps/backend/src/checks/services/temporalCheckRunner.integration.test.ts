@@ -6,10 +6,9 @@ import { Context } from '@temporalio/activity';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { passed, scenario } from '../testing/check-scenarios.js';
 import type { CheckProgressArgs, CheckRunActivities } from '../../activities/CheckRunActivities.js';
 import type { AccountRemovalActivities } from '../../activities/RemoveAccountActivities.js';
-import type { Scenario } from '../../eval/level2/scenario.js';
-import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { CheckRunInput } from '../../workflows/CheckRunWorkflow.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
@@ -27,8 +26,6 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const scenario = (id: string): Scenario => ({ id, name: id, describe: id, agent: 'research', procedure: { id: 'research' }, input: { message: 'go' }, expect: { outcome: 'ok' } });
-const passed = (id: string): ScenarioResult => ({ scenarioId: id, name: id, runId: `run-${id}`, procedure: { id: 'research', version: '1' }, passed: true, outcome: 'ok', answer: '', checks: [], calls: [], counters: { rounds: 1, toolCalls: 0, totalTokens: 1 }, tasks: [], durationMs: 1 });
 const input = (id: string): CheckRunInput => ({ checkRunId: id, person: 'bo', scenarios: [scenario('a')], tools: [] });
 
 async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity'], body: (taskQueue: string) => Promise<void>): Promise<void> {

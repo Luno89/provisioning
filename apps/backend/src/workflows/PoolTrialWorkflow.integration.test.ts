@@ -1,49 +1,40 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { describe, it, expect } from 'vitest';
+import type { Worker } from '@temporalio/worker';
+import { clockSkippingEnvironment } from './testing/temporal-test-env.js';
+import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { failureReason } from '../platform/lib/temporal-failure.js';
 import { afterStep, DAY_MS, extendedTrial, nextTrialStep, type TrialState, type TrialStep } from '../instances/lib/pool-trial.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const temporal = environmentForFile(clockSkippingEnvironment);
 
-let env: TestWorkflowEnvironment;
+interface TrialActivities {
+  PoolTrialNextActivity: (args: { instanceId: string; now: number }) => Promise<unknown>;
+  PoolTrialStepActivity: (args: { instanceId: string; step: TrialStep; now: number }) => Promise<void>;
+}
 
-beforeAll(async () => {
-  env = await clockSkippingEnvironment();
-});
+const trialWorker = async (activities: TrialActivities): Promise<{ taskQueue: string; worker: Worker }> => {
+  const taskQueue = uniqueName('trial');
+  return { taskQueue, worker: await testWorker(temporal.env, { taskQueue, workflows: 'PoolTrialWorkflow.ts', activities }) };
+};
 
-afterAll(async () => {
-  await env?.teardown();
+const trialStart = (taskQueue: string) => ({ workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') });
+
+const followingRecords = (trial: { state: TrialState | null }, record: (step: TrialStep, now: number) => void): TrialActivities => ({
+  PoolTrialNextActivity: async ({ now }) => (trial.state ? nextTrialStep(trial.state, now) : null),
+  PoolTrialStepActivity: async ({ step, now }) => {
+    record(step, now);
+    trial.state = step === 'delete' ? null : afterStep(trial.state!, step, now);
+  },
 });
 
 describe('a pool instance\'s trial', () => {
   it('warns, stops it at the end, warns once more and deletes it thirty days later, each at its time', async () => {
-    const start = await env.currentTimeMs();
-    let state: TrialState | null = { trialEndsAt: new Date(start + 14 * DAY_MS).toISOString() };
+    const start = await temporal.env.currentTimeMs();
+    const trial: { state: TrialState | null } = { state: { trialEndsAt: new Date(start + 14 * DAY_MS).toISOString() } };
     const done: Array<{ step: TrialStep; day: number }> = [];
-    const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
-      activities: {
-        PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => (state ? nextTrialStep(state, now) : null),
-        PoolTrialStepActivity: async ({ step, now }: { instanceId: string; step: TrialStep; now: number }) => {
-          done.push({ step, day: Math.round((now - start) / DAY_MS) });
-          state = step === 'delete' ? null : afterStep(state!, step, now);
-        },
-      },
-    });
-    await worker.runUntil(env.client.workflow.execute('PoolTrialWorkflow', {
-      workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1'),
-    }));
+    const { taskQueue, worker } = await trialWorker(followingRecords(trial, (step, now) => { done.push({ step, day: Math.round((now - start) / DAY_MS) }); }));
+    await worker.runUntil(temporal.env.client.workflow.execute('PoolTrialWorkflow', trialStart(taskQueue)));
     expect(done).toEqual([
       { step: 'warn-3d', day: 11 }, { step: 'warn-1d', day: 13 }, { step: 'pause', day: 14 },
       { step: 'last-warning', day: 41 }, { step: 'delete', day: 44 },
@@ -51,62 +42,40 @@ describe('a pool instance\'s trial', () => {
   });
 
   it('hears an extension while it waits, and starts a stopped instance again', async () => {
-    const start = await env.currentTimeMs();
-    let state: TrialState | null = { trialEndsAt: new Date(start + 2 * DAY_MS).toISOString() };
+    const start = await temporal.env.currentTimeMs();
+    const trial: { state: TrialState | null } = { state: { trialEndsAt: new Date(start + 2 * DAY_MS).toISOString() } };
     const done: TrialStep[] = [];
-    const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
-      activities: {
-        PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => (state ? nextTrialStep(state, now) : null),
-        PoolTrialStepActivity: async ({ step, now }: { instanceId: string; step: TrialStep; now: number }) => {
-          done.push(step);
-          state = step === 'delete' ? null : afterStep(state!, step, now);
-        },
-      },
-    });
+    const { taskQueue, worker } = await trialWorker(followingRecords(trial, (step) => { done.push(step); }));
     await worker.runUntil(async () => {
-      const handle = await env.client.workflow.start('PoolTrialWorkflow', {
-        workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1'),
-      });
-      await env.sleep(3 * DAY_MS);
+      const handle = await temporal.env.client.workflow.start('PoolTrialWorkflow', trialStart(taskQueue));
+      await temporal.env.sleep(3 * DAY_MS);
       expect(done).toEqual(['warn-3d', 'warn-1d', 'pause']);
-      const now = (await env.currentTimeMs());
-      state = extendedTrial(state!, new Date(now + 10 * DAY_MS).toISOString(), now);
+      const now = (await temporal.env.currentTimeMs());
+      trial.state = extendedTrial(trial.state!, new Date(now + 10 * DAY_MS).toISOString(), now);
       await handle.signal('trialChanged');
-      await env.sleep(60_000);
+      await temporal.env.sleep(60_000);
       expect(done).toEqual(['warn-3d', 'warn-1d', 'pause', 'resume']);
-      state = null;
+      trial.state = null;
       await handle.signal('trialChanged');
       await handle.result();
     });
   });
 
   it('holds every step while the instance moves, and ends once it has moved off Koala\'s servers', async () => {
-    const start = await env.currentTimeMs();
+    const start = await temporal.env.currentTimeMs();
     let moving = true;
     let moved = false;
     const done: TrialStep[] = [];
-    const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
-      activities: {
-        PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => {
-          if (moved) return null;
-          return moving ? { hold: true } : nextTrialStep({ trialEndsAt: new Date(start + DAY_MS).toISOString() }, now);
-        },
-        PoolTrialStepActivity: async ({ step }: { instanceId: string; step: TrialStep; now: number }) => { done.push(step); },
+    const { taskQueue, worker } = await trialWorker({
+      PoolTrialNextActivity: async ({ now }) => {
+        if (moved) return null;
+        return moving ? { hold: true } : nextTrialStep({ trialEndsAt: new Date(start + DAY_MS).toISOString() }, now);
       },
+      PoolTrialStepActivity: async ({ step }) => { done.push(step); },
     });
     await worker.runUntil(async () => {
-      const handle = await env.client.workflow.start('PoolTrialWorkflow', { workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') });
-      await env.sleep(5 * DAY_MS);
+      const handle = await temporal.env.client.workflow.start('PoolTrialWorkflow', trialStart(taskQueue));
+      await temporal.env.sleep(5 * DAY_MS);
       expect(done).toEqual([]);
       moved = true;
       moving = false;
@@ -117,15 +86,8 @@ describe('a pool instance\'s trial', () => {
   });
 
   const trialWith = async (next: () => Promise<null>): Promise<string> => {
-    const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
-      activities: { PoolTrialNextActivity: next, PoolTrialStepActivity: async () => {} },
-    });
-    return worker.runUntil(env.client.workflow.execute('PoolTrialWorkflow', { workflowId: `pool-trial-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1') })
+    const { taskQueue, worker } = await trialWorker({ PoolTrialNextActivity: next, PoolTrialStepActivity: async () => {} });
+    return worker.runUntil(temporal.env.client.workflow.execute('PoolTrialWorkflow', trialStart(taskQueue))
       .then(() => 'ended', (error: unknown) => `failed: ${failureReason('FAILED', error)}`));
   };
 

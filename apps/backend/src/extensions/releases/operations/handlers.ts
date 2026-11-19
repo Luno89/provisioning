@@ -4,6 +4,7 @@ import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import { idleOf, splitImage, type OdooRelease, type ReleaseState, type Slot, type SlotState } from '../../../releases/lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type ReplaceRunInput, type RollBackRunInput } from '../../../releases/lib/release-run.js';
 import type { ReleaseE2E } from '../../../releases/index.js';
+import { innermostMessage } from '../../../platform/index.js';
 import type { HostOperationRun } from '../../types.js';
 import { adapterOf, type SlotAdapter, type SlotAdapters, type SlotBuild } from '../adapter.js';
 import type { SlotCluster } from '../slot-cluster.js';
@@ -43,13 +44,7 @@ interface OpenRelease extends ReleaseRunInput {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const reasonOf = (err: unknown): string => {
-  let reason = 'the release failed';
-  for (let at = err as { message?: string; cause?: unknown } | undefined; at; at = at.cause as typeof at) {
-    if (typeof at.message === 'string' && at.message) reason = at.message;
-  }
-  return reason;
-};
+const reasonOf = (err: unknown): string => innermostMessage(err, 'the release failed');
 
 function runInput(request: NodeRequest): ReleaseRunInput {
   const input = request.run.inputs as Partial<ReleaseRunInput>;

@@ -21,6 +21,9 @@ async function bodyOf(req: Request, limit: number): Promise<Buffer | undefined> 
   return Buffer.concat(chunks);
 }
 
+const heard = (res: Response, outcome: { ok: true } | { ok: false; status: number; error: string }): Response =>
+  (outcome.ok ? res.status(204).end() : res.status(outcome.status).type('text/plain').send(outcome.error));
+
 export interface AgentBundle {
   path(): Promise<string>;
   sha256(): Promise<string>;
@@ -64,16 +67,12 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' |
 
   router.post('/join-progress', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.accounts) return res.status(404).type('text/plain').send('machines report their join to root, which holds accounts');
-    const outcome = await deps.accounts.reportJoinProgress(bearer(req.headers.authorization), req.body);
-    if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
-    res.status(204).end();
+    return heard(res, await deps.accounts.reportJoinProgress(bearer(req.headers.authorization), req.body));
   }));
 
   router.post(KOALA_INSTALL_ROUTE, asyncRoute(async (req: Request, res: Response) => {
     if (!deps.installs) return res.status(404).type('text/plain').send('machines report putting Koala on themselves to root, which asked them');
-    const outcome = await deps.installs.report(String(req.params.installId ?? ''), bearer(req.headers.authorization), req.body);
-    if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
-    res.status(204).end();
+    return heard(res, await deps.installs.report(String(req.params.installId ?? ''), bearer(req.headers.authorization), req.body));
   }));
 
   router.get(KOALA_INSTALL_FOLLOW_ROUTE, asyncRoute(async (req: Request, res: Response) => {

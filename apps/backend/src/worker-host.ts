@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import dotenv from 'dotenv';
-import { ignore } from '@koala/engine-core/failures';
-import { Worker, Runtime } from '@temporalio/worker';
+import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 
 import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
@@ -12,16 +10,17 @@ import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js
 import { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
-import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
+import { sharedClusterProxy } from './infrastructure/index.js';
 import { collectorEndpoint, collectorSink } from './monitoring/index.js';
 import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
-import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
+import { holdFencesIn } from './platform/wiring/fences.js';
+import { runAsProgram } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -92,31 +91,10 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   return { worker: worker!, telemetry, fences };
 }
 
-async function main() {
-  dotenv.config({ quiet: true });
-  const settings = hostWorkerSettingsFrom(process.env);
-  Runtime.install({
-    logger,
-    telemetryOptions: {
-      metrics: {
-        prometheus: {
-          bindAddress: `${settings.listenHost}:${settings.temporalMetricsPort}`,
-        },
-      },
-    },
-  });
-  const { worker, telemetry, fences } = await startHostWorker(settings);
-  logger.info(`[HostWorker] ✅ Listening for ${settings.role.role}'s work on the host queue`);
-  if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => worker.getState() === 'RUNNING');
-  await runThenLetGo(worker, fences);
-  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
-}
-
-const startedAsProgram = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
-
-if (startedAsProgram) main().then(() => {
-  process.exit(0);
-}, (err: Error) => {
-  logger.error(err instanceof SettingsError ? `[HostWorker] ${err.message}` : `[HostWorker] FATAL: ${err.stack || err.message}`);
-  process.exit(1);
+runAsProgram(import.meta.url, {
+  tag: '[HostWorker]',
+  logger,
+  settingsFrom: hostWorkerSettingsFrom,
+  start: startHostWorker,
+  listening: (settings) => `Listening for ${settings.role.role}'s work on the host queue`,
 });

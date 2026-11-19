@@ -1,58 +1,23 @@
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Client } from '@temporalio/client';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
-import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import type { Worker } from '@temporalio/worker';
+import { currentTraceId, withSpan } from '@koala/engine-core/telemetry';
+import { tracedClient, tracedTemporal, tracedWorker } from './testing/traced-temporal.js';
 import type { TraceProbeActivities } from './testing/trace-probe-workflow.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-interface SentSpan { name: string; traceId: string; spanId: string; parentSpanId?: string }
-
-let env: TestWorkflowEnvironment;
-let telemetry: Telemetry;
-const spans: SentSpan[] = [];
-
-const sink: TelemetrySink = {
-  async send(signal: TelemetrySignal, body: Uint8Array) {
-    if (signal !== 'traces') return;
-    const parsed = JSON.parse(Buffer.from(body).toString('utf8')) as { resourceSpans: { scopeSpans: { spans: SentSpan[] }[] }[] };
-    for (const resource of parsed.resourceSpans) for (const scope of resource.scopeSpans) spans.push(...scope.spans);
-  },
-};
-
-beforeAll(async () => {
-  telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
-  env = await temporalTestEnvironment();
-});
-
-afterAll(async () => {
-  await env?.teardown();
-  await telemetry?.shutdown();
-});
+const traced = tracedTemporal();
 
 const probeWorker = async (taskQueue: string, seen: Map<string, string | undefined>): Promise<Worker> => {
   const activities: TraceProbeActivities = {
     Probe: async (label) => { seen.set(label, currentTraceId()); },
   };
-  return Worker.create({
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
-    taskQueue,
-    workflowBundle: await bundled(resolve(__dirname, 'testing/trace-probe-workflow.ts'), [resolve(__dirname, 'telemetry-interceptors.ts')]),
-    interceptors: { activity: [traceActivities()] },
-    activities,
-  });
+  return tracedWorker(traced.env, taskQueue, 'testing/trace-probe-workflow.ts', activities);
 };
 
 describe('the trace a workflow was started under follows its activities and children, in a real workflow', () => {
   it('reaches an activity, a local activity, a child workflow and the run continue-as-new starts', async () => {
     const taskQueue = `trace-probe-${Math.random().toString(36).slice(2, 8)}`;
-    const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [traceWorkflowStarts()] } });
+    const client = tracedClient(traced.env);
     const seen = new Map<string, string | undefined>();
     const worker = await probeWorker(taskQueue, seen);
 
@@ -77,7 +42,7 @@ describe('the trace a workflow was started under follows its activities and chil
 
   it('gives an activity of a workflow started outside any trace a trace of its own, not the last workflow\'s', async () => {
     const taskQueue = `trace-probe-${Math.random().toString(36).slice(2, 8)}`;
-    const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default' });
+    const client = new Client({ connection: traced.env.connection, namespace: traced.env.namespace ?? 'default' });
     const seen = new Map<string, string | undefined>();
     const worker = await probeWorker(taskQueue, seen);
 

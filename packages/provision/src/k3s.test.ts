@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
+import { expectReadyOnlySinceStart } from '../testing/ready-since.js';
 import { k3sAnswers, k3sStep, readySince } from './k3s.js';
 import type { Provider } from './service.js';
 import { runSteps, StepFailed } from './steps.js';
@@ -29,10 +30,7 @@ describe('k3s, ready', () => {
   });
 
   it('judges readiness only from a transition since the start', () => {
-    expect(readySince(`True ${at(START + 1)}`, START)).toBe(true);
-    expect(readySince(`True ${at(START - 1)}`, START)).toBe(false);
-    expect(readySince(`False ${at(START + 1)}`, START)).toBe(false);
-    expect(readySince('', START)).toBe(false);
+    expectReadyOnlySinceStart(readySince);
   });
 
   it('is waited on until its provider says it ended for good, and then fails with why', async () => {
