@@ -1,12 +1,13 @@
-import { exec as execCallback } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 
 import { clampDualBoundary, DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
-import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { execForModel } from '@koala/engine-core/model-exec';
+import { nodeStreams } from '@koala/engine-core/node-processes';
+import type { Streams } from '@koala/engine-core/processes';
 
-const execAsync = promisify(execCallback);
+const NO_EXIT = -1;
 
 export const MAX_OUTPUT_CHARS = DEFAULT_COMPACTION_CONFIG.maxOutputChars;
 
@@ -22,6 +23,7 @@ export interface RunCommandOptions {
   subPath?: string | undefined;
   maxOutputChars?: number | undefined;
   headRatio?: number | undefined;
+  streams?: Streams | undefined;
 }
 
 export function resolveInRoot(rootDir: string, relativePath: string): string {
@@ -49,30 +51,24 @@ export async function runCommand(
   const maxOutputChars = options.maxOutputChars ?? MAX_OUTPUT_CHARS;
   const headRatio = options.headRatio ?? DEFAULT_COMPACTION_CONFIG.outputHeadRatio;
   const targetSubPath = options.subPath ?? subPath;
+  const clamped = (text: string): string => clampDualBoundary(text, { maxChars: maxOutputChars, headRatio });
 
+  let cwd: string;
   try {
-    const cwd = targetSubPath ? resolveInRoot(rootDir, targetSubPath) : rootDir;
-    const { stdout, stderr } = await execAsync(command, {
-      cwd,
-      env: childEnv(passedOn(PERSON_SESSION)),
-      timeout: timeoutMs,
-      maxBuffer: Math.max(1024 * 1024, maxOutputChars * 4),
-    });
-    return {
-      stdout: clampDualBoundary(stdout, { maxChars: maxOutputChars, headRatio }),
-      stderr: clampDualBoundary(stderr, { maxChars: maxOutputChars, headRatio }),
-      exitCode: 0,
-      timedOut: false,
-    };
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; message?: string; code?: number; killed?: boolean; signal?: string };
-    return {
-      stdout: clampDualBoundary((e.stdout ?? '').toString(), { maxChars: maxOutputChars, headRatio }),
-      stderr: clampDualBoundary((e.stderr ?? e.message ?? '').toString(), { maxChars: maxOutputChars, headRatio }),
-      exitCode: typeof e.code === 'number' ? e.code : -1,
-      timedOut: e.killed === true && e.signal === 'SIGTERM',
-    };
+    cwd = targetSubPath ? resolveInRoot(rootDir, targetSubPath) : rootDir;
+  } catch (err) {
+    return { stdout: '', stderr: clamped((err as Error).message), exitCode: NO_EXIT, timedOut: false };
   }
+  const ran = await execForModel(
+    { streams: options.streams ?? nodeStreams, shell: ['/bin/sh', '-c'], cwd, env: passedOn(PERSON_SESSION) },
+    { command, ...(timeoutMs > 0 ? { timeoutMs } : {}) },
+  );
+  return {
+    stdout: clamped(ran.stdout),
+    stderr: clamped(ran.stderr),
+    exitCode: ran.stopped ? NO_EXIT : ran.exitCode,
+    timedOut: ran.stopped === 'timeout',
+  };
 }
 
 export async function readLocalFile(rootDir: string, relativePath: string): Promise<{ content: string } | { error: string }> {

@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process';
-import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
+import { ProcessFailed, succeeded, type Processes } from '@koala/engine-core/processes';
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { allReporters, k3sStep, runSteps, type Provider, type ServiceContext } from '@koala/provision';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
@@ -39,8 +39,6 @@ export function koalaHeldOf(text: string): KoalaHeld | undefined {
 
 export const koalaEverRan = (held: KoalaHeld): boolean => held.installId === undefined || held.readyAt !== undefined;
 
-const execute = promisify(execFile);
-
 export const wantedFile = (env: NodeJS.ProcessEnv = process.env): string => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'cluster-wanted');
 
 export const koalaHereFile = (env: NodeJS.ProcessEnv = process.env): string => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'koala-here');
@@ -49,11 +47,11 @@ const present = (file: string) => access(file).then(() => true, (err: NodeJS.Err
 
 export const onMachine = (machineRoot: string) => (file: string): string => (machineRoot === '/' || !path.isAbsolute(file) ? file : path.join(machineRoot, file));
 
-export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), machineRoot = '/' }: { wantedAt?: string; koalaHere?: string; machineRoot?: string } = {}): ClusterHost => {
+export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), machineRoot = '/', processes = nodeProcesses }: { wantedAt?: string; koalaHere?: string; machineRoot?: string; processes?: Processes } = {}): ClusterHost => {
   const at = onMachine(machineRoot);
   return {
   platform: process.platform,
-  run: async (file, args) => (await execute(at(file), args.map(at), { env: childEnv(passedOn(PERSON_SESSION)), maxBuffer: 16 * 1024 * 1024 })).stdout,
+  run: (file, args) => succeeded(processes, { command: at(file), args: args.map(at), env: passedOn(PERSON_SESSION) }),
   exists: (file) => access(at(file)).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
   read: (file) => readFile(at(file), 'utf8'),
   list: (dir) => readdir(at(dir)),
@@ -89,7 +87,7 @@ export const kubeconfigOnMesh = (kubeconfig: string, meshIp: string): string =>
 async function unitFailed(host: ClusterHost): Promise<string | undefined> {
   const state = (await host.run('systemctl', ['show', 'k3s', '--property=ActiveState', '--value'])).trim();
   if (state !== 'failed') return undefined;
-  return (await host.run('systemctl', ['status', 'k3s', '--no-pager', '--lines=30']).catch((err: Error & { stdout?: string }) => err.stdout ?? err.message)).trim();
+  return (await host.run('systemctl', ['status', 'k3s', '--no-pager', '--lines=30']).catch((err: Error) => (err instanceof ProcessFailed ? err.result.stdout : err.message))).trim();
 }
 
 function machineK3s(host: ClusterHost): Provider<ServiceContext> {

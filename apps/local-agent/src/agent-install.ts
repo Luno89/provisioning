@@ -1,14 +1,12 @@
-import { execFile } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { chmod, mkdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
-import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
+import { ProcessFailed, ProcessNotStarted, type Processes } from '@koala/engine-core/processes';
 import { expandHome, type AgentInstall } from './agent-discovery.js';
-
-const run = promisify(execFile);
 
 export const ACP_REGISTRY = 'https://raw.githubusercontent.com/agentclientprotocol/registry/main';
 
@@ -48,19 +46,24 @@ export const registryTarget = (platform: string, arch: string): string | undefin
 
 const tail = (text: string) => text.trim().split('\n').slice(-20).join('\n');
 
-export const systemInstallDeps = (): InstallDeps => ({
+export const systemInstallDeps = (processes: Processes = nodeProcesses): InstallDeps => ({
   fetch: globalThis.fetch,
   platform: process.platform,
   arch: process.arch,
   nodeVersion: process.version,
   unzip: async (archive, into) => {
-    await run('unzip', ['-o', '-q', archive, '-d', into], { env: childEnv() }).catch((err: NodeJS.ErrnoException) => {
-      throw new Error(err.code === 'ENOENT' ? 'unzip is not installed on this machine' : err.message);
+    const run = { command: 'unzip', args: ['-o', '-q', archive, '-d', into] };
+    const result = await processes.run(run).catch((err: unknown) => {
+      if (err instanceof ProcessNotStarted && err.code === 'ENOENT') throw new Error('unzip is not installed on this machine');
+      throw err;
     });
+    if (result.code !== 0) throw new ProcessFailed(run, result);
   },
   npm: async (pkg) => {
-    const { stdout, stderr } = await run('npm', ['install', '--global', '--engine-strict', pkg], { env: childEnv(passedOn(PERSON_SESSION)), maxBuffer: 16 * 1024 * 1024 });
-    return `${stdout}${stderr}`;
+    const run = { command: 'npm', args: ['install', '--global', '--engine-strict', pkg], env: passedOn(PERSON_SESSION) };
+    const result = await processes.run(run);
+    if (result.code !== 0) throw new ProcessFailed(run, result);
+    return `${result.stdout}${result.stderr}`;
   },
 });
 
@@ -99,12 +102,13 @@ async function npmFrom(entry: RegistryEntry, pkg: string, id: string, deps: Inst
     const said = tail(await deps.npm(pkg));
     return { ok: true, output: `Installed ${pkg}${said ? `\n${said}` : ''}` };
   } catch (err) {
-    const failed = err as Error & { stdout?: string; stderr?: string };
-    const said = tail(`${failed.stdout ?? ''}${failed.stderr ?? ''}`);
-    const engine = /EBADENGINE|Unsupported engine/.test(`${failed.message}${said}`)
+    const failed = err as Error;
+    const said = err instanceof ProcessFailed ? tail(`${err.result.stdout}${err.result.stderr}`) : '';
+    const what = err instanceof ProcessFailed ? `${err.run.command} ${err.run.args.join(' ')} exited ${err.result.code}` : failed.message;
+    const engine = /EBADENGINE|Unsupported engine/.test(`${what}${said}`)
       ? `${titleOf(entry, id)} needs a newer Node.js than this machine's ${deps.nodeVersion}\n`
       : '';
-    return { ok: false, output: `${engine}${failed.message}\n${said}`.trim() };
+    return { ok: false, output: `${engine}${what}\n${said}`.trim() };
   }
 }
 
