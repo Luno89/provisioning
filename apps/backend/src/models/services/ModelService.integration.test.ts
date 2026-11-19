@@ -1,8 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, it, expect, inject, vi } from 'vitest';
 import { ModelService } from './ModelService.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import type { ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
+import { encryptValue, nodeProcesses, nodeStreams } from '../../platform/index.js';
+import { ClusterAccess, sharedClusterProxy } from '../../infrastructure/index.js';
+import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 /**
  * An account that registers a gateway gets one endpoint row PER MODEL — an OpenRouter key is
@@ -141,5 +148,52 @@ describe('an endpoint named by a host', () => {
     } finally {
       lookup.mockRestore();
     }
+  });
+});
+
+const k3s = inject('k3s');
+const namespaces = testNamespaces(k3s.admin);
+const QWEN = namespaces.name('qwen');
+
+afterAll(async () => { await namespaces.removeAll(); }, 0);
+
+const SERVED = `apiVersion: v1
+kind: Pod
+metadata: {name: server, namespace: ${QWEN}, labels: {app: qwen}}
+spec:
+  containers:
+  - name: server
+    image: busybox:1.37
+    command: [sh, -c, "mkdir -p /w/v1 && echo served-by-qwen > /w/v1/models && httpd -f -p 8000 -h /w"]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: ${QWEN}-vllm, namespace: ${QWEN}}
+spec:
+  selector: {app: qwen}
+  ports: [{port: 8000, targetPort: 8000}]
+`;
+
+describe('a model deployed as an app on the person\'s machine', () => {
+  it('is reached at its service on that machine\'s cluster, so a run talks to the model the person deployed', async () => {
+    const KEY = 'model-reach-key' as never;
+    const db = await testDatabase();
+    const cluster = { id: 'machine-gpu', name: 'gpu', provider: 'machine', machineId: 'gpu', status: 'healthy', ownerId: 'u1', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
+    await db.infrastructure.saveCluster(cluster);
+    await db.accounts.saveUser({ id: 'u1', email: 'u@example.com', emailVerified: true, createdAt: new Date().toISOString() } as UserMetadata);
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-reach-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    await access.kubectl(cluster.id, ['create', 'namespace', QWEN]);
+    await access.apply(cluster.id, SERVED);
+    await access.kubectl(cluster.id, ['wait', '--for=condition=Ready', 'pod/server', '-n', QWEN, '--timeout=720h']);
+    const deployed = { id: 'vllm-1', name: 'Qwen', appType: 'vllm', status: 'running', clusterId: cluster.id, namespace: QWEN, vllmModel: 'Qwen/Qwen3', vllmToolCallingEnabled: true, vllmToolCallParser: 'hermes', ownerId: 'u1', strategy: 'native', createdAt: 't' } as DeploymentMetadata;
+    const proxy = sharedClusterProxy(access);
+    const models = new ModelService(db, { getAll: async () => [deployed] }, { getById: async () => cluster } as never, proxy, {} as never, { read: async () => undefined }, 'master-key');
+
+    const resolved = await models.resolveBaseUrl('u1', 'vllm-1');
+
+    expect(resolved).toMatchObject({ provider: { id: 'vllm-1' }, source: 'request' });
+    expect(resolved.baseUrl).toMatch(/\/v1$/);
+    expect(await (await fetch(`${resolved.baseUrl}/models`)).text()).toBe('served-by-qwen\n');
+    proxy.stopForCluster(cluster.id);
   });
 });
