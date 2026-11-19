@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Db } from 'mongodb';
 import { inject } from 'vitest';
 import { MongoDB, mongoTarget } from './mongo-db.js';
 import { loadKey } from './keys.js';
@@ -46,6 +47,11 @@ export function testPayloadBlobs(): { blobs: PayloadBlobs; stored: () => Promise
       return [...found.values()];
     },
   };
+}
+
+export async function freshDb(): Promise<Db> {
+  const made = reader(inject('mongoUri'), `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+  return (await held(made)).client.db(made.dbName);
 }
 
 export async function testDatabaseAt(): Promise<{ db: MongoDB; uri: string; dbName: string }> {

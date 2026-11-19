@@ -1,41 +1,21 @@
-import { generateKeyPairSync } from 'node:crypto';
 import { temporal } from '@temporalio/proto';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
-import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
-import { testDatabaseAt } from './platform/lib/test-database.js';
-import type { MongoDB } from './platform/lib/mongo-db.js';
+import { testIdentityKey } from './platform/testing/keys.js';
+import { workerWorld } from './platform/testing/worker-world.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
 import { runThenLetGo } from './platform/wiring/fences.js';
-import { leaseMongo } from './platform/lib/mongo-lease.js';
-import { MongoPlatformStore } from './platform/store.js';
-import { testDataDir } from './platform/testing/data-dir.js';
 import type { ToolCallArgs, ToolCallOutcome } from './engine-host/temporal/contracts.js';
 import { seedEngineTools } from './engine/index.js';
 import { anyOf } from './platform/lib/test-matchers.js';
 
-let env: TestWorkflowEnvironment;
-let mongoUri: string;
-let db: MongoDB;
-
-beforeAll(async () => {
-  env = await realTemporalEnvironment();
-  const { uri, dbName, db: opened } = await testDatabaseAt();
-  db = opened;
-  mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
-});
-afterAll(async () => { await env.teardown(); });
-
-const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
+const { env, rootKey, live, placed, db } = await workerWorld();
 const away = 'http://127.0.0.1:1';
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
-  NODE_ENV: 'development', ...testKeyEnv(`engine-${role}`), ROLE: role, MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
+  ...placed(`engine-${role}`, role),
   HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: '0', PUBLIC_URL: away, TERRAFORM_STATE: 'local',
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey() }
@@ -46,15 +26,6 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
       SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawl-token', CHECKS_API_URL: `${away}/api`,
     }),
 });
-
-const live = async () => {
-  const { client, release } = await leaseMongo(mongoUri);
-  try {
-    return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
-  } finally {
-    await release();
-  }
-};
 
 describe('the engine worker, started the way its entry starts it', () => {
   it('on an instance builds its activities, polls the engine queue with them and the shared interceptors, and stops when told', async () => {

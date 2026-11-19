@@ -13,14 +13,14 @@ import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFro
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { sharedClusterProxy } from './infrastructure/index.js';
-import { collectorEndpoint, collectorSink } from './monitoring/index.js';
-import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
+import { collectorSink } from './monitoring/index.js';
+import { checkServices } from './platform/wiring/dependencies.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
-import { runAsProgram } from './worker-program.js';
+import { runAsProgram, watchedWorker } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -49,10 +49,8 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   const access = hostClusterAccess(settings);
   const telemetryProxy = sharedClusterProxy(access);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = await workerDependencies(settings, settings.mongo);
-  reportCollectorTo(telemetry, dependencies);
+  const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
   checkServices(dependencies, { webTools: settings.webTools });
-  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);

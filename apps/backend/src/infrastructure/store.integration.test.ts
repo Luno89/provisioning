@@ -1,10 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import type { Db, MongoClient } from 'mongodb';
-import { leaseMongo } from '../platform/lib/mongo-lease.js';
-import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
+import type { Db } from 'mongodb';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
 import { loadKey } from '../platform/lib/keys.js';
-import { emptiedEachTime } from '../platform/lib/test-database.js';
+import { emptiedEachTime, freshDb } from '../platform/lib/test-database.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { MongoInfrastructureStore } from './store.js';
 import { infrastructureStoreContract } from './testing/store-contract.js';
@@ -20,20 +18,12 @@ const deployment = (id: string, extra: Partial<DeploymentMetadata> = {}): Deploy
 });
 
 describe('the deployments store keeps secrets sealed at rest', () => {
-  let client: MongoClient;
-  let release: () => Promise<void>;
   let db: Db;
   let store: MongoInfrastructureStore;
 
   beforeAll(async () => {
-    ({ client, release } = await leaseMongo(inject('mongoUri')));
-    db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    db = await freshDb();
     store = new MongoInfrastructureStore(() => db, key);
-  });
-
-  afterAll(async () => {
-    await db.dropDatabase();
-    await release();
   });
 
   const raw = async (id: string) => db.collection('deployments').findOne({ _id: id as never });

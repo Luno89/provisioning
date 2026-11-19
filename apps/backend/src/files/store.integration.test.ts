@@ -1,12 +1,10 @@
-import { randomUUID } from 'node:crypto';
-import type { Db, MongoClient } from 'mongodb';
-import { leaseMongo } from '../platform/lib/mongo-lease.js';
-import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
+import type { Db } from 'mongodb';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
 import { loadKey } from '../platform/lib/keys.js';
 import { shareTokenHash, type FileShare } from './lib/file-shares.js';
 import { MongoFilesStore } from './store.js';
-import { emptiedEachTime } from '../platform/lib/test-database.js';
+import { emptiedEachTime, freshDb } from '../platform/lib/test-database.js';
 import { filesStoreContract } from './testing/store-contract.js';
 
 const fresh = await emptiedEachTime();
@@ -21,21 +19,13 @@ const share = (id: string, token: string, extra: Partial<FileShare> = {}): FileS
 });
 
 describe('the files store keeps a share link\'s token only as its hash and sealed', () => {
-  let client: MongoClient;
-  let release: () => Promise<void>;
   let db: Db;
   let store: MongoFilesStore;
 
   beforeAll(async () => {
-    ({ client, release } = await leaseMongo(inject('mongoUri')));
-    db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    db = await freshDb();
     store = new MongoFilesStore(() => db, key);
     await store.ensureIndexes();
-  });
-
-  afterAll(async () => {
-    await db.dropDatabase();
-    await release();
   });
 
   it('finds a link by its token, while the database holds no token in the clear', async () => {
@@ -65,8 +55,6 @@ describe('the files store keeps a share link\'s token only as its hash and seale
 });
 
 describe('the records of stored files on a real Mongo replica set', () => {
-  let client: MongoClient;
-  let release: () => Promise<void>;
   let db: Db;
   let store: MongoFilesStore;
   const AT = '2026-11-07T10:00:00.000Z';
@@ -74,15 +62,9 @@ describe('the records of stored files on a real Mongo replica set', () => {
   const upload = (id: string, path: string) => ({ id, objectId: id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file' as const, size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading' as const, touchedAt: AT });
 
   beforeAll(async () => {
-    ({ client, release } = await leaseMongo(inject('mongoUri')));
-    db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    db = await freshDb();
     store = new MongoFilesStore(() => db, key);
     await store.ensureIndexes();
-  });
-
-  afterAll(async () => {
-    await db.dropDatabase();
-    await release();
   });
 
   it('lets only one of two uploads racing to the same new path in, when neither may replace', async () => {
@@ -115,28 +97,22 @@ describe('the records of stored files on a real Mongo replica set', () => {
 
 describe('the artifacts Koala kept in Mongo before, read once for the Archive', () => {
   it('hands each back whole with its owner and run, its pieces in order, then forgets them all', async () => {
-    const { client, release } = await leaseMongo(inject('mongoUri'));
-    const db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    const db = await freshDb();
     const store = new MongoFilesStore(() => db, key);
-    try {
-      await db.collection('artifacts').insertMany([
-        { _id: 'a1' as never, ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png' },
-        { _id: 'a2' as never, runId: 'run-2', name: 'orphan.txt' },
-      ]);
-      await db.collection('artifactChunks').insertMany([
-        { _id: 'a1:1' as never, artifactId: 'a1', n: 1, data: Buffer.from('world') },
-        { _id: 'a1:0' as never, artifactId: 'a1', n: 0, data: Buffer.from('hello ') },
-      ]);
-      const read = [];
-      for await (const artifact of store.oldArtifacts()) read.push({ ...artifact, bytes: artifact.bytes.toString() });
-      expect(read).toEqual([{ ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png', bytes: 'hello world' }]);
-      expect(await store.forgetOldArtifacts()).toBe(2);
-      expect(await db.collection('artifacts').countDocuments()).toBe(0);
-      expect(await db.collection('artifactChunks').countDocuments()).toBe(0);
-      expect(await store.forgetOldArtifacts()).toBe(0);
-    } finally {
-      await db.dropDatabase();
-      await release();
-    }
+    await db.collection('artifacts').insertMany([
+      { _id: 'a1' as never, ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png' },
+      { _id: 'a2' as never, runId: 'run-2', name: 'orphan.txt' },
+    ]);
+    await db.collection('artifactChunks').insertMany([
+      { _id: 'a1:1' as never, artifactId: 'a1', n: 1, data: Buffer.from('world') },
+      { _id: 'a1:0' as never, artifactId: 'a1', n: 0, data: Buffer.from('hello ') },
+    ]);
+    const read = [];
+    for await (const artifact of store.oldArtifacts()) read.push({ ...artifact, bytes: artifact.bytes.toString() });
+    expect(read).toEqual([{ ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png', bytes: 'hello world' }]);
+    expect(await store.forgetOldArtifacts()).toBe(2);
+    expect(await db.collection('artifacts').countDocuments()).toBe(0);
+    expect(await db.collection('artifactChunks').countDocuments()).toBe(0);
+    expect(await store.forgetOldArtifacts()).toBe(0);
   });
 });

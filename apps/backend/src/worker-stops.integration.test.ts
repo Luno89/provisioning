@@ -1,26 +1,11 @@
-import { generateKeyPairSync } from 'node:crypto';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { leaseMongo } from './platform/lib/mongo-lease.js';
-import { testDatabaseAt } from './platform/lib/test-database.js';
-import { MongoPlatformStore } from './platform/store.js';
+import { workerWorld } from './platform/testing/worker-world.js';
 import { startRole } from './platform/testing/roles-on-loopback.js';
 import { testKeyEnv } from './platform/testing/keys.js';
-import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 
-let env: TestWorkflowEnvironment;
-let mongoUri: string;
-
-beforeAll(async () => {
-  env = await realTemporalEnvironment();
-  const { uri, dbName } = await testDatabaseAt();
-  mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
-});
-afterAll(async () => { await env.teardown(); });
-
-const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
+const { env, mongoUri, rootKey, live } = await workerWorld();
 const away = 'http://127.0.0.1:1';
 
 const instance = async (): Promise<Record<string, string>> => ({
@@ -33,23 +18,16 @@ const instance = async (): Promise<Record<string, string>> => ({
   SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawlToken40', CHECKS_API_URL: `${away}/api`, POD_NAMESPACE: 'nowrinkles',
 });
 
-const live = async (): Promise<string[]> => {
-  const { client, release } = await leaseMongo(mongoUri);
-  try {
-    return (await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString())).map((process) => process.name);
-  } finally {
-    await release();
-  }
-};
+const liveNames = async (): Promise<string[]> => (await live()).map((process) => process.name);
 
 describe('each worker, started as its own program and stopped as a pod is', () => {
   for (const [name, entry] of [['worker-host', 'src/worker-host.ts'], ['worker-cluster', 'src/worker-cluster.ts'], ['worker-engine', 'src/worker-engine.ts']] as const) {
     it(`${name} is live while it runs and no longer live once it has stopped cleanly`, async () => {
       const worker = await startRole(name, await instance(), undefined, { entry });
       try {
-        expect(await live()).toContain(name);
+        expect(await liveNames()).toContain(name);
         await worker.stop();
-        expect(await live(), worker.logs()).not.toContain(name);
+        expect(await liveNames(), worker.logs()).not.toContain(name);
       } finally {
         await worker.close();
       }

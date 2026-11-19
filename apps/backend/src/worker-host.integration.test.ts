@@ -1,46 +1,20 @@
-import { generateKeyPairSync } from 'node:crypto';
 import { temporal } from '@temporalio/proto';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/index.js';
-import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
-import { testDatabaseAt } from './platform/lib/test-database.js';
-import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
+import { testIdentityKey } from './platform/testing/keys.js';
+import { workerWorld } from './platform/testing/worker-world.js';
 import { startHostWorker } from './worker-host.js';
 import { runThenLetGo } from './platform/wiring/fences.js';
-import { leaseMongo } from './platform/lib/mongo-lease.js';
-import { MongoPlatformStore } from './platform/store.js';
-import { testDataDir } from './platform/testing/data-dir.js';
 
-let env: TestWorkflowEnvironment;
-let mongoUri: string;
-
-beforeAll(async () => {
-  env = await realTemporalEnvironment();
-  const { uri, dbName } = await testDatabaseAt();
-  mongoUri = `${uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`)}`;
-});
-afterAll(async () => { await env.teardown(); });
-
-const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
+const { env, rootKey, live, placed } = await workerWorld();
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
-  NODE_ENV: 'development', ...testKeyEnv(`host-${role}`), ROLE: role, MONGO_URI: mongoUri,
-  TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
+  ...placed(`host-${role}`, role),
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0',
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey(), PUBLIC_URL: 'http://127.0.0.1:1', INSTANCE_IMAGE_TAG: 'test' }
     : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token' }),
 });
-
-const live = async () => {
-  const { client, release } = await leaseMongo(mongoUri);
-  try {
-    return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
-  } finally {
-    await release();
-  }
-};
 
 const pollers = async () => (await env.client.workflowService.describeTaskQueue({
   namespace: env.namespace ?? 'default',

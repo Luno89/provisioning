@@ -7,6 +7,15 @@ import { pathToFileURL } from 'url';
 import { SettingsError } from './platform/index.js';
 import { serveHealth } from './infrastructure/index.js';
 import { runThenLetGo } from './platform/wiring/fences.js';
+import { collectorEndpoint } from './monitoring/index.js';
+import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
+
+export async function watchedWorker(settings: Parameters<typeof workerDependencies>[0], telemetry: Telemetry, collector: Parameters<typeof collectorEndpoint>[0]): ReturnType<typeof workerDependencies> {
+  const dependencies = await workerDependencies(settings, settings.mongo);
+  reportCollectorTo(telemetry, dependencies);
+  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint(collector)));
+  return dependencies;
+}
 
 interface ProgramSettings {
   listenHost: string;
