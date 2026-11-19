@@ -123,6 +123,9 @@ describe('the database stopping and starting again', () => {
     });
     const reader = mongoClientFor(uri.toString());
     const temporalRow = async () => (await new MongoPlatformStore(() => reader.db()).dependencyStates()).find((row) => row.process === 'worker-host' && row.dependency === 'temporal');
+    const outlasting = new URL(uri);
+    outlasting.searchParams.set('serverSelectionTimeoutMS', '1000');
+    const lateReader = mongoClientFor(outlasting.toString());
     const collector = createServer((_req, res) => { res.end(); });
     await new Promise<void>((listening) => collector.listen(0, '127.0.0.1', listening));
     const states = workerDependencies(settings, settings.mongo);
@@ -135,12 +138,14 @@ describe('the database stopping and starting again', () => {
       await until(async () => (states.stateOf('mongo').state === 'down' ? true : undefined));
       connectTemporalAs(settings);
       await until(async () => (states.stateOf('temporal').state === 'answering' ? true : undefined));
+      await expect(new MongoPlatformStore(() => lateReader.db()).dependencyStates()).rejects.toThrow();
 
       await server.start(true);
       expect(await until(async () => ((await temporalRow())?.state === 'answering' ? true : undefined))).toBe(true);
     } finally {
       states.stop();
       await reader.close();
+      await lateReader.close();
       await new Promise((closed) => collector.close(closed));
     }
   });
