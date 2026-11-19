@@ -5,6 +5,7 @@ export { allReporters } from './reporters.js';
 export { keptSudo, SUDO_REFRESH_MS, type Every, type KeptSudo, type KeptSudoOptions } from './kept-sudo.js';
 export { downloadChecked, type Download } from './download.js';
 export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-reporter.js';
+export { bytes, freeAt, roomStep, type RoomContext, type RoomOptions } from './room.js';
 export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
 export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
 export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
