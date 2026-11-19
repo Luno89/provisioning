@@ -2,9 +2,6 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { WorkflowFailedError } from '@temporalio/client';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
@@ -14,6 +11,8 @@ import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
 import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
@@ -21,7 +20,7 @@ const k3s = await startK3s();
 const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });
 const DESK: Reach = startedMachine('machine-desk', k3s.admin);
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let standIn: HuggingFaceStandIn;
 
 beforeAll(async () => {
@@ -35,10 +34,7 @@ afterAll(async () => {
   await k3s.stop();
 }, 0);
 
-const worker = async (taskQueue: string) => Worker.create({
-  ...WORKER_DEFAULTS,
-  interceptors: { activity: activityInterceptors() },
-  connection: env.nativeConnection,
+const worker = async (taskQueue: string) => testWorker(env, {
   namespace: env.namespace ?? 'default',
   taskQueue,
   workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/model-ready.fixture-workflow.ts')),

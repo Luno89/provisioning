@@ -1,9 +1,5 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Worker } from '@temporalio/worker';
 import { Context } from '@temporalio/activity';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { passed, scenario } from '../testing/check-scenarios.js';
@@ -13,10 +9,12 @@ import type { CheckRunInput } from '../../workflows/CheckRunWorkflow.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
 import { temporalCheckRunner } from './Level2Service.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
@@ -49,9 +47,8 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
     RemoveAccountRepositoriesActivity: async () => false,
     RemoveAccountRecordsActivity: async () => ({}),
   };
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  const worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(here, '../../workflows/index.ts')),
     activities: { ...check, ...removal, CheckProgressActivity: async (_args: CheckProgressArgs) => undefined },

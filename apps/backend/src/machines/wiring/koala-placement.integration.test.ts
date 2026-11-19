@@ -8,9 +8,7 @@ import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { KOALA_INSTALL_CHANGED, KOALA_INSTALL_PROGRESS, koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { machineProgressContract } from '@koala/engine-core/testing/machine-progress';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -38,12 +36,14 @@ import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { machineSides, temporalInstallWorkflows } from './sides.js';
 import { until } from '../testing/wiring-world.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fresh = await emptiedEachTime();
 const TOKEN = 'the-desk-token-0123456789-0123456789';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let worker: Worker;
 let running: Promise<void>;
 let taskQueue = '';
@@ -65,9 +65,8 @@ let current: () => MongoDB = () => { throw new Error('no database yet'); };
 beforeAll(async () => {
   env = await temporalTestEnvironment();
   taskQueue = `koala-install-${Math.random().toString(36).slice(2, 8)}`;
-  worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue,
+  worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default', taskQueue,
     workflowBundle: await bundled(resolve(__dirname, '../../workflows/KoalaInstallWorkflow.ts')),
     activities: koalaInstallActivities({ db: async () => ({ db: current(), close: async () => undefined }), now: () => new Date() }),
   });

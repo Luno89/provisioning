@@ -2,11 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { ApplicationFailure, Context } from '@temporalio/activity';
 import { WorkflowFailedError } from '@temporalio/client';
-import { activityInterceptors, WORKER_DEFAULTS, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
+import { type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { ProvisionPieceKey, ProvisionTarget } from '@koala/engine-core/koala-install';
 import type { ProvisionPieceRun } from '../activities/ProvisionPieceActivity.js';
 import { DEFAULT_STREAM_TASK_QUEUE, deviceQueue } from '../engine-host/temporal/contracts.js';
@@ -14,11 +12,13 @@ import { provisionPieceWorkflowId, type ProvisionPieceInput } from '../infrastru
 import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
 import { provisionPieceStart } from './provision-piece.js';
 import type { ProvisionPieceWorkflow } from './ProvisionPieceWorkflow.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLD = `provision-piece-${randomUUID().slice(0, 8)}`;
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
@@ -31,21 +31,19 @@ const piece = (key: ProvisionPieceKey, target: ProvisionTarget = KOALA, more: Pa
 
 async function running<T>(apply: (run: ProvisionPieceRun) => Promise<void>, drive: (taskQueue: string) => Promise<T>, machine?: { deviceId: string; seen: string[] }): Promise<T> {
   const taskQueue = `${WORLD}-${randomUUID().slice(0, 8)}`;
-  const connection = env.nativeConnection;
   const namespace = env.namespace ?? 'default';
-  const workers = [await Worker.create({
-    ...WORKER_DEFAULTS, connection, namespace, taskQueue,
-    interceptors: { activity: activityInterceptors() },
+  const workers = [await testWorker(env, {
+    namespace, taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'ProvisionPieceWorkflow.ts')),
     activities: { ProvisionPieceActivity: apply },
   })];
   if (machine) {
-    workers.push(await Worker.create({
-      ...WORKER_DEFAULTS, connection, namespace, taskQueue: deviceQueue(machine.deviceId),
+    workers.push(await testWorker(env, {
+      namespace, taskQueue: deviceQueue(machine.deviceId),
       activities: { MachineClusterActivity: async (op: MachineClusterOp): Promise<MachineClusterResult> => { machine.seen.push(`machine ${op.kind}`); return op.kind === 'start' ? { state: 'running', kubeconfig: 'apiVersion: v1 # desk-2', meshIp: '100.64.0.9' } : { state: 'stopped' }; } },
     }));
-    workers.push(await Worker.create({
-      ...WORKER_DEFAULTS, connection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+    workers.push(await testWorker(env, {
+      namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
         EngineMachineClusterStartedActivity: async () => { machine.seen.push('recorded started'); },
         EngineMachineClusterIdleActivity: async () => { machine.seen.push('asked idle'); return true; },

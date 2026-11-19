@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { ApplicationFailure } from '@temporalio/common';
 import { clockSkippingEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { environmentForFile, testWorker, uniqueName } from './testing/test-worker.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { POOL_SETUP_HEARD } from '../instances/lib/pool-trial.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const file = environmentForFile(temporalTestEnvironment);
 
 type Signal = (name: string, ...args: unknown[]) => Promise<void>;
 
-const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>, drive: (signal: Signal) => Promise<void> = async () => undefined, world: TestWorkflowEnvironment = file.env) => {
+const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>, drive: (signal: Signal) => Promise<void> = async () => undefined, world: TestTemporal = file.env) => {
   const taskQueue = uniqueName('pool');
   const worker = await testWorker(world, { taskQueue, workflows: 'index.ts', activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
   return worker.runUntil(async () => {
@@ -20,7 +20,7 @@ const run = async (activities: Record<string, (...args: never[]) => Promise<unkn
   });
 };
 
-const ownWorld = async <T>(use: (world: TestWorkflowEnvironment) => Promise<T>): Promise<T> => {
+const ownWorld = async <T>(use: (world: TestTemporal) => Promise<T>): Promise<T> => {
   const world = await clockSkippingEnvironment();
   try {
     return await use(world);

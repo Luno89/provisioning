@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TimeSkippingWorkflowClient } from '@temporalio/testing';
+import { timeSkippingClient } from '@koala/engine-core/testing/temporal';
 import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import { temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { environmentForFile, testWorker, uniqueName } from './testing/test-worker.js';
@@ -26,7 +26,7 @@ const run = async (signal: (handle: { signal: (name: string, ...args: unknown[])
       workflowId: poolMoveWorkflowId('inst-bo'), taskQueue, args: [{ instanceId: 'inst-bo' }], searchAttributes: { KoalaOwner: ['bo'] },
     });
     await signal({ signal: (name, ...args) => handle.signal(name, ...args) });
-    return new TimeSkippingWorkflowClient({ connection: env.connection, namespace: env.namespace ?? 'default' }).result(handle.workflowId).catch((error: unknown) => `failed: ${failureReason('FAILED', error)}`);
+    return timeSkippingClient(env).result(handle.workflowId).catch((error: unknown) => `failed: ${failureReason('FAILED', error)}`);
   });
   return { seen, result };
 };

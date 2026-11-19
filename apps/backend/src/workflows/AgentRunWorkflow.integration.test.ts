@@ -1,11 +1,7 @@
-import { activityInterceptors } from '@koala/engine-core';
 import { testKeys } from '../platform/testing/keys.js';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createCompactContextNode } from '../engine-host/nodes/model-nodes.js';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WorkflowClient, type WorkflowHandle, type WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
-import { Worker } from '@temporalio/worker';
+import type { WorkflowHandle, WorkflowHandleWithFirstExecutionRunId } from '@temporalio/client';
 import { dirname, resolve } from 'path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'url';
@@ -40,11 +36,11 @@ import { type RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import { temporal } from '@temporalio/proto';
-import type { DataConverter } from '@temporalio/common';
-import { buildDataConverter } from '../platform/lib/temporal-codec.js';
+import { replayHistory, type TemporalPayloads } from '@koala/engine-core/temporal';
+import { memoryBlobs, testClient } from '@koala/engine-core/testing/temporal';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestTemporal, type TestWorld } from './testing/temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
@@ -71,12 +67,14 @@ import {
   type ToolCallArgs,
   type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
+import { testWorker } from './testing/test-worker.js';
 
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
+const REPLAYED_HISTORY_KEY = 'the-key-agent-run-before-endings-heard-was-sealed-with';
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
@@ -234,30 +232,29 @@ async function runWorkflow(
   args: ProcedureRunInput,
   acts: Activities,
   drive?: (handle: WorkflowHandle) => Promise<void>,
-  dataConverter?: DataConverter,
-  deviceConverter?: DataConverter,
+  payloads?: TemporalPayloads,
+  devicePayloads?: TemporalPayloads,
   inWorld: TestWorld = world,
 ) {
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
-  const converted = dataConverter ? { dataConverter } : {};
-  const engineWorker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: inWorld.namespace,
+  const converted = payloads ? { payloads } : {};
+  const onDevice = devicePayloads ?? payloads;
+  const engineWorker = await testWorker(env, {
+    namespace: inWorld.namespace,
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')),
     activities: acts.engine,
     ...converted,
   });
-  const streamWorker = () => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: inWorld.namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
-  const deviceWorker = () => Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: inWorld.namespace,
+  const streamWorker = () => testWorker(env, { namespace: inWorld.namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: acts.stream, ...converted });
+  const deviceWorker = () => testWorker(env, {
+    namespace: inWorld.namespace,
     taskQueue: 'device-desk',
     activities: { EngineToolActivity: acts.engine.EngineToolActivity, ...acts.device },
-    ...(deviceConverter ? { dataConverter: deviceConverter } : converted),
+    ...(onDevice ? { payloads: onDevice } : {}),
   });
 
-  const client = drive || dataConverter ? new WorkflowClient({ connection: env.connection, namespace: inWorld.namespace, ...converted }) : inWorld.client.workflow;
+  const client = drive || payloads ? testClient(env, { namespace: inWorld.namespace, ...converted }).workflow : inWorld.client.workflow;
   const start = async () => {
     const handle = await client.start(AgentRunWorkflow, { args: [args], taskQueue, workflowId: args.ticket.runId });
     if (drive) await drive(handle);
@@ -605,7 +602,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
     expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
-    const child = await new WorkflowClient({ connection: env.connection, namespace: world.namespace }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
+    const child = await testClient(env, { namespace: world.namespace }).workflow.getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   });
 
@@ -706,7 +703,7 @@ describe('AgentRunWorkflow', () => {
   it('a run started before its ending was reported until heard goes on with today\'s code, reporting its ending the way it began', async () => {
     const history = JSON.parse(await readFile(resolve(__dirname, 'testing/agent-run-before-endings-heard.json'), 'utf8')) as { events: Array<{ activityTaskScheduledEventAttributes?: { activityType?: { name?: string } } }> };
     expect(history.events.filter((event) => event.activityTaskScheduledEventAttributes?.activityType?.name === 'EngineLifecycleActivity')).toHaveLength(2);
-    await expect(Worker.runReplayHistory({ workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')) }, history)).resolves.toBeUndefined();
+    await expect(replayHistory({ workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')) }, history, { ring: REPLAYED_HISTORY_KEY, blobs: memoryBlobs() })).resolves.toBeUndefined();
   });
 
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {
@@ -1200,7 +1197,7 @@ describe('a run bigger than Temporal can carry', () => {
     ] });
     acts.engine.EngineToolActivity.mockImplementation(async (call: ToolCallArgs) => ({ ok: true, digest: `fetched ${call.callId}`, content: `${call.callId}: ${page()}` }));
     const { blobs, stored } = testPayloadBlobs();
-    const converter = buildDataConverter(testKeys('payload-storage-test').payload, blobs);
+    const converter = { ring: testKeys('payload-storage-test').payload, blobs };
     const args = { ...input('executor', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
     let firstRun = '';
 
@@ -2059,14 +2056,14 @@ describe('an external agent working on someone\'s machine', () => {
         return true;
       },
     };
-    const onMachine = buildDataConverter((await engineSettingsOver(socket)).ring, remoteBlobs(socket));
+    const onMachine = { ring: (await engineSettingsOver(socket)).ring, blobs: remoteBlobs(socket) };
     const pasted = `Read this checksum list: ${randomBytes(200_000).toString('hex')}`;
 
     const result = await runWorkflow({
       ticket: { ...ticket('koala'), conversationId: 'c-big', modelId: 'machine:desk:antigravity' },
       procedure: EXTERNAL_AGENT_CHAT,
       inputs: { message: pasted, conversationId: 'c-big' },
-    }, acts, undefined, buildDataConverter(ring, blobs), onMachine);
+    }, acts, undefined, { ring, blobs }, onMachine);
 
     expect(result.outcome).toBe('ok');
     expect(String(result.outputs.result).endsWith(pasted)).toBe(true);

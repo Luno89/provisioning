@@ -1,27 +1,26 @@
 import { resolve } from 'node:path';
 import { WorkflowFailedError } from '@temporalio/client';
 import { ApplicationFailure } from '@temporalio/common';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OWNER_ATTRIBUTE, startedFor } from '../platform/lib/workflow-owner.js';
 import { bundled, realTemporalEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type * as fixtures from './testing/contract.fixture-workflow.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const FIXTURE = resolve(import.meta.dirname, 'testing/contract.fixture-workflow.ts');
 
 for (const [server, make] of [['the in-memory test server', temporalTestEnvironment], ['the real Temporal server', realTemporalEnvironment]] as const) {
   describe(`Temporal as Koala relies on it, on ${server}`, () => {
-    let env: TestWorkflowEnvironment;
+    let env: TestTemporal;
     let attempts = 0;
     beforeAll(async () => { env = await make(); });
     afterAll(async () => { await env.teardown(); });
 
     const running = async <T>(work: (taskQueue: string) => Promise<T>): Promise<T> => {
       const taskQueue = `contract-${Math.random().toString(36).slice(2, 8)}`;
-      const worker = await Worker.create({
-        ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(FIXTURE),
+      const worker = await testWorker(env, {
+        namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(FIXTURE),
         activities: {
           flaky: async () => { attempts += 1; if (attempts < 3) throw new Error('not yet'); return attempts; },
           refuses: async () => { throw ApplicationFailure.nonRetryable('refused for good'); },

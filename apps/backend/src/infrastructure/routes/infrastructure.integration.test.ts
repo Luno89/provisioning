@@ -1,9 +1,7 @@
 import { until, waiting } from '../../platform/testing/three-roles.js';
 import { resolve } from 'node:path';
 import axios from 'axios';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { infrastructureRouter } from './infrastructure.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -32,6 +30,8 @@ import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata;
 const shop = { id: 'd1', name: 'Shop', namespace: 'shop', clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' } as DeploymentMetadata;
@@ -58,7 +58,7 @@ const shopIsDown = (prom: PrometheusStandIn) => {
     .set(appWindowQuery('uptime', subject, 86_400), 1).set(appWindowQuery('restarts', subject, 86_400), 0);
 };
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let worker: Worker;
 let working: Promise<void>;
 let prom: PrometheusStandIn;
@@ -74,7 +74,7 @@ const listed = async (ownerId: string): Promise<RunningWorkflow[]> => {
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-  worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/waiting-run.fixture-workflow.ts')) });
+  worker = await testWorker(env, { namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/waiting-run.fixture-workflow.ts')) });
   working = worker.run();
   prom = await prometheusStandIn(OWN_SERIES);
   const start = (workflowId: string, waitsFor: string[], memo: Record<string, unknown>) =>

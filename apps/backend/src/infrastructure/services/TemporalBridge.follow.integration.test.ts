@@ -1,9 +1,6 @@
 import { resolve } from 'node:path';
-import { Client, Connection } from '@temporalio/client';
+import { Connection } from '@temporalio/client';
 import { temporal } from '@temporalio/proto';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -13,8 +10,11 @@ import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { resolveVllmCacheHostPath } from '../../models/index.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import { createClient } from '@koala/engine-core/temporal';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
@@ -25,7 +25,7 @@ describe('following work Koala started anywhere to its end', () => {
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const bridge = new TemporalBridge(db, testDataDir());
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: env.payloads });
     const followings: Promise<void>[] = [];
     let allFollowed!: () => void;
     const threeFollowed = new Promise<void>((done) => { allFollowed = done; });
@@ -37,7 +37,7 @@ describe('following work Koala started anywhere to its end', () => {
       return following;
     });
     const taskQueue = `follow-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await testWorker(env, { namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: '', ...extra });
 
     await worker.runUntil(async () => {
@@ -68,9 +68,9 @@ describe('cancelling and reading work in Temporal', () => {
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const bridge = new TemporalBridge(await testDatabase(), testDataDir());
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: env.payloads });
     const taskQueue = `cancel-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await testWorker(env, { namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {
       const done = await env.client.workflow.start('deploys', { taskQueue, workflowId: `done-${taskQueue}`, args: ['healthy'] });
@@ -98,7 +98,7 @@ describe('settling the work the bridge itself starts', () => {
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-follow-key' as never;
     const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: env.payloads });
     const decided: string[] = [];
     bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };
     const followings: Promise<void>[] = [];
@@ -116,7 +116,7 @@ describe('settling the work the bridge itself starts', () => {
     await db.infrastructure.saveDeployment(app('shop', { appType: 'gitapp', gitappProjectId: 'p1', gitappImageTag: 'reg/bo/shop:aaa' }));
 
     const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
-    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
+    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => testWorker(env, { namespace, taskQueue, workflowBundle: bundle })));
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
       await bridge.destroyApp('gone');
       await bridge.resizeDisk('grown', { data: '20Gi' });
@@ -151,15 +151,15 @@ describe('settling the work the bridge itself starts', () => {
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-stop-key' as never;
     const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: env.payloads });
     const followings: Promise<void>[] = [];
     const follow = bridge.follow.bind(bridge);
     vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
     await db.infrastructure.saveCluster({ id: 'c2', name: 'desk', provider: 'machine', machineId: 'desk', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     const deployQueue = `deploying-${Math.random().toString(36).slice(2, 8)}`;
     const workers = await Promise.all([
-      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: deployQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) }),
-      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: 'cluster-ops-queue', workflowBundle: await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts')) }),
+      testWorker(env, { namespace, taskQueue: deployQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) }),
+      testWorker(env, { namespace, taskQueue: 'cluster-ops-queue', workflowBundle: await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts')) }),
     ]);
 
     let deploy!: Awaited<ReturnType<typeof env.client.workflow.start>>;

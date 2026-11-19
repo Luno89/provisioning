@@ -1,7 +1,4 @@
 import { resolve } from 'node:path';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../platform/lib/types.js';
 import { testDatabase } from '../platform/lib/test-database.js';
@@ -12,8 +9,10 @@ import { bundled, temporalTestEnvironment } from '../workflows/testing/temporal-
 import { engineReleaseRuns } from './release-runs.js';
 import { releaseDecider } from '../releases/services/release-decider.js';
 import { noRepositoryRead } from '../releases/testing/no-repository.js';
+import { testWorker } from '../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 beforeAll(async () => { env = await temporalTestEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
@@ -25,7 +24,7 @@ describe('following a project\'s release run in Temporal', () => {
       runs: { start: async (request) => { await env.client.workflow.start('releaseStandIn', { taskQueue, workflowId: releaseRunWorkflowId(String(request.bound?.projectId)), ...startedFor(request.ownerId) }); return { runId: request.runId ?? '' } as never; } },
       client: () => env.client.workflow,
     });
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'testing/release.fixture-workflow.ts')) });
+    const worker = await testWorker(env, { namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'testing/release.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {
       expect(await runs.running(projectId)).toBe(false);
@@ -50,7 +49,7 @@ describe('following a project\'s release run in Temporal', () => {
       client: () => env.client.workflow,
     });
     const svc = new OdooReleaseService({ store: db, decide: releaseDecider({ trees: db.projects, changed: noRepositoryRead }), runs, chartAt: async () => true, io: { to: () => ({ emit: () => true }) }, newId: () => 'r1' });
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'testing/release.fixture-workflow.ts')) });
+    const worker = await testWorker(env, { namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'testing/release.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {
       await svc.release(project, { id: 'b1', projectId: project.id, commitSha: 'aaa', imageTag: 'reg/bo/shop:aaa', status: 'succeeded' } as PipelineRunMetadata);

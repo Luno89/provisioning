@@ -4,9 +4,7 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { reopening } from '@koala/engine-core/reopening';
 import type { ModelProvider } from '@koala/agent-engine';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
@@ -36,6 +34,8 @@ import { rootInstallsServed } from '../../instances/testing/root-installs.js';
 import { ClusterAccess, InfrastructureService, terraformPlacesFor, type ProvisioningRecord } from '../index.js';
 import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
 import { Provisioning } from '../services/Provisioning.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const WORLD = `provision-to-root-${randomUUID().slice(0, 8)}`;
 const ENGINE_QUEUE = `${WORLD}-engine`;
@@ -43,7 +43,7 @@ const CLUSTER_QUEUE = `${WORLD}-cluster`;
 const ROOT_QUEUE = `${WORLD}-root`;
 const DESK = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let k3s: RealK3s;
 let workers: Worker[] = [];
 let running: Promise<void>[] = [];
@@ -126,13 +126,11 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     const lines = recordedLines(instanceDb.infrastructure);
     const applied: string[] = [];
     const { registry, engine, stream } = engineActivities(instanceDb);
-    const connection = env.nativeConnection;
-    const namespace = env.namespace ?? 'default';
     workers = [
-      await Worker.create({ ...WORKER_DEFAULTS, connection, namespace, taskQueue: ENGINE_QUEUE, interceptors: { activity: activityInterceptors() }, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/AgentRunWorkflow.ts')), activities: engine }),
-      await Worker.create({ ...WORKER_DEFAULTS, connection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, interceptors: { activity: activityInterceptors() }, activities: stream }),
-      await Worker.create({
-        ...WORKER_DEFAULTS, connection, namespace, taskQueue: CLUSTER_QUEUE, interceptors: { activity: activityInterceptors() },
+      await testWorker(env, { taskQueue: ENGINE_QUEUE, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/AgentRunWorkflow.ts')), activities: engine }),
+      await testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: stream }),
+      await testWorker(env, {
+        taskQueue: CLUSTER_QUEUE,
         workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/ProvisionPieceWorkflow.ts')),
         activities: {
           ProvisionPieceActivity: async (run: ProvisionPieceRun) => {
@@ -142,7 +140,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
           },
         },
       }),
-      await Worker.create({ ...WORKER_DEFAULTS, connection, namespace, taskQueue: ROOT_QUEUE, interceptors: { activity: activityInterceptors() }, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/KoalaInstallWorkflow.ts')), activities: koalaInstallActivities({ db: async () => ({ db: rootDb, close: async () => undefined }), now: () => new Date() }) }),
+      await testWorker(env, { taskQueue: ROOT_QUEUE, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/KoalaInstallWorkflow.ts')), activities: koalaInstallActivities({ db: async () => ({ db: rootDb, close: async () => undefined }), now: () => new Date() }) }),
     ];
     running = workers.map((worker) => worker.run());
 

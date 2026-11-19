@@ -1,17 +1,17 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { MachineRunWatch } from '../../machines/services/MachineRunWatch.js';
 import { runClosedVia, runLifeVia } from './run-cancellation.js';
 import { reopening } from '@koala/engine-core/reopening';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const QUEUE = 'run-life-test';
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let worker: Worker;
 let running: Promise<void>;
 let client: () => Promise<Client>;
@@ -21,7 +21,7 @@ const start = (runId: string, owner = 'owner-1') =>
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-  worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowBundle: await bundled(resolve(__dirname, 'testing/run-cancellation.fixture-workflow.ts')) });
+  worker = await testWorker(env, { namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowBundle: await bundled(resolve(__dirname, 'testing/run-cancellation.fixture-workflow.ts')) });
   running = worker.run();
   client = async () => env.client;
 });

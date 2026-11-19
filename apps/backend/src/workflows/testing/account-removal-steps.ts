@@ -1,7 +1,7 @@
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { temporalRemovalWorkflows } from '../../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../../activities/RemoveAccountActivities.js';
 import { testWorker, uniqueName } from './test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 export const fakeRemovalSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountFenceActivity: async () => { seen.push('fence'); return []; },
@@ -18,7 +18,7 @@ export const fakeRemovalSteps = (seen: string[], over: Partial<AccountRemovalAct
   ...over,
 });
 
-export async function removingAccounts(env: TestWorkflowEnvironment, activities: AccountRemovalActivities, body: (workflows: ReturnType<typeof temporalRemovalWorkflows>) => Promise<void>): Promise<void> {
+export async function removingAccounts(env: TestTemporal, activities: AccountRemovalActivities, body: (workflows: ReturnType<typeof temporalRemovalWorkflows>) => Promise<void>): Promise<void> {
   const taskQueue = uniqueName('remove-account-test');
   const worker = await testWorker(env, { taskQueue, workflows: 'RemoveAccountWorkflow.ts', activities });
   await worker.runUntil(() => body(temporalRemovalWorkflows(() => env.client, taskQueue)));

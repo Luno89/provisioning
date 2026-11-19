@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { inject } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -16,6 +13,8 @@ import { temporalStoredFileCommits } from '../services/StoredFileCommits.js';
 import { roomOn } from '../services/room.js';
 import { StoredFiles } from '../services/StoredFiles.js';
 import { testBucket } from './real-minio.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 export interface RealStoredFiles {
   db: Database;
@@ -27,15 +26,15 @@ export interface RealStoredFiles {
 }
 
 export async function realStoredFiles(): Promise<RealStoredFiles> {
-  const env: TestWorkflowEnvironment = await temporalTestEnvironment();
+  const env: TestTemporal = await temporalTestEnvironment();
   const db = await testDatabase();
   const objects = minioObjectStore({ ...inject('minio'), bucket: testBucket() });
   const clock = { now: Date.now() };
   const activities = createStoredFilesActivities({ records: db.files, objects, now: () => clock.now });
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = env.namespace ?? 'default';
-  const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  const workflows = await testWorker(env, { namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
+  const stream = await testWorker(env, { namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   const running = Promise.all([workflows.run(), stream.run()]);
   const files = new StoredFiles({ records: db.files, objects, commits: temporalStoredFileCommits(async () => env.client.workflow, queue), room: roomOn(tmpdir()), now: () => clock.now });
   return {

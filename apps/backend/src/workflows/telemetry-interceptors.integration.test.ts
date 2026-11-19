@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Client } from '@temporalio/client';
 import type { Worker } from '@temporalio/worker';
 import { currentTraceId, withSpan } from '@koala/engine-core/telemetry';
 import { tracedClient, tracedTemporal, tracedWorker } from './testing/traced-temporal.js';
 import type { TraceProbeActivities } from './testing/trace-probe-workflow.js';
+import { testClient } from '@koala/engine-core/testing/temporal';
 
 const traced = tracedTemporal();
 
@@ -42,7 +42,7 @@ describe('the trace a workflow was started under follows its activities and chil
 
   it('gives an activity of a workflow started outside any trace a trace of its own, not the last workflow\'s', async () => {
     const taskQueue = `trace-probe-${Math.random().toString(36).slice(2, 8)}`;
-    const client = new Client({ connection: traced.env.connection, namespace: traced.env.namespace ?? 'default' });
+    const client = testClient(traced.env);
     const seen = new Map<string, string | undefined>();
     const worker = await probeWorker(taskQueue, seen);
 

@@ -1,8 +1,4 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
@@ -10,11 +6,13 @@ import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEv
 import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { createWorkspaceProjectActivities } from '../activities/WorkspaceProjectActivity.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
@@ -35,16 +33,14 @@ describe('a conversation\'s countdown to concluding', () => {
     const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
     const concluded: LifecycleEvent[] = [];
     const workspaces: ConcludeWorkspaceArgs[] = [];
-    const timers = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
+    const timers = await testWorker(env, {
+      namespace: world.namespace,
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
-    const backend = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
+    const backend = await testWorker(env, {
+      namespace: world.namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });
@@ -78,16 +74,14 @@ describe('a conversation\'s countdown to concluding', () => {
     const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
     const concluded: LifecycleEvent[] = [];
     const workspaces: ConcludeWorkspaceArgs[] = [];
-    const timers = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
+    const timers = await testWorker(env, {
+      namespace: world.namespace,
       taskQueue,
       workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
     });
-    const backend = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
+    const backend = await testWorker(env, {
+      namespace: world.namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });

@@ -1,18 +1,16 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { BenchIdleWorkflow, benchActivitySignal } from './BenchIdleWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type BenchIdleOutcome } from '../engine-host/temporal/contracts.js';
 import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
@@ -31,10 +29,9 @@ afterAll(async () => {
 async function scenario(answers: BenchIdleOutcome[], drive: (signal: (idleMs: number) => Promise<void>, asked: string[]) => Promise<void>) {
   const taskQueue = `bench-test-${Math.random().toString(36).slice(2, 8)}`;
   const asked: string[] = [];
-  const timers = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: world.namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, 'BenchIdleWorkflow.ts')) });
-  const backend = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: world.namespace,
+  const timers = await testWorker(env, { namespace: world.namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, 'BenchIdleWorkflow.ts')) });
+  const backend = await testWorker(env, {
+    namespace: world.namespace,
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineBenchIdleActivity: async ({ ownerId }: { ownerId: string }) => { asked.push(ownerId); return answers.shift() ?? 'nothing'; } },
   });

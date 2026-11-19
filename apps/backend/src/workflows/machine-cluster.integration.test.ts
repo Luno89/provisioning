@@ -2,9 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { createDeviceActivities } from '../../../local-agent/src/engine-worker.js';
 import { IdleGate } from '../../../local-agent/src/idle-gate.js';
 import { K3S_KUBECONFIG, K3S_MARKER, runMachineCluster, type ClusterHost } from '../../../local-agent/src/machine-cluster.js';
@@ -21,6 +18,8 @@ import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
 import type { DestroyAppArgs } from '../activities/DestroyAppActivity.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const KEY = 'machine-cluster-workflow-key';
 const QUEUE = 'machine-cluster-workflow-test';
@@ -66,7 +65,7 @@ class DeskHost implements ClusterHost {
   async pause(): Promise<void> { this.clock += 2_000; }
 }
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let db: MongoDB;
 let gate: IdleGate;
 let host: DeskHost;
@@ -95,11 +94,10 @@ beforeEach(async () => {
 });
 
 async function working<T>(work: () => Promise<T>): Promise<T> {
-  const connection = env.nativeConnection;
   const namespace = world.namespace;
   const services: StreamServices = { registry: {} as never, endpoints: {} as never, bus: {} as never, machineClusters: clusters };
-  const workflows = await Worker.create({
-    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection, namespace, taskQueue: QUEUE,
+  const workflows = await testWorker(env, {
+    namespace, taskQueue: QUEUE,
     workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
     activities: {
       DeployAppActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'deploy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'deployed', msg: 'deployed', displayUrl: '' }; },
@@ -107,13 +105,12 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
       DestroyAppActivity: async (args: DestroyAppArgs) => { handed.push({ activity: 'destroy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'destroyed', msg: 'destroyed' }; },
     },
   });
-  const stream = await Worker.create({
-    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+  const stream = await testWorker(env, {
+    namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: createStreamActivities(services),
   });
-  const device = await Worker.create({
-    ...WORKER_DEFAULTS, connection, namespace, taskQueue: deviceQueue(DESK.id),
-    interceptors: { activity: activityInterceptors() },
+  const device = await testWorker(env, {
+    namespace, taskQueue: deviceQueue(DESK.id),
     activities: createDeviceActivities({ rootDir, deviceId: DESK.id, gate, cluster: (op) => runMachineCluster(host, op) }),
   });
   return workflows.runUntil(() => stream.runUntil(() => device.runUntil(work)));

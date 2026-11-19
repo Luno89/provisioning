@@ -1,16 +1,16 @@
 import { afterAll, beforeAll } from 'vitest';
-import { Client } from '@temporalio/client';
+import type { Client } from '@temporalio/client';
 import type { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { traceActivities, traceWorkflowStarts, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
+import { traceWorkflowStarts, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
 import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { temporalTestEnvironment, type TestTemporal } from './temporal-test-env.js';
+import { testClient } from '@koala/engine-core/testing/temporal';
 import { testWorker } from './test-worker.js';
 
 export interface SentSpan { name: string; traceId: string; spanId: string; parentSpanId?: string }
 
 export interface TracedTemporal {
-  readonly env: TestWorkflowEnvironment;
+  readonly env: TestTemporal;
   readonly telemetry: Telemetry;
   readonly spans: SentSpan[];
 }
@@ -24,7 +24,7 @@ export function tracedTemporal(): TracedTemporal {
       for (const resource of parsed.resourceSpans) for (const scope of resource.scopeSpans) spans.push(...scope.spans);
     },
   };
-  let env: TestWorkflowEnvironment | undefined;
+  let env: TestTemporal | undefined;
   let telemetry: Telemetry | undefined;
   beforeAll(async () => {
     telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
@@ -45,8 +45,8 @@ export function tracedTemporal(): TracedTemporal {
   };
 }
 
-export const tracedClient = (env: TestWorkflowEnvironment): Client =>
-  new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [traceWorkflowStarts()] } });
+export const tracedClient = (env: TestTemporal): Client =>
+  testClient(env, { interceptors: { workflow: [traceWorkflowStarts()] } });
 
-export const tracedWorker = (env: TestWorkflowEnvironment, taskQueue: string, workflows: string, activities: object): Promise<Worker> =>
-  testWorker(env, { taskQueue, workflows, workflowInterceptors: ['telemetry-interceptors.ts'], activityInterceptors: [traceActivities()], activities });
+export const tracedWorker = (env: TestTemporal, taskQueue: string, workflows: string, activities: object): Promise<Worker> =>
+  testWorker(env, { taskQueue, workflows, workflowInterceptors: ['telemetry-interceptors.ts'], activities });

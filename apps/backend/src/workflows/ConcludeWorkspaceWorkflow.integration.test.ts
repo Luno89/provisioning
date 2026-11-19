@@ -1,23 +1,21 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ApplicationFailure } from '@temporalio/common';
 import type { ConcludeWorkspaceArgs } from '../engine-host/temporal/contracts.js';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError } from '../memory/services/WorkspaceConclusionService.js';
 import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
-import { Client } from '@temporalio/client';
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { createWorkspaceProjectActivities, type WorkspaceProjectStores } from '../activities/WorkspaceProjectActivity.js';
+import { testWorker } from './testing/test-worker.js';
+import { testClient } from '@koala/engine-core/testing/temporal';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
@@ -29,14 +27,13 @@ afterAll(async () => {
 
 const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unknown>, body: (service: WorkspaceConclusionService) => Promise<void>, stores?: WorkspaceProjectStores) => {
   const taskQueue = `conclude-test-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  const worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts'), [resolve(__dirname, 'telemetry-interceptors.ts')]),
     activities: { ConcludeWorkspaceActivity: activity, ...createWorkspaceProjectActivities(stores ?? await testDatabase()) },
   });
-  const naming = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+  const naming = testClient(env, { interceptors: { workflow: [namesItsWork] } });
   await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => naming.workflow, taskQueue })));
 };
 
