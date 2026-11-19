@@ -87,19 +87,6 @@ export const spoken = (ms: number): string => (ms < 60_000 ? `${Math.round(ms / 
 export const quietLine = (file: RunningFile, now: number, name: string = basename(file.file)): string =>
   `${name} › ${file.doing}: quiet ${spoken(now - file.changedAt)}; ${file.lastLine ? `last said: ${file.lastLine}` : 'it has said nothing yet'}`;
 
-export interface Told { changedAt: number; at: number }
-
-export function dueQuiet(runs: readonly RunStatus[], now: number, told: Map<string, Told>, after: number = QUIET_AFTER_MS): string[] {
-  return runs.flatMap((run) => Object.entries(run.files).flatMap(([id, file]) => {
-    const key = `${run.pid} ${id}`;
-    if (now - file.changedAt < after) return [];
-    const last = told.get(key);
-    if (last && last.changedAt === file.changedAt && now - last.at < after) return [];
-    told.set(key, { changedAt: file.changedAt, at: now });
-    return [quietLine(file, now)];
-  }));
-}
-
 const plural = (count: number, one: string, many: string): string => (count === 1 ? `1 ${one}` : `${count} ${many}`);
 
 export function statusReport(runs: readonly RunStatus[], now: number): string[] {

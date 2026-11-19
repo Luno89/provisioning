@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { PassThrough } from 'node:stream';
 import { resolve } from 'node:path';
 import { here } from './processes.js';
 import { GROUP, QUIET_AFTER_MS } from './test-runs.js';
@@ -14,7 +15,7 @@ export interface QuietWatchOptions { after?: number; out?: number | 'inherit'; e
 export function watchQuiet(options: QuietWatchOptions = {}): QuietWatch {
   const group = randomUUID();
   const out = options.out ?? 'inherit';
-  const watcher = here.start({ command: TSX, args: [STATUS, 'watch', group, String(options.after ?? QUIET_AFTER_MS), String(process.pid)], env: options.env ?? {} }, { outputFd: out === 'inherit' ? STDOUT : out });
+  const watcher = here.start({ command: TSX, args: [STATUS, 'watch', group, String(options.after ?? QUIET_AFTER_MS)], env: options.env ?? {} }, { input: new PassThrough(), outputFd: out === 'inherit' ? STDOUT : out });
   return {
     env: { [GROUP]: group },
     stop: () => { watcher.stop('SIGTERM'); },

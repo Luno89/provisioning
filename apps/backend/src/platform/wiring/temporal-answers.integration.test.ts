@@ -86,6 +86,15 @@ async function answeredOnceOpened(port: number, before: () => Promise<void>): Pr
 }
 
 describe('whether Temporal answers over TLS to its own CA', () => {
+  it('leaves no connection open to a Temporal that took the connection but did not answer, so a failed look costs nothing and the server can close', async () => {
+    const server = http2.createSecureServer({ key: readFileSync(at('server.key')), cert: readFileSync(at('server.crt')) });
+    server.on('stream', () => undefined);
+    const sessionClosed = new Promise<void>((closed) => { server.once('session', (session) => { session.once('close', () => closed()); }); });
+    const port = await listening(server);
+    await expect(temporalAnswers(temporalOn(port))()).rejects.toThrow();
+    await sessionClosed;
+  });
+
   it('fails at once, saying why, when the server on its address shows a certificate another CA signed', async () => {
     const port = await listening(tls.createServer({ key: readFileSync(at('other-ca.key')), cert: readFileSync(at('other-ca.crt')) }));
     const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause: async () => undefined } }, memoryReporter()));

@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { afterTest, dueQuiet, heard, QUIET_AFTER_MS, quietLine, spoken, statusReport, testName, withWorkers, type RunningFile, type RunStatus, type TaskShape } from './test-runs.js';
+import { aFile, MIN } from './fixture-runs.js';
+import { afterTest, heard, QUIET_AFTER_MS, quietLine, spoken, statusReport, testName, withWorkers, type RunningFile, type RunStatus, type TaskShape } from './test-runs.js';
 
-const MIN = 60_000;
-
-const aFile = (over: Partial<RunningFile> = {}): RunningFile => ({ file: 'apps/backend/src/infrastructure/routes/app-names.integration.test.ts', startedAt: 0, doing: 'afterAll', doingSince: 0, changedAt: 0, ...over });
 
 describe('what a run heard', () => {
   it('keeps the last line said, and counts it as something happening', () => {
@@ -31,28 +29,6 @@ describe('how quiet is said', () => {
     expect(quietLine(aFile({ lastLine: 'still waiting for every deployment to be failed (shop-3f2a1b: deploying)' }), 4 * MIN))
       .toBe('app-names.integration.test.ts › afterAll: quiet 4 min; last said: still waiting for every deployment to be failed (shop-3f2a1b: deploying)');
     expect(quietLine(aFile(), 4 * MIN)).toBe('app-names.integration.test.ts › afterAll: quiet 4 min; it has said nothing yet');
-  });
-});
-
-describe('when a quiet file is told', () => {
-  const run = (file: RunningFile): RunStatus => ({ pid: 7, checkout: '/c', workspace: 'apps/backend', startedAt: 0, files: { one: file } });
-
-  it('waits longer than any integration test has taken, then tells it again each time as long again goes by, never ending the run', () => {
-    const told = new Map();
-    const file = aFile();
-    expect(dueQuiet([run(file)], QUIET_AFTER_MS - 1, told, QUIET_AFTER_MS)).toEqual([]);
-    expect(dueQuiet([run(file)], QUIET_AFTER_MS, told, QUIET_AFTER_MS)).toEqual([quietLine(file, QUIET_AFTER_MS)]);
-    expect(dueQuiet([run(file)], QUIET_AFTER_MS + MIN, told, QUIET_AFTER_MS)).toEqual([]);
-    expect(dueQuiet([run(file)], 2 * QUIET_AFTER_MS, told, QUIET_AFTER_MS)).toEqual([quietLine(file, 2 * QUIET_AFTER_MS)]);
-    expect(QUIET_AFTER_MS).toBe(4 * MIN);
-  });
-
-  it('starts counting again once the file says something new', () => {
-    const told = new Map();
-    expect(dueQuiet([run(aFile())], QUIET_AFTER_MS, told, QUIET_AFTER_MS)).toHaveLength(1);
-    const moved = aFile({ changedAt: QUIET_AFTER_MS + 1, lastLine: 'next' });
-    expect(dueQuiet([run(moved)], QUIET_AFTER_MS + 2, told, QUIET_AFTER_MS)).toEqual([]);
-    expect(dueQuiet([run(moved)], 2 * QUIET_AFTER_MS + 1, told, QUIET_AFTER_MS)).toEqual([quietLine(moved, 2 * QUIET_AFTER_MS + 1)]);
   });
 });
 

@@ -475,4 +475,16 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'The aim is no copied code. A copy found is removed when one side is dead, or merged into one home when both are live; repetition is kept only with a stated reason the owner can challenge, never because it looks harmless. On 2026-11-18 jscpd measured 309 copies (3,134 lines, 1.69%) over the workspaces\' source, 20 of them between workspaces, none marked as a known copy. On 2026-11-19 the owner agreed the plan from the libraries and resources audits: one implementation per job in a package, its production and test pieces injected (a process runner, one Temporal setup with the converter required, one fetch client for backend and frontend with axios gone, files and scratch folders, one wait and pacing, one logger, OpenTelemetry for metrics, ports for Mongo, containers, git, tokens, clocks and ids); child processes get only the environment they need, the machine reaches Temporal over TLS, and nothing listens on a machine\'s network address.',
   },
+  {
+    id: 'events-not-waits',
+    subject: 'Koala is told when something happens, through events, rather than asking again until it does',
+    terms: ['wait', 'waits', 'poll', 'polling', 'socket', 'event', 'events', 'prober'],
+    words: [
+      { at: '2026-11-02T17:21', text: 'we need to make most of these event driven, waiting is not a good solution to anything' },
+      { at: '2026-11-19T18:37', text: 'I don\'t want anymore waits on stuff, there has to be a better way to implement the provisioning than waiting, so yeah I guess build that but I think we need to actualy look at how these are all implemented so that its a socket like implementation vs a wait' },
+      { at: '2026-11-19T19:05', asked: 'Some things Koala depends on can\'t tell it anything: a server order at the provider, an SSH port opening, public DNS answering', text: 'One visible prober (Recommended)' },
+      { at: '2026-11-19T19:05', asked: 'Stopping something is a different case from waiting for it to be ready.', text: 'Process kill grace only (Recommended)' },
+    ],
+    reading: 'Every wait in Koala and its tests is told by an event: a Kubernetes watch, a Temporal result or signal, a Mongo change stream, a socket event, a child process exiting or saying a line, a file event, a push to the browser. Each kind has one implementation used the same way in production and tests, and every wait also ends, saying why, the moment what it waits for can never come. The only asking left is one prober for outside services that cannot push (a provider order, an SSH port, public DNS, a registry, a model endpoint, a dependency coming back), paced by the one backoff and shown live under Needs attention. The only clock left is a child process\'s grace between SIGTERM and SIGKILL; a workflow stop waits on the workflow closing.',
+  },
 ];

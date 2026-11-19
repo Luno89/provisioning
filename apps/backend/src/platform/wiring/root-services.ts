@@ -176,17 +176,17 @@ async function whyNotConnected(address: string, ca: Buffer, err: unknown): Promi
 export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
   return async () => {
     const tls = temporalTls({ caPath: join(temporal.tlsDir, 'ca.crt') });
-    let connection: Connection;
+    const connection = Connection.lazy({
+      address: temporal.address,
+      tls,
+      apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
+    });
     try {
-      connection = await Connection.connect({
-        address: temporal.address,
-        tls,
-        apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
-      });
-    } catch (err) {
-      throw await whyNotConnected(temporal.address, tls.serverRootCACertificate, err);
-    }
-    try {
+      try {
+        await connection.ensureConnected();
+      } catch (err) {
+        throw await whyNotConnected(temporal.address, tls.serverRootCACertificate, err);
+      }
       await connection.workflowService.getSystemInfo({});
       return { done: true };
     } finally {
