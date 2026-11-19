@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import tls from 'node:tls';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { composeStep, runSteps } from '@koala/provision';
-import { fakeCommands, memoryReporter, stepFailureOf } from '@koala/provision/testing';
+import { fakeCommands, memoryReporter, stepFailureOf, type MemoryReporter } from '@koala/provision/testing';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { temporalAnswers, type RootServices } from './root-services.js';
 
@@ -72,6 +72,19 @@ function systemInfoServer(): http2.Http2SecureServer {
   return server;
 }
 
+async function answeredOnceOpened(port: number, before: () => Promise<void>): Promise<{ opened: () => boolean; reporter: MemoryReporter }> {
+  let opened = false;
+  const pause = async (): Promise<void> => {
+    if (opened) return;
+    opened = true;
+    await before();
+    await listening(systemInfoServer(), port);
+  };
+  const reporter = memoryReporter();
+  await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause } }, reporter);
+  return { opened: () => opened, reporter };
+}
+
 describe('whether Temporal answers over TLS to its own CA', () => {
   it('fails at once, saying why, when the server on its address shows a certificate another CA signed', async () => {
     const port = await listening(tls.createServer({ key: readFileSync(at('other-ca.key')), cert: readFileSync(at('other-ca.crt')) }));
@@ -82,15 +95,8 @@ describe('whether Temporal answers over TLS to its own CA', () => {
 
   it('waits while its port is not open yet, and ends answered once it opens', async () => {
     const port = await portToHandOn();
-    let opened = false;
-    const pause = async (): Promise<void> => {
-      if (opened) return;
-      opened = true;
-      await listening(systemInfoServer(), port);
-    };
-    const reporter = memoryReporter();
-    await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause } }, reporter);
-    expect(opened).toBe(true);
+    const { opened, reporter } = await answeredOnceOpened(port, async () => undefined);
+    expect(opened()).toBe(true);
     expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'temporal' });
   });
 
@@ -98,16 +104,8 @@ describe('whether Temporal answers over TLS to its own CA', () => {
     const port = await portToHandOn();
     const handshaking = tls.createServer({ key: readFileSync(at('server.key')), cert: readFileSync(at('server.crt')), ALPNProtocols: ['h2'] }, (socket) => { socket.destroy(); });
     await new Promise<void>((resolve) => handshaking.listen(port, '127.0.0.1', resolve));
-    let opened = false;
-    const pause = async (): Promise<void> => {
-      if (opened) return;
-      opened = true;
-      await new Promise<void>((resolve) => { handshaking.close(() => resolve()); });
-      await listening(systemInfoServer(), port);
-    };
-    const reporter = memoryReporter();
-    await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause } }, reporter);
-    expect(opened).toBe(true);
+    const { opened, reporter } = await answeredOnceOpened(port, () => new Promise<void>((resolve) => { handshaking.close(() => resolve()); }));
+    expect(opened()).toBe(true);
     expect(reporter.linesOf('temporal').join('\n')).toContain('its TLS handshake completes, but its gRPC connection did not open yet');
     expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'temporal' });
   });
