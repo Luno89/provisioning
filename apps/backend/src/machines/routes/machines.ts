@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
-import { KOALA_INSTALL_ROUTE } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_FOLLOW_BEAT_MS, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_FOLLOW_STOPPED, KOALA_INSTALL_ROUTE, koalaInstallEnded } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
-import type { KoalaInstalls } from '../services/KoalaInstalls.js';
+import type { InstallFollower, KoalaInstalls } from '../services/KoalaInstalls.js';
+import type { InstallFollowing } from '../lib/koala-install-following.js';
 import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/MachineGitService.js';
 import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { METRICS_MAX_BYTES } from '../lib/machine-metrics.js';
@@ -25,7 +26,7 @@ export interface AgentBundle {
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report' | 'follow'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
   const router = Router();
 
   router.post('/metrics', asyncRoute(async (req: Request, res: Response) => {
@@ -73,6 +74,50 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' |
     const outcome = await deps.installs.report(String(req.params.installId ?? ''), bearer(req.headers.authorization), req.body);
     if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
     res.status(204).end();
+  }));
+
+  router.get(KOALA_INSTALL_FOLLOW_ROUTE, asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.installs) return res.status(404).type('text/plain').send('machines follow putting Koala on themselves at root, which asked them');
+    let beat: NodeJS.Timeout | undefined;
+    let stop = (): void => undefined;
+    const ended = (): void => {
+      clearInterval(beat);
+      stop();
+    };
+    res.on('close', ended);
+    const stream = (): void => {
+      if (res.headersSent) return;
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
+      res.flushHeaders();
+      beat = setInterval(() => { res.write(': beat\n\n'); }, KOALA_INSTALL_FOLLOW_BEAT_MS);
+    };
+    const told = (following: InstallFollowing): void => {
+      if (res.writableEnded) return;
+      if (following.kind === 'none' && !res.headersSent) {
+        res.status(204).end();
+        return;
+      }
+      stream();
+      if (following.kind === 'waiting' || following.kind === 'none') return;
+      if (following.kind === 'stopped') {
+        res.end(`event: ${KOALA_INSTALL_FOLLOW_STOPPED}\ndata: ${JSON.stringify({ why: following.why })}\n\n`);
+        return;
+      }
+      res.write(`data: ${JSON.stringify(following.followed)}\n\n`);
+      if (koalaInstallEnded(following.followed.install)) res.end();
+    };
+    const follower: InstallFollower = {
+      told,
+      broke: (err) => {
+        console.warn(`[machines] a machine following its install of Koala was cut off: ${err.message}`);
+        res.destroy(err);
+      },
+    };
+    const outcome = await deps.installs.follow(bearer(req.headers.authorization), follower);
+    if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
+    stop = outcome.value.stop;
+    if (res.writableEnded || res.destroyed) stop();
+    return undefined;
   }));
 
   router.post('/join', asyncRoute(async (req: Request, res: Response) => {

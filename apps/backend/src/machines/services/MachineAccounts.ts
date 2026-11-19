@@ -287,7 +287,10 @@ export class MachineAccounts {
     if (!device?.koalaWanted) return { ok: true, value: { placing: false } };
     if (!this.deps.installs) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
     const refused = async (refusal: { status: number; error: string }): Promise<void> => {
-      if (refusal.status !== 409 || device.meshIp) await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaRefused: { reason: refusal.error, at: this.now().toISOString() } }, unset: ['koalaWanted'] });
+      if (refusal.status !== 409 || device.meshIp) {
+        await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaRefused: { reason: refusal.error, at: this.now().toISOString() } }, unset: ['koalaWanted'] });
+        this.deps.toOwner.machinesChanged(device.ownerId);
+      }
     };
     const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined, device.koalaWanted.move === true, refused);
     if (!placed.ok) return placed;

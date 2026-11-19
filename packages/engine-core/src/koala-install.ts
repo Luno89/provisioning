@@ -28,6 +28,10 @@ export const KOALA_INSTALL_FOLLOW_ROUTE = '/koala-installs/following';
 
 export const KOALA_INSTALL_FOLLOW_PATH = `/api/machines${KOALA_INSTALL_FOLLOW_ROUTE}`;
 
+export const KOALA_INSTALL_FOLLOW_STOPPED = 'stopped';
+
+export const KOALA_INSTALL_FOLLOW_BEAT_MS = 15_000;
+
 export const KOALA_MOVE_KEYS_PATH = '/api/instances/move/parts/keys';
 
 export const PLACE_KOALA = 'machine:place-koala';
@@ -116,6 +120,11 @@ export function koalaInstallFollowedOf(raw: unknown): KoalaInstallFollowedRead {
   }
   const install = raw.install as unknown as KoalaInstallView;
   return { ok: true, value: { install, ...(raw.url !== undefined ? { url: raw.url } : {}) } };
+}
+
+export function koalaInstallStoppedOf(raw: unknown): { ok: true; why: string } | { ok: false; problem: string } {
+  if (!isObject(raw) || Object.keys(raw).some((key) => key !== 'why') || !nonEmpty(raw.why)) return { ok: false, problem: 'a stopped follow sends only "why", a non-empty string' };
+  return { ok: true, why: raw.why };
 }
 
 export const PROVISION_PIECES = [

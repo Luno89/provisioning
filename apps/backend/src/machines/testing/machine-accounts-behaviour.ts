@@ -558,7 +558,9 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       }, machineRemoved: async () => undefined } });
       const { deviceId } = await joined(refusing, 'bo', { hostname: 'desk', rootDir: '/x' });
       await refusing.recordMeshIp(deviceId, '100.64.0.7');
+      browsersTold = [];
       expect(await refusing.putKoalaOn('bo', deviceId, 'bobby')).toMatchObject({ ok: false, error: '"bobby" is taken' });
+      expect(browsersTold).toEqual(['bo']);
       const [listed] = await refusing.listOnline('bo');
       expect(listed).toMatchObject({ koalaWanted: false, koalaRefused: { reason: '"bobby" is taken', at: clock.toISOString() } });
       const { machines: placingNow } = placing();

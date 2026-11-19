@@ -4,6 +4,7 @@ import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { InstanceRecord } from '../../instances/index.js';
 import { deviceTokenHash, tokenLifetime, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from './KoalaInstalls.js';
+import { FOLLOW_GONE, MACHINE_GONE, type InstallFollowing } from '../lib/koala-install-following.js';
 
 const NOW = new Date('2026-11-18T10:00:00Z');
 const TOKEN = 'desk-token-0123456789-0123456789';
@@ -165,5 +166,118 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(await clocked.report('install-1', TOKEN, stage)).toMatchObject({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
     devices[0] = current;
     expect(await clocked.report('install-1', TOKEN, stage)).toEqual({ ok: true, value: { recorded: true } });
+  });
+});
+
+describe('a joining machine following root putting Koala on it', () => {
+  const LATER = new Date(NOW.getTime() + 60_000).toISOString();
+  const running = (state: 'asked' | 'installing' | 'ready' | 'failed', more: Partial<NonNullable<InstanceRecord['install']>> = {}, url = ''): InstanceRecord => ({ ...installOf(state, { at: LATER, ...more }), url });
+
+  function following(devices: LocalAgentDeviceMetadata[]) {
+    const ownerTold: string[] = [];
+    const followed = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: (ownerId) => { ownerTold.push(ownerId); } }, now: () => NOW });
+    const heard: InstallFollowing[] = [];
+    const broken: string[] = [];
+    const listener = { told: (now: InstallFollowing) => { heard.push(now); }, broke: (err: Error) => { broken.push(err.message); } };
+    return { followed, heard, broken, listener, ownerTold };
+  }
+  const settled = () => new Promise((done) => setImmediate(done));
+
+  it('takes only the machine\'s own token, unexpired, and answers 503 where root puts Koala on no machine', async () => {
+    const { followed, listener } = following([desk]);
+    expect(await followed.follow(undefined, listener)).toMatchObject({ ok: false, status: 401 });
+    expect(await followed.follow('another-token-0123456789-0123456789', listener)).toMatchObject({ ok: false, status: 401 });
+    const lapsed = following([{ ...desk, ...tokenLifetime(new Date(NOW.getTime() - 200 * 24 * 60 * 60 * 1000)) }]);
+    expect(await lapsed.followed.follow(TOKEN, lapsed.listener)).toEqual({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
+    const nowhere = new KoalaInstalls({ devices: async () => [desk], places: () => undefined, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: () => undefined }, now: () => NOW });
+    expect(await nowhere.follow(TOKEN, listener)).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it('tells each change of the install once, as root records it, and nothing after it ends', async () => {
+    const { followed, heard, listener, ownerTold } = following([desk]);
+    places.installsOn.mockResolvedValue([running('asked')]);
+    expect(await followed.follow(TOKEN, listener)).toMatchObject({ ok: true });
+    await settled();
+    const chart = running('installing', { stage: 'chart', title: 'Installing Koala\'s chart', line: 'waiting for deployment/koala' });
+    places.installsOn.mockResolvedValue([chart]);
+    await followed.relay(chart);
+    await followed.relay(chart);
+    await settled();
+    const ready = running('ready', { stage: 'koala', title: 'Koala' }, 'https://bobby.koala.app');
+    places.installsOn.mockResolvedValue([ready]);
+    await followed.relay(ready);
+    await settled();
+    await followed.relay(running('installing', { id: 'install-2' }));
+    await settled();
+    expect(heard.map((now) => (now.kind === 'followed' ? [now.followed.install.state, now.followed.install.line ?? now.followed.url] : [now.kind]))).toEqual([
+      ['asked', undefined],
+      ['installing', 'waiting for deployment/koala'],
+      ['ready', 'https://bobby.koala.app'],
+    ]);
+    expect(ownerTold).toEqual(['bo', 'bo', 'bo', 'bo']);
+  });
+
+  it('waits while root has yet to start, and tells why when root would not put Koala on the machine', async () => {
+    const devices: LocalAgentDeviceMetadata[] = [{ ...desk, koalaWanted: { name: 'bobby' } }];
+    const { followed, heard, listener } = following(devices);
+    places.installsOn.mockResolvedValue([]);
+    await followed.follow(TOKEN, listener);
+    await settled();
+    devices[0] = { ...desk, koalaRefused: { reason: 'your Koala is on laptop; moving it is a step of its own', at: LATER } };
+    followed.wake('someone-else');
+    await settled();
+    expect(heard).toEqual([{ kind: 'waiting' }]);
+    followed.wake('bo');
+    await settled();
+    expect(heard).toEqual([{ kind: 'waiting' }, { kind: 'stopped', why: 'your Koala is on laptop; moving it is a step of its own' }]);
+  });
+
+  it('answers that there is nothing to follow when the join asked for no Koala, and stops when what it followed goes', async () => {
+    const devices: LocalAgentDeviceMetadata[] = [desk];
+    const { followed, heard, listener } = following(devices);
+    places.installsOn.mockResolvedValue([]);
+    await followed.follow(TOKEN, listener);
+    await settled();
+    expect(heard).toEqual([{ kind: 'none' }]);
+
+    const second = following(devices);
+    places.installsOn.mockResolvedValue([running('installing')]);
+    await second.followed.follow(TOKEN, second.listener);
+    await settled();
+    places.installsOn.mockResolvedValue([]);
+    second.followed.wake('bo');
+    await settled();
+    expect(second.heard.slice(1)).toEqual([{ kind: 'stopped', why: FOLLOW_GONE }]);
+
+    const third = following(devices);
+    places.installsOn.mockResolvedValue([running('installing')]);
+    await third.followed.follow(TOKEN, third.listener);
+    await settled();
+    devices.splice(0);
+    third.followed.wake('bo');
+    await settled();
+    expect(third.heard.slice(1)).toEqual([{ kind: 'stopped', why: MACHINE_GONE }]);
+  });
+
+  it('tells nothing more once the follower stops, and says so when what root holds could not be read', async () => {
+    const { followed, heard, listener } = following([desk]);
+    places.installsOn.mockResolvedValue([running('installing')]);
+    const follow = await followed.follow(TOKEN, listener);
+    if (!follow.ok) throw new Error(follow.error);
+    await settled();
+    follow.value.stop();
+    places.installsOn.mockResolvedValue([running('failed', { why: 'no' })]);
+    followed.wake('bo');
+    await settled();
+    expect(heard).toHaveLength(1);
+
+    const failing = following([desk]);
+    places.installsOn.mockResolvedValue([running('installing')]);
+    await failing.followed.follow(TOKEN, failing.listener);
+    await settled();
+    places.installsOn.mockRejectedValue(new Error('Mongo is down'));
+    failing.followed.wake('bo');
+    await settled();
+    expect(failing.broken).toEqual(['Mongo is down']);
   });
 });

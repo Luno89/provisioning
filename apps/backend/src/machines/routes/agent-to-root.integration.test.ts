@@ -15,6 +15,8 @@ import { joinRootStep } from '../../../../local-agent/src/join/steps/join-root.j
 import { joinPins } from '../../../../local-agent/src/join/pins.js';
 import type { JoinContext } from '../../../../local-agent/src/join/context.js';
 import { rootProgress, rootReporter, rootUrlOf } from '../../../../local-agent/src/root-progress.js';
+import { followInstall } from '../../../../local-agent/src/join/follow-install.js';
+import { installFields, stageHeard } from '../../instances/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
@@ -46,17 +48,20 @@ async function root() {
     store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
     mesh: { createPreAuthKey: async () => ({ key: 'hskey' }), removeNode: async () => undefined },
     koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    toOwner: { machinesChanged: () => undefined },
+    toOwner: { machinesChanged: (ownerId) => { installs.wake(ownerId); } },
     toMachines: { removed: () => false, koala: () => false, online: () => false },
     installs,
   });
+  const watched = db.instances.watchInstalls((instance) => { void installs.relay(instance); });
+  closers.push(() => watched.close());
+  await watched.ready;
   const app = express();
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const server = http.createServer(app);
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   closers.push(() => new Promise<void>((done) => { server.close(() => done()); }));
-  return { db, accounts, installs, heard, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  return { db, accounts, installs, instances, heard, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
 async function joinContext(url: string, code: string): Promise<JoinContext> {
@@ -98,5 +103,69 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       [started.value.installId, { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' }],
     ]);
     await expect(runSteps([koala], { ready: false }, install('another-install'))).rejects.toThrow('root did not take this machine\'s progress (404): no such install of Koala on this machine');
+  });
+
+  describe('the join following root putting Koala on the machine, over root\'s real follow route', () => {
+    const settledOn = async (following: Promise<unknown>, what: () => boolean): Promise<void> => {
+      let ended: { how: string } | undefined;
+      following.then((end) => { ended = { how: `ended ${String(end)}` }; }, (err: Error) => { ended = { how: `failed: ${err.message}` }; });
+      while (!what()) {
+        if (ended) throw new Error(`the follow ${ended.how} before what the test waits for`);
+        await new Promise((done) => setTimeout(done, 10));
+      }
+    };
+
+    async function joinedWithKoala(name?: string) {
+      const world = await root();
+      const { code } = await world.accounts.createJoinCode('bo', name);
+      const ctx = await joinContext(world.url, code);
+      await runSteps([joinRootStep(world.url)], ctx, memoryReporter());
+      const said: string[] = [];
+      const following = followInstall({
+        rootUrl: world.url, token: ctx.joined!.token, fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
+        interrupted: new AbortController().signal, wait: { pause: async () => undefined },
+      });
+      return { ...world, deviceId: ctx.joined!.deviceId, said, following };
+    }
+
+    async function heard(world: Awaited<ReturnType<typeof root>>, installId: string, progress: MachineProgress, setUp = false): Promise<void> {
+      const instance = await world.instances.installOf(installId);
+      const at = new Date().toISOString();
+      const patch = stageHeard({ ...instance!.install!, ...(setUp ? { setUp: true } : {}) }, progress, 'desk', at);
+      await world.db.instances.updateInstall(instance!.id, installId, installFields(patch, at));
+    }
+
+    it('prints each stage and line root records, from waiting for the machine to join the mesh until Koala is ready', async () => {
+      const world = await joinedWithKoala('bobby');
+      await world.accounts.recordMeshIp(world.deviceId, '100.64.0.7');
+      const delivered = await world.accounts.deliverKoala(world.deviceId);
+      expect(delivered).toEqual({ ok: true, value: { placing: true } });
+      const installId = (await world.db.instances.getInstances('bo'))[0]!.install!.id;
+      await settledOn(world.following, () => world.said.includes('# Putting Koala on this machine'));
+      await heard(world, installId, { stage: 'chart', title: 'Installing Koala\'s chart', state: 'started', line: 'waiting for deployment/koala' });
+      await settledOn(world.following, () => world.said.includes('  waiting for deployment/koala'));
+      await heard(world, installId, { stage: 'koala', title: 'Koala', state: 'done', url: 'http://100.64.0.7:30320' }, true);
+      expect(await world.following).toBe('ready');
+      expect(world.said).toEqual(['# Putting Koala on this machine', 'Installing Koala\'s chart', '  waiting for deployment/koala', 'Koala is ready at http://100.64.0.7:30320']);
+    });
+
+    it('ends with why when root will not put Koala on the machine, and has nothing to follow when the join asked for none', async () => {
+      const refused = await joinedWithKoala('bobby');
+      await refused.db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: 'https://laptop.koala.test', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: 'ready', machine: 'laptop', machineId: 'laptop' });
+      await refused.accounts.recordMeshIp(refused.deviceId, '100.64.0.7');
+      expect(await refused.accounts.deliverKoala(refused.deviceId)).toMatchObject({ ok: false, status: 409 });
+      expect(await refused.following).toBe('stopped');
+      expect(refused.said).toEqual(['your Koala is on laptop; moving it is a step of its own']);
+
+      const plain = await joinedWithKoala();
+      expect(await plain.following).toBe('none');
+      expect(plain.said).toEqual([]);
+    });
+
+    it('is refused a token that is not a machine\'s', async () => {
+      const world = await root();
+      await expect(followInstall({ rootUrl: world.url, token: 'not-a-machine', fetch, say: () => undefined, section: () => undefined, interrupted: new AbortController().signal }))
+        .rejects.toThrow('root would not say how putting Koala on this machine goes (401): this machine is not one of Koala\'s: run the command from My Machines again');
+    });
   });
 });

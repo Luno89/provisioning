@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { Command } from '@koala/provision';
 import { fakeCommands, type Answer, type FakeCommands } from '@koala/provision/testing';
+import { KOALA_INSTALL_FOLLOW_PATH } from '@koala/engine-core/koala-install';
 import type { JoinHost } from '../join/host.js';
 
 export interface WorldOptions {
@@ -14,6 +15,7 @@ export interface WorldOptions {
   refuse?: (command: Command) => Answer | undefined;
   root?: (body: Record<string, unknown>) => { status: number; body: unknown };
   downloads?: Record<string, string>;
+  following?: (followed: number, signal: AbortSignal | undefined) => Response;
 }
 
 export const HOME = '/home/ada';
@@ -28,6 +30,7 @@ export interface World {
   executables: Set<string>;
   modes: Map<string, number>;
   joins: Record<string, unknown>[];
+  follows: Array<string | undefined>;
   ran(): string[];
   sudo(): string[];
   service: { enabled: boolean; activeSince: number | undefined };
@@ -43,6 +46,7 @@ export function joinWorld(options: WorldOptions = {}): World {
   const modes = new Map<string, number>();
   const modified = new Map<string, number>();
   const joins: Record<string, unknown>[] = [];
+  const follows: Array<string | undefined> = [];
   let clock = 1_000;
   const tick = () => { clock += 10; };
   const put = (file: string, content: string, executable = false) => {
@@ -122,13 +126,16 @@ export function joinWorld(options: WorldOptions = {}): World {
   const commands = fakeCommands(answer);
 
   const fetcher = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if (String(input).endsWith(KOALA_INSTALL_FOLLOW_PATH)) {
+      follows.push(new Headers(init?.headers).get('authorization') ?? undefined);
+      return options.following?.(follows.length, init?.signal ?? undefined) ?? new Response(null, { status: 204 });
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     joins.push(body);
     const replied = options.root?.(body) ?? {
       status: 200,
       body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'hskey-the-mesh-key', KOALA_REGISTRY: 'registry.root.test:5000', KOALA_AGENT_SHA256: 'a'.repeat(64) } },
     };
-    void input;
     return new Response(typeof replied.body === 'string' ? replied.body : JSON.stringify(replied.body), { status: replied.status });
   }) as typeof fetch;
 
@@ -175,6 +182,7 @@ export function joinWorld(options: WorldOptions = {}): World {
     executables,
     modes,
     joins,
+    follows,
     ran: () => commands.ran.map(argvOf),
     sudo: () => commands.ran.filter((command) => command.sudo).map(argvOf),
     service,

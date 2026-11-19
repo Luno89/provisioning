@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { memoryReporter, type MemoryReporter } from '@koala/provision/testing';
 import { K3S_BINARY, K3S_MARKER, K3S_UNINSTALL } from '../machine-cluster.js';
 import { AGENT_DIR, archive, HOME, joinWorld, NODE, type World, type WorldOptions } from '../testing/join-world.js';
-import { runJoin } from './join.js';
+import { runJoin, type JoinDeps } from './join.js';
 import { K3S_CONFIG, K3S_FIREWALL, K3S_NODE_PORTS_FILE, K3S_REGISTRIES, K3S_SUDOERS, MACHINE_UNINSTALL_SCRIPT } from './k3s-files.js';
 import { joinPins } from './pins.js';
 
@@ -25,7 +25,7 @@ const machine = (options: WorldOptions = {}): World => joinWorld({
   files: { [`${AGENT_DIR}/bundle.sha256`]: `${'a'.repeat(64)}\n`, ...options.files },
 });
 
-async function join(world: World, argv: string[], answers: Record<string, boolean> = {}): Promise<Ran> {
+async function join(world: World, argv: string[], answers: Record<string, boolean> = {}, more: Partial<JoinDeps> = {}): Promise<Ran> {
   let said = '';
   const root = memoryReporter();
   const asked: string[] = [];
@@ -50,6 +50,8 @@ async function join(world: World, argv: string[], answers: Record<string, boolea
     setUpAgents: async (choice, folder) => { agents.push(`${choice} in ${folder}`); },
     rootReporter: () => root,
     every: () => ({ stop: () => undefined }),
+    followWait: { pause: async () => undefined },
+    ...more,
   });
   world.tick();
   return { code, said, root, asked, agents };
@@ -305,5 +307,126 @@ describe('a join that fails', () => {
     expect(ran.code).toBe(1);
     expect(ran.said).toContain('Tailscale gives this machine no private address, so Koala could not reach its cluster');
     expect(world.files.has(K3S_CONFIG)).toBe(false);
+  });
+});
+
+describe('following root putting Koala on the machine it joined', () => {
+  const AT = '2026-11-18T10:00:00.000Z';
+  const install = (state: string, more: Record<string, string> = {}) => ({ id: 'install-1', machineId: 'device-1', state, at: AT, ...more });
+  const event = (body: unknown, kind?: string): string => `${kind ? `event: ${kind}\n` : ''}data: ${JSON.stringify(body)}\n\n`;
+  const CHART = 'Installing Koala\'s chart';
+  const streamed = (...parts: Array<string | Error>) => new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) {
+        if (part instanceof Error) {
+          controller.error(part);
+          return;
+        }
+        controller.enqueue(new TextEncoder().encode(part));
+      }
+      controller.close();
+    },
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  const linux = (following: WorldOptions['following']) => machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'], ...(following ? { following } : {}) });
+  const lastLine = (said: string): string => said.trimEnd().split('\n').at(-1)!.trim();
+
+  it('prints each stage and line root records, with the machine\'s own token, ending when Koala is ready', async () => {
+    const world = linux(() => streamed(
+      ': beat\n\n',
+      event({ install: install('asked') }),
+      event({ install: install('installing', { stage: 'chart', title: CHART, line: 'waiting for deployment/koala' }) }),
+      event({ install: install('installing', { stage: 'chart', title: CHART, line: 'deployment/koala is 1 of 1 ready' }) }),
+      event({ install: install('ready', { stage: 'koala', title: 'Koala' }), url: 'https://bobby.koala.app' }),
+    ));
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(world.follows).toEqual(['Bearer token-1']);
+    const after = ran.said.slice(ran.said.indexOf('Putting Koala on this machine'));
+    expect(after.split('\n').map((line) => line.trim()).filter(Boolean)).toEqual([
+      'Putting Koala on this machine',
+      CHART,
+      'waiting for deployment/koala',
+      'deployment/koala is 1 of 1 ready',
+      'Koala is ready at https://bobby.koala.app',
+    ]);
+    expect(ran.said).not.toContain('This machine shows on My Machines in a moment');
+  });
+
+  it('ends with the stage it stopped at and why, failing, when the install failed', async () => {
+    const world = linux(() => streamed(
+      event({ install: install('installing', { stage: 'chart', title: CHART }) }),
+      event({ install: install('failed', { stage: 'chart', title: CHART, why: 'the image could not be pulled' }) }),
+    ));
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(lastLine(ran.said)).toBe(`Putting Koala on this machine stopped at ${CHART}: the image could not be pulled`);
+  });
+
+  it('says a move is a move', async () => {
+    const world = linux(() => streamed(event({ install: { ...install('failed', { stage: 'keys', title: 'Bringing your keys', why: 'the pool copy is gone' }), move: true } })));
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(lastLine(ran.said)).toBe('Moving your Koala to this machine stopped at Bringing your keys: the pool copy is gone');
+  });
+
+  it('fails saying why when root would not put Koala on the machine', async () => {
+    const world = linux(() => streamed(event({ why: 'your Koala is on laptop; moving it is a step of its own' }, 'stopped')));
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(lastLine(ran.said)).toBe('your Koala is on laptop; moving it is a step of its own');
+  });
+
+  it('follows again when the connection drops, printing nothing twice, until the install ends', async () => {
+    const waiting = event({ install: install('installing', { stage: 'chart', title: CHART, line: 'waiting for deployment/koala' }) });
+    const world = linux((followed) => {
+      if (followed === 1) return streamed(waiting, new Error('other side closed'));
+      if (followed === 2) return new Response('root is restarting', { status: 503 });
+      return streamed(waiting, event({ install: install('ready', { stage: 'koala', title: 'Koala' }), url: 'https://bobby.koala.app' }));
+    });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(world.follows).toHaveLength(3);
+    expect(ran.said.match(/waiting for deployment\/koala/g)).toHaveLength(1);
+    expect(ran.said).toContain('The connection to root dropped (other side closed); following again');
+    expect(lastLine(ran.said)).toBe('Koala is ready at https://bobby.koala.app');
+  });
+
+  it('stops only the watching on Ctrl-C, saying putting Koala on the machine carries on', async () => {
+    let interrupt = (): void => undefined;
+    let released = false;
+    const world = linux((_followed, signal) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(event({ install: install('installing', { stage: 'chart', title: CHART }) })));
+        signal?.addEventListener('abort', () => { controller.error(signal.reason); });
+        setImmediate(() => { interrupt(); });
+      },
+    }), { status: 200 }));
+    const ran = await join(world, ['--yes', 'the-code'], {}, { onInterrupt: (stop) => { interrupt = stop; return () => { released = true; }; } });
+    expect(ran.code).toBe(130);
+    expect(lastLine(ran.said)).toBe('Putting Koala on this machine carries on; My Machines shows it');
+    expect(released).toBe(true);
+  });
+
+  it('ends as before when the join asked for no Koala', async () => {
+    const world = linux(undefined);
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(0);
+    expect(world.follows).toEqual(['Bearer token-1']);
+    expect(ran.said).not.toContain('Putting Koala on this machine');
+    expect(ran.said).toContain('This machine shows on My Machines in a moment');
+  });
+
+  it('fails saying what root answered when it will not let the machine follow', async () => {
+    const world = linux(() => new Response('this machine is not one of Koala\'s: run the command from My Machines again', { status: 401 }));
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain('root would not say how putting Koala on this machine goes (401): this machine is not one of Koala\'s: run the command from My Machines again');
+  });
+
+  it('follows nothing when the service was not set up, since nothing runs to put Koala there', async () => {
+    const world = linux(() => { throw new Error('followed with no service'); });
+    const ran = await join(world, ['--yes', '--no-service', 'the-code']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(world.follows).toEqual([]);
   });
 });

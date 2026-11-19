@@ -5,6 +5,7 @@ import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
+import { FOLLOW_GONE, followingEnded, installFollowing, type InstallFollowing } from '../lib/koala-install-following.js';
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
 
@@ -27,6 +28,20 @@ export interface InstallWorkflows {
   cancel(installId: string): Promise<void>;
 }
 
+export interface InstallFollower {
+  told(following: InstallFollowing): void;
+  broke(err: Error): void;
+}
+
+interface Following {
+  deviceId: string;
+  listener: InstallFollower;
+  last?: string | undefined;
+  looking: Promise<void>;
+  over: boolean;
+  stop(): void;
+}
+
 export interface KoalaInstallsDeps {
   devices(): Promise<LocalAgentDeviceMetadata[]>;
   places(): InstallPlaces | undefined;
@@ -46,6 +61,7 @@ const reasonOf = (err: unknown): string => (err instanceof Error ? err.message :
 
 export class KoalaInstalls {
   private readonly relayed = new Map<string, string>();
+  private readonly following = new Map<string, Set<Following>>();
 
   constructor(private readonly deps: KoalaInstallsDeps) {}
 
@@ -75,22 +91,80 @@ export class KoalaInstalls {
       const why = `root could not start putting Koala on ${device.name}: ${reasonOf(err)}`;
       await refused({ ok: false, status: 503, error: why });
       await places.installNotStarted(placed.value.instanceId, installId, why);
-      this.deps.toOwner.installChanged(ownerId);
+      this.changed(ownerId);
       return { ok: false, status: 503, error: why };
     }
-    this.deps.toOwner.installChanged(ownerId);
+    this.changed(ownerId);
     return { ok: true, value: { installId } };
   }
 
-  async report(installId: string, token: string | undefined, body: unknown): Promise<Outcome<{ recorded: true }>> {
+  async follow(token: string | undefined, listener: InstallFollower): Promise<Outcome<{ stop(): void }>> {
+    const device = await this.deviceOf(token);
+    if (!device.ok) return device;
+    if (!this.deps.places()) return { ok: false, status: 503, error: NO_PLACES };
+    const ownerId = device.value.ownerId;
+    const followers = this.following.get(ownerId) ?? new Set<Following>();
+    const follower: Following = {
+      deviceId: device.value.id,
+      listener,
+      looking: Promise.resolve(),
+      over: false,
+      stop: () => {
+        follower.over = true;
+        followers.delete(follower);
+        if (followers.size === 0 && this.following.get(ownerId) === followers) this.following.delete(ownerId);
+      },
+    };
+    followers.add(follower);
+    this.following.set(ownerId, followers);
+    this.look(follower);
+    return { ok: true, value: { stop: follower.stop } };
+  }
+
+  wake(ownerId: string): void {
+    for (const follower of [...(this.following.get(ownerId) ?? [])]) this.look(follower);
+  }
+
+  private look(follower: Following): void {
+    const stop = follower.stop;
+    follower.looking = follower.looking.then(async () => {
+      if (follower.over) return;
+      const places = this.deps.places();
+      if (!places) throw new Error(NO_PLACES);
+      const device = (await this.deps.devices()).find((candidate) => candidate.id === follower.deviceId);
+      const read = installFollowing(device, device ? await places.installsOn(device.id) : []);
+      const now: InstallFollowing = read.kind === 'none' && follower.last !== undefined ? { kind: 'stopped', why: FOLLOW_GONE } : read;
+      const said = JSON.stringify(now);
+      if (follower.over || said === follower.last) return;
+      follower.last = said;
+      if (followingEnded(now)) stop();
+      follower.listener.told(now);
+    }).catch((err: unknown) => {
+      stop();
+      follower.listener.broke(err instanceof Error ? err : new Error(String(err)));
+    });
+  }
+
+  private changed(ownerId: string): void {
+    this.deps.toOwner.installChanged(ownerId);
+    this.wake(ownerId);
+  }
+
+  private async deviceOf(token: string | undefined): Promise<Outcome<LocalAgentDeviceMetadata>> {
     if (!token) return { ok: false, status: 401, error: 'send this machine\'s own token as the bearer credential' };
     const match = matchDeviceToken(await this.deps.devices(), token, this.now());
     if (!match) return { ok: false, status: 401, error: 'this machine is not one of Koala\'s: run the command from My Machines again' };
     if (match.expired) return { ok: false, status: 401, error: TOKEN_EXPIRED_SAID };
+    return { ok: true, value: match.device };
+  }
+
+  async report(installId: string, token: string | undefined, body: unknown): Promise<Outcome<{ recorded: true }>> {
+    const device = await this.deviceOf(token);
+    if (!device.ok) return device;
     const places = this.deps.places();
     if (!places) return { ok: false, status: 503, error: NO_PLACES };
     const instance = await places.installOf(installId);
-    if (!instance?.install || instance.install.machineId !== match.device.id) return { ok: false, status: 404, error: NO_SUCH_INSTALL };
+    if (!instance?.install || instance.install.machineId !== device.value.id) return { ok: false, status: 404, error: NO_SUCH_INSTALL };
     if (!installUnfinished(instance.install)) return { ok: false, status: 409, error: `that install has ended ${instance.install.state}` };
     const read = progressOf(body, koalaInstallProgress(Boolean(instance.install.move)));
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
@@ -129,7 +203,7 @@ export class KoalaInstalls {
   }
 
   async relay(instance: InstanceRecord): Promise<void> {
-    this.deps.toOwner.installChanged(instance.ownerId);
+    this.changed(instance.ownerId);
     const install = instance.install;
     if (!install?.askedAt || !installUnfinished(install) || this.relayed.get(install.id) === install.askedAt) return;
     this.relayed.set(install.id, install.askedAt);

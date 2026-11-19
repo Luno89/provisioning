@@ -114,6 +114,10 @@ async function joinHere(args: string[]): Promise<number> {
     agentDir: AGENT_DIR,
     node: process.execPath,
     setUpAgents: setUpAgentsIn,
+    onInterrupt: (stop) => {
+      process.once('SIGINT', stop);
+      return () => { process.off('SIGINT', stop); };
+    },
   });
 }
 

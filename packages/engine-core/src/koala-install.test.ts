@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   KOALA_INSTALL_FOLLOW_PATH, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_LAST_STAGE, KOALA_INSTALL_PROGRESS, KOALA_INSTALL_STAGES,
   KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_MOVE_PROGRESS, KOALA_MOVE_STAGES,
-  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages,
+  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages,
   PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
   provisionEnding, provisionReportOf,
 } from './koala-install.js';
@@ -126,5 +126,12 @@ describe('an install as the join follows it from root', () => {
     expect(koalaInstallEnded({ state: 'failed' })).toBe(true);
     expect(koalaInstallEnded({ state: 'asked' })).toBe(false);
     expect(koalaInstallEnded({ state: 'installing' })).toBe(false);
+  });
+
+  it('reads why a follow stopped before any install ended, and refuses anything else', () => {
+    expect(koalaInstallStoppedOf({ why: 'your Koala runs on Koala\'s servers' })).toEqual({ ok: true, why: 'your Koala runs on Koala\'s servers' });
+    for (const raw of [null, 'why', {}, { why: '' }, { why: 'x', more: 1 }]) {
+      expect(koalaInstallStoppedOf(raw)).toEqual({ ok: false, problem: 'a stopped follow sends only "why", a non-empty string' });
+    }
   });
 });
