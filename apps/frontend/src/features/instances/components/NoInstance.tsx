@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Cloud, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
-import { useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
+import { moveUnderWay, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
 import { errorMessage } from '../../../api/client'
 import { useCan } from '../../platform'
 import { MovePanel } from './MovePanel'
@@ -44,7 +44,9 @@ function PausedMove({ setup }: { setup: MySetup }) {
       error={start.error ?? stop.error}
       onStart={() => start.mutate()}
       onStop={() => stop.mutate()}
-    />
+    >
+      {setup.name && <AccountMachines name={setup.name} nameOk hasKoala={moveUnderWay(setup.move)} moving onPlacing={() => undefined} />}
+    </MovePanel>
   )
 }
 
@@ -114,7 +116,7 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
   const [placing, setPlacing] = useState(false)
   const offer = usePoolOffer()
   const startPool = useStartPoolInstance()
-  const setup = useMySetup(placing)
+  const setup = useMySetup(false)
   const ready = useInstanceReady()
   const status = setup.data?.status
   const fixedName = setup.data?.name

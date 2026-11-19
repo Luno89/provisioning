@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Check, Copy, Loader2, Truck } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import type { MoveCommand, MoveView } from '../api/instances'
@@ -11,6 +11,7 @@ export interface MovePanelProps {
   error: unknown
   onStart: () => void
   onStop: () => void
+  children?: ReactNode
 }
 
 const UNDER_WAY: Record<MoveView['state'], string> = {
@@ -21,7 +22,7 @@ const UNDER_WAY: Record<MoveView['state'], string> = {
   failed: 'The move stopped',
 }
 
-export function MovePanel({ move, command, starting, stopping, error, onStart, onStop }: MovePanelProps) {
+export function MovePanel({ move, command, starting, stopping, error, onStart, onStop, children }: MovePanelProps) {
   const [copied, setCopied] = useState(false)
   const active = move && move.state !== 'failed'
   const copy = async () => {
@@ -44,16 +45,17 @@ export function MovePanel({ move, command, starting, stopping, error, onStart, o
           {move.detail && <div className="mt-0.5 text-slate-300">{move.detail}</div>}
         </div>
       )}
+      {children}
       {command && active && (
         <div className="space-y-1">
-          <p className="text-xs text-slate-300">Run this on your machine, as root:</p>
+          <p className="text-xs text-slate-300">Run this on your machine as yourself; it asks for sudo once:</p>
           <div className="flex items-start gap-2">
             <code className="flex-1 break-all rounded-lg bg-slate-900/70 px-3 py-2 text-[11px] text-slate-100">{command.command}</code>
             <button type="button" onClick={() => { void copy() }} aria-label="Copy the move command" className="mt-1 text-slate-400 hover:text-slate-100">
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
           </div>
-          <p className="text-[11px] text-slate-500">It works once, for an hour.</p>
+          <p className="text-[11px] text-slate-500">It works once, until {new Date(command.expiresAt).toLocaleTimeString()}.</p>
         </div>
       )}
       <div className="flex items-center gap-2">

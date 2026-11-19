@@ -23,7 +23,7 @@ describe('moving an instance off Koala\'s servers, from inside it', () => {
     })
     vi.mocked(api.post).mockImplementation(async () => {
       move = { state: 'waiting', startedAt: 'now', detail: 'Waiting for your machine to run the move command' }
-      return { data: { command: 'curl -fsSL https://app.koala.dev/install.sh | sudo sh -s -- abc', expiresAt: 'later' } }
+      return { data: { command: 'curl -fsSL https://app.koala.dev/machine.sh | sh -s -- abc', expiresAt: '2026-11-18T23:00:00.000Z' } }
     })
     vi.mocked(api.delete).mockResolvedValue({ data: { stopping: true } })
   })
@@ -31,7 +31,9 @@ describe('moving an instance off Koala\'s servers, from inside it', () => {
   it('gives the move command, says what it is waiting for, and stops it', async () => {
     show(<InstanceMove />)
     fireEvent.click(await screen.findByRole('button', { name: 'Move to my own machine' }))
-    expect(await screen.findByText('curl -fsSL https://app.koala.dev/install.sh | sudo sh -s -- abc')).toBeInTheDocument()
+    expect(await screen.findByText('curl -fsSL https://app.koala.dev/machine.sh | sh -s -- abc')).toBeInTheDocument()
+    expect(screen.getByText('Run this on your machine as yourself; it asks for sudo once:')).toBeInTheDocument()
+    expect(screen.getByText(`It works once, until ${new Date('2026-11-18T23:00:00.000Z').toLocaleTimeString()}.`)).toBeInTheDocument()
     expect(await screen.findByText('Waiting for your machine')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Stop the move' }))
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/instance-trial/move'))
