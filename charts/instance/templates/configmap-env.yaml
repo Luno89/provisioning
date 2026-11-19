@@ -14,6 +14,9 @@ data:
   {{- with .Values.instance.machineId }}
   INSTANCE_MACHINE_ID: {{ . | quote }}
   {{- end }}
+  {{- if .Values.move.enabled }}
+  KOALA_MOVED_FROM: {{ required "move.fromClusterId is required while it moves: it is the cluster on Koala's servers the move brings this Koala from" .Values.move.fromClusterId | quote }}
+  {{- end }}
   ROOT_URL: {{ .Values.instance.rootUrl | quote }}
   ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
   PUBLIC_URL: {{ required "publicUrl is required: it is the address people reach this instance at" .Values.publicUrl | quote }}

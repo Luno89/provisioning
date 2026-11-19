@@ -14,6 +14,8 @@ import { DownloadModelActivity, type DownloadModelArgs } from './activities/Down
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
+import type { MoveOverDeps } from './activities/move-over.js';
+import { MoveParts } from './instances/index.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
 import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
@@ -36,6 +38,7 @@ export interface ClusterSetup {
   place: ProvisionPlace;
   lines: ProvisionLines;
   provisioner: Provisioner;
+  moveOver: MoveOverDeps;
 }
 
 export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, huggingFace: string = HUGGING_FACE) => ({
@@ -47,7 +50,7 @@ export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, hugg
       DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps, huggingFace),
       VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
       RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
-      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, place: setup.place, lines: setup.lines }),
+      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, place: setup.place, lines: setup.lines, moveOver: setup.moveOver }),
 });
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
@@ -101,6 +104,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),
           provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
+          moveOver: { steps, records: db.infrastructure, parts: (say) => new MoveParts({ root: settings.root, say }) },
         }, settings.tests.huggingFaceUrl),
       });
       break;

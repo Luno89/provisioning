@@ -7,7 +7,7 @@ import { renderChart } from '../../../../../tests/coupling/chart-trace.js';
 import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
 import { podPlaceFrom } from '../../platform/lib/drain.js';
 import { loadKey } from '../../platform/lib/keys.js';
-import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, platformServicesSettingsFrom, selfUpgradeSettingsFrom, setupWaitsSettingsFrom } from '../../platform/lib/settings.js';
+import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, selfUpgradeSettingsFrom, setupWaitsSettingsFrom } from '../../platform/lib/settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
@@ -227,11 +227,12 @@ describe('the instance chart', () => {
     }
   });
 
-  it('owns the cluster it is installed in, and sets up its services there with Jobs of their own on every install and upgrade, each after the one before it, with nothing for helm to wait on', () => {
+  it('owns the cluster it is installed in, and seeds its records with a Job of its own on every install and upgrade, leaving its services to its setup, with nothing for helm to wait on', () => {
     const docs = render();
     expect(find(docs, 'ClusterRoleBinding', 'luno-nowrinkles-owns-cluster').roleRef?.name).toBe('cluster-admin');
+    expect(docs.filter((doc) => doc.kind === 'Job').map((doc) => doc.metadata.name)).toEqual(['luno-seed-1']);
     const after: string[] = [];
-    for (const step of ['platform-services', 'seed']) {
+    for (const step of ['seed']) {
       const job = find(docs, 'Job', `luno-${step}-1`);
       expect(job.metadata.annotations?.['helm.sh/hook']).toBeUndefined();
       expect(job.metadata.labels?.['koala.app/setup']).toBe(step);
@@ -243,8 +244,17 @@ describe('the instance chart', () => {
       expect(waits?.env).toEqual(expect.arrayContaining([{ name: 'SETUP_STEP', value: step }, { name: 'SETUP_AFTER', value: after.join(' ') }]));
       after.push(`luno-${step}-1`);
     }
-    const moving = render(['move.enabled=true']);
-    expect(podOf(find(moving, 'Job', 'luno-move-restore-1')).initContainers?.[0]?.env).toContainEqual({ name: 'SETUP_AFTER', value: 'luno-move-data-1 luno-platform-services-1' });
+  });
+
+  it('while it moves, restores only what needs no service of its own: the data folder, then Mongo with its records and Terraform state renamed from the cluster it moves from, then the seed', () => {
+    const moving = render(['instance.machineId=desk', 'move.enabled=true', 'move.fromClusterId=pool-shop']);
+    expect(moving.filter((doc) => doc.kind === 'Job').map((doc) => doc.metadata.name)).toEqual(['luno-move-data-1', 'luno-move-mongo-1', 'luno-seed-1']);
+    expect(podOf(find(moving, 'Job', 'luno-move-mongo-1')).containers[0]!.args).toEqual(['move-mongo']);
+    expect(podOf(find(moving, 'Job', 'luno-move-mongo-1')).initContainers?.[0]?.env).toContainEqual({ name: 'SETUP_AFTER', value: 'luno-move-data-1' });
+    expect(podOf(find(moving, 'Job', 'luno-seed-1')).initContainers?.[0]?.env).toContainEqual({ name: 'SETUP_AFTER', value: 'luno-move-data-1 luno-move-mongo-1' });
+    expect(find(moving, 'ConfigMap', 'luno-env').data?.KOALA_MOVED_FROM).toBe('pool-shop');
+    expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('KOALA_MOVED_FROM');
+    expect(() => render(['instance.machineId=desk', 'move.enabled=true'])).toThrow(/move.fromClusterId is required while it moves/);
   });
 
   it('runs each process and setup step from a checkout on the machine under a watcher only when dev names one, read-only, the data volume still its own', () => {
@@ -422,7 +432,7 @@ describe('the instance chart', () => {
     expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1 });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
-    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 } });
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 }, root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' } });
     expect(fromSecrets.CRAWL4AI_API_TOKEN).toMatch(/^[A-Za-z0-9]{40}$/);
     expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined });
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
@@ -459,14 +469,12 @@ describe('the instance chart', () => {
     expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
     expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'seed')).mongo).toBeDefined();
-    expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'waits'))).toMatchObject({ step: 'seed', after: ['luno-platform-services-1'], podNamespace: 'nowrinkles', mongo: { dbName: 'provisioning' }, clusters: { here: { koalaMachineId: 'desk' } } });
-    expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services-1')), 'waits'))).toMatchObject({ step: 'platform-services', after: [] });
-    expect(platformServicesSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-platform-services-1')), 'platform-services'))).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: expect.stringMatching(/^[A-Za-z0-9]{40}$/) as unknown, clusters: { here: { koalaMachineId: 'desk' } } });
+    expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'waits'))).toMatchObject({ step: 'seed', after: [], podNamespace: 'nowrinkles', mongo: { dbName: 'provisioning' }, clusters: { here: { koalaMachineId: 'desk' } } });
     expect(loadKey(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-temporal')), 'temporal-jwks'), 'temporal')).toBeDefined();
     expect(podPlaceFrom(environment(fresh, podOf(find(fresh, 'Deployment', 'luno-backend')), 'backend'))).toEqual({ ip: '10.42.0.9', namespace: 'nowrinkles' });
-    const moving = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`, 'move.enabled=true']);
-    for (const step of ['move-data', 'move-restore']) {
-      expect(moveImportSettingsFrom(environment(moving, podOf(find(moving, 'Job', `luno-${step}-1`)), step))).toMatchObject({ rootUrl: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes' } });
+    const moving = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`, 'move.enabled=true', 'move.fromClusterId=pool-shop']);
+    for (const step of ['move-data', 'move-mongo']) {
+      expect(moveImportSettingsFrom(environment(moving, podOf(find(moving, 'Job', `luno-${step}-1`)), step))).toMatchObject({ rootUrl: 'https://app.example.com', instanceId: 'inst-u1', ownerId: 'u1', credential: 'c', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', from: 'pool-shop', onto: 'machine-desk' });
     }
   });
 

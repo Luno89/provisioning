@@ -15,7 +15,7 @@ import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
 
-const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } } };
+const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
 const k3s = await startK3s();
 const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });

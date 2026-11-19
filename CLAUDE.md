@@ -183,6 +183,9 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
   person's own.
 - The join asks for sudo once, for k3s (installed stopped) and, with an NVIDIA GPU, NVIDIA's container toolkit for CDI (owner,
   2026-11-13: "C sounds good"). A k3s of the person's own is left alone.
+- Koala is put on a machine only through the machine join and root's install; a move from the pool is that install carrying the
+  pool's data, and it renames the moved records onto the machine's cluster. While it moves only what needs no service is restored;
+  the rest comes over as the last piece of the provision procedure.
 - The machine's own report is the only source of its GPUs, cores and memory. A machine that has not reported is shown so, never
   guessed.
 - A device token lives 90 days and rotates over the authenticated socket; Koala keeps only its hash.
@@ -225,8 +228,9 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - Koala's own chart is applied by one install step (machine, pool, self-upgrade and dev alike) with helm waiting on nothing; its setup
   steps are ordinary Jobs per revision that wait on what they need, and putting Koala on a machine is a workflow on root that the
   machine's agent carries out (owner, 2026-11-18: "The agent, driven by root").
-- An instance's platform services are CDKTF stacks applied through that same watch, one per service, each taking over what is
-  already there; their secrets live in Secrets Koala makes, which the stacks read by name.
+- A Koala's platform services and monitoring are set up only by the provision procedure: on every new chart revision, when a piece
+  is found missing, and when the person asks; root's ready waits for it. Each service is a CDKTF stack applied through that same
+  watch, taking over what is already there; their secrets live in Secrets Koala makes, which the stacks read by name.
 
 ## Outside dependencies
 

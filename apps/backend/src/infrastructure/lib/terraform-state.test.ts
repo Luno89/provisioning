@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateHomeIn, stateMove, stateSecretName, stateSecretSuffix, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
-
-describe('the Secret Terraform keeps a stack\'s state in on a cluster', () => {
-  it('is named as packages/cdktf-infra names it: the stack\'s own name with -state, or a hash of it where that would not fit a label', () => {
-    expect(stateSecretSuffix('app-machine-desk-40213377')).toBe('app-machine-desk-40213377-state');
-    expect(stateSecretSuffix('App_Desk.1')).toBe('app-desk-1-2e183d88-state');
-    expect(stateSecretSuffix(`app-pool-${'b'.repeat(40)}-40213377`)).toBe(`app-pool-${'b'.repeat(39)}-3e401760-state`);
-    expect(stateSecretName('app-machine-desk-40213377')).toBe('tfstate-default-app-machine-desk-40213377-state');
-  });
-});
+import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
 
 describe('the files a stack keeps its Terraform state in', () => {
   it('is the state and the backup Terraform writes beside it, named for the stack as the CDKTF app names them', () => {

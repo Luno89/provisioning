@@ -242,3 +242,8 @@ export async function retargetCluster(db: Db, from: string, to: string): Promise
   }
   return moved;
 }
+
+export async function appsOnCluster(db: Db, clusterId: string): Promise<string[]> {
+  const deployments = await db.collection<{ deploymentId?: unknown }>('deployments').find({ clusterId }, { projection: { deploymentId: 1 } }).toArray();
+  return deployments.map((deployment) => deployment.deploymentId).filter((id): id is string => typeof id === 'string' && id !== '');
+}

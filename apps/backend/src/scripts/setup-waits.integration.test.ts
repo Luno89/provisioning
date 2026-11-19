@@ -28,11 +28,11 @@ describe('what a setup step waits for, with the instance\'s Mongo and the Jobs o
     const access = cluster();
     await access.kubectl(['create', 'namespace', namespace]);
     const said: string[] = [];
-    const waiting = setupWaitsOn({ step: 'seed', after: ['luno-platform-services-1'], podNamespace: namespace, mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}setup_waits` }) }, access, (line) => said.push(line));
+    const waiting = setupWaitsOn({ step: 'seed', after: ['luno-move-mongo-1'], podNamespace: namespace, mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}setup_waits` }) }, access, (line) => said.push(line));
     const apply = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-setup-waits-apply-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
-    await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-platform-services-1', namespace, 'echo set up'));
+    await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-move-mongo-1', namespace, 'echo set up'));
     await waiting;
-    expect(said).toEqual(['[setup] seed waits for the instance\'s Mongo and for luno-platform-services-1', '[setup] seed may run']);
+    expect(said).toEqual(['[setup] seed waits for the instance\'s Mongo and for luno-move-mongo-1', '[setup] seed may run']);
   }, 300_000);
 
   it('says now and then what it still waits for, with what it last heard, while the step before it has not been made yet', async () => {
@@ -60,8 +60,8 @@ describe('what a setup step waits for, with the instance\'s Mongo and the Jobs o
     await access.kubectl(['create', 'namespace', namespace]);
     const apply = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-setup-waits-apply-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
     await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-move-data-1', namespace, 'exit 3'));
-    await expect(setupWaitsOn({ step: 'move-restore', after: ['luno-move-data-1'], podNamespace: namespace, mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}setup_waits` }) }, access, () => undefined))
-      .rejects.toThrow('luno-move-data-1 failed, so move-restore cannot run after it');
+    await expect(setupWaitsOn({ step: 'move-mongo', after: ['luno-move-data-1'], podNamespace: namespace, mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}setup_waits` }) }, access, () => undefined))
+      .rejects.toThrow('luno-move-data-1 failed, so move-mongo cannot run after it');
   }, 300_000);
 
   it('runs as the instance chart\'s Job runs it, from the settings the chart gives and the pod\'s own account on its cluster', async () => {
@@ -69,14 +69,14 @@ describe('what a setup step waits for, with the instance\'s Mongo and the Jobs o
     const access = cluster();
     await access.kubectl(['create', 'namespace', namespace]);
     const apply = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-setup-waits-apply-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
-    await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-seed-1', namespace, 'echo seeded'));
+    await apply.apply({ clusterId: 'setup', kind: 'machine', kubeconfig: k3s.admin }, job('luno-move-data-1', namespace, 'echo copied'));
     const said: string[] = [];
     await setupWaitsStep({
       ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev',
       ROOT_PUBLIC_KEYS: Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64'),
-      INSTANCE_MACHINE_ID: 'desk', SETUP_STEP: 'move-restore', SETUP_AFTER: 'luno-seed-1', POD_NAMESPACE: namespace, MONGO_URI: `${inject('mongoUri')}setup_waits`,
+      INSTANCE_MACHINE_ID: 'desk', SETUP_STEP: 'move-mongo', SETUP_AFTER: 'luno-move-data-1', POD_NAMESPACE: namespace, MONGO_URI: `${inject('mongoUri')}setup_waits`,
       KUBERNETES_SERVICE_HOST: k3s.account.host, KUBERNETES_SERVICE_PORT: k3s.account.port,
     }, (line) => said.push(line), dirname(k3s.account.caFile));
-    expect(said).toEqual(['[setup] move-restore waits for the instance\'s Mongo and for luno-seed-1', '[setup] move-restore may run']);
+    expect(said).toEqual(['[setup] move-mongo waits for the instance\'s Mongo and for luno-move-data-1', '[setup] move-mongo may run']);
   }, 0);
 });

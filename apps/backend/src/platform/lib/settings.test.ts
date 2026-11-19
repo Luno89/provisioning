@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, operatorCredentialsFrom,
-  platformServicesSettingsFrom, selfUpgradeSettingsFrom, SettingsError,
+  selfUpgradeSettingsFrom, SettingsError,
 } from './settings.js';
 
 const saying = (text: string): unknown => expect.stringContaining(text);
@@ -190,6 +190,12 @@ describe('the settings each worker reads once, at start', () => {
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, KOALA_RELEASE_REVISION: 'seven' }))).toContain('KOALA_RELEASE_REVISION is not a chart revision, a whole number from 1: seven');
   });
 
+  it('gives the cluster worker root and the instance\'s credential there, which the last piece of a moved Koala\'s setup fetches what the move left with', () => {
+    const env = { ...INSTANCE, ...WORKER, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40' };
+    expect(clusterWorkerSettingsFrom(env).root).toEqual({ url: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' });
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, INSTANCE_CREDENTIAL: '' }))).toContain('INSTANCE_CREDENTIAL is not set: it is the instance\'s credential at root, which a moved Koala\'s setup fetches what its move left with');
+  });
+
   it('runs the engine worker only in an instance, with everything its runs reach', () => {
     const env = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
     expect(engineWorkerSettingsFrom(env)).toMatchObject({ temporalMetricsPort: 9467, instanceCredential: 'cred', tenant: { checksApi: TENANT.CHECKS_API_URL } });
@@ -206,17 +212,12 @@ describe('the settings of a step run in an instance\'s pod', () => {
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, RELEASE_NAME: '' }))).toContain('RELEASE_NAME is not set: the self-upgrade CronJob names the release it upgrades');
   });
 
-  it('gives the move its root, Mongo, Gitea and namespace, and refuses one without its namespace', () => {
-    expect(moveImportSettingsFrom({ ...INSTANCE, POD_NAMESPACE: 'nowrinkles' })).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred', podNamespace: 'nowrinkles', registryPullHost: '127.0.0.1:31737', dataDir: '/app/apps/backend/data' });
-    expect(problemsOf(() => moveImportSettingsFrom(INSTANCE))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, where Terraform keeps its state');
-  });
-
-  it('gives the platform services step its cluster, its namespace, its data folder and Crawl4AI\'s token, and refuses a token the chart never makes', () => {
-    const env = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1', CRAWL4AI_API_TOKEN: 'crawlToken40' };
-    expect(platformServicesSettingsFrom(env)).toMatchObject({ podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', terraform: { kind: 'kubernetes', namespace: 'nowrinkles' }, crawl4aiToken: 'crawlToken40', clusters: { here: { koalaMachineId: 'desk' } } });
-    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: '' }))).toContain('CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
-    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: 'a b' }))).toContain('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
-    expect(problemsOf(() => platformServicesSettingsFrom({ ...env, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
+  it('gives the move its root, Mongo, namespace and the cluster it moves from onto this machine\'s, and refuses one without them', () => {
+    const moving = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', KOALA_MOVED_FROM: 'pool-shop' };
+    expect(moveImportSettingsFrom(moving)).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', ownerId: 'owner-1', credential: 'cred', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', from: 'pool-shop', onto: 'machine-desk' });
+    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, where Terraform keeps its state');
+    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, KOALA_MOVED_FROM: '' }))).toContain('KOALA_MOVED_FROM is not set: it is the cluster on Koala\'s servers the move brings this Koala from, whose records and Terraform state are renamed for this machine; the instance chart sets it from move.fromClusterId');
+    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, INSTANCE_MACHINE_ID: '' }))).toContain('INSTANCE_MACHINE_ID is not set: a move brings Koala onto a machine of its own, whose cluster its records are renamed for');
   });
 });
 

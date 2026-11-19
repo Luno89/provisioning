@@ -976,12 +976,8 @@
           "pattern": "HELPER_IMAGE = 'busybox:([0-9.]+)'"
         },
         {
-          "file": "apps/backend/src/scripts/move-import.ts",
-          "pattern": "image: 'busybox:([0-9.]+)'"
-        },
-        {
-          "file": "apps/backend/src/scripts/move-import.ts",
-          "pattern": "--image=busybox:([0-9.]+)"
+          "file": "apps/backend/src/activities/move-over.ts",
+          "pattern": "BUSYBOX = 'busybox:([0-9.]+)'"
         },
         {
           "file": "scripts/root-node/gvisor.sh",

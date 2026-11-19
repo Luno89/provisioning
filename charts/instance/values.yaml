@@ -78,6 +78,7 @@ pool:
 
 move:
   enabled: false
+  fromClusterId: ""
 
 resources: {}
 

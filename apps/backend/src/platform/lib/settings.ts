@@ -18,6 +18,7 @@ import { registrySettingsFrom } from '../../instances/lib/registry-settings.js';
 import type { RegistryHosts } from '../../instances/index.js';
 import { poolSettingsFrom, type PoolSettings } from '../../instances/lib/pool.js';
 import { edgeSettingsFrom, type EdgeSettings } from '../../instances/lib/edge-settings.js';
+import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 import { reachSettingsFrom, type ReachSettings } from '../../instances/lib/instance-reach.js';
 import { movedSettingsFrom, type MovedSettings } from '../../instances/lib/instance-move.js';
 import { unreachableAfterMs } from '../../instances/lib/instance-watch.js';
@@ -202,6 +203,7 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   podNamespace: string;
   crawl4aiToken: string;
   koala: { ownerId: string; revision: number };
+  root: { url: string; instanceId: string; credential: string };
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -586,7 +588,9 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
   const ownerId = role?.instance?.ownerId;
   if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  const credential = role?.instance ? required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which a moved Koala\'s setup fetches what its move left with') : undefined;
+  const root = role?.instance && credential ? { url: role.instance.rootUrl, instanceId: role.instance.id, credential } : undefined;
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId || !root) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -598,6 +602,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     podNamespace,
     crawl4aiToken,
     koala: { ownerId, revision },
+    root,
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
@@ -671,14 +676,14 @@ export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_AC
 export interface MoveImportSettings extends PodStepSettings {
   rootUrl: string;
   instanceId: string;
+  ownerId: string;
   credential: string;
   mongo: MongoTarget;
   dataKey: PlatformKeys['data'];
-  gitea: GiteaSettings;
-  registryPullHost: string;
-  terraform: TerraformStateKind;
   podNamespace: string;
   dataDir: string;
+  from: string;
+  onto: string;
 }
 
 export function moveImportSettingsFrom(env: Env): MoveImportSettings {
@@ -687,33 +692,14 @@ export function moveImportSettingsFrom(env: Env): MoveImportSettings {
   const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance fetches its moved parts from root with');
   const mongo = read.take(() => mongoTarget(env));
   const dataKey = read.take(() => loadKey(env, 'data'));
-  const gitea = read.take(() => giteaSettingsFrom(env));
-  const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
-  const terraform = terraformFrom(read);
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where Terraform keeps its state');
   const dataDir = dataDirFrom(read);
+  const from = required(read, 'KOALA_MOVED_FROM', 'it is the cluster on Koala\'s servers the move brings this Koala from, whose records and Terraform state are renamed for this machine; the instance chart sets it from move.fromClusterId');
+  const machineId = step?.clusters.here.koalaMachineId;
+  if (step && !machineId) read.problems.push('INSTANCE_MACHINE_ID is not set: a move brings Koala onto a machine of its own, whose cluster its records are renamed for');
   const instance = step?.role.instance;
-  return finish(read, 'the move', step && instance && credential && mongo && dataKey && gitea && registryPullHost && terraform && podNamespace && dataDir
-    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey, gitea, registryPullHost, terraform, podNamespace, dataDir }
-    : undefined);
-}
-
-export interface PlatformServicesSettings extends PodStepSettings {
-  terraform: TerraformStateKind;
-  podNamespace: string;
-  dataDir: string;
-  crawl4aiToken: string;
-}
-
-export function platformServicesSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): PlatformServicesSettings {
-  const read = new Reading(env);
-  const step = podStep(read, serviceAccountDir);
-  const terraform = terraformFrom(read);
-  const podNamespace = platformNamespaceFrom(read);
-  const dataDir = dataDirFrom(read);
-  const crawl4aiToken = crawl4aiTokenFrom(read);
-  return finish(read, 'the platform services step', step && terraform && podNamespace && dataDir && crawl4aiToken
-    ? { ...step, terraform, podNamespace, dataDir, crawl4aiToken }
+  return finish(read, 'the move', step && instance && credential && mongo && dataKey && podNamespace && dataDir && from && machineId
+    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, ownerId: instance.ownerId, credential, mongo, dataKey, podNamespace, dataDir, from, onto: machineClusterId(machineId) }
     : undefined);
 }
 
