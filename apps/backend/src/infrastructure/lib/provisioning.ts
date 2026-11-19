@@ -1,5 +1,5 @@
 import {
-  PROVISION_DONE_STAGE, PROVISION_DONE_TITLE, PROVISION_PIECES,
+  PROVISION_DONE_STAGE, PROVISION_DONE_TITLE, PROVISION_MOVED_PIECE, PROVISION_PIECES,
   type ProvisioningView, type ProvisionPieceKey, type ProvisionPieceView, type ProvisionReason, type ProvisionReport, type ProvisionRootRefusal, type ProvisionTarget,
 } from '@koala/engine-core/koala-install';
 import { boundedLine, boundedWhy, type MachineProgress } from '@koala/engine-core/machine-progress';
@@ -53,12 +53,29 @@ export const provisionPieceWorkflowId = (runId: string, piece: ProvisionPieceKey
 
 const nameOf = (target: ProvisionTarget): string => (target.kind === 'machine' ? target.machine : target.clusterId);
 
-export function piecesFor(target: ProvisionTarget): ProvisionPieceView[] {
-  if (target.kind === 'machine') return [{ key: 'monitoring', title: `${target.machine}'s collector`, state: 'waiting' }];
-  return PROVISION_PIECES.map((piece) => ({ key: piece.key, title: piece.title, state: 'waiting' }));
+export const MOVE_IN_ID = 'move-in';
+
+export interface MoveIn {
+  id: typeof MOVE_IN_ID;
+  ownerId: string;
+  from: string;
+  onto: string;
+  at: string;
+  broughtAt?: string;
 }
 
-export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string }): ProvisioningRecord {
+const bringsOver = (target: ProvisionTarget, moveIn: MoveIn | undefined): boolean =>
+  target.kind === 'koala' && moveIn !== undefined && moveIn.broughtAt === undefined && moveIn.onto === target.clusterId;
+
+export const broughtOver = (moveIn: MoveIn, at: string): MoveIn => ({ ...moveIn, broughtAt: at });
+
+export function piecesFor(target: ProvisionTarget, moveIn?: MoveIn): ProvisionPieceView[] {
+  if (target.kind === 'machine') return [{ key: 'monitoring', title: `${target.machine}'s collector`, state: 'waiting' }];
+  const pieces: ProvisionPieceView[] = PROVISION_PIECES.map((piece) => ({ key: piece.key, title: piece.title, state: 'waiting' }));
+  return bringsOver(target, moveIn) ? [...pieces, { key: PROVISION_MOVED_PIECE.key, title: PROVISION_MOVED_PIECE.title, state: 'waiting' }] : pieces;
+}
+
+export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string; moveIn?: MoveIn | undefined }): ProvisioningRecord {
   return {
     id: given.runId,
     runId: given.runId,
@@ -67,7 +84,7 @@ export function openedRecord(given: { ownerId: string; target: ProvisionTarget; 
     revision: given.revision,
     reason: given.reason,
     state: 'running',
-    pieces: piecesFor(given.target),
+    pieces: piecesFor(given.target, given.moveIn),
     startedAt: given.at,
   };
 }

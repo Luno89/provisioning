@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
-import type { ProvisioningRecord } from './lib/provisioning.js';
+import { MOVE_IN_ID, type MoveIn, type ProvisioningRecord } from './lib/provisioning.js';
 
 export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
 
@@ -68,6 +68,8 @@ export interface InfrastructureStore extends AreaStore {
   openProvisioning(record: ProvisioningRecord): Promise<ProvisioningOpened>;
   patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning?: boolean): Promise<ProvisioningRecord | undefined>;
   watchProvisioning(on: (record: ProvisioningRecord) => void): Watching;
+  getMoveIn(): Promise<MoveIn | undefined>;
+  saveMoveIn(moveIn: MoveIn): Promise<void>;
 }
 
 type Stored = { _id: string } & Document;
@@ -116,6 +118,10 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   private get provisioning(): Collection<Stored> {
     return this.db().collection<Stored>('provisioning');
+  }
+
+  private get movesIn(): Collection<Stored> {
+    return this.db().collection<Stored>('movesIn');
   }
 
   private get serverOrders(): Collection<Stored> {
@@ -333,6 +339,15 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   watchProvisioning(on: (record: ProvisioningRecord) => void): Watching {
     return watchWrites(() => this.provisioning, {}, (doc) => on(fromDoc<ProvisioningRecord>(doc)));
+  }
+
+  async getMoveIn(): Promise<MoveIn | undefined> {
+    const doc = await this.movesIn.findOne({ _id: MOVE_IN_ID });
+    return doc ? fromDoc<MoveIn>(doc) : undefined;
+  }
+
+  async saveMoveIn(moveIn: MoveIn): Promise<void> {
+    await this.movesIn.replaceOne({ _id: moveIn.id }, fieldsOf(moveIn), { upsert: true });
   }
 
   async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {

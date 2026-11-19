@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { mock } from 'vitest-mock-extended';
 import type { ProvisioningView, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
-import { openedRecord, pieceHeard, provisionWorkflowId, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
+import { broughtOver, MOVE_IN_ID, openedRecord, pieceHeard, provisionWorkflowId, setUpProgress, type MoveIn, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
 import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
 
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
 const LAB: ProvisionTarget = { kind: 'machine', clusterId: 'machine-lab', machine: 'lab', deviceId: 'device-lab' };
 
-function setUp(given: { revision?: number } = {}) {
+function setUp(given: { revision?: number; tellAgain?: Reopening } = {}) {
   const store = new MemoryInfrastructureStore();
   const started: ProvisionRunInput[] = [];
   const endings = new Map<string, (why: string) => void>();
@@ -42,6 +43,7 @@ function setUp(given: { revision?: number } = {}) {
     },
     log: (line) => { logged.push(line); },
     now: () => new Date(clock += 1000),
+    ...(given.tellAgain ? { tellAgain: given.tellAgain } : {}),
   });
   const end = (workflowId: string, why: string) => {
     const ending = endings.get(workflowId);
@@ -181,6 +183,25 @@ describe('setting Koala up after its chart', () => {
     await provisioning.close();
   });
 
+  it('brings over what a move left as the last piece of each run on the cluster it moved onto, until it is brought over', async () => {
+    const { provisioning, store } = setUp({ revision: 4 });
+    const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'owner-1', from: 'pool-shop', onto: KOALA.clusterId, at: '2026-11-18T09:00:00.000Z' };
+    await store.saveMoveIn(moveIn);
+    await provisioning.start();
+    const [first] = await store.getProvisioning(KOALA.clusterId);
+    expect(first!.pieces.map((piece) => piece.key).at(-1)).toBe('moved');
+    expect((await provisioning.ensure(LAB, 'missing')).pieces.map((piece) => piece.key)).toEqual(['monitoring']);
+
+    await store.patchProvisioning(first!.id, { state: 'failed', why: 'Bringing over your repositories, vault and apps: root would not give gitea-db', endedAt: '2026-11-18T10:30:00.000Z' });
+    expect((await provisioning.ensure(KOALA, 'asked')).pieces.map((piece) => piece.key).at(-1)).toBe('moved');
+
+    const [, again] = await store.getProvisioning(KOALA.clusterId);
+    await store.patchProvisioning(again!.id, { state: 'up', endedAt: '2026-11-18T10:40:00.000Z' });
+    await store.saveMoveIn(broughtOver(moveIn, '2026-11-18T10:39:00.000Z'));
+    expect((await provisioning.ensure(KOALA, 'asked')).pieces.map((piece) => piece.key)).not.toContain('moved');
+    await provisioning.close();
+  });
+
   it('starts one run when two ask at once', async () => {
     const { provisioning, started } = setUp();
     const [one, two] = await Promise.all([provisioning.ensure(KOALA, 'missing'), provisioning.ensure(KOALA, 'asked')]);
@@ -317,6 +338,34 @@ describe('setting Koala up after its chart', () => {
 
     expect(reported.map((report) => `${report.progress.stage} ${report.progress.state}`)).toEqual(['egress started', 'egress done']);
     expect((await store.getProvisioningRun(opened!.id))?.root).toBeUndefined();
+  });
+
+  it('shows on the card that its setup could not be read to tell root how it goes, and tells root once it can, though nothing changes after it', async () => {
+    const { provisioning, store, reported, rootHeard, toldWhen } = setUp({ revision: 4, tellAgain: reopening(20) });
+    await provisioning.start();
+    const [opened] = await store.getProvisioning(KOALA.clusterId);
+    const read = store.getProvisioningRun.bind(store);
+    let broken = true;
+    vi.spyOn(store, 'getProvisioningRun').mockImplementation(async (id) => {
+      if (broken) throw new Error('connection 3 to mongo:27017 closed');
+      return read(id);
+    });
+    const why = 'Koala could not read or write this setup to tell root how it goes: connection 3 to mongo:27017 closed';
+    let shown = false;
+    const cleared = toldWhen((view) => {
+      if (view.root?.why === why) shown = true;
+      return shown && view.root === undefined;
+    });
+    const started = pieceHeard(opened!, { stage: 'egress', title: 'The egress proxy', state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }, '2026-11-18T10:00:30.000Z');
+    await store.patchProvisioning(opened!.id, { pieces: started.pieces });
+    await toldWhen((view) => view.id === opened!.id && view.pieces[0]?.state === 'working' && view.root?.why === why);
+    expect(reported).toEqual([]);
+
+    broken = false;
+    await rootHeard(1);
+    await cleared;
+    await provisioning.close();
+    expect(reported.map((report) => `${report.progress.stage} ${report.progress.state}`)).toEqual(['egress started']);
   });
 
   it('starts the run another process asked for by opening its record, once, while Koala is running', async () => {

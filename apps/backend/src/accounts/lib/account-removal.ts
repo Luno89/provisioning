@@ -104,7 +104,7 @@ export const ACCOUNT_DATA = {
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'clientSessions', 'evalScenarios', 'fileShares', 'giteaTokensToRevoke', 'hubLinks', 'instanceJoinTokens', 'instanceWatches', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests',
-    'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'passwordResets', 'pendingApprovals', 'planProposals',
+    'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'movesIn', 'odooReleases', 'passwordResets', 'pendingApprovals', 'planProposals',
     'procedures', 'projects', 'provisioning', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
     'scriptedRequests', 'storedFiles', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],

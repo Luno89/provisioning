@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, provisionReportOf, type ProvisionTarget } from '@koala/engine-core/koala-install';
+import { PROVISION_DONE_STAGE, PROVISION_MOVED_PIECE, PROVISION_PIECES, PROVISION_PROGRESS, provisionReportOf, type ProvisionTarget } from '@koala/engine-core/koala-install';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { PLATFORM_PLAN } from './platform-provision.js';
 import {
-  openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId,
+  broughtOver, MOVE_IN_ID, openedRecord, pieceHeard, type MoveIn, pieceProgress, piecesFor, progressSince, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId,
   provisionWorkflowId, recordedOn, rootReportOf, runEnded, setUpProgress, startDecision, type HeardPatch, type ProvisioningRecord,
 } from './provisioning.js';
 
@@ -20,6 +20,17 @@ describe('what a Koala sets up, and for which cluster', () => {
     expect(piecesFor(KOALA).map((piece) => piece.key)).toEqual(PROVISION_PIECES.map((piece) => piece.key));
     expect(piecesFor(KOALA).filter((piece) => piece.key !== 'monitoring').map((piece) => piece.key)).toEqual(PLATFORM_PLAN.map((service) => service.key));
     expect(piecesFor(KOALA).every((piece) => piece.state === 'waiting')).toBe(true);
+  });
+
+  it('brings over what a move left as its last piece, only on the cluster the move came onto and only until it is brought over', () => {
+    const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'owner-1', from: 'pool-shop', onto: 'machine-desk', at: AT };
+    expect(piecesFor(KOALA, moveIn).map((piece) => piece.key)).toEqual([...PROVISION_PIECES.map((piece) => piece.key), PROVISION_MOVED_PIECE.key]);
+    expect(piecesFor(KOALA, moveIn).at(-1)).toEqual({ key: 'moved', title: 'Bringing over your repositories, vault and apps', state: 'waiting' });
+    expect(piecesFor(KOALA, { ...moveIn, broughtAt: LATER })).toEqual(piecesFor(KOALA));
+    expect(piecesFor({ kind: 'koala', clusterId: 'machine-lab' }, moveIn)).toEqual(piecesFor({ kind: 'koala', clusterId: 'machine-lab' }));
+    expect(piecesFor(OTHER, moveIn)).toEqual(piecesFor(OTHER));
+    expect(opened({ moveIn }).pieces.at(-1)?.key).toBe('moved');
+    expect(broughtOver(moveIn, LATER)).toEqual({ ...moveIn, broughtAt: LATER });
   });
 
   it('sets up only the collector on another of the person\'s machines, named for that machine', () => {

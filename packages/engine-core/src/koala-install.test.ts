@@ -3,7 +3,7 @@ import {
   KOALA_INSTALL_FOLLOW_PATH, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_LAST_STAGE, KOALA_INSTALL_PROGRESS, KOALA_INSTALL_STAGES,
   KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_MOVE_PROGRESS, KOALA_MOVE_STAGES,
   koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages,
-  PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
+  PROVISION_DONE_STAGE, PROVISION_MOVED_PIECE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
   provisionEnding, provisionReportOf,
 } from './koala-install.js';
 import { progressCases, progressOf } from './machine-progress.js';
@@ -22,8 +22,14 @@ describe('the pieces a Koala sets up after its chart, as its card and root name 
     }
   });
 
+  it('bring over what a move left, after every other piece, only on a Koala that moved', () => {
+    expect(PROVISION_MOVED_PIECE).toEqual({ key: 'moved', title: 'Bringing over your repositories, vault and apps' });
+    expect(PROVISION_PIECES.map((piece) => piece.key)).not.toContain(PROVISION_MOVED_PIECE.key);
+    expect(provisionReportOf({ revision: 3, progress: { stage: 'moved', title: PROVISION_MOVED_PIECE.title, state: 'started', line: 'Copying its secrets' } })).toMatchObject({ ok: true });
+  });
+
   it('end on a stage of their own that no piece and no stage of the machine\'s install uses', () => {
-    const named: string[] = [...PROVISION_PIECES.map((piece) => piece.key), ...new Set([...KOALA_INSTALL_STAGES, ...KOALA_MOVE_STAGES])];
+    const named: string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_MOVED_PIECE.key, ...new Set([...KOALA_INSTALL_STAGES, ...KOALA_MOVE_STAGES])];
     expect(named).not.toContain(PROVISION_DONE_STAGE);
     expect(new Set(named).size).toBe(named.length);
   });
@@ -53,7 +59,7 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
       expect(provisionReportOf({ revision, progress: working })).toEqual({ ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' });
     }
     expect(provisionReportOf({ revision: 3, progress: { ...working, url: 'https://bo.koala.app' } })).toEqual({ ok: false, problem: 'only "stage", "title", "state", "why" and "line" are taken, not "url"' });
-    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring or set-up' });
+    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring, moved or set-up' });
     for (const state of ['started', 'failed'] as const) {
       expect(provisionReportOf({ revision: 3, progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state, ...(state === 'failed' ? { why: 'x' } : {}) } }))
         .toEqual({ ok: false, problem: 'the "set-up" stage is only ever done: a piece that fails says so itself' });

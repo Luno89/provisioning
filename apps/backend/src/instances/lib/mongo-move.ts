@@ -100,6 +100,7 @@ export type StoredShapes = Shaped<{
   monitoringAlertEpisodes: Written<'monitoring', 'saveAlertEpisode'>;
   monitoringAlertRules: Written<'monitoring', 'saveAlertRule'>;
   monitoringSettings: Written<'monitoring', 'saveMonitoringSetting'>;
+  movesIn: Written<'infrastructure', 'saveMoveIn'>;
   odooReleases: Written<'releases', 'saveOdooRelease'>;
   passwordResets: Written<'accounts', 'savePasswordReset'>;
   pendingApprovals: Written<'infrastructure', 'savePendingApproval'>;

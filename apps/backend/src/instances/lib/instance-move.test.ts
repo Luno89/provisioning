@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, checkMoveToken, trustedKeys, publicKeyPem } from './identity-token.js';
-import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedRecord, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE } from './instance-move.js';
+import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedRecord, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE, retargetedStateSecrets } from './instance-move.js';
 import { kubeAccessFrom, serviceProxyPath } from './kubeconfig-access.js';
 
 const KEYS = { SESSION_KEY: 'a'.repeat(64), DATA_KEY: 'b'.repeat(64), PAYLOAD_KEY: 'c'.repeat(64), EGRESS_KEY: 'd'.repeat(64) };
+
+describe('the Terraform state a move brings onto the machine', () => {
+  const secret = (suffix: string, data = 'c2hlbGY=') => ({
+    apiVersion: 'v1', kind: 'Secret', type: 'Opaque', data: { tfstate: data },
+    metadata: { name: `tfstate-default-${suffix}`, labels: { tfstate: 'true', tfstateSecretSuffix: suffix, tfstateWorkspace: 'default', 'app.kubernetes.io/managed-by': 'terraform' } },
+  });
+  const long = `pool-${'b'.repeat(40)}`;
+
+  it('names the state of each app on the pool\'s cluster for the machine\'s cluster, since an app\'s stack is named after its cluster, and leaves every other stack\'s state as it came', () => {
+    const carried = [
+      secret('app-pool-shop-40213377-state', 'c2hvcA=='),
+      secret('platform-gitea-state'),
+      secret('app-machine-lab-11111111-state'),
+      secret('app-pool-shop-99999999-state'),
+    ];
+    expect(retargetedStateSecrets(carried, { from: 'pool-shop', onto: 'machine-desk', deploymentIds: ['40213377', '55555555'] })).toEqual([
+      secret('app-machine-desk-40213377-state', 'c2hvcA=='),
+      secret('platform-gitea-state'),
+      secret('app-machine-lab-11111111-state'),
+      secret('app-pool-shop-99999999-state'),
+    ]);
+  });
+
+  it('finds an app\'s state by the name Terraform gave it, hashed where the stack\'s name is too long for a label', () => {
+    const carried = [secret(`app-pool-${'b'.repeat(39)}-3e401760-state`)];
+    expect(retargetedStateSecrets(carried, { from: long, onto: 'machine-desk', deploymentIds: ['40213377'] })).toEqual([secret('app-machine-desk-40213377-state')]);
+  });
+});
 
 describe('what a move carries', () => {
   it('carries the Secrets Terraform keeps each stack\'s state in, as Secrets of no cluster in particular, and nothing else', () => {

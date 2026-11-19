@@ -137,7 +137,9 @@ export const PROVISION_PIECES = [
   { key: 'monitoring', title: 'Monitoring' },
 ] as const;
 
-export type ProvisionPieceKey = (typeof PROVISION_PIECES)[number]['key'];
+export const PROVISION_MOVED_PIECE = { key: 'moved', title: 'Bringing over your repositories, vault and apps' } as const;
+
+export type ProvisionPieceKey = (typeof PROVISION_PIECES)[number]['key'] | (typeof PROVISION_MOVED_PIECE)['key'];
 
 export const PROVISION_DONE_STAGE = 'set-up';
 
@@ -198,7 +200,7 @@ export interface ProvisionReport {
 export type ProvisionReportRead = { ok: true; value: ProvisionReport } | { ok: false; problem: string };
 
 const REPORT_KEYS = ['revision', 'progress'];
-const STAGES: readonly string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_DONE_STAGE];
+const STAGES: readonly string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_MOVED_PIECE.key, PROVISION_DONE_STAGE];
 const finished = (progress: MachineProgress): boolean => progress.state === 'done' || progress.state === 'already-done';
 
 export function provisionReportOf(raw: unknown): ProvisionReportRead {
