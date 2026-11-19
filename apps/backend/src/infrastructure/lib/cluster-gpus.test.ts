@@ -25,7 +25,7 @@ describe('a deploy that asks for GPUs, against what the machine says it has', ()
   });
 
   it('is refused with what to do: a machine that sees no GPU, its driver broken, no toolkit, too few, the wrong vendor, two vendors and none named', () => {
-    expect(gpuDeployRefusal(desk({ gpus: [] }), { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and desk shows none: if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent.' });
+    expect(gpuDeployRefusal(desk({ gpus: [] }), { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and desk shows none: no NVIDIA or AMD GPU answers there, so apps there cannot be given one.' });
     expect(gpuDeployRefusal(desk({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices'] }), { count: 1 }))
       .toEqual({ refused: 'This app asks for 1 GPU, and desk shows none: nvidia-smi is installed but does not answer, so the NVIDIA driver needs fixing: no devices.' });
     expect(gpuDeployRefusal(desk({ gpus: [{ ...RTX, runtime: false }] }), { count: 1 }))

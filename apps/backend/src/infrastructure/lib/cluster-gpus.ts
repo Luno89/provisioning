@@ -54,7 +54,7 @@ export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provid
   if (cluster.gpus.length === 0) {
     const bare = withoutDriver(ask.vendor);
     if (bare) return { refused: `This app asks for ${asked}, and ${cluster.name} has ${bare}.` };
-    const why = cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent';
+    const why = cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'no NVIDIA or AMD GPU answers there, so apps there cannot be given one';
     return { refused: `This app asks for ${asked}, and ${cluster.name} shows none: ${why}.` };
   }
   const present = GPU_VENDORS.filter((vendor) => gpuCountOf(cluster.gpus, vendor, false) > 0);

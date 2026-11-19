@@ -45,7 +45,7 @@ export function gpuChoicesOf(cluster: GpuReport, { runsOn = ['nvidia', 'amd'] }:
   })
   const withoutDriver = bare.length ? `${cluster.name} has ${bare.join(', ')} whose driver is not installed.` : undefined
   if (gpus.length === 0 && withoutDriver) return refused(withoutDriver)
-  if (gpus.length === 0) return refused(`${cluster.name} shows no GPU: ${cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent'}.`)
+  if (gpus.length === 0) return refused(`${cluster.name} shows no GPU: ${cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'no NVIDIA or AMD GPU answers there, so apps there cannot be given one'}.`)
   const vendors = offered.flatMap(({ vendor, label }) => {
     const usable = countOf(gpus, vendor, true)
     return usable > 0 ? [{ vendor, label, counts: Array.from({ length: usable }, (_, at) => String(at + 1)) }] : []
