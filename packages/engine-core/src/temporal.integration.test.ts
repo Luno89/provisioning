@@ -32,12 +32,22 @@ describe('a worker Koala builds', () => {
     const worker = await testWorker(env, { taskQueue, workflowBundle: await workflowBundle(), activities: { echo: async (given: unknown) => given } });
     const plain = new Client({ connection: env.connection, namespace: env.namespace ?? 'default' });
     const settled = async (): Promise<boolean> => (await failedTasks(workflowId)).length > 0 || (await plain.workflow.getHandle(workflowId).describe()).status.name !== 'RUNNING';
-    await worker.runUntil(async () => {
+    await expect(worker.runUntil(async () => {
       await plain.workflow.start(echoed, { taskQueue, workflowId, args: ['in the clear'] });
       while (!(await settled())) await new Promise((done) => setTimeout(done, 100));
-    });
+    })).rejects.toThrow(/arrived unencrypted/);
     expect((await plain.workflow.getHandle(workflowId).describe()).status.name).toBe('RUNNING');
     expect((await failedTasks(workflowId))[0]).toMatch(/arrived unencrypted/);
+  });
+});
+
+describe('a test world handing a worker work it can never read', () => {
+  it('ends the wait on that work, saying why, instead of waiting in silence', async () => {
+    const taskQueue = queueFor('never-read');
+    const worker = await testWorker(env, { taskQueue, workflowBundle: await workflowBundle(), activities: { echo: async (given: unknown) => given } });
+    const plain = new Client({ connection: env.connection, namespace: env.namespace ?? 'default' });
+    const waited = worker.runUntil(plain.workflow.execute(echoed, { taskQueue, workflowId: queueFor('never-read-run'), args: ['in the clear'] }));
+    await expect(waited).rejects.toThrow(/can never run the work it was handed: a Temporal payload arrived unencrypted/);
   });
 });
 

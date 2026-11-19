@@ -38,6 +38,17 @@ describe('a worker Koala builds', () => {
     expect(options?.interceptors?.workflowModules).toEqual(['/the/telemetry.ts']);
   });
 
+  it('tells whoever asked when a payload it was handed can never be read, and still refuses it', async () => {
+    const heard: string[] = [];
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, onUnreadable: (why) => heard.push(why.message) });
+    const codecs = vi.mocked(Worker.create).mock.calls[0]?.[0]?.dataConverter?.payloadCodecs ?? [];
+    const plain = [{ metadata: { encoding: Buffer.from('json/plain') }, data: Buffer.from('"in the clear"') }];
+    let decoding = Promise.resolve(plain) as Promise<unknown>;
+    for (const codec of [...codecs].reverse()) decoding = decoding.then((given) => codec.decode(given as typeof plain));
+    await expect(decoding).rejects.toThrow(/arrived unencrypted/);
+    expect(heard).toEqual([expect.stringMatching(/arrived unencrypted/)]);
+  });
+
   it('cannot be built without the key that seals its payloads', async () => {
     await expect(createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads: { ring: { current: '' }, blobs: payloads.blobs } })).rejects.toThrow(/requires a master key/);
     expect(Worker.create).not.toHaveBeenCalled();

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { Client } from '@temporalio/client';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { bundleWorkflowCode, type Worker, type WorkflowBundle } from '@temporalio/worker';
 import { inject } from 'vitest';
 import type { BlobReach, SecretKey, StoredBlob } from '../src/payload-codec.js';
@@ -71,15 +71,37 @@ export async function timeSkippingTemporal(payloads: TemporalPayloads = testPayl
 
 export const temporal = (): Promise<TestTemporal> => temporalAt();
 
-export type TestClientOptions = Omit<KoalaClientOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string };
+export type TestClientOptions = Omit<KoalaClientOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string; payloads?: TemporalPayloads };
 
 export const testClient = (env: TestTemporal, options: TestClientOptions = {}): Client =>
-  createClient({ ...options, connection: env.connection, namespace: options.namespace ?? env.namespace ?? 'default', payloads: env.payloads });
+  createClient({ ...options, connection: env.connection, namespace: options.namespace ?? env.namespace ?? 'default', payloads: options.payloads ?? env.payloads });
 
-export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string };
+export interface TimeSkippingClientOptions {
+  namespace?: string;
+  interceptors?: ConstructorParameters<typeof TimeSkippingWorkflowClient>[0]['interceptors'];
+}
 
-export const testWorker = (env: TestTemporal, options: TestWorkerOptions): Promise<Worker> =>
-  createWorker({ ...options, connection: env.nativeConnection, namespace: options.namespace ?? env.namespace ?? 'default', payloads: env.payloads });
+export const timeSkippingClient = (env: TestTemporal, options: TimeSkippingClientOptions = {}): TimeSkippingWorkflowClient =>
+  new TimeSkippingWorkflowClient({ connection: env.connection, namespace: options.namespace ?? env.namespace ?? 'default', dataConverter: payloadConverter(env.payloads), ...(options.interceptors ? { interceptors: options.interceptors } : {}) });
+
+export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string; payloads?: TemporalPayloads };
+
+export async function testWorker(env: TestTemporal, options: TestWorkerOptions): Promise<Worker> {
+  let refuse!: (why: Error) => void;
+  const refused = new Promise<never>((_done, failed) => { refuse = failed; });
+  refused.catch(() => undefined);
+  const worker = await createWorker({
+    ...options,
+    connection: env.nativeConnection,
+    namespace: options.namespace ?? env.namespace ?? 'default',
+    payloads: options.payloads ?? env.payloads,
+    onUnreadable: (why) => refuse(new Error(`this worker can never run the work it was handed: ${why.message}`)),
+  });
+  const runUntil = worker.runUntil.bind(worker);
+  worker.runUntil = <R>(work: Promise<R> | (() => Promise<R>)): Promise<R> =>
+    runUntil(() => Promise.race([typeof work === 'function' ? work() : work, refused]));
+  return worker;
+}
 
 export interface TestTemporalServer {
   env: TestTemporal;
