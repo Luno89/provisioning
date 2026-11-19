@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type https from 'node:https';
 import type { AddressInfo } from 'node:net';
@@ -10,20 +9,23 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { afterAll, beforeEach, describe, expect, inject, it } from 'vitest';
-import { KOALA_MOVE_PROGRESS, koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
-import { progressOf } from '@koala/engine-core/machine-progress';
+import type { PlacedKoala } from '@koala/engine-core/koala-install';
+import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { SETUP_LABEL } from '@koala/provision';
 import { installKoala, KOALA_NAMESPACE, KOALA_RELEASE } from '../../../../local-agent/src/koala-install.js';
 import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, hostCluster, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
-import { InstanceService, hashCredential } from '../../instances/services/InstanceService.js';
+import { InstanceService, type PlacingMachine } from '../../instances/services/InstanceService.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { MoveRelay } from '../../instances/services/MoveRelay.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { keysEnv, MOVED_KEYS } from '../../instances/lib/instance-move.js';
 import { MOVE_TOKEN_HEADER } from '../../instances/lib/identity-token.js';
+import { KoalaInstalls } from '../services/KoalaInstalls.js';
+import { machinesRouter } from '../routes/machines.js';
+import { deviceTokenHash } from '../lib/device-tokens.js';
 
 const run = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -35,7 +37,7 @@ const admin = join(work, 'admin.yaml');
 writeFileSync(admin, k3s.admin, { mode: 0o600 });
 const HELM = '/machine/koala/bin/helm';
 const INSTANCE = 'inst-bobby';
-const MOVE_CREDENTIAL = 'the-move-credential-0123456789';
+const DEVICE_TOKEN = 'the-desk-token-0123456789-0123456789';
 const POOL_KEYS = Object.fromEntries(MOVED_KEYS.map((name, at) => [name, `${name.toLowerCase().replace(/_/g, '-')}-of-the-pool-copy-${at}`]));
 
 const kubectl = async (...args: string[]): Promise<string> => (await run(TOOLS.kubectl, ['--kubeconfig', admin, ...args])).stdout;
@@ -114,7 +116,8 @@ function thisMachine(): ClusterHost {
 
 interface Root {
   url: string;
-  heard: Array<Record<string, unknown>>;
+  placed: PlacedKoala;
+  heard: MachineProgress[];
   poolAsked: string[];
   close(): Promise<void>;
 }
@@ -125,6 +128,8 @@ async function listening(app: express.Express): Promise<{ server: http.Server; u
   return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
+const DESK: PlacingMachine & { meshIp: string } = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
+
 async function rootWithAMovingKoala(db: MongoDB, installId: string): Promise<Root> {
   const poolAsked: string[] = [];
   const pool = express();
@@ -134,34 +139,49 @@ async function rootWithAMovingKoala(db: MongoDB, installId: string): Promise<Roo
   });
   const poolServer = await listening(pool);
   const poolKubeconfig = `apiVersion: v1\nkind: Config\nclusters: [{ name: pool, cluster: { server: "${poolServer.url}" } }]\ncontexts: [{ name: pool, context: { cluster: pool, user: pool } }]\ncurrent-context: pool\nusers: [{ name: pool, user: { token: pool-token } }]\n`;
+  const app = express();
+  app.use(express.json());
+  const root = await listening(app);
   const instances = new InstanceService(db, {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
+    rootUrl: root.url, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
     reach: new InstanceReach({ open: true, domain: '' }),
-  }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
+    moves: { joinCode: async () => { throw new Error('this test places the move directly'); }, poolClusterId: (name) => `pool-${name}` },
+  }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined }, () => new Date(), () => undefined, {
+    start: async () => undefined, trialChanged: async () => undefined, remove: async () => undefined, move: async () => undefined,
+  });
   const now = new Date().toISOString();
   await db.instances.saveInstance({
     id: INSTANCE, ownerId: 'bo', url: 'https://bobby.pool.test', createdAt: now, updatedAt: now, status: 'ready', name: 'bobby',
     pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: now, trialEndsAt: now },
-    move: { state: 'joined', startedAt: now, credentialHash: hashCredential(MOVE_CREDENTIAL) },
   });
-  const heard: Array<Record<string, unknown>> = [];
-  const app = express();
-  app.use(express.json());
-  app.post(koalaInstallProgressPath(installId), (req: Request, res: Response) => {
-    const read = progressOf(req.body, KOALA_MOVE_PROGRESS);
-    if (!read.ok) return res.status(400).send(read.problem);
-    heard.push(req.body as Record<string, unknown>);
-    return res.status(204).end();
+  await db.machines.saveLocalAgentDevice({ id: DESK.id, ownerId: 'bo', name: DESK.name, rootDir: '/home/bo/koala', createdAt: now, tokenHash: deviceTokenHash(DEVICE_TOKEN), meshIp: DESK.meshIp });
+  const placing = await instances.placeOn('bo', DESK, 'bobby', installId, true);
+  if (!placing.ok) throw new Error(placing.error);
+  const placed = await instances.placedKoala(installId, DESK);
+  if (!placed.ok) throw new Error(placed.error);
+  const heard: MachineProgress[] = [];
+  const installs = new KoalaInstalls({
+    devices: () => db.machines.getLocalAgentDevices(),
+    places: () => instances,
+    workflows: {
+      start: async () => undefined,
+      progress: async (_installId, progress) => { heard.push(progress); },
+      setup: async () => undefined,
+      reconnected: async () => undefined,
+      cancel: async () => undefined,
+    },
+    toMachines: { placeKoala: async () => true },
+    toOwner: { installChanged: () => undefined },
   });
+  app.use('/api/machines', machinesRouter({ installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   app.use('/api/instances', instancesRouter({
     instances,
     chart: async () => chartFile,
     operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next(),
     moveRelay: new MoveRelay({ kubeconfig: async () => poolKubeconfig, sign: (instanceId, part) => `signed-${instanceId}-${part}`, request: http.request as unknown as typeof https.request }),
   }));
-  const root = await listening(app);
   return {
-    url: root.url, heard, poolAsked,
+    url: root.url, placed: placed.value, heard, poolAsked,
     close: async () => {
       await new Promise<void>((done) => { root.server.close(() => done()); });
       await new Promise<void>((done) => { poolServer.server.close(() => done()); });
@@ -169,20 +189,13 @@ async function rootWithAMovingKoala(db: MongoDB, installId: string): Promise<Roo
   };
 }
 
-const moving = (root: Root, installId: string, credential = MOVE_CREDENTIAL): PlacedKoala => ({
-  installId, instanceId: INSTANCE, ownerId: 'bo', machineId: 'desk', rootUrl: root.url, rootPublicKeys: '-----BEGIN PUBLIC KEY-----',
-  meshLoginServer: 'https://mesh.test', meshAddress: '100.64.0.7', image: 'busybox', imageTag: '1.37',
-  chartUrl: `${root.url}/api/instances/chart.tgz`, chartSha256: createHash('sha256').update(readFileSync(chartFile)).digest('hex'),
-  credential, name: 'bobby', domain: '', move: { fromClusterId: 'pool-bobby' },
-});
-
 const installing = async (placed: PlacedKoala): Promise<string[]> => {
   const said: string[] = [];
-  await installKoala(placed, { cluster: thisMachine(), helm: HELM, fetch, token: () => 'device-token', say: (line) => said.push(line) });
+  await installKoala(placed, { cluster: thisMachine(), helm: HELM, fetch, token: () => DEVICE_TOKEN, say: (line) => said.push(line) });
   return said;
 };
 
-const stages = (heard: Array<Record<string, unknown>>) => heard.filter((body) => body.line === undefined).map((body) => [body.stage, body.state, body.url].filter(Boolean).join(' '));
+const stages = (heard: MachineProgress[]) => heard.filter((body) => body.line === undefined).map((body) => [body.stage, body.state, body.url].filter(Boolean).join(' '));
 const secretData = async (): Promise<Record<string, string>> => {
   const secret = JSON.parse(await kubectl('get', 'secret', `${KOALA_RELEASE}-keys`, '-n', KOALA_NAMESPACE, '-o', 'json')) as { data: Record<string, string> };
   return Object.fromEntries(Object.entries(secret.data).map(([name, value]) => [name, Buffer.from(value, 'base64').toString()]));
@@ -195,7 +208,7 @@ describe('a machine brings Koala over from Koala\'s servers, its keys from root\
   it('stops at the keys, putting nothing on the cluster, when root does not know the move\'s credential, and tells root why', async () => {
     const root = await rootWithAMovingKoala(db, 'install-refused');
     try {
-      const said = await installing(moving(root, 'install-refused', 'not-the-move-credential'));
+      const said = await installing({ ...root.placed, credential: 'not-the-move-credential' });
       expect(root.heard.at(-1)).toEqual({ stage: 'keys', title: 'Bringing your Koala\'s keys over', state: 'failed', why: 'root did not hand over your Koala\'s keys (401): {"error":"unknown instance or move credential"}' });
       expect(said.at(-1)).toBe('Bringing your Koala\'s keys over failed: root did not hand over your Koala\'s keys (401): {"error":"unknown instance or move credential"}');
       expect(root.poolAsked).toEqual([]);
@@ -208,7 +221,7 @@ describe('a machine brings Koala over from Koala\'s servers, its keys from root\
   it('brings the pool copy\'s keys, which the chart keeps, runs the chart moving and then moved, reports each stage, and finds it all already so when asked again', async () => {
     const root = await rootWithAMovingKoala(db, 'install-move');
     try {
-      const said = await installing(moving(root, 'install-move'));
+      const said = await installing(root.placed);
       expect(said.at(-1)).toBe('Koala runs on this machine at http://100.64.0.7:30320');
       expect(stages(root.heard)).toEqual([
         'cluster started', 'cluster already-done', 'chart started', 'chart done', 'keys started', 'keys done',
@@ -225,7 +238,7 @@ describe('a machine brings Koala over from Koala\'s servers, its keys from root\
       expect(await kubectl('get', 'deployment', `${KOALA_RELEASE}-backend`, '-n', KOALA_NAMESPACE, '-o', 'jsonpath={.status.availableReplicas}')).toBe('1');
 
       root.heard.length = 0;
-      await installing(moving(root, 'install-move'));
+      await installing(root.placed);
       expect(stages(root.heard)).toEqual([
         'cluster started', 'cluster already-done', 'chart started', 'chart done', 'keys started', 'keys already-done',
         'koala started', 'koala already-done', 'koala-moved started', 'koala-moved already-done http://100.64.0.7:30320',
