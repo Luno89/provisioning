@@ -39,7 +39,14 @@ export async function connectTemporal(dial: TemporalDial, side: 'client' | 'work
   const tls = tlsOf(dial.tls);
   const { auth } = dial;
   if (side === 'client') {
-    return Connection.connect({ address: dial.address, tls, ...('bearer' in auth ? { metadata: bearerMetadata(auth.bearer) } : { apiKey: auth.apiKey }) });
+    const connection = Connection.lazy({ address: dial.address, tls, ...('bearer' in auth ? { metadata: bearerMetadata(auth.bearer) } : { apiKey: auth.apiKey }) });
+    try {
+      await connection.ensureConnected();
+    } catch (err) {
+      await connection.close();
+      throw err;
+    }
+    return connection;
   }
   if ('bearer' in auth) return NativeConnection.connect({ address: dial.address, tls, metadata: bearerMetadata(auth.bearer) });
   const connection = await NativeConnection.connect({ address: dial.address, tls, apiKey: auth.apiKey() });

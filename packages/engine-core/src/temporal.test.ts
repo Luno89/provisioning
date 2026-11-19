@@ -12,7 +12,7 @@ vi.mock('@temporalio/worker', () => ({
 
 vi.mock('@temporalio/client', () => ({
   Client: vi.fn(function Client(this: { options: unknown }, options: unknown) { this.options = options; }),
-  Connection: { connect: vi.fn(async () => ({})) },
+  Connection: { lazy: vi.fn(() => ({ ensureConnected: vi.fn(async () => undefined), close: vi.fn(async () => undefined) })) },
 }));
 
 const payloads = { ring: { current: 'a-payload-key-for-the-unit-tier' }, blobs: ({ put: async () => undefined, get: async () => new Map() } satisfies BlobReach) };
@@ -77,10 +77,17 @@ describe('dialling Temporal', () => {
   it('reaches it over TLS to the install\'s own CA with a signed key, on the client side', async () => {
     const apiKey = () => 'a-signed-key';
     await connectTemporal({ address: 'temporal:7233', tls: { ca: CA }, auth: { apiKey, renewEveryMs: 1_000 } }, 'client');
-    const options = vi.mocked(Connection.connect).mock.calls[0]?.[0];
+    const options = vi.mocked(Connection.lazy).mock.calls[0]?.[0];
     expect(options?.address).toBe('temporal:7233');
     expect(options?.tls).toEqual({ serverRootCACertificate: Buffer.from(CA) });
     expect(options?.apiKey).toBe(apiKey);
+  });
+
+  it('leaves no connection behind when Temporal could not be reached, on the client side', async () => {
+    const opened = { ensureConnected: vi.fn(async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:7233'); }), close: vi.fn(async () => undefined) };
+    vi.mocked(Connection.lazy).mockReturnValueOnce(opened as unknown as Connection);
+    await expect(connectTemporal({ address: 'temporal:7233', tls: { ca: CA }, auth: { bearer: 't' } }, 'client')).rejects.toThrow(/ECONNREFUSED/);
+    expect(opened.close).toHaveBeenCalledOnce();
   });
 
   it('reaches it over TLS to the install\'s own CA with a signed key it renews, on the worker side', async () => {
