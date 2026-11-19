@@ -3,17 +3,17 @@ import type { AddressInfo } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Server as SocketServer } from 'socket.io';
-import { io as connect, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import type { Followed, Streams } from '@koala/engine-core/processes';
 import { recordingProcesses, type RecordingProcesses } from '@koala/engine-core/testing/processes';
 import { testKeys } from '../../platform/testing/keys.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
+import { closedAfterEach, connectedSocket } from '../testing/wiring-world.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 
-const closers: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
+const closers = closedAfterEach();
 
 const keys = testKeys('log-follow-secret');
 
@@ -42,10 +42,7 @@ async function koala(logPath: string, streams: Streams): Promise<string> {
 }
 
 async function signedIn(url: string): Promise<Socket> {
-  const socket = connect(url, { transports: ['websocket'], reconnection: false, forceNew: true });
-  closers.push(async () => { socket.close(); });
-  await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
-  return socket;
+  return connectedSocket(url, closers);
 }
 
 const heard = (socket: Socket, wanted: string): Promise<string> => new Promise((resolve) => {
