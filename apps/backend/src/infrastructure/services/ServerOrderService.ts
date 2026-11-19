@@ -9,7 +9,8 @@ import {
 import { rootSignInEnv, rootSignInProviders, type RootSignInProvider } from '../lib/root-sign-in.js';
 import { credentialEnvOf, dnsProviderNamed, DnsProviderRefusal, type DnsCredentials, type DnsZone } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
-import { OvhClient, OvhError, type FetchLike, type OvhAccount } from './OvhClient.js';
+import { OvhClient, OvhError, type FetchLike } from './OvhClient.js';
+import type { OvhAccount } from '../lib/ovh-api.js';
 import { forwardNotSeen, ipBlockFor, ptrValue, reverseDnsPath, reverseDnsSaid, samePtr, type ReverseDnsState } from '../lib/reverse-dns.js';
 
 export class ServerOrderProblem extends Error {

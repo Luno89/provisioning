@@ -32,6 +32,7 @@ import { workerRouter } from '../routes/worker.js';
 import { serverOrdersRouter } from '../routes/server-orders.js';
 import { ServerOrderService } from '../services/ServerOrderService.js';
 import { rootNodeWorkflowId } from '../lib/server-orders.js';
+import { ovhAccountOf } from '../lib/ovh-api.js';
 import { RootNodeWorkflow } from '../../workflows/RootNodeWorkflow.js';
 import type { Mounts } from '../../hub/index.js';
 import { QUEUES } from '../../platform/index.js';
@@ -83,12 +84,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const serverOrders = new ServerOrderService({
     store: db.infrastructure,
     dataKey: deps.dataKey,
-    ovhAccountOf: async (ownerId) => {
-      const resolved = await deps.credentials.resolveCredentials(ownerId, 'ovh');
-      if (resolved.mode === 'none') return undefined;
-      const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-      return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
-    },
+    ovhAccountOf: async (ownerId) => ovhAccountOf(await deps.credentials.resolveCredentials(ownerId, 'ovh')),
     dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
