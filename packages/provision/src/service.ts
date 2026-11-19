@@ -10,6 +10,7 @@ export interface Provider<Context> {
   running(ctx: Context): Promise<StepState>;
   start(ctx: Context, progress: Progress, unanswered?: string): Promise<void>;
   ended(ctx: Context, progress: Progress): Promise<string | undefined>;
+  ending?(ctx: Context): Promise<string>;
   remove?(ctx: Context, progress: Progress): Promise<void>;
 }
 
@@ -50,7 +51,7 @@ export function serviceStep<Context extends ServiceContext>(service: Service<Con
       await waitUntil(
         `${service.title} to answer`,
         async () => {
-          const state = await stateOf(ctx, service);
+          const state = await (provider.ending ? Promise.race([stateOf(ctx, service), provider.ending(ctx).then((why) => { throw new Hopeless(`${service.title} to answer: ${why}`); })]) : stateOf(ctx, service));
           if (!state.done) throw stillDown(state.why);
           return true;
         },

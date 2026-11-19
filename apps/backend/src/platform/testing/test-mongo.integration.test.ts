@@ -7,7 +7,7 @@ import { removeSteps, runSteps, StepFailed, type Step, type ServiceContext } fro
 import { memoryReporter } from '@koala/provision/testing';
 import { mongoClientFor } from '../lib/collection.js';
 import { mongoStep } from '../wiring/root-services.js';
-import { memoryMongo } from './memory-mongo.js';
+import { madePrimary, testMongo } from './test-mongo.js';
 
 const ctx: ServiceContext = {};
 const started: Step<ServiceContext>[] = [];
@@ -24,7 +24,7 @@ async function folder(): Promise<string> {
 }
 
 function stepFor(dbPath: string) {
-  const mongo = memoryMongo(dbPath);
+  const mongo = testMongo(dbPath);
   const step = mongoStep(mongo, () => mongo.address());
   started.push(step);
   return { mongo, step };
@@ -36,11 +36,12 @@ const failureOf = async (run: Promise<void>): Promise<StepFailed> => {
   return err;
 };
 
-describe('the in-memory Mongo, started by the step root\'s Mongo is', () => {
+describe('the test Mongo, a mongod of this run started by the step root\'s Mongo is', () => {
   it('starts as a writable primary in its folder, and its removal stops it and takes the folder away', async () => {
     const dbPath = join(await folder(), 'mongo');
     const { mongo, step } = stepFor(dbPath);
     await runSteps([step], ctx, memoryReporter());
+    await madePrimary(mongo);
     const client = mongoClientFor(mongo.uri());
     await client.db('koala').collection('probe').insertOne({ written: true });
     await client.close();
@@ -55,7 +56,7 @@ describe('the in-memory Mongo, started by the step root\'s Mongo is', () => {
     await chmod(dbPath, 0o500);
     const failure = await failureOf(runSteps([stepFor(dbPath).step], ctx, memoryReporter()));
     expect(failure.stepId).toBe('mongo');
-    expect(failure.why).toMatch(new RegExp(`^the test Mongo could not start: .+ \\(disk where it writes: ${dbPath}, [0-9.]+ [KMGT]?B free\\)$`, 's'));
+    expect(failure.why).toMatch(new RegExp(`^Mongo, as a replica set to answer: the test Mongo could not start: mongod exited with \\d+ .+ \\(disk where it writes: ${dbPath}, [0-9.]+ [KMGT]?B free\\)( \\(.+\\))?$`, 's'));
   });
 
   it('says when mongod ends while the run still needs it, with why and the room left', async () => {

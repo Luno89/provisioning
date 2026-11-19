@@ -7,6 +7,7 @@ export { downloadChecked, type Download } from './download.js';
 export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-reporter.js';
 export { bytes, freeAt, roomStep, type RoomContext, type RoomOptions } from './room.js';
 export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
+export { processProvider, type ProcessProvider, type ProcessSpec } from './process.js';
 export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
 export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
 export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseOptions, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
