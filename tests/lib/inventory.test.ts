@@ -24,7 +24,7 @@ const pins = {
     { kind: 'binary', name: 'k3s', version: 'v1.36.4+k3s1', sha256: 'b'.repeat(64), source: 'https://example.invalid/k3s' },
     { kind: 'image', name: 'theroyallab/tabbyapi', version: 'latest-2026-11-10', sha256: 'c'.repeat(64), source: `ghcr.io/theroyallab/tabbyapi@sha256:${'c'.repeat(64)}`, tracks: 'latest' },
   ],
-  unpinned: [{ name: 'tailscale', how: 'curl | sh', usedIn: ['scripts/instance/install.sh'] }],
+  unpinned: [{ name: 'tailscale', how: 'curl | sh', usedIn: ['tests/mesh-live.ts'] }],
 };
 
 const props = (component: { properties?: { name: string; value: string }[] }) => Object.fromEntries((component.properties ?? []).map((entry) => [entry.name, entry.value]));

@@ -16,6 +16,7 @@ import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
 import { selfUpgrade, selfUpgradeStep } from './self-upgrade.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
+import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
 
 const CHART = 'the chart root released';
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -50,15 +51,16 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
     },
   });
   settings.rootUrl = harness.url('');
-  const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await service!.join(made.value.token, 'box');
-  if (!joined.ok) throw new Error(joined.error);
+  const joined = { value: await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
   const ran = await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', presence: true });
   if (!ran.ok) throw new Error(ran.error);
   return {
     root: { url: harness.url(''), instanceId: joined.value.instanceId, credential: joined.value.credential },
     record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)!,
+    setUp: async (revision: number, progress: Record<string, string> = { stage: 'set-up', title: 'Koala is set up', state: 'done' }) => {
+      const heard = await service!.report(joined.value.instanceId, joined.value.credential, { provision: { revision, progress } });
+      if (!heard.ok) throw new Error(heard.error);
+    },
   };
 }
 
@@ -96,16 +98,24 @@ const UPGRADING = UPGRADE_WORDS.upgrading('old111', 'new222');
 const quiet = { watch: { pause: async () => undefined }, log: () => undefined };
 
 describe('an instance upgrading itself to what root released', () => {
-  it('tells root it runs what root released when it already does', async () => {
-    const { root, record } = await rootServing();
+  it('tells root it runs what root released when it already does, ready only once the revision it runs is set up, and never over a piece that failed', async () => {
+    const { root, record, setUp } = await rootServing();
     const kube = cluster([]);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222', dataVersion: 0 }, cluster: kube.cluster, ...quiet })).toBe(true);
-    expect(kube.ran).toEqual([]);
+    const run = () => selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222', dataVersion: 0 }, cluster: kube.cluster, ...quiet });
+    expect(await run()).toBe(true);
+    expect(kube.ran).toEqual(['helm list -n nowrinkles --filter ^luno$ -a -o json']);
+    expect(await record()).toMatchObject({ status: 'installing', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
+    await setUp(3, { stage: 'gitea', title: 'Gitea', state: 'failed', why: 'pod gitea-0 is Init:Error' });
+    expect(await run()).toBe(true);
+    expect(await record()).toMatchObject({ status: 'failed', detail: 'Koala on box stopped setting itself up at Gitea: pod gitea-0 is Init:Error' });
+    await setUp(3);
+    expect(await run()).toBe(true);
     expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
   });
 
   it('waits for a root that is not answering, saying so each time, and checks in once it answers', async () => {
-    const { root, record } = await rootServing();
+    const { root, record, setUp } = await rootServing();
+    await setUp(3);
     const kube = cluster([]);
     const said: string[] = [];
     let refused = 2;
@@ -119,8 +129,9 @@ describe('an instance upgrading itself to what root released', () => {
     expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
   });
 
-  it('applies root\'s chart with the image by its digest, helm waiting on nothing, follows the rollout and its setup Jobs without a deadline, and says it upgraded', async () => {
-    const { root, record } = await rootServing();
+  it('applies root\'s chart with the image by its digest, helm waiting on nothing, follows the rollout and its setup Jobs without a deadline, and says it upgraded, leaving ready to the new revision\'s setup', async () => {
+    const { root, record, setUp } = await rootServing();
+    await setUp(2);
     const said: string[] = [];
     const kube = cluster([
       withJob(rolledOut('3', STARTING, false), setupJob({ active: 1 })),
@@ -133,13 +144,15 @@ describe('an instance upgrading itself to what root released', () => {
     expect(upgrade).toContain('--set image.tag=new222 --set-string image.digest=' + DIGEST);
     expect(upgrade).not.toMatch(/--wait|--timeout/);
     expect(said).toEqual(['waiting for deployment/luno-backend has 0 of 1 updated; job/luno-seed-4 runs', 'waiting for job/luno-seed-4 runs']);
-    expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.upgraded('new222'), running: 'new222' });
+    expect(await record()).toMatchObject({ status: 'installing', detail: UPGRADE_WORDS.upgraded('new222'), running: 'new222' });
+    await setUp(3);
+    expect(await record()).toMatchObject({ status: 'ready', detail: 'Ready', running: 'new222' });
   });
 
   it('tells root the data version it runs each time it checks in', async () => {
     const { root, record } = await rootServing();
     await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222', dataVersion: 1 }, cluster: cluster([]).cluster, ...quiet });
-    expect(await record()).toMatchObject({ status: 'ready', running: 'new222', dataVersion: 1 });
+    expect(await record()).toMatchObject({ running: 'new222', dataVersion: 1 });
   });
 
   it('refuses a release that cannot run the data it has, changing nothing', async () => {

@@ -4,11 +4,12 @@ import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, StorageAdapter, buildAppEnv, envSettingsOf, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, appStackName, NO_STACK_ID, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
+  parseQuantity, type HostMemoryPlan, appStackName, NO_STACK_ID, gitappPullSecretArgs, type MachineOfCluster, type Provisioner, type Reach, unsizedModel } from '../infrastructure/index.js';
+import type { ProvisionTarget } from '@koala/engine-core/koala-install';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, failureOf, type AppSettings, type DatabaseSettings } from '../platform/index.js';
+import { createDatabase, failureOf, type AppSettings } from '../platform/index.js';
 
-import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { monitoringMissing } from './cluster-monitoring.js';
 import { applyWatched } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
@@ -23,6 +24,28 @@ async function nodeAllocatableBytes(kubectl: (args: string[]) => Promise<string>
     .filter((n): n is number => n !== undefined);
   if (sizes.length === 0) throw new Error(`the machine's nodes report no memory Koala can read (${JSON.stringify(memories.trim())})`);
   return Math.min(...sizes);
+}
+
+function setupTarget(args: DeployAppArgs, reach: Reach): ProvisionTarget {
+  if (reach.kind === 'koala') return { kind: 'koala', clusterId: reach.clusterId };
+  if (reach.kind === 'machine' && args.machine) return { kind: 'machine', clusterId: args.clusterId, machine: args.clusterName, deviceId: args.machine.deviceId };
+  throw ApplicationFailure.nonRetryable(`${args.name} goes on ${args.clusterName}, which Koala sets up no monitoring for, and no app goes on a cluster without it`, 'NoMonitoringSetup');
+}
+
+export interface DeploySteps extends ClusterSteps {
+  provisioner: Provisioner;
+}
+
+async function monitoredFirst(args: DeployAppArgs, reach: Reach, steps: DeploySteps, logFile: string): Promise<void> {
+  const pool = placedOnPool(Boolean(steps.access.here.poolName), reach);
+  if (!(await monitoringMissing(steps, { reach, pool, machine: reach.kind === 'machine' }))) return;
+  const target = setupTarget(args, reach);
+  await fs.appendFile(logFile, `[deploy] waiting for Koala to set up its monitoring of ${args.clusterName} before ${args.name} goes on it\n`).catch(ignore('the log only shows progress, and the deploy waits on the setup either way'));
+  const run = await steps.provisioner.ensure(target, 'missing');
+  const settled = await steps.provisioner.settled(run.id);
+  if (settled.state === 'failed') {
+    throw ApplicationFailure.nonRetryable(`Koala could not set up the monitoring of ${args.clusterName}, which ${args.name} needs before it goes on: ${settled.why}`, 'MonitoringNotSetUp');
+  }
 }
 
 export interface DeployAppArgs extends AppSettings {
@@ -55,25 +78,9 @@ export interface DeployAppResult {
   notes: string[];
 }
 
-
 const SANITIZE = sanitiseNamespaceName;
 
-const metricsUrlOf = (url: string | { off: string }): string => {
-  if (typeof url !== 'string') throw new Error(url.off);
-  return url;
-};
-
-async function rememberMetricsToken(database: DatabaseSettings, clusterId: string, tokenHash: string): Promise<void> {
-  const db = createDatabase(database);
-  await db.init();
-  try {
-    await db.infrastructure.patchCluster(clusterId, { metricsTokenHash: tokenHash });
-  } finally {
-    await db.close().catch(ignore('the token\'s hash is already kept, and a connection that does not close cleanly holds nothing this deploy needs'));
-  }
-}
-
-export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps, signal?: AbortSignal): Promise<DeployAppResult> {
+export async function DeployAppActivity(args: DeployAppArgs, steps: DeploySteps, signal?: AbortSignal): Promise<DeployAppResult> {
   const { access } = steps;
   if (args.modules && args.modules.length > 0) {
     throw ApplicationFailure.nonRetryable(`${args.name} names Odoo modules to build into its image, and that image would be built in this computer's Docker, where no cluster Koala reaches pulls from; release the modules through the project's repository instead`, 'ModulesImageUnreachable');
@@ -312,11 +319,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     storageEnv,
   });
 
-  await ensureClusterMonitoring(steps, {
-    physicalName: reach.clusterId, reach, pool: placedOnPool(Boolean(access.here.poolName), reach),
-    ...(reach.kind === 'koala' ? { koala: true } : {}),
-    ...(reach.kind === 'machine' ? { machine: { metricsUrl: metricsUrlOf(steps.machineMetricsUrl), remember: (tokenHash: string) => rememberMetricsToken(steps.database, args.clusterId, tokenHash) } } : {}),
-  }, logFile);
+  await monitoredFirst(args, reach, steps, logFile);
   await applyWatched(steps, appStackName(physicalName, deploymentId), { logFile, env }, { what: args.name, reach, namespaces: [namespace], signal });
 
   if (args.appType === 'gitapp') {

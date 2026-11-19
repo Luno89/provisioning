@@ -3,7 +3,7 @@ import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -25,7 +25,6 @@ import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
 import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
-import { Client } from '@temporalio/client';
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
@@ -47,6 +46,8 @@ beforeEach(async () => {
 afterAll(async () => {
   await env?.teardown();
 });
+
+const unreachable = () => Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:27017'), { code: 'ECONNREFUSED' });
 
 const proposal = (over: Partial<PlanProposal> = {}): PlanProposal => ({
   id: 'p1',
@@ -220,7 +221,8 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
   const activities = createEngineActivities({ planAdoption } as never);
 
   const told: string[] = [];
-  return { needsAsked, told, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
+  const refusing = { telling: 0 };
+  return { needsAsked, told, refusing, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never, workSeen?: [string, unknown][]): Promise<AdoptPlanResult> {
@@ -248,10 +250,18 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
     interceptors: { activity: activityInterceptors() },
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: temporalWorld.namespace,
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-    activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { w.told.push(ownerId); } },
+    activities: {
+      EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => {
+        if (w.refusing.telling > 0) {
+          w.refusing.telling -= 1;
+          throw unreachable();
+        }
+        w.told.push(ownerId);
+      },
+    },
   });
-  const naming = new Client({ connection: env.connection, namespace: temporalWorld.namespace, interceptors: { workflow: [namesItsWork] } });
-  return streamWorker.runUntil(worker.runUntil(() => naming.workflow.execute(AdoptPlanWorkflow, {
+  const naming = new TimeSkippingWorkflowClient({ connection: env.connection, namespace: temporalWorld.namespace, interceptors: [namesItsWork] });
+  return streamWorker.runUntil(worker.runUntil(() => naming.execute(AdoptPlanWorkflow, {
     args: [{ ownerId: 'user-1', proposalId }],
     taskQueue,
     workflowId: `adopt-${Math.random().toString(36).slice(2, 8)}`,
@@ -551,5 +561,34 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.tasks.get('t-busy')?.status).toBe('dropped');
     expect(w.files.get('repo/leaves/leaf-b.md')).toContain('Waits on: nothing');
     expect(w.files.get('repo/PLAN.md')).toContain('- **Note on screen** (`leaf-a`): cancelled');
+  });
+
+  it('keeps building the plan while the records cannot be reached, however many tries that takes', async () => {
+    const w = world([proposal({ id: 'p10' } as never)]);
+    const records = w.activities.PlanAdoptRecordsActivity;
+    let tries = 0;
+    w.activities.PlanAdoptRecordsActivity = async (args) => {
+      tries += 1;
+      if (tries <= 3) throw unreachable();
+      return records(args);
+    };
+    w.refusing.telling = 3;
+    const result = await adopt(w, 'p10');
+    await temporalWorld.client.workflow.getHandle('grove-run-plan-p10-tree').terminate('test over').catch(() => undefined);
+    expect(result).toMatchObject({ status: 'adopted', treeId: 'plan-p10-tree' });
+    expect(tries).toBe(4);
+    expect(w.told, 'the owner\'s browsers are told the grove changed once the stream can be reached').toEqual(['user-1']);
+  });
+
+  it('fails at once with why when a step of the adoption fails for good', async () => {
+    const w = world([proposal({ id: 'p11' } as never)]);
+    let tries = 0;
+    w.activities.PlanAdoptRecordsActivity = async () => {
+      tries += 1;
+      throw new Error('the leaf leaf-x of plan p11 names a branch that is not in it');
+    };
+    const result = await adopt(w, 'p11');
+    expect(result).toMatchObject({ status: 'failed', reason: 'the leaf leaf-x of plan p11 names a branch that is not in it' });
+    expect(tries).toBe(1);
   });
 });

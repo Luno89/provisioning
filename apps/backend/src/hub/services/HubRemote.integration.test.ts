@@ -8,6 +8,7 @@ import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { hubInstanceRouter } from '../routes/hub-instance.js';
 import { HubService } from './HubService.js';
 import { RemoteHub, RootHubAccess } from './HubRemote.js';
+import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
 
 const harnesses: Harness[] = [];
 afterEach(async () => { for (const harness of harnesses.splice(0)) await harness.close(); });
@@ -28,10 +29,7 @@ async function rootWithAHub(hubUrl: (() => string) | undefined) {
     },
   });
   harnesses.push(root);
-  const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await service!.join(made.value.token, 'box');
-  if (!joined.ok) throw new Error(joined.error);
+  const joined = { value: await koalaPlacedAndUp(service!, root.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
   return { root, keys, instanceId: joined.value.instanceId, credential: joined.value.credential };
 }
 

@@ -96,6 +96,7 @@ export interface EngineStore extends AreaStore {
   deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
   saveRunGrant(grant: RunGrant): Promise<void>;
   getRunGrant(id: string): Promise<RunGrant | undefined>;
+  deleteRunGrant(id: string): Promise<void>;
   getRunGrantOfRun(runId: string): Promise<RunGrant | undefined>;
   getLiveRunGrants(personId: string): Promise<RunGrant[]>;
   saveRunEnded(ending: RunEnding): Promise<void>;
@@ -260,6 +261,10 @@ export class MongoEngineStore implements EngineStore {
   async getRunGrant(id: string): Promise<RunGrant | undefined> {
     const doc = await this.runGrants.findOne({ _id: id as never });
     return doc ? fromDoc<RunGrant>(doc) : undefined;
+  }
+
+  async deleteRunGrant(id: string): Promise<void> {
+    await this.runGrants.deleteOne({ _id: id as never });
   }
 
   async getRunGrantOfRun(runId: string): Promise<RunGrant | undefined> {

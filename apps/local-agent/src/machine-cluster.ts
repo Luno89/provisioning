@@ -16,12 +16,27 @@ export const K3S_MARKER = '/etc/koala/machine-k3s';
 export interface ClusterHost extends GpuProbe {
   wanted(running: boolean): Promise<void>;
   isWanted(): Promise<boolean>;
-  holdKoala(instanceId: string): Promise<void>;
+  holdKoala(instanceId: string, installId: string, readyAt?: string): Promise<void>;
   holdsKoala(): Promise<boolean>;
+  heldKoala(): Promise<KoalaHeld | undefined>;
+  letKoalaGo(): Promise<void>;
   meshIp(): Promise<string | undefined>;
   now(): number;
   pause(ms: number): Promise<void>;
 }
+
+export interface KoalaHeld {
+  instanceId: string;
+  installId?: string | undefined;
+  readyAt?: string | undefined;
+}
+
+export function koalaHeldOf(text: string): KoalaHeld | undefined {
+  const [instanceId, installId, readyAt] = text.trim().split(/\s+/);
+  return instanceId ? { instanceId, ...(installId ? { installId } : {}), ...(installId && readyAt ? { readyAt } : {}) } : undefined;
+}
+
+export const koalaEverRan = (held: KoalaHeld): boolean => held.installId === undefined || held.readyAt !== undefined;
 
 const execute = promisify(execFile);
 
@@ -46,11 +61,13 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedA
     await writeFile(wantedAt, `${new Date().toISOString()}\n`);
   },
   isWanted: () => present(wantedAt),
-  holdKoala: async (instanceId) => {
+  holdKoala: async (instanceId, installId, readyAt) => {
     await mkdir(path.dirname(koalaHere), { recursive: true });
-    await writeFile(koalaHere, `${instanceId}\n`);
+    await writeFile(koalaHere, `${[instanceId, installId, ...(readyAt ? [readyAt] : [])].join(' ')}\n`);
   },
   holdsKoala: () => present(koalaHere),
+  heldKoala: async () => (await present(koalaHere) ? koalaHeldOf(await readFile(koalaHere, 'utf8')) : undefined),
+  letKoalaGo: () => rm(koalaHere, { force: true }),
   meshIp: () => meshIp(),
   now: () => Date.now(),
   pause: async (ms) => {

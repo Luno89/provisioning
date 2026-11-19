@@ -15,13 +15,17 @@ export function watchingAll(watchings: Watching[]): Watching {
 }
 
 
+const onWritten = (matching: Document): Document => Object.fromEntries(Object.entries(matching).map(([field, condition]): [string, unknown] => (field === '$or'
+  ? [field, (condition as Document[]).map(onWritten)]
+  : [`fullDocument.${field}`, condition])));
+
 export function watchWrites<T extends Document>(
   collection: () => Collection<T>,
   matching: Document,
   on: (doc: T) => void,
   reopenMs = REOPEN_FIRST_MS,
 ): Watching {
-  return watchChanges(collection, [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, ...Object.fromEntries(Object.entries(matching).map(([field, condition]): [string, unknown] => [`fullDocument.${field}`, condition])) } }], { fullDocument: 'updateLookup' }, (change) => {
+  return watchChanges(collection, [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, ...onWritten(matching) } }], { fullDocument: 'updateLookup' }, (change) => {
     if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
   }, reopenMs);
 }

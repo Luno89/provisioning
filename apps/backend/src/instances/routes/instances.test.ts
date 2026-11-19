@@ -9,9 +9,9 @@ import { matches, mock } from 'vitest-mock-extended';
 import { MailError, type MailReputation, type MailService } from '../../platform/index.js';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { Router } from 'express';
-import { bundleAsEnv, instancesRouter } from './instances.js';
+import { instancesRouter } from './instances.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
-import type { JoinBundle, Outcome } from '../services/InstanceService.js';
+import type { Outcome } from '../services/InstanceService.js';
 import type { MoveRelay } from '../services/MoveRelay.js';
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
@@ -26,48 +26,16 @@ const no = (status: 400 | 401 | 404 | 409 | 503, error: string): Outcome<never> 
 const allow: RequestHandler = (_req: Request, _res: Response, next: NextFunction) => next();
 const refuse: RequestHandler = (_req: Request, res: Response) => { res.status(403).json({ error: 'Only the operator of this server can do that.' }); };
 
-const bundle: JoinBundle = {
-  instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(touch ran)\n-----END PUBLIC KEY-----",
-  meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`touch ran`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
-  imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com',
-};
-
 const route = (deps: Partial<Parameters<typeof instancesRouter>[0]> = {}) => {
   const instances = mock<Instances>();
   return { instances, router: instancesRouter({ instances, chart: async () => '', ...deps }) };
 };
-
-describe('the join reply as the installer reads it', () => {
-  it('quotes every value so no character in it is run, and carries the keys as base64', () => {
-    const text = bundleAsEnv(bundle);
-    expect(text).toContain(`MESH_PREAUTH_KEY='key'\\''with\`touch ran\`'`);
-    expect(text).toContain(`INSTANCE_CREDENTIAL='c$HOME'\\''$(touch ran)'`);
-    expect(text).toContain(`ROOT_PUBLIC_KEYS_B64='${Buffer.from(bundle.rootPublicKeys).toString('base64')}'`);
-    expect(text.endsWith('\n')).toBe(true);
-  });
-
-  it('leaves out what it does not have and says a move is a move', () => {
-    expect(bundleAsEnv(bundle)).toContain("INSTANCE_MOVE=''");
-    expect(bundleAsEnv(bundle)).toContain("INSTANCE_IMAGE_DIGEST=''");
-    expect(bundleAsEnv({ ...bundle, move: true, imageDigest: 'sha256:abc', chartSha256: 'def' })).toEqual(expect.stringContaining("INSTANCE_MOVE='yes'"));
-    expect(bundleAsEnv({ ...bundle, imageDigest: 'sha256:abc', chartSha256: 'def' })).toEqual(expect.stringContaining("INSTANCE_CHART_SHA256='def'"));
-  });
-});
 
 describe('a person making their instance', () => {
   it('checks a name, and passes on what the query asked', async () => {
     const { instances, router } = route();
     instances.nameCheck.calledWith(PERSON.id, 'luno').mockResolvedValue({ ok: true } as never);
     expect((await (await on(router)).get(`${prefix}/name-check?name=luno`)).data).toEqual({ ok: true });
-  });
-
-  it('gives the command to run on their machine, or says why not', async () => {
-    const { instances, router } = route();
-    instances.createJoinToken.calledWith(PERSON.id, 'luno').mockResolvedValue(ok({ token: 't', command: 'curl ...', expiresAt: 'later' }) as never);
-    instances.createJoinToken.calledWith(PERSON.id, 'taken').mockResolvedValue(no(409, 'taken'));
-    expect((await (await on(router)).post(`${prefix}/join-tokens`, { name: 'luno' })).data).toEqual({ token: 't', command: 'curl ...', expiresAt: 'later' });
-    const refused = await (await on(router)).post(`${prefix}/join-tokens`, { name: 'taken' });
-    expect([refused.status, refused.data]).toEqual([409, { error: 'taken' }]);
   });
 
   it('offers a trial on Koala\'s servers and starts one, saying 202 for it', async () => {
@@ -201,26 +169,6 @@ describe('an instance talking to root as itself', () => {
     const taken = await (await on(router)).put(`${prefix}/groups`, { projectId: 'p2', name: 'acme' }, { headers: asInstance });
     expect([taken.status, taken.data]).toEqual([409, { error: '"acme" is taken' }]);
     expect((await (await on(router)).delete(`${prefix}/groups/p1`, { headers: asInstance })).data).toEqual({ released: true });
-  });
-});
-
-describe('how an instance joins', () => {
-  it('hands the bundle as JSON, or as the installer\'s shell-safe text, never cached', async () => {
-    const { instances, router } = route();
-    instances.join.calledWith('tok', 'box').mockResolvedValue(ok(bundle));
-    const json = await (await on(router)).post(`${prefix}/join`, { token: 'tok', machine: 'box' });
-    expect(json.data).toMatchObject({ instanceId: 'inst-1', credential: bundle.credential });
-    expect(json.headers['cache-control']).toBe('no-store');
-    const text = await (await on(router)).post(`${prefix}/join?format=env`, { token: 'tok', machine: 'box' });
-    expect(text.headers['content-type']).toContain('text/plain');
-    expect(text.text).toBe(bundleAsEnv(bundle));
-  });
-
-  it('refuses a token that does not work, still never cached', async () => {
-    const { instances, router } = route();
-    instances.join.mockResolvedValue(no(401, 'that token is not valid'));
-    const refused = await (await on(router)).post(`${prefix}/join`, { token: 'bad' });
-    expect([refused.status, refused.data, refused.headers['cache-control']]).toEqual([401, { error: 'that token is not valid' }, 'no-store']);
   });
 });
 
@@ -460,6 +408,18 @@ describe('moving a pool instance to its owner\'s machine', () => {
     expect((await (await on(router)).delete(`${prefix}/move/self`, { headers: asInstance })).data).toEqual({ stopping: true });
     instances.moveOfAs.mockResolvedValue(no(401, 'unknown instance or credential'));
     expect((await (await on(router)).get(`${prefix}/move/self`, { headers: asInstance })).status).toBe(401);
+  });
+});
+
+describe('the install.sh join root no longer serves', () => {
+  it('answers 404 to a join command asked for, a join made with one and its shell form, from a person or a machine', async () => {
+    const { router } = route();
+    for (const headers of [undefined, asInstance]) {
+      for (const path of ['/join-tokens', '/join', '/join?format=env']) {
+        const answer = await (await on(router)).post(`${prefix}${path}`, { name: 'luno', token: 'a-join-token' }, { headers });
+        expect(answer.status, path).toBe(404);
+      }
+    }
   });
 });
 

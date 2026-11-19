@@ -1,4 +1,5 @@
 import type { WorkflowRun } from './workflows.js';
+import { failureReason } from './temporal-failure.js';
 
 export type ClosedAs = 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'TERMINATED' | 'TIMED_OUT' | 'CONTINUED_AS_NEW' | 'NOT_FOUND' | 'RUNNING';
 
@@ -35,4 +36,16 @@ export async function closedWith(run: Pick<WorkflowRun, 'result' | 'describe'>):
 
 export async function closedAs(run: Pick<WorkflowRun, 'result' | 'describe'>): Promise<ClosedAs> {
   return (await closedWith(run)).as;
+}
+
+export type WorkflowEnding = { ended: unknown } | { failed: string };
+
+export function endingOf(run: Pick<WorkflowRun, 'result'>): Promise<WorkflowEnding> {
+  return run.result().then(
+    (ended: unknown): WorkflowEnding => ({ ended }),
+    (err: unknown): WorkflowEnding => {
+      if (!named(err, 'WorkflowFailedError')) throw err;
+      return { failed: failureReason('FAILED', err) };
+    },
+  );
 }

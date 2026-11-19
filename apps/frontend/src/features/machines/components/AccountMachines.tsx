@@ -60,7 +60,7 @@ function InstallLine({ shown, retrying, onRetry }: { shown: InstallShown | undef
   }
   return (
     <div role="alert" className="space-y-1 rounded-md border border-rose-800 px-2 py-1.5 text-[11px] text-rose-200">
-      <p className="flex items-center gap-2"><AlertTriangle size={12} /> Koala could not be put here at {shown.title}</p>
+      <p className="flex items-center gap-2"><AlertTriangle size={12} /> {shown.said}</p>
       <p className="whitespace-pre-wrap font-mono text-[10px] text-rose-100">{shown.why}</p>
       <button
         type="button"
@@ -68,7 +68,7 @@ function InstallLine({ shown, retrying, onRetry }: { shown: InstallShown | undef
         disabled={retrying}
         className="rounded border border-rose-700/60 px-1.5 py-0.5 text-[10px] text-rose-100 disabled:opacity-50"
       >
-        Try again
+        {shown.retry}
       </button>
     </div>
   )
@@ -78,10 +78,11 @@ export interface AccountMachinesProps {
   name: string
   nameOk: boolean
   hasKoala: boolean
+  moving?: boolean
   onPlacing: () => void
 }
 
-export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: AccountMachinesProps) {
+export default function AccountMachines({ name, nameOk, hasKoala, moving = false, onPlacing }: AccountMachinesProps) {
   const [adding, setAdding] = useState(false)
   const [putHere, setPutHere] = useState(!hasKoala)
   const [copied, setCopied] = useState(false)
@@ -113,7 +114,9 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
       )}
       {machines.length > 0 && (
         <ul className="space-y-2">
-          {machines.map((machine) => (
+          {machines.map((machine) => {
+            const shown = installShown(install, machine)
+            return (
             <li key={machine.id} className="space-y-1 rounded-md border border-[var(--bark-700)] px-3 py-2">
               <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 text-xs text-slate-200">
@@ -122,7 +125,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                 <span className={`h-2 w-2 rounded-full ${machine.online ? 'bg-emerald-400' : 'bg-slate-600'}`} aria-label={machine.online ? 'online' : 'offline'} />
                 {machine.holdsKoala && <span className="text-[11px] text-emerald-300">holds your Koala</span>}
               </span>
-              {!machine.holdsKoala && !hasKoala && (
+              {!machine.holdsKoala && !hasKoala && shown?.kind !== 'failed' && (
                 <button
                   type="button"
                   onClick={() => place.mutate({ machineId: machine.id, name }, { onSuccess: onPlacing })}
@@ -130,12 +133,12 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                   title={machine.meshIp ? undefined : 'It is not on your private network yet'}
                   className="rounded-md bg-[var(--leaf-stem)] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50"
                 >
-                  {place.isPending ? <Loader2 size={12} className="animate-spin" /> : 'Put Koala here'}
+                  {place.isPending ? <Loader2 size={12} className="animate-spin" /> : moving ? 'Move here' : 'Put Koala here'}
                 </button>
               )}
               </div>
               <InstallLine
-                shown={installShown(install, machine)}
+                shown={shown}
                 retrying={place.isPending || !nameOk}
                 onRetry={() => place.mutate({ machineId: machine.id, name }, { onSuccess: onPlacing })}
               />
@@ -158,10 +161,11 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                 </p>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
-      {!createCode.data ? (
+      {moving ? null : !createCode.data ? (
         <div className="space-y-2">
           {!hasKoala && (
             <label className="flex items-center gap-2 text-xs text-slate-300">

@@ -1,5 +1,6 @@
 import type { InstanceRecord } from './instances.js';
 import type { KubeObject } from './app-move.js';
+import type { InstanceSetup } from './instance-setup.js';
 
 export const MOVE_PARTS = ['keys', 'data', 'mongo', 'gitea-db', 'gitea-data', 'infisical-db', 'terraform-state', 'apps'] as const;
 export type MovePart = typeof MOVE_PARTS[number];
@@ -7,7 +8,9 @@ export const isMovePart = (value: unknown): value is MovePart => typeof value ==
 
 export const MOVED_KEYS = ['SESSION_KEY', 'DATA_KEY', 'PAYLOAD_KEY', 'EGRESS_KEY'] as const;
 
-export const SKIPPED_COLLECTIONS: readonly string[] = ['temporal_payload_chunks'];
+const SKIPPED = ['temporal_payload_chunks'] as const;
+export type SkippedCollection = (typeof SKIPPED)[number];
+export const SKIPPED_COLLECTIONS: readonly string[] = SKIPPED;
 
 export const MOVE_STATES = ['waiting', 'joined', 'copying', 'switching', 'failed'] as const;
 export type MoveStateName = typeof MOVE_STATES[number];
@@ -19,6 +22,7 @@ export interface InstanceMove {
   credentialHash?: string | undefined;
   wasPaused?: boolean | undefined;
   target?: { machine?: string | undefined; meshIp?: string | undefined; url?: string | undefined } | undefined;
+  setup?: InstanceSetup | undefined;
 }
 
 export const poolMoveWorkflowId = (instanceId: string): string => `pool-move-${instanceId}`;
@@ -30,6 +34,25 @@ export function moveProblem(instance: Pick<InstanceRecord, 'pool' | 'status' | '
   if (instance.status !== 'ready' && instance.status !== 'paused') return 'the instance is still being set up; move it once it runs';
   if (instance.move?.state === 'switching') return 'the instance is switching to its new machine already';
   return undefined;
+}
+
+export function movedRecord(instance: InstanceRecord): InstanceRecord | { error: string } {
+  const { move, pool: _place, ...rest } = instance;
+  if (!instance.install?.move || !move) return { error: 'the move has no machine it was put on' };
+  if (!move.credentialHash || !move.target?.meshIp || !move.target.url) return { error: 'the new machine never said where it answers' };
+  const machine = move.target.machine;
+  return {
+    ...rest,
+    credentialHash: move.credentialHash,
+    machineId: instance.install.machineId,
+    meshIp: move.target.meshIp,
+    url: move.target.url,
+    status: 'ready',
+    detail: `Moved to ${machine ?? 'your machine'}`,
+    setup: move.setup,
+    ...(machine ? { machine } : {}),
+    ...(instance.install.imageTag ? { running: instance.install.imageTag } : {}),
+  };
 }
 
 export interface PostgresPlace {

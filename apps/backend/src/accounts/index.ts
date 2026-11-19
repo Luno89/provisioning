@@ -1,5 +1,5 @@
 export { memoryWatermarkKeys, ownedWorkflowIds } from './lib/account-removal.js';
-export type { AccountIds, AccountRelated } from './lib/account-removal.js';
+export type { AccountCollection, AccountIds, AccountRelated } from './lib/account-removal.js';
 export { accountsMadeBy, DEFAULT_INVITE_LIMITS, limitsProblem, projectInviteRefusal } from './lib/project-invite-limits.js';
 export type { InviteLimits } from './lib/project-invite-limits.js';
 export { readiedForProviderLink } from './lib/provider-sign-in.js';

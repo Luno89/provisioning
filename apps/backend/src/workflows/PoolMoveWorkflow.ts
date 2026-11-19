@@ -1,11 +1,12 @@
 import { condition, defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler } from '@temporalio/workflow';
 import type * as pool from '../activities/PoolActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { MOVE_FINISHED, MOVE_STOPPED } from '../instances/lib/instance-move.js';
 import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
 import { ignore } from '@koala/engine-core/failures';
 
-const moving = proxyActivities<Pick<typeof pool, 'PoolMoveStartActivity' | 'PoolMoveSwitchActivity' | 'PoolMoveStopActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 10 } });
+const moving = proxyActivities<Pick<typeof pool, 'PoolMoveStartActivity' | 'PoolMoveSwitchActivity' | 'PoolMoveStopActivity'>>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
 
 export const moveFinished = defineSignal(MOVE_FINISHED);
 export const moveStopped = defineSignal<[string]>(MOVE_STOPPED);

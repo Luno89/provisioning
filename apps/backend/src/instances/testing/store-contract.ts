@@ -36,33 +36,6 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
-  describe('join tokens', () => {
-    it('hands a token out once, as it was saved', async () => {
-      const store = await make();
-      const token = { hash: 'h1', ownerId: 'owner-1', instanceId: 'inst', expiresAt: '2030-01-01T00:00:00.000Z' };
-      await store.saveJoinToken(token);
-      expect(await store.takeJoinToken('h1')).toEqual(token);
-      expect(await store.takeJoinToken('h1')).toBeUndefined();
-      expect(await store.takeJoinToken('never')).toBeUndefined();
-    });
-
-    it('keeps a move token marked and leaves the mark off one that is not a move', async () => {
-      const store = await make();
-      await store.saveJoinToken({ hash: 'moving', ownerId: 'o', instanceId: 'i', expiresAt: '2030-01-01T00:00:00.000Z', move: true });
-      await store.saveJoinToken({ hash: 'staying', ownerId: 'o', instanceId: 'i', expiresAt: '2030-01-01T00:00:00.000Z', move: false });
-      expect(await store.takeJoinToken('moving')).toHaveProperty('move', true);
-      expect(await store.takeJoinToken('staying')).not.toHaveProperty('move');
-    });
-
-    it('gives back the expiry as an ISO time and replaces a token saved again under the same hash', async () => {
-      const store = await make();
-      await store.saveJoinToken({ hash: 'h', ownerId: 'first', instanceId: 'i', expiresAt: '2030-01-01T00:00:00Z' });
-      await store.saveJoinToken({ hash: 'h', ownerId: 'second', instanceId: 'j', expiresAt: '2031-02-03T04:05:06.789Z' });
-      expect(await store.takeJoinToken('h')).toEqual({ hash: 'h', ownerId: 'second', instanceId: 'j', expiresAt: '2031-02-03T04:05:06.789Z' });
-      expect(await store.takeJoinToken('h')).toBeUndefined();
-    });
-  });
-
   describe('the instance registry', () => {
     it('keeps an instance as saved, replaces it whole when saved again and forgets it when deleted', async () => {
       const store = await make();
@@ -160,6 +133,23 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(heard).toEqual(['inst-installed asked', 'inst-installed ready']);
     });
 
+    it('hears each write of an instance on Koala\'s servers or moving from them, which its owner\'s page follows', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const watching = store.watchInstalls((written) => { heard.push(`${written.id} ${written.move?.state ?? written.status}`); if (written.move?.state === 'failed') finish(); });
+      await watching.ready;
+      const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-11-18T10:00:00.000Z', trialEndsAt: '2026-12-02T10:00:00.000Z' };
+      await store.saveInstance(instance('inst-plain', 'o1'));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'installing' }));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'waiting', startedAt: '2026-11-18T10:01:00.000Z' } }));
+      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'failed', startedAt: '2026-11-18T10:01:00.000Z', detail: 'you stopped the move' } }));
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['inst-pool installing', 'inst-pool waiting', 'inst-pool failed']);
+    });
+
     it('changes only the fields named, only while the install named is the instance\'s, and stamps when it first served once ready', async () => {
       const store = await make();
       const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, line: 'waiting', askedAt: '2026-11-18T10:00:00.000Z', at: '2026-11-18T10:00:00.000Z' };
@@ -170,6 +160,18 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'ready', status: 'ready', url: 'https://bo.koala.app', updatedAt: '2026-11-18T10:02:00.000Z' })).toBe(true);
       expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z', credentialHash: 'h1' });
       expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
+    });
+
+    it('changes a field however deep it lies in a move, keeping the rest of the move', async () => {
+      const store = await make();
+      const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, move: true as const, at: '2026-11-18T10:00:00.000Z' };
+      const move = { state: 'joined' as const, startedAt: '2026-11-18T09:00:00.000Z', credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7' } };
+      await store.saveInstance(instance('inst-a', 'o1', { install, move, credentialHash: 'h1' }));
+      expect(await store.updateInstall('inst-a', 'install-1', { 'move.state': 'copying', 'move.target.url': 'http://100.64.0.7:30320', updatedAt: '2026-11-18T10:01:00.000Z' })).toBe(true);
+      expect((await store.getInstances('o1'))[0]).toMatchObject({
+        credentialHash: 'h1',
+        move: { state: 'copying', startedAt: move.startedAt, credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7', url: 'http://100.64.0.7:30320' } },
+      });
     });
   });
 

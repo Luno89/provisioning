@@ -10,7 +10,7 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
-import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
+import { DEV_HEADSCALE, dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 import { until } from './lib/until.js';
 import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
 
@@ -39,6 +39,7 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...env } });
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const rootGone = async (): Promise<string | undefined> => (await containerNotRunning('nw-live-root')) ?? (await containerNotRunning(WORKER));
+let ownerId: string | undefined;
 
 async function teardown(): Promise<void> {
   if (KEEP) {
@@ -47,6 +48,7 @@ async function teardown(): Promise<void> {
   }
   for (const name of ['nw-live-root', WORKER, MAILBOX]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try { run(bin('k3d'), ['cluster', 'delete', CLUSTER]); } catch { /* not created */ }
+  if (ownerId) forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
   dropSuiteNamespace(ROOT);
 }
@@ -64,7 +66,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
   makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }),
-    '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
+    '-e', `MESH_LOGIN_SERVER=${DEV_HEADSCALE}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const keys = await until('root answering', async () => {
@@ -75,13 +77,25 @@ async function main(): Promise<void> {
   writeFileSync(publicKeyFile, keys[0]!.publicKey);
   const owner = await firstAdmin(ROOT_URL, ROOT);
   const OWNER = owner.id;
+  ownerId = OWNER;
+  const joining = `session=${sessionToken({ id: OWNER, email: owner.email }, loadKeys(process.env).session, { seconds: 300 })}`;
   const instances = (args: string[]) => run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', ...args], { MONGO_URI: ROOT.mongoUri });
 
-  step('root registers the instance and gives it a credential, then the chart installs it and its setup jobs install the services it uses');
+  step(`the k3d cluster joins the owner's account as their machine through root's join, so ${CLUSTER} is a machine's own cluster`);
+  const coded = await fetch(`${ROOT_URL}/api/my-machines/join-code`, { method: 'POST', headers: { 'content-type': 'application/json', Cookie: joining }, body: '{}' });
+  assert.equal(coded.status, 201, `root gave no machine command: ${await coded.clone().text()}`);
+  const { code } = await coded.json() as { code: string };
+  const joined = await fetch(`${ROOT_URL}/api/machines/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, hostname: CLUSTER, rootDir: '/home/koala', os: 'linux' }) });
+  assert.equal(joined.status, 200, `root did not let the machine join: ${await joined.clone().text()}`);
+  const { deviceId: machineId } = await joined.json() as { deviceId: string };
+  const listed = await (await fetch(`${ROOT_URL}/api/my-machines`, { headers: { Cookie: joining } })).json() as { machines: Array<{ id: string; name: string }> };
+  assert.ok(listed.machines.some((machine) => machine.id === machineId && machine.name === CLUSTER), `My Machines does not list ${CLUSTER}: ${JSON.stringify(listed)}`);
+
+  step('root registers the instance and gives it a credential, then the chart installs it on the machine, and its setup jobs install the services it uses');
   const credential = /--set instance\.credential=(\S+)/.exec(instances(['add', 'inst-live', OWNER, INSTANCE_URL]))?.[1];
   assert.ok(credential, 'root registered the instance without a credential to sign people in with');
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
-    '--set', 'instance.id=inst-live', '--set', 'storage.total=10Gi', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
+    '--set', 'instance.id=inst-live', '--set', `instance.machineId=${machineId}`, '--set', 'storage.total=10Gi', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
     '--set', 'backend.nodePort=30320', '--timeout', '720h'], { KUBECONFIG });
 

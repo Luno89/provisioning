@@ -502,9 +502,12 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const cancelled: string[] = [];
       const machines = accounts({
         installs: {
-          start: async (ownerId, device, name) => {
+          start: async (ownerId, device, name, _move, refused) => {
             started.push([ownerId, device.id, name]);
-            return device.meshIp ? { ok: true, value: { installId: `install-${started.length}` } } : { ok: false, status: 409, error: `${device.name} is not on your private network yet; Koala is put on it once it is` };
+            if (device.meshIp) return { ok: true, value: { installId: `install-${started.length}` } };
+            const refusal = { ok: false as const, status: 409 as const, error: `${device.name} is not on your private network yet; Koala is put on it once it is` };
+            await refused?.(refusal);
+            return refusal;
           },
           machineRemoved: async (deviceId) => { cancelled.push(deviceId); },
         },
@@ -529,11 +532,35 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(started).toHaveLength(2);
     });
 
+    it('brings the person\'s Koala over when the machine joins with a code made to move it, and asks a plain one only for a Koala', async () => {
+      const asked: unknown[][] = [];
+      const machines = accounts({ installs: { start: async (...args) => { asked.push([args[0], args[2], args[3]]); return { ok: true, value: { installId: 'install-1' } }; }, machineRemoved: async () => undefined } });
+      const moving = await machines.createJoinCode('bo', 'bobby', true);
+      const joinedToMove = await machines.join(moving.code, { hostname: 'desk', rootDir: '/home/bo/koala' });
+      if (!joinedToMove.ok) throw new Error(joinedToMove.error);
+      expect((await stored(joinedToMove.value.deviceId))?.koalaWanted).toEqual({ name: 'bobby', move: true });
+      await machines.recordMeshIp(joinedToMove.value.deviceId, '100.64.0.7');
+      expect(await machines.deliverKoala(joinedToMove.value.deviceId)).toEqual({ ok: true, value: { placing: true } });
+      const plain = await machines.createJoinCode('bo', 'bobby');
+      const joinedPlain = await machines.join(plain.code, { hostname: 'laptop', rootDir: '/home/bo/koala' });
+      if (!joinedPlain.ok) throw new Error(joinedPlain.error);
+      expect((await stored(joinedPlain.value.deviceId))?.koalaWanted).toEqual({ name: 'bobby' });
+      await machines.recordMeshIp(joinedPlain.value.deviceId, '100.64.0.8');
+      await machines.deliverKoala(joinedPlain.value.deviceId);
+      expect(asked).toEqual([['bo', 'bobby', true], ['bo', 'bobby', false]]);
+    });
+
     it('keeps a refused placement on the machine with its reason, and putting Koala there again asks again', async () => {
-      const refusing = accounts({ installs: { start: async () => ({ ok: false, status: 409, error: '"bobby" is taken' }), machineRemoved: async () => undefined } });
+      const refusing = accounts({ installs: { start: async (_owner, _device, _name, _move, refused) => {
+        const refusal = { ok: false as const, status: 409 as const, error: '"bobby" is taken' };
+        await refused?.(refusal);
+        return refusal;
+      }, machineRemoved: async () => undefined } });
       const { deviceId } = await joined(refusing, 'bo', { hostname: 'desk', rootDir: '/x' });
       await refusing.recordMeshIp(deviceId, '100.64.0.7');
+      browsersTold = [];
       expect(await refusing.putKoalaOn('bo', deviceId, 'bobby')).toMatchObject({ ok: false, error: '"bobby" is taken' });
+      expect(browsersTold).toEqual(['bo']);
       const [listed] = await refusing.listOnline('bo');
       expect(listed).toMatchObject({ koalaWanted: false, koalaRefused: { reason: '"bobby" is taken', at: clock.toISOString() } });
       const { machines: placingNow } = placing();

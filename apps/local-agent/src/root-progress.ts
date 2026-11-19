@@ -11,22 +11,32 @@ const reasonOf = (err: unknown): string => {
   return err instanceof Error && err.cause instanceof Error ? `${message} (${err.cause.message})` : message;
 };
 
+export interface RootAsking {
+  unreachable: string;
+  refused: string;
+}
+
+export async function askRoot(fetcher: typeof fetch, url: string, init: RequestInit, asking: RootAsking): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetcher(url, init);
+  } catch (err) {
+    const failure = failureOf(err);
+    if (failure.kind === 'final') throw new Hopeless(`root ${asking.unreachable}: ${reasonOf(err)}`, { cause: err });
+    throw new Error(`root could not be reached: ${reasonOf(err)}`, { cause: err });
+  }
+  if (response.ok) return response;
+  const said = (await response.text()).trim();
+  if (statusFailure(response.status).kind === 'final') throw new Hopeless(`root ${asking.refused} (${response.status}): ${said}`);
+  throw new Error(`root answered ${response.status}: ${said}`);
+}
+
+const TELLING: RootAsking = { unreachable: 'could not be told this machine\'s progress', refused: 'did not take this machine\'s progress' };
+
 export function rootProgress(url: string, credential: string | (() => string), fetcher: typeof fetch, wait: WaitOptions = {}): ProgressSink {
   const post = async (progress: MachineProgress): Promise<true> => {
-    let response: Response;
-    try {
-      response = await fetcher(url, { method: 'POST', headers: { 'content-type': 'application/json', ...progressCredential(typeof credential === 'string' ? credential : credential()) }, body: JSON.stringify(progress) });
-    } catch (err) {
-      const failure = failureOf(err);
-      if (failure.kind === 'final') throw new Hopeless(`root could not be told this machine's progress: ${reasonOf(err)}`, { cause: err });
-      throw new Error(`root could not be reached: ${reasonOf(err)}`, { cause: err });
-    }
-    if (response.ok) return true;
-    const said = (await response.text()).trim();
-    if (statusFailure(response.status).kind === 'final') {
-      throw new Hopeless(`root did not take this machine's progress (${response.status}): ${said}`);
-    }
-    throw new Error(`root answered ${response.status}: ${said}`);
+    await askRoot(fetcher, url, { method: 'POST', headers: { 'content-type': 'application/json', ...progressCredential(typeof credential === 'string' ? credential : credential()) }, body: JSON.stringify(progress) }, TELLING);
+    return true;
   };
   return {
     tell: async (progress) => {

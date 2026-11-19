@@ -1,5 +1,5 @@
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import type { ClusterAccess, InfisicalService, InfrastructureService, Reach } from '../../infrastructure/index.js';
+import type { ClusterAccess, InfisicalService, InfrastructureService, Provisioner, Reach } from '../../infrastructure/index.js';
 import type { GiteaService } from '../../projects/index.js';
 
 export function stepsOn(access: MockProxy<ClusterAccess>, infra: MockProxy<InfrastructureService>, dataKey: string) {
@@ -7,6 +7,7 @@ export function stepsOn(access: MockProxy<ClusterAccess>, infra: MockProxy<Infra
     access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(),
     database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey },
     machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics',
+    provisioner: mock<Provisioner>(),
   };
 }
 

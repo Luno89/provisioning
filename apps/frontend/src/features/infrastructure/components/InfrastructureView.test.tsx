@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as monitoringApi from '../../monitoring/api/monitoring'
 import * as infrastructureApi from '../api/infrastructure'
 import * as runningApi from '../api/running'
+import * as provisioningApi from '../api/provisioning'
 import * as clustersApi from '../api/clusters'
 import * as poisoningApi from '../../engine/api/poisoning'
 import type { AppHealthView, ClusterRow, Overview } from '../../monitoring/api/monitoring'
@@ -37,6 +38,10 @@ vi.mock('../../engine/api/poisoning', async (orig) => ({
   ...(await orig<typeof import('../../engine/api/poisoning')>()),
   dismissSignal: vi.fn(async () => ({})),
   retireFromSignal: vi.fn(async () => ({ retired: 2, signal: {} })),
+}))
+vi.mock('../api/provisioning', async (orig) => ({
+  ...(await orig<typeof provisioningApi>()),
+  getProvisioning: vi.fn(async () => ({ setups: [{ id: 'provision-machine-koala~1', target: { kind: 'koala', clusterId: 'machine-koala' }, revision: 4, reason: 'revision', state: 'up', pieces: [], startedAt: '2026-11-18T10:00:00.000Z', endedAt: '2026-11-18T10:20:00.000Z' }], can: ['set-up-again'] })),
 }))
 vi.mock('../api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
@@ -156,10 +161,11 @@ describe('the Infrastructure page', () => {
     show()
     expect(await screen.findByRole('list', { name: 'Needs attention' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Running · 1' })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Model traffic', 'Koala', 'Alerts set', 'Alert history'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['Needs attention', 'Apps · 3', 'Clusters · 2', 'Running · 1', 'Model traffic', 'Setting Koala up', 'Koala', 'Alerts set', 'Alert history'])
     expect(screen.getAllByTestId('app-row')).toHaveLength(3)
     expect(screen.getAllByTestId('cluster-card')).toHaveLength(2)
     expect(await screen.findByRole('link', { name: 'Koala answering' })).toHaveAttribute('href', '#/chat/c1')
+    expect(await screen.findByText('Koala\'s services and monitoring are set up (revision 4).')).toBeDefined()
     expect(screen.queryByRole('navigation', { name: 'Infrastructure' })).toBeNull()
   })
 

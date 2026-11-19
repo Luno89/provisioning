@@ -5,7 +5,7 @@ import { ROLLOUT_KINDS } from '@koala/provision';
 import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
 import { koalaClusterMonitoring } from '../monitoring/lib/cluster-monitoring.js';
 import { MONITORING_CHARTS } from '../monitoring/lib/pool-monitoring.js';
-import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';
 
@@ -39,7 +39,7 @@ describe('monitoring a machine\'s cluster', () => {
     const steps = cluster({ operator: false, blackbox: false });
     const { access, infra } = steps;
     const kept: string[] = [];
-    await ensureClusterMonitoring(steps, {
+    await installClusterMonitoring(steps, {
       physicalName: 'machine-desk', reach: DESK,
       machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', remember: async (hash) => { kept.push(hash); } },
     });
@@ -56,14 +56,14 @@ describe('monitoring a machine\'s cluster', () => {
 
   it('changes nothing on a machine whose collectors are already there', async () => {
     const steps = cluster({ operator: true, blackbox: true });
-    await ensureClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: { metricsUrl: 'u', remember: async () => { throw new Error('no token should be made'); } } });
+    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: { metricsUrl: 'u', remember: async () => { throw new Error('no token should be made'); } } });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy).not.toHaveBeenCalled();
   });
 
   it('gives any other cluster its whole stack, with no token', async () => {
     const steps = cluster({ operator: false, blackbox: false });
-    await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK });
+    await installClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box', 'shop-box-observability']);
   });
@@ -75,7 +75,7 @@ describe('a cluster whose monitoring is at another version than Koala pins', () 
     const order: string[] = [];
     steps.access.apply.mockImplementation(async () => { order.push('crds'); return ''; });
     steps.infra.deploy.mockImplementation(async (name) => { order.push(`apply ${name}`); return undefined as never; });
-    await ensureClusterMonitoring(steps, { physicalName: 'machine-desk', reach: OWN, pool: false, koala: true });
+    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: OWN, pool: false, koala: true });
     expect(steps.access.helm).toHaveBeenCalledWith(OWN, ['show', 'crds', 'kube-prometheus-stack', '--repo', MONITORING_CHARTS.repo, '--version', MONITORING_CHARTS.stack.version]);
     expect(steps.access.apply).toHaveBeenCalledWith(OWN, `# the CRDs of kube-prometheus-stack ${MONITORING_CHARTS.stack.version}`, { serverSide: true });
     expect(order).toEqual(['crds', 'apply machine-desk']);
@@ -85,25 +85,9 @@ describe('a cluster whose monitoring is at another version than Koala pins', () 
 describe('monitoring Koala\'s own cluster', () => {
   const fromDeploy = { physicalName: 'machine-desk', reach: OWN, pool: false, koala: true };
 
-  it('applies one set of stacks under one name, whether the worker starting or a deploy to the machine Koala runs on asks, and never twice at once', async () => {
-    const steps = cluster({ operator: false, blackbox: false });
-    const { infra } = steps;
-    let open!: () => void;
-    const gate = new Promise<void>((resolve) => { open = resolve; });
-    infra.deploy.mockImplementation(async () => { await gate; return undefined as never; });
-    const worker = ensureClusterMonitoring(steps, koalaClusterMonitoring(false, OWN));
-    const deploy = ensureClusterMonitoring(steps, fromDeploy);
-    expect(deploy).toBe(worker);
-    open();
-    await Promise.all([worker, deploy]);
-    expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk', 'machine-desk-observability']);
-    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-koala', INGRESS_SERVICE: 'NodePort', KOALA_CLUSTER: 'true' } });
-    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('ENV');
-  });
-
   it('keeps that name, the cluster\'s id, when only a deploy asks, so the stacks the worker applied stay the only ones', async () => {
     const steps = cluster({ operator: false, blackbox: false });
-    await ensureClusterMonitoring(steps, fromDeploy);
+    await installClusterMonitoring(steps, fromDeploy);
     expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk', 'machine-desk-observability']);
   });
 });
@@ -112,7 +96,7 @@ describe('monitoring a cluster that cannot be reached', () => {
   it('installs nothing and fails with why the cluster could not be reached', async () => {
     const steps = cluster({ operator: false, blackbox: false });
     steps.access.kubectl.mockRejectedValue(new Error('machine-desk is stopped until something runs on it'));
-    await expect(ensureClusterMonitoring(steps, { physicalName: 'stopped-desk', reach: DESK })).rejects.toThrow('stopped until something runs on it');
+    await expect(installClusterMonitoring(steps, { physicalName: 'stopped-desk', reach: DESK })).rejects.toThrow('stopped until something runs on it');
     expect(steps.infra.deploy).not.toHaveBeenCalled();
   });
 });
@@ -125,15 +109,24 @@ describe('waiting for the monitoring to run', () => {
   it('reads the namespaces each part installs into once Terraform is done, and ends when everything there has rolled out', async () => {
     let reads = 0;
     const steps = cluster({ operator: false, blackbox: false, rolled: (namespace) => (namespace === 'monitoring' && (reads += 1) < 3 ? [exporter(0), set, pod({ ready: false, state: { waiting: { reason: 'ContainerCreating' } } })] : [exporter(1), set, pod({ ready: true, state: { running: {} } })]) });
-    await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, undefined, async () => undefined);
+    await installClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, {}, async () => undefined);
     const watched = steps.access.kubectl.mock.calls.filter(([, args]) => args[1] === ROLLOUT_KINDS).map(([, args]) => args[3]);
     expect(new Set(watched)).toEqual(new Set(['monitoring', 'traefik']));
     expect(reads).toBeGreaterThanOrEqual(3);
   });
 
+  it('tells whoever follows it what it installs and each line the watch says while it waits', async () => {
+    let reads = 0;
+    const steps = cluster({ operator: false, blackbox: false, rolled: (namespace) => (namespace === 'monitoring' && (reads += 1) < 2 ? [exporter(0), set, pod({ ready: false, state: { waiting: { reason: 'ContainerCreating' } } })] : [exporter(1), set, pod({ ready: true, state: { running: {} } })]) });
+    const told: string[] = [];
+    await installClusterMonitoring(steps, koalaClusterMonitoring(false, OWN), { report: (line) => told.push(line) }, async () => undefined);
+    expect(told[0]).toBe('machine-desk has no monitoring yet; installing cluster and observability');
+    expect(told.filter((line) => line.startsWith('the monitoring of machine-desk waits: '))).toHaveLength(1);
+  });
+
   it('fails the install, saying why, once something it made can never run', async () => {
     const steps = cluster({ operator: false, blackbox: false, rolled: (namespace) => (namespace === 'monitoring' ? [exporter(0), set, pod({ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } })] : []) });
-    await expect(ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, undefined, async () => undefined))
+    await expect(installClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK }, {}, async () => undefined))
       .rejects.toThrow('the monitoring of shop-box cannot finish: blackbox-exporter-1-a: ImagePullBackOff');
     expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box']);
   });

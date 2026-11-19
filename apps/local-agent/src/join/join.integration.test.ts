@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ignore } from '@koala/engine-core/failures';
 import { JOIN_PROGRESS, JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
+import { KOALA_INSTALL_FOLLOW_PATH } from '@koala/engine-core/koala-install';
 import { localCommands, type CommandRunner, type Every } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
 import { localJoinHost } from './host.js';
@@ -41,6 +42,8 @@ let server: Server;
 let url = '';
 let pins: JoinPins;
 let cutReports = 0;
+const followings: Array<{ events: string[]; cut?: boolean }> = [];
+const followedWith: Array<string | undefined> = [];
 
 const tarOf = (name: string, files: Record<string, string>): string => {
   const dir = path.join(place, `build-${name}`);
@@ -145,6 +148,20 @@ beforeAll(async () => {
         heard.push({ auth: req.headers.authorization, progress: read.value });
         res.statusCode = 204;
         res.end();
+        return;
+      }
+      if (req.method === 'GET' && req.url === KOALA_INSTALL_FOLLOW_PATH) {
+        followedWith.push(req.headers.authorization);
+        const answer = followings.shift();
+        if (!answer) {
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const event of answer.events) res.write(event);
+        if (answer.cut) res.write('', () => { res.socket?.destroy(); });
+        else res.end();
         return;
       }
       const file = path.join(served, path.basename(req.url ?? ''));
@@ -364,5 +381,26 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     expect(ran.code, ran.said).toBe(1);
     expect(ran.said).toContain(why);
     expect(heard.at(-1)?.progress).toEqual({ stage: 'service', title: 'Starting the machine agent, now and whenever you log in', state: 'failed', why: `its check failed after applying: ${why}` });
+  });
+
+  it('follows root putting Koala on the machine over real HTTP, again after the connection is cut, to ready, and to failed', async () => {
+    const event = (body: unknown): string => `data: ${JSON.stringify(body)}\n\n`;
+    const install = (state: string, more: Record<string, string> = {}) => ({ id: 'install-1', machineId: 'device-1', state, at: '2026-11-18T10:00:00.000Z', ...more });
+    const chart = event({ install: install('installing', { stage: 'chart', title: 'Installing Koala\'s chart', line: 'waiting for deployment/koala' }) });
+    followedWith.length = 0;
+    followings.push({ events: [': beat\n\n', chart], cut: true }, { events: [chart, event({ install: install('ready', { stage: 'koala', title: 'Koala' }), url: 'https://bobby.koala.app' })] });
+    const ready = await join('koala-code');
+    expect(ready.code, ready.said).toBe(0);
+    expect(followedWith).toHaveLength(2);
+    expect(new Set(followedWith).size).toBe(1);
+    expect(followedWith[0]).toBe(`Bearer ${(JSON.parse(readFileSync(path.join(home, '.config/koala/machine.json'), 'utf8')) as { token: string }).token}`);
+    expect(ready.said.match(/waiting for deployment\/koala/g)).toHaveLength(1);
+    expect(ready.said).toMatch(/The connection to root dropped \(.+\); following again/);
+    expect(ready.said.trimEnd().endsWith('Koala is ready at https://bobby.koala.app')).toBe(true);
+
+    followings.push({ events: [event({ install: install('failed', { stage: 'chart', title: 'Installing Koala\'s chart', why: 'the image could not be pulled' }) })] });
+    const failed = await join('koala-code-again');
+    expect(failed.code, failed.said).toBe(1);
+    expect(failed.said.trimEnd().endsWith('Putting Koala on this machine stopped at Installing Koala\'s chart: the image could not be pulled')).toBe(true);
   });
 });

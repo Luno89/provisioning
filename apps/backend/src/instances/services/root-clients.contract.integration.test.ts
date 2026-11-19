@@ -74,7 +74,7 @@ describe('an instance\'s clients against root\'s own routes', () => {
     const { instance, poolAsked } = await rootWithAnInstance({ pool: true });
     const trial = new InstanceTrial(instance);
     const started = await trial.startMove();
-    expect(started.command).toMatch(/\/install\.sh \| sudo sh -s -- \S+$/);
+    expect(started.command).toMatch(/\/machine\.sh \| sh -s -- \S+$/);
     expect(Date.parse(started.expiresAt)).toBeGreaterThan(Date.now());
     expect(await trial.moveState()).toMatchObject({ state: 'waiting' });
     await trial.stopMove();

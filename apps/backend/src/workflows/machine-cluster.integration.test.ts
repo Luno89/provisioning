@@ -58,6 +58,8 @@ class DeskHost implements ClusterHost {
   async isWanted(): Promise<boolean> { return this.wantedNow; }
   async holdKoala(): Promise<void> { throw new Error('no Koala is put on the desk here'); }
   async holdsKoala(): Promise<boolean> { return false; }
+  async heldKoala(): Promise<undefined> { return undefined; }
+  async letKoalaGo(): Promise<void> { throw new Error('no Koala is put on the desk here'); }
   async meshIp(): Promise<string | undefined> { return DESK.meshIp; }
   now(): number { return this.clock; }
   async pause(): Promise<void> { this.clock += 2_000; }

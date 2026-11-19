@@ -47,6 +47,12 @@ describe('the permissions table', () => {
     expect(allowed(person('member', [{ role: 'shared', project: 'p1', as: 'owner' }]), 'see-platform-dependencies', { kind: 'install' })).toBe(false);
   });
 
+  it('lets only whoever runs this Koala set it up again, saying why to anyone else', () => {
+    expect(allowed(person('owner', [{ role: 'instance-owner' }]), 'set-up-again', { kind: 'install' })).toBe(true);
+    expect(authorize(someone, 'set-up-again', { kind: 'install' })).toEqual({ allowed: false, status: 403, error: 'Only whoever runs this Koala sets it up again.' });
+    expect(allowed(person('member', [{ role: 'shared', project: 'p1', as: 'owner' }]), 'set-up-again', { kind: 'install' })).toBe(false);
+  });
+
   it('lets only the instance owner change the instance settings', () => {
     expect(allowed(instanceOwner, 'change', { kind: 'instance-settings' })).toBe(true);
     expect(authorize(operator, 'change', { kind: 'instance-settings' })).toMatchObject({ allowed: false, status: 403 });
@@ -142,14 +148,14 @@ describe('what the session says a person may do', () => {
 
   it('gives an instance\'s owner its settings and the operator\'s powers there, but no accounts to manage', () => {
     expect(sessionPermissions(on('instance'), { holdsAccounts: false })).toEqual({
-      administer: true, 'manage-accounts': false, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': true, 'manage-own-account': false,
+      administer: true, 'manage-accounts': false, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': true, 'manage-own-account': false, 'set-up-again': true,
     });
   });
 
   it('lets root\'s operator manage accounts and anyone remove their own account where accounts are held', () => {
     expect(sessionPermissions(on('root', ['operator']), { holdsAccounts: true })['manage-accounts']).toBe(true);
     expect(sessionPermissions(on('root'), { holdsAccounts: true })).toEqual({
-      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true,
+      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': false,
     });
   });
 

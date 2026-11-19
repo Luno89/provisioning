@@ -5,7 +5,7 @@ import {
   type GrantRequest, type Handover, type Revocation, type RevokedBecause, type RunGrant,
 } from '../lib/run-grants.js';
 
-export type RunGrantStore = Pick<EngineStore, 'saveRunGrant' | 'getRunGrant' | 'getRunGrantOfRun' | 'getLiveRunGrants' | 'saveRunEnded' | 'saveRunHandover' | 'getRunEndings'>;
+export type RunGrantStore = Pick<EngineStore, 'saveRunGrant' | 'getRunGrant' | 'deleteRunGrant' |'getRunGrantOfRun' | 'getLiveRunGrants' | 'saveRunEnded' | 'saveRunHandover' | 'getRunEndings'>;
 
 export interface RunGrantDeps {
   store: RunGrantStore;
@@ -39,6 +39,11 @@ export class RunGrantService {
     const grant = newRunGrant({ id: this.deps.newId?.() ?? `grant-${randomUUID()}`, ...request, now: this.now() });
     await this.deps.store.saveRunGrant(grant);
     return grant;
+  }
+
+  async withdraw(id: string): Promise<void> {
+    await this.deps.store.deleteRunGrant(id);
+    this.settled.delete(id);
   }
 
   async grant(id: string): Promise<RunGrant | undefined> {

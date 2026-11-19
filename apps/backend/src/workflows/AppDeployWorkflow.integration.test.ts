@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from '../activities/CheckWorkloadActivity.js';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
-import { clusterActivities } from '../worker-cluster.js';
+import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../platform/testing/http.js';
 import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAppActivity.js';
@@ -27,6 +27,8 @@ import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { mongoTarget } from '../platform/lib/mongo-target.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
+
+const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
 const k3s = inject('k3s');
 const QUEUE = `app-deploy-k3s-${Math.random().toString(36).slice(2, 8)}`;
@@ -113,7 +115,7 @@ describe('deploying and removing an app through Temporal on a real k3s, with the
 describe('a TabbyAPI app whose model\'s size Hugging Face cannot say, deployed through Temporal', () => {
   it('stops at the deploy step, saying what to set, and sizes nothing on a guess', async () => {
     huggingFace.use(http.get('https://huggingface.co/api/models/org/model/tree/*', () => new HttpResponse(null, { status: 503 })));
-    await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), clusterActivities(steps).DeployAppActivity))
+    await expect(working(deploy({ reach: KOALA, name: 'qwen', namespace: 'qwen-1a2b3c', appType: 'tabbyapi', tabbyModel: 'org/model', tabbyGpuCount: 0 }), clusterActivities(steps, NO_SETUP).DeployAppActivity))
       .rejects.toMatchObject({ cause: { cause: { message: expect.stringMatching(/^Koala could not read how big org\/model is from Hugging Face \(.*503.*\), so it cannot size the memory it needs\. Set its Memory Limit \(RAM\) and Shared Memory/) as unknown } } });
   });
 });

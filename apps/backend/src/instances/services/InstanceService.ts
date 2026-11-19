@@ -9,12 +9,11 @@ import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 import type { Reach } from '../lib/instance-watch.js';
-import { commandSafeCode } from '../../platform/index.js';
 import { InstanceReach } from './InstanceReach.js';
-import type { KoalaInstallView, PlacedKoala } from '@koala/engine-core/koala-install';
+import { provisionReportOf, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { boundedLine, type MachineProgress } from '@koala/engine-core/machine-progress';
 import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
-
-export const JOIN_TOKEN_TTL_SECONDS = 3600;
+import { pastRevision, setupHeard, setupSaid, statusSettled, type InstanceSetup } from '../lib/instance-setup.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -23,8 +22,32 @@ export interface PoolWorkflows {
   trialChanged(instanceId: string): Promise<void>;
   remove(instanceId: string, ownerId: string): Promise<void>;
   move?(instanceId: string, ownerId: string): Promise<void>;
-  moveFinished?(instanceId: string): Promise<void>;
   moveStopped?(instanceId: string, reason: string): Promise<void>;
+  setupHeard?(instanceId: string, report: ProvisionReport): Promise<void>;
+}
+
+export interface SetupInstalls {
+  setupHeard(installId: string, report: ProvisionReport): Promise<Outcome<{ recorded: true }>>;
+  progressHeard(installId: string, progress: MachineProgress): Promise<Outcome<{ recorded: true }>>;
+  stop(installId: string): Promise<Outcome<{ recorded: true }>>;
+}
+
+export interface MoveMachines {
+  joinCode(ownerId: string, koalaName: string): Promise<{ command: string; expiresAt: string }>;
+  poolClusterId(instanceName: string): string;
+}
+
+export interface StatusReport {
+  status?: unknown;
+  detail?: unknown;
+  url?: unknown;
+  meshIp?: unknown;
+  moved?: unknown;
+  imageTag?: unknown;
+  presence?: unknown;
+  dataVersion?: unknown;
+  revision?: unknown;
+  provision?: unknown;
 }
 
 export interface WatchView {
@@ -66,6 +89,8 @@ export interface InstanceSettings {
   connected?: ((instanceId: string) => boolean) | undefined;
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
   reach?: InstanceReach | undefined;
+  installs?: SetupInstalls | undefined;
+  moves?: MoveMachines | undefined;
 }
 
 export interface ReleaseSource {
@@ -77,26 +102,6 @@ export interface PoolOffer {
   available: boolean;
   reason?: string | undefined;
   trialDays?: number | undefined;
-}
-
-export interface JoinBundle {
-  instanceId: string;
-  ownerId: string;
-  rootUrl: string;
-  rootPublicKeys: string;
-  meshLoginServer: string;
-  preAuthKey: string;
-  registry: string;
-  image: string;
-  imageTag: string;
-  imageDigest?: string | undefined;
-  chartUrl: string;
-  chartSha256?: string | undefined;
-  dataVersion?: number | undefined;
-  credential: string;
-  name: string;
-  domain: string;
-  move?: boolean | undefined;
 }
 
 export interface PlacingMachine {
@@ -155,35 +160,6 @@ export class InstanceService {
     return next;
   }
 
-  async createJoinToken(ownerId: string, requestedName?: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string; name: string }>> {
-    const current = (await this.store.instances.getInstances(ownerId))[0];
-    if (current?.pool && current.status !== 'failed') return { ok: false, status: 400, error: 'your instance runs on Koala\'s servers; moving it to your own machine keeps your work, and starting afresh there would not' };
-    const named = await this.nameFor(ownerId, requestedName);
-    if (!named.ok) return { ok: false, status: 400, error: named.error };
-    const token = commandSafeCode(24);
-    const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
-    const instanceId = instanceIdFor(ownerId);
-    await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
-
-    const existing = (await this.store.instances.getInstances(ownerId))[0];
-    const now = this.now().toISOString();
-    await this.store.instances.saveInstance({
-      id: instanceId,
-      ownerId,
-      url: existing?.url ?? '',
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      status: 'waiting',
-      detail: 'Waiting for the machine to run the install command',
-      name: named.name,
-      ...(existing?.credentialHash ? { credentialHash: existing.credentialHash } : {}),
-      ...(existing?.addresses ? { addresses: existing.addresses } : {}),
-      ...(existing?.groups?.length ? { groups: existing.groups } : {}),
-    });
-
-    return { ok: true, value: { token, expiresAt, name: named.name, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
-  }
-
   private async poolRoom(): Promise<{ ok: true; slots: number; trialDays: number; taken: InstanceRecord[] } | { ok: false; reason: string }> {
     const pool = this.settings.pool;
     if (!pool || 'off' in pool || !this.poolWorkflows) return { ok: false, reason: pool && 'off' in pool ? pool.off : 'this root has no pool' };
@@ -225,7 +201,7 @@ export class InstanceService {
       name: named.name,
       ...(existing?.addresses ? { addresses: existing.addresses } : {}),
       ...(existing?.groups?.length ? { groups: existing.groups } : {}),
-      pool: { ports, startedAt: now.toISOString(), trialEndsAt },
+      pool: { ports, startedAt: now.toISOString(), trialEndsAt, settingUp: true },
     });
     try {
       await this.poolWorkflows!.start(instanceId, ownerId);
@@ -288,64 +264,50 @@ export class InstanceService {
     return { ok: true, value: { removing: instance.name } };
   }
 
-  async join(token: unknown, machine: unknown): Promise<Outcome<JoinBundle>> {
-    if (typeof token !== 'string' || !token) return { ok: false, status: 400, error: 'send the join token as "token"' };
-    const found = await this.store.instances.takeJoinToken(hashCredential(token));
-    if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that join command has expired or was already used — make a new one from the app' };
-    if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
-    if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
-
-    const credential = crypto.randomBytes(32).toString('base64url');
-    const instance = (await this.store.instances.getInstances(found.ownerId)).find((entry) => entry.id === found.instanceId);
-    const machineName = typeof machine === 'string' ? machine.slice(0, 120) : undefined;
-    if (found.move) {
-      if (!instance?.move || instance.move.state === 'switching' || instance.move.state === 'failed') return { ok: false, status: 401, error: 'that move command is no longer wanted — start the move again from Koala' };
-    } else if (instance?.pool) {
-      return { ok: false, status: 409, error: 'this instance runs on Koala\'s servers; only its move command brings it to a machine' };
-    }
-    const { key } = await this.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
-    const now = this.now().toISOString();
-    if (found.move && instance?.move) {
-      await this.save(instance, {
-        move: { ...instance.move, state: 'joined', detail: 'Your machine has the move command and is setting itself up', credentialHash: hashCredential(credential), target: { machine: machineName } },
-      });
-    } else {
-      await this.save(instance ?? { id: found.instanceId, ownerId: found.ownerId, url: '', createdAt: now, updatedAt: now }, {
-        status: 'joined',
-        detail: 'The machine has the install command and is setting itself up',
-        credentialHash: hashCredential(credential),
-        machine: machineName,
-      });
-    }
-
-    return {
-      ok: true,
-      value: {
-        instanceId: found.instanceId,
-        ownerId: found.ownerId,
-        rootUrl: this.settings.rootUrl,
-        rootPublicKeys: this.settings.rootPublicKeys().join('\n'),
-        meshLoginServer: this.settings.meshLoginServer,
-        preAuthKey: key,
-        registry: this.settings.registry,
-        image: `${this.settings.registry}/nowrinkles/app`,
-        imageTag: this.settings.imageTag,
-        chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
-        ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
-        credential,
-        name: instance?.name ?? '',
-        domain: this.settings.domain ?? '',
-        ...(found.move ? { move: true } : {}),
-      },
-    };
+  private moveLive(instance: InstanceRecord): boolean {
+    return Boolean(instance.move && instance.move.state !== 'failed');
   }
 
-  async placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>> {
+  private async beginMove(instance: InstanceRecord): Promise<InstanceRecord> {
+    if (this.moveLive(instance)) return instance;
+    const paused = instance.status === 'paused';
+    const saved = await this.save(instance, {
+      move: {
+        state: 'waiting', startedAt: this.now().toISOString(), wasPaused: paused,
+        detail: paused ? 'Starting your stopped instance so it can move' : 'Waiting for your machine to run the move command',
+      },
+    });
+    await this.poolWorkflows!.move!(instance.id, instance.ownerId);
+    return saved;
+  }
+
+  private async placeMove(existing: InstanceRecord, machine: PlacingMachine & { meshIp: string }, requestedName: unknown, installId: string): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>> {
+    const problem = moveProblem(existing);
+    if (problem) return { ok: false, status: 409, error: problem };
+    if (!this.poolWorkflows?.move || !this.settings.moves) return { ok: false, status: 503, error: 'this root cannot move instances' };
+    const named = await this.nameFor(existing.ownerId, requestedName);
+    if (!named.ok) return { ok: false, status: 400, error: named.error };
+    const replaces = existing.install && installUnfinished(existing.install) ? existing.install.id : undefined;
+    const moving = await this.beginMove(existing);
+    const now = this.now().toISOString();
+    await this.save(moving, {
+      install: askedInstall(installId, machine.id, now, true),
+      move: {
+        state: 'joined', startedAt: moving.move!.startedAt, wasPaused: moving.move!.wasPaused,
+        detail: `Asking ${machine.name} to move Koala onto itself`,
+        target: { machine: machine.name, meshIp: machine.meshIp },
+      },
+    });
+    return { ok: true, value: { instanceId: existing.id, ...(replaces ? { replaces } : {}) } };
+  }
+
+  async placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string, move = false): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>> {
     if (!this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can hold a Koala' };
     if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
     if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
     const existing = (await this.store.instances.getInstances(ownerId))[0];
-    if (existing?.pool && existing.status !== 'failed') return { ok: false, status: 409, error: 'your Koala runs on Koala\'s servers; moving it to your machine keeps your work, and starting afresh there would not' };
+    if (existing?.pool && existing.status !== 'failed') return this.placeMove(existing, { ...machine, meshIp: machine.meshIp }, requestedName, installId);
+    if (move) return { ok: false, status: 409, error: 'your Koala is not on Koala\'s servers, so there is nothing of it to move' };
     if (existing && existing.status !== 'failed' && existing.status !== 'waiting' && existing.machineId && existing.machineId !== machine.id) {
       return { ok: false, status: 409, error: `your Koala is on ${existing.machine ?? 'another machine'}; moving it is a step of its own` };
     }
@@ -361,6 +323,7 @@ export class InstanceService {
       meshIp: machine.meshIp,
       name: named.name,
       install: askedInstall(installId, machine.id, now),
+      setup: undefined,
     });
     const replaces = existing?.install && installUnfinished(existing.install) ? existing.install.id : undefined;
     return { ok: true, value: { instanceId, ...(replaces ? { replaces } : {}) } };
@@ -371,8 +334,12 @@ export class InstanceService {
     if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.install?.id === installId);
     if (!instance?.install || instance.install.machineId !== machine.id || !installUnfinished(instance.install)) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
+    const moving = instance.install.move;
+    if (moving && (!this.settings.moves || !instance.name)) return { ok: false, status: 503, error: 'this root cannot move instances' };
+    if (moving && !this.moveLive(instance)) return { ok: false, status: 404, error: 'the move this install was for has stopped' };
     const credential = crypto.randomBytes(32).toString('base64url');
-    const recorded = await this.store.instances.updateInstall(instance.id, installId, { credentialHash: hashCredential(credential), 'install.imageTag': this.settings.imageTag, updatedAt: this.now().toISOString() });
+    const credentialField = moving ? 'move.credentialHash' : 'credentialHash';
+    const recorded = await this.store.instances.updateInstall(instance.id, installId, { [credentialField]: hashCredential(credential), 'install.imageTag': this.settings.imageTag, updatedAt: this.now().toISOString() });
     if (!recorded) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
     return {
       ok: true,
@@ -392,6 +359,7 @@ export class InstanceService {
         credential,
         name: instance.name ?? '',
         domain: this.settings.domain ?? '',
+        ...(moving ? { move: { fromClusterId: this.settings.moves!.poolClusterId(instance.name!) } } : {}),
       },
     };
   }
@@ -410,7 +378,8 @@ export class InstanceService {
   }
 
   async installedUrl(instance: InstanceRecord, raw: unknown): Promise<Outcome<string>> {
-    const checked = await this.reach.reportedUrl(raw, { name: instance.name, meshIp: instance.meshIp });
+    const meshIp = instance.install?.move ? instance.move?.target?.meshIp : instance.meshIp;
+    const checked = await this.reach.reportedUrl(raw, { name: instance.name, meshIp });
     return checked.ok ? { ok: true, value: checked.url } : { ok: false, status: 400, error: checked.error };
   }
 
@@ -450,28 +419,24 @@ export class InstanceService {
     return hash && instance.move!.state !== 'failed' && sameHash(hash, hashCredential(credential)) ? instance : undefined;
   }
 
-  async startMove(ownerId: string): Promise<Outcome<{ token: string; command: string; expiresAt: string }>> {
+  async startMove(ownerId: string): Promise<Outcome<{ command: string; expiresAt: string }>> {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance) return { ok: false, status: 404, error: 'you have no instance to move' };
     const problem = moveProblem(instance);
     if (problem) return { ok: false, status: 409, error: problem };
-    if (!this.poolWorkflows?.move) return { ok: false, status: 503, error: 'this root cannot move instances' };
-    const token = commandSafeCode(24);
-    const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
-    await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId: instance.id, expiresAt, move: true });
-    const live = instance.move && instance.move.state !== 'failed';
-    const paused = instance.status === 'paused';
-    await this.save(instance, {
-      move: live ? instance.move! : {
-        state: 'waiting', startedAt: this.now().toISOString(), wasPaused: paused,
-        detail: paused ? 'Starting your stopped instance so it can move' : 'Waiting for your machine to run the move command',
-      },
-    });
-    if (!live) await this.poolWorkflows.move(instance.id, ownerId);
-    return { ok: true, value: { token, expiresAt, command: `curl -fsSL ${this.settings.rootUrl}/install.sh | sudo sh -s -- ${token}` } };
+    if (!this.poolWorkflows?.move || !this.settings.moves) return { ok: false, status: 503, error: 'this root cannot move instances' };
+    let made: { command: string; expiresAt: string };
+    try {
+      made = await this.settings.moves.joinCode(ownerId, instance.name!);
+    } catch (error) {
+      const { message, status } = error as Error & { status?: unknown };
+      return { ok: false, status: status === 409 ? 409 : 503, error: message };
+    }
+    await this.beginMove(instance);
+    return { ok: true, value: { command: made.command, expiresAt: made.expiresAt } };
   }
 
-  async startMoveAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ token: string; command: string; expiresAt: string }>> {
+  async startMoveAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ command: string; expiresAt: string }>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     return this.startMove(instance.ownerId);
@@ -492,6 +457,11 @@ export class InstanceService {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance?.move || instance.move.state === 'failed') return { ok: false, status: 404, error: 'nothing is moving' };
     if (instance.move.state === 'switching') return { ok: false, status: 409, error: 'the instance is switching to its new machine already' };
+    if (instance.install?.move && installUnfinished(instance.install)) {
+      if (!this.settings.installs) return { ok: false, status: 503, error: 'this root follows no installs of Koala' };
+      const stopped = await this.settings.installs.stop(instance.install.id);
+      return stopped.ok ? { ok: true, value: { stopping: true } } : stopped;
+    }
     await this.poolWorkflows?.moveStopped?.(instance.id, 'you stopped the move');
     return { ok: true, value: { stopping: true } };
   }
@@ -519,33 +489,40 @@ export class InstanceService {
     return theirs.some((device) => device.ipAddresses.includes(meshIp)) ? 'yes' : 'no';
   }
 
-  private async reportMove(instance: InstanceRecord, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown }): Promise<Outcome<InstanceRecord>> {
+  private moveInstall(instance: InstanceRecord): Outcome<{ installId: string; installs: SetupInstalls; stage: string; title: string }> {
+    const { install } = instance;
+    if (!install?.move || !installUnfinished(install)) return { ok: false, status: 409, error: 'no machine is moving this Koala onto itself now' };
+    if (!this.settings.installs) return { ok: false, status: 503, error: 'this root follows no installs of Koala' };
+    return { ok: true, value: { installId: install.id, installs: this.settings.installs, stage: install.stage ?? 'koala', title: install.title ?? 'Moving Koala' } };
+  }
+
+  private async reportMove(instance: InstanceRecord, report: StatusReport): Promise<Outcome<InstanceRecord>> {
+    if (instance.move!.state === 'switching') return { ok: true, value: instance };
+    const found = this.moveInstall(instance);
+    if (!found.ok) return found;
+    const { installId, installs, stage, title } = found.value;
+    const detail = typeof report.detail === 'string' && report.detail.trim() ? boundedLine(report.detail.trim()) : undefined;
+    const progress: MachineProgress | undefined = report.status === 'failed'
+      ? { stage, title, state: 'failed', why: detail ?? 'the move stopped on your machine' }
+      : detail ? { stage, title, state: 'started', line: detail } : undefined;
+    if (!progress) return { ok: true, value: instance };
+    const handed = await installs.progressHeard(installId, progress);
+    return handed.ok ? { ok: true, value: instance } : handed;
+  }
+
+  private async reportMoveSetup(instance: InstanceRecord, raw: unknown): Promise<Outcome<InstanceRecord>> {
     const move = instance.move!;
-    if (move.state === 'switching') return { ok: true, value: instance };
-    const detail = typeof report.detail === 'string' ? report.detail.slice(0, 500) : move.detail;
-    const target = { ...move.target };
-    if (typeof report.meshIp === 'string' && !routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) {
-      const owned = await this.meshIpOwned(instance.ownerId, report.meshIp);
-      if (owned === 'no') return { ok: false, status: 400, error: `${report.meshIp} is not one of this instance's owner's machines on the mesh` };
-      if (owned === 'yes') target.meshIp = report.meshIp;
+    if (move.state === 'switching') {
+      const heard = this.setupOf(move.setup, raw);
+      if (!heard.ok) return heard;
+      return { ok: true, value: await this.save(instance, { move: { ...move, setup: heard.setup } }) };
     }
-    if (typeof report.url === 'string') {
-      const checked = await this.reach.reportedUrl(report.url, { name: instance.name, meshIp: target.meshIp });
-      if (!checked.ok) return { ok: false, status: 400, error: checked.error };
-      target.url = checked.url;
-    }
-    if (report.status === 'failed') {
-      const saved = await this.save(instance, { move: { ...move, state: 'failed', detail: detail ?? 'The move stopped on your machine', target } });
-      await this.poolWorkflows?.moveStopped?.(instance.id, saved.move!.detail!);
-      return { ok: true, value: saved };
-    }
-    if (report.status === 'ready' && report.moved === true) {
-      if (!target.meshIp || !target.url) return { ok: false, status: 400, error: 'a moved instance reports its mesh address and its url' };
-      const saved = await this.save(instance, { move: { ...move, state: 'switching', detail: 'Switching your address to your machine', target } });
-      await this.poolWorkflows?.moveFinished?.(instance.id);
-      return { ok: true, value: saved };
-    }
-    return { ok: true, value: await this.save(instance, { move: { ...move, state: 'copying', detail, target } }) };
+    const found = this.moveInstall(instance);
+    if (!found.ok) return found;
+    const read = provisionReportOf(raw);
+    if (!read.ok) return { ok: false, status: 400, error: read.problem };
+    const handed = await found.value.installs.setupHeard(found.value.installId, read.value);
+    return handed.ok ? { ok: true, value: instance } : handed;
   }
 
   private chartUrlFor(imageTag: string): string {
@@ -603,12 +580,60 @@ export class InstanceService {
   }
 
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown; dataVersion?: unknown }): Promise<Outcome<InstanceRecord>> {
+  private setupOf(followed: InstanceSetup | undefined, raw: unknown): { ok: true; report: ProvisionReport; setup: InstanceSetup } | { ok: false; status: 400 | 409; error: string } {
+    const read = provisionReportOf(raw);
+    if (!read.ok) return { ok: false, status: 400, error: read.problem };
+    const setup = setupHeard(followed, read.value, this.now().toISOString());
+    if (!setup) return { ok: false, status: 409, error: pastRevision(followed!, read.value) };
+    return { ok: true, report: read.value, setup };
+  }
+
+  private async reportSetup(instance: InstanceRecord, raw: unknown): Promise<Outcome<InstanceRecord>> {
+    const read = provisionReportOf(raw);
+    if (!read.ok) return { ok: false, status: 400, error: read.problem };
+    const report = read.value;
+    if (instance.install && installUnfinished(instance.install)) {
+      if (!this.settings.installs) return { ok: false, status: 503, error: 'this root follows no installs of Koala' };
+      const handed = await this.settings.installs.setupHeard(instance.install.id, report);
+      return handed.ok ? { ok: true, value: instance } : handed;
+    }
+    if (instance.pool && (instance.move || (instance.pool.settingUp && instance.status === 'failed'))) {
+      const heard = this.setupOf(instance.setup, raw);
+      if (!heard.ok) return heard;
+      return { ok: true, value: await this.save(instance, { setup: heard.setup }) };
+    }
+    if (instance.pool?.settingUp) {
+      if (!this.poolWorkflows?.setupHeard) return { ok: false, status: 503, error: 'this root cannot follow an instance on Koala\'s servers' };
+      try {
+        await this.poolWorkflows.setupHeard(instance.id, report);
+      } catch (error) {
+        return { ok: false, status: 503, error: `root could not hand this to the workflow placing the instance: ${(error as Error).message}` };
+      }
+      return { ok: true, value: instance };
+    }
+    const heard = this.setupOf(instance.setup, raw);
+    if (!heard.ok) return heard;
+    const { setup } = heard;
+    const saved = await this.save(instance, { setup, ...setupSaid(setup, instance.machine) });
+    if (saved.status !== instance.status) {
+      this.routesChanged();
+      this.settings.serviceChanged?.(saved);
+    }
+    return { ok: true, value: saved };
+  }
+
+  async report(instanceId: unknown, credential: unknown, report: StatusReport): Promise<Outcome<InstanceRecord>> {
+    if (report.provision !== undefined && Object.keys(report).some((key) => key !== 'provision')) return { ok: false, status: 400, error: 'a report of Koala\'s setup sends only "provision"' };
     const moving = await this.mover(instanceId, credential);
-    if (moving) return this.reportMove(moving, report);
+    if (moving) return report.provision !== undefined ? this.reportMoveSetup(moving, report.provision) : this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    if (report.provision !== undefined) return this.reportSetup(instance, report.provision);
     if (!INSTANCE_STATUSES.includes(report.status as InstanceStatus)) return { ok: false, status: 400, error: `status is one of ${INSTANCE_STATUSES.join(', ')}` };
+    if (report.revision !== undefined) {
+      if (typeof report.revision !== 'number' || !Number.isInteger(report.revision) || report.revision < 1) return { ok: false, status: 400, error: 'revision is the chart revision the instance runs, a whole number from 1' };
+      if (report.status !== 'installing') return { ok: false, status: 400, error: 'a report naming its revision says installing: ready comes from that revision\'s setup' };
+    }
     if (instance.pool && (instance.status !== 'ready' || instance.move)) return { ok: true, value: instance };
     let meshIp = instance.meshIp;
     if (report.meshIp !== undefined) {
@@ -626,9 +651,11 @@ export class InstanceService {
     if (report.imageTag !== undefined && (typeof report.imageTag !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(report.imageTag))) return { ok: false, status: 400, error: 'imageTag is the image tag the instance runs' };
     if (report.dataVersion !== undefined && (typeof report.dataVersion !== 'number' || !Number.isInteger(report.dataVersion) || report.dataVersion < 0)) return { ok: false, status: 400, error: 'dataVersion is the data version the instance\'s release brought, a whole number' };
     const dataVersion = Math.max(instance.dataVersion ?? 0, typeof report.dataVersion === 'number' ? report.dataVersion : 0);
-    const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
+    const running = report.status !== 'failed' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
     const moved = running !== instance.running && instance.running ? { previous: instance.running } : {};
-    const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved, ...(dataVersion ? { dataVersion } : {}) });
+    const detail = typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined;
+    const said = statusSettled({ status: report.status as InstanceStatus, detail: detail ?? '' }, report.revision as number | undefined, instance.setup, instance.machine);
+    const saved = await this.save(instance, { status: said.status, detail: said.detail || detail, url, meshIp, running, ...moved, ...(dataVersion ? { dataVersion } : {}) });
     if (report.presence !== true && !this.settings.connected?.(instance.id)) await this.store.instances.savePresence(instance, false);
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
     if (saved.status !== instance.status) this.settings.serviceChanged?.(saved);

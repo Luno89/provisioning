@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { MockActivityEnvironment } from '@temporalio/testing';
-import { ClusterUnreachable, type ClusterAccess, type InfrastructureService, type Reach } from '../infrastructure/index.js';
+import { readFileSync } from 'node:fs';
+import { ClusterUnreachable, type ClusterAccess, type InfrastructureService, type Provisioner, type ProvisioningRecord, type Reach } from '../infrastructure/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { interceptHttp } from '../platform/testing/http.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
@@ -14,6 +15,7 @@ import { answerAsACluster, stepsOn } from './testing/answering-cluster.js';
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { clusterActivities } = await import('../worker-cluster.js');
+type ClusterSetup = import('../worker-cluster.js').ClusterSetup;
 
 const huggingFace = interceptHttp();
 const MODEL_TREE = 'https://huggingface.co/api/models/org/model/tree/*';
@@ -25,8 +27,16 @@ let access: MockProxy<ClusterAccess>;
 let infra: MockProxy<InfrastructureService>;
 let reached: Reach[];
 let nodes: string;
+let provisioner: MockProxy<Provisioner>;
 
-const steps = () => stepsOn(access, infra, 'cluster-steps-test-key');
+const steps = () => ({ ...stepsOn(access, infra, 'cluster-steps-test-key'), provisioner });
+
+const noMonitoring = () => access.kubectl.mockImplementation(async (target, args) => {
+  reached.push(target as Reach);
+  if (args[0] === 'get' && args[1] === 'nodes') return nodes;
+  if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
+  return '';
+});
 
 const deploy = (over: Partial<DeployAppArgs> = {}): DeployAppArgs => ({
   name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk',
@@ -43,6 +53,9 @@ beforeEach(async () => {
   nodes = '64Gi';
   answerAsACluster(access, { reached: (target) => reached.push(target), nodes: () => nodes });
   infra.deploy.mockResolvedValue({ stdout: '', logFile: LOG });
+  provisioner = mock<Provisioner>();
+  provisioner.ensure.mockImplementation(async (target) => ({ id: `provision-${target.clusterId}~1` }) as ProvisioningRecord);
+  provisioner.settled.mockResolvedValue({ state: 'up' });
 });
 
 describe('deploying an app on the cluster it was handed', () => {
@@ -56,20 +69,34 @@ describe('deploying an app on the cluster it was handed', () => {
     expect(access.kubeconfigOf.mock.calls.every(([target]) => target === DESK)).toBe(true);
   });
 
-  it('gives a machine\'s cluster its collectors first, named for the cluster\'s id, with a metrics token whose hash only is kept on the cluster\'s record', async () => {
-    access.kubectl.mockImplementation(async (target, args) => {
-      reached.push(target as Reach);
-      if (args[0] === 'get' && args[1] === 'nodes') return nodes;
-      if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
-      return '';
-    });
+  it('goes straight to the app on a cluster whose monitoring is there, asking Koala to set nothing up', async () => {
     await DeployAppActivity(deploy(), steps());
-    expect(access.apply.mock.calls.map(([target, manifest]) => [target, (JSON.parse(manifest) as { kind: string }).kind])).toEqual([[DESK, 'Namespace'], [DESK, 'Secret']]);
-    expect(infra.deploy.mock.calls.map(([stack]) => stack)).toEqual(['machine-desk', 'app-desk-d1']);
-    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-machine-desk', CLUSTER_MONITORING: 'agent', INGRESS_SERVICE: 'NodePort' } });
-    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('ENV');
-    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('KOALA_CLUSTER');
-    expect((await records.db!.infrastructure.getClusters())[0]?.metricsTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(provisioner.ensure).not.toHaveBeenCalled();
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).toEqual(['app-desk-d1']);
+  });
+
+  it('asks Koala to set up a machine\'s collector when the machine has none, waits until it is set up, saying so, then deploys the app, applying no monitoring itself', async () => {
+    noMonitoring();
+    let settle!: () => void;
+    let waiting!: (recordId: string) => void;
+    const waited = new Promise<string>((done) => { waiting = done; });
+    provisioner.settled.mockImplementation((recordId) => new Promise((done) => { settle = () => done({ state: 'up' }); waiting(recordId); }));
+    const deploying = DeployAppActivity(deploy(), steps());
+    expect(await waited).toBe('provision-machine-desk~1');
+    expect(provisioner.ensure).toHaveBeenCalledWith({ kind: 'machine', clusterId: 'machine-desk', machine: 'desk', deviceId: 'desk' }, 'missing');
+    expect(readFileSync(LOG, 'utf8')).toContain('[deploy] waiting for Koala to set up its monitoring of desk before blog goes on it');
+    expect(infra.deploy).not.toHaveBeenCalled();
+    settle();
+    await deploying;
+    expect(infra.deploy.mock.calls.map(([stack]) => stack)).toEqual(['app-desk-d1']);
+    expect(access.apply).not.toHaveBeenCalled();
+  });
+
+  it('fails, naming the piece and why, when Koala could not set up the monitoring, and deploys nothing', async () => {
+    noMonitoring();
+    provisioner.settled.mockResolvedValue({ state: 'failed', why: 'desk\'s collector: helm said no' });
+    await expect(DeployAppActivity(deploy(), steps())).rejects.toThrow('Koala could not set up the monitoring of desk, which blog needs before it goes on: desk\'s collector: helm said no');
+    expect(infra.deploy).not.toHaveBeenCalled();
   });
 
   it('reads the nodes\' memory through the cluster it was handed to plan TabbyAPI\'s, and refuses a node too small', async () => {
@@ -98,32 +125,25 @@ describe('deploying an app on the cluster it was handed', () => {
     expect(infra.deploy).not.toHaveBeenCalled();
   });
 
-  it('on Koala\'s servers, keeps an app on the pool place it runs in behind a ClusterIP with the pool\'s storage, and gives that place only the operator\'s resources', async () => {
+  it('on Koala\'s servers, asks Koala to set its pool place up when it lacks the operator\'s resources, then keeps the app behind a ClusterIP with the pool\'s storage', async () => {
     const POOL: Reach = { clusterId: 'pool-bob', kind: 'koala' };
     Object.defineProperty(access, 'here', { value: { root: false, poolName: 'bob' }, configurable: true });
-    {
-      access.kubectl.mockImplementation(async (_target, args) => (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods' ? JSON.stringify({ items: [] }) : ''));
-      await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', machine: undefined }), steps());
-      const [monitoring, app] = infra.deploy.mock.calls;
-      expect([monitoring![0], monitoring![1]?.env]).toEqual(['pool-bob', expect.objectContaining({ CLUSTER_NAME: 'pool-bob', CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' })]);
-      expect([app![0], app![1]?.env]).toEqual(['app-pool-bob-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'ClusterIP', MINIO_STORAGE: '10Gi' })]);
-    }
+    access.kubectl.mockImplementation(async (_target, args) => (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods' ? JSON.stringify({ items: [] }) : ''));
+    await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', machine: undefined }), steps());
+    expect(provisioner.ensure).toHaveBeenCalledWith({ kind: 'koala', clusterId: 'pool-bob' }, 'missing');
+    const [app, ...more] = infra.deploy.mock.calls;
+    expect(more).toEqual([]);
+    expect([app![0], app![1]?.env]).toEqual(['app-pool-bob-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'ClusterIP', MINIO_STORAGE: '10Gi' })]);
   });
 
-  it('gives Koala\'s own cluster its whole monitoring as Koala\'s, behind a NodePort ingress, with no metrics token', async () => {
+  it('asks Koala to set its own cluster up when its monitoring is missing, and puts the app behind a NodePort once it is', async () => {
     const OWN: Reach = { clusterId: 'machine-home', kind: 'koala' };
-    access.kubectl.mockImplementation(async (target, args) => {
-      reached.push(target as Reach);
-      if (args[0] === 'get' && args[1] === 'nodes') return nodes;
-      if (args[1] === 'deployments,statefulsets,daemonsets,replicasets,jobs,pods') return JSON.stringify({ items: [] });
-      return '';
-    });
+    noMonitoring();
     await DeployAppActivity(deploy({ clusterId: 'machine-home', reach: OWN, clusterName: 'home', machine: undefined }), steps());
-    const [monitoring, observability, app] = infra.deploy.mock.calls;
-    expect([monitoring![0], monitoring![1]?.env]).toEqual(['machine-home', expect.objectContaining({ CLUSTER_NAME: 'machine-home', KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' })]);
-    expect(monitoring![1]?.env).not.toHaveProperty('CLUSTER_MONITORING');
-    expect(monitoring![1]?.env).not.toHaveProperty('ENV');
-    expect(observability![0]).toBe('machine-home-observability');
+    expect(provisioner.ensure).toHaveBeenCalledWith({ kind: 'koala', clusterId: 'machine-home' }, 'missing');
+    expect(provisioner.settled).toHaveBeenCalledWith('provision-machine-home~1');
+    const [app, ...more] = infra.deploy.mock.calls;
+    expect(more).toEqual([]);
     expect([app![0], app![1]?.env]).toEqual(['app-home-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'NodePort' })]);
     expect(access.apply).not.toHaveBeenCalled();
   });
@@ -141,7 +161,7 @@ describe('deploying an app on the cluster it was handed', () => {
       options!.signal!.addEventListener('abort', () => refuse(new Error('terraform was stopped')), { once: true });
       activity.cancel();
     })));
-    await expect(activity.run(clusterActivities(steps()).DeployAppActivity, deploy())).rejects.toThrow();
+    await expect(activity.run(clusterActivities(steps(), mock<ClusterSetup>()).DeployAppActivity, deploy())).rejects.toThrow();
     expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', expect.anything());
     expect(appSignal?.aborted).toBe(true);
   });

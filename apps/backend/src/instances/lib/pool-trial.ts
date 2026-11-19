@@ -5,6 +5,8 @@ export const TRIAL_CHANGED = 'trialChanged';
 
 export const poolTrialWorkflowId = (instanceId: string): string => `pool-trial-${instanceId}`;
 export const poolRemoveWorkflowId = (instanceId: string): string => `pool-remove-${instanceId}`;
+export const poolInstanceWorkflowId = (instanceId: string): string => `pool-instance-${instanceId}`;
+export const POOL_SETUP_HEARD = 'poolSetupHeard';
 export const KEEP_PAUSED_DAYS = 30;
 export const LAST_WARNING_DAYS = 3;
 

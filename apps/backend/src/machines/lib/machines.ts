@@ -16,6 +16,7 @@ export interface MachineJoinCode {
   expiresAt: string;
   keptUntil?: string | undefined;
   koalaName?: string | undefined;
+  move?: true | undefined;
   usedAt?: string | undefined;
   deviceId?: string | undefined;
   deviceTokenHash?: string | undefined;

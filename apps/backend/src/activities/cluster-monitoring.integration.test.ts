@@ -3,7 +3,7 @@ import { mock } from 'vitest-mock-extended';
 import type { InfrastructureService } from '../infrastructure/index.js';
 import { widgetCluster, type WidgetCluster } from '../infrastructure/testing/widget-charts.js';
 import { MONITORING_CHARTS } from '../monitoring/index.js';
-import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const OLDER = '1.0.0';
 
@@ -28,7 +28,7 @@ describe('a cluster whose monitoring stack is at another version than Koala\'s',
     const seenWhenUpgraded: string[][] = [];
     infra.deploy.mockImplementation(async () => { seenWhenUpgraded.push(await fields()); return { stdout: '', logFile: '' }; });
 
-    await ensureClusterMonitoring({ access, infra }, { physicalName: 'machine-desk', reach });
+    await installClusterMonitoring({ access, infra }, { physicalName: 'machine-desk', reach });
 
     expect(infra.deploy).toHaveBeenCalled();
     expect(seenWhenUpgraded[0]).toEqual(['colour', 'size']);

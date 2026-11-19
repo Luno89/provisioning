@@ -10,11 +10,11 @@ import {
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
-import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
-import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
+import { MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
+import { POOL_SETUP_HEARD, poolInstanceWorkflowId, poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
-import { InstanceService } from '../services/InstanceService.js';
+import { InstanceService, type MoveMachines, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
 import { InstanceRoutes, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
@@ -172,6 +172,8 @@ export interface InstancesWiringDeps {
   rootToken?: (() => Promise<string>) | undefined;
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
+  installs?: SetupInstalls | undefined;
+  moves?: MoveMachines | undefined;
 }
 
 export interface InstancesWiring {
@@ -301,10 +303,12 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
     reach: new InstanceReach(settings.reach),
+    installs: deps.installs,
+    moves: deps.moves,
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {
-        workflowId: `pool-instance-${instanceId}`,
+        workflowId: poolInstanceWorkflowId(instanceId),
         taskQueue: poolTaskQueue,
         args: [{ instanceId }],
         ...startedFor(ownerId),
@@ -332,11 +336,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
         ...startedFor(ownerId),
       });
     },
-    moveFinished: async (instanceId) => {
-      await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_FINISHED);
-    },
     moveStopped: async (instanceId, reason) => {
       await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);
+    },
+    setupHeard: async (instanceId, report) => {
+      await (await getTemporalClient()).workflow.getHandle(poolInstanceWorkflowId(instanceId)).signal(POOL_SETUP_HEARD, report);
     },
   });
   instanceRoutes?.start();
@@ -374,9 +378,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
   app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, poolMonitoring, moveRelay, hubAccess }));
-  const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
-  app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
-  app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));
   return { instanceService, tellInstance };
 }
 

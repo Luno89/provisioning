@@ -248,12 +248,17 @@ async function main(): Promise<void> {
   const me = json<{ permissions?: { 'manage-accounts'?: boolean }; isAdmin?: boolean }>(asOwner('/api/auth/me'));
   assert.ok(me.permissions?.['manage-accounts'] ?? me.isAdmin, 'the first account is not the admin');
 
-  step(`an instance: a second VM on the lab network runs root's install command at ${PREVIOUS_LABEL}`);
-  const joined = asOwner('/api/instances/join-tokens', { method: 'POST', body: { name: NAME } });
-  assert.equal(joined.status, 200, joined.body);
-  const token = json<{ token: string; name: string }>(joined).token;
-  const mine = () => json<{ instance: { id: string; status: string; detail?: string; url: string; name?: string } }>(asOwner('/api/instances/mine')).instance;
-  const instanceId = mine().id;
+  step(`an instance: a second VM on the lab network joins as the owner's machine with root's machine command at ${PREVIOUS_LABEL}, and its agent puts the owner's Koala on it`);
+  const adding = asOwner('/api/my-machines/join-code', { method: 'POST', body: { koalaName: NAME } });
+  assert.equal(adding.status, 201, adding.body);
+  const addCommand = json<{ command: string }>(adding).command;
+  assert.match(addCommand, /\/machine\.sh \| sh -s -- /);
+  const koala = () => json<{ instance: { id: string; status: string; detail?: string; url: string; name?: string } | null }>(asOwner('/api/instances/mine')).instance;
+  const mine = () => {
+    const found = koala();
+    if (!found) throw new Hopeless('root has no Koala for the owner any more');
+    return found;
+  };
   instance = await createDisposableVm('release-instance', { memoryMB: 12288, cpus: 4, diskGB: 60, lan: { connect: lanPort, address: `${INSTANCE_LAN}/24`, nameservers: [ROOT_LAN] } });
   await sh(instance, [
     `echo '${labHostsLine(DOMAIN, ROOT_LAN)}' | sudo tee -a /etc/hosts >/dev/null`,
@@ -264,15 +269,22 @@ async function main(): Promise<void> {
   ].join(' && '));
   note('the machine resolves the lab names through root, reaches root on the lan and trusts the lab authority');
   const installed = Date.now();
-  await sh(instance, `curl -fsSL ${ROOT_URL}/install.sh | sudo sh -s -- ${token} --yes --k3s-mirror ${k3s.url}`, true);
-  note(`install.sh took ${minutes(installed)}`);
-  assert.equal(mine().status, 'ready', `root sees the instance as ${mine().status}: ${mine().detail}`);
-  assert.equal(mine().url, `https://${NAME}.${DOMAIN}`);
+  await sh(instance, `${addCommand} --yes --k3s-mirror ${k3s.url}`, true);
+  const placed = await until('the owner\'s Koala installed on the machine and reporting ready to root', async () => {
+    const found = koala();
+    if (found?.status === 'failed') throw new Hopeless(`putting Koala on the machine failed: ${found.detail}`);
+    return found?.status === 'ready' ? found : undefined;
+  }, gone);
+  note(`the machine join and putting Koala on the machine took ${minutes(installed)}`);
+  const instanceId = placed.id;
+  assert.equal(placed.url, `https://${NAME}.${DOMAIN}`);
+  const machines = json<{ machines: Array<{ id: string; holdsKoala: boolean }> }>(asOwner('/api/my-machines')).machines;
+  assert.equal(machines.filter((machine) => machine.holdsKoala).length, 1, `root does not list the machine holding Koala: ${JSON.stringify(machines)}`);
   const instanceHost = `${NAME}.${DOMAIN}`;
   await until(`https://${instanceHost} through root's Caddy over the mesh`, async () => (https(instanceHost, '/api/auth/sign-in').status === 200 ? true : undefined), gone);
 
   const kubectl = (args: string) => sh(instance!, `sudo kubectl -n ${NAMESPACE} ${args}`);
-  const helm = (args: string) => sh(instance!, `sudo helm -n ${NAMESPACE} --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
+  const helm = (args: string) => sh(instance!, `sudo ~/.local/share/koala/bin/helm -n ${NAMESPACE} --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
   const registry = (await sh(instance, `sudo kubectl -n ${NAMESPACE} get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'`)).trim().replace(/@sha256:[0-9a-f]+$/, '').replace(/:[^:/]+$/, '');
   note(`the instance pulls ${registry} over the mesh`);
 

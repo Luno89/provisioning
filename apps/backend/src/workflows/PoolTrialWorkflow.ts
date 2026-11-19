@@ -1,9 +1,10 @@
 import { condition, defineSignal, proxyActivities, setHandler } from '@temporalio/workflow';
 import type * as pool from '../activities/PoolActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
 
-const trial = proxyActivities<Pick<typeof pool, 'PoolTrialNextActivity' | 'PoolTrialStepActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 20 } });
+const trial = proxyActivities<Pick<typeof pool, 'PoolTrialNextActivity' | 'PoolTrialStepActivity'>>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
 
 export const trialChanged = defineSignal(TRIAL_CHANGED);
 

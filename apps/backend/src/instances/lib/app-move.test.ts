@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { cleaned, copied, isMovedNamespace, restoreOrder, rewriteImage, volumeOfPart, volumePart, volumesOf, REPLICAS_ANNOTATION, type KubeObject } from './app-move.js';
+import { cleaned, copied, isMovedNamespace, movedNamespaceObject, restoreOrder, rewriteImage, volumeOfPart, volumePart, volumesOf, REPLICAS_ANNOTATION, type KubeObject } from './app-move.js';
 
 const FROM = '127.0.0.1:35002';
 const TO = '100.64.0.20:31737';
 
 describe('copying an app\'s namespace to the new machine', () => {
+  it('makes the namespace with the pool\'s labels and the instance it was moved for, so a move that stops can find what it restored', () => {
+    expect(movedNamespaceObject({ namespace: 'books', labels: { team: 'reading' }, objects: [], volumes: [] }, 'inst-bobby')).toEqual({
+      apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'books', labels: { team: 'reading', 'koala.dev/moved-for': 'inst-bobby' } },
+    });
+  });
+
   it('copies the namespaces apps live in, never the platform\'s own', () => {
     expect(['books', 'odoo-shop-1a2b', 'tree-abc'].every(isMovedNamespace)).toBe(true);
     expect(['kube-system', 'gitea', 'infisical', 'nowrinkles', 'monitoring', 'traefik', 'default', 'vcluster-x'].some(isMovedNamespace)).toBe(false);

@@ -6,6 +6,7 @@ import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.j
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { InfrastructureStore } from '../store.js';
+import { broughtOver, MOVE_IN_ID, openedRecord, pieceHeard, runEnded, type MoveIn, type ProvisioningRecord } from '../lib/provisioning.js';
 
 const cluster = (id: string, extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: `cluster-${id}`, provider: 'machine', status: 'healthy', ownerId: 'owner-1', ...extra });
 
@@ -44,6 +45,9 @@ const SECRET_FIELDS = {
   vllmHfToken: 'hf-1', tabbyHfToken: 'hf-2', searxngSecretKey: 'sx', crawl4aiApiToken: 'c4', minioRootPassword: 'minio-pw', nextcloudAdminPassword: 'nc-admin',
   nextcloudDbPassword: 'nc-db', nextcloudDbRootPassword: 'nc-root', hermesDashboardPassword: 'hermes-pw', qdrantApiKey: 'q-key', quickwitS3SecretKey: 'qw', webuiWebSearchApiKey: 'web',
 } satisfies Partial<DeploymentMetadata>;
+
+const run = (stamp: string, clusterId = 'machine-desk', at = '2026-11-18T10:00:00.000Z'): ProvisioningRecord =>
+  openedRecord({ ownerId: 'owner-1', target: { kind: 'koala', clusterId }, revision: 3, reason: 'revision', runId: `provision-${clusterId}~${stamp}`, at });
 
 function hearing<T>(until: (heard: T[]) => boolean): { heard: T[]; on: (item: T) => void; done: Promise<void> } {
   const heard: T[] = [];
@@ -495,6 +499,104 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       expect(stored).toMatchObject({ state: 'bought' });
       expect(stored).not.toHaveProperty('cartId');
       expect(stored).not.toHaveProperty('detail');
+    });
+  });
+
+  describe('provisioning', () => {
+    it('keeps a run as it was opened, lists a cluster\'s runs oldest first, and finds one by its id', async () => {
+      const store = await make();
+      const first = run('a', 'machine-desk', '2026-11-18T10:00:00.000Z');
+      const other = run('b', 'machine-lab', '2026-11-18T10:00:01.000Z');
+      expect(await store.openProvisioning(first)).toEqual({ opened: true });
+      await store.patchProvisioning(first.id, { state: 'up', endedAt: '2026-11-18T10:05:00.000Z' });
+      const second = run('c', 'machine-desk', '2026-11-18T10:06:00.000Z');
+      await store.openProvisioning(second);
+      await store.openProvisioning(other);
+
+      expect((await store.getProvisioning('machine-desk')).map((record) => record.id)).toEqual([first.id, second.id]);
+      expect((await store.getProvisioning()).map((record) => record.id)).toEqual([first.id, other.id, second.id]);
+      expect(await store.getProvisioningRun(second.id)).toEqual(second);
+      expect(await store.getProvisioningRun('provision-nowhere~x')).toBeUndefined();
+    });
+
+    it('opens one running run per cluster: a second answers with the one running, and another cluster opens its own', async () => {
+      const store = await make();
+      const running = run('a');
+      await store.openProvisioning(running);
+
+      expect(await store.openProvisioning(run('b'))).toEqual({ opened: false, running });
+      expect(await store.openProvisioning(run('c', 'machine-lab'))).toEqual({ opened: true });
+      expect((await store.getProvisioning('machine-desk')).map((record) => record.id)).toEqual([running.id]);
+
+      await store.patchProvisioning(running.id, runEnded(running, 'stopped', '2026-11-18T10:09:00.000Z'));
+      expect(await store.openProvisioning(run('d'))).toEqual({ opened: true });
+    });
+
+    it('patches only the fields named, so a run named its workflow keeps the pieces heard meanwhile', async () => {
+      const store = await make();
+      const opened = run('a');
+      await store.openProvisioning(opened);
+      const heard = pieceHeard(opened, { stage: 'egress', title: 'The egress proxy', state: 'started', line: 'waiting for deployment/egress' }, '2026-11-18T10:01:00.000Z');
+      await store.patchProvisioning(opened.id, { pieces: heard.pieces });
+
+      expect(await store.patchProvisioning(opened.id, { workflowId: 'provision-machine-desk' })).toEqual({ ...heard, workflowId: 'provision-machine-desk' });
+      expect(await store.getProvisioningRun(opened.id)).toEqual({ ...heard, workflowId: 'provision-machine-desk' });
+      expect(await store.patchProvisioning('provision-nowhere~x', { state: 'up' })).toBeUndefined();
+    });
+
+    it('keeps root\'s refusal on a run, ended or not, until it is patched away', async () => {
+      const store = await make();
+      const opened = run('a');
+      await store.openProvisioning(opened);
+      await store.patchProvisioning(opened.id, { state: 'up', endedAt: '2026-11-18T10:05:00.000Z' });
+      const root = { why: 'root refused hearing that Koala is set up: no (409)', at: '2026-11-18T10:06:00.000Z' };
+      expect(await store.patchProvisioning(opened.id, { root })).toMatchObject({ state: 'up', root });
+      await store.patchProvisioning(opened.id, { root: undefined });
+      expect(await store.getProvisioningRun(opened.id)).not.toHaveProperty('root');
+    });
+
+    it('patches a run while it runs only when asked to, and leaves one that has ended as it ended', async () => {
+      const store = await make();
+      const opened = run('a');
+      await store.openProvisioning(opened);
+      const failed = runEnded(opened, 'the setup stopped', '2026-11-18T10:02:00.000Z');
+      expect(await store.patchProvisioning(opened.id, failed, true)).toEqual(failed);
+
+      expect(await store.patchProvisioning(opened.id, { state: 'failed', why: 'something else' }, true)).toBeUndefined();
+      expect(await store.getProvisioningRun(opened.id)).toEqual(failed);
+    });
+
+    it('hears every write to a run, as the run is after it', async () => {
+      const store = await make();
+      const opened = run('a');
+      const listening = hearing<string>((heard) => heard.length === 3);
+      const watching = store.watchProvisioning((record) => listening.on(`${record.id} ${record.state} ${record.workflowId ?? '-'}`));
+      await watching.ready;
+
+      await store.openProvisioning(opened);
+      await store.patchProvisioning(opened.id, { workflowId: 'provision-machine-desk' });
+      await store.patchProvisioning(opened.id, { state: 'up', endedAt: '2026-11-18T10:03:00.000Z' });
+      await listening.done;
+      await watching.close();
+
+      expect(listening.heard).toEqual([`${opened.id} running -`, `${opened.id} running provision-machine-desk`, `${opened.id} up provision-machine-desk`]);
+    });
+  });
+
+  describe('what a move left to bring over', () => {
+    it('keeps the one move onto this Koala as it was saved, replaced by a later one, until it is brought over', async () => {
+      const store = await make();
+      expect(await store.getMoveIn()).toBeUndefined();
+      const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'owner-1', from: 'pool-shop', onto: 'machine-desk', at: '2026-11-18T10:00:00.000Z' };
+      await store.saveMoveIn(moveIn);
+      expect(await store.getMoveIn()).toEqual(moveIn);
+
+      const again = { ...moveIn, at: '2026-11-18T11:00:00.000Z' };
+      await store.saveMoveIn(again);
+      expect(await store.getMoveIn()).toEqual(again);
+
+      await store.saveMoveIn(broughtOver(again, '2026-11-18T11:30:00.000Z'));
+      expect(await store.getMoveIn()).toEqual({ ...again, broughtAt: '2026-11-18T11:30:00.000Z' });
     });
   });
 

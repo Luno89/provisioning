@@ -167,3 +167,56 @@ describe('My Machines on root, while Koala is put on a machine', () => {
     expect(screen.queryByText('Putting Koala on this machine')).toBeNull()
   })
 })
+
+describe('My Machines on root, while Koala moves from Koala\'s servers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    handlers.clear()
+  })
+
+  const moving = (koala: object | null, machines: AccountMachine[] = [machine()]) =>
+    vi.mocked(api.get).mockResolvedValue({ data: { machines, joins: [], koala } })
+
+  const renderMoving = (underWay = false) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <QueryClientProvider client={client}>
+        <AccountMachines name="bobby" nameOk hasKoala={underWay} moving onPlacing={() => undefined} />
+      </QueryClientProvider>,
+    )
+  }
+
+  it('offers to move Koala onto a machine already on the account, and adds none of its own', async () => {
+    moving({ status: 'paused' })
+    vi.mocked(api.post).mockResolvedValue({ data: { placing: true } })
+    renderMoving()
+    fireEvent.click(await screen.findByRole('button', { name: 'Move here' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'bobby' }))
+    expect(screen.queryByRole('button', { name: /Put Koala here/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Add a machine/ })).toBeNull()
+  })
+
+  it('shows where the move onto a machine stopped and why, and Move here tries it again', async () => {
+    const failed: KoalaInstallView = { id: 'install-1', machineId: 'desk', state: 'failed', stage: 'koala', title: 'Bringing Koala over', why: 'the pool copy\'s data could not be read', at: '2026-11-18T10:00:00.000Z', move: true }
+    moving({ status: 'paused', install: failed })
+    vi.mocked(api.post).mockResolvedValue({ data: { placing: true } })
+    renderMoving()
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Moving Koala here stopped at Bringing Koala over')
+    expect(alert.textContent).toContain('the pool copy\'s data could not be read')
+    expect(screen.getAllByRole('button', { name: 'Move here' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Move here' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'bobby' }))
+  })
+
+  it('offers no Move here while a move is under way, and follows it live as root says it changed', async () => {
+    const step = (line: string): KoalaInstallView => ({ id: 'install-1', machineId: 'desk', state: 'installing', stage: 'keys', title: 'Bringing your keys over', line, at: '2026-11-18T10:00:00.000Z', move: true })
+    moving({ status: 'paused', install: step('fetching the keys') })
+    renderMoving(true)
+    expect(await screen.findByText('fetching the keys')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Move here' })).toBeNull()
+    moving({ status: 'paused', install: step('writing the keys Secret') })
+    handlers.get(KOALA_INSTALL_CHANGED)!()
+    expect(await screen.findByText('writing the keys Secret')).toBeDefined()
+  })
+})

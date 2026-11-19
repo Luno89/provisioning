@@ -11,9 +11,11 @@ import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/ind
 import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from '../infrastructure/testing/hugging-face-stand-in.js';
 import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
-import { clusterActivities } from '../worker-cluster.js';
+import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
+
+const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
 const k3s = await startK3s();
 const access = new ClusterAccess({ here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-ready-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });
@@ -40,7 +42,7 @@ const worker = async (taskQueue: string) => Worker.create({
   namespace: env.namespace ?? 'default',
   taskQueue,
   workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/model-ready.fixture-workflow.ts')),
-  activities: clusterActivities({ access } as unknown as ClusterSteps, standIn.endpoint),
+  activities: clusterActivities({ access } as unknown as ClusterSteps, NO_SETUP, standIn.endpoint),
 });
 
 describe('a model app\'s workflows with the cluster worker\'s own activities, on a real cluster', () => {

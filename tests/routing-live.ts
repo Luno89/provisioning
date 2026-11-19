@@ -178,18 +178,26 @@ async function main(): Promise<void> {
   assert.match((await (await asOwner('/api/instances/name-check?name=mesh')).json() as { problem?: string }).problem ?? '', /kept for the platform/);
   const good = await (await asOwner(`/api/instances/name-check?name=${NAME}`)).json() as { ok: boolean; address?: string };
   assert.deepEqual(good, { ok: true, address: `https://${NAME}.${DOMAIN}` });
-  const join_ = await asOwner('/api/instances/join-tokens', { method: 'POST', body: JSON.stringify({ name: NAME }) });
-  assert.equal(join_.status, 200, await join_.clone().text());
-  const joinCommand = await join_.json() as { token: string; name: string };
-  assert.equal(joinCommand.name, NAME);
-  instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
+  const adding = await asOwner('/api/my-machines/join-code', { method: 'POST', body: JSON.stringify({ koalaName: NAME }) });
+  assert.equal(adding.status, 201, `root did not give a machine command: ${await adding.clone().text()}`);
+  const { command: addCommand } = await adding.json() as { command: string };
+  assert.match(addCommand, /\/machine\.sh \| sh -s -- /);
 
-  step('a disposable VM plays the owner\'s machine and runs the command');
+  step(`a disposable VM plays the owner's machine: it runs the command as its user, joins, and its agent puts the owner's Koala, "${NAME}", on it`);
   vm = await createDisposableVm('routing-live', { memoryMB: 12288, cpus: 4, diskGB: 60 });
-  await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes --k3s-mirror ${k3s.url}`, true);
-  const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; url: string; name: string } }).instance;
-  assert.equal(mine.status, 'ready');
+  await inVm(vm, `${addCommand} --yes --k3s-mirror ${k3s.url}`, true);
+  const mine = await until('the owner\'s Koala installed on the machine and reporting ready to root', async () => {
+    const { instance } = await (await asOwner('/api/instances/mine')).json() as { instance: { id: string; status: string; detail?: string; url: string; name?: string } | null };
+    if (instance?.status === 'failed') throw new Hopeless(`putting Koala on the machine failed: ${instance.detail}`);
+    return instance?.status === 'ready' ? instance : undefined;
+  }, gone);
+  instanceId = mine.id;
+  assert.equal(mine.name, NAME);
   assert.equal(mine.url, `https://${NAME}.${DOMAIN}`);
+  const machines = (await (await asOwner('/api/my-machines')).json() as { machines: Array<{ id: string; holdsKoala: boolean; online: boolean }> }).machines;
+  const holding = machines.filter((machine) => machine.holdsKoala && machine.online);
+  assert.equal(holding.length, 1, `root does not list the machine holding Koala: ${JSON.stringify(machines)}`);
+  const koalasCluster = `machine-${holding[0]!.id}`;
 
   step(`https://${NAME}.${DOMAIN} answers through root's Caddy, over the mesh`);
   await until('root\'s route to the instance', async () => (existsSync(join(caddyDir, 'instances', `${NAME}.caddy`)) ? true : undefined), gone);
@@ -228,20 +236,22 @@ async function main(): Promise<void> {
   assert.equal(delivered.To[0]?.Address, address);
   console.log(`  delivered to ${address}`);
 
-  step('an app deployed on the instance\'s own cluster is published at its flat address');
-  const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });
+  step(`an app deployed on the instance's own cluster, ${koalasCluster}, is published at its flat address`);
+  assert.equal(json<Array<{ id: string }>>(onInstance('/api/clusters'))[0]?.id, koalasCluster, 'the instance does not list its machine\'s cluster as its own');
+  const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: koalasCluster, appType: 'audiobookshelf', strategy: 'native' } });
   assert.equal(deployed.status, 202, deployed.body);
   const deploymentId = json<{ id: string }>(deployed).id;
   const books = await until('the app running', async () => {
-    const list = json<Array<{ id: string; status: string; namespace?: string }>>(onInstance('/api/deployments'));
+    const list = json<Array<{ id: string; status: string; namespace?: string; clusterId?: string }>>(onInstance('/api/deployments'));
     const found = list.find((entry) => entry.id === deploymentId);
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') throw new Hopeless('the app failed to deploy');
     return found.status === 'running' ? found : undefined;
   }, gone);
+  assert.equal(books.clusterId, koalasCluster, 'the app\'s record does not name the machine\'s cluster');
   assert.match(books.namespace ?? '', /^books-[a-f0-9]{6}$/, 'the app has a namespace of its own');
   step(`the instance's cluster got monitoring before the app, and the app has its probe in ${books.namespace}`);
-  const monitoring = await inVm(vm, `sudo kubectl get probe app -n ${books.namespace} -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q`);
+  const monitoring = await inVm(vm, `sudo kubectl get probe app -n ${books.namespace} -o name && sudo kubectl get service blackbox-exporter -n monitoring -o name && sudo ~/.local/share/koala/bin/helm --kubeconfig /etc/rancher/k3s/k3s.yaml list -n monitoring -q`);
   assert.match(monitoring, /probe\.monitoring\.coreos\.com\/app/);
   assert.match(monitoring, /kube-prometheus-stack/);
   console.log(`  ${monitoring.trim().split('\n').join(', ')}`);

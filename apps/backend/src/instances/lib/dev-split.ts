@@ -114,6 +114,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       INSTANCE_OWNER_ID: input.owner.id,
       INSTANCE_NAME: input.name,
       INSTANCE_CREDENTIAL: input.credential,
+      KOALA_RELEASE_REVISION: '1',
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       TERRAFORM_STATE: 'local',

@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install'
 import { api } from '../../../api/client'
+import { useSocketEvent } from '../../platform'
 import { identityKeys } from './identity'
 import type { WatchView } from './instance-watch'
 
@@ -68,12 +70,6 @@ export interface NameCheck {
   address?: string
 }
 
-export interface JoinCommand {
-  token: string
-  command: string
-  expiresAt: string
-}
-
 export const instanceKeys = {
   mine: () => ['instances', 'mine'] as const,
   name: (name: string) => ['instances', 'name', name] as const,
@@ -102,9 +98,6 @@ export const moveUnderWay = (move: MoveView | null | undefined): boolean => Bool
 
 export const getMySetup = (): Promise<MySetup | null> =>
   api.get<{ instance: MySetup | null }>('/instances/mine').then((r) => r.data.instance)
-
-export const createJoinCommand = (name: string): Promise<JoinCommand> =>
-  api.post<JoinCommand>('/instances/join-tokens', { name }).then((r) => r.data)
 
 export const getPoolOffer = (): Promise<PoolOffer> =>
   api.get<PoolOffer>('/instances/pool').then((r) => r.data)
@@ -141,9 +134,6 @@ export function useNameCheck(name: string) {
   return useQuery({ queryKey: instanceKeys.name(name), queryFn: () => checkName(name), staleTime: 5000 })
 }
 
-export const poolInstalling = (setup: MySetup | null | undefined): boolean =>
-  Boolean(setup?.trialEndsAt) && setup?.status !== 'ready' && setup?.status !== 'failed'
-
 export function useInstanceMove(enabled: boolean) {
   return useQuery({
     queryKey: instanceKeys.move(),
@@ -174,20 +164,14 @@ export function useStopMyMove() {
   return useMutation({ mutationFn: stopMyMove, onSettled: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) } })
 }
 
-export function useMySetup(watching: boolean) {
+export function useMySetup(watchingReach: boolean) {
+  const client = useQueryClient()
+  useSocketEvent(KOALA_INSTALL_CHANGED, () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) })
   return useQuery({
     queryKey: instanceKeys.mine(),
     queryFn: getMySetup,
-    refetchInterval: (query) => (watching || poolInstalling(query.state.data) || moveUnderWay(query.state.data?.move) ? 3000 : false),
+    refetchInterval: watchingReach ? 3000 : false,
     refetchIntervalInBackground: true,
-  })
-}
-
-export function useCreateJoinCommand() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: (name: string) => createJoinCommand(name),
-    onSuccess: () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) },
   })
 }
 

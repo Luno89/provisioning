@@ -121,6 +121,33 @@ describe('trying Koala on its own servers', () => {
   })
 })
 
+describe('moving a trial that ended onto the person\'s own machine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/instances/mine') {
+        return { data: { instance: { id: 'inst-1', status: 'paused', url: '', name: 'luno', trialEndsAt: '2026-11-03T12:00:00.000Z', move: { state: 'failed', startedAt: '2026-11-18T10:00:00.000Z', machine: 'desk', detail: 'Moving Koala to desk stopped at Bringing Koala over: the pool copy\'s data could not be read' } } } }
+      }
+      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
+      if (url === '/my-machines') {
+        return { data: { joins: [], koala: { status: 'paused', install: { id: 'install-1', machineId: 'desk', state: 'failed', stage: 'koala', title: 'Bringing Koala over', why: 'the pool copy\'s data could not be read', at: '2026-11-18T10:05:00.000Z', move: true } }, machines: [{ id: 'desk', name: 'desk', rootDir: '/x', createdAt: 't', online: true, meshIp: '100.64.0.7', koalaWanted: false, holdsKoala: false }] } }
+      }
+      return { data: { ok: false } }
+    })
+    vi.mocked(api.post).mockResolvedValue({ data: { placing: true } })
+  })
+
+  it('keeps the machine a move stopped on, says where and why, and Move here tries again with no new command', async () => {
+    renderPage()
+    expect(await screen.findByText('Your trial has ended')).toBeInTheDocument()
+    expect(await screen.findByText(/Moving Koala to desk stopped at Bringing Koala over/)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Move here' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'luno' }))
+    expect(api.post).not.toHaveBeenCalledWith('/instances/move')
+    expect(screen.getByRole('button', { name: 'Move to my own machine' })).toBeInTheDocument()
+  })
+})
+
 describe('root\'s page when the owner\'s instance is not answering', () => {
   it('says so instead of sending them on, offers to try anyway, and switches the emails', async () => {
     vi.clearAllMocks()

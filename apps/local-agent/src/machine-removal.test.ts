@@ -21,6 +21,7 @@ describe('removing this machine, as root asks or as the reset does', () => {
     const forget = vi.fn(async () => undefined);
     await removeThisMachine(host, forget, () => undefined);
     expect(host.run).toHaveBeenCalledWith('sudo', ['-n', K3S_UNINSTALL]);
+    expect(host.letKoalaGo).toHaveBeenCalledOnce();
     expect(forget).toHaveBeenCalledOnce();
   });
 

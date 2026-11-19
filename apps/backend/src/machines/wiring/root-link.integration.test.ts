@@ -33,7 +33,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   closers.push(async () => { await io.close(); });
-  return { db, accounts, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  return { db, accounts, sockets, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
 async function machine(db: Database, token: string, issued: Date): Promise<void> {
@@ -85,5 +85,21 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect(await accounts.remove('bo', 'desk')).toBe(true);
     await until(() => (removed ? true : undefined));
     expect(link.socket.io.opts.reconnection).toBe(false);
+  });
+
+  it('hands the agent root\'s word to stop an install on the machine, saying whether to remove what it made', async () => {
+    const issued = new Date('2026-11-01T00:00:00Z');
+    const { db, sockets, url } = await root(() => issued);
+    await machine(db, 'a-token', issued);
+    const stops: unknown[] = [];
+    const link = linkToRoot({
+      rootUrl: url, token: 'a-token', configFile: '/nonexistent/machine.json',
+      meshIp: async () => undefined, onKoala: () => undefined, onRemoved: () => undefined, onStopKoala: (raw) => stops.push(raw), say: () => undefined,
+    });
+    closers.push(() => link.close());
+    await until(() => (sockets.online('desk') ? true : undefined));
+    expect(sockets.stopKoala('desk', { installId: 'install-1', remove: true })).toBe(true);
+    expect(sockets.stopKoala('elsewhere', { installId: 'install-2', remove: false })).toBe(false);
+    expect(await until(() => stops[0])).toEqual({ installId: 'install-1', remove: true });
   });
 });

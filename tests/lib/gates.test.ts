@@ -191,10 +191,10 @@ describe('checking a release before tagging it', () => {
 
   it('packs steps into rounds by memory, the biggest first, and runs a step marked alone by itself', () => {
     const rounds = roundsOf([
-      { id: 'pool', memoryMB: 28672 }, { id: 'mesh', memoryMB: 15360 }, { id: 'byo', memoryMB: 12288 },
+      { id: 'pool', memoryMB: 28672 }, { id: 'mesh', memoryMB: 15360 }, { id: 'routing', memoryMB: 12288 },
       { id: 'k3d', memoryMB: 4096, alone: true as const }, { id: 'mail', memoryMB: 512 },
     ], 30000).map((round) => round.map((item) => item.id));
-    expect(rounds).toEqual([['k3d'], ['pool', 'mail'], ['mesh', 'byo']]);
+    expect(rounds).toEqual([['k3d'], ['pool', 'mail'], ['mesh', 'routing']]);
   });
 
   it('gives every release step a memory size, so none is packed as free', () => {

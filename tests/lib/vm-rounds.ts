@@ -10,7 +10,7 @@ export interface VmSuite {
   memoryMB: number;
 }
 
-const VM_SCRIPTS = ['pool-live', 'restore-live', 'mesh-live', 'routing-live', 'byo-live', 'instance-live'];
+const VM_SCRIPTS = ['pool-live', 'restore-live', 'mesh-live', 'routing-live', 'instance-live'];
 
 export const VM_SUITES: readonly VmSuite[] = VM_SCRIPTS.map((script) => {
   const step = RELEASE_STEPS.find((one) => one.script === `test:${script}`);

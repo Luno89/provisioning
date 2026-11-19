@@ -27,6 +27,7 @@ interface Script {
   releaseTries?: number;
   bootstrapFails?: string;
   reverseTries?: number;
+  rebuildDown?: number;
 }
 
 function activities(script: Script, done: string[]) {
@@ -35,9 +36,15 @@ function activities(script: Script, done: string[]) {
   let dns = 0;
   let releases = 0;
   let reverses = 0;
+  let rebuilds = 0;
   return {
     ServerOrderFollowActivity: async () => { follows += 1; done.push('follow'); return { delivered: follows > (script.undelivered ?? 0) }; },
-    ServerOrderRebuildActivity: async () => { done.push('rebuild'); return { ip: '203.0.113.7' }; },
+    ServerOrderRebuildActivity: async () => {
+      rebuilds += 1;
+      done.push('rebuild');
+      if (rebuilds <= (script.rebuildDown ?? 0)) throw Object.assign(new Error('connect ECONNREFUSED 51.68.0.1:443'), { code: 'ECONNREFUSED' });
+      return { ip: '203.0.113.7' };
+    },
     ServerOrderSshActivity: async () => { sshes += 1; done.push('ssh'); return sshes > (script.sshTries ?? 0); },
     ServerOrderDnsActivity: async () => { dns += 1; done.push('dns'); return dns > (script.dnsTries ?? 0); },
     ServerOrderReleaseActivity: async () => { releases += 1; done.push('release'); return releases > (script.releaseTries ?? 0) ? 'v2026.10.29' : undefined; },
@@ -73,6 +80,12 @@ describe('following a bought server until root runs on it', () => {
       'reverse dns', 'reverse dns', 'reverse dns',
       'mail check',
     ]);
+  });
+
+  it('keeps at a step while what it needs is down, however many tries that takes', async () => {
+    const done = await run({ rebuildDown: 7 });
+    expect(done.filter((step) => step === 'rebuild')).toHaveLength(8);
+    expect(done.at(-1)).toBe('mail check');
   });
 
   it('records why when installing root fails, and goes no further', async () => {

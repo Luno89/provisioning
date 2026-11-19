@@ -2,14 +2,16 @@ import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { workFor } from '@koala/engine-core/work-for';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Client } from '@temporalio/client';
+import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import { namesItsWork } from '../../platform/lib/temporal-client.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import { RunGrantService } from '../../engine/services/RunGrantService.js';
 import { createAgentRegistry } from '../registries/registry.js';
-import { createRunStarter } from '../registries/run-starter.js';
-import { workflowOfRun } from './contracts.js';
+import { createRunStarter, type WorkflowStarter } from '../registries/run-starter.js';
+import { workflowOfRun, type ProcedureRunInput } from './contracts.js';
 import { temporalWorkflowStarter } from './workflow-starter.js';
 
 let env: TestWorkflowEnvironment;
@@ -38,5 +40,49 @@ describe('a run started through Temporal for a project', () => {
       await runs.answer(runId, 'n1', 'yes');
       expect(await naming.workflow.getHandle(workflowOfRun(runId)).result()).toEqual({ seen: { owner: 'u1', project: 'p1' }, answered: { nodeId: 'n1', value: 'yes' }, approved: { callId: 'call-1', allowed: true, forRun: false }, cancelledBy: 'u1' });
     });
+  });
+});
+
+describe('two processes starting the same run at once through Temporal', () => {
+  it('leaves only the started run\'s grant, the one its ticket carries', async () => {
+    const taskQueue = `run-race-${Math.random().toString(36).slice(2, 8)}`;
+    const db = await testDatabase();
+    const grants = new RunGrantService({ store: db.engine });
+    const naming = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [namesItsWork] } });
+    const temporal = temporalWorkflowStarter(naming.workflow);
+    let arrived = 0;
+    let release!: () => void;
+    const bothIssued = new Promise<void>((resolve) => { release = resolve; });
+    let firstAnswered!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { firstAnswered = resolve; });
+    const held = (who: 'first' | 'second'): WorkflowStarter => ({
+      async start(type, options) {
+        arrived += 1;
+        if (arrived === 2) release();
+        await bothIssued;
+        if (who === 'second') await firstStarted;
+        try {
+          return await temporal.start(type, options);
+        } finally {
+          if (who === 'first') firstAnswered();
+        }
+      },
+    });
+    const starter = (who: 'first' | 'second') => createRunStarter({ registry: createAgentRegistry(), workflows: () => held(who), grants, taskQueue, newRunId: () => `run-${taskQueue}` });
+
+    const [won, lost] = await Promise.allSettled([
+      starter('first').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' }),
+      starter('second').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' }),
+    ]);
+
+    expect(won.status).toBe('fulfilled');
+    expect(lost.status === 'rejected' && lost.reason).toBeInstanceOf(WorkflowExecutionAlreadyStartedError);
+    const live = await db.engine.getLiveRunGrants('u1');
+    expect(live).toHaveLength(1);
+    const history = await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).fetchHistory();
+    const started = history.events?.[0]?.workflowExecutionStartedEventAttributes?.input?.payloads?.[0];
+    const input = started ? naming.options.loadedDataConverter.payloadConverter.fromPayload<ProcedureRunInput>(started) : undefined;
+    expect(input?.ticket.grantId).toBe(live[0]!.id);
+    await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).cancel();
   });
 });

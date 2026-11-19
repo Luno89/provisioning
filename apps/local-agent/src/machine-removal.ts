@@ -37,6 +37,7 @@ export async function removeThisMachine(host: ClusterHost, forget: () => Promise
   try {
     await uninstallMachineCluster(host, log);
   } finally {
+    await host.letKoalaGo();
     await forget();
   }
   if (await host.exists(K3S_UNINSTALL)) throw new Error(`k3s is still on this machine: ${K3S_UNINSTALL} did not remove it`);

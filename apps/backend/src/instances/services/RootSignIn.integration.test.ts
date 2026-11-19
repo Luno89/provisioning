@@ -196,7 +196,7 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect(await me.json()).toEqual({
       id: 'u1',
       claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }],
-      permissions: { administer: true, 'manage-accounts': false, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': true, 'manage-own-account': false },
+      permissions: { administer: true, 'manage-accounts': false, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': true, 'manage-own-account': false, 'set-up-again': true },
     });
     expect(await instanceDb.accounts.getUserById('u1')).toMatchObject({ email: 'u1@example.com', emailVerified: true });
   });

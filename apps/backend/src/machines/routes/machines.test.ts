@@ -16,7 +16,7 @@ type Git = Pick<MachineGitService, 'serve'>;
 const SHA = 'ab'.repeat(32);
 
 let machines: ReturnType<typeof mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>>;
-let installs: ReturnType<typeof mock<Pick<KoalaInstalls, 'report'>>>;
+let installs: ReturnType<typeof mock<Pick<KoalaInstalls, 'report' | 'follow'>>>;
 let git: ReturnType<typeof mock<Git>>;
 let bundle: ReturnType<typeof mock<AgentBundle>>;
 let dir: string;
@@ -32,7 +32,7 @@ const call = async (over: Call, withGit = true, withAccounts = true) => {
 
 beforeEach(async () => {
   machines = mock<Pick<MachineAccounts, 'join' | 'reportJoinProgress'>>();
-  installs = mock<Pick<KoalaInstalls, 'report'>>();
+  installs = mock<Pick<KoalaInstalls, 'report' | 'follow'>>();
   git = mock<Git>();
   bundle = mock<AgentBundle>();
   bundle.sha256.mockResolvedValue(SHA);
@@ -89,6 +89,54 @@ describe('/api/machines/koala-installs/:installId/progress', () => {
     const answer = await call({ method: 'POST', path: '/koala-installs/install-1/progress', body: stage, headers: { authorization: 'Bearer desk-token' } }, true, false);
     expect([answer.status, answer.text]).toEqual([404, 'machines report putting Koala on themselves to root, which asked them']);
     expect(installs.report).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/machines/koala-installs/following', () => {
+  const at = '2026-11-18T10:00:00.000Z';
+  const chart = { kind: 'followed', followed: { install: { id: 'install-1', machineId: 'desk', state: 'installing', stage: 'chart', title: 'Installing Koala\'s chart', line: 'waiting for deployment/koala', at } } } as const;
+  const ready = { kind: 'followed', followed: { install: { id: 'install-1', machineId: 'desk', state: 'ready', at }, url: 'https://bobby.koala.app' } } as const;
+  const stopped = { stop: () => undefined };
+
+  it('streams each change of the install as an event, with the machine\'s own token, ending when the install ends', async () => {
+    installs.follow.mockImplementation(async (_token, listener) => {
+      listener.told({ kind: 'waiting' });
+      listener.told(chart);
+      listener.told(ready);
+      return { ok: true, value: stopped };
+    });
+    const answer = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } });
+    expect(installs.follow.mock.calls[0]![0]).toBe('desk-token');
+    expect(answer.status).toBe(200);
+    expect(answer.headers['content-type']).toContain('text/event-stream');
+    expect(answer.text).toBe(`data: ${JSON.stringify(chart.followed)}\n\ndata: ${JSON.stringify(ready.followed)}\n\n`);
+  });
+
+  it('ends with why when root stopped putting Koala on the machine before any install ended', async () => {
+    installs.follow.mockImplementation(async (_token, listener) => {
+      listener.told({ kind: 'stopped', why: 'your Koala is on laptop' });
+      return { ok: true, value: stopped };
+    });
+    const answer = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } });
+    expect(answer.text).toBe('event: stopped\ndata: {"why":"your Koala is on laptop"}\n\n');
+  });
+
+  it('answers with nothing when the join asked for no Koala', async () => {
+    installs.follow.mockImplementation(async (_token, listener) => {
+      listener.told({ kind: 'none' });
+      return { ok: true, value: stopped };
+    });
+    const answer = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } });
+    expect([answer.status, answer.text]).toEqual([204, '']);
+  });
+
+  it('answers a refusal in plain text with its status, and sends a machine to root where this Koala puts Koala on no machines', async () => {
+    installs.follow.mockResolvedValue({ ok: false, status: 401, error: 'send this machine\'s own token as the bearer credential' });
+    const refused = await call({ path: '/koala-installs/following' });
+    expect([refused.status, refused.text]).toEqual([401, 'send this machine\'s own token as the bearer credential']);
+    expect(installs.follow.mock.calls[0]![0]).toBeUndefined();
+    const elsewhere = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } }, true, false);
+    expect([elsewhere.status, elsewhere.text]).toEqual([404, 'machines follow putting Koala on themselves at root, which asked them']);
   });
 });
 

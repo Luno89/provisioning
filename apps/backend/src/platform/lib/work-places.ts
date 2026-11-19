@@ -23,11 +23,11 @@ export const roleRuns = (role: PlatformRole, place: Place): boolean => PLACES[ro
 
 export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
   root: [
-    'PoolHostActivity', 'PoolVclusterActivity', 'PoolProxyActivity', 'PoolChartActivity', 'PoolReadyActivity', 'PoolFailedActivity',
+    'PoolHostActivity', 'PoolVclusterActivity', 'PoolProxyActivity', 'PoolChartActivity', 'PoolReadyActivity', 'PoolSetupActivity', 'PoolFailedActivity',
     'PoolTrialNextActivity', 'PoolTrialStepActivity', 'PoolRemoveActivity', 'PoolMoveStartActivity', 'PoolMoveSwitchActivity', 'PoolMoveStopActivity',
     'DependencyWatchActivity',
     'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
-    'KoalaInstallAskActivity', 'KoalaInstallStageActivity',
+    'KoalaInstallAskActivity', 'KoalaInstallStageActivity', 'KoalaInstallStoppedActivity',
   ],
   instance: [
     'ServerOrderFollowActivity', 'ServerOrderRebuildActivity', 'ServerOrderSshActivity', 'ServerOrderDnsActivity', 'ServerOrderReleaseActivity',
@@ -56,6 +56,7 @@ export const WORKFLOWS: Record<string, Started> = {
   executeResizeDiskWorkflow: onInstance('cluster'),
   executeSyncConfigWorkflow: onInstance('cluster'),
   executePipelineRunWorkflow: onInstance('cluster'),
+  ProvisionPieceWorkflow: onInstance('cluster'),
   AgentRunWorkflow: onInstance('engine'),
   AdoptPlanWorkflow: onInstance('engine'),
   ConversationConclusionWorkflow: onInstance('engine'),

@@ -3,157 +3,17 @@ import axios from 'axios';
 import type { NextFunction, Request, Response } from 'express';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { MailReputation } from '../../platform/services/MailReputation.js';
-import { spawn, spawnSync } from 'node:child_process';
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bundleAsEnv, instancesRouter } from './instances.js';
+import { instancesRouter } from './instances.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
 import { MailService } from '../../platform/services/MailService.js';
-import { excerptEnv, scriptExcerpt } from '../../../../../tests/coupling/shell-trace.js';
 
 const including = (items: unknown[]): unknown => expect.arrayContaining(items);
-
-const INSTALLER = join(process.cwd(), '../../scripts/instance/install.sh');
-
-describe('what the installer reads from root', () => {
-  const installer = readFileSync(INSTALLER, 'utf8');
-  const bundle = {
-    instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(touch ran)\n-----END PUBLIC KEY-----",
-    meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`touch ran`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
-    imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com', dataVersion: 1,
-  };
-  const readIn = (dir: string, print: string) => spawnSync('sh', ['-c', scriptExcerpt(INSTALLER, ['read_joined'], `die() { echo "refused: $1"; exit 1; }\nread_joined ./join.env\n${print}`)], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...excerptEnv() } });
-
-  it('reads back every value exactly, whatever characters it holds, and runs none of them', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
-    writeFileSync(join(dir, 'join.env'), bundleAsEnv(bundle));
-    const read = readIn(dir, 'printf "%s\\n%s\\n%s" "$MESH_PREAUTH_KEY" "$INSTANCE_CREDENTIAL" "$(printf "%s" "$ROOT_PUBLIC_KEYS_B64" | base64 -d)"');
-    expect(read.status, read.stdout + read.stderr).toBe(0);
-    expect(read.stdout.split('\n').slice(0, 2)).toEqual([bundle.preAuthKey, bundle.credential]);
-    expect(read.stdout.split('\n').slice(2).join('\n')).toBe(bundle.rootPublicKeys);
-    expect(existsSync(join(dir, 'ran'))).toBe(false);
-  });
-
-  it('reads the data version the release brings, and refuses one that is not a whole number', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
-    writeFileSync(join(dir, 'join.env'), bundleAsEnv(bundle));
-    expect(readIn(dir, 'printf "%s" "$INSTANCE_DATA_VERSION"').stdout).toBe('1');
-    const bad = mkdtempSync(join(tmpdir(), 'bundle-'));
-    writeFileSync(join(bad, 'join.env'), `${bundleAsEnv(bundle)}INSTANCE_DATA_VERSION='one'\n`);
-    expect(readIn(bad, 'true').stdout).toMatch(/refused: root's join reply names data version one, not a whole number/);
-  });
-
-  it('refuses a reply missing a value it needs, or holding a line it cannot read', () => {
-    const missing = mkdtempSync(join(tmpdir(), 'bundle-'));
-    writeFileSync(join(missing, 'join.env'), bundleAsEnv({ ...bundle, credential: '' }));
-    expect(readIn(missing, 'true').stdout).toMatch(/refused: root's join reply has no INSTANCE_CREDENTIAL/);
-    const unquoted = mkdtempSync(join(tmpdir(), 'bundle-'));
-    writeFileSync(join(unquoted, 'join.env'), `${bundleAsEnv(bundle)}INSTANCE_ID=$(touch ran)\n`);
-    expect(readIn(unquoted, 'true').stdout).toMatch(/refused: root's join reply has a line this installer cannot read/);
-    expect(existsSync(join(unquoted, 'ran'))).toBe(false);
-  });
-
-  it('never sources the reply, and hands the mesh key to Tailscale in a file', () => {
-    expect(installer).not.toMatch(/^\s*\.\s+"?\$JOIN_ENV/m);
-    expect(installer).toMatch(/--auth-key="file:\$MESH_KEY_FILE"/);
-    expect(installer).not.toMatch(/--authkey "\$MESH_PREAUTH_KEY"/);
-  });
-});
-
-describe('what the installer tells root as it installs', () => {
-  const reporting = ['json_string', 'report_body', 'send_report', 'report', 'report_failure'];
-  let harness: Harness | undefined;
-  let rootDown: http.Server | undefined;
-  afterEach(async () => {
-    await harness?.close();
-    await new Promise((resolve) => (rootDown ? rootDown.close(resolve) : resolve(undefined)));
-    rootDown = undefined;
-  });
-
-  async function rootWithAnInstance() {
-    let service: InstanceService | undefined;
-    harness = await mountRouter({
-      prefix: '/api/instances',
-      router: (db) => {
-        const mesh = { createPreAuthKey: async () => ({ key: 'mesh-key' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] };
-        service = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, mesh);
-        return instancesRouter({ instances: service, chart: async () => '', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
-      },
-    });
-    const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-    if (!made.ok) throw new Error(made.error);
-    const joined = await service!.join(made.value.token, 'box');
-    if (!joined.ok) throw new Error(joined.error);
-    return { credential: joined.value.credential, instanceId: joined.value.instanceId, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
-  }
-
-  function installerReports(calls: string[], env: Record<string, string>): Promise<{ status: number | null; stdout: string; stderr: string }> {
-    const bin = mkdtempSync(join(tmpdir(), 'installer-bin-'));
-    writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-    const child = spawn('sh', ['-c', scriptExcerpt(INSTALLER, reporting, `set -eu\ndie() { echo "refused: $1"; exit 1; }\n${calls.join('\n')}\necho finished`)], { env: { PATH: `${bin}:${process.env.PATH}`, ...env, ...excerptEnv() } });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    return new Promise((resolve) => child.on('close', (status) => resolve({ status, stdout, stderr })));
-  }
-
-  it('reaches root at every step, so root holds where it is, its mesh address, its url and what it runs', async () => {
-    const root = await rootWithAnInstance();
-    const ran = await installerReports([
-      'report joined "On the mesh as 100.64.0.9"',
-      'report installing "Installing the instance" "https://luno.koala.dev"',
-      'report ready "Installed" "https://luno.koala.dev"',
-    ], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9', INSTANCE_IMAGE_TAG: 'abc123', INSTANCE_DATA_VERSION: '1' });
-    expect(ran.stdout + ran.stderr).toContain('finished');
-    expect(await root.record()).toMatchObject({ status: 'ready', detail: 'Installed', meshIp: '100.64.0.9', url: 'https://luno.koala.dev', running: 'abc123', dataVersion: 1 });
-  });
-
-  it('sends any words root can read, quotes, backslashes and new lines included', async () => {
-    const root = await rootWithAnInstance();
-    const ran = await installerReports([`report installing 'it said "no" at C:\\path
-and stopped'`], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential });
-    expect(ran.stdout + ran.stderr).toContain('finished');
-    expect((await root.record()).detail).toBe('it said "no" at C:\\path and stopped');
-  });
-
-  it('stops the install with root\'s reason when root refuses a report', async () => {
-    const root = await rootWithAnInstance();
-    const ran = await installerReports(['report joined "On the mesh as 100.64.0.9"'], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: 'not-the-credential', MESH_IP: '100.64.0.9' });
-    expect(ran.status).toBe(1);
-    expect(ran.stdout).toContain('refused: root refused this machine\'s report that it is joined (401): {"error":"unknown instance or credential"}');
-    expect(ran.stdout).not.toContain('finished');
-  });
-
-  it('sends a report again while root is not answering it, and stops asking once root takes it', async () => {
-    const root = await rootWithAnInstance();
-    let tries = 0;
-    rootDown = http.createServer((req, res) => {
-      tries += 1;
-      if (tries < 3) { res.writeHead(503); res.end('restarting'); return; }
-      const forwarded = http.request(harness!.url(req.url ?? ''), { method: req.method, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode ?? 502, answer.headers); answer.pipe(res); });
-      req.pipe(forwarded);
-    });
-    await new Promise<void>((resolve) => rootDown!.listen(0, '127.0.0.1', resolve));
-    const ran = await installerReports(['report joined "On the mesh as 100.64.0.9"'], { ROOT_URL: `http://127.0.0.1:${(rootDown.address() as AddressInfo).port}`, INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9' });
-    expect(ran.stdout).toContain('root did not take this machine\'s report that it is joined (503); sending it again');
-    expect(ran.stdout).toContain('finished');
-    expect(tries).toBe(3);
-    expect(await root.record()).toMatchObject({ status: 'joined', meshIp: '100.64.0.9' });
-  });
-
-  it('tells root the install stopped without waiting on a root that does not answer', async () => {
-    const ran = await installerReports(['report_failure "The install command stopped on this machine; run it again to retry"'], { ROOT_URL: 'http://127.0.0.1:9', INSTANCE_ID: 'inst-x', INSTANCE_CREDENTIAL: 'c' });
-    expect(ran.stderr).toContain('root did not take the report that the install stopped (000)');
-    expect(ran.stdout).toContain('finished');
-  });
-});
 
 describe('trying Koala on its own servers', () => {
   let harness: Harness | undefined;
@@ -298,14 +158,16 @@ describe('the new machine reading a moving instance through root', () => {
         });
         const instances = new InstanceService(db, {
           rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', domain: 'koala.dev',
+          moves: { joinCode: async () => ({ command: 'curl', expiresAt: 'later' }), poolClusterId: (name) => `pool-${name}` },
         }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => now, () => {}, {
-          start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveFinished: async () => {}, moveStopped: async () => {},
+          start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveStopped: async () => {},
         });
-        const started = await instances.startMove(TEST_USER.id);
-        if (!started.ok) throw new Error(started.error);
-        const joined = await instances.join(started.value.token, 'desk');
-        if (!joined.ok) throw new Error(joined.error);
-        moveCredential = joined.value.credential;
+        const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
+        const placing = await instances.placeOn(TEST_USER.id, desk, undefined, 'install-1');
+        if (!placing.ok) throw new Error(placing.error);
+        const placed = await instances.placedKoala('install-1', desk);
+        if (!placed.ok) throw new Error(placed.error);
+        moveCredential = placed.value.credential;
         return instancesRouter({
           instances, chart: async () => '', operatorOnly: (_req: Request, res: Response) => { res.status(403).end(); },
           moveRelay: { open: async (source: { name: string }, part: string) => {

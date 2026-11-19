@@ -18,6 +18,7 @@ import { registrySettingsFrom } from '../../instances/lib/registry-settings.js';
 import type { RegistryHosts } from '../../instances/index.js';
 import { poolSettingsFrom, type PoolSettings } from '../../instances/lib/pool.js';
 import { edgeSettingsFrom, type EdgeSettings } from '../../instances/lib/edge-settings.js';
+import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 import { reachSettingsFrom, type ReachSettings } from '../../instances/lib/instance-reach.js';
 import { movedSettingsFrom, type MovedSettings } from '../../instances/lib/instance-move.js';
 import { unreachableAfterMs } from '../../instances/lib/instance-watch.js';
@@ -131,6 +132,7 @@ export interface InstanceSettings {
   selfUpgrade: { cronJob: string; namespace: string } | Off;
   machineTemporalAddress: string | Off;
   gatewayPort: number;
+  revision: number;
   move: MovedSettings;
   poolMonitor: { rootUrl: string; instanceId: string } | Off;
 }
@@ -198,6 +200,10 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   infisical: InfisicalSettings;
   terraform: TerraformStateKind;
   machineMetricsUrl: string | Off;
+  podNamespace: string;
+  crawl4aiToken: string;
+  koala: { ownerId: string; revision: number };
+  root: { url: string; instanceId: string; credential: string };
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -269,6 +275,15 @@ function portSetting(read: Reading, name: string, why: string, zeroAllowed = fal
   const port = Number(value);
   if (Number.isInteger(port) && port < 65536 && (port > 0 || (zeroAllowed && port === 0))) return port;
   read.problems.push(`${name} is not a port: ${value}`);
+  return undefined;
+}
+
+function revisionSetting(read: Reading, name: string, why: string): number | undefined {
+  const value = required(read, name, why);
+  if (value === undefined) return undefined;
+  const revision = Number(value);
+  if (/^[0-9]+$/.test(value) && Number.isSafeInteger(revision) && revision >= 1) return revision;
+  read.problems.push(`${name} is not a chart revision, a whole number from 1: ${value}`);
   return undefined;
 }
 
@@ -438,8 +453,9 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
   if (Boolean(cronJob) !== Boolean(namespace)) read.problems.push('SELF_UPGRADE_CRONJOB and INSTANCE_NAMESPACE go together, and only one is set');
   const machineTemporal = settingIn(read.env, 'MACHINE_TEMPORAL_ADDRESS');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
+  const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which Koala sets itself up for once; the instance chart sets it');
   const pool = env.POOL?.trim() === 'true';
-  if (!credential || !edge || gatewayPort === undefined) return undefined;
+  if (!credential || !edge || gatewayPort === undefined || revision === undefined) return undefined;
   return {
     credential,
     edge,
@@ -448,6 +464,7 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
       ? (read.take(() => settingHostPort('MACHINE_TEMPORAL_ADDRESS', machineTemporal)) ?? machineTemporal)
       : { off: 'MACHINE_TEMPORAL_ADDRESS is not set (the instance chart sets it from mesh.address), so no machine can take this instance\'s work' },
     gatewayPort,
+    revision,
     move: movedSettingsFrom(env),
     poolMonitor: pool && role.instance
       ? { rootUrl: role.instance.rootUrl, instanceId: role.instance.id }
@@ -546,6 +563,15 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   });
 }
 
+const platformNamespaceFrom = (read: Reading): string | undefined =>
+  required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
+
+function crawl4aiTokenFrom(read: Reading): string | undefined {
+  const token = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+  if (token && !/^[A-Za-z0-9]+$/.test(token)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+  return token;
+}
+
 export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const read = new Reading(env);
   const role = read.take(() => roleFromEnv(env));
@@ -557,7 +583,14 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const terraform = terraformFrom(read);
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const metricsUrl = settingIn(read.env, 'MACHINE_METRICS_URL');
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  const podNamespace = platformNamespaceFrom(read);
+  const crawl4aiToken = crawl4aiTokenFrom(read);
+  const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
+  const ownerId = role?.instance?.ownerId;
+  if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
+  const credential = role?.instance ? required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which a moved Koala\'s setup fetches what its move left with') : undefined;
+  const root = role?.instance && credential ? { url: role.instance.rootUrl, instanceId: role.instance.id, credential } : undefined;
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId || !root) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -566,6 +599,10 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     registryPullHost,
     infisical,
     terraform,
+    podNamespace,
+    crawl4aiToken,
+    koala: { ownerId, revision },
+    root,
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
@@ -639,14 +676,14 @@ export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_AC
 export interface MoveImportSettings extends PodStepSettings {
   rootUrl: string;
   instanceId: string;
+  ownerId: string;
   credential: string;
   mongo: MongoTarget;
   dataKey: PlatformKeys['data'];
-  gitea: GiteaSettings;
-  registryPullHost: string;
-  terraform: TerraformStateKind;
   podNamespace: string;
   dataDir: string;
+  from: string;
+  onto: string;
 }
 
 export function moveImportSettingsFrom(env: Env): MoveImportSettings {
@@ -655,34 +692,14 @@ export function moveImportSettingsFrom(env: Env): MoveImportSettings {
   const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance fetches its moved parts from root with');
   const mongo = read.take(() => mongoTarget(env));
   const dataKey = read.take(() => loadKey(env, 'data'));
-  const gitea = read.take(() => giteaSettingsFrom(env));
-  const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
-  const terraform = terraformFrom(read);
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where Terraform keeps its state');
   const dataDir = dataDirFrom(read);
+  const from = required(read, 'KOALA_MOVED_FROM', 'it is the cluster on Koala\'s servers the move brings this Koala from, whose records and Terraform state are renamed for this machine; the instance chart sets it from move.fromClusterId');
+  const machineId = step?.clusters.here.koalaMachineId;
+  if (step && !machineId) read.problems.push('INSTANCE_MACHINE_ID is not set: a move brings Koala onto a machine of its own, whose cluster its records are renamed for');
   const instance = step?.role.instance;
-  return finish(read, 'the move', step && instance && credential && mongo && dataKey && gitea && registryPullHost && terraform && podNamespace && dataDir
-    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey, gitea, registryPullHost, terraform, podNamespace, dataDir }
-    : undefined);
-}
-
-export interface PlatformServicesSettings extends PodStepSettings {
-  terraform: TerraformStateKind;
-  podNamespace: string;
-  dataDir: string;
-  crawl4aiToken: string;
-}
-
-export function platformServicesSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): PlatformServicesSettings {
-  const read = new Reading(env);
-  const step = podStep(read, serviceAccountDir);
-  const terraform = terraformFrom(read);
-  const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
-  const dataDir = dataDirFrom(read);
-  const crawl4aiToken = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
-  if (crawl4aiToken && !/^[A-Za-z0-9]+$/.test(crawl4aiToken)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
-  return finish(read, 'the platform services step', step && terraform && podNamespace && dataDir && crawl4aiToken
-    ? { ...step, terraform, podNamespace, dataDir, crawl4aiToken }
+  return finish(read, 'the move', step && instance && credential && mongo && dataKey && podNamespace && dataDir && from && machineId
+    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, ownerId: instance.ownerId, credential, mongo, dataKey, podNamespace, dataDir, from, onto: machineClusterId(machineId) }
     : undefined);
 }
 

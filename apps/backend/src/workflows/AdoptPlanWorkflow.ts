@@ -20,13 +20,13 @@ const { PlanAdoptProjectActivity, PlanAdoptStopActivity, PlanAdoptRecordsActivit
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
 }>({
-  retry: { ...ACTIVITY_RETRY, maximumAttempts: 3 },
+  retry: ACTIVITY_RETRY,
   ...LIVE_ACTIVITY,
 });
 
 const told = proxyActivities<{ EngineGroveChangedActivity(args: { ownerId: string }): Promise<void> }>({
   taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-  retry: { maximumAttempts: 3 },
+  retry: ACTIVITY_RETRY,
   ...LIVE_ACTIVITY,
 });
 

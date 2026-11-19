@@ -12,7 +12,8 @@ import { hasPlainSecret, sealDeployment, unsealDeployment } from '../lib/deploym
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { WorkFailure } from '../lib/work-failures.js';
-import type { DeploymentHealth, InfrastructureStore } from '../store.js';
+import type { DeploymentHealth, InfrastructureStore, ProvisioningOpened, ProvisioningPatch } from '../store.js';
+import { MOVE_IN_ID, type MoveIn, type ProvisioningRecord } from '../lib/provisioning.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
@@ -41,6 +42,8 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   private readonly accessRequests: MemoryRecords<AccessRequest>;
   private readonly bindingTypes: MemoryRecords<BindingTypeRecord>;
   private readonly serverOrders: MemoryRecords<ServerOrder>;
+  private readonly provisioning: MemoryRecords<ProvisioningRecord>;
+  private readonly movesIn: MemoryRecords<MoveIn>;
 
   constructor(private readonly dataKey: SecretKey = TEST_KEY, collections: Collections = new Map()) {
     this.clusters = new MemoryRecords(collectionIn<ClusterMetadata>(collections, 'clusters'));
@@ -53,6 +56,8 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
     this.accessRequests = new MemoryRecords(collectionIn<AccessRequest>(collections, 'accessRequests'));
     this.bindingTypes = new MemoryRecords(collectionIn<BindingTypeRecord>(collections, 'bindingTypes'));
     this.serverOrders = new MemoryRecords(collectionIn<ServerOrder>(collections, 'serverOrders'));
+    this.provisioning = new MemoryRecords(collectionIn<ProvisioningRecord>(collections, 'provisioning'));
+    this.movesIn = new MemoryRecords(collectionIn<MoveIn>(collections, 'movesIn'));
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -279,5 +284,44 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   async appendServerOrderLog(id: string, lines: readonly string[]): Promise<void> {
     if (lines.length === 0) return;
     this.serverOrders.change(id, (order) => ({ ...order, log: [...(order.log ?? []), ...lines].slice(-SERVER_ORDER_LOG_LINES) }));
+  }
+
+  async getProvisioning(clusterId?: string): Promise<ProvisioningRecord[]> {
+    return this.provisioning.all()
+      .filter((record) => clusterId === undefined || record.target.clusterId === clusterId)
+      .sort((a, b) => earlier(a.startedAt, b.startedAt) || earlier(a.id, b.id));
+  }
+
+  async getProvisioningRun(id: string): Promise<ProvisioningRecord | undefined> {
+    return this.provisioning.get(id);
+  }
+
+  async openProvisioning(record: ProvisioningRecord): Promise<ProvisioningOpened> {
+    const running = this.provisioning.all().find((other) => other.state === 'running' && other.target.clusterId === record.target.clusterId);
+    if (running) return { opened: false, running };
+    if (this.provisioning.get(record.id)) throw duplicate('provisioning', `{ _id: ${JSON.stringify(record.id)} }`);
+    this.provisioning.put(stored(record));
+    return { opened: true };
+  }
+
+  async patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning = false): Promise<ProvisioningRecord | undefined> {
+    const changed = this.provisioning.change(id, (record) => {
+      if (whileRunning && record.state !== 'running') return undefined;
+      return stored({ ...record, ...patch } as ProvisioningRecord);
+    });
+    return changed ? this.provisioning.get(id) : undefined;
+  }
+
+  watchProvisioning(on: (record: ProvisioningRecord) => void): Watching {
+    const stop = this.provisioning.watch((record) => on(record));
+    return { ready: Promise.resolve(), close: async () => { stop(); } };
+  }
+
+  async getMoveIn(): Promise<MoveIn | undefined> {
+    return this.movesIn.get(MOVE_IN_ID);
+  }
+
+  async saveMoveIn(moveIn: MoveIn): Promise<void> {
+    this.movesIn.put(stored(moveIn));
   }
 }

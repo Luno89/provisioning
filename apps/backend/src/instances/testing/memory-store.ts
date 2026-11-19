@@ -1,6 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
-import { stampServed, type InstanceRecord, type JoinToken } from '../lib/instances.js';
+import { stampServed, type InstanceRecord } from '../lib/instances.js';
 import type { PoolPolicy } from '../lib/pool.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
 import type { SignInKey } from '../lib/oidc.js';
@@ -23,8 +23,6 @@ interface Artifact {
   accountId?: string;
 }
 
-interface StoredToken { ownerId: string; instanceId: string; expiresAt: Date; move?: boolean | undefined }
-
 interface StoredSession extends Omit<ClientSession, 'id' | 'expiresAt'> { expiresAt: Date }
 
 interface StoredWatch { ownerId: string; reach?: Reach; presence?: boolean; notifyWhenUnreachable?: boolean }
@@ -33,7 +31,6 @@ const RELEASE_FIELDS = ['notes', 'hotfix', 'digest', 'chartSha256', 'dataVersion
 
 export class MemoryInstancesStore implements InstancesStore {
   private readonly handoffs = new Map<string, Date>();
-  private readonly joinTokens: Map<string, StoredToken>;
   private readonly instances: Map<string, InstanceRecord>;
   private readonly watches: Map<string, StoredWatch>;
   private poolPolicy: PoolPolicy | undefined;
@@ -49,7 +46,6 @@ export class MemoryInstancesStore implements InstancesStore {
   private readonly installWatchers = new Set<(instance: InstanceRecord) => void>();
 
   constructor(collections: Collections = new Map()) {
-    this.joinTokens = collectionIn<StoredToken>(collections, 'instanceJoinTokens');
     this.instances = collectionIn<InstanceRecord>(collections, 'instances');
     this.watches = collectionIn<StoredWatch>(collections, 'instanceWatches');
     this.artifacts = collectionIn<Artifact>(collections, 'oidcArtifacts');
@@ -65,16 +61,8 @@ export class MemoryInstancesStore implements InstancesStore {
     return true;
   }
 
-  async saveJoinToken(token: JoinToken): Promise<void> {
-    const { hash, expiresAt, ...rest } = token;
-    this.joinTokens.set(hash, { ...asStored(copied(rest)), expiresAt: new Date(expiresAt) });
-  }
-
-  async takeJoinToken(hash: string): Promise<JoinToken | undefined> {
-    const doc = this.joinTokens.get(hash);
-    if (!doc) return undefined;
-    this.joinTokens.delete(hash);
-    return { hash, ownerId: doc.ownerId, instanceId: doc.instanceId, expiresAt: doc.expiresAt.toISOString(), ...(doc.move === true ? { move: true } : {}) };
+  async dropJoinTokens(): Promise<number> {
+    return 0;
   }
 
   async getInstances(ownerId?: string): Promise<InstanceRecord[]> {
@@ -88,7 +76,7 @@ export class MemoryInstancesStore implements InstancesStore {
     }
     const stored = asStored(copied(stampServed(instance)));
     this.instances.set(instance.id, stored);
-    if (stored.install) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    if (stored.install || stored.move || stored.pool) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
   }
 
   async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {
@@ -96,9 +84,9 @@ export class MemoryInstancesStore implements InstancesStore {
     if (!found?.install || found.install.id !== installId) return false;
     const next = copied(found) as unknown as Record<string, unknown>;
     for (const [path, value] of Object.entries(fields)) {
-      const [first, second] = path.split('.') as [string, string | undefined];
-      const holder = second === undefined ? next : (next[first] ??= {}) as Record<string, unknown>;
-      const key = second ?? first;
+      const steps = path.split('.');
+      const key = steps.pop()!;
+      const holder = steps.reduce((within, step) => (within[step] ??= {}) as Record<string, unknown>, next);
       if (value === undefined) delete holder[key];
       else holder[key] = copied(value);
     }

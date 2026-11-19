@@ -10,6 +10,7 @@ import { InstanceService } from '../instances/services/InstanceService.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { harnessApp, TEST_USER } from '../platform/routes/test-harness.js';
 import { untilKoalaReady } from './dev-machine.js';
+import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
 
 interface Root {
   rootApi: string;
@@ -43,10 +44,7 @@ async function rootWithAJoinedKoala(): Promise<Root> {
   }, db, () => TEST_USER);
   let server = await listen(app, 0);
   const { port } = server.address() as AddressInfo;
-  const made = await instances.createJoinToken(TEST_USER.id, 'luno');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await instances.join(made.value.token, 'desk');
-  if (!joined.ok) throw new Error(joined.error);
+  const joined = { value: await koalaPlacedAndUp(instances, db, TEST_USER.id, { id: 'desk', name: 'desk', meshIp: '100.64.0.9' }, 'luno') };
   return {
     rootApi: `http://127.0.0.1:${port}`,
     report: async (status, detail) => {

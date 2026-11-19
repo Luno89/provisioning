@@ -44,6 +44,7 @@ export const temporalInstallWorkflows = (client: () => Promise<Client> = getTemp
       await (await client()).workflow.start(KoalaInstallWorkflow, { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], ...startedFor(ownerId) });
     },
     progress: async (installId, progress) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.progress, progress); },
+    setup: async (installId, report) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.setup, report); },
     reconnected: async (installId) => { await (await handle(installId)).signal(KOALA_INSTALL_SIGNALS.reconnected); },
     cancel: async (installId) => { await (await handle(installId)).cancel().catch(ended); },
   };
@@ -77,13 +78,13 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   const ownerInstances = async (ownerId: string) => {
     for (const instance of await db.instances.getInstances(ownerId)) deps.instances()?.tellInstance?.(instance.id, 'machines:changed');
   };
-  let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
+  let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   let machines: MachineService | undefined;
   const installs = holdsAccounts(role) && role.signing ? new KoalaInstalls({
     devices: () => db.machines.getLocalAgentDevices(),
     places: () => deps.instances()?.places,
     workflows: deps.installWorkflows ?? temporalInstallWorkflows(),
-    toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed) },
+    toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), stopKoala: (deviceId, stop) => toMachines.stopKoala(deviceId, stop) },
     toOwner: { installChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(KOALA_INSTALL_CHANGED, {}); } },
   }) : undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
@@ -92,7 +93,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
     followers: { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
-    toOwner: { machinesChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(MACHINE_JOINS_CHANGED, {}); } },
+    toOwner: { machinesChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(MACHINE_JOINS_CHANGED, {}); installs?.wake(ownerId); } },
     toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), online: (deviceId) => toMachines.online(deviceId) },
     installs,
     mesh: deps.mesh,

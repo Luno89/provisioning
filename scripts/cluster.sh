@@ -113,8 +113,7 @@ native_k3s_is_active() {
 # Clean-only: stops the service, kills anything it left behind, and wipes its data-dir (certs,
 # etcd/kine state, generated containerd config — everything that makes this specific instance).
 # Deliberately does NOT reinstall, reconfigure, or restart anything — that's setup's job
-# (setup-gpu.sh regenerates the containerd GPU config, setup.sh/`cluster.sh create` brings it
-# back up). Keeping this reset step pure "removal" mirrors the k3d cleanup path above it, which
+# (setup.sh/`cluster.sh create` brings it back up). Keeping this reset step pure "removal" mirrors the k3d cleanup path above it, which
 # also only deletes. No-op if not installed. Requires sudo (interactive).
 native_k3s_reset() {
   local name; name="$(k3s_native_name "$1")"

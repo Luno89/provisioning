@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
-import { chartInputs, chartStep, INPUTS_VALUE, type ChartCluster, type ChartRelease } from './chart.js';
+import { chartInputs, chartStep, INPUTS_VALUE, releaseRevision, runsInputs, type ChartCluster, type ChartRelease } from './chart.js';
 import { SETUP_LABEL } from './rollout.js';
 import { runSteps, StepFailed } from './steps.js';
 
@@ -52,6 +52,14 @@ describe('what a release is made from', () => {
     expect(chartInputs(['chartv', 'alues'])).not.toBe(same);
     expect(same).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it('is run by the release once helm last applied it, whether or not all it holds is up yet', async () => {
+    const rolling = { items: [deployment(0)] };
+    expect(await runsInputs({ cluster: cluster({ listed: undefined, rollouts: [rolling] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [rolling] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
+  });
 });
 
 describe('applying a chart and following it until everything it holds is up', () => {
@@ -101,5 +109,12 @@ describe('applying a chart and following it until everything it holds is up', ()
     await runSteps([step], { cluster: world, wait: noPause }, reporter);
     expect(reporter.reported).toEqual([{ kind: 'started', id: 'koala' }, { kind: 'already-done', id: 'koala' }]);
     expect(world.helmRan.some((args) => args[0] === 'upgrade')).toBe(false);
+  });
+});
+
+describe('the revision a release runs', () => {
+  it('is the one helm lists, and a release helm does not list has none to name', async () => {
+    expect(await releaseRevision({ cluster: cluster({ listed: { status: 'deployed' }, rollouts: [] }) }, release)).toBe(2);
+    await expect(releaseRevision({ cluster: cluster({ listed: undefined, rollouts: [] }) }, release)).rejects.toThrow('instance is not installed in nowrinkles, so it runs no revision');
   });
 });

@@ -13,10 +13,11 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, vllmLatestPinned, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, ...counts } = await seedAll(db);
     expect(clusterProvidersDropped).toBe(0);
     expect(vllmLatestPinned).toBe(0);
     expect(githubCredentialsDropped).toBe(0);
+    expect(joinTokensDropped).toBe(0);
     expect(unkeptAttachmentsDropped).toBe(0);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
@@ -198,6 +199,26 @@ describe('seed-all', () => {
       expect(await client.db(name).listCollections({ name: 'clusterProviders' }).toArray()).toEqual([]);
       expect((await db.infrastructure.getClusters()).map((cluster) => cluster.id)).toEqual(['machine-desk']);
       expect(await seedAll(db)).toMatchObject({ clusterProvidersDropped: 0 });
+    } finally {
+      await db.dropDatabase();
+      await db.close();
+      await client.close();
+    }
+  });
+
+  it('drops the join tokens install.sh used before Koala came to a machine only through its join, once, keeping the instances', async () => {
+    const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });
+    const client = await MongoClient.connect(inject('mongoUri'));
+    try {
+      await db.init();
+      await client.db(name).collection('instanceJoinTokens').insertMany([{ _id: 'a' as never, ownerId: 'ann', instanceId: 'inst-ann' }, { _id: 'b' as never, ownerId: 'bo', instanceId: 'inst-bo', move: true }]);
+      await db.instances.saveInstance({ id: 'inst-ann', ownerId: 'ann', url: 'https://ann.example', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+
+      expect(await seedAll(db)).toMatchObject({ joinTokensDropped: 2 });
+      expect(await client.db(name).listCollections({ name: 'instanceJoinTokens' }).toArray()).toEqual([]);
+      expect((await db.instances.getInstances()).map((instance) => instance.id)).toEqual(['inst-ann']);
+      expect(await seedAll(db)).toMatchObject({ joinTokensDropped: 0 });
     } finally {
       await db.dropDatabase();
       await db.close();

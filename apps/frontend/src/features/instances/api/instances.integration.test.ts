@@ -1,7 +1,7 @@
 import { testIdentityKey } from '../../../../../backend/src/platform/testing/keys'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
-  type MySetup, type NameCheck, type PoolAdmin, type PoolOffer, checkName, createJoinCommand, getMySetup, getPoolAdmin, getPoolOffer,
+  type MySetup, type NameCheck, type PoolAdmin, type PoolOffer, checkName, getMySetup, getPoolAdmin, getPoolOffer,
   removePoolInstance, setPoolTrialDays, setPoolTrialEnd, startMyMove, startPoolInstance, stopMyMove,
 } from './instances'
 import { getMyInstance } from './identity'
@@ -16,7 +16,8 @@ import { anyOf, containing, objectWith } from '../../../../../backend/src/platfo
 import { identityRouter } from '../../../../../backend/src/instances/routes/identity'
 import { instancesRouter } from '../../../../../backend/src/instances/routes/instances'
 import { IdentityService } from '../../../../../backend/src/instances/services/IdentityService'
-import { InstanceService, type PoolOffer as BackendPoolOffer } from '../../../../../backend/src/instances/services/InstanceService'
+import { InstanceService, instanceIdFor, type PoolOffer as BackendPoolOffer } from '../../../../../backend/src/instances/services/InstanceService'
+import { machineCommand, newMachineCode } from '../../../../../backend/src/machines/lib/machines'
 import { DependencyWatch, type WatchView as BackendDependencies } from '../../../../../backend/src/instances/services/DependencyWatch'
 import { MailReputation, type MailReputationView as BackendMailView } from '../../../../../backend/src/platform/services/MailReputation'
 import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-role'
@@ -36,6 +37,10 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
     imageTag: 'dev',
     domain: DOMAIN,
     pool: { slots: 1, trialDays: 30 },
+    moves: {
+      joinCode: async () => ({ command: machineCommand(origin, newMachineCode()), expiresAt: new Date(Date.now() + 3_600_000).toISOString() }),
+      poolClusterId: (name) => `pool-${name}`,
+    },
   }, outsideThisTier<HeadscaleService>('Headscale'), () => new Date(), () => undefined, {
     start: async (instanceId) => { poolWork.push(`start ${instanceId}`) },
     trialChanged: async (instanceId) => { poolWork.push(`trial ${instanceId}`) },
@@ -85,16 +90,10 @@ describe('a person\'s instance, where accounts are held', () => {
     expect(await checkName('Not A Name!')).toEqual({ ok: false, problem: anyOf(String) })
   })
 
-  it('makes the install command for their own machine, after which the setup waits for it', async () => {
-    const made = await createJoinCommand('kangaroo')
-    expect(made).toEqual(objectWith({ token: anyOf(String), expiresAt: anyOf(String) }))
-    expect(made.command).toBe(`curl -fsSL ${backend.origin}/install.sh | sudo sh -s -- ${made.token}`)
-    expect(await getMySetup()).toEqual({ id: anyOf(String), status: 'waiting', detail: 'Waiting for the machine to run the install command', url: '', name: 'kangaroo', watch: { notifyWhenUnreachable: true, alwaysTold: false } })
-    expect(await getMyInstance()).toEqual({ instance: null, servesTenants: true })
-    await expect(createJoinCommand('Not A Name!')).rejects.toMatchObject({ response: { status: 400, data: { error: anyOf(String) } } })
-  })
-
   it('switches off being told when their own machine cannot be reached', async () => {
+    const [owner] = await backend.db.accounts.getUsers()
+    const now = new Date().toISOString()
+    await backend.db.instances.saveInstance({ id: instanceIdFor(owner!.id), ownerId: owner!.id, url: '', createdAt: now, updatedAt: now, status: 'waiting', name: 'kangaroo' })
     expect(await mutated(useSetMyWatch, false)).toEqual({ notifyWhenUnreachable: false, alwaysTold: false })
     await expect(mutated(useSetMyWatch, 'off' as unknown as boolean)).rejects.toMatchObject({ response: { status: 400, data: { error: 'send notifyWhenUnreachable as true or false' } } })
   })
@@ -113,7 +112,7 @@ describe('a person\'s instance, where accounts are held', () => {
     const [instance] = await backend.db.instances.getInstances()
     await backend.db.instances.saveInstance({ ...instance!, status: 'ready', url: `https://kangaroo.${DOMAIN}` })
     const move = await startMyMove()
-    expect(move).toEqual(objectWith({ command: containing(`curl -fsSL ${backend.origin}/install.sh | sudo sh -s -- `), expiresAt: anyOf(String) }))
+    expect(move).toEqual(objectWith({ command: containing(`curl -fsSL ${backend.origin}/machine.sh | sh -s -- `), expiresAt: anyOf(String) }))
     expect(poolWork).toContain(`move ${instance!.id}`)
     expect((await getMySetup())?.move).toEqual({ state: 'waiting', startedAt: anyOf(String), detail: 'Waiting for your machine to run the move command' })
     expect(await stopMyMove()).toEqual({ stopping: true })

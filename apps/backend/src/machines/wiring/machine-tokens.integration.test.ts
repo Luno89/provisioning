@@ -116,7 +116,7 @@ beforeEach(async () => {
   machines.onForgotten((deviceId) => forgotten.listener(deviceId));
   server = http.createServer();
   io = new SocketServer(server);
-  let sockets: ReturnType<typeof wireMachineAccounts> = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
+  let sockets: ReturnType<typeof wireMachineAccounts> = { removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   accounts = new MachineAccounts({
     store: db.machines,
     signing: root,

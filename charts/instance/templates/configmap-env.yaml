@@ -8,10 +8,14 @@ metadata:
 data:
   NODE_ENV: production
   ROLE: instance
+  KOALA_RELEASE_REVISION: {{ .Release.Revision | quote }}
   INSTANCE_ID: {{ .Values.instance.id | quote }}
   INSTANCE_OWNER_ID: {{ .Values.instance.ownerId | quote }}
   {{- with .Values.instance.machineId }}
   INSTANCE_MACHINE_ID: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.move.enabled }}
+  KOALA_MOVED_FROM: {{ required "move.fromClusterId is required while it moves: it is the cluster on Koala's servers the move brings this Koala from" .Values.move.fromClusterId | quote }}
   {{- end }}
   ROOT_URL: {{ .Values.instance.rootUrl | quote }}
   ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
