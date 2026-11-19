@@ -9,21 +9,27 @@ import { Server } from 'socket.io';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { koalaInstallProgressPath, PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
 import { deviceQueue } from './engine-worker.js';
+import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
 
 const AGENT = path.join(import.meta.dirname, '..');
 const ENTRY = path.join(import.meta.dirname, 'index.ts');
 
 let env: TestWorkflowEnvironment;
 let home: string;
+let certificates: TestCertificates;
+let front: { address: string; close(): Promise<void> };
 const servers: HttpServer[] = [];
 
 beforeAll(async () => {
   env = await TestWorkflowEnvironment.createLocal();
+  certificates = makeCertificates();
+  front = await tlsInFrontOf(env.address, certificates);
   home = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-program-'));
 });
 
 afterAll(async () => {
   for (const server of servers) server.close();
+  await front.close();
   await env.teardown();
   await fs.rm(home, { recursive: true, force: true });
 });
@@ -90,7 +96,7 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
       socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
       socket.on('agents:found', (found: unknown) => { heard.agents = found; });
       socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
-        ack({ ring: { current: 'agent-program-payload-key-0123456789ab' }, temporal: { address: env.address, namespace: 'default' } });
+        ack({ ring: { current: 'agent-program-payload-key-0123456789ab' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
       });
     });
     const rootDir = path.join(home, 'koala');
@@ -120,8 +126,9 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
       namespace: 'default', taskQueue: { name: deviceQueue('program-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
-    while (child.exitCode === null && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
+    while (child.exitCode === null && !said.join('').includes('could not start') && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
+    expect(said.join('')).not.toContain('could not start');
     expect(heard).toMatchObject({ deviceToken: 'program-device-token', workToken: 'program-work-token', agents: { agents: [] } });
 
     toRoot[0]!.emit('machine:koala', { url: koala.url, workToken: 'program-work-token-2' });
