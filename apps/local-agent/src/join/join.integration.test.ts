@@ -10,9 +10,12 @@ import { ignore } from '@koala/engine-core/failures';
 import { JOIN_PROGRESS, JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_FOLLOW_PATH } from '@koala/engine-core/koala-install';
-import { localCommands, type CommandRunner, type Every } from '@koala/provision';
+import { createServer as createSecureServer } from 'node:https';
+import { localCommands, type CommandRunner, type Every, type WaitOptions } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
-import { localJoinHost } from './host.js';
+import { makeCertificates } from '../testing/temporal-tls.js';
+import { followInstall } from './follow-install.js';
+import { localJoinHost, stopsOnCtrlC } from './host.js';
 import { runJoin } from './join.js';
 import { K3S_CONFIG, K3S_SUDOERS, NVIDIA_CDI_MARKER } from './k3s-files.js';
 import { LAUNCHD_LABEL } from '../self-update.js';
@@ -42,7 +45,7 @@ let server: Server;
 let url = '';
 let pins: JoinPins;
 let cutReports = 0;
-const followings: Array<{ events: string[]; cut?: boolean }> = [];
+const followings: Array<{ events: string[]; cut?: boolean; refused?: boolean }> = [];
 const followedWith: Array<string | undefined> = [];
 
 const tarOf = (name: string, files: Record<string, string>): string => {
@@ -158,6 +161,10 @@ beforeAll(async () => {
           res.end();
           return;
         }
+        if (answer.refused) {
+          req.socket.destroy();
+          return;
+        }
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         for (const event of answer.events) res.write(event);
         if (answer.cut) res.write('', () => { res.socket?.destroy(); });
@@ -191,7 +198,7 @@ afterAll(async () => {
 
 const machineEnv = () => ({ PATH: `${bin}:${path.join(machineRoot, 'usr/bin')}:${tools}`, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'), KOALA_MACHINE_ROOT: machineRoot });
 
-interface JoinWorld { platform?: NodeJS.Platform; every?: Every; commands?: (real: CommandRunner) => CommandRunner; setUpAgents?: () => Promise<void> }
+interface JoinWorld { platform?: NodeJS.Platform; every?: Every; commands?: (real: CommandRunner) => CommandRunner; setUpAgents?: () => Promise<void>; followWait?: WaitOptions }
 
 async function join(code: string, world: JoinWorld = {}): Promise<{ code: number; said: string }> {
   let said = '';
@@ -205,7 +212,9 @@ async function join(code: string, world: JoinWorld = {}): Promise<{ code: number
     node: process.execPath,
     setUpAgents: () => world.setUpAgents?.() ?? Promise.resolve(),
     pins: () => pins,
+    onInterrupt: stopsOnCtrlC,
     ...(world.every ? { every: world.every } : {}),
+    ...(world.followWait ? { followWait: world.followWait } : {}),
   });
   return { code: exit, said };
 }
@@ -402,5 +411,33 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     const failed = await join('koala-code-again');
     expect(failed.code, failed.said).toBe(1);
     expect(failed.said.trimEnd().endsWith('Putting Koala on this machine stopped at Installing Koala\'s chart: the image could not be pulled')).toBe(true);
+  });
+
+  it('tells the person root cannot be reached yet while root drops the follow before answering, and follows on to ready once it answers', async () => {
+    const event = (body: unknown): string => `data: ${JSON.stringify(body)}\n\n`;
+    followedWith.length = 0;
+    followings.push({ events: [], refused: true }, { events: [event({ install: { id: 'install-2', machineId: 'device-1', state: 'ready', at: '2026-11-18T11:00:00.000Z', stage: 'koala', title: 'Koala' }, url: 'https://bobby.koala.app' })] });
+    const ready = await join('koala-code-dropped', { followWait: { pause: async () => undefined, sayEvery: 1 } });
+    expect(ready.code, ready.said).toBe(0);
+    expect(followedWith).toHaveLength(2);
+    expect(ready.said).toMatch(/ {2}root cannot be reached yet \(.+\); following again\n/);
+    expect(ready.said.trimEnd().endsWith('Koala is ready at https://bobby.koala.app')).toBe(true);
+  });
+
+  it('stops following, saying why, when root answers with a certificate this machine does not trust', async () => {
+    const certificates = makeCertificates();
+    const secure = createSecureServer({ cert: certificates.cert, key: certificates.key }, (_req, res) => { res.end(); });
+    await new Promise<void>((done) => secure.listen(0, '127.0.0.1', done));
+    try {
+      const said: string[] = [];
+      const following = followInstall({
+        rootUrl: `https://127.0.0.1:${(secure.address() as { port: number }).port}`, token: 'token-1', fetch, say: (line) => { said.push(line); }, section: () => undefined,
+        interrupted: new AbortController().signal, wait: { pause: async () => undefined },
+      });
+      await expect(following).rejects.toThrow(/^root could not be asked how putting Koala on this machine goes: .+/);
+      expect(said).toEqual([]);
+    } finally {
+      await new Promise((done) => secure.close(done));
+    }
   });
 });

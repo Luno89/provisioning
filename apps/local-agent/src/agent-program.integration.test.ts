@@ -248,11 +248,16 @@ describe('Koala placed on this machine by root and then stopped by root, as the 
       while (!here.said.join('').includes('Putting Koala on this machine stopped: root stopped it before it finished') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
       expect(reports.map(({ progress }) => `${String(progress.stage)} ${String(progress.state)}`), here.said.join('')).toEqual(['cluster started', 'cluster already-done', 'chart started']);
       expect(child.exitCode, here.said.join('')).toBeNull();
+      const ended = exited(child);
+      toRoot[0]!.emit('machine:removed');
+      expect(await ended, here.said.join('')).toBe(0);
     } finally {
       for (const res of hanging) res.end();
-      const ended = exited(child);
-      child.kill('SIGTERM');
-      await ended;
+      if (child.exitCode === null) {
+        const ended = exited(child);
+        child.kill('SIGTERM');
+        await ended;
+      }
     }
   });
 });

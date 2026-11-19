@@ -10,7 +10,7 @@ import { installAgent } from './agent-install.js';
 import { setUpAgents, type AdapterChoice } from './agent-setup.js';
 import { askFolder, askNoByDefault, askOnTerminal } from './terminal-ask.js';
 import { localCommands } from '@koala/provision';
-import { localJoinHost } from './join/host.js';
+import { localJoinHost, stopsOnCtrlC } from './join/host.js';
 import { runJoin } from './join/join.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
@@ -107,10 +107,7 @@ async function joinHere(args: string[]): Promise<number> {
     agentDir: AGENT_DIR,
     node: process.execPath,
     setUpAgents: setUpAgentsIn,
-    onInterrupt: (stop) => {
-      process.once('SIGINT', stop);
-      return () => { process.off('SIGINT', stop); };
-    },
+    onInterrupt: stopsOnCtrlC,
   });
 }
 

@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { KOALA_INSTALL_LAST_STAGE, KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_PLATFORM_NAMESPACES, koalaInstallLastStage, koalaInstallProgressPath, koalaStopOf, MOVED_FOR_LABEL, type KoalaMove, type PlacedKoala } from '@koala/engine-core/koala-install';
-import { allReporters, chartInputs, chartStep, runSteps, runsInputs, StepFailed, waiting, waitUntil, type ChartCluster, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
-import { K3S_BINARY, K3S_KUBECONFIG, clusterState, koalaEverRan, runMachineCluster, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
+import { allReporters, chartInputs, chartStep, runSteps, runsInputs, StepFailed, waiting, waitUntil, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
+import { clusterState, koalaEverRan, machineChartCluster, runMachineCluster, stoppableHost, stoppedPause, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
 import { askRoot, rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
 export type { PlacedKoala };
@@ -69,11 +69,6 @@ export function ownPublicUrl(ownValuesYaml: string): string | undefined {
   const value = parsed && typeof parsed === 'object' ? (parsed as { publicUrl?: unknown }).publicUrl : undefined;
   return typeof value === 'string' && value ? value : undefined;
 }
-
-export const machineChartCluster = (host: ClusterHost, helm: string): ChartCluster => ({
-  helm: (args) => host.run(helm, [...args, '--kubeconfig', K3S_KUBECONFIG]),
-  kubectl: (args) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]),
-});
 
 export interface InstallContext {
   placed: PlacedKoala;
@@ -293,42 +288,6 @@ const saying = (say: (line: string) => void): Reporter => ({
   done: (step) => say(`${step.title}: done`),
   failed: (step, failure) => say(`${step.title} failed: ${failure.why}`),
 });
-
-const stoppedPause = (pause: (ms: number) => Promise<void>, stop: AbortSignal) => async (ms: number): Promise<void> => {
-  stop.throwIfAborted();
-  let quit = (): void => undefined;
-  const stopped = new Promise<never>((_, refuse) => {
-    quit = () => refuse(stop.reason);
-    stop.addEventListener('abort', quit, { once: true });
-  });
-  try {
-    await Promise.race([pause(ms), stopped]);
-  } finally {
-    stop.removeEventListener('abort', quit);
-  }
-};
-
-function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost {
-  return {
-    platform: host.platform,
-    run: async (file, args) => {
-      stop.throwIfAborted();
-      return host.run(file, args);
-    },
-    exists: (file) => host.exists(file),
-    read: (file) => host.read(file),
-    list: (dir) => host.list(dir),
-    wanted: (running) => host.wanted(running),
-    isWanted: () => host.isWanted(),
-    holdKoala: (instanceId, installId, readyAt) => host.holdKoala(instanceId, installId, readyAt),
-    holdsKoala: () => host.holdsKoala(),
-    heldKoala: () => host.heldKoala(),
-    letKoalaGo: () => host.letKoalaGo(),
-    meshIp: () => host.meshIp(),
-    now: () => host.now(),
-    pause: stoppedPause((ms) => host.pause(ms), stop),
-  };
-}
 
 const stoppableFetch = (fetcher: typeof fetch, stop: AbortSignal): typeof fetch => async (input, init) => {
   stop.throwIfAborted();

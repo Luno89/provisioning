@@ -4,7 +4,7 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { allReporters, k3sStep, runSteps, type Provider, type ServiceContext } from '@koala/provision';
+import { allReporters, k3sStep, runSteps, type ChartCluster, type Provider, type ServiceContext } from '@koala/provision';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
 
@@ -15,6 +15,7 @@ export const K3S_UNINSTALL = '/usr/local/lib/koala/machine-uninstall.sh';
 export const K3S_MARKER = '/etc/koala/machine-k3s';
 
 export interface ClusterHost extends GpuProbe {
+  run(file: string, args: string[]): Promise<string>;
   wanted(running: boolean): Promise<void>;
   isWanted(): Promise<boolean>;
   holdKoala(instanceId: string, installId: string, readyAt?: string): Promise<void>;
@@ -80,6 +81,47 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedA
 };
 
 const kubectl = (host: ClusterHost, args: string[]) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]);
+
+export const machineChartCluster = (host: ClusterHost, helm: string): ChartCluster => ({
+  helm: (args) => host.run(helm, [...args, '--kubeconfig', K3S_KUBECONFIG]),
+  kubectl: (args) => kubectl(host, [...args]),
+});
+
+export const stoppedPause = (pause: (ms: number) => Promise<void>, stop: AbortSignal) => async (ms: number): Promise<void> => {
+  stop.throwIfAborted();
+  let quit = (): void => undefined;
+  const stopped = new Promise<never>((_, refuse) => {
+    quit = () => refuse(stop.reason);
+    stop.addEventListener('abort', quit, { once: true });
+  });
+  try {
+    await Promise.race([pause(ms), stopped]);
+  } finally {
+    stop.removeEventListener('abort', quit);
+  }
+};
+
+export function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost {
+  return {
+    platform: host.platform,
+    run: async (file, args) => {
+      stop.throwIfAborted();
+      return host.run(file, args);
+    },
+    exists: (file) => host.exists(file),
+    read: (file) => host.read(file),
+    list: (dir) => host.list(dir),
+    wanted: (running) => host.wanted(running),
+    isWanted: () => host.isWanted(),
+    holdKoala: (instanceId, installId, readyAt) => host.holdKoala(instanceId, installId, readyAt),
+    holdsKoala: () => host.holdsKoala(),
+    heldKoala: () => host.heldKoala(),
+    letKoalaGo: () => host.letKoalaGo(),
+    meshIp: () => host.meshIp(),
+    now: () => host.now(),
+    pause: stoppedPause((ms) => host.pause(ms), stop),
+  };
+}
 
 export { readySince } from '@koala/provision';
 

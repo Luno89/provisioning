@@ -98,3 +98,8 @@ export function localJoinHost(options: LocalHostOptions): JoinHost {
     fetch: options.fetch ?? fetch,
   };
 }
+
+export const stopsOnCtrlC = (stop: () => void): (() => void) => {
+  process.once('SIGINT', stop);
+  return () => { process.off('SIGINT', stop); };
+};
