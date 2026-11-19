@@ -5,10 +5,9 @@ import path from 'path';
 import zlib from 'zlib';
 import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
-import { MongoClient } from 'mongodb';
-import { childEnv, clientOptionsFor, type Followed, type Io } from '../../platform/index.js';
+import { childEnv, leaseMongo, type Followed, type Io } from '../../platform/index.js';
 import type { Reach, Target } from '../../infrastructure/index.js';
-import { exportLines } from '../lib/mongo-move.js';
+import { movedRecordsIn } from '../store.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
 import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, TERRAFORM_STATE_SELECTOR, movedStateSecrets, type MovedSettings, type MovePart } from '../lib/instance-move.js';
 import {
@@ -210,14 +209,13 @@ export class MoveExport {
     const gzip = zlib.createGzip();
     gzip.pipe(out);
     const done = (async () => {
-      const client = new MongoClient(this.deps.mongo.uri, clientOptionsFor(this.deps.mongo.uri));
-      await client.connect();
+      const lease = await leaseMongo(this.deps.mongo.uri);
       try {
-        for await (const line of exportLines(client.db(this.deps.mongo.dbName))) {
+        for await (const line of movedRecordsIn(lease.client.db(this.deps.mongo.dbName)).lines()) {
           if (!gzip.write(line)) await new Promise((resolve) => gzip.once('drain', resolve));
         }
       } finally {
-        await client.close();
+        await lease.release();
         gzip.end();
       }
     })();

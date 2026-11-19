@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mongoClientFor } from '../../platform/lib/collection.js';
-import { testDatabaseAt } from '../../platform/lib/test-database.js';
-import { noticeMessage } from '../../engine/lib/conversations.js';
-import { retargetCluster } from './mongo-move.js';
+import { leaseMongo, type MongoLease } from '../platform/lib/mongo-lease.js';
+import { testDatabaseAt } from '../platform/lib/test-database.js';
+import { noticeMessage } from '../engine/lib/conversations.js';
+import { movedRecordsIn } from './store.js';
 
 const POOL = 'pool-bo';
 const MACHINE = 'machine-desk';
@@ -12,9 +12,9 @@ const AT = '2026-11-18T10:00:00.000Z';
 const notice = (clusterId: string) => noticeMessage({ key: `alert-${clusterId}`, kind: 'alert-firing', text: 'shop is down', refs: { clusterId, deploymentId: 'd1' }, actions: ['open-monitoring'] }, AT);
 
 describe('a moved instance\'s records, renamed from the pool\'s cluster to the machine\'s', () => {
-  const opened: { close(): Promise<void> }[] = [];
+  const opened: MongoLease[] = [];
   afterAll(async () => {
-    for (const client of opened) await client.close();
+    for (const lease of opened) await lease.release();
   });
 
   it('name the machine\'s cluster wherever they named the pool\'s, and keep every other cluster as it was', async () => {
@@ -30,10 +30,9 @@ describe('a moved instance\'s records, renamed from the pool\'s cluster to the m
     await db.infrastructure.openProvisioning({ id: 'pr1', runId: 'run-1', ownerId: 'bo', target: { kind: 'koala', clusterId: POOL }, revision: 1, reason: 'revision', state: 'up', pieces: [], startedAt: AT });
     await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'Shop', createdAt: AT, updatedAt: AT, messages: [notice(ELSEWHERE), notice(POOL), { role: 'user', content: 'is it back?', at: AT }] } as never);
 
-    const client = mongoClientFor(uri);
-    opened.push(client);
-    await client.connect();
-    expect(await retargetCluster(client.db(dbName), POOL, MACHINE)).toBe(7);
+    const lease = await leaseMongo(uri);
+    opened.push(lease);
+    expect(await movedRecordsIn(lease.client.db(dbName)).retargetCluster(POOL, MACHINE)).toBe(7);
 
     const deployments = await db.infrastructure.getDeployments();
     expect(Object.fromEntries(deployments.map((dep) => [dep.id, dep.clusterId]))).toEqual({ d1: MACHINE, d2: ELSEWHERE });
@@ -53,10 +52,9 @@ describe('a moved instance\'s records, renamed from the pool\'s cluster to the m
   it('renames nothing when no record names the pool\'s cluster', async () => {
     const { db, uri, dbName } = await testDatabaseAt();
     await db.infrastructure.saveDeployment({ id: 'd2', name: 'blog', clusterId: ELSEWHERE, strategy: 'helm', status: 'running', ownerId: 'bo' } as never);
-    const client = mongoClientFor(uri);
-    opened.push(client);
-    await client.connect();
-    expect(await retargetCluster(client.db(dbName), POOL, MACHINE)).toBe(0);
+    const lease = await leaseMongo(uri);
+    opened.push(lease);
+    expect(await movedRecordsIn(lease.client.db(dbName)).retargetCluster(POOL, MACHINE)).toBe(0);
     expect((await db.infrastructure.getDeployments()).map((dep) => dep.clusterId)).toEqual([ELSEWHERE]);
   });
 });
