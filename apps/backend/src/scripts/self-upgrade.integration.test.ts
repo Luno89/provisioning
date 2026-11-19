@@ -7,7 +7,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testNamespaces } from '../infrastructure/testing/test-namespaces.js';
 import { mountRouter, TEST_USER, type Harness } from '../platform/routes/test-harness.js';
 import { instancesRouter } from '../instances/routes/instances.js';
@@ -236,7 +236,7 @@ function imageChart(): string {
 describe('an instance upgrading itself as its CronJob runs it, on a real k3s', () => {
   it('rolls the release back to what it ran when root\'s release can never start, and tells root why', async () => {
     const namespace = namespaces.name('self-upgrade');
-    const admin = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-self-upgrade-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
+    const admin = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-self-upgrade-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS });
     const desk = { clusterId: 'desk', kind: 'machine' as const, kubeconfig: k3s.admin };
     const chart = imageChart();
     await admin.kubectl(desk, ['create', 'namespace', namespace]);

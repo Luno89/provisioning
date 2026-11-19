@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
 import { MOVE_IN_ID } from '../infrastructure/index.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { TEST_DATA_KEY, testDatabaseAt } from '../platform/lib/test-database.js';
 import { moveMongo, restoreMongoInto } from './move-import.js';
@@ -23,7 +23,7 @@ const admin = join(mkdtempSync(join(tmpdir(), 'koala-move-mongo-')), 'admin.yaml
 writeFileSync(admin, k3s.admin, { mode: 0o600 });
 const NAMESPACE = `move-mongo-${randomUUID().slice(0, 8)}`;
 const kubectl = async (args: string[], input?: Readable): Promise<string> => {
-  const child = run(TOOLS.kubectl, ['--kubeconfig', admin, ...args]);
+  const child = run(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', admin, ...args]);
   if (input) input.pipe(child.child.stdin!);
   return (await child).stdout;
 };

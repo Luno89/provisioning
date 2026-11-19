@@ -34,7 +34,8 @@ import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { rootInstallsServed } from '../../instances/testing/root-installs.js';
 import { ClusterAccess, InfrastructureService, terraformPlacesFor, type ProvisioningRecord } from '../index.js';
-import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
+import { startK3s, type RealK3s } from '../testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 import { Provisioning } from '../services/Provisioning.js';
 
 const WORLD = `provision-to-root-${randomUUID().slice(0, 8)}`;
@@ -77,7 +78,7 @@ function clusterSteps(): { steps: Pick<ClusterSteps, 'access' | 'infra' | 'datab
   const access = new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-provision-to-root-')),
-    processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account,
+    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account,
   });
   const dataDir = testDataDir();
   mkdirSync(dataDir, { recursive: true });

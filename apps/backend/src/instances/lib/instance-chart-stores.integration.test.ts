@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 const REPO = resolve(import.meta.dirname, '../../../../..');
@@ -24,8 +24,8 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const kubeconfig = join(folder, 'admin.yaml');
     writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
     const namespace = STORES;
-    const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
-    const rendered = (): Doc[] => parseAllDocuments(execFileSync(TOOLS.helm, [
+    const kubectl = (...args: string[]): string => execFileSync(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
+    const rendered = (): Doc[] => parseAllDocuments(execFileSync(CLUSTER_TOOL_PATHS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
       '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
     ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc).filter((doc) => doc?.kind);
@@ -33,7 +33,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
       || (doc.kind === 'Secret' && doc.metadata.name === 'luno-keys')
       || (['Service', 'StatefulSet'].includes(doc.kind) && doc.metadata.name === 'luno-minio')
       || (doc.kind === 'NetworkPolicy' && doc.metadata.name === 'luno-stores'));
-    execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, 'create', 'namespace', namespace]);
+    execFileSync(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', kubeconfig, 'create', 'namespace', namespace]);
     const first = wanted(rendered());
     expect(first.map((doc) => `${doc.kind}/${doc.metadata.name}`).sort()).toEqual(['NetworkPolicy/luno-stores', 'PersistentVolumeClaim/luno-data', 'Secret/luno-keys', 'Service/luno-minio', 'StatefulSet/luno-minio']);
     const manifest = join(folder, 'stores.json');
@@ -63,13 +63,13 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const kubeconfig = join(folder, 'admin.yaml');
     writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
     const namespace = ADOPT;
-    const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
-    const hook = () => parseAllDocuments(execFileSync(TOOLS.helm, [
+    const kubectl = (...args: string[]): string => execFileSync(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
+    const hook = () => parseAllDocuments(execFileSync(CLUSTER_TOOL_PATHS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
       '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
     ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc & { spec?: { template: { spec: { volumes: unknown[]; containers: Array<{ args: string[] }> } } } })
       .find((doc) => doc?.kind === 'Job' && doc.metadata.name === 'luno-adopt-stores');
-    execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, 'create', 'namespace', namespace]);
+    execFileSync(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', kubeconfig, 'create', 'namespace', namespace]);
     expect(hook()).toBeUndefined();
     const old = (name: string) => ({ apiVersion: 'apps/v1', kind: 'StatefulSet', metadata: { name, namespace }, spec: { serviceName: name, replicas: 0, selector: { matchLabels: { old: name } }, template: { metadata: { labels: { old: name } }, spec: { containers: [{ name: 'x', image: 'busybox:1.37' }] } } } });
     const manifest = join(folder, 'old.json');

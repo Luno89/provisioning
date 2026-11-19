@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, succeeded, type ClusterMetadata } from '../platform/index.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { ClusterAccess } from '../infrastructure/index.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testNamespaces } from '../infrastructure/testing/test-namespaces.js';
 import { releaseLoginSecret, vaultDatabaseSecret } from '../releases/index.js';
 import { giteaStandIn, type GiteaStandIn } from '../projects/testing/gitea-api.js';
@@ -42,7 +42,7 @@ describe('browser tests on a release whose database password the cluster will no
   it('are unavailable, saying the database\'s password could not be read and why, and run nothing', async () => {
     const adminFile = join(mkdtempSync(join(tmpdir(), 'koala-vault-refused-')), 'admin.yaml');
     writeFileSync(adminFile, k3s.admin, { mode: 0o600 });
-    const admin = (...args: string[]) => succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', adminFile, '-n', NAMESPACE, ...args] });
+    const admin = (...args: string[]) => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', adminFile, '-n', NAMESPACE, ...args] });
     await admin('create', 'namespace', NAMESPACE);
     await admin('create', 'secret', 'generic', releaseLoginSecret('shop'), '--from-literal=password=p');
     await admin('create', 'serviceaccount', 'releaser');
@@ -54,7 +54,7 @@ describe('browser tests on a release whose database password the cluster will no
     const db = await testDatabase();
     const cluster = { id: 'machine-limited', name: 'limited', provider: 'machine', machineId: 'limited', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(limited, KEY) } as ClusterMetadata;
     await db.infrastructure.saveCluster(cluster);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-vault-access-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-vault-access-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     const tests = createReleaseBrowserTestActivities({
       cluster: namespacedCluster(access, async () => { throw new Error('nothing is pulled when nothing runs'); }),
       specs: async () => { throw new Error('the specs are handed over'); },

@@ -10,9 +10,9 @@ import { parseAllDocuments } from 'yaml';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { adminEdge } from '../../instances/services/InstanceAddresses.js';
-import { startK3s, TOOLS } from '../testing/real-k3s.js';
+import { startK3s } from '../testing/real-k3s.js';
 import { AppExposureService } from './AppExposureService.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { localCommands, removeSteps, runSteps } from '@koala/provision';
 import { memoryReporter, type ContainerContext } from '@koala/provision/testing';
 import { edgeCaddy, type EdgeCaddy } from '../../platform/testing/edge-caddy.js';
@@ -89,7 +89,7 @@ const MACHINE = { id: 'machine-desk', name: 'desk', provider: 'machine', machine
 let shopOnDesk: Promise<string> | undefined;
 
 async function deskWithShop(db: Awaited<ReturnType<typeof testDatabase>>): Promise<ClusterAccess> {
-  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-expose-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-expose-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
   const machine = { ...MACHINE, kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
   await db.infrastructure.saveCluster(machine);
   shopOnDesk ??= (async () => {

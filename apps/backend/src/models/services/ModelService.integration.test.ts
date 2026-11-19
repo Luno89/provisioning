@@ -8,7 +8,7 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata, ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 import { encryptValue, nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { ClusterAccess, sharedClusterProxy } from '../../infrastructure/index.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
 /**
@@ -181,7 +181,7 @@ describe('a model deployed as an app on the person\'s machine', () => {
     const cluster = { id: 'machine-gpu', name: 'gpu', provider: 'machine', machineId: 'gpu', status: 'healthy', ownerId: 'u1', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
     await db.infrastructure.saveCluster(cluster);
     await db.accounts.saveUser({ id: 'u1', email: 'u@example.com', emailVerified: true, createdAt: new Date().toISOString() } as UserMetadata);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-reach-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-model-reach-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.kubectl(cluster.id, ['create', 'namespace', QWEN]);
     await access.apply(cluster.id, SERVED);
     await access.kubectl(cluster.id, ['wait', '--for=condition=Ready', 'pod/server', '-n', QWEN, '--timeout=720h']);

@@ -16,7 +16,7 @@ import { installKoala, koalaPlacements, KOALA_NAMESPACE, KOALA_RELEASE } from '.
 import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, hostCluster, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { InstanceService, type PlacingMachine } from '../../instances/services/InstanceService.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { MoveRelay } from '../../instances/services/MoveRelay.js';
@@ -40,8 +40,8 @@ const INSTANCE = 'inst-bobby';
 const DEVICE_TOKEN = 'the-desk-token-0123456789-0123456789';
 const POOL_KEYS = Object.fromEntries(MOVED_KEYS.map((name, at) => [name, `${name.toLowerCase().replace(/_/g, '-')}-of-the-pool-copy-${at}`]));
 
-const kubectl = async (...args: string[]): Promise<string> => (await run(TOOLS.kubectl, ['--kubeconfig', admin, ...args])).stdout;
-const helm = async (...args: string[]): Promise<string> => (await run(TOOLS.helm, [...args, '--kubeconfig', admin])).stdout;
+const kubectl = async (...args: string[]): Promise<string> => (await run(CLUSTER_TOOL_PATHS.kubectl, ['--kubeconfig', admin, ...args])).stdout;
+const helm = async (...args: string[]): Promise<string> => (await run(CLUSTER_TOOL_PATHS.helm, [...args, '--kubeconfig', admin])).stdout;
 
 afterAll(async () => {
   await kubectl('delete', 'namespace', KOALA_NAMESPACE, '--ignore-not-found', '--wait=true');
@@ -91,7 +91,7 @@ function movingChart(): string {
 
 async function packagedChart(): Promise<string> {
   const packaged = join(work, 'packaged');
-  await run(TOOLS.helm, ['package', movingChart(), '-d', packaged]);
+  await run(CLUSTER_TOOL_PATHS.helm, ['package', movingChart(), '-d', packaged]);
   return join(packaged, readdirSync(packaged)[0]!);
 }
 
@@ -106,8 +106,8 @@ function thisMachine(files = mkdtempSync(join(work, 'machine-'))): ClusterHost {
     read: async (file) => (file === K3S_KUBECONFIG ? k3s.admin : host.read(file)),
     run: async (file, args) => {
       if (file === 'systemctl') return 'active\n';
-      if (file === K3S_BINARY && args[0] === 'kubectl') return (await run(TOOLS.kubectl, onTestK3s(args.slice(1)), { maxBuffer: 16 * 1024 * 1024 })).stdout;
-      if (file === HELM) return (await run(TOOLS.helm, onTestK3s(args), { maxBuffer: 16 * 1024 * 1024 })).stdout;
+      if (file === K3S_BINARY && args[0] === 'kubectl') return (await run(CLUSTER_TOOL_PATHS.kubectl, onTestK3s(args.slice(1)), { maxBuffer: 16 * 1024 * 1024 })).stdout;
+      if (file === HELM) return (await run(CLUSTER_TOOL_PATHS.helm, onTestK3s(args), { maxBuffer: 16 * 1024 * 1024 })).stdout;
       throw new Error(`this machine runs no ${file} in this test`);
     },
   };
