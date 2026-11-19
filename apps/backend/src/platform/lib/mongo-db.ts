@@ -99,8 +99,8 @@ export class MongoDB implements Database {
   }
 
   reportReachTo(reporter: DependencyReporter): void {
+    if (this.client) throw new Error('the database reports how Mongo answers only to those told before it connects');
     this.reporters.push(reporter);
-    if (this.client) reportMongoReach(this.client, reporter);
   }
 
   transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
