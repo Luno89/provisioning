@@ -31,9 +31,59 @@ export interface ProvisioningDeps {
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+export interface ProvisionAsksDeps {
+  store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'watchProvisioning'>;
+  koala: { ownerId: string; revision: number };
+  now?: () => Date;
+}
+
+type Opening = { opened: ProvisioningRecord } | { joined: ProvisioningRecord };
+
+async function openRun(deps: ProvisionAsksDeps, target: ProvisionTarget, reason: ProvisionReason, at: Date, runId: string): Promise<Opening> {
+  const { ownerId, revision } = deps.koala;
+  const decision = startDecision(await deps.store.getProvisioning(target.clusterId), target, revision, reason);
+  if (!decision.start) return { joined: 'running' in decision ? decision.running : decision.already };
+  const opened = openedRecord({ ownerId, target, revision, reason, runId, at: at.toISOString() });
+  const open = await deps.store.openProvisioning(opened);
+  return open.opened ? { opened } : { joined: open.running };
+}
+
+async function settledRun(store: ProvisionAsksDeps['store'], recordId: string): Promise<Provisioned> {
+  let finish!: (record: ProvisioningRecord) => void;
+  const ended = new Promise<ProvisioningRecord>((resolve) => { finish = resolve; });
+  const watching = store.watchProvisioning((record) => {
+    if (record.id === recordId && record.state !== 'running') finish(record);
+  });
+  try {
+    await watching.ready;
+    const now = await store.getProvisioningRun(recordId);
+    if (!now) throw new Error(`there is no setup run ${recordId}`);
+    if (now.state !== 'running') finish(now);
+    const record = await ended;
+    return provisionedFor([record], record.target.clusterId, record.revision);
+  } finally {
+    await watching.close();
+  }
+}
+
+export class ProvisionAsks implements Provisioner {
+  constructor(private readonly deps: ProvisionAsksDeps) {}
+
+  async ensure(target: ProvisionTarget, reason: Exclude<ProvisionReason, 'revision'>): Promise<ProvisioningRecord> {
+    const at = this.deps.now ? this.deps.now() : new Date();
+    const run = await openRun(this.deps, target, reason, at, provisionRunId(target.clusterId, runStamp(at.getTime())));
+    return 'opened' in run ? run.opened : run.joined;
+  }
+
+  settled(recordId: string): Promise<Provisioned> {
+    return settledRun(this.deps.store, recordId);
+  }
+}
+
 export class Provisioning implements Provisioner {
   private watching: Watching | undefined;
   private readonly following = new Set<string>();
+  private readonly starting = new Set<string>();
   private readonly followAgain = reopening();
   private readonly toldRoot = new Map<string, ProvisioningRecord>();
   private readonly untold = new Map<string, MachineProgress[]>();
@@ -84,28 +134,28 @@ export class Provisioning implements Provisioner {
     return [...byCluster.values()].sort((a, b) => Number(b.target.kind === 'koala') - Number(a.target.kind === 'koala') || a.startedAt.localeCompare(b.startedAt));
   }
 
-  async settled(recordId: string): Promise<Provisioned> {
-    let finish!: (record: ProvisioningRecord) => void;
-    const ended = new Promise<ProvisioningRecord>((resolve) => { finish = resolve; });
-    const watching = this.deps.store.watchProvisioning((record) => {
-      if (record.id === recordId && record.state !== 'running') finish(record);
-    });
-    try {
-      await watching.ready;
-      const now = await this.deps.store.getProvisioningRun(recordId);
-      if (!now) throw new Error(`there is no setup run ${recordId}`);
-      if (now.state !== 'running') finish(now);
-      const record = await ended;
-      return provisionedFor([record], record.target.clusterId, record.revision);
-    } finally {
-      await watching.close();
-    }
+  settled(recordId: string): Promise<Provisioned> {
+    return settledRun(this.deps.store, recordId);
   }
 
   private heard(record: ProvisioningRecord): void {
     this.deps.changed(record.ownerId, provisioningView(record));
     if (record.target.kind === 'koala') this.tellRoot(record.id);
     if (record.state === 'running' && record.workflowId) this.follow(record.id, record.workflowId);
+    if (record.state === 'running' && !record.workflowId && !this.closed) void this.startAsked(record.id);
+  }
+
+  private async startAsked(recordId: string): Promise<void> {
+    if (this.starting.has(recordId)) return;
+    this.starting.add(recordId);
+    try {
+      const record = await this.deps.store.getProvisioningRun(recordId);
+      if (record?.state === 'running' && !record.workflowId) await this.begin(record);
+    } catch (err) {
+      this.deps.log(`[provisioning] the setup ${recordId} another process asked for could not be started: ${messageOf(err)}`);
+    } finally {
+      this.starting.delete(recordId);
+    }
   }
 
   private tellRoot(recordId: string): void {
@@ -137,22 +187,15 @@ export class Provisioning implements Provisioner {
   }
 
   private async startRun(target: ProvisionTarget, reason: ProvisionReason): Promise<ProvisioningRecord> {
-    const { ownerId, revision } = this.deps.koala;
-    const decision = startDecision(await this.deps.store.getProvisioning(target.clusterId), target, revision, reason);
-    if (!decision.start) return 'running' in decision ? decision.running : decision.already;
     const at = this.at();
-    const opened = openedRecord({ ownerId, target, revision, reason, runId: provisionRunId(target.clusterId, runStamp(at.getTime())), at: at.toISOString() });
-    const open = await this.deps.store.openProvisioning(opened);
-    if (!open.opened) return open.running;
-    let workflowId: string;
+    const runId = provisionRunId(target.clusterId, runStamp(at.getTime()));
+    this.starting.add(runId);
     try {
-      workflowId = await this.deps.runs.start({ ownerId, recordId: opened.id, target, revision, reason });
-    } catch (err) {
-      return this.settle(opened, `the setup could not start: ${messageOf(err)}`);
+      const run = await openRun(this.deps, target, reason, at, runId);
+      return 'opened' in run ? await this.begin(run.opened) : run.joined;
+    } finally {
+      this.starting.delete(runId);
     }
-    const named = await this.deps.store.patchProvisioning(opened.id, { workflowId });
-    this.follow(opened.id, workflowId);
-    return named ?? { ...opened, workflowId };
   }
 
   private async resume(record: ProvisioningRecord): Promise<void> {
@@ -161,15 +204,25 @@ export class Provisioning implements Provisioner {
       this.follow(record.id, record.workflowId);
       return;
     }
+    if (this.starting.has(record.id)) return;
+    this.starting.add(record.id);
+    try {
+      await this.begin(record);
+    } finally {
+      this.starting.delete(record.id);
+    }
+  }
+
+  private async begin(record: ProvisioningRecord): Promise<ProvisioningRecord> {
     let workflowId: string;
     try {
       workflowId = await this.deps.runs.start({ ownerId: record.ownerId, recordId: record.id, target: record.target, revision: record.revision, reason: record.reason });
     } catch (err) {
-      await this.settle(record, `the setup could not start: ${messageOf(err)}`);
-      return;
+      return this.settle(record, `the setup could not start: ${messageOf(err)}`);
     }
-    await this.deps.store.patchProvisioning(record.id, { workflowId }, true);
+    const named = await this.deps.store.patchProvisioning(record.id, { workflowId }, true);
     this.follow(record.id, workflowId);
+    return named ?? { ...record, workflowId };
   }
 
   private async settle(record: ProvisioningRecord, why: string): Promise<ProvisioningRecord> {

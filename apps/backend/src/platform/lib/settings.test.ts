@@ -183,6 +183,13 @@ describe('the settings each worker reads once, at start', () => {
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
   });
 
+  it('gives the cluster worker whose Koala it asks to set up a cluster, and the chart revision the setup is for', () => {
+    const env = { ...INSTANCE, ...WORKER, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40' };
+    expect(clusterWorkerSettingsFrom(env).koala).toEqual({ ownerId: 'owner-1', revision: 7 });
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, KOALA_RELEASE_REVISION: '' })).some((problem) => problem.startsWith('KOALA_RELEASE_REVISION is not set'))).toBe(true);
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, KOALA_RELEASE_REVISION: 'seven' }))).toContain('KOALA_RELEASE_REVISION is not a chart revision, a whole number from 1: seven');
+  });
+
   it('runs the engine worker only in an instance, with everything its runs reach', () => {
     const env = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
     expect(engineWorkerSettingsFrom(env)).toMatchObject({ temporalMetricsPort: 9467, instanceCredential: 'cred', tenant: { checksApi: TENANT.CHECKS_API_URL } });

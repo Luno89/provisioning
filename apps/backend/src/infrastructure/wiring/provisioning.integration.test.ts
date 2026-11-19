@@ -19,7 +19,7 @@ import { RUN_ID_MEMO, workflowOfRun } from '../../platform/lib/workflow-ids.js';
 import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
 import type { RunStarter, StartRunRequest } from '../../engine-host/registries/run-starter.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
-import { Provisioning, type ProvisionRoot } from '../services/Provisioning.js';
+import { ProvisionAsks, Provisioning, type ProvisionRoot } from '../services/Provisioning.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { pieceHeard } from '../lib/provisioning.js';
 import { isOff } from '../../platform/index.js';
@@ -175,5 +175,29 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
 
     await env.client.workflow.getHandle(`provision-${clusterId}`).signal('cancelRun');
     await owner.when((view) => view.id === running.id && view.state === 'failed');
+  });
+
+  it('starts the setup the cluster worker asks for on another machine by opening its record, and the cluster worker hears how it ended', async () => {
+    const clusterId = `machine-desk-${taskQueue}`;
+    const labId = `machine-lab-${taskQueue}`;
+    const { owner, db } = await koalaAt(clusterId);
+    await owner.when((view) => view.target.clusterId === clusterId && view.state === 'running');
+    const asks = new ProvisionAsks({ store: db.infrastructure, koala: { ownerId: OWNER.id, revision: 2 } });
+
+    const asked = await asks.ensure({ kind: 'machine', clusterId: labId, machine: 'lab', deviceId: 'device-lab' }, 'missing');
+    expect(asked).toMatchObject({ reason: 'missing', state: 'running', pieces: [{ key: 'monitoring', title: 'lab\'s collector', state: 'waiting' }] });
+    const settled = asks.settled(asked.id);
+    const heard = await owner.when((view) => view.id === asked.id && view.state === 'running');
+    expect(heard.target).toEqual({ kind: 'machine', clusterId: labId, machine: 'lab', deviceId: 'device-lab' });
+    const named = await new Promise<string>((done) => {
+      const watching = db.infrastructure.watchProvisioning((record) => { if (record.id === asked.id && record.workflowId) { void watching.close(); done(record.workflowId); } });
+      void db.infrastructure.getProvisioningRun(asked.id).then((record) => { if (record?.workflowId) { void watching.close(); done(record.workflowId); } });
+    });
+    expect(named).toBe(`provision-${labId}`);
+    expect(started.filter((request) => request.runId === asked.id).map((request) => request.inputs)).toEqual([{ ownerId: OWNER.id, recordId: asked.id, target: heard.target, revision: 2, reason: 'missing' }]);
+
+    await env.client.workflow.getHandle(`provision-${labId}`).signal('cancelRun');
+    expect(await settled).toEqual({ state: 'failed', why: 'the setup\'s run finished without saying how its pieces ended' });
+    await env.client.workflow.getHandle(`provision-${clusterId}`).signal('cancelRun');
   });
 });

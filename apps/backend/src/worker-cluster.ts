@@ -16,7 +16,7 @@ import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipel
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
 import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
-import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
+import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -35,10 +35,11 @@ const logger = createWorkerLogger('cluster-worker');
 export interface ClusterSetup {
   place: ProvisionPlace;
   lines: ProvisionLines;
+  provisioner: Provisioner;
 }
 
 export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, huggingFace: string = HUGGING_FACE) => ({
-      DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps, Context.current().cancellationSignal),
+      DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, { ...steps, provisioner: setup.provisioner }, Context.current().cancellationSignal),
       CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
       DestroyAppActivity: (args: DestroyAppArgs) => DestroyAppActivity(args, steps),
       ResizeDiskActivity: (args: ResizeDiskArgs) => ResizeDiskActivity(args, steps, Context.current().cancellationSignal),
@@ -46,7 +47,7 @@ export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, hugg
       DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps, huggingFace),
       VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
       RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
-      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, ...setup }),
+      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, place: setup.place, lines: setup.lines }),
 });
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
@@ -99,6 +100,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
         activities: clusterActivities(steps, {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),
+          provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
         }, settings.tests.huggingFaceUrl),
       });
       break;

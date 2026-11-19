@@ -201,6 +201,7 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   machineMetricsUrl: string | Off;
   podNamespace: string;
   crawl4aiToken: string;
+  koala: { ownerId: string; revision: number };
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -582,7 +583,10 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const metricsUrl = settingIn(read.env, 'MACHINE_METRICS_URL');
   const podNamespace = platformNamespaceFrom(read);
   const crawl4aiToken = crawl4aiTokenFrom(read);
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
+  const ownerId = role?.instance?.ownerId;
+  if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -593,6 +597,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     terraform,
     podNamespace,
     crawl4aiToken,
+    koala: { ownerId, revision },
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },

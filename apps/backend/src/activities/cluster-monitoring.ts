@@ -46,8 +46,7 @@ export interface MonitoringSaid {
   report?: ((line: string) => void) | undefined;
 }
 
-export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, said: MonitoringSaid = {}, wait?: Pause): Promise<void> {
-  const { logFile, report } = said;
+async function monitoringPlanOn(steps: Pick<ClusterSteps, 'access'>, cluster: Pick<MonitoredCluster, 'reach' | 'pool'> & { machine?: unknown }) {
   const kubectl = (args: string[]) => steps.access.kubectl(cluster.reach, args);
   const serviceExists = (name: string) => kubectl(['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).then((out) => out.trim() !== '');
   const [apiResources, blackbox, ingressClasses, collector, tempo, listed] = await Promise.all([
@@ -59,7 +58,16 @@ export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access
     steps.access.helm(cluster.reach, ['list', '-n', MONITORING_CHARTS.namespace, '-o', 'json']),
   ]);
   const charts = Object.fromEntries((JSON.parse(listed) as { name: string; chart: string }[]).map((release) => [release.name, release.chart]));
-  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo }, charts }, cluster.pool, Boolean(cluster.machine));
+  return monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo }, charts }, cluster.pool, Boolean(cluster.machine));
+}
+
+export async function monitoringMissing(steps: Pick<ClusterSteps, 'access'>, cluster: Pick<MonitoredCluster, 'reach' | 'pool'> & { machine: boolean }): Promise<boolean> {
+  return (await monitoringPlanOn(steps, cluster)).stacks.length > 0;
+}
+
+export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, said: MonitoringSaid = {}, wait?: Pause): Promise<void> {
+  const { logFile, report } = said;
+  const plan = await monitoringPlanOn(steps, cluster);
   if (plan.stacks.length === 0) return;
   if (plan.crdsFirst) await applyChartCrds(steps.access, cluster.reach, MONITORING_CHARTS.stack, MONITORING_CHARTS.repo);
   if (cluster.machine) {

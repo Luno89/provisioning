@@ -3,7 +3,7 @@ import { mock } from 'vitest-mock-extended';
 import type { ProvisioningView, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
 import { openedRecord, pieceHeard, provisionWorkflowId, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
-import { Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
+import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
 
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
 const LAB: ProvisionTarget = { kind: 'machine', clusterId: 'machine-lab', machine: 'lab', deviceId: 'device-lab' };
@@ -317,5 +317,45 @@ describe('setting Koala up after its chart', () => {
 
     expect(reported.map((report) => `${report.progress.stage} ${report.progress.state}`)).toEqual(['egress started', 'egress done']);
     expect((await store.getProvisioningRun(opened!.id))?.root).toBeUndefined();
+  });
+
+  it('starts the run another process asked for by opening its record, once, while Koala is running', async () => {
+    const { provisioning, store, runs, started, toldWhen } = setUp({ revision: 4 });
+    await provisioning.start();
+    const asks = new ProvisionAsks({ store, koala: { ownerId: 'owner-1', revision: 4 }, now: () => new Date('2026-11-18T11:00:00.000Z') });
+    const named = new Promise<string>((done) => {
+      const watching = store.watchProvisioning((record) => { if (record.target.clusterId === LAB.clusterId && record.workflowId) { void watching.close(); done(record.id); } });
+    });
+    const asked = await asks.ensure(LAB, 'missing');
+
+    expect(await named).toBe(asked.id);
+    await toldWhen((view) => view.id === asked.id && view.state === 'running');
+    expect((await store.getProvisioningRun(asked.id))?.workflowId).toBe('provision-machine-lab');
+    expect(started.filter((input) => input.recordId === asked.id)).toEqual([{ ownerId: 'owner-1', recordId: asked.id, target: LAB, revision: 4, reason: 'missing' }]);
+    expect(runs.start).toHaveBeenCalledTimes(2);
+    await provisioning.close();
+  });
+});
+
+describe('asking Koala to set a cluster up from a process that starts no runs', () => {
+  it('opens a run for a piece found missing, naming no workflow, and joins one already under way on that cluster', async () => {
+    const store = new MemoryInfrastructureStore();
+    const asks = new ProvisionAsks({ store, koala: { ownerId: 'owner-1', revision: 4 }, now: () => new Date('2026-11-18T11:00:00.000Z') });
+    const opened = await asks.ensure(LAB, 'missing');
+    expect(opened).toMatchObject({ target: LAB, revision: 4, reason: 'missing', state: 'running', ownerId: 'owner-1' });
+    expect(opened.workflowId).toBeUndefined();
+    expect(await store.getProvisioningRun(opened.id)).toEqual(opened);
+    expect((await asks.ensure(LAB, 'missing')).id).toBe(opened.id);
+    expect(await store.getProvisioning(LAB.clusterId)).toHaveLength(1);
+  });
+
+  it('waits until the run it asked for ends, and answers how', async () => {
+    const store = new MemoryInfrastructureStore();
+    const asks = new ProvisionAsks({ store, koala: { ownerId: 'owner-1', revision: 4 } });
+    const opened = await asks.ensure(LAB, 'missing');
+    const settled = asks.settled(opened.id);
+    const failed = pieceHeard(opened, { stage: 'monitoring', title: 'lab\'s collector', state: 'failed', why: 'helm said no' }, '2026-11-18T11:02:00.000Z');
+    await store.patchProvisioning(opened.id, { state: failed.state, pieces: failed.pieces, why: failed.why!, endedAt: failed.endedAt! });
+    expect(await settled).toEqual({ state: 'failed', why: 'lab\'s collector: helm said no' });
   });
 });
