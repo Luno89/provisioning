@@ -4,7 +4,6 @@ import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
 import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
 import { getTemporalClient, holdsAccounts, QUEUES, runOnce, servesTenants, startedFor, type Database, type RoleConfig, type SecretKey, type Watching } from '../../platform/index.js';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, RootMachines, type InstanceRecord } from '../../instances/index.js';
-import { tellDeploymentChanged } from '../../infrastructure/index.js';
 import { KoalaInstallWorkflow } from '../../workflows/KoalaInstallWorkflow.js';
 import { MachineAccounts, type KoalaPlace } from '../services/MachineAccounts.js';
 import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from '../services/KoalaInstalls.js';
@@ -98,7 +97,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     installs,
     mesh: deps.mesh,
   }) : undefined;
-  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, appsChanged: (ownerId) => tellDeploymentChanged(deps.io, ownerId), koalaMachineId: deps.koalaMachineId }) : undefined;
+  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, io: deps.io, koalaMachineId: deps.koalaMachineId }) : undefined;
   const root = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken ?? (async () => '') }) : undefined;
   machines = new MachineService({
     store: db.machines,

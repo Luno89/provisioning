@@ -56,7 +56,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
     it('shows each machine\'s GPUs and any problem reading them, from the report its cluster keeps, and nothing for one that has not reported', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'rig', name: 'rig' }));
       await db.machines.saveLocalAgentDevice(device({ id: 'old', name: 'old' }));
-      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', appsChanged: () => undefined });
+      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', io: { to: () => ({ emit: () => true }) } });
       await clusters.reported({ id: 'rig', ownerId: 'bo', name: 'rig' }, 'stopped', { gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: ['the AMD kernel driver does not answer'] });
       const listed = await service({ clusters }).list('bo');
       expect(listed.find((entry) => entry.id === 'rig')).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] });
@@ -213,7 +213,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(projects.register).toHaveBeenCalledWith('bo', 'laptop - koala', { executionTarget: { kind: 'local-device', deviceId: 'mine' } });
       projects.removeFor.mockResolvedValue(undefined);
       const forgotten: string[] = [];
-      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', appsChanged: () => undefined });
+      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', io: { to: () => ({ emit: () => true }) } });
       await clusters.reported({ ...machine, meshIp: '100.64.0.7' }, 'stopped');
       await db.infrastructure.saveDeployment({ id: 'shop', name: 'shop', clusterId: 'machine-mine', ownerId: 'bo', strategy: 'native', status: 'running' });
       const machines = service({ clusters });

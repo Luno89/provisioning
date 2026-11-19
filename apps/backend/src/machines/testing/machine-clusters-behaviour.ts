@@ -16,7 +16,7 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
   beforeEach(async () => {
     db = await make();
     told = [];
-    clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, appsChanged: (ownerId) => told.push(ownerId), now: () => new Date('2026-11-05T12:00:00Z') });
+    clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, io: { to: (room) => ({ emit: (event) => told.push(`${room} ${event}`) }) }, now: () => new Date('2026-11-05T12:00:00Z') });
   });
 
   const stored = async () => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk');
@@ -73,7 +73,7 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
     });
 
     it('takes the time from the clock when it is given none', async () => {
-      const unclocked = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, appsChanged: () => undefined });
+      const unclocked = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, io: { to: () => ({ emit: () => true }) } });
       const before = Date.now();
       await unclocked.reported(DESK, 'stopped');
       await unclocked.started('machine-desk', { state: 'running', meshIp: DESK.meshIp, kubeconfig: 'k' });
@@ -98,7 +98,7 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
     });
 
     it('is never idle while Koala runs on it, apps or none', async () => {
-      const holding = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, appsChanged: () => undefined, koalaMachineId: 'desk' });
+      const holding = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, io: { to: () => ({ emit: () => true }) }, koalaMachineId: 'desk' });
       expect(await holding.idle('machine-desk')).toBe(false);
       expect(await holding.idle('machine-nas')).toBe(true);
     });
@@ -114,9 +114,9 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
       expect((await db.infrastructure.getDeployments()).map((deployment) => deployment.id)).toEqual(['elsewhere']);
       expect((await db.accounts.getUserById('bo'))?.defaultModelId).toBeUndefined();
       expect((await db.accounts.getUserById('cy'))?.defaultModelId).toBe('elsewhere');
-      expect(told).toEqual(['bo']);
+      expect(told).toEqual(['user:bo deployment-updated']);
       await clusters.forget(DESK);
-      expect(told).toEqual(['bo']);
+      expect(told).toEqual(['user:bo deployment-updated']);
     });
   });
 }

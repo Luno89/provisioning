@@ -64,7 +64,6 @@ import { engineReleaseRuns } from '../../../../backend/src/engine-host/release-r
 import { ODOO_RELEASE_ADAPTER } from '../../../../backend/src/extensions/odoo/release-adapter'
 import type { SlotCluster } from '../../../../backend/src/extensions/releases/slot-cluster'
 import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
-import { tellDeploymentChanged } from '../../../../backend/src/infrastructure/services/deployment-told'
 import { releaseDecider } from '../../../../backend/src/releases/services/release-decider'
 import { changesIn } from '../../../../backend/src/releases/services/repo-changes'
 import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
@@ -282,7 +281,7 @@ export function releasesOf(site: Site, side: ProjectsSide): ReleasesSide {
     runs: engineReleaseRuns({ runs: side.runs, client: () => side.temporal.client.workflow }),
     how,
     chartAt: (owner, repo, commit) => gitea.getRawFile(owner, repo, CHART_FILE, commit).then((found) => found !== null),
-    deploymentChanged: (ownerId) => tellDeploymentChanged(site.io, ownerId),
+    io: site.io,
     releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
     clusterById,
   })

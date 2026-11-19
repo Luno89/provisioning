@@ -22,7 +22,6 @@ import { AppService } from '../../../backend/src/infrastructure/services/AppServ
 import { ClusterService } from '../../../backend/src/infrastructure/services/ClusterService'
 import type { BuilderService } from '../../../backend/src/infrastructure/services/BuilderService'
 import { TemporalBridge } from '../../../backend/src/infrastructure/services/TemporalBridge'
-import { tellDeploymentChanged } from '../../../backend/src/infrastructure/services/deployment-told'
 import { MachineClusters } from '../../../backend/src/machines/services/MachineClusters'
 import { OdooReleaseService } from '../../../backend/src/releases/services/OdooReleaseService'
 import type { InfrastructureService } from '../../../backend/src/infrastructure/services/InfrastructureService'
@@ -59,13 +58,13 @@ const backend = await startBackend(async (site) => {
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY, answers: kubectl }))
   bridge = new TemporalBridge(db, testDataDir(), io, DATA_KEY, clusters, { connect: async () => temporal.client, toolCalling: parsers })
   await bridge.start()
-  machines = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: DATA_KEY, appsChanged: (ownerId) => tellDeploymentChanged(io, ownerId) })
+  machines = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: DATA_KEY, io })
   releases = new OdooReleaseService({
     store: db,
     decide: outsideThisTier<{ decide: OdooReleaseDeps['decide'] }>('the release decider').decide,
     runs: outsideThisTier<OdooReleaseDeps['runs']>('the release runs'),
     chartAt: outsideThisTier<{ chartAt: OdooReleaseDeps['chartAt'] }>('Gitea').chartAt,
-    deploymentChanged: (ownerId) => tellDeploymentChanged(io, ownerId),
+    io,
   })
   router.use('/identity', identityRouter({ servesTenants: true }))
   router.use('/clusters', clustersRouter({
