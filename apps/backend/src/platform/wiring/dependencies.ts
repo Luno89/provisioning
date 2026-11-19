@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useDependencyHttp } from '@koala/engine-core/http';
 import type { SinkListener } from '@koala/engine-core/telemetry-sdk';
 import { mongoClientFor } from '../lib/collection.js';
-import { answerFailure, dependenciesOf, temporaryStatus, type DependencyId, type DependencyReporter } from '../lib/dependencies.js';
+import { answerFailure, dependenciesOf, minioHealthUrl, temporaryStatus, type DependencyId, type DependencyReporter } from '../lib/dependencies.js';
 import type { MongoTarget } from '../lib/mongo-target.js';
 import { reportMongoReach } from '../lib/mongo-reach.js';
 import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, WebToolSettings } from '../lib/settings.js';
@@ -55,7 +55,7 @@ export function checkServices(states: DependencyStates, at: ServiceAddresses, do
   const checks: [DependencyId, string | undefined][] = [
     ['gitea', at.gitea && `${trimmed(at.gitea)}/api/healthz`],
     ['infisical', at.infisical && `${trimmed(at.infisical)}/api/status`],
-    ['minio', at.minio && `${at.minio.useSSL ? 'https' : 'http'}://${at.minio.endPoint}:${at.minio.port}/minio/health/live`],
+    ['minio', at.minio && minioHealthUrl(at.minio)],
     ['registry', at.registryPush && `http://${at.registryPush}/v2/`],
     ['searxng', at.webTools?.searxngUrl && `${trimmed(at.webTools.searxngUrl)}/healthz`],
     ['crawl4ai', at.webTools?.crawl4aiUrl && `${trimmed(at.webTools.crawl4aiUrl)}/health`],

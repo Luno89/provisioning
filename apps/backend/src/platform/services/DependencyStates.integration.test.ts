@@ -10,6 +10,7 @@ import { answersHttp } from '../wiring/dependencies.js';
 import { until } from '../testing/three-roles.js';
 import { startMinio, testBucket, type RealMinio } from '../../files/testing/real-minio.js';
 import { minioObjectStore, type ObjectStore } from '../../files/services/ObjectStore.js';
+import { minioHealthUrl } from '../lib/dependencies.js';
 
 const quiet = () => undefined;
 
@@ -18,7 +19,7 @@ describe('a dependency that stops answering and comes back', () => {
   let records: Database;
 
   beforeAll(async () => {
-    minio = await startMinio(undefined, { port: await portToHandOn() });
+    minio = await startMinio({ port: await portToHandOn() });
     records = await testDatabase();
   });
 
@@ -28,8 +29,7 @@ describe('a dependency that stops answering and comes back', () => {
 
   it('marks MinIO down with why when a call to it fails, records it for the backend to read, and marks it answering when it is back, however long that takes', async () => {
     const states = new DependencyStates({ process: 'worker-engine', described: ['minio'], record: (row) => records.platform.saveDependencyState(row), firstMs: 200, log: quiet });
-    const { endPoint, port } = minio.settings;
-    states.checkWith('minio', answersHttp(`http://${endPoint}:${port}/minio/health/live`));
+    states.checkWith('minio', answersHttp(minioHealthUrl(minio.settings)));
     const store: ObjectStore = minioObjectStore({ ...minio.settings, bucket: testBucket() }, undefined, states);
     try {
       await states.start();
