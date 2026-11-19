@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dueQuiet, heard, QUIET_AFTER_MS, quietLine, spoken, statusReport, type RunningFile, type RunStatus } from './test-runs.js';
+import { afterTest, dueQuiet, heard, QUIET_AFTER_MS, quietLine, spoken, statusReport, testName, withWorkers, type RunningFile, type RunStatus, type TaskShape } from './test-runs.js';
 
 const MIN = 60_000;
 
@@ -69,5 +69,42 @@ describe('the status of every live run', () => {
       '/home/a/wt · packages/provision · pid 12 · running 1 min · no file running',
     ]);
     expect(statusReport([], 0)).toEqual(['no test runs are live on this machine']);
+  });
+});
+
+describe('what a worker says its file is doing', () => {
+  const tree = (): { first: TaskShape; second: TaskShape; last: TaskShape } => {
+    const file: TaskShape = { id: 'f', name: 'x.test.ts', type: 'suite', mode: 'run', tasks: [] };
+    file.file = file;
+    const outer: TaskShape = { id: 's', name: 'the outer', type: 'suite', mode: 'run', suite: file, file, tasks: [] };
+    const first: TaskShape = { id: 't1', name: 'does one', type: 'test', mode: 'run', suite: outer, file, result: { state: 'pass' } };
+    const second: TaskShape = { id: 't2', name: 'does two', type: 'test', mode: 'run', suite: outer, file };
+    const skipped: TaskShape = { id: 't3', name: 'is skipped', type: 'test', mode: 'skip', suite: file, file };
+    const last: TaskShape = { id: 't4', name: 'does last', type: 'test', mode: 'run', suite: file, file };
+    outer.tasks = [first, second];
+    file.tasks = [outer, skipped, last];
+    return { first, second, last };
+  };
+
+  it('names a test by its suites and its own name, leaving out the file', () => {
+    expect(testName(tree().second)).toBe('the outer › does two');
+    expect(testName(tree().last)).toBe('does last');
+  });
+
+  it('after a test, says the next is coming, a suite\'s afterAll, or the file\'s afterAll once no test is left to run', () => {
+    const { first, second, last } = tree();
+    expect(afterTest(first)).toBe('between tests');
+    second.result = { state: 'pass' };
+    expect(afterTest(second)).toBe('the outer › afterAll');
+    last.result = { state: 'pass' };
+    expect(afterTest(last)).toBe('afterAll');
+  });
+
+  it('takes what a worker said over what the run kept, when it is newer, and counts it as something happening', () => {
+    const run: RunStatus = { pid: 7, checkout: '/c', workspace: 'w', startedAt: 0, files: { f: aFile({ doing: 'loading', doingSince: 10, changedAt: 20 }), g: aFile({ doing: 'loading', doingSince: 10, changedAt: 10 }) } };
+    expect(withWorkers(run, [{ file: 'f', doing: 'a test', since: 30 }, { file: 'g', doing: 'older', since: 5 }, { file: 'h', doing: 'gone', since: 40 }]).files).toEqual({
+      f: aFile({ doing: 'a test', doingSince: 30, changedAt: 30 }),
+      g: aFile({ doing: 'loading', doingSince: 10, changedAt: 10 }),
+    });
   });
 });

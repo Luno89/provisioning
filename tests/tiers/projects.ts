@@ -8,6 +8,7 @@ export const INTEGRATION = '**/*.integration.test.{ts,tsx,mjs}';
 export const ONE_REAL = '**/*.real-*.test.{ts,tsx,mjs}';
 export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timing-reporter.ts'), here('./status-reporter.ts')];
 const UNIT_GUARD = here('./unit-guard.ts');
+export const STATUS_SETUP = here('./status-setup.ts');
 const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
 const THROWAWAYS = here('../../packages/engine-core/testing/throwaway-containers.ts');
@@ -40,7 +41,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', testTimeout: 0, hookTimeout: 0, include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
+      test: { name: 'unit', testTimeout: 0, hookTimeout: 0, include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, STATUS_SETUP, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,
@@ -55,7 +56,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         globalSetup: [THROWAWAYS, ...(options.integration?.globalSetup ?? []), ...optional.map((setup) => setup.globalSetup)],
         ...(options.integration?.env ? { env: options.integration.env } : {}),
         ...(options.integration?.environment ? { environment: options.integration.environment } : {}),
-        setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), ...optional.flatMap((one) => one.setupFiles ?? []), COUPLING],
+        setupFiles: [OWN_HOME, STATUS_SETUP, ...setup, ...(options.integration?.setupFiles ?? []), ...optional.flatMap((one) => one.setupFiles ?? []), COUPLING],
       },
     },
   ];

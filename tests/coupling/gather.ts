@@ -3,6 +3,7 @@ import { mkdirSync, openSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
 import { fileHashes } from './impact.js';
+import { watchQuiet } from '../lib/quiet-watch.js';
 import { WORKSPACES, type Workspace } from './workspaces.js';
 
 interface Options { only: Workspace[]; out: string; cost: boolean }
@@ -19,7 +20,13 @@ function suite(workspace: Workspace, log: string, coverage: string | undefined):
   const output = openSync(log, 'w');
   const env = { ...process.env, ...(coverage ? { COUPLING_COVERAGE: coverage, TEMPORAL_DEBUG: '1' } : {}) };
   if (!coverage) delete env.COUPLING_COVERAGE;
-  const ran = spawnSync('npm', ['run', 'test'], { cwd: join(ROOT, workspace.folder), env, stdio: ['ignore', output, output] });
+  const watch = watchQuiet();
+  let ran;
+  try {
+    ran = spawnSync('npm', ['run', 'test'], { cwd: join(ROOT, workspace.folder), env: { ...env, ...watch.env }, stdio: ['ignore', output, output] });
+  } finally {
+    watch.stop();
+  }
   return { seconds: Math.round((Date.now() - started) / 100) / 10, passed: ran.status === 0 };
 }
 

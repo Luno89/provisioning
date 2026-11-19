@@ -16,7 +16,7 @@ afterAll(async () => {
 
 describe('a held run', () => {
   it('says a line and is held', async () => {
-    console.log('first line\nthe line it said last');
+    console.log(`first line\n${process.env.FIXTURE_SAYS ?? 'the line it said last'}`);
     await heldUntil('test');
     expect(true).toBe(true);
   });
