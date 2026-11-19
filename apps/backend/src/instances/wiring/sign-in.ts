@@ -44,3 +44,7 @@ export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: stri
   }
   return undefined;
 }
+
+export function rootTokenOf(signIn: Pick<RootSignIn, 'serviceToken'> | undefined): (() => Promise<string>) | undefined {
+  return signIn ? () => signIn.serviceToken() : undefined;
+}

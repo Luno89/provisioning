@@ -23,8 +23,10 @@ async function root(options: { credentialHash?: string | undefined; keys?: boole
       credentialHash: 'credentialHash' in options ? options.credentialHash : hash('the-hub'),
       hash,
       signInKeys: options.keys === false ? undefined : { get: async () => held, save: async (key) => { held = key; } },
-      serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst', kind: 'instance' } : undefined),
-      personAtHub: async (token) => ({ 'ann-at-the-hub': 'ann', 'gone-at-the-hub': 'gone' } as Record<string, string>)[token],
+      provider: {
+        serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst', kind: 'instance' } : undefined),
+        personAtHub: async (token) => ({ 'ann-at-the-hub': 'ann', 'gone-at-the-hub': 'gone' } as Record<string, string>)[token],
+      },
       people: { getUserById: async (id) => people.find((person) => person.id === id) },
     }),
     user: null,

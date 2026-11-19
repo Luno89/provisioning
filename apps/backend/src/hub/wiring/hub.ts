@@ -6,7 +6,7 @@ import {
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
 import { runsUnder, type ConversationNotice } from '../../engine/index.js';
-import { hashCredential, InstanceGroups, type UsedTokenClaim } from '../../instances/index.js';
+import { hashCredential, InstanceGroups, type RootProvider, type UsedTokenClaim } from '../../instances/index.js';
 import { HubService } from '../services/HubService.js';
 import { HubRootClient } from '../services/HubRootClient.js';
 import { HubRelay } from '../services/HubRelay.js';
@@ -45,9 +45,8 @@ export interface HubWiringDeps {
   notify: (ownerId: string, scope: { projectId: string; treeId?: string | undefined }, notice: ConversationNotice) => Promise<unknown>;
   republish: () => Promise<void>;
   io?: Pick<SocketServer, 'of'> | undefined;
-  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  rootProvider?: Pick<RootProvider, 'serviceCaller' | 'personAtHub'> | undefined;
   rootToken?: (() => Promise<string>) | undefined;
-  personAtHub?: ((token: string) => Promise<string | undefined>) | undefined;
   vouch?: ((req: express.Request) => Promise<string | undefined>) | undefined;
   dependencies: DependencyStates;
 }
@@ -64,7 +63,7 @@ export interface HubWiring {
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, app, tenant, db } = deps;
   const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, claimSettingsFrom(role)), limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
-  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, serviceCaller: deps.serviceCaller, personAtHub: deps.personAtHub, people: db.accounts }));
+  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, provider: deps.rootProvider, people: db.accounts }));
 
   let hubService: HubService | undefined;
   if (servesHub(role)) {

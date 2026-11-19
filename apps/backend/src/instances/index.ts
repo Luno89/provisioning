@@ -35,6 +35,7 @@ export { DependencyWatch } from './services/DependencyWatch.js';
 export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
 export { InstanceReach } from './services/InstanceReach.js';
+export type { RootProvider } from './services/RootProvider.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export type { PlacingMachine } from './services/InstanceService.js';
 export { askedAgain, installFields, installUnfinished, installView, KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, stageHeard, type InstallPatch, type KoalaInstallRecord } from './lib/koala-installs.js';

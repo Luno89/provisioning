@@ -95,8 +95,10 @@ describe('/api/hub-link, on root', () => {
         credentialHash: hashCredential('the-hub'),
         hash: hashCredential,
         signInKeys: { get: async () => held, save: async (key) => { held = key; } },
-        serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst-u1', kind: 'instance' } : undefined),
-        personAtHub: async (token) => ({ 'ann-at-the-hub': 'ann', 'boss-at-the-hub': 'boss' } as Record<string, string>)[token],
+        provider: {
+          serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst-u1', kind: 'instance' } : undefined),
+          personAtHub: async (token) => ({ 'ann-at-the-hub': 'ann', 'boss-at-the-hub': 'boss' } as Record<string, string>)[token],
+        },
         people: { getUserById: async (id) => PEOPLE.find((person) => person.id === id) },
       }),
     });
@@ -300,7 +302,7 @@ describe('a member inviting through the hub, which asks root to send it', () => 
         invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'root' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => ({ perHour }), rootUrl: 'http://root' }),
         credentialHash: hashCredential('the-hub'),
         hash: hashCredential,
-        personAtHub: async (token) => (token === 'ann-at-the-hub' ? 'ann' : undefined),
+        provider: { serviceCaller: async () => undefined, personAtHub: async (token) => (token === 'ann-at-the-hub' ? 'ann' : undefined) },
         people: { getUserById: async (id) => (id === 'ann' ? { id, email: 'ann@example.com' } : undefined) },
       }),
     });
