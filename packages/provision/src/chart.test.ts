@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
-import { chartInputs, chartStep, INPUTS_VALUE, releaseRevision, type ChartCluster, type ChartRelease } from './chart.js';
+import { chartInputs, chartStep, INPUTS_VALUE, releaseRevision, runsInputs, type ChartCluster, type ChartRelease } from './chart.js';
 import { SETUP_LABEL } from './rollout.js';
 import { runSteps, StepFailed } from './steps.js';
 
@@ -51,6 +51,14 @@ describe('what a release is made from', () => {
     expect(chartInputs(['chart', 'values2'])).not.toBe(same);
     expect(chartInputs(['chartv', 'alues'])).not.toBe(same);
     expect(same).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('is run by the release once helm last applied it, whether or not all it holds is up yet', async () => {
+    const rolling = { items: [deployment(0)] };
+    expect(await runsInputs({ cluster: cluster({ listed: undefined, rollouts: [rolling] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [rolling] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
   });
 });
 

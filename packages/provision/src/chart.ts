@@ -57,6 +57,10 @@ async function inputsOf(ctx: ChartContext, release: ChartRelease): Promise<unkno
   return values?.[INPUTS_VALUE];
 }
 
+export async function runsInputs(ctx: ChartContext, release: ChartRelease): Promise<boolean> {
+  return Boolean(await listed(ctx, release)) && await inputsOf(ctx, release) === release.inputs;
+}
+
 async function rolloutOfRelease(ctx: ChartContext, release: Pick<ChartRelease, 'release' | 'namespace'>): Promise<ReleaseRollout> {
   const listing: unknown = JSON.parse(await ctx.cluster.kubectl(['get', ROLLOUT_KINDS, '-n', release.namespace, '-l', `app.kubernetes.io/instance=${release.release}`, '-o', 'json']));
   return releaseRollout(listing);
