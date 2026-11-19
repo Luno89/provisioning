@@ -6,7 +6,7 @@ const here = (file: string): string => fileURLToPath(new URL(file, import.meta.u
 
 export const INTEGRATION = '**/*.integration.test.{ts,tsx,mjs}';
 export const ONE_REAL = '**/*.real-*.test.{ts,tsx,mjs}';
-export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timing-reporter.ts')];
+export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timing-reporter.ts'), here('./status-reporter.ts')];
 const UNIT_GUARD = here('./unit-guard.ts');
 const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
