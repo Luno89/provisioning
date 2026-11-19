@@ -72,6 +72,7 @@ describe('bringing over what a move left, once Koala\'s services are up', () => 
 
     expect(asked).toEqual(['gitea-db', 'gitea-data', 'infisical-db', 'apps', 'volume:shop:data']);
     expect(said).toContain('shop: 2 objects, 1 volumes');
+    expect(ran).toContain('scale deployment/gitea -n gitea --replicas=0');
     expect(ran.indexOf('scale deployment/gitea -n gitea --replicas=0')).toBeLessThan(ran.findIndex((line) => line.startsWith('exec -i -n gitea gitea-postgresql-0')));
     expect(ran).toContain('scale deployment/gitea -n gitea --replicas=1');
     expect(ran.some((line) => line.includes('--timeout'))).toBe(false);
