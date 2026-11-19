@@ -24,6 +24,7 @@ import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import type { MachineService } from '../services/MachineService.js';
 import { closedAfterEach, until, quietAccountSides, onlineMachines } from '../testing/wiring-world.js';
 
 const closers = closedAfterEach();
@@ -43,6 +44,24 @@ async function listening(server: http.Server): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
+function wired(io: SocketServer, db: MongoDB, machines: SocketsWiringDeps['machines']): void {
+  wireSockets({
+    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
+    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
+    sessionSockets: { track: () => undefined, forget: () => undefined },
+    machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' }, clusters: {} as never, apps: {} as never,
+    telemetry: { relay: async () => ({ ok: true }) } as never,
+  });
+}
+
+async function connected(koalaUrl: string, deviceId: string) {
+  const token = issueWorkToken(signing, { machineId: deviceId, ownerId: 'bo', audience: 'inst-1' });
+  const socket = connect(`${koalaUrl}/agent`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
+  closers.push(async () => { socket.close(); });
+  await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
+  return socket;
+}
+
 async function koala() {
   const db: MongoDB = await testDatabase();
   const accounts = new MachineAccounts({
@@ -57,13 +76,7 @@ async function koala() {
   const server = http.createServer();
   const io = new SocketServer(server);
   closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-  wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
-    sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' }, clusters: {} as never, apps: {} as never,
-    telemetry: { relay: async () => ({ ok: true }) } as never,
-  });
+  wired(io, db, machines);
   const koalaUrl = await listening(server);
   return { accounts, machines, rootUrl, koalaUrl };
 }
@@ -85,10 +98,7 @@ async function joined(rootUrl: string, code: string, home: string): Promise<Join
 }
 
 async function reports(koalaUrl: string, ctx: JoinContext, home: string, deps: DiscoveryDeps): Promise<void> {
-  const token = issueWorkToken(signing, { machineId: ctx.joined!.deviceId, ownerId: 'bo', audience: 'inst-1' });
-  const socket = connect(`${koalaUrl}/agent`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
-  closers.push(async () => { socket.close(); });
-  await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
+  const socket = await connected(koalaUrl, ctx.joined!.deviceId);
   await reportAgents(deps, [], () => agentsNotSetUp(settingsEnv(home)), (report) => { socket.emit('agents:found', report); });
 }
 
@@ -107,5 +117,33 @@ describe('a machine whose coding agents its join could not set up', () => {
     const after = await until(async () => (await machines.list('bo')).find((machine) => machine.id === again.joined!.deviceId && machine.agents.length === 2 && machine.agents.every((agent) => agent.state === 'ready')));
     expect(after.agents.map((agent) => agent.id)).toEqual(['gemini', 'goose']);
     expect(after).not.toHaveProperty('agentsNotSetUp');
+  });
+
+  it('records a machine\'s reports in the order it sent them, so an older one never lands over a newer', async () => {
+    const db: MongoDB = await testDatabase();
+    await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: new Date().toISOString() });
+    let releaseFirst: () => void = () => undefined;
+    const recorded: unknown[] = [];
+    const machines = {
+      seen: async () => undefined, recordAgentBundle: async () => undefined, currentBundle: async () => undefined, recordAgentUpdate: async () => undefined, manualAgents: async () => [],
+      recordAgents: async (_deviceId: string, report: unknown) => {
+        recorded.push(report);
+        if (recorded.length === 1) await new Promise<void>((done) => { releaseFirst = done; });
+      },
+    } as unknown as Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
+    const server = http.createServer();
+    const io = new SocketServer(server);
+    closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
+    wired(io, db, machines);
+    let arrived = 0;
+    io.of('/agent').on('connection', (socket) => { socket.on('agents:found', () => { arrived += 1; }); });
+    const socket = await connected(await listening(server), 'desk');
+    socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'checking', source: 'found' }] });
+    socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' }] });
+    await until(() => (arrived === 2 ? true : undefined));
+    expect(recorded).toHaveLength(1);
+    releaseFirst();
+    await until(() => (recorded.length === 2 ? true : undefined));
+    expect(recorded.map((report) => (report as { agents: { state: string }[] }).agents[0]!.state)).toEqual(['checking', 'ready']);
   });
 });

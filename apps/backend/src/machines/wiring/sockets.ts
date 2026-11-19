@@ -105,17 +105,21 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       runWatch?.forget(device.id, tellRunEnded);
     });
     socket.on('machine:runs', (report: unknown) => runWatch?.follow(device.id, device.ownerId, report, tellRunEnded));
+    let reports = Promise.resolve();
+    const inTurn = (record: () => Promise<unknown>, what: string): void => {
+      reports = reports.then(record).then(() => undefined, (err: Error) => console.warn(`[machines] ${device.id}: ${what} could not be recorded: ${err.message}`));
+    };
     socket.on('machine:cluster', (report: unknown) => {
       const reported = reportedCluster(report);
-      if (!reported || !deps.machineClusters) return;
-      deps.machineClusters.reported(device, reported.state, reported.gpus, reported.capacity).catch((err: Error) => console.warn(`[machines] ${device.id}: whether it has its own cluster could not be recorded: ${err.message}`));
+      const clusters = deps.machineClusters;
+      if (!reported || !clusters) return;
+      inTurn(() => clusters.reported(device, reported.state, reported.gpus, reported.capacity), 'whether it has its own cluster');
     });
     socket.on('agents:found', (report: unknown) => {
-      deps.machines.recordAgents(device.id, report).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
+      inTurn(() => deps.machines.recordAgents(device.id, report), 'its agents');
     });
-    let updates = Promise.resolve();
     socket.on('machine:update', (report: unknown) => {
-      updates = updates.then(() => deps.machines.recordAgentUpdate(device.id, report)).catch((err: Error) => console.warn(`[machines] ${device.id}: how its agent's update goes could not be recorded: ${err.message}`));
+      inTurn(() => deps.machines.recordAgentUpdate(device.id, report), 'how its agent\'s update goes');
     });
     socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
       deps.machines.manualAgents(device.id).then(ack, (err: Error) => {
