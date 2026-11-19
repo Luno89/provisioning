@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import type { InstallAnswer } from '../activities/KoalaInstallActivities.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

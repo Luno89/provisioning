@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import type { StartRunRequest, StartedRun } from '../../engine-host/registries/run-starter.js';
 import { WorkspaceBuildService } from './WorkspaceBuildService.js';

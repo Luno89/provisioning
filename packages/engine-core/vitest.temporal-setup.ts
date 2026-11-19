@@ -1,5 +1,5 @@
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalServerExecutable } from '@koala/engine-core/testing/downloads';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import type { TestProject } from 'vitest/node';
 
 declare module 'vitest' {

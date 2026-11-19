@@ -9,7 +9,7 @@ import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { mock } from 'vitest-mock-extended';
 import { DEFAULT_STREAM_TASK_QUEUE, type WorkflowFailedReport } from '../../engine-host/temporal/contracts.js';
 import { createStreamActivities, type StreamServices } from '../../engine-host/temporal/activities.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { WorkFailureService } from './WorkFailureService.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 

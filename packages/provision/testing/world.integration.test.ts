@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { sharedTmp } from '@koala/engine-core/testing/shared';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { localCommands } from '../src/local-commands.js';
 import { removeSteps, runSteps } from '../src/steps.js';
 import { waitUntil } from '../src/wait-until.js';
@@ -124,5 +126,14 @@ describe('the leftovers of this checkout\'s gone runs', () => {
     await ended(stranded);
     expect(stranded.signalCode).toBe('SIGKILL');
     expect(said.some((line) => line.startsWith(`stopped process ${stranded.pid} (node vitest infinity), whose worktree ${join(worktree, 'apps')} is gone`))).toBe(true);
+  });
+});
+
+describe('what runs share', () => {
+  it('keeps the ports runs hand on where every run sees them, outside this run\'s own folder', async () => {
+    const port = await portToHandOn();
+    expect(sharedTmp()).not.toBe(tmpdir());
+    expect(existsSync(join(sharedTmp(), 'koala-ports', String(port)))).toBe(true);
+    expect(existsSync(join(tmpdir(), 'koala-ports', String(port)))).toBe(false);
   });
 });

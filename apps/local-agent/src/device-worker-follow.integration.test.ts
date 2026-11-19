@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { temporal } from '@temporalio/proto';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalServerExecutable } from '@koala/engine-core/testing/downloads';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

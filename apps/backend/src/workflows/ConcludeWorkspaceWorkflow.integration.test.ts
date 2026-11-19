@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { ApplicationFailure } from '@temporalio/common';
 import type { ConcludeWorkspaceArgs } from '../engine-host/temporal/contracts.js';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError } from '../memory/services/WorkspaceConclusionService.js';
-import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
 import { Client } from '@temporalio/client';
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';

@@ -7,7 +7,7 @@ import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';

@@ -8,7 +8,7 @@ import { testDatabaseAt } from './platform/lib/test-database.js';
 import type { MongoDB } from './platform/lib/mongo-db.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
 import { runThenLetGo } from './platform/wiring/fences.js';
 import { mongoClientFor } from './platform/lib/collection.js';

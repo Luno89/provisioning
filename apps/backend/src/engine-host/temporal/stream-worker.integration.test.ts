@@ -1,7 +1,7 @@
 import { temporal } from '@temporalio/proto';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { keepPayloadsIn } from '../../platform/lib/db-interface.js';
 import { testDatabaseAt } from '../../platform/lib/test-database.js';

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { testPayloadBlobs } from '../lib/test-database.js';
 import { PayloadStorageService } from './PayloadStorageService.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 

@@ -4,7 +4,7 @@ import { Worker } from '@temporalio/worker';
 import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { engineReleaseRuns } from '../../engine-host/release-runs.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { releaseRunWorkflowId } from '../lib/release-run.js';
 import type { ReleaseRuns } from '../services/OdooReleaseService.js';
 import { releaseAwaitingPerson } from './awaiting-person.fixture-workflow.js';

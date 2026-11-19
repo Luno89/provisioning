@@ -9,7 +9,7 @@ import { testMinioEnv } from './files/testing/real-minio.js';
 import { testKeyEnv } from './platform/testing/keys.js';
 import { unreachedPlatformServices } from './platform/testing/platform-services.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
-import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 import { QUEUES } from './platform/index.js';
 import { testDataDir } from './platform/testing/data-dir.js';
 

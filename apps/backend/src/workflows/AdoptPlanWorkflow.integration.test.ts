@@ -24,7 +24,7 @@ import type { Tree } from '../projects/lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 import { Client } from '@temporalio/client';
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';

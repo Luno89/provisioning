@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
-import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

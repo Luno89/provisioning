@@ -4,7 +4,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
-import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import type { RunningWorkflow } from '../lib/running.js';

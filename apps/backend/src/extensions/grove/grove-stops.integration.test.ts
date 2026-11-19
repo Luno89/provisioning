@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { GroveWorld } from './testing/grove-world.js';
 import { cancelSignal } from '../../workflows/AgentRunWorkflow.js';
 

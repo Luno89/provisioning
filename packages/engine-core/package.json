@@ -51,9 +51,9 @@
       "types": "./testing/machine-progress.ts",
       "default": "./testing/machine-progress.ts"
     },
-    "./testing/downloads": {
-      "types": "./testing/downloads.ts",
-      "default": "./testing/downloads.ts"
+    "./testing/shared": {
+      "types": "./testing/shared.ts",
+      "default": "./testing/shared.ts"
     },
     "./testing/throwaway-containers": {
       "types": "./testing/throwaway-containers.ts",

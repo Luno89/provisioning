@@ -24,7 +24,7 @@ import { startedFor } from '../platform/lib/workflow-owner.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { holdFences } from '../platform/wiring/fences.js';
 import type { FenceWatch } from '../platform/services/FenceWatch.js';
-import { bundled, freshNamespace, realTemporalEnvironment, type FreshNamespace } from './temporal-test-env.js';
+import { bundled, freshNamespace, realTemporalEnvironment, type FreshNamespace } from './testing/temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 let db: MongoDB;

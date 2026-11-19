@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalServerExecutable } from '@koala/engine-core/testing/downloads';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import type { TestProject } from 'vitest/node';
 import { localCommands, runSteps } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';

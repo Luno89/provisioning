@@ -11,7 +11,7 @@ import { createStoredFilesActivities } from '../files/services/stored-files-acti
 import { temporalStoredFileCommits } from '../files/services/StoredFileCommits.js';
 import { MemoryFilesStore } from '../files/testing/memory-store.js';
 import { MemoryObjectStore } from '../files/testing/memory-object-store.js';
-import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 const AT = '2026-11-07T10:00:00.000Z';

@@ -8,7 +8,7 @@ import { testDatabaseAt } from './platform/lib/test-database.js';
 import { MongoPlatformStore } from './platform/store.js';
 import { startRole } from './platform/testing/roles-on-loopback.js';
 import { testKeyEnv } from './platform/testing/keys.js';
-import { realTemporalEnvironment } from './workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 
 let env: TestWorkflowEnvironment;
 let mongoUri: string;

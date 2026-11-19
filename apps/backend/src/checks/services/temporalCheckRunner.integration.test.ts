@@ -11,7 +11,7 @@ import type { AccountRemovalActivities } from '../../activities/RemoveAccountAct
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { CheckRunInput } from '../../workflows/CheckRunWorkflow.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
 import { temporalCheckRunner } from './Level2Service.js';
 

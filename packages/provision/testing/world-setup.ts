@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DOWNLOADS_VARIABLE } from '@koala/engine-core/testing/downloads';
+import { SHARED_VARIABLE } from '@koala/engine-core/testing/shared';
 import { THIS_CHECKOUT } from '@koala/engine-core/testing/throwaway-containers';
 import { localCommands } from '../src/local-commands.js';
 import { roomStep } from '../src/room.js';
@@ -19,7 +19,7 @@ export async function startWorld(options: LeftoversOptions): Promise<() => Promi
   await runSteps(steps, ctx, reporter);
   const before = process.env.TMPDIR;
   process.env.TMPDIR = runFolder(run);
-  process.env[DOWNLOADS_VARIABLE] ??= outer;
+  process.env[SHARED_VARIABLE] ??= outer;
   Object.assign(process.env, runEnv(run));
   return async () => {
     if (before === undefined) delete process.env.TMPDIR;

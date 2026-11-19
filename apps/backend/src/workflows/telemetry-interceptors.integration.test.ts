@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
 import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { TraceProbeActivities } from './testing/trace-probe-workflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

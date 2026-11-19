@@ -8,7 +8,7 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import { Context } from '@temporalio/activity';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { buildDataConverter, type BlobReach } from '@koala/engine-core/payloads';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
 import { MachineTemporalGateway } from './MachineTemporalGateway.js';
 import { askMachine } from '../testing/MachineTemporalGateway.fixture-workflow.js';

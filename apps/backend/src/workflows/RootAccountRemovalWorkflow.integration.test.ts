@@ -6,7 +6,7 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import type { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 

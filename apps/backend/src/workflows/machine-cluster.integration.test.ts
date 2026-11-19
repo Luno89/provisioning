@@ -8,7 +8,7 @@ import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { createDeviceActivities } from '../../../local-agent/src/engine-worker.js';
 import { IdleGate } from '../../../local-agent/src/idle-gate.js';
 import { K3S_KUBECONFIG, K3S_MARKER, runMachineCluster, type ClusterHost } from '../../../local-agent/src/machine-cluster.js';
-import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { decryptValue } from '../platform/lib/crypto.js';

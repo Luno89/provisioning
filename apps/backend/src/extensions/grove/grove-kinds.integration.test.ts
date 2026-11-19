@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { GroveWorld } from './testing/grove-world.js';
 import type { Procedure } from '@koala/agent-engine/procedure';
 import { seededAgents, seededProcedures } from '../seeds.js';

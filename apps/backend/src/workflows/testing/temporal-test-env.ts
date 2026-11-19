@@ -1,11 +1,12 @@
 import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
 import { Client, Connection } from '@temporalio/client';
 import Long from 'long';
 import { inject } from 'vitest';
-import { OWNER_ATTRIBUTE } from '../platform/lib/workflow-owner.js';
-import { registerOwnerAttribute } from '../platform/lib/temporal-client.js';
+import { OWNER_ATTRIBUTE } from '../../platform/lib/workflow-owner.js';
+import { registerOwnerAttribute } from '../../platform/lib/temporal-client.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -36,7 +37,7 @@ export async function freshNamespace(address: string = inject('temporalAddress')
 
 export async function realTemporalEnvironment(): Promise<TestWorkflowEnvironment> {
   const address = inject('temporalAddress');
-  if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE] } });
+  if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE], executable: temporalServerExecutable() } });
   const fresh = await freshNamespace(address);
   const env = await TestWorkflowEnvironment.createFromExistingServer({ address, namespace: fresh.namespace });
   const teardown = env.teardown.bind(env);

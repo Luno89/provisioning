@@ -12,7 +12,7 @@ import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from
 import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { clusterActivities } from '../worker-cluster.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
 
 const k3s = await startK3s();
