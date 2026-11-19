@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { saveDeviceToken, tokenAnswer, workTokenExpiry } from './machine-token.js';
-import { PLACE_KOALA } from '@koala/engine-core/koala-install';
+import { PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
 
 export interface Koala {
   url: string;
@@ -15,6 +15,7 @@ export interface RootLinkOptions {
   onKoala: (koala: Koala) => void;
   onRemoved: () => void;
   onPlaceKoala?: ((raw: unknown) => boolean) | undefined;
+  onStopKoala?: ((raw: unknown) => void) | undefined;
   say: (line: string) => void;
   renewBeforeSeconds?: number | undefined;
   connect?: ((url: string, options: Parameters<typeof io>[1]) => Socket) | undefined;
@@ -75,6 +76,7 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
     const taken = options.onPlaceKoala?.(raw) ?? false;
     if (typeof ack === 'function') ack({ taken });
   });
+  socket.on(STOP_KOALA, (raw: unknown) => { options.onStopKoala?.(raw); });
   socket.on('machine:koala', (raw: unknown) => {
     const koala = koalaFrom(raw);
     if (!koala) {

@@ -19,6 +19,7 @@ let places: ReturnType<typeof mock<InstallPlaces>>;
 let workflows: ReturnType<typeof mock<InstallWorkflows>>;
 let handed: string[];
 let told: string[];
+let stopped: Array<[string, unknown]>;
 let installs: KoalaInstalls;
 
 beforeEach(() => {
@@ -31,11 +32,12 @@ beforeEach(() => {
   workflows.cancel.mockResolvedValue(undefined);
   handed = [];
   told = [];
+  stopped = [];
   installs = new KoalaInstalls({
     devices: async () => [desk],
     places: () => places,
     workflows,
-    toMachines: { placeKoala: async (deviceId) => { handed.push(deviceId); return true; } },
+    toMachines: { placeKoala: async (deviceId) => { handed.push(deviceId); return true; }, stopKoala: (deviceId, stop) => { stopped.push([deviceId, stop]); return true; } },
     toOwner: { installChanged: (ownerId) => { told.push(ownerId); } },
     newId: () => 'install-2',
     now: () => NOW,
@@ -147,6 +149,27 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(told).toHaveLength(6);
   });
 
+  it('tells the machine once to stop an install that ended failed, and to remove what a move made, also when the move failed after its install was ready', async () => {
+    await installs.relay(installOf('failed', { move: true }));
+    await installs.relay(installOf('failed', { move: true }));
+    await installs.relay({ ...installOf('failed'), install: { id: 'install-3', machineId: 'desk', state: 'failed', at: 't' } });
+    await installs.relay({ ...installOf('ready', { id: 'install-4', move: true }), move: { state: 'failed', startedAt: 't', wasPaused: false, detail: 'the switch failed' } });
+    await installs.relay(installOf('ready', { id: 'install-5', move: true }));
+    await installs.relay(installOf('installing', { id: 'install-6', move: true }));
+    expect(stopped).toEqual([
+      ['desk', { installId: 'install-1', remove: true }],
+      ['desk', { installId: 'install-3', remove: false }],
+      ['desk', { installId: 'install-4', remove: true }],
+    ]);
+  });
+
+  it('tells a machine that comes back again to stop each install on it that ended failed, since it may have missed it', async () => {
+    places.installsOn.mockResolvedValue([installOf('installing', { id: 'install-2' }), installOf('failed', { move: true }), installOf('ready', { id: 'install-5' })]);
+    await installs.connected('desk');
+    await installs.connected('desk');
+    expect(stopped).toEqual([['desk', { installId: 'install-1', remove: true }], ['desk', { installId: 'install-1', remove: true }]]);
+  });
+
   it('asks the workflow again when the machine comes back, and stops it when the machine is removed, only for an install under way', async () => {
     places.installsOn.mockResolvedValue([installOf('installing'), { ...installOf('failed'), install: { id: 'install-0', machineId: 'desk', state: 'failed', at: 't' } }]);
     await installs.connected('desk');
@@ -167,7 +190,7 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     const lapsed = { ...desk, ...tokenLifetime(new Date(Date.now() - 200 * DAY)) };
     const current = { ...desk, ...tokenLifetime(new Date()) };
     const devices: LocalAgentDeviceMetadata[] = [lapsed];
-    const clocked = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: () => undefined } });
+    const clocked = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined } });
     places.installOf.mockResolvedValue(installOf('installing'));
     const stage = { stage: 'koala', title: 'Koala', state: 'started' };
     expect(await clocked.report('install-1', TOKEN, stage)).toMatchObject({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
@@ -182,7 +205,7 @@ describe('a joining machine following root putting Koala on it', () => {
 
   function following(devices: LocalAgentDeviceMetadata[]) {
     const ownerTold: string[] = [];
-    const followed = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: (ownerId) => { ownerTold.push(ownerId); } }, now: () => NOW });
+    const followed = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: (ownerId) => { ownerTold.push(ownerId); } }, now: () => NOW });
     const heard: InstallFollowing[] = [];
     const broken: string[] = [];
     const listener = { told: (now: InstallFollowing) => { heard.push(now); }, broke: (err: Error) => { broken.push(err.message); } };
@@ -196,7 +219,7 @@ describe('a joining machine following root putting Koala on it', () => {
     expect(await followed.follow('another-token-0123456789-0123456789', listener)).toMatchObject({ ok: false, status: 401 });
     const lapsed = following([{ ...desk, ...tokenLifetime(new Date(NOW.getTime() - 200 * 24 * 60 * 60 * 1000)) }]);
     expect(await lapsed.followed.follow(TOKEN, lapsed.listener)).toEqual({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
-    const nowhere = new KoalaInstalls({ devices: async () => [desk], places: () => undefined, workflows, toMachines: { placeKoala: async () => true }, toOwner: { installChanged: () => undefined }, now: () => NOW });
+    const nowhere = new KoalaInstalls({ devices: async () => [desk], places: () => undefined, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined }, now: () => NOW });
     expect(await nowhere.follow(TOKEN, listener)).toMatchObject({ ok: false, status: 503 });
   });
 

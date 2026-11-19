@@ -7,7 +7,7 @@ import { temporal } from '@temporalio/proto';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Server } from 'socket.io';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { koalaInstallProgressPath, PLACE_KOALA } from '@koala/engine-core/koala-install';
+import { koalaInstallProgressPath, PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
 import { deviceQueue } from './engine-worker.js';
 
 const AGENT = path.join(import.meta.dirname, '..');
@@ -142,7 +142,7 @@ const program = async (args: string[], extra: Record<string, string> = {}) => {
     await fs.writeFile(onMachine('/usr/local/lib/koala/machine-uninstall.sh'), `#!/bin/sh\n${uninstall}\n`, { mode: 0o755 });
   };
   const there = (file: string) => fs.access(file).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; });
-  return { start, said, onMachine, machineFile, serviceFile, joined, k3sInstalled, there };
+  return { start, said, bin, onMachine, machineFile, serviceFile, joined, k3sInstalled, there };
 };
 
 describe('removing this machine, as the agent\'s own program does it, on a throwaway home and machine', () => {
@@ -206,5 +206,58 @@ describe('Koala placed on this machine by root, as the agent\'s own program take
     toRoot[0]!.emit('machine:removed');
     expect(await ended, here.said.join('')).toBe(0);
     expect(await here.there(here.machineFile)).toBe(false);
+  }, 120_000);
+});
+
+describe('Koala placed on this machine by root and then stopped by root, as the agent\'s own program takes it', () => {
+  it('stops fetching the chart the moment root says the install is stopped, tells root nothing more, says it stopped, and keeps running', async () => {
+    const reports: Array<Record<string, unknown>> = [];
+    const hanging: Array<{ end(): void }> = [];
+    const http = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === koalaInstallProgressPath('program-stopped')) {
+          reports.push(JSON.parse(body) as Record<string, unknown>);
+          res.writeHead(204).end();
+          return;
+        }
+        if (req.url === '/api/instances/chart/v1.tgz') {
+          hanging.push(res);
+          return;
+        }
+        res.writeHead(404).end('not here');
+      });
+    });
+    servers.push(http);
+    const io = new Server(http);
+    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
+    const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
+    const toRoot: Array<{ emit(event: string, payload?: unknown): void }> = [];
+    io.of('/machine-account').on('connection', (socket) => {
+      toRoot.push(socket);
+      socket.emit(PLACE_KOALA, {
+        installId: 'program-stopped', instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
+        meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
+      });
+    });
+    const here = await program([]);
+    await here.joined(rootUrl);
+    await here.k3sInstalled('exit 0');
+    await fs.writeFile(path.join(here.bin, 'systemctl'), '#!/bin/sh\necho active\n', { mode: 0o755 });
+    const child = here.start();
+    try {
+      while (hanging.length === 0 && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
+      expect(child.exitCode, here.said.join('')).toBeNull();
+      toRoot[0]!.emit(STOP_KOALA, { installId: 'program-stopped', remove: false });
+      while (!here.said.join('').includes('Putting Koala on this machine stopped: root stopped it before it finished') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
+      expect(reports.map((report) => `${String(report.stage)} ${String(report.state)}`), here.said.join('')).toEqual(['cluster started', 'cluster already-done', 'chart started']);
+      expect(child.exitCode, here.said.join('')).toBeNull();
+    } finally {
+      for (const res of hanging) res.end();
+      const ended = exited(child);
+      child.kill('SIGTERM');
+      await ended;
+    }
   }, 120_000);
 });

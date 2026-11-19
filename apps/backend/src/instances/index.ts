@@ -1,4 +1,4 @@
-export { cleaned, restoreOrder, volumePart } from './lib/app-move.js';
+export { cleaned, movedNamespaceObject, restoreOrder, volumePart } from './lib/app-move.js';
 export type { AppsManifest, KubeObject } from './lib/app-move.js';
 export { DEV, devKoalaValues, devRootPlan } from './lib/dev-root.js';
 export { DEV_SPLIT, devSplitOwner, devSplitPlace, devSplitPlan, envFileText, readEnvFile, withDatabase } from './lib/dev-split.js';
@@ -40,7 +40,7 @@ export { MoveParts, textOf } from './services/MoveParts.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export { InstanceReporter, type InstanceStatusReport, type Reported } from './services/InstanceReporter.js';
 export type { PlacingMachine } from './services/InstanceService.js';
-export { askedAgain, installFields, installSetupHeard, installStopped, installUnfinished, installView, KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, stageHeard, INSTALL_STOPPED_SAID, type InstallPatch, type KoalaInstallRecord } from './lib/koala-installs.js';
+export { askedAgain, installFields, installSetupHeard, installStopped, installToStop, installUnfinished, installView, KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, stageHeard, INSTALL_STOPPED_SAID, type InstallPatch, type KoalaInstallRecord } from './lib/koala-installs.js';
 export { setupHeard, setupSaid, statusSettled, type InstanceSetup } from './lib/instance-setup.js';
 export type { ClusterStarts } from './services/MoveExport.js';
 export { kubeconfigFile, MoveRelay } from './services/MoveRelay.js';

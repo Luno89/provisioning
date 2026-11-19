@@ -35,6 +35,8 @@ const noKoalaK3s: ClusterHost = {
   isWanted: async () => false,
   holdKoala: async () => undefined,
   holdsKoala: async () => false,
+  heldKoala: async () => undefined,
+  letKoalaGo: async () => undefined,
   meshIp: async () => undefined,
   now: () => Date.now(),
   pause: (ms) => new Promise((done) => setTimeout(done, ms)),

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   KOALA_INSTALL_FOLLOW_PATH, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_LAST_STAGE, KOALA_INSTALL_PROGRESS, KOALA_INSTALL_STAGES,
   KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_MOVE_PROGRESS, KOALA_MOVE_STAGES,
-  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages,
+  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages, koalaStopOf,
+  KOALA_PLATFORM_NAMESPACES, MOVED_FOR_LABEL, STOP_KOALA,
   PROVISION_DONE_STAGE, PROVISION_MOVED_PIECE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
   provisionEnding, provisionReportOf,
 } from './koala-install.js';
@@ -76,9 +77,9 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
 });
 
 describe('putting Koala on a machine, and moving it there from Koala\'s servers', () => {
-  it('runs the cluster, the chart and Koala, and a move brings the keys before Koala and applies it again once moved', () => {
+  it('runs the cluster, the chart and Koala, and a move first clears what an earlier move left, brings the keys before Koala and applies it again once moved', () => {
     expect(koalaInstallStages(false)).toEqual(['cluster', 'chart', 'koala']);
-    expect(koalaInstallStages(true)).toEqual(['cluster', 'chart', 'keys', 'koala', 'koala-moved']);
+    expect(koalaInstallStages(true)).toEqual(['cluster', 'clear', 'chart', 'keys', 'koala', 'koala-moved']);
     expect(KOALA_INSTALL_STAGES).toEqual(koalaInstallStages(false));
     expect(KOALA_MOVE_STAGES).toEqual(koalaInstallStages(true));
   });
@@ -139,5 +140,22 @@ describe('an install as the join follows it from root', () => {
     for (const raw of [null, 'why', {}, { why: '' }, { why: 'x', more: 1 }]) {
       expect(koalaInstallStoppedOf(raw)).toEqual({ ok: false, problem: 'a stopped follow sends only "why", a non-empty string' });
     }
+  });
+});
+
+describe('root stopping an install on the machine', () => {
+  it('names the install and whether what it made is removed, and is told by one event', () => {
+    expect(STOP_KOALA).toBe('machine:stop-koala');
+    expect(koalaStopOf({ installId: 'install-7', remove: true })).toEqual({ installId: 'install-7', remove: true });
+    expect(koalaStopOf({ installId: 'install-7', remove: false })).toEqual({ installId: 'install-7', remove: false });
+    for (const raw of [null, 'install-7', {}, { installId: '', remove: true }, { installId: 'install-7' }, { installId: 'install-7', remove: 'yes' }]) expect(koalaStopOf(raw)).toBeUndefined();
+  });
+});
+
+describe('what a Koala makes on its own cluster outside its namespace', () => {
+  it('is each platform service\'s namespaces, one list per piece but monitoring, and the namespaces a move restores carry who they were moved for', () => {
+    expect(Object.keys(KOALA_PLATFORM_NAMESPACES)).toEqual(PROVISION_PIECES.map((piece) => piece.key).filter((key) => key !== 'monitoring'));
+    expect(Object.values(KOALA_PLATFORM_NAMESPACES).flat()).toEqual(['koala-egress', 'searxng', 'crawl4ai', 'gitea', 'pipeline-builds', 'koala-registry', 'infisical']);
+    expect(MOVED_FOR_LABEL).toBe('koala.dev/moved-for');
   });
 });

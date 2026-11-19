@@ -32,7 +32,7 @@ async function root() {
     devices: () => db.machines.getLocalAgentDevices(),
     places: () => instances,
     workflows: { start: async () => undefined, progress: async () => undefined, setup: async (installId, report) => { handed.push([installId, report]); }, reconnected: async () => undefined, cancel: async () => undefined },
-    toMachines: { placeKoala: async () => false },
+    toMachines: { placeKoala: async () => false, stopKoala: () => false },
     toOwner: { installChanged: () => undefined },
   });
   const app = express();

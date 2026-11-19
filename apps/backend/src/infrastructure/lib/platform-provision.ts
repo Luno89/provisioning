@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { KOALA_PLATFORM_NAMESPACES as SPACES } from '@koala/engine-core/koala-install';
 import type { HelmReleaseJson } from './platform-services.js';
 
 export type SecretSource =
@@ -25,16 +26,16 @@ const hex = (file: string, bytes: number): SecretSource => ({ file, make: { byte
 const base64 = (file: string, bytes: number): SecretSource => ({ file, make: { bytes, as: 'base64' } });
 
 export const PLATFORM_PLAN: readonly PlatformService[] = [
-  { key: 'egress', what: 'the egress proxy', namespaces: ['koala-egress'], watch: ['koala-egress'], secrets: [] },
-  { key: 'searxng', what: 'SearXNG', namespaces: ['searxng'], watch: ['searxng'], secrets: [{ namespace: 'searxng', name: 'searxng-secret', values: { secret_key: hex('.searxng-secret-key', 32) } }] },
-  { key: 'crawl4ai', what: 'Crawl4AI', namespaces: ['crawl4ai'], watch: ['crawl4ai'], secrets: [{ namespace: 'crawl4ai', name: 'crawl4ai-secret', values: { api_token: { setting: 'crawl4aiToken' } } }] },
+  { key: 'egress', what: 'the egress proxy', namespaces: SPACES.egress, watch: SPACES.egress, secrets: [] },
+  { key: 'searxng', what: 'SearXNG', namespaces: SPACES.searxng, watch: SPACES.searxng, secrets: [{ namespace: 'searxng', name: 'searxng-secret', values: { secret_key: hex('.searxng-secret-key', 32) } }] },
+  { key: 'crawl4ai', what: 'Crawl4AI', namespaces: SPACES.crawl4ai, watch: SPACES.crawl4ai, secrets: [{ namespace: 'crawl4ai', name: 'crawl4ai-secret', values: { api_token: { setting: 'crawl4aiToken' } } }] },
   {
-    key: 'gitea', what: 'Gitea', namespaces: ['gitea', 'pipeline-builds'], watch: ['gitea'],
+    key: 'gitea', what: 'Gitea', namespaces: SPACES.gitea, watch: ['gitea'],
     secrets: [{ namespace: 'gitea', name: 'gitea-admin', values: { username: { text: 'provisioning-bot' }, password: base64('.gitea-admin-password', 24) } }],
   },
-  { key: 'verdaccio', what: 'the npm registry mirror', namespaces: ['koala-registry'], watch: ['koala-registry'], secrets: [] },
+  { key: 'verdaccio', what: 'the npm registry mirror', namespaces: SPACES.verdaccio, watch: SPACES.verdaccio, secrets: [] },
   {
-    key: 'infisical', what: 'Infisical', namespaces: ['infisical'], watch: ['infisical'], checkIngressWebhook: true,
+    key: 'infisical', what: 'Infisical', namespaces: SPACES.infisical, watch: SPACES.infisical, checkIngressWebhook: true,
     secrets: [
       { namespace: 'infisical', name: 'infisical-secrets', values: { ENCRYPTION_KEY: hex('.infisical-encryption-key', 16), AUTH_SECRET: base64('.infisical-auth-secret', 32), ADMIN_PASSWORD: base64('.infisical-admin-password', 24) } },
       { namespace: 'infisical', name: 'infisical-store-passwords', values: { postgres: hex('.infisical-postgres-password', 16), redis: hex('.infisical-redis-password', 16) } },

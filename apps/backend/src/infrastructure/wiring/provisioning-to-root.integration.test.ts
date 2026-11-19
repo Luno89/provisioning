@@ -110,7 +110,7 @@ async function rootSide(rootDb: Database) {
     devices: () => rootDb.machines.getLocalAgentDevices(),
     places: () => instances,
     workflows,
-    toMachines: { placeKoala: async () => false },
+    toMachines: { placeKoala: async () => false, stopKoala: () => false },
     toOwner: { installChanged: () => undefined },
   });
   const app = express();

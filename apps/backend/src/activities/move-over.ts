@@ -1,13 +1,14 @@
 import { Readable } from 'node:stream';
 import { assessWorkload, waitUntil, type WaitOptions } from '@koala/provision';
 import {
-  cleaned, drained, GITEA_DATA, MOVED_POSTGRES, MoveParts, PG_RESTORE, restoreOrder, textOf, volumePart, type AppsManifest, type KubeObject,
+  cleaned, drained, GITEA_DATA, movedNamespaceObject, MOVED_POSTGRES, MoveParts, PG_RESTORE, restoreOrder, textOf, volumePart, type AppsManifest, type KubeObject,
 } from '../instances/index.js';
 import { broughtOver, type InfrastructureStore } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { untilRolledOut, type Pause } from './watched-apply.js';
 
 export interface MoveOverDeps {
+  instanceId: string;
   steps: Pick<ClusterSteps, 'access' | 'gitea'>;
   parts: (say: (line: string) => void) => Pick<MoveParts, 'part'>;
   records: Pick<InfrastructureStore, 'getMoveIn' | 'saveMoveIn'>;
@@ -111,7 +112,7 @@ async function restoreApps(moving: Moving): Promise<void> {
   const pullHost = await moving.deps.steps.gitea.getRegistryHost();
   for (const entry of manifest.namespaces) {
     moving.report(`${entry.namespace}: ${entry.objects.length} objects, ${entry.volumes.length} volumes`);
-    await applyJson(moving, [{ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: entry.labels } }], false);
+    await applyJson(moving, [movedNamespaceObject(entry, moving.deps.instanceId)], false);
     const objects = restoreOrder(entry.objects.map((object) => cleaned(object, manifest.pullHost, pullHost)));
     const claims = objects.filter((object) => object.kind === 'PersistentVolumeClaim');
     if (claims.length) await applyJson(moving, claims, true);

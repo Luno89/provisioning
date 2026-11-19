@@ -3,7 +3,7 @@ import type { Database } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
-import { PLACE_KOALA, type PlacedKoala } from '@koala/engine-core/koala-install';
+import { PLACE_KOALA, STOP_KOALA, type KoalaStop, type PlacedKoala } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 
@@ -13,6 +13,7 @@ export interface AccountSockets {
   removed(deviceId: string): boolean;
   koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
   placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean>;
+  stopKoala(deviceId: string, stop: KoalaStop): boolean;
   online(deviceId: string): boolean;
 }
 
@@ -97,6 +98,7 @@ export function wireMachineAccounts(deps: {
     removed: (deviceId) => each(deviceId, (socket) => socket.emit('machine:removed')),
     koala: (deviceId, koala) => each(deviceId, (socket) => socket.emit('machine:koala', koala)),
     placeKoala,
+    stopKoala: (deviceId, stop) => each(deviceId, (socket) => socket.emit(STOP_KOALA, stop)),
     online: (deviceId) => Boolean(connected.get(deviceId)?.size),
   };
 }

@@ -1,3 +1,5 @@
+import { MOVED_FOR_LABEL } from '@koala/engine-core/koala-install';
+
 export const COPIED_KINDS = [
   'serviceaccounts', 'configmaps', 'secrets', 'persistentvolumeclaims', 'services', 'deployments', 'statefulsets', 'daemonsets',
   'cronjobs', 'ingresses.networking.k8s.io', 'networkpolicies.networking.k8s.io', 'roles.rbac.authorization.k8s.io',
@@ -38,6 +40,9 @@ const NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
 const NAMESPACE_KEPT = /^(kube-|vcluster|default$|monitoring$|traefik$|gitea$|infisical$|nowrinkles$|verdaccio$|searxng$|crawl4ai$)/;
 
 export const isMovedNamespace = (namespace: string): boolean => NAME.test(namespace) && !NAMESPACE_KEPT.test(namespace);
+
+export const movedNamespaceObject = (entry: MovedNamespace, instanceId: string): KubeObject =>
+  ({ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: { ...entry.labels, [MOVED_FOR_LABEL]: instanceId } } });
 
 export const volumePart = (namespace: string, claim: string): string => `volume:${namespace}:${claim}`;
 

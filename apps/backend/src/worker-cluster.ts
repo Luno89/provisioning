@@ -104,7 +104,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),
           provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
-          moveOver: { steps, records: db.infrastructure, parts: (say) => new MoveParts({ root: settings.root, say }) },
+          moveOver: { instanceId: settings.root.instanceId, steps, records: db.infrastructure, parts: (say) => new MoveParts({ root: settings.root, say }) },
         }, settings.tests.huggingFaceUrl),
       });
       break;

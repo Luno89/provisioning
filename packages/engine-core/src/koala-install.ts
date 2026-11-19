@@ -2,7 +2,7 @@ import { progressOf, type MachineProgress, type ProgressContract } from './machi
 
 export const KOALA_INSTALL_STAGES = ['cluster', 'chart', 'koala'] as const;
 
-export const KOALA_MOVE_STAGES = ['cluster', 'chart', 'keys', 'koala', 'koala-moved'] as const;
+export const KOALA_MOVE_STAGES = ['cluster', 'clear', 'chart', 'keys', 'koala', 'koala-moved'] as const;
 
 export type KoalaInstallStage = (typeof KOALA_MOVE_STAGES)[number];
 
@@ -35,6 +35,13 @@ export const KOALA_INSTALL_FOLLOW_BEAT_MS = 15_000;
 export const KOALA_MOVE_KEYS_PATH = '/api/instances/move/parts/keys';
 
 export const PLACE_KOALA = 'machine:place-koala';
+
+export const STOP_KOALA = 'machine:stop-koala';
+
+export interface KoalaStop {
+  installId: string;
+  remove: boolean;
+}
 
 export const KOALA_INSTALL_CHANGED = 'koala-install-changed';
 
@@ -122,6 +129,11 @@ export function koalaInstallFollowedOf(raw: unknown): KoalaInstallFollowedRead {
   return { ok: true, value: { install, ...(raw.url !== undefined ? { url: raw.url } : {}) } };
 }
 
+export function koalaStopOf(raw: unknown): KoalaStop | undefined {
+  if (!isObject(raw) || !nonEmpty(raw.installId) || typeof raw.remove !== 'boolean') return undefined;
+  return { installId: raw.installId, remove: raw.remove };
+}
+
 export function koalaInstallStoppedOf(raw: unknown): { ok: true; why: string } | { ok: false; problem: string } {
   if (!isObject(raw) || Object.keys(raw).some((key) => key !== 'why') || !nonEmpty(raw.why)) return { ok: false, problem: 'a stopped follow sends only "why", a non-empty string' };
   return { ok: true, why: raw.why };
@@ -140,6 +152,17 @@ export const PROVISION_PIECES = [
 export const PROVISION_MOVED_PIECE = { key: 'moved', title: 'Bringing over your repositories, vault and apps' } as const;
 
 export type ProvisionPieceKey = (typeof PROVISION_PIECES)[number]['key'] | (typeof PROVISION_MOVED_PIECE)['key'];
+
+export const KOALA_PLATFORM_NAMESPACES = {
+  egress: ['koala-egress'],
+  searxng: ['searxng'],
+  crawl4ai: ['crawl4ai'],
+  gitea: ['gitea', 'pipeline-builds'],
+  verdaccio: ['koala-registry'],
+  infisical: ['infisical'],
+} as const satisfies Record<Exclude<ProvisionPieceKey, 'monitoring' | 'moved'>, readonly string[]>;
+
+export const MOVED_FOR_LABEL = 'koala.dev/moved-for';
 
 export const PROVISION_DONE_STAGE = 'set-up';
 

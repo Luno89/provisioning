@@ -78,13 +78,13 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   const ownerInstances = async (ownerId: string) => {
     for (const instance of await db.instances.getInstances(ownerId)) deps.instances()?.tellInstance?.(instance.id, 'machines:changed');
   };
-  let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
+  let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   let machines: MachineService | undefined;
   const installs = holdsAccounts(role) && role.signing ? new KoalaInstalls({
     devices: () => db.machines.getLocalAgentDevices(),
     places: () => deps.instances()?.places,
     workflows: deps.installWorkflows ?? temporalInstallWorkflows(),
-    toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed) },
+    toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), stopKoala: (deviceId, stop) => toMachines.stopKoala(deviceId, stop) },
     toOwner: { installChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(KOALA_INSTALL_CHANGED, {}); } },
   }) : undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({

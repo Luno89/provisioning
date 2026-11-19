@@ -41,7 +41,7 @@ async function root() {
     devices: () => db.machines.getLocalAgentDevices(),
     places: () => instances,
     workflows: { start: async () => undefined, progress: async (installId, progress) => { heard.push([installId, progress]); }, setup: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
-    toMachines: { placeKoala: async () => false },
+    toMachines: { placeKoala: async () => false, stopKoala: () => false },
     toOwner: { installChanged: () => undefined },
   });
   const accounts = new MachineAccounts({

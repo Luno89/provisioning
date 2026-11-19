@@ -37,7 +37,16 @@ function world(pod: (name: string) => string = ready) {
     if (args[0] === 'get') return JSON.stringify({ items: [] });
     return '';
   });
-  access.pipe.mockImplementation(async (_reach, args) => { ran.push(`${args.join(' ')} <`); return ''; });
+  const applied: Array<{ metadata?: { name?: string; labels?: Record<string, string> }; kind?: string }> = [];
+  access.pipe.mockImplementation(async (_reach, args, input) => {
+    ran.push(`${args.join(' ')} <`);
+    if (args[0] === 'apply') {
+      let all = '';
+      for await (const chunk of input) all += chunk;
+      applied.push(...(JSON.parse(all) as { items: typeof applied }).items);
+    }
+    return '';
+  });
   const gitea = mock<GiteaService>();
   gitea.getRegistryHost.mockResolvedValue('127.0.0.1:31737');
   const steps = mock<ClusterSteps>({ access, gitea });
@@ -51,8 +60,8 @@ function world(pod: (name: string) => string = ready) {
       return Readable.from([name === 'apps' ? JSON.stringify(MANIFEST) : name]);
     },
   }) as never;
-  const deps = { steps, parts, records, now: () => '2026-11-18T11:00:00.000Z', wait: { pause: async () => undefined }, pause: async () => undefined };
-  return { deps, ran, asked, said, records, report: (line: string) => said.push(line) };
+  const deps = { instanceId: 'inst-bo', steps, parts, records, now: () => '2026-11-18T11:00:00.000Z', wait: { pause: async () => undefined }, pause: async () => undefined };
+  return { deps, ran, applied, asked, said, records, report: (line: string) => said.push(line) };
 }
 
 describe('bringing over what a move left, once Koala\'s services are up', () => {
@@ -67,6 +76,15 @@ describe('bringing over what a move left, once Koala\'s services are up', () => 
     expect(ran).toContain('scale deployment/gitea -n gitea --replicas=1');
     expect(ran.some((line) => line.includes('--timeout'))).toBe(false);
     expect(await records.getMoveIn()).toEqual({ ...MOVE_IN, broughtAt: '2026-11-18T11:00:00.000Z' });
+  });
+
+  it('marks each namespace it restores as moved for this Koala, keeping the pool\'s labels', async () => {
+    const { deps, applied, records, report } = world();
+    await records.saveMoveIn(MOVE_IN);
+    await bringMoveOver(deps, report);
+    expect(applied.filter((object) => object.kind === 'Namespace')).toEqual([
+      { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'shop', labels: { 'koala.app/owner': 'bo', 'koala.dev/moved-for': 'inst-bo' } } },
+    ]);
   });
 
   it('brings nothing over again once the move has been brought over', async () => {

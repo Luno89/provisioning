@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import { koalaInstallProgress, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { koalaInstallProgress, type KoalaStop, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
-import { installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
+import { installToStop, installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { FOLLOW_GONE, followingEnded, installFollowing, type InstallFollowing } from '../lib/koala-install-following.js';
@@ -46,7 +46,7 @@ export interface KoalaInstallsDeps {
   devices(): Promise<LocalAgentDeviceMetadata[]>;
   places(): InstallPlaces | undefined;
   workflows: InstallWorkflows;
-  toMachines: { placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean> };
+  toMachines: { placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean>; stopKoala(deviceId: string, stop: KoalaStop): boolean };
   toOwner: { installChanged(ownerId: string): void };
   newId?: (() => string) | undefined;
   now?: (() => Date) | undefined;
@@ -61,6 +61,7 @@ const reasonOf = (err: unknown): string => (err instanceof Error ? err.message :
 
 export class KoalaInstalls {
   private readonly relayed = new Map<string, string>();
+  private readonly toldToStop = new Set<string>();
   private readonly following = new Map<string, Set<Following>>();
 
   constructor(private readonly deps: KoalaInstallsDeps) {}
@@ -199,7 +200,13 @@ export class KoalaInstalls {
   }
 
   async connected(deviceId: string): Promise<void> {
-    for (const instance of await this.unfinishedOn(deviceId)) await this.deps.workflows.reconnected(instance.install!.id);
+    const places = this.deps.places();
+    const on = places ? await places.installsOn(deviceId) : [];
+    for (const instance of on) {
+      const stop = installToStop(instance);
+      if (stop) this.deps.toMachines.stopKoala(deviceId, stop);
+    }
+    for (const instance of on.filter((entry) => installUnfinished(entry.install))) await this.deps.workflows.reconnected(instance.install!.id);
   }
 
   async machineRemoved(deviceId: string): Promise<void> {
@@ -209,6 +216,11 @@ export class KoalaInstalls {
   async relay(instance: InstanceRecord): Promise<void> {
     this.changed(instance.ownerId);
     const install = instance.install;
+    const stop = installToStop(instance);
+    if (install && stop && !this.toldToStop.has(stop.installId)) {
+      this.toldToStop.add(stop.installId);
+      this.deps.toMachines.stopKoala(install.machineId, stop);
+    }
     if (!install?.askedAt || !installUnfinished(install) || this.relayed.get(install.id) === install.askedAt) return;
     this.relayed.set(install.id, install.askedAt);
     const device = (await this.deps.devices()).find((candidate) => candidate.id === install.machineId);

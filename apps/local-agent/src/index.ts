@@ -16,7 +16,7 @@ import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.js';
 import { hostCluster, startIfWanted } from './machine-cluster.js';
-import { installKoala, ownValuesFile, placedFrom } from './koala-install.js';
+import { koalaPlacements, ownValuesFile } from './koala-install.js';
 import { useDependencyHttp } from '@koala/engine-core/http';
 import { serviceManagerOf } from './self-update.js';
 import { ownBundle, ownVersion, readCgroup } from './agent-bundle.js';
@@ -30,16 +30,6 @@ const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
 const helmBinary = (env: NodeJS.ProcessEnv = process.env) => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'bin', 'helm');
 
-const placementsWith = (token: () => string) => {
-  let installing = Promise.resolve();
-  return (raw: unknown): boolean => {
-    const placed = placedFrom(raw);
-    if (!placed) return false;
-    say(`root asks for Koala on this machine (${placed.instanceId}, install ${placed.installId})`);
-    installing = installing.then(() => installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, token, say, ownValues: ownValuesFile() }));
-    return true;
-  };
-};
 
 const forgetAndStop = (closing: () => Promise<unknown>) => {
   void closing()
@@ -68,6 +58,7 @@ async function main() {
   void startIfWanted(machineCluster, say).catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`));
   let sessionsOf: ExternalAgentSessions | undefined;
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
+  const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => (root.socket.auth as { token: string }).token, say, ownValues: ownValuesFile() });
   const root = linkToRoot({
     rootUrl,
     token: config.token,
@@ -75,7 +66,8 @@ async function main() {
     meshIp,
     say,
     onRemoved: () => forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve()),
-    onPlaceKoala: placementsWith(() => (root.socket.auth as { token: string }).token),
+    onPlaceKoala: (raw) => placements.place(raw),
+    onStopKoala: (raw) => { void placements.stop(raw); },
     onKoala: (koala) => {
       if (!working) {
         working = startWork(thisComputer(service), config, koala.url, koala.workToken, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });

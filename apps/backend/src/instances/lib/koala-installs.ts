@@ -1,4 +1,4 @@
-import { koalaInstallLastStage, type KoalaInstallState, type KoalaInstallView, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { koalaInstallLastStage, type KoalaInstallState, type KoalaStop, type KoalaInstallView, type ProvisionReport } from '@koala/engine-core/koala-install';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import type { InstanceStatus } from './instances.js';
 import type { MoveStateName } from './instance-move.js';
@@ -34,6 +34,14 @@ export const KOALA_INSTALL_SIGNALS = { progress: 'koalaInstallProgress', setup: 
 
 export const installUnfinished = (install: Pick<KoalaInstallRecord, 'state'> | undefined): boolean =>
   install?.state === 'asked' || install?.state === 'installing';
+
+export function installToStop(instance: { install?: KoalaInstallRecord | undefined; move?: { state: MoveStateName } | undefined }): KoalaStop | undefined {
+  const { install } = instance;
+  if (!install) return undefined;
+  const moveFailed = Boolean(install.move && instance.move?.state === 'failed');
+  if (install.state !== 'failed' && !moveFailed) return undefined;
+  return { installId: install.id, remove: Boolean(install.move) };
+}
 
 export const askedInstall = (id: string, machineId: string, at: string, move = false): KoalaInstallRecord =>
   ({ id, machineId, state: 'asked', at, ...(move ? { move: true as const } : {}) });
