@@ -1,9 +1,10 @@
 import { CancellationScope, isCancellation, log, patched, proxyActivities, sleep } from '@temporalio/workflow';
 import type * as root from '../activities/RootNodeActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 export { rootNodeWorkflowId } from '../infrastructure/lib/server-orders.js';
 
-const steps = proxyActivities<typeof root>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 5 } });
+const steps = proxyActivities<typeof root>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
 
 export async function RootNodeWorkflow(orderId: string): Promise<void> {
   try {
