@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
+import type { Server as SocketServer } from 'socket.io';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
 import { encryptValue, nodeProcesses, nodeStreams, succeeded, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
@@ -90,12 +91,14 @@ afterAll(async () => {
   await k3s.stop();
 }, 0);
 
-describe('an app exposed on this computer through the instance\'s real edge', () => {
-  it('answers at <app>.localhost through the edge from the chart, reaching the app on the person\'s machine at its mesh address, and stops answering once taken away', async () => {
-    const db = await testDatabase();
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-expose-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
-    const machine = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
-    await db.infrastructure.saveCluster(machine);
+const MACHINE = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't' } as ClusterMetadata;
+let shopOnDesk: Promise<string> | undefined;
+
+async function deskWithShop(db: Awaited<ReturnType<typeof testDatabase>>): Promise<ClusterAccess> {
+  const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-expose-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+  const machine = { ...MACHINE, kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
+  await db.infrastructure.saveCluster(machine);
+  shopOnDesk ??= (async () => {
     await access.kubectl('machine-desk', ['create', 'namespace', NAMESPACE]);
     await access.kubectl('machine-desk', ['create', 'service', 'clusterip', 'shop-live', '-n', NAMESPACE, '--tcp=80:80']);
     await access.kubectl('machine-desk', ['create', 'namespace', 'traefik']);
@@ -108,8 +111,17 @@ describe('an app exposed on this computer through the instance\'s real edge', ()
       if (edgeState !== 'running') throw new Error(`the edge ${edgeName} is ${edgeState}`);
       await new Promise((done) => setTimeout(done, 200));
     }
-    await db.infrastructure.saveCluster({ ...machine, meshIp: nodeAddress });
-    await db.infrastructure.saveDeployment({ id: 'd1abcdef', name: 'Shop', namespace: NAMESPACE, clusterId: 'machine-desk', strategy: 'helm', status: 'running', ownerId: 'bo' } as DeploymentMetadata);
+    return nodeAddress;
+  })();
+  await db.infrastructure.saveCluster({ ...machine, meshIp: await shopOnDesk });
+  await db.infrastructure.saveDeployment({ id: 'd1abcdef', name: 'Shop', namespace: NAMESPACE, clusterId: 'machine-desk', strategy: 'helm', status: 'running', ownerId: 'bo' } as DeploymentMetadata);
+  return access;
+}
+
+describe('an app exposed on this computer through the instance\'s real edge', () => {
+  it('answers at <app>.localhost through the edge from the chart, reaching the app on the person\'s machine at its mesh address, and stops answering once taken away', async () => {
+    const db = await testDatabase();
+    const access = await deskWithShop(db);
 
     const edge = adminEdge({ name: undefined, localPort: 8000, sites, adminUrl: admin, caddyfile: join(sites, '..', 'Caddyfile') }, () => undefined);
     const exposure = new AppExposureService(db, { access, getByIdUnscoped: async (id) => (await db.infrastructure.getClusters()).find((c) => c.id === id) }, undefined, { edge });
@@ -125,5 +137,22 @@ describe('an app exposed on this computer through the instance\'s real edge', ()
 
     await exposure.unexposeLocal('d1abcdef');
     expect(await ask('shop.localhost:8000')).toEqual({ status: 404, body: 'No app is exposed at this address on this computer.' });
+  });
+
+  it('gives a public app an address no other app of the instance holds, and keeps the path the person sets on its link', async () => {
+    const db = await testDatabase();
+    const access = await deskWithShop(db);
+    await db.infrastructure.saveDeployment({ id: 'other', name: 'shop!', namespace: 'shop-other0', clusterId: 'machine-desk', strategy: 'helm', status: 'running', ownerId: 'bo', publicHostname: 'shop-luno.koala.dev' } as DeploymentMetadata);
+    const told: string[] = [];
+    const io = { to: (room: string) => ({ emit: (event: string) => { told.push(`${room} ${event}`); return true; } }) } as unknown as SocketServer;
+    const edge = adminEdge({ name: 'luno', localPort: 8000, sites, adminUrl: admin, caddyfile: join(sites, '..', 'Caddyfile') }, () => undefined);
+    const exposure = new AppExposureService(db, { access, getByIdUnscoped: async (id) => (await db.infrastructure.getClusters()).find((c) => c.id === id) }, io, { edge, domain: () => 'koala.dev' });
+
+    expect(await exposure.exposePublic('d1abcdef')).toMatchObject({ publicHostname: 'shop-2-luno.koala.dev', publicExposureUrl: 'https://shop-2-luno.koala.dev' });
+    expect(await exposure.updateExposurePath('d1abcdef', ' admin ')).toMatchObject({ exposurePath: '/admin' });
+    expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1abcdef')).toMatchObject({ publicHostname: 'shop-2-luno.koala.dev', exposurePath: '/admin' });
+    expect(told).toEqual(['user:bo deployment-updated', 'user:bo deployment-updated']);
+
+    await exposure.unexposePublic('d1abcdef');
   });
 });
