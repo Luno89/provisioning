@@ -7,11 +7,14 @@ export type GpuVendor = 'nvidia' | 'amd'
 
 interface ReportedGpu { vendor: string; model: string; count: number; runtime: boolean }
 
+interface GpuWithoutDriver { vendor: string; device: string; count: number }
+
 export interface GpuReport {
   name: string
   provider: string
   gpus?: readonly ReportedGpu[] | undefined
   gpuProblems?: readonly string[] | undefined
+  gpusWithoutDriver?: readonly GpuWithoutDriver[] | undefined
 }
 
 export interface VendorChoice { vendor: GpuVendor; label: string; counts: string[] }
@@ -35,14 +38,21 @@ export function gpuChoicesOf(cluster: GpuReport, { runsOn = ['nvidia', 'amd'] }:
   if (cluster.provider !== 'machine') return refused(`Only a machine's own cluster runs apps on GPUs, and ${cluster.name} is not one.`)
   if (!cluster.gpus) return refused(`${cluster.name} has not said which GPUs it has: its agent is from before GPUs were reported, or it has not connected since. Once it connects with a current agent, it says.`)
   const { gpus } = cluster
-  if (gpus.length === 0) return refused(`${cluster.name} shows no GPU: ${cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent'}.`)
   const offered = VENDORS.filter((entry) => runsOn.includes(entry.vendor))
+  const bare = (cluster.gpusWithoutDriver ?? []).flatMap((gpu) => {
+    const known = offered.find((entry) => entry.vendor === gpu.vendor)
+    return known ? [`${gpu.count} × ${known.label} ${gpu.device}`] : []
+  })
+  const withoutDriver = bare.length ? `${cluster.name} has ${bare.join(', ')} whose driver is not installed.` : undefined
+  if (gpus.length === 0 && withoutDriver) return refused(withoutDriver)
+  if (gpus.length === 0) return refused(`${cluster.name} shows no GPU: ${cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent'}.`)
   const vendors = offered.flatMap(({ vendor, label }) => {
     const usable = countOf(gpus, vendor, true)
     return usable > 0 ? [{ vendor, label, counts: Array.from({ length: usable }, (_, at) => String(at + 1)) }] : []
   })
   if (vendors.length) return { vendors }
   const present = offered.find(({ vendor }) => countOf(gpus, vendor, false) > 0)
+  if (!present && withoutDriver) return refused(withoutDriver)
   if (present) return refused(`${cluster.name} has ${plural(countOf(gpus, present.vendor, false), present.label)}, and pods there cannot be given them yet: NVIDIA's CDI support is not installed. ${CDI_HINT}`)
   return refused(`${cluster.name} has no ${offered.map((entry) => entry.label).join(' or ')} GPU (it has ${gpus.map((gpu) => `${gpu.count} × ${gpu.model}`).join(', ')}).`)
 }

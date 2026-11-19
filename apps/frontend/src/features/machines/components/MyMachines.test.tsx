@@ -131,6 +131,11 @@ describe('My Machines', () => {
     expect(screen.getByText('offline')).toBeDefined();
   });
 
+  it('shows a machine\'s GPU whose driver is not installed, as its report says', async () => {
+    renderPanel([machine({ gpus: [], gpuProblems: [], gpusWithoutDriver: [{ vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 }] })]);
+    expect(await screen.findByText('GPUs: 1 × NVIDIA GA102 [GeForce RTX 3090], its driver is not installed')).toBeDefined();
+  });
+
   it('shows each machine\'s GPUs and any problem reading them, as its report says', async () => {
     renderPanel([
       machine({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] }),
