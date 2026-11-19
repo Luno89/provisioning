@@ -2,11 +2,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { GitAsk, MachineGitService } from '../services/MachineGitService.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
-import type { KoalaInstalls } from '../services/KoalaInstalls.js';
+import type { InstallFollower, KoalaInstalls } from '../services/KoalaInstalls.js';
 import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { routesInProcess } from '../../platform/testing/routes.js';
 import { machinesRouter, type AgentBundle } from './machines.js';
@@ -25,8 +25,8 @@ const asked = (): GitAsk => git.serve.mock.calls[0]![0];
 
 interface Call { method?: 'GET' | 'POST'; path: string; body?: unknown; headers?: Record<string, string> }
 
-const call = async (over: Call, withGit = true, withAccounts = true) => {
-  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ ...(withAccounts ? { accounts: machines, installs } : {}), bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
+const call = async (over: Call, withGit = true, withAccounts = true, followBeatMs?: number) => {
+  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ ...(withAccounts ? { accounts: machines, installs } : {}), bundle, ...(withGit ? { git } : {}), followBeatMs }), user: null, open: true });
   return routes.request(over.method ?? 'GET', `/api/machines${over.path}`, { body: over.body, headers: over.headers });
 };
 
@@ -119,6 +119,38 @@ describe('GET /api/machines/koala-installs/following', () => {
     });
     const answer = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } });
     expect(answer.text).toBe('event: stopped\ndata: {"why":"your Koala is on laptop"}\n\n');
+  });
+
+  it('beats while the install is quiet, so the machine knows root is still there, until the install ends', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      let following: InstallFollower | undefined;
+      installs.follow.mockImplementation(async (_token, listener) => {
+        listener.told(chart);
+        following = listener;
+        return { ok: true, value: stopped };
+      });
+      const answering = call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } }, true, true, 1000);
+      await vi.waitFor(() => { if (!following) throw new Error('the route has not followed the install yet'); });
+      vi.advanceTimersByTime(2000);
+      following!.told(ready);
+      const answer = await answering;
+      expect(answer.text).toBe(`data: ${JSON.stringify(chart.followed)}\n\n: beat\n\n: beat\n\ndata: ${JSON.stringify(ready.followed)}\n\n`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cuts the machine off when root can no longer read the install it follows, and stops following', async () => {
+    let stops = 0;
+    installs.follow.mockImplementation(async (_token, listener) => {
+      listener.told(chart);
+      setImmediate(() => { listener.broke(new Error('the database is not connected')); });
+      return { ok: true, value: { stop: () => { stops += 1; } } };
+    });
+    const cut = await call({ path: '/koala-installs/following', headers: { authorization: 'Bearer desk-token' } }).then((answer) => answer.text, (err: Error) => err.message);
+    expect(cut).not.toContain(JSON.stringify(ready.followed));
+    expect(stops).toBe(1);
   });
 
   it('answers with nothing when the join asked for no Koala', async () => {
