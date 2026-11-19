@@ -131,6 +131,16 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     }
   });
 
+  it('serves no install.sh join: its scripts, its join commands and the join they made answer 404', async () => {
+    expect(session).toBeTruthy();
+    for (const path of ['/install.sh', '/install/setup-gpu.sh']) {
+      expect((await axios.get(getUrl(path), { validateStatus: () => true })).status, path).toBe(404);
+    }
+    for (const path of ['/api/instances/join-tokens', '/api/instances/join', '/api/instances/join?format=env']) {
+      expect((await axios.post(getUrl(path), { name: 'luno', token: 'a-join-token' }, { headers: { Cookie: session }, validateStatus: () => true })).status, path).toBe(404);
+    }
+  });
+
   it('offers exactly the sign-in providers this server is configured for, and no pretend one', async () => {
     const { signInProvidersFrom } = await import('./accounts/index.js');
     const offered = await axios.get<{ providers: unknown }>(getUrl('/api/auth/sign-in'), { validateStatus: () => true });

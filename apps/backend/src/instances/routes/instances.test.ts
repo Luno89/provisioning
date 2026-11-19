@@ -411,6 +411,18 @@ describe('moving a pool instance to its owner\'s machine', () => {
   });
 });
 
+describe('the install.sh join root no longer serves', () => {
+  it('answers 404 to a join command asked for, a join made with one and its shell form, from a person or a machine', async () => {
+    const { router } = route();
+    for (const headers of [undefined, asInstance]) {
+      for (const path of ['/join-tokens', '/join', '/join?format=env']) {
+        const answer = await (await on(router)).post(`${prefix}${path}`, { name: 'luno', token: 'a-join-token' }, { headers });
+        expect(answer.status, path).toBe(404);
+      }
+    }
+  });
+});
+
 describe('the new machine reading a moving instance through root', () => {
   const upstream = (status: number | undefined, body: string, headers: Record<string, string> = {}) =>
     Object.assign(Readable.from([body]), { statusCode: status, headers }) as unknown as IncomingMessage;
