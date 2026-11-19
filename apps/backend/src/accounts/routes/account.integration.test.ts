@@ -13,6 +13,8 @@ import type { HubPeople } from '../../hub/services/HubPeople.js';
 import { localHubPeople } from '../../hub/testing/in-process-hub.js';
 import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
+import { InstanceService } from '../../instances/services/InstanceService.js';
+import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', roles: ['operator' as const] };
 const PERSON = { ...TEST_USER };
@@ -172,6 +174,29 @@ describe('an admin on root', () => {
     expect(types).toEqual([ROOT_REMOVAL_WORKFLOW]);
     const after = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; removal?: { steps: string[] } }>;
     expect(after.find((person) => person.id === PERSON.id)?.removal?.steps).toEqual(ROOT_REMOVAL_STEPS);
+  });
+});
+
+describe('an admin on root, for a person whose Koala the machine join put on their machine', () => {
+  it('lists the account with its Koala on its own machine, by the name it was placed under', async () => {
+    harness = await mountRouter({
+      prefix: '/api/admin',
+      user: ADMIN,
+      router: async (db) => {
+        await seedPeople(db);
+        const instances = new InstanceService(db, { rootUrl: 'https://app.root.test', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'v1', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, {
+          createPreAuthKey: async (ownerId) => ({ key: `key-of-${ownerId}` }),
+          listUserDevices: async () => [],
+          removeNode: async () => undefined,
+        });
+        await koalaPlacedAndUp(instances, db, PERSON.id, { id: 'desk', name: 'desk', meshIp: '100.64.0.9' }, 'bob');
+        const removal = new AccountRemovalService({ store: db, workflows, workflowType: ROOT_REMOVAL_WORKFLOW, steps: ROOT_REMOVAL_STEPS, instances: () => db.instances.getInstances(), now: () => 'now', principalFor });
+        return adminRouter({ db, operatorOnly, removal, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }) });
+      },
+    });
+    const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: { name?: string; where: string; status: string } }>;
+    expect(listed.find((person) => person.id === PERSON.id)?.instance).toMatchObject({ name: 'bob', where: 'own', status: 'ready' });
+    expect(listed.find((person) => person.id === ADMIN.id)?.instance).toBeUndefined();
   });
 });
 

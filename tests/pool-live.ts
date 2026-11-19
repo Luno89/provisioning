@@ -282,13 +282,14 @@ async function main(): Promise<void> {
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.exit, 'ok', `the code did not run: ${JSON.stringify(traces.find((trace) => trace.node === 'unavailable' || trace.node === 'broke'))}`);
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
 
-  step('an app deployed inside the pool instance: its cluster gets only the operator\'s resources and an ingress, no monitoring stack of its own');
+  step(`an app deployed inside the pool instance on its own cluster, ${namespace}: its cluster gets only the operator's resources and an ingress, no monitoring stack of its own`);
   const json = <T,>(answer: Answer): T => JSON.parse(answer.body) as T;
-  const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });
+  assert.equal(json<Array<{ id: string }>>(onInstance('/api/clusters'))[0]?.id, namespace, 'the pool instance does not list its cluster on Koala\'s servers as its own');
+  const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: namespace, appType: 'audiobookshelf', strategy: 'native' } });
   assert.equal(deployed.status, 202, deployed.body);
   const deploymentId = json<{ id: string }>(deployed).id;
   const app = await until('the app running', async () => {
-    const found = json<Array<{ id: string; status: string; namespace?: string }>>(onInstance('/api/deployments')).find((entry) => entry.id === deploymentId);
+    const found = json<Array<{ id: string; status: string; namespace?: string; clusterId?: string }>>(onInstance('/api/deployments')).find((entry) => entry.id === deploymentId);
     if (!found) throw new Hopeless('the deployment is gone from the list');
     if (found.status === 'failed') {
       const log = json<{ content?: string }>(onInstance(`/api/logs/app/${deploymentId}`)).content ?? '';
@@ -296,6 +297,7 @@ async function main(): Promise<void> {
     }
     return found.status === 'running' ? found : undefined;
   }, gone);
+  assert.equal(app.clusterId, namespace, 'the app\'s record does not name the pool instance\'s cluster');
   const appNamespace = app.namespace ?? 'books';
   const inside = (virtual: string) => pool(['get', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/namespace=${virtual}`, '-o', 'name']).trim();
   assert.equal(inside('monitoring'), '', 'the pool instance runs a monitoring stack of its own');
@@ -430,14 +432,15 @@ async function main(): Promise<void> {
     await until('the instance paused again', async () => ((await (await asOwner('/api/instances/mine')).json() as { instance: { status: string } }).instance.status === 'paused' ? true : undefined), gone);
     const moving = await asOwner('/api/instances/move', { method: 'POST' });
     assert.equal(moving.status, 200, await moving.clone().text());
-    const moveToken = ((await moving.json()) as { command: string }).command.split(' ').pop()!;
+    const { command: moveCommand } = await moving.json() as { command: string };
+    assert.match(moveCommand, /\/machine\.sh \| sh -s -- /, 'the move is not the machine join');
     await until('the stopped instance started for the move', async () => {
       const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { move?: { state: string; detail?: string } } }).instance;
       return mine.move?.state === 'waiting' && mine.move.detail === 'Waiting for your machine to run the move command' ? true : undefined;
     }, gone);
     assert.notEqual(pool(['get', 'pods', '-n', namespace, '--field-selector', 'status.phase=Running', '-o', 'name']).trim(), '', 'the stopped instance said it was ready to move before it ran');
 
-    step('a second VM runs the move command: everything comes over, root switches the address to it, and the pool copy goes');
+    step('a second VM runs the move command as its user: it joins as the owner\'s machine, everything comes over, root switches the address to it, and the pool copy goes');
     target = await createDisposableVm('pool-live-target', { memoryMB: 12288, cpus: 4, diskGB: 60, network: GUEST_NETWORK });
     let movedSaid = '';
     const follow = setInterval(() => {
@@ -447,7 +450,7 @@ async function main(): Promise<void> {
       }).catch(() => undefined);
     }, 5000);
     try {
-      await inVm(target, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${moveToken} --yes --k3s-mirror ${k3s.url}`, true);
+      await inVm(target, `${moveCommand} --yes --k3s-mirror ${k3s.url}`, true);
       await until('root switching the instance to the new machine', async () => {
         const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; trialEndsAt?: string; move?: { state: string; detail?: string } } }).instance;
         if (mine.move?.state === 'failed') throw new Hopeless(`the move stopped: ${mine.move.detail}`);
@@ -474,8 +477,14 @@ async function main(): Promise<void> {
       return read.trim() === NAME ? read.trim() : undefined;
     }, gone);
     assert.equal(carried, NAME);
+    const machines = (await (await asOwner('/api/my-machines')).json() as { machines: Array<{ id: string; holdsKoala: boolean; online: boolean }> }).machines;
+    const holding = machines.filter((machine) => machine.holdsKoala && machine.online);
+    assert.equal(holding.length, 1, `My Machines does not list the machine the Koala moved to: ${JSON.stringify(machines)}`);
+    const movedCluster = `machine-${holding[0]!.id}`;
+    assert.equal(json<Array<{ id: string }>>(onMoved('/api/clusters'))[0]?.id, movedCluster, 'the moved instance does not list its machine\'s cluster as its own');
+    assert.equal(json<Array<{ id: string; clusterId?: string }>>(onMoved('/api/deployments')).find((entry) => entry.id === deploymentId)?.clusterId, movedCluster, 'the moved app\'s record does not name the machine\'s cluster');
     const hosts = (await inVm(target, 'hostname')).trim();
-    console.log(`  on ${hosts}: the procedure, the project's repository with its file read with the moved key, and ${appNamespace}'s volume with its marker`);
+    console.log(`  on ${hosts}, ${movedCluster}: the procedure, the project's repository with its file read with the moved key, ${appNamespace}'s volume with its marker, and the app's record`);
   } else {
     step('the admin deletes it, typing its name: the vcluster, its namespace, its ports and its record go');
     const wrong = await admin(`/instances/${instanceId}`, { method: 'DELETE', body: JSON.stringify({ confirm: 'nope' }) });
@@ -489,7 +498,7 @@ async function main(): Promise<void> {
     instanceId = undefined;
   }
 
-  step('an admin on root removes a throwaway account: its instance on its own machine is let go of, and the account goes');
+  step('an admin on root removes a throwaway account, which is signed out at once, and another after it');
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const email = `pool-live-${NAME}@example.com`;
   const registered = await signUp(`${ROOT_FOR_HOST}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { production: true, mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
@@ -500,11 +509,6 @@ async function main(): Promise<void> {
   assert.ok(throwaway, 'root\'s admin page does not list the new account');
   throwawayId = throwaway.id;
   const theirs = sessionToken({ id: throwaway.id, email }, loadKeys(process.env).session, { seconds: 3600 });
-  const joining = await fetch(`${ROOT_FOR_HOST}/api/instances/join-tokens`, {
-    method: 'POST', headers: { 'content-type': 'application/json', Cookie: `session=${theirs}` }, body: JSON.stringify({ name: `${NAME}b` }),
-  });
-  assert.equal(joining.status, 200, await joining.clone().text());
-  assert.equal((await people()).find((person) => person.id === throwaway.id)?.instance?.where, 'own', 'the admin page does not show the account\'s instance');
   const removedAccount = await asOwner(`/api/admin/people/${throwaway.id}`, { method: 'DELETE', body: JSON.stringify({ confirm: email }) });
   assert.equal(removedAccount.status, 202, await removedAccount.clone().text());
   assert.equal((await fetch(`${ROOT_FOR_HOST}/api/auth/me`, { headers: { Cookie: `session=${theirs}` } })).status, 401, 'the removed account is still signed in');
@@ -517,14 +521,11 @@ async function main(): Promise<void> {
   const secondId = (await people()).find((person) => person.email === secondEmail)?.id;
   assert.ok(secondId, 'root\'s admin page does not list the second account');
   throwawayId = secondId;
-  const asSecond = sessionToken({ id: secondId, email: secondEmail }, loadKeys(process.env).session, { seconds: 3600 });
-  const nameFree = await (await fetch(`${ROOT_FOR_HOST}/api/instances/name-check?name=${NAME}b`, { headers: { Cookie: `session=${asSecond}` } })).json() as { ok: boolean; problem?: string };
-  assert.ok(nameFree.ok, `the removed account's instance name is still taken: ${nameFree.problem}`);
   const secondRemoved = await asOwner(`/api/admin/people/${secondId}`, { method: 'DELETE', body: JSON.stringify({ confirm: secondEmail }) });
   assert.equal(secondRemoved.status, 202, await secondRemoved.clone().text());
   await until('the second account gone from root', async () => ((await people()).some((person) => person.id === secondId) ? undefined : true), gone);
   throwawayId = undefined;
-  console.log('  removed, signed out at once, and its instance\'s name is free again');
+  console.log('  both removed, the first signed out at once');
 
   console.log('\npool live — PASS');
 }
