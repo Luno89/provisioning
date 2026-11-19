@@ -39,14 +39,16 @@ const watchIn = async (env: TestWorkflowEnvironment, check: (tries: number) => v
       },
     },
   });
+  const clock = env.connection.testService;
+  if (!clock) throw new Error('the time-skipping test server answers no test service');
   const began = await env.currentTimeMs();
   const checked = await worker.runUntil(async () => {
     const handle = await env.client.workflow.start('DependencyWatchWorkflow', { workflowId: `watch-${taskQueue}`, taskQueue, ...startedFor('root') });
-    await env.connection.testService.unlockTimeSkipping({});
+    await clock.unlockTimeSkipping({});
     try {
       return await checkedOnce;
     } finally {
-      await env.connection.testService.lockTimeSkipping({});
+      await clock.lockTimeSkipping({});
       await handle.terminate('the test has what it needs');
     }
   });
