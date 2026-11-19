@@ -8,11 +8,12 @@ export interface MachineTemporalGatewayDeps {
   upstreamKey: () => string;
   upstreamCa?: Buffer | undefined;
   namespace: string;
+  tls: { cert: Buffer | string; key: Buffer | string };
   keys: () => readonly string[];
   deviceOf: (token: string) => Promise<{ id: string } | undefined>;
   handed: (workflowId: string, deviceId: string) => Promise<void>;
   log?: ((line: string) => void) | undefined;
-  createServer?: (() => http2.Http2Server) | undefined;
+  createServer?: (() => http2.Http2SecureServer) | undefined;
   connect?: ((authority: string, options?: http2.SecureClientSessionOptions) => http2.ClientHttp2Session) | undefined;
 }
 
@@ -39,7 +40,7 @@ function refuse(stream: http2.ServerHttp2Stream, status: number, message: string
 }
 
 export class MachineTemporalGateway {
-  private server: http2.Http2Server | undefined;
+  private server: http2.Http2SecureServer | undefined;
   private session: http2.ClientHttp2Session | undefined;
   private readonly seen = new Map<string, { deviceId: string; until: number }>();
   private readonly sessions = new Set<http2.ServerHttp2Session>();
@@ -47,7 +48,7 @@ export class MachineTemporalGateway {
   constructor(private readonly deps: MachineTemporalGatewayDeps) {}
 
   listen(port: number, host: string): Promise<number> {
-    const server = (this.deps.createServer ?? (() => http2.createServer()))();
+    const server = (this.deps.createServer ?? (() => http2.createSecureServer({ cert: this.deps.tls.cert, key: this.deps.tls.key })))();
     server.on('stream', (stream, headers) => { void this.handle(stream, headers); });
     server.on('session', (session) => {
       this.sessions.add(session);

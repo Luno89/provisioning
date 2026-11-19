@@ -21,6 +21,17 @@ export function devTemporalCa(): string[] {
   return ['-v', `${tls}/ca.crt:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
 }
 
+export function devGatewayTls(): string[] {
+  const tls = devFile('apps/backend/data/temporal-tls');
+  for (const file of ['server.crt', 'server.key']) {
+    if (!existsSync(`${tls}/${file}`)) throw new Error(`the dev stack's Temporal has no ${file} at ${tls} for the machine gateway to serve TLS with: run npm run dev, which makes it`);
+  }
+  return [
+    '-v', `${tls}/server.crt:/etc/koala/machine-gateway-tls/tls.crt:ro`, '-e', 'MACHINE_GATEWAY_TLS_CERT=/etc/koala/machine-gateway-tls/tls.crt',
+    '-v', `${tls}/server.key:/etc/koala/machine-gateway-tls/tls.key:ro`, '-e', 'MACHINE_GATEWAY_TLS_KEY=/etc/koala/machine-gateway-tls/tls.key',
+  ];
+}
+
 export const DEV_SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 export function devDataMounts(files: readonly string[] = DEV_SECRET_FILES): string[] {

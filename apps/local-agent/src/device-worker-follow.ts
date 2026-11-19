@@ -16,9 +16,8 @@ export function followEngineWorker(socket: Socket, config: MachineConfig, koalaU
   if (!config.deviceId) return undefined;
   const { deviceId } = config;
   const host = new DeviceWorkerHost(async (settings) => {
-    const address = settings.temporal?.address;
-    const namespace = settings.temporal?.namespace;
-    if (!address) throw new Error('Koala named no Temporal for this machine to take work from');
+    if (!settings.temporal) throw new Error('Koala named no Temporal for this machine to take work from');
+    const { address, namespace, ca, serverName } = settings.temporal;
     return startDeviceWorker({
       rootDir: config.rootDir,
       deviceId,
@@ -26,10 +25,11 @@ export function followEngineWorker(socket: Socket, config: MachineConfig, koalaU
       git: createMachineGit({ rootDir: config.rootDir, backendUrl: koalaUrl, token: () => work.value }),
       cluster: (op) => runMachineCluster(machineCluster, op),
       address,
+      tls: { ca, serverName },
       token: work.value,
       payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
       gate,
-      ...(namespace ? { namespace } : {}),
+      namespace,
       onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${address}`),
     });
   });

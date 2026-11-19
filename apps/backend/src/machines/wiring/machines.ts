@@ -1,9 +1,11 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import type express from 'express';
 import { installView } from '../../instances/index.js';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
+import { gatewayServerName } from '../lib/gateway-name.js';
 import type { WorkTokenTrust } from './sockets.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
@@ -36,7 +38,27 @@ export interface MachinesWiringDeps {
   bundle: MachineBundle;
   projectRepos: ProjectRepoService;
   metricsWrite?: MachineMetricsDeps['write'] | undefined;
-  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined; payloadBlobs: PayloadBlobs } | undefined;
+  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined; tls: MachineGatewayTls; payloadBlobs: PayloadBlobs } | undefined;
+}
+
+export interface MachineGatewayTls {
+  cert: Buffer;
+  key: Buffer;
+  ca: string;
+  serverName: string;
+}
+
+const readTls = (file: string, what: string): Buffer => {
+  try {
+    return fsSync.readFileSync(file);
+  } catch (err) {
+    throw new Error(`the machine gateway's ${what} could not be read at ${file}: ${(err as Error).message}; a machine reaches Temporal only over TLS, so the gateway does not start without it`);
+  }
+};
+
+export function machineGatewayTls(place: { certPath: string; keyPath: string }, caPath: string): MachineGatewayTls {
+  const cert = readTls(place.certPath, 'certificate');
+  return { cert, key: readTls(place.keyPath, 'key'), ca: readTls(caPath, 'certificate authority').toString('utf8'), serverName: gatewayServerName(cert) };
 }
 
 export const machineBundle = (repoRoot: string, dataDir: string): MachineBundle => new MachineBundle(repoRoot, path.join(dataDir, 'machine-agent'));
@@ -65,13 +87,14 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
-    const { port, host, upstream, namespace, temporalKey, temporalCa, payloadBlobs } = deps.gateway;
+    const { port, host, upstream, namespace, temporalKey, temporalCa, tls, payloadBlobs } = deps.gateway;
     const ring = ringOf(deps.dataKey);
     const gateway = new MachineTemporalGateway({
       upstream,
       upstreamKey: temporalApiKey(temporalKey, { subject: 'koala-machine-gateway', namespace, role: 'write' }),
       upstreamCa: temporalCa,
       namespace,
+      tls: { cert: tls.cert, key: tls.key },
       keys: () => [ring.current, ...(ring.previous ?? [])],
       deviceOf: deviceByWorkToken(db, deps.workTokens),
       handed: (workflowId, deviceId) => payloadBlobs.handTo(workflowId, deviceId),

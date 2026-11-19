@@ -26,7 +26,7 @@ import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { archiveOldFilesOnce, keepStoredFilesSwept, storedFilesFor, storyDropsFor, wireFiles } from './files/wiring/files.js';
-import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
+import { machineBundle as newMachineBundle, machineGatewayTls, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
@@ -172,7 +172,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, settings.mesh, settings.dataDir);
   const machineTemporalAddress = settings.instance?.machineTemporalAddress;
-  const machineTemporal = typeof machineTemporalAddress === 'string' ? { address: machineTemporalAddress, namespace: settings.temporal.namespace } : undefined;
+  const gatewayTlsPlace = settings.instance?.gatewayTls;
+  const gatewayTls = typeof machineTemporalAddress === 'string' && gatewayTlsPlace && !isOff(gatewayTlsPlace) ? machineGatewayTls(gatewayTlsPlace, settings.temporal.caPath) : undefined;
+  const machineTemporal = typeof machineTemporalAddress === 'string' && gatewayTls ? { address: machineTemporalAddress, namespace: settings.temporal.namespace, ca: gatewayTls.ca, serverName: gatewayTls.serverName } : undefined;
   if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'), settings.dataDir);
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
@@ -388,13 +390,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         });
         return { status: answer.status, text: await answer.text() };
       },
-      gateway: {
+      gateway: gatewayTls && {
         port: settings.instance!.gatewayPort,
         host: settings.listenHost,
         upstream: settings.temporal.address,
         namespace: settings.temporal.namespace,
         temporalKey: keys.temporal,
         temporalCa: temporalTls(settings.temporal).serverRootCACertificate,
+        tls: gatewayTls,
         payloadBlobs: sharedPayloadBlobs(),
       },
     } : {}),

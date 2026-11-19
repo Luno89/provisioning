@@ -130,6 +130,9 @@ spec:
               mountPath: /etc/koala/temporal-tls
               readOnly: true
             {{- if eq $process "backend" }}
+            - name: machine-gateway-tls
+              mountPath: /etc/koala/machine-gateway-tls
+              readOnly: true
             - name: edge-config
               mountPath: /etc/edge
               readOnly: true
@@ -179,6 +182,14 @@ spec:
               - key: ca.crt
                 path: ca.crt
         {{- if eq $process "backend" }}
+        - name: machine-gateway-tls
+          secret:
+            secretName: {{ include "instance.name" $ }}-temporal-tls
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
         - name: edge-config
           configMap:
             name: {{ include "instance.name" $ }}-edge

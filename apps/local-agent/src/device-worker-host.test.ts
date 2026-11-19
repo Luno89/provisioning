@@ -54,9 +54,9 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
     const started: { address?: string | undefined }[] = [];
     const host = new DeviceWorkerHost(async (settings) => { started.push({ address: settings.temporal?.address }); return fakeWorker(); }, () => {});
     const ring = { current: 'a'.repeat(64) };
-    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7233', namespace: 'default' } }));
-    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } }));
-    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } }));
+    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7233', namespace: 'default', ca: 'the-ca', serverName: 'luno-temporal' } }));
+    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default', ca: 'the-ca', serverName: 'luno-temporal' } }));
+    await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default', ca: 'the-ca', serverName: 'luno-temporal' } }));
     expect(started).toEqual([{ address: '100.64.0.7:7233' }, { address: '100.64.0.7:7234' }]);
   });
 

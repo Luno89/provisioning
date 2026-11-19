@@ -133,6 +133,7 @@ export interface InstanceSettings {
   edge: EdgeSettings | Off;
   selfUpgrade: { cronJob: string; namespace: string } | Off;
   machineTemporalAddress: string | Off;
+  gatewayTls: { certPath: string; keyPath: string } | Off;
   gatewayPort: number;
   move: MovedSettings;
   poolMonitor: { rootUrl: string; instanceId: string } | Off;
@@ -441,6 +442,10 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
   const namespace = settingIn(read.env, 'INSTANCE_NAMESPACE');
   if (Boolean(cronJob) !== Boolean(namespace)) read.problems.push('SELF_UPGRADE_CRONJOB and INSTANCE_NAMESPACE go together, and only one is set');
   const machineTemporal = settingIn(read.env, 'MACHINE_TEMPORAL_ADDRESS');
+  const gatewayCert = settingIn(read.env, 'MACHINE_GATEWAY_TLS_CERT');
+  const gatewayKey = settingIn(read.env, 'MACHINE_GATEWAY_TLS_KEY');
+  const gatewayParts = [machineTemporal, gatewayCert, gatewayKey].filter(Boolean).length;
+  if (gatewayParts > 0 && gatewayParts < 3) read.problems.push('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
   const pool = env.POOL?.trim() === 'true';
   if (!credential || !edge || gatewayPort === undefined) return undefined;
@@ -451,6 +456,9 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
     machineTemporalAddress: machineTemporal
       ? (read.take(() => settingHostPort('MACHINE_TEMPORAL_ADDRESS', machineTemporal)) ?? machineTemporal)
       : { off: 'MACHINE_TEMPORAL_ADDRESS is not set (the instance chart sets it from mesh.address), so no machine can take this instance\'s work' },
+    gatewayTls: gatewayCert && gatewayKey
+      ? { certPath: gatewayCert, keyPath: gatewayKey }
+      : { off: 'MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY are not set (the instance chart sets them beside mesh.address), so the machine gateway does not listen' },
     gatewayPort,
     move: movedSettingsFrom(env),
     poolMonitor: pool && role.instance

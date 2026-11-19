@@ -1,6 +1,6 @@
 import { blobFromWire, blobIdsFrom, type Keyring, type StoredBlob } from '@koala/engine-core/payloads';
 
-export interface MachineTemporal { address: string; namespace: string }
+export interface MachineTemporal { address: string; namespace: string; ca: string; serverName: string }
 
 export type RingAnswer = { ring: Keyring; temporal?: MachineTemporal | undefined } | { error: string };
 export type PutAnswer = { ok: true } | { ok: false; error: string };

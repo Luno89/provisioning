@@ -33,24 +33,35 @@ export function remoteBlobs(socket: AskingSocket): BlobReach {
   };
 }
 
-export interface EngineSettings {
-  ring: Keyring;
-  temporal?: { address: string; namespace: string } | undefined;
+export interface MachineTemporal {
+  address: string;
+  namespace: string;
+  ca: string;
+  serverName: string;
 }
 
+export interface EngineSettings {
+  ring: Keyring;
+  temporal?: MachineTemporal | undefined;
+}
+
+const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
+
 export async function engineSettingsOver(socket: AskingSocket): Promise<EngineSettings> {
-  const answer = await askOver<{ ring?: Keyring; temporal?: { address?: unknown; namespace?: unknown }; error?: string }>(socket, 'machine:payloads', {});
+  const answer = await askOver<{ ring?: Keyring; temporal?: { address?: unknown; namespace?: unknown; ca?: unknown; serverName?: unknown }; error?: string }>(socket, 'machine:payloads', {});
   if (!answer?.ring?.current) throw new Error(answer?.error ?? 'Koala sent no payload key');
-  const { address, namespace } = answer.temporal ?? {};
-  return {
-    ring: answer.ring,
-    ...(typeof address === 'string' && address && typeof namespace === 'string' && namespace ? { temporal: { address, namespace } } : {}),
-  };
+  const address = text(answer.temporal?.address);
+  const namespace = text(answer.temporal?.namespace);
+  if (!address || !namespace) return { ring: answer.ring };
+  const ca = text(answer.temporal?.ca);
+  const serverName = text(answer.temporal?.serverName);
+  if (!ca || !serverName) throw new Error(`Koala named its Temporal at ${address} without the certificate authority and name to check it by, and a machine reaches Temporal only over TLS, so this machine takes no work until its Koala is updated`);
+  return { ring: answer.ring, temporal: { address, namespace, ca, serverName } };
 }
 
 export const ringFingerprint = (ring: Keyring): string => [ring.current, ...(ring.previous ?? [])].map(keyId).join(',');
 
 export const settingsFingerprint = (settings: EngineSettings): string =>
-  `${ringFingerprint(settings.ring)}|${settings.temporal ? `${settings.temporal.address}/${settings.temporal.namespace}` : ''}`;
+  `${ringFingerprint(settings.ring)}|${settings.temporal ? `${settings.temporal.address}/${settings.temporal.namespace}/${settings.temporal.serverName}/${keyId(settings.temporal.ca)}` : ''}`;
 
 

@@ -7,6 +7,7 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
 import { followEngineWorker } from './device-worker-follow.js';
 import { createDeviceActivities, deviceQueue, startDeviceWorker, type DeviceWorkerOptions } from './engine-worker.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
@@ -17,13 +18,18 @@ import { hostCluster, type ClusterHost } from './machine-cluster.js';
 
 let env: TestWorkflowEnvironment;
 let rootDir: string;
+let certificates: TestCertificates;
+let front: { address: string; close(): Promise<void> };
 
 beforeAll(async () => {
   env = await TestWorkflowEnvironment.createLocal();
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-follow-'));
+  certificates = makeCertificates();
+  front = await tlsInFrontOf(env.address, certificates);
 });
 
 afterAll(async () => {
+  await front.close();
   await env.teardown();
   await fs.rm(rootDir, { recursive: true, force: true });
 });
@@ -36,7 +42,7 @@ describe('the machine agent following its Koala for its device worker', () => {
     koala.on('connection', (socket) => {
       socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
         asked.push('machine:payloads');
-        ack({ ring: { current: 'follow-payload-key-0123456789abcdef' }, temporal: { address: env.address, namespace: 'default' } });
+        ack({ ring: { current: 'follow-payload-key-0123456789abcdef' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
       });
     });
     await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
