@@ -1,5 +1,4 @@
 import { temporal } from '@temporalio/proto';
-import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import { io as connect } from 'socket.io-client';
 import { describe, expect, it } from 'vitest';
 import { koalaAnsweringPayloads, temporalBehindTls } from './testing/temporal-world.js';
@@ -11,7 +10,7 @@ import { IdleGate } from './idle-gate.js';
 import { LocalMcpServer } from './local-mcp.js';
 import { hostCluster, type ClusterHost } from './machine-cluster.js';
 
-const world = temporalBehindTls('koala-follow-', { server: { executable: temporalServerExecutable() } });
+const world = temporalBehindTls('koala-follow-');
 
 describe('the machine agent following its Koala for its device worker', () => {
   it('asks Koala over its socket where Temporal is and for the payload keys, then starts the device worker, which polls this machine\'s queue', async () => {

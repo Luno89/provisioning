@@ -4,33 +4,34 @@ import { createServer, type IncomingMessage, type Server as HttpServer, type Ser
 import os from 'node:os';
 import path from 'node:path';
 import { temporal } from '@temporalio/proto';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Server } from 'socket.io';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { koalaInstallProgressPath, PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
 import { deviceQueue } from './engine-worker.js';
-import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
+import { startTestTemporal, type TestTemporal, type TestTemporalServer } from '@koala/engine-core/testing/temporal';
+import { makeCertificates, type TestCertificates } from '@koala/engine-core/testing/temporal-tls';
 
 const AGENT = path.join(import.meta.dirname, '..');
 const ENTRY = path.join(import.meta.dirname, 'index.ts');
 
-let env: TestWorkflowEnvironment;
+let server: TestTemporalServer;
+let env: TestTemporal;
 let home: string;
 let certificates: TestCertificates;
-let front: { address: string; close(): Promise<void> };
+let front: { address: string };
 const servers: HttpServer[] = [];
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal();
   certificates = makeCertificates();
-  front = await tlsInFrontOf(env.address, certificates);
+  server = await startTestTemporal(certificates);
+  env = server.env;
+  front = { address: server.tlsAddress };
   home = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-program-'));
 });
 
 afterAll(async () => {
   for (const server of servers) server.close();
-  await front.close();
-  await env.teardown();
+  await server.close();
   await fs.rm(home, { recursive: true, force: true });
 });
 

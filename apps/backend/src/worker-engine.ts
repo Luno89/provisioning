@@ -15,7 +15,7 @@ import {
   TreeHomeService, webhookUrlAt, type GroveRunLauncher,
 } from './projects/index.js';
 import {
-  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem,
+  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, connectTemporalWorker, temporalTlsProblem,
   sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
@@ -23,7 +23,8 @@ import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
-import { Worker, Runtime } from '@temporalio/worker';
+import { Runtime, type Worker } from '@temporalio/worker';
+import { createWorker } from '@koala/engine-core/temporal';
 import { dirname, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -81,7 +82,6 @@ import { bindChatWithItsFiles } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { chatTemplatesOverHttp, ToolCallParsers, TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { ignore } from '@koala/engine-core/failures';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
@@ -558,15 +558,13 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
 export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
   const activities = built ?? await buildActivities(settings, dependencies);
   const connection = await connectTemporalWorker('koala-worker-engine', settings);
-  const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-  const worker = await Worker.create({
-    ...WORKER_DEFAULTS,
+  const worker = await createWorker({
     connection,
     namespace: settings.temporal.namespace,
-    ...(dataConverter ? { dataConverter } : {}),
+    payloads: { ring: settings.keys.payload, blobs: sharedPayloadBlobs() },
     taskQueue: QUEUES.engine,
     workflowsPath: resolve(__dirname, 'workflows'),
-    interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
+    workflowModules: workflowInterceptorModules(settings.role),
     activities,
   });
   return { worker, activities };

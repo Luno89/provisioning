@@ -1,13 +1,10 @@
 import { Context } from '@temporalio/activity';
 import { ActivityFailure, ApplicationFailure, WorkflowFailedError } from '@temporalio/client';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { classifiedFailures } from './classified-failures.js';
-import { queueFor, temporal, workflowBundle } from '../testing/temporal.js';
+import { queueFor, temporal, testWorker, workflowBundle, type TestTemporal } from '../testing/temporal.js';
 import { failingUntil } from '../testing/workflows.js';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => { env = await temporal(); });
 afterAll(async () => { await env.teardown(); });
@@ -16,11 +13,9 @@ const tried: Record<string, number> = {};
 
 async function run(kind: string, until: number): Promise<number> {
   const taskQueue = queueFor('classified');
-  const worker = await Worker.create({
-    connection: env.nativeConnection,
+  const worker = await testWorker(env, {
     taskQueue,
     workflowBundle: await workflowBundle(),
-    interceptors: { activity: [classifiedFailures()] },
     activities: {
       async waitForStop() { return ''; },
       async echo(value: unknown) { return value; },

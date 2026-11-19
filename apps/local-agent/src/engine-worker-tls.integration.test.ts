@@ -2,32 +2,33 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { temporal } from '@temporalio/proto';
-import { TestWorkflowEnvironment } from '@temporalio/testing';
 import type { BlobReach } from '@koala/engine-core/payloads';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deviceQueue, startDeviceWorker, type DeviceWorkerOptions } from './engine-worker.js';
 import { IdleGate } from './idle-gate.js';
-import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
+import { startTestTemporal, type TestTemporal, type TestTemporalServer } from '@koala/engine-core/testing/temporal';
+import { makeCertificates, type TestCertificates } from '@koala/engine-core/testing/temporal-tls';
 
-let env: TestWorkflowEnvironment;
+let server: TestTemporalServer;
+let env: TestTemporal;
 let rootDir: string;
 let own: TestCertificates;
 let other: TestCertificates;
-let front: { address: string; close(): Promise<void> };
+let front: { address: string };
 
 const blobs: BlobReach = { async put() { return undefined; }, async get() { return new Map(); } };
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal();
-  rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-device-tls-'));
   own = makeCertificates();
   other = makeCertificates();
-  front = await tlsInFrontOf(env.address, own);
+  server = await startTestTemporal(own);
+  env = server.env;
+  front = { address: server.tlsAddress };
+  rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-device-tls-'));
 });
 
 afterAll(async () => {
-  await front.close();
-  await env.teardown();
+  await server.close();
   await fs.rm(rootDir, { recursive: true, force: true });
 });
 

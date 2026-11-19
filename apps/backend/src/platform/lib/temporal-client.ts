@@ -1,15 +1,14 @@
-import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
+import type { Client, Connection, WorkflowClientInterceptor } from '@temporalio/client'
+import { connectTemporal, createClient } from '@koala/engine-core/temporal'
 import protos from '@temporalio/proto'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { WORK_HEADER, workFor, workHeader, workIsUnnamed } from '@koala/engine-core/work-for'
 import type { Payload } from '@temporalio/common'
-import { buildDataConverter } from './temporal-codec.js'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
 import type { PlatformKeys } from './keys.js'
-import { temporalApiKey, temporalToken } from './temporal-auth.js'
-import { temporalTls } from './temporal-tls.js'
-import type { TemporalPlace } from './temporal-connection.js'
+import { temporalToken } from './temporal-auth.js'
+import { temporalDial, type TemporalPlace } from './temporal-connection.js'
 import { thrownFor, type DependencyReporter } from './dependencies.js'
 
 export interface TemporalClientSettings {
@@ -103,21 +102,16 @@ export async function getTemporalClient(): Promise<Client> {
   if (shared) return shared
   if (!given) throw new Error('this process was not given Temporal\'s settings: its entry point calls connectTemporalAs with them first')
   const { temporal, keys } = given
-  const connection = await Connection.connect({
-    address: temporal.address,
-    tls: temporalTls(temporal),
-    apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'write' }),
-  }).catch((err: unknown) => {
+  const connection = await connectTemporal(temporalDial('koala-backend', given), 'client').catch((err: unknown) => {
     throw thrownFor(reporter, 'temporal', err)
   })
   reporter?.answered('temporal')
   await registerOwnerAttribute(connection, temporal.namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }))
-  const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs())
-  shared = new Client({
+  shared = createClient({
     connection,
     namespace: temporal.namespace,
     interceptors: { workflow: [namesItsWork, requireOwner, traceWorkflowStarts()] },
-    ...(dataConverter ? { dataConverter } : {}),
+    payloads: { ring: keys.payload, blobs: sharedPayloadBlobs() },
   })
   return shared
 }

@@ -1,13 +1,12 @@
-import { Worker } from '@temporalio/worker';
+import type { Worker } from '@temporalio/worker';
+import { createWorker } from '@koala/engine-core/temporal';
 import { createEventBus, type EngineEvent, type EventBus } from '@koala/agent-engine';
 import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
-import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { PlatformKeys } from '../../platform/index.js';
 import { connectTemporalWorker, type TemporalPlace } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 
 export interface SocketLike {
   to(room: string): { emit(event: string, ...args: unknown[]): unknown };
@@ -50,14 +49,10 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
   const connection = await connectTemporalWorker('koala-stream-worker', options.connection);
 
   const bus = createTurnLogBus(options);
-  const dataConverter = buildDataConverter(options.connection.keys.payload, sharedPayloadBlobs());
-
-  return Worker.create({
-    ...WORKER_DEFAULTS,
+  return createWorker({
     connection,
-    ...(dataConverter ? { dataConverter } : {}),
+    payloads: { ring: options.connection.keys.payload, blobs: sharedPayloadBlobs() },
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
-    interceptors: { activity: activityInterceptors() },
     namespace: options.connection.temporal.namespace,
     activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
   });

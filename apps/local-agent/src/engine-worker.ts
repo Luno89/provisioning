@@ -1,7 +1,8 @@
 import { Context } from '@temporalio/activity';
-import { Worker, NativeConnection } from '@temporalio/worker';
-import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
-import { activityInterceptors, executeTool, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import type { Worker } from '@temporalio/worker';
+import type { BlobReach, Keyring } from '@koala/engine-core/payloads';
+import { bearerMetadata, connectTemporal, createWorker } from '@koala/engine-core/temporal';
+import { executeTool, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 import { holding, type IdleGate } from './idle-gate.js';
@@ -138,24 +139,18 @@ export interface DeviceWorker extends Worker {
 }
 
 export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker> {
-  const connection = await NativeConnection.connect({
-    address: options.address,
-    tls: { serverRootCACertificate: Buffer.from(options.tls.ca), serverNameOverride: options.tls.serverName },
-    metadata: { authorization: `Bearer ${options.token}` },
-  });
+  const connection = await connectTemporal({ address: options.address, tls: options.tls, auth: { bearer: options.token } }, 'worker');
   const taskQueue = deviceQueue(options.deviceId);
 
-  const worker = await Worker.create({
-    ...WORKER_DEFAULTS,
+  const worker = await createWorker({
     connection,
     taskQueue,
-    dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
-    interceptors: { activity: activityInterceptors() },
+    payloads: options.payloads,
     shutdownGraceTime: DRAIN_CEILING,
-    ...(options.namespace ? { namespace: options.namespace } : {}),
+    namespace: options.namespace ?? 'default',
     activities: createDeviceActivities(options),
   });
 
   options.onReady?.(taskQueue);
-  return Object.assign(worker, { setToken: (token: string) => connection.setMetadata({ authorization: `Bearer ${token}` }) });
+  return Object.assign(worker, { setToken: (token: string) => connection.setMetadata(bearerMetadata(token)) });
 }

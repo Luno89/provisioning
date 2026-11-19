@@ -87,9 +87,9 @@ describe('buildDataConverter', () => {
     expect(dc.payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec, EncryptionCodec]);
   });
 
-  it('still compresses with no key, and only then leaves payloads unencrypted', () => {
-    expect(buildDataConverter(undefined).payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec]);
-    expect(buildDataConverter('').payloadCodecs.map((codec) => codec.constructor)).toEqual([CompressionCodec]);
+  it('cannot be built without a key, so nothing goes through Temporal unsealed', () => {
+    expect(() => buildDataConverter('')).toThrow(/requires a master key/);
+    expect(() => buildDataConverter({ current: '' })).toThrow(/requires a master key/);
   });
 
   it('stores large payloads outside Temporal when given somewhere to keep them', () => {

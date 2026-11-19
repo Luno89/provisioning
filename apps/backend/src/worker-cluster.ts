@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Worker } from '@temporalio/worker';
+import { createWorker } from '@koala/engine-core/temporal';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -15,10 +15,9 @@ import type { ClusterSteps } from './activities/cluster-steps.js';
 import type { MoveOverDeps } from './activities/move-over.js';
 import { MoveParts } from './instances/index.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
-import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
+import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
 import { collectorEndpoint, collectorSink } from './monitoring/index.js';
@@ -90,15 +89,13 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   while (true) {
     try {
       const connection = await connectTemporalWorker('koala-worker-cluster', settings);
-      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-      worker = await Worker.create({
-    ...WORKER_DEFAULTS,
+      worker = await createWorker({
         connection,
         namespace: settings.temporal.namespace,
-        ...(dataConverter ? { dataConverter } : {}),
+        payloads: { ring: settings.keys.payload, blobs: sharedPayloadBlobs() },
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
+        workflowModules: workflowInterceptorModules(settings.role),
         activities: clusterActivities(steps, {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),

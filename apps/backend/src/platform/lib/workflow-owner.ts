@@ -1,7 +1,8 @@
-import { defineSearchAttributeKey, SearchAttributeType, type SearchAttributePair, type TypedSearchAttributes } from '@temporalio/common';
+import type { SearchAttributePair, TypedSearchAttributes } from '@temporalio/common';
+import { OWNER_ATTRIBUTE } from '@koala/engine-core/workflow-owner';
 import { allowed, holds, type Principal } from './permissions.js';
 
-export const OWNER_ATTRIBUTE = defineSearchAttributeKey('KoalaOwner', SearchAttributeType.KEYWORD);
+export { OWNER_ATTRIBUTE };
 export const PLATFORM_OWNER = 'platform';
 
 export const startedFor = (owner: string): { typedSearchAttributes: SearchAttributePair[] } => ({
