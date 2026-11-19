@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { MachineGpu } from '@koala/engine-core';
+import type { GpuWithoutDriver, MachineGpu } from '@koala/engine-core';
 import { advertisedGpus, gpuAskOf, gpuChangeRefusal, gpuDeployRefusal, gpuPluginState, runtimeRefused } from './cluster-gpus.js';
 
 const RTX: MachineGpu = { vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
-const desk = (extra: Partial<{ gpus: MachineGpu[]; gpuProblems: string[]; provider: 'machine' | 'pool' | 'root' }> = {}) => ({ name: 'desk', provider: 'machine' as const, gpus: [RTX], gpuProblems: [], ...extra });
+const desk = (extra: Partial<{ gpus: MachineGpu[]; gpuProblems: string[]; gpusWithoutDriver: GpuWithoutDriver[]; provider: 'machine' | 'pool' | 'root' }> = {}) => ({ name: 'desk', provider: 'machine' as const, gpus: [RTX], gpuProblems: [], ...extra });
 
 describe('the GPUs an app asks for', () => {
   it('is the count the request names, 1 or more, and is refused when a GPU app names none or 0', () => {
@@ -34,6 +34,16 @@ describe('a deploy that asks for GPUs, against what the machine says it has', ()
     expect(gpuDeployRefusal(desk(), { count: 1, vendor: 'amd' })).toEqual({ refused: 'This app asks for 1 AMD GPU, and desk has no AMD GPU (it has 2 × NVIDIA GeForce RTX 3090). Pick another machine, or CPU only.' });
     const both = desk({ gpus: [RTX, { vendor: 'amd', model: 'AMD gfx1100', memoryMiB: 24560, count: 1, runtime: true }] });
     expect(gpuDeployRefusal(both, { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and desk has NVIDIA and AMD GPUs: say which to use.' });
+  });
+
+  it('is refused saying the driver is not installed, when the cards of the vendor asked for are there without it', () => {
+    const bare: GpuWithoutDriver = { vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 };
+    expect(gpuDeployRefusal(desk({ gpus: [], gpusWithoutDriver: [bare] }), { count: 1 })).toEqual({ refused: 'This app asks for 1 GPU, and desk has 1 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed.' });
+    expect(gpuDeployRefusal(desk({ gpus: [], gpusWithoutDriver: [{ ...bare, count: 2 }] }), { count: 1, vendor: 'nvidia' })).toEqual({ refused: 'This app asks for 1 NVIDIA GPU, and desk has 2 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed.' });
+    const amd: MachineGpu = { vendor: 'amd', model: 'AMD gfx1100', memoryMiB: 24560, count: 1, runtime: true };
+    expect(gpuDeployRefusal(desk({ gpus: [amd], gpusWithoutDriver: [bare] }), { count: 1, vendor: 'nvidia' })).toEqual({ refused: 'This app asks for 1 NVIDIA GPU, and desk has 1 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed.' });
+    expect(gpuDeployRefusal(desk({ gpusWithoutDriver: [bare] }), { count: 3 })).toEqual({ refused: 'This app asks for 3 NVIDIA GPUs, and desk has 2 NVIDIA GPUs, and 1 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed. Ask for 2 or fewer.' });
+    expect(gpuDeployRefusal(desk({ gpusWithoutDriver: [bare] }), { count: 2 })).toEqual({ vendor: 'nvidia' });
   });
 
   it('is refused on a cluster that is not a machine\'s, and on a machine whose agent has not said which GPUs it has', () => {

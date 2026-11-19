@@ -2,6 +2,8 @@ export type GpuVendor = 'nvidia' | 'amd';
 
 export const GPU_VENDORS: readonly GpuVendor[] = ['nvidia', 'amd'];
 
+export const GPU_VENDOR_LABELS: Record<GpuVendor, string> = { nvidia: 'NVIDIA', amd: 'AMD' };
+
 export interface GpuCard {
   vendor: GpuVendor;
   model: string;
@@ -74,9 +76,48 @@ export const gpuCountOf = (gpus: readonly MachineGpu[] | undefined, vendor: GpuV
 export const usableVendors = (gpus: readonly MachineGpu[] | undefined): GpuVendor[] =>
   GPU_VENDORS.filter((vendor) => gpuCountOf(gpus, vendor) > 0);
 
+export interface GpuWithoutDriver {
+  vendor: GpuVendor;
+  device: string;
+  count: number;
+}
+
+export const LSPCI_QUERY = ['-vmmnnk'];
+
+const PCI_VENDORS: Record<string, { vendor: GpuVendor; driver: string }> = {
+  '10de': { vendor: 'nvidia', driver: 'nvidia' },
+  '1002': { vendor: 'amd', driver: 'amdgpu' },
+};
+
+const pciCode = (value: string): string | undefined => /\[([0-9a-f]{4})\]$/i.exec(value.trim())?.[1]?.toLowerCase();
+
+const pciName = (value: string): string => value.trim().replace(/\s*\[[0-9a-f]{4}\]$/i, '').trim();
+
+export function gpusWithoutDriver(lspci: string): GpuWithoutDriver[] {
+  const found: GpuWithoutDriver[] = [];
+  for (const record of lspci.split(/\n\s*\n/)) {
+    const fields = new Map<string, string>();
+    for (const line of record.split('\n')) {
+      const at = line.indexOf(':');
+      if (at > 0 && !fields.has(line.slice(0, at))) fields.set(line.slice(0, at), line.slice(at + 1).trim());
+    }
+    if (!pciCode(fields.get('Class') ?? '')?.startsWith('03')) continue;
+    const vendorId = pciCode(fields.get('Vendor') ?? '');
+    const known = vendorId ? PCI_VENDORS[vendorId] : undefined;
+    if (!known || fields.get('Driver') === known.driver) continue;
+    const named = pciName(fields.get('Device') ?? '');
+    const device = named && named !== 'Device' ? named : `device ${vendorId}:${pciCode(fields.get('Device') ?? '') ?? 'unknown'}`;
+    const same = found.find((entry) => entry.vendor === known.vendor && entry.device === device);
+    if (same) same.count += 1;
+    else found.push({ vendor: known.vendor, device, count: 1 });
+  }
+  return found;
+}
+
 export interface GpuReport {
   gpus: MachineGpu[];
   problems: string[];
+  withoutDriver: GpuWithoutDriver[];
 }
 
 export interface MachineCapacity {

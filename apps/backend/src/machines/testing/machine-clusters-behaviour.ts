@@ -29,9 +29,9 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
 
     it('keeps the GPUs the machine reports and the problems it had reading them, made or already there, and leaves them when a report says nothing of GPUs', async () => {
       const rtx = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
-      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [] });
+      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [], withoutDriver: [] });
       expect(await stored()).toMatchObject({ gpus: [rtx], gpuProblems: [] });
-      await clusters.reported(DESK, 'running', { gpus: [], problems: ['nvidia-smi is installed but does not answer'] });
+      await clusters.reported(DESK, 'running', { gpus: [], problems: ['nvidia-smi is installed but does not answer'], withoutDriver: [] });
       expect(await stored()).toMatchObject({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] });
       await clusters.reported(DESK, 'running');
       expect(await stored()).toMatchObject({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] });
@@ -39,9 +39,9 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
 
     it('keeps the cores and memory the machine reports, with the GPUs pods can be given there, and leaves them when a report says nothing of them', async () => {
       const rtx = { vendor: 'nvidia' as const, model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true };
-      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [] }, { cpuCores: 16, memoryMiB: 65536 });
+      await clusters.reported(DESK, 'stopped', { gpus: [rtx], problems: [], withoutDriver: [] }, { cpuCores: 16, memoryMiB: 65536 });
       expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' });
-      await clusters.reported(DESK, 'running', { gpus: [{ ...rtx, runtime: false }], problems: [] }, { cpuCores: 16, memoryMiB: 65536 });
+      await clusters.reported(DESK, 'running', { gpus: [{ ...rtx, runtime: false }], problems: [], withoutDriver: [] }, { cpuCores: 16, memoryMiB: 65536 });
       expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64 });
       await clusters.reported(DESK, 'running');
       expect((await stored())?.capacity).toEqual({ cpuCores: 16, ramGb: 64 });

@@ -275,6 +275,36 @@ describe('NVIDIA\'s CDI support on a machine with an NVIDIA GPU', () => {
   });
 });
 
+describe('a GPU whose driver is not installed', () => {
+  const card = (vendor: string, device: string, driver?: string): string => `Slot:\t01:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\t${vendor}\nDevice:\t${device}\n${driver ? `Driver:\t${driver}\n` : ''}`;
+  const NOUVEAU_3090 = card('NVIDIA Corporation [10de]', 'GA102 [GeForce RTX 3090] [2204]', 'nouveau');
+  const BARE_NAVI = card('Advanced Micro Devices, Inc. [AMD/ATI] [1002]', 'Navi 31 [Radeon RX 7900 XT/7900 XTX] [744c]');
+  const driverLines = (said: string): string[] => said.split('\n').map((line) => line.trim()).filter((line) => /driver/i.test(line));
+
+  it('says which card is there without its driver, for NVIDIA and AMD alike, with no instructions, and joins anyway', async () => {
+    const world = machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'], pci: `${NOUVEAU_3090}\n${BARE_NAVI}` });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(driverLines(ran.said)).toEqual([
+      'This machine has 1 × NVIDIA GA102 [GeForce RTX 3090], and its driver is not installed: apps here cannot use it until it is.',
+      'This machine has 1 × AMD Navi 31 [Radeon RX 7900 XT/7900 XTX], and its driver is not installed: apps here cannot use it until it is.',
+    ]);
+  });
+
+  it('says it cannot tell when lspci is not installed, rather than saying nothing', async () => {
+    const world = machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'], pci: false });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(driverLines(ran.said)).toEqual(['lspci is not installed here, so Koala cannot tell whether a GPU here is missing its driver']);
+  });
+
+  it('says nothing of drivers on a machine whose cards all have theirs', async () => {
+    const world = machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'], pci: card('NVIDIA Corporation [10de]', 'GA102 [GeForce RTX 3090] [2204]', 'nvidia') });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(driverLines(ran.said)).toEqual([]);
+  });
+});
+
 describe('a join that fails', () => {
   it('says where and why, tells root the same why, and installs nothing from a download that is not the one Koala pins', async () => {
     const world = machine({ executables: ['/usr/bin/systemctl'], downloads: { ...DOWNLOADS, [pins.k3s.url('amd64')]: 'tampered' } });

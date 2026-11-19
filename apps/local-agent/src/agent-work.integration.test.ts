@@ -24,8 +24,10 @@ afterAll(async () => {
 });
 
 const noKoalaK3s: ClusterHost = {
+  platform: 'linux',
   run: async (file) => {
     if (file === 'nvidia-smi') return 'NVIDIA GeForce RTX 3090, 24576\n';
+    if (file === 'lspci') return 'Slot:\t01:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\tNVIDIA Corporation [10de]\nDevice:\tGA102 [GeForce RTX 3090] [2204]\nDriver:\tnvidia\n';
     throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' });
   },
   exists: async () => false,
@@ -75,7 +77,7 @@ describe('the machine agent starting its work for its Koala', () => {
       namespace: 'default', taskQueue: { name: deviceQueue('work-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));
-    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [] } });
+    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [], withoutDriver: [] } });
     expect(stops).toHaveLength(1);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   });

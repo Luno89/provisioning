@@ -100,7 +100,7 @@ export function startWork(
   socket.on('connect', () => tellRuns(sessions.openRuns()));
   socket.on('connect', () => {
     Promise.all([clusterOnConnect(place.cluster, say), machineGpus(place.cluster)]).then(
-      ([state, gpus]) => { if (socket.connected) socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems, capacity: machineCapacity() }); },
+      ([state, gpus]) => { if (socket.connected) socket.emit('machine:cluster', { state, ...gpus, capacity: machineCapacity() }); },
       (err: Error) => say(`whether this machine has its cluster could not be read: ${err.message}`),
     );
   });

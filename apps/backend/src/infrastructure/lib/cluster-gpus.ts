@@ -1,4 +1,4 @@
-import { GPU_VENDORS, gpuCountOf, type GpuVendor } from '@koala/engine-core';
+import { GPU_VENDOR_LABELS, GPU_VENDORS, gpuCountOf, type GpuVendor } from '@koala/engine-core';
 import type { ClusterMetadata } from '../../platform/index.js';
 import type { Rollout } from '@koala/provision';
 
@@ -12,8 +12,8 @@ export interface GpuPlugin {
 }
 
 export const GPU_PLUGINS: Record<GpuVendor, GpuPlugin> = {
-  nvidia: { manifest: 'k8s/gpu-device-plugin/nvidia.yaml', daemonSet: 'nvidia-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=nvidia-device-plugin-ds', resource: 'nvidia.com/gpu', label: 'NVIDIA' },
-  amd: { manifest: 'k8s/gpu-device-plugin/amd.yaml', daemonSet: 'amdgpu-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=amdgpu-dp-ds', resource: 'amd.com/gpu', label: 'AMD' },
+  nvidia: { manifest: 'k8s/gpu-device-plugin/nvidia.yaml', daemonSet: 'nvidia-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=nvidia-device-plugin-ds', resource: 'nvidia.com/gpu', label: GPU_VENDOR_LABELS.nvidia },
+  amd: { manifest: 'k8s/gpu-device-plugin/amd.yaml', daemonSet: 'amdgpu-device-plugin-daemonset', namespace: 'kube-system', selector: 'name=amdgpu-dp-ds', resource: 'amd.com/gpu', label: GPU_VENDOR_LABELS.amd },
 };
 
 const GPU_APPS: Record<string, { countField: string; vendorField?: string; vendor?: GpuVendor; label: string }> = {
@@ -43,11 +43,17 @@ const plural = (count: number, label?: string) => `${count} ${label ? `${label} 
 
 export type GpuDecision = { vendor: GpuVendor } | { refused: string };
 
-export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpus' | 'gpuProblems'>, ask: GpuAsk): GpuDecision {
+export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpus' | 'gpuProblems' | 'gpusWithoutDriver'>, ask: GpuAsk): GpuDecision {
   const asked = plural(ask.count, ask.vendor ? GPU_PLUGINS[ask.vendor].label : undefined);
+  const withoutDriver = (vendor: GpuVendor | undefined): string | undefined => {
+    const bare = (cluster.gpusWithoutDriver ?? []).filter((gpu) => !vendor || gpu.vendor === vendor);
+    return bare.length ? `${bare.map((gpu) => `${gpu.count} × ${GPU_PLUGINS[gpu.vendor].label} ${gpu.device}`).join(', ')} whose driver is not installed` : undefined;
+  };
   if (cluster.provider !== 'machine') return { refused: `This app asks for ${asked}, and only a machine's own cluster runs apps on GPUs; ${cluster.name} is not one. Pick one of your machines that has them, or CPU only.` };
   if (!cluster.gpus) return { refused: `This app asks for ${asked}, and ${cluster.name} has not said which GPUs it has: its agent is from before GPUs were reported, or it has not connected since. Once it connects with a current agent, it says.` };
   if (cluster.gpus.length === 0) {
+    const bare = withoutDriver(ask.vendor);
+    if (bare) return { refused: `This app asks for ${asked}, and ${cluster.name} has ${bare}.` };
     const why = cluster.gpuProblems?.length ? cluster.gpuProblems.join('; ') : 'if it has one, install its driver so nvidia-smi or the AMD kernel driver answers, then reconnect its agent';
     return { refused: `This app asks for ${asked}, and ${cluster.name} shows none: ${why}.` };
   }
@@ -57,17 +63,22 @@ export function gpuDeployRefusal(cluster: Pick<ClusterMetadata, 'name' | 'provid
   const label = GPU_PLUGINS[vendor].label;
   const there = gpuCountOf(cluster.gpus, vendor, false);
   if (there === 0) {
+    const bare = withoutDriver(vendor);
+    if (bare) return { refused: `This app asks for ${asked}, and ${cluster.name} has ${bare}.` };
     const others = cluster.gpus.map((gpu) => `${gpu.count} × ${gpu.model}`).join(', ');
     return { refused: `This app asks for ${asked}, and ${cluster.name} has no ${label} GPU (it has ${others}). Pick another machine, or CPU only.` };
   }
   const usable = gpuCountOf(cluster.gpus, vendor);
   const askedOf = plural(ask.count, label);
   if (usable === 0) return { refused: `This app asks for ${askedOf}. ${cluster.name} has ${plural(there, label)}, and pods there cannot be given them yet: NVIDIA's CDI support is not installed. ${GPU_CDI_HINT}` };
-  if (ask.count > usable) return { refused: `This app asks for ${askedOf}, and ${cluster.name} has ${plural(usable, label)}. Ask for ${usable} or fewer.` };
+  if (ask.count > usable) {
+    const bare = withoutDriver(vendor);
+    return { refused: `This app asks for ${askedOf}, and ${cluster.name} has ${plural(usable, label)}${bare ? `, and ${bare}` : ''}. Ask for ${usable} or fewer.` };
+  }
   return { vendor };
 }
 
-export function gpuChangeRefusal(existing: Record<string, unknown>, patch: Record<string, unknown>, cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpus' | 'gpuProblems'> | undefined): GpuDecision | undefined {
+export function gpuChangeRefusal(existing: Record<string, unknown>, patch: Record<string, unknown>, cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpus' | 'gpuProblems' | 'gpusWithoutDriver'> | undefined): GpuDecision | undefined {
   const app = GPU_APPS[String(existing.appType ?? '')];
   if (!app || ![app.countField, app.vendorField].some((field) => field !== undefined && field in patch)) return undefined;
   const ask = gpuAskOf(String(existing.appType), { ...existing, ...patch });

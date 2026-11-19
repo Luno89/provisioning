@@ -7,6 +7,7 @@ import {
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
 import type { AccountMachine } from './MachineAccounts.js';
+import type { GpuReportOf } from './MachineClusters.js';
 import { agentUpdateReportFrom, agentUpdateView, reportedBundle, type AgentUpdateView } from '../lib/agent-updates.js';
 import type { MachinesStore } from '../store.js';
 import { machineClusterId } from '../lib/machine-clusters.js';
@@ -34,7 +35,7 @@ export interface MachineDeps {
     removeFor?(ownerId: string, deviceId: string): Promise<void>;
   };
   bundle?: { sha256(): Promise<string> } | undefined;
-  clusters?: { forget(machine: { id: string; ownerId: string }): Promise<void>; gpuReports(): Promise<Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>> } | undefined;
+  clusters?: { forget(machine: { id: string; ownerId: string }): Promise<void>; gpuReports(): Promise<Map<string, GpuReportOf>> } | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -56,6 +57,7 @@ export interface MachineView {
   agentUpdate?: AgentUpdateView | undefined;
   gpus?: ClusterMetadata['gpus'];
   gpuProblems?: string[] | undefined;
+  gpusWithoutDriver?: ClusterMetadata['gpusWithoutDriver'];
 }
 
 export class MachineService {
@@ -111,7 +113,7 @@ export class MachineService {
   async list(ownerId: string): Promise<MachineView[]> {
     const devices = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
     const current = devices.length ? await this.currentBundle() : undefined;
-    const reports = devices.length && this.deps.clusters ? await this.deps.clusters.gpuReports() : new Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>();
+    const reports = devices.length && this.deps.clusters ? await this.deps.clusters.gpuReports() : new Map<string, GpuReportOf>();
     return devices.map((device) => ({ ...this.view(device, current), ...reports.get(machineClusterId(device.id)) }));
   }
 

@@ -5,6 +5,7 @@ import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { LSPCI_QUERY } from '@koala/engine-core';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js';
 import { machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME } from '../../../../local-agent/src/machine-gpus.js';
@@ -29,7 +30,7 @@ let url = '';
 const clients: ClientSocket[] = [];
 
 const machineWith = (installed: boolean): MockProxy<ClusterHost> => {
-  const host = mock<ClusterHost>();
+  const host = mock<ClusterHost>({ platform: 'linux' });
   host.exists.mockImplementation(async (path) => installed && path === K3S_MARKER);
   host.isWanted.mockResolvedValue(false);
   host.run.mockResolvedValue('inactive\n');
@@ -46,8 +47,19 @@ async function reports(host: ClusterHost, withGpus = false): Promise<void> {
     return;
   }
   const gpus = await machineGpus(host);
-  socket.emit('machine:cluster', { state, gpus: gpus.gpus, problems: gpus.problems, capacity: machineCapacity({ cpus: () => 16, totalMemory: () => 64 * 1024 ** 3 }) });
+  socket.emit('machine:cluster', { state, ...gpus, capacity: machineCapacity({ cpus: () => 16, totalMemory: () => 64 * 1024 ** 3 }) });
 }
+
+const NOUVEAU_3090 = 'Slot:\t01:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\tNVIDIA Corporation [10de]\nDevice:\tGA102 [GeForce RTX 3090] [2204]\nDriver:\tnouveau\n';
+
+const withADriverlessNvidiaCard = (host: MockProxy<ClusterHost>): ClusterHost => {
+  host.run.mockImplementation(async (file, args) => {
+    if (file === 'nvidia-smi') throw Object.assign(new Error('spawn nvidia-smi ENOENT'), { code: 'ENOENT' });
+    if (file === 'lspci' && args.join(' ') === LSPCI_QUERY.join(' ')) return NOUVEAU_3090;
+    return 'inactive\n';
+  });
+  return host;
+};
 
 const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
   host.run.mockImplementation(async (file) => (file === 'nvidia-smi' ? 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n' : 'inactive\n'));
@@ -63,15 +75,19 @@ async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
   }
 }
 
+let machines: MachineService;
+
 const desk = async () => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk');
 
 beforeEach(async () => {
   db = await fresh();
-  const machines = new MachineService({
+  const machineClusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: keys.data });
+  machines = new MachineService({
     store: db.machines,
     devices: { status: () => ({ online: true }) } as never,
     accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
     projects: { register: async () => { throw new Error('not used'); } },
+    clusters: machineClusters,
   });
   await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', meshIp: '100.64.0.7', createdAt: new Date().toISOString() });
   server = http.createServer();
@@ -82,7 +98,7 @@ beforeEach(async () => {
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines, workTokens, clusters: {} as never, apps: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
-    machineClusters: new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: keys.data }),
+    machineClusters,
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -107,6 +123,12 @@ describe('a machine telling Koala about its own cluster', () => {
     const reported = await until(async () => ((await desk())?.gpus ? desk() : undefined));
     expect(reported).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: [] });
     expect(reported?.capacity).toEqual({ cpuCores: 16, ramGb: 64, gpuCount: 2, gpuVendor: 'nvidia' });
+  });
+
+  it('a machine with an NVIDIA card whose driver is not installed shows it so on My Machines, read by the agent\'s own reader', async () => {
+    await reports(withADriverlessNvidiaCard(machineWith(true)), true);
+    const listed = await until(async () => (await machines.list('owner-1')).find((machine) => machine.id === 'desk' && machine.gpus));
+    expect(listed).toMatchObject({ gpus: [], gpuProblems: [], gpusWithoutDriver: [{ vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 }] });
   });
 
   it('a machine whose k3s is gone takes its cluster with it once no app is on it', async () => {

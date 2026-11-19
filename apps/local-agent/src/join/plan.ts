@@ -1,5 +1,7 @@
+import { GPU_VENDOR_LABELS } from '@koala/engine-core';
 import type { Step } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
+import { driverlessOf } from '../machine-gpus.js';
 import { SILENT, type JoinContext } from './context.js';
 import { helmStep } from './steps/helm.js';
 import { joinRootStep } from './steps/join-root.js';
@@ -43,6 +45,24 @@ async function cdiChosen(ctx: JoinContext, ask: Asking, say: (line: string) => v
   return false;
 }
 
+async function driversSaid(ctx: JoinContext, say: (line: string) => void): Promise<void> {
+  const read = await driverlessOf({
+    platform: ctx.host.platform,
+    run: async (file, args) => {
+      if (!await ctx.host.which(file)) throw Object.assign(new Error(`${file} is not installed`), { code: 'ENOENT' });
+      return (await ctx.commands.run({ command: file, args }, SILENT)).stdout;
+    },
+  });
+  if ('problem' in read) {
+    say(read.problem);
+    return;
+  }
+  for (const gpu of read.withoutDriver) {
+    const one = gpu.count === 1;
+    say(`This machine has ${gpu.count} × ${GPU_VENDOR_LABELS[gpu.vendor]} ${gpu.device}, and ${one ? 'its' : 'their'} driver is not installed: apps here cannot use ${one ? 'it' : 'them'} until it is.`);
+  }
+}
+
 async function serviceOf(ctx: JoinContext): Promise<Step<JoinContext> | undefined> {
   if (!ctx.args.service) return undefined;
   if (ctx.host.platform === 'darwin') return launchdServiceStep;
@@ -53,6 +73,7 @@ async function serviceOf(ctx: JoinContext): Promise<Step<JoinContext> | undefine
 
 export async function planJoin(ctx: JoinContext, ask: Asking, say: (line: string) => void): Promise<JoinPlan> {
   const linux = ctx.host.platform === 'linux';
+  await driversSaid(ctx, say);
   const steps: Step<JoinContext>[] = [joinRootStep(ctx.args.url)];
   if (!await ctx.host.which('tailscale')) {
     if (!linux) throw new JoinStopped('install Tailscale from https://tailscale.com/download, then run this again: Koala reaches this machine through it, privately');
