@@ -10,7 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
 import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import { MetricsService, TRACE_ID_HEADER } from '../services/MetricsService.js';
 import { carryingTrace, telemetrySettings } from './telemetry.js';

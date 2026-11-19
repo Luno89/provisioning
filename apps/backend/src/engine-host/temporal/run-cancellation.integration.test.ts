@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { MachineRunWatch } from '../../machines/services/MachineRunWatch.js';
 import { runClosedVia, runLifeVia } from './run-cancellation.js';

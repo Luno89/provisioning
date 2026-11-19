@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import type { TestProject } from 'vitest/node';
 import { localCommands, runSteps } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
@@ -26,7 +27,7 @@ function tlsInFrontOf(address: string, dir: string): Promise<tls.Server> {
 
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   const env = await TestWorkflowEnvironment.createLocal({
-    server: { searchAttributes: [OWNER_ATTRIBUTE] },
+    server: { searchAttributes: [OWNER_ATTRIBUTE], executable: temporalServerExecutable() },
   });
   const dir = mkdtempSync(join(tmpdir(), 'koala-test-temporal-tls-'));
   await runSteps([temporalTlsStep(dir)], { commands: localCommands(process.env) }, memoryReporter());

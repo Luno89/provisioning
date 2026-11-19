@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { POOL_SETUP_HEARD } from '../instances/lib/pool-trial.js';
 

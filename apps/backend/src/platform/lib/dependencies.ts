@@ -131,3 +131,11 @@ export function downAcross(own: readonly DependencyDown[], rows: readonly Depend
   });
   return [...own, ...elsewhere].sort((a, b) => a.since.localeCompare(b.since) || a.process.localeCompare(b.process));
 }
+
+export interface MinioPlace {
+  endPoint: string;
+  port: number;
+  useSSL: boolean;
+}
+
+export const minioHealthUrl = (at: MinioPlace): string => `${at.useSSL ? 'https' : 'http'}://${at.endPoint}:${at.port}/minio/health/live`;

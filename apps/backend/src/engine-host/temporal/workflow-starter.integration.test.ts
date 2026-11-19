@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { namesItsWork } from '../../platform/lib/temporal-client.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { RunGrantService } from '../../engine/services/RunGrantService.js';

@@ -13,7 +13,7 @@ import type { ScenarioResult } from '../eval/level2/results.js';
 import type { CheckRunOutcome } from './CheckRunWorkflow.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

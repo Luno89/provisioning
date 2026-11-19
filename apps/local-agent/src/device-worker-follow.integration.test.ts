@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { temporal } from '@temporalio/proto';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -19,7 +20,7 @@ let env: TestWorkflowEnvironment;
 let rootDir: string;
 
 beforeAll(async () => {
-  env = await TestWorkflowEnvironment.createLocal();
+  env = await TestWorkflowEnvironment.createLocal({ server: { executable: temporalServerExecutable() } });
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-follow-'));
 });
 

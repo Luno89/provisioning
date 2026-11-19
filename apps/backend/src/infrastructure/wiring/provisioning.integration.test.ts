@@ -16,7 +16,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { harnessApp } from '../../platform/routes/test-harness.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { RUN_ID_MEMO, workflowOfRun } from '../../platform/lib/workflow-ids.js';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import type { RunStarter, StartRunRequest } from '../../engine-host/registries/run-starter.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { ProvisionAsks, Provisioning, type ProvisionRoot } from '../services/Provisioning.js';

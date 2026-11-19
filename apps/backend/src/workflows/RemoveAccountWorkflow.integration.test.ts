@@ -12,7 +12,7 @@ import { mock } from 'vitest-mock-extended';
 import { createAccountRemovalActivities, type AccountRemovalActivities, type AccountRemovalDeps } from '../activities/RemoveAccountActivities.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { testDatabase } from '../platform/lib/test-database.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

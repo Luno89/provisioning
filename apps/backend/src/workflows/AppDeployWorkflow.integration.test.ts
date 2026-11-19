@@ -22,7 +22,7 @@ import { TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { mongoTarget } from '../platform/lib/mongo-target.js';

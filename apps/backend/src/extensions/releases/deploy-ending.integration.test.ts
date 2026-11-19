@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Worker } from '@temporalio/worker';
 import type { Client } from '@temporalio/client';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { deploySettledOn } from './deploy-ending.js';
 

@@ -8,7 +8,7 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { releaseRunWorkflowId } from '../releases/lib/release-run.js';
 import { OdooReleaseService } from '../releases/services/OdooReleaseService.js';
-import { bundled, temporalTestEnvironment } from '../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../workflows/testing/temporal-test-env.js';
 import { engineReleaseRuns } from './release-runs.js';
 import { releaseDecider } from '../releases/services/release-decider.js';
 import { noRepositoryRead } from '../releases/testing/no-repository.js';

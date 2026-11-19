@@ -9,7 +9,7 @@ import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
 import { poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
 import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 

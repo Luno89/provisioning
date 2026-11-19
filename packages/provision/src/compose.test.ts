@@ -44,6 +44,12 @@ const verbs = (ran: Command[]): string[] => ran.map((command) => said(command).j
 const answering = (answers: StepState[]): (() => Promise<StepState>) => async () => answers.shift() ?? { done: true };
 
 describe('a service started through its compose file', () => {
+  it('is built from its source as it starts, when its compose project says it is built here', async () => {
+    const commands = docker({ configured: { mongodb: 'h1' }, containers: {}, afterUp: (host) => { host.containers.mongodb = { state: 'running', hash: 'h1' }; } });
+    await runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: { ...PROJECT, build: true }, answers: answering([]) })], { commands, wait: instant }, memoryReporter());
+    expect(verbs(commands.ran)).toContain('up -d --build');
+  });
+
   it('is left alone when every service runs with the compose file\'s settings and answers', async () => {
     const commands = docker({ configured: { mongodb: 'h1' }, containers: { mongodb: { state: 'running', hash: 'h1' } } });
     const reporter = memoryReporter();

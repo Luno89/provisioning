@@ -7,7 +7,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { BenchIdleWorkflow, benchActivitySignal } from './BenchIdleWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type BenchIdleOutcome } from '../engine-host/temporal/contracts.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;

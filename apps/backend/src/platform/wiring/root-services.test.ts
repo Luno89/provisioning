@@ -37,6 +37,7 @@ describe('root\'s services, as steps', () => {
     expect(services.mongo).toEqual({ files: ['/opt/nowrinkles/docker-compose.mongo.yml'], address: '127.0.0.1:27017' });
     expect(services.headscale).toEqual({ files: ['/opt/nowrinkles/docker-compose.headscale.yml'], url: 'http://127.0.0.1:8080' });
     expect(services.registry).toEqual({ files: ['/opt/nowrinkles/docker-compose.registry.yml'], push: '127.0.0.1:5000' });
+    expect(services.caddy).toEqual({ files: ['/opt/nowrinkles/docker-compose.caddy.yml'], admin: { socket: '/run/koala-caddy/admin.sock' } });
   });
 
   it('are the steps of the services named, in the order named, Temporal\'s keys before Temporal and each step once', () => {
@@ -44,7 +45,8 @@ describe('root\'s services, as steps', () => {
     expect(rootServiceSteps(services, ['temporal', 'mongo', 'headscale', 'registry']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal', 'mongo', 'headscale', 'registry']);
     expect(rootServiceSteps(services, ['temporal-keys', 'temporal']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal']);
     expect(rootServiceSteps(services, ['registry']).map((step) => step.id)).toEqual(['registry']);
-    expect(ROOT_SERVICE_NAMES).toEqual(['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry']);
+    expect(rootServiceSteps(services, ['caddy']).map((step) => step.id)).toEqual(['caddy']);
+    expect(ROOT_SERVICE_NAMES).toEqual(['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry', 'caddy']);
   });
 });
 
@@ -55,8 +57,8 @@ describe('what the entry is asked to start', () => {
   });
 
   it('refuses a service it does not know, no compose program or no service, saying what it takes', () => {
-    const usage = 'usage: root-services.ts --compose <compose program> <temporal-keys|temporal|mongo|headscale|registry>...';
-    expect(() => rootServicesAsked(['--compose', 'docker compose', 'caddy'])).toThrow(`caddy is not one of root's services; ${usage}`);
+    const usage = 'usage: root-services.ts --compose <compose program> <temporal-keys|temporal|mongo|headscale|registry|caddy>...';
+    expect(() => rootServicesAsked(['--compose', 'docker compose', 'mail'])).toThrow(`mail is not one of root's services; ${usage}`);
     expect(() => rootServicesAsked(['temporal'])).toThrow(`name the compose program to run them with; ${usage}`);
     expect(() => rootServicesAsked(['--compose', 'docker compose'])).toThrow(`name at least one service; ${usage}`);
   });

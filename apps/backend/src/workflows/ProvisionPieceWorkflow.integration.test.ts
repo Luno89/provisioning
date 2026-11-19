@@ -11,7 +11,7 @@ import type { ProvisionPieceKey, ProvisionTarget } from '@koala/engine-core/koal
 import type { ProvisionPieceRun } from '../activities/ProvisionPieceActivity.js';
 import { DEFAULT_STREAM_TASK_QUEUE, deviceQueue } from '../engine-host/temporal/contracts.js';
 import { provisionPieceWorkflowId, type ProvisionPieceInput } from '../infrastructure/index.js';
-import { bundled, realTemporalEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
 import { provisionPieceStart } from './provision-piece.js';
 import type { ProvisionPieceWorkflow } from './ProvisionPieceWorkflow.js';
 

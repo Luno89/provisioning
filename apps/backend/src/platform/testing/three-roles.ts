@@ -12,7 +12,7 @@ import { databaseSettingsFrom } from '../lib/settings.js';
 import { devSplitPlan, type SplitPlace } from '../../instances/lib/dev-split.js';
 import { publicKeyPem } from '../../instances/lib/identity-token.js';
 import { hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
-import { freshNamespace } from '../../workflows/temporal-test-env.js';
+import { freshNamespace } from '../../workflows/testing/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';

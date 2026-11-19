@@ -10,7 +10,8 @@ export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timi
 const UNIT_GUARD = here('./unit-guard.ts');
 const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
-const THROWAWAYS = here('../../packages/engine-core/testing/throwaway-containers.ts');
+const WORLD = here('../../packages/provision/testing/world-setup.ts');
+const UNIT_WORLD = here('../../packages/provision/testing/unit-world-setup.ts');
 
 export interface Setup { globalSetup: string; setupFiles?: string[] }
 
@@ -40,7 +41,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', testTimeout: 0, hookTimeout: 0, include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
+      test: { name: 'unit', testTimeout: 0, hookTimeout: 0, globalSetup: [UNIT_WORLD], include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,
@@ -52,7 +53,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         include: integration,
         exclude,
         expect: { requireAssertions: true },
-        globalSetup: [THROWAWAYS, ...(options.integration?.globalSetup ?? []), ...optional.map((setup) => setup.globalSetup)],
+        globalSetup: [WORLD, ...(options.integration?.globalSetup ?? []), ...optional.map((setup) => setup.globalSetup)],
         ...(options.integration?.env ? { env: options.integration.env } : {}),
         ...(options.integration?.environment ? { environment: options.integration.environment } : {}),
         setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), ...optional.flatMap((one) => one.setupFiles ?? []), COUPLING],

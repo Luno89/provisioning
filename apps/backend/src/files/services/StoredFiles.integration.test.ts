@@ -8,7 +8,7 @@ import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { testBucket } from '../testing/real-minio.js';
 import { storedFilesContract, type StoredFilesWorld } from '../testing/stored-files-contract.js';
 import { minioObjectStore } from './ObjectStore.js';

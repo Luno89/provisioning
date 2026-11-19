@@ -16,7 +16,7 @@ import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { createEngineActivities, createNodeRunner } from '../../engine-host/temporal/activities.js';
 import { createHostOpNodes } from '../../engine-host/nodes/host-op-nodes.js';

@@ -5,7 +5,7 @@ import { Context } from '@temporalio/activity';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { bundled, clockSkippingEnvironment } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment } from './testing/temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -6,7 +6,7 @@ import { Worker } from '@temporalio/worker';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OWNER_ATTRIBUTE, startedFor } from '../platform/lib/workflow-owner.js';
-import { bundled, realTemporalEnvironment, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, realTemporalEnvironment, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type * as fixtures from './testing/contract.fixture-workflow.js';
 
 const FIXTURE = resolve(import.meta.dirname, 'testing/contract.fixture-workflow.ts');

@@ -6,7 +6,7 @@ import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { BUILT_IN_GROUPS, HOST_OP_KIND, WORKFLOW_IMPLEMENTATIONS, runProcedure, type NodeExecutor, type NodeImplementation } from '@koala/agent-engine/procedure';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { ownerIn, startedFor } from '../../platform/lib/workflow-owner.js';
 import { openedRecord, provisionPieceWorkflowId, provisionRunId, type ProvisionPieceInput, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';

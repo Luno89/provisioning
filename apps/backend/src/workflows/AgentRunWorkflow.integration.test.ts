@@ -44,7 +44,7 @@ import type { DataConverter } from '@temporalio/common';
 import { buildDataConverter } from '../platform/lib/temporal-codec.js';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';

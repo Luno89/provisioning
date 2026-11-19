@@ -12,7 +12,7 @@ import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from
 import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { readiesModel } from './testing/model-ready.fixture-workflow.js';
 
 const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };

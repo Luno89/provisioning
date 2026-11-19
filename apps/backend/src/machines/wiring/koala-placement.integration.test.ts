@@ -25,7 +25,7 @@ import { InstanceService, hashCredential, instanceIdFor } from '../../instances/
 import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { deviceTokenHash } from '../lib/device-tokens.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';

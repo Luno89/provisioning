@@ -7,7 +7,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './temporal-test-env.js';
+import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { createWorkspaceProjectActivities } from '../activities/WorkspaceProjectActivity.js';
 

@@ -1,7 +1,7 @@
 import { Client, Connection } from '@temporalio/client';
 import { describe, expect, inject, it } from 'vitest';
 import { startedFor } from '../platform/lib/workflow-owner.js';
-import { freshNamespace } from './temporal-test-env.js';
+import { freshNamespace } from './testing/temporal-test-env.js';
 
 describe('a Temporal namespace for one test file', () => {
   it('is new, takes a workflow with Koala\'s owner attribute at once, is no other file\'s, and is gone once dropped', async () => {

@@ -6,7 +6,7 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
-import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
 import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 import { failureReason } from '../platform/lib/temporal-failure.js';
 

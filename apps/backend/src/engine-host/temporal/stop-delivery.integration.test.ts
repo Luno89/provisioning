@@ -4,7 +4,7 @@ import { Context } from '@temporalio/activity';
 import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { heartbeatWhileRunning, STOPS_ARRIVE_WITHIN_MS, WORKER_DEFAULTS } from '@koala/engine-core';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 
 const QUEUE = 'stop-delivery-test';

@@ -11,7 +11,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
 
-import { bundled, realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { RunningService } from '../services/RunningService.js';

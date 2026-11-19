@@ -5,7 +5,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { deploymentsRouter } from './deployments.js';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { until } from '../../platform/testing/three-roles.js';
 import { AppService } from '../services/AppService.js';
 import { ClusterService } from '../services/ClusterService.js';

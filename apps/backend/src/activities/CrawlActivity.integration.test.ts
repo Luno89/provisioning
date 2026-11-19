@@ -14,7 +14,7 @@ import { giveHostActivities, hostClusterAccess } from './host-settings.js';
 import { crawlActivities, crawlPlaceFor, DiscardFrontierActivity, NextBatchActivity, PurgeCorpusActivity, SeedFrontierActivity } from './CrawlActivity.js';
 import { closedPort, startCorpusStandIn, type CorpusStandIn } from '../engine/testing/corpus-stand-in.js';
 import { INDEX_ID } from '../engine/lib/corpus-client.js';
-import { bundled, temporalTestEnvironment } from '../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../workflows/testing/temporal-test-env.js';
 import type { executeIngestWorkflow } from '../workflows/IngestWorkflow.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 

@@ -6,7 +6,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { PLATFORM_OWNER, startedFor } from '../../platform/lib/workflow-owner.js';
 import { anyOf, arrayWith } from '../../platform/lib/test-matchers.js';
-import { realTemporalEnvironment } from '../../workflows/temporal-test-env.js';
+import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { temporalRouter } from './temporal.js';

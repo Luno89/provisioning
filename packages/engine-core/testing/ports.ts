@@ -1,11 +1,11 @@
 import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { sharedTmp } from './shared.js';
 import { join } from 'node:path';
 
 export const HANDED_PORTS = { first: 20000, last: 29999 } as const;
 
-const claims = join(tmpdir(), 'koala-ports');
+const claims = join(sharedTmp(), 'koala-ports');
 const span = HANDED_PORTS.last - HANDED_PORTS.first + 1;
 let next = HANDED_PORTS.first + ((process.pid * 7919) % span);
 

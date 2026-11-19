@@ -10,6 +10,7 @@ import { DEV_UP_STEP, devStackProblemOf, devStackState, devStepOf, provisioningF
 import { devFile } from './dev-temporal.js';
 import { keepTimings, slowerThanUsual, timingsIn, TIMINGS_FILE } from './timings.js';
 import { showGrowing } from './show-growing.js';
+import { refuseWithoutRoom } from '../tiers/room.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -240,6 +241,7 @@ export interface StepHooks {
 export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>, hooks: StepHooks = {}): StepPassed[] {
   const owed = auditsOwed(repo);
   if (owed) throw new Error(owed);
+  refuseWithoutRoom(repo);
   const passed: StepPassed[] = [];
   steps.forEach((step, index) => {
     console.log(`\n━━ ${index + 1}/${steps.length} ${step.name} (npm run ${step.script})`);
@@ -281,6 +283,7 @@ function runLogged(repo: string, commit: string, step: GateStep, env: Record<str
 export async function runRounds(repo: string, commit: string, rounds: readonly GateStep[][], env: Record<string, string>): Promise<RoundResult[]> {
   const owed = auditsOwed(repo);
   if (owed) throw new Error(owed);
+  refuseWithoutRoom(repo, Math.max(1, ...rounds.map((round) => round.length)));
   const logs = join(repo, 'tests/.vm-logs');
   mkdirSync(logs, { recursive: true });
   const results: RoundResult[] = [];

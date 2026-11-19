@@ -8,7 +8,7 @@ import { inject } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import type { StoredFilesActivities } from '../lib/stored-files-work.js';
 import { minioObjectStore, type ObjectStore } from '../services/ObjectStore.js';
 import { createStoredFilesActivities } from '../services/stored-files-activities.js';
