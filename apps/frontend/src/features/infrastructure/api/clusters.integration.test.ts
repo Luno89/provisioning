@@ -42,4 +42,8 @@ describe('clusters, as Infrastructure asks for them', () => {
   it('reads no GPU status for a cluster the person cannot see, as null', async () => {
     expect(await getGpuStatus('machine-theirs')).toBeNull()
   })
+
+  it('says why the GPUs of the person\'s own machine cannot be read while it is stopped, rather than showing none', async () => {
+    await expect(getGpuStatus('machine-desk')).rejects.toMatchObject({ response: { data: { error: 'desk is stopped until something runs on it' } } })
+  })
 })
