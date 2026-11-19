@@ -4,6 +4,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 import { InstanceReach } from './InstanceReach.js';
 import type { InstanceRecord } from '../lib/instances.js';
+import { koalaPlacedAndUp } from '../testing/placed-koala.js';
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -24,6 +25,9 @@ let db: Database;
 let now: Date;
 let service: InstanceService;
 let routeChanges: number;
+
+const placedFor = async (ownerId: string, name: string = 'luno', on: InstanceService = service) =>
+  koalaPlacedAndUp(on, db, ownerId, { id: `m-${ownerId}`, name: 'm', meshIp: '100.64.0.9' }, name);
 
 const tokenFor = async (ownerId: string, name: string = 'luno') => {
   const made = await service.createJoinToken(ownerId, name);
@@ -173,15 +177,18 @@ describe('bringing a user\'s own machine in as their instance', () => {
 });
 
 describe('an instance\'s name and addresses', () => {
-  it('takes the name with the join command, refusing a bad one, one taken, and a change', async () => {
-    expect(await service.createJoinToken('u1', 'shop-x')).toMatchObject({ ok: false, status: 400, error: matching(/no dashes/) });
-    expect(await service.createJoinToken('u1', 'mesh')).toMatchObject({ ok: false, error: matching(/kept for the platform/) });
-    expect(await service.createJoinToken('u1')).toMatchObject({ ok: false, error: 'pick a name for your instance' });
-    await tokenFor('u1', 'luno');
-    expect(await service.createJoinToken('u2', 'luno')).toMatchObject({ ok: false, error: '"luno" is taken' });
+  it('takes the name with Koala put on a machine, refusing a bad one, one taken, and a change', async () => {
+    const desk = { id: 'm-u1', name: 'm', meshIp: '100.64.0.9' };
+    const laptop = { id: 'm-u2', name: 'laptop', meshIp: '100.64.0.10' };
+    expect(await service.placeOn('u1', desk, 'shop-x', 'install-a')).toMatchObject({ ok: false, status: 400, error: matching(/no dashes/) });
+    expect(await service.placeOn('u1', desk, 'mesh', 'install-a')).toMatchObject({ ok: false, error: matching(/kept for the platform/) });
+    expect(await service.placeOn('u1', desk, undefined, 'install-a')).toMatchObject({ ok: false, error: 'pick a name for your instance' });
+    await placedFor('u1', 'luno');
+    expect(await service.placeOn('u2', laptop, 'luno', 'install-b')).toMatchObject({ ok: false, error: '"luno" is taken' });
     expect(await service.nameCheck('u2', 'luno')).toEqual({ ok: false, problem: '"luno" is taken' });
-    expect(await service.createJoinToken('u1', 'other')).toMatchObject({ ok: false, error: matching(/already named "luno"/) });
-    expect(await service.createJoinToken('u1')).toMatchObject({ ok: true, value: { name: 'luno' } });
+    expect(await service.placeOn('u1', desk, 'other', 'install-c')).toMatchObject({ ok: false, error: matching(/already named "luno"/) });
+    expect(await service.placeOn('u1', desk, undefined, 'install-c')).toMatchObject({ ok: true });
+    expect((await db.instances.getInstances('u1'))[0]!.name).toBe('luno');
   });
 
   it('suggests a name from the person\'s email', async () => {
@@ -191,9 +198,7 @@ describe('an instance\'s name and addresses', () => {
   });
 
   it('keeps the mesh address the machine reports, and says the routes changed', async () => {
-    const joined = await service.join((await tokenFor('u1')).token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const { instanceId, credential } = await placedFor('u1');
     expect(await service.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
     expect(await service.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9 { import x }' })).toMatchObject({ ok: false, status: 400 });
     const before = routeChanges;
@@ -204,11 +209,7 @@ describe('an instance\'s name and addresses', () => {
   it('takes a mesh address only when one of the owner\'s own machines on the mesh has it, keeping the one it had while the mesh cannot be asked', async () => {
     const devices: Record<string, string[]> = { u1: ['100.64.0.9'], u2: ['100.64.0.50'] };
     const checked = new InstanceService(db, settings, { ...mesh, listUserDevices: async (ownerId: string) => [{ ipAddresses: devices[ownerId] ?? [] }] }, () => now);
-    const made = await checked.createJoinToken('u1', 'luno');
-    if (!made.ok) throw new Error(made.error);
-    const joined = await checked.join(made.value.token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const { instanceId, credential } = await placedFor('u1', 'luno', checked);
     expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.50' })).toEqual({ ok: false, status: 400, error: '100.64.0.50 is not one of this instance\'s owner\'s machines on the mesh' });
     expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
     const down = new InstanceService(db, settings, { ...mesh, listUserDevices: async () => { throw new Error('headscale is down'); } }, () => now);
@@ -216,9 +217,7 @@ describe('an instance\'s name and addresses', () => {
   });
 
   it('turns nested addresses on as issuing, only for the instance itself', async () => {
-    const joined = await service.join((await tokenFor('u1')).token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const { instanceId, credential } = await placedFor('u1');
     expect(await service.addresses(instanceId, credential)).toEqual({ ok: true, value: { nested: false, name: 'luno', domain: 'koala.dev' } });
     expect(await service.setAddresses(instanceId, credential, true)).toEqual({ ok: true, value: { nested: true, state: 'issuing', name: 'luno', domain: 'koala.dev' } });
     expect(await service.setAddresses(instanceId, 'guess', false)).toMatchObject({ ok: false, status: 401 });
@@ -228,11 +227,7 @@ describe('an instance\'s name and addresses', () => {
 });
 
 describe('the groups a shared project\'s apps are addressed under', () => {
-  const joinedAs = async (ownerId: string, name: string) => {
-    const joined = await service.join((await tokenFor(ownerId, name)).token, 'm');
-    if (!joined.ok) throw new Error(joined.error);
-    return joined.value;
-  };
+  const joinedAs = (ownerId: string, name: string) => placedFor(ownerId, name);
 
   it('checks a name against the rules, every instance\'s name and every group anywhere on root', async () => {
     const luno = await joinedAs('u1', 'luno');
@@ -261,7 +256,7 @@ describe('the groups a shared project\'s apps are addressed under', () => {
     expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'shop-x')).toMatchObject({ ok: false, status: 400 });
     expect(await service.claimGroup(luno.instanceId, luno.credential, '', 'shop')).toMatchObject({ ok: false, status: 400 });
     expect(await service.claimGroup(luno.instanceId, 'guess', 'p4', 'shop')).toMatchObject({ ok: false, status: 401 });
-    expect(await service.createJoinToken('u3', 'acme')).toMatchObject({ ok: false, error: '"acme" is taken' });
+    expect(await service.placeOn('u3', { id: 'm-u3', name: 'm', meshIp: '100.64.0.11' }, 'acme', 'install-u3')).toMatchObject({ ok: false, error: '"acme" is taken' });
     expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
   });
 
@@ -278,10 +273,10 @@ describe('the groups a shared project\'s apps are addressed under', () => {
     expect(await service.releaseGroup(sam.instanceId, 'guess', 'q1')).toMatchObject({ ok: false, status: 401 });
   });
 
-  it('keeps an instance\'s groups when its install command is made again', async () => {
+  it('keeps an instance\'s groups when Koala is put on its machine again', async () => {
     const luno = await joinedAs('u1', 'luno');
     await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme');
-    await tokenFor('u1', 'luno');
+    expect(await service.placeOn('u1', { id: 'm-u1', name: 'm', meshIp: '100.64.0.9' }, 'luno', 'install-again')).toMatchObject({ ok: true });
     expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
   });
 });
@@ -326,8 +321,7 @@ describe('a trial instance on Koala\'s servers', () => {
 
   it('refuses someone who already has Koala on their own machine, a name that is taken, and a second one', async () => {
     const pool = pooled();
-    const { token } = await tokenFor('u1', 'luno');
-    await service.join(token, 'desk');
+    await placedFor('u1', 'luno');
     expect(await pool.createPoolInstance('u1', 'luno')).toEqual({ ok: false, status: 400, error: 'you already have Koala on your own machine' });
     expect(await pool.createPoolInstance('u2', 'luno')).toMatchObject({ ok: false, status: 400, error: '"luno" is taken' });
     await pool.createPoolInstance('u3', 'carol');
@@ -570,10 +564,8 @@ describe('which release an instance runs', () => {
 
   const joined = async () => {
     service = new InstanceService(db, { ...settings, releases: catalogue(['old111', 'mid222', 'abc123']) }, mesh, () => now);
-    const { token } = await tokenFor('u1');
-    const made = await service.join(token, 'm');
-    if (!made.ok) throw new Error(made.error);
-    return { id: made.value.instanceId, credential: made.value.credential };
+    const made = await placedFor('u1');
+    return { id: made.instanceId, credential: made.credential };
   };
 
   it('follows root on auto, from the release it reports running, with that release\'s own chart', async () => {
@@ -585,9 +577,11 @@ describe('which release an instance runs', () => {
 
   it('installs a new instance from the image and chart root released, by digest and checksum, and an older release without them as before', async () => {
     service = new InstanceService(db, { ...settings, releases: catalogue(['old111', 'mid222', 'abc123']) }, mesh, () => now);
-    const { token } = await tokenFor('u1');
-    expect(await service.join(token, 'm')).toMatchObject({ ok: true, value: { imageTag: 'abc123', imageDigest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
+    const machine = { id: 'm-u1', name: 'm', meshIp: '100.64.0.9' };
+    await service.placeOn('u1', machine, 'luno', 'install-first');
+    expect(await service.placedKoala('install-first', machine)).toMatchObject({ ok: true, value: { imageTag: 'abc123', imageDigest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
     const { id, credential } = await joined();
+    await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
     await service.setUpdates(id, credential, { version: 'v2026.10.24' });
     const older = await service.release(id, credential);
     expect(older).toEqual({ ok: true, value: { imageTag: 'old111', chartUrl: 'https://app.example.com/api/instances/chart/old111.tgz' } });
@@ -624,10 +618,7 @@ describe('which release an instance runs', () => {
 
 describe('whether root tells an owner their instance cannot be reached', () => {
   it('is on by default for an own machine, switched by the instance with its credential or by the owner on root', async () => {
-    const { token } = await tokenFor('u1');
-    const joined = await service.join(token, 'desk');
-    if (!joined.ok) throw new Error(joined.error);
-    const { instanceId, credential } = joined.value;
+    const { instanceId, credential } = await placedFor('u1');
     expect(await service.watchAs(instanceId, credential)).toEqual({ ok: true, value: { notifyWhenUnreachable: true, alwaysTold: false } });
     expect(await service.watchAs(instanceId, 'wrong')).toMatchObject({ ok: false, status: 401 });
     expect(await service.setWatchAs(instanceId, credential, 'no')).toMatchObject({ ok: false, status: 400 });
@@ -723,11 +714,7 @@ describe('an instance telling root how its setup after the chart goes', () => {
   const gitea = (state: 'started' | 'done' | 'failed', more: Record<string, string> = {}) => ({ stage: 'gitea', title: 'Gitea, your repositories and images', state, ...more });
   const setUp = { stage: 'set-up', title: 'Koala is set up', state: 'done' };
 
-  const joinedOn = async (machine = 'desk') => {
-    const joined = await service.join((await tokenFor('u1')).token, machine);
-    if (!joined.ok) throw new Error(joined.error);
-    return joined.value;
-  };
+  const joinedOn = () => koalaPlacedAndUp(service, db, 'u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno');
 
   it('shows each piece as it comes, fails at the piece that stopped, and is ready only once the setup says so', async () => {
     const { instanceId, credential } = await joinedOn();
