@@ -122,7 +122,7 @@ describe('ClusterAccess: running kubectl and helm with a reach, wherever it was 
     streams.pipe.mockResolvedValue({ code: 1, stdout: '', stderr: 'pod db not found' });
     await expect(access.pipe(reach, ['exec'], Readable.from(['x']))).rejects.toThrow('pod db not found');
     const seen: string[] = [];
-    streams.follow.mockImplementation((_run, onOutput) => { onOutput('line'); return { pid: undefined, stop: () => {}, ended: Promise.resolve(OK) }; });
+    streams.follow.mockImplementation((_run, onOutput) => { onOutput('line'); return { pid: undefined, stop: () => {}, exited: Promise.resolve(OK), ended: Promise.resolve(OK) }; });
     await access.follow(reach, ['logs', '-f', 'app'], (chunk) => seen.push(chunk));
     expect(seen).toEqual(['line']);
   });
@@ -184,7 +184,8 @@ describe('ClusterAccess: what a workflow is handed', () => {
 describe('ClusterAccess: a kubectl it starts and leaves running', () => {
   it('starts kubectl with the reach\'s kubeconfig and hands back what it started, with what to feed it and where its output goes', async () => {
     const { access, streams, folder } = await door({ clusters: undefined, dataKey: undefined });
-    const started = { pid: undefined, stop: () => undefined, ended: Promise.resolve({ code: 3, stdout: '', stderr: 'no such pod' }) };
+    const ended = Promise.resolve({ code: 3, stdout: '', stderr: 'no such pod' });
+    const started = { pid: undefined, stop: () => undefined, exited: ended, ended };
     streams.start.mockReturnValue(started);
     const output = new PassThrough();
     const io = { input: 'hello', output };

@@ -13,6 +13,7 @@ export const CONTRACT = {
   bytes: { command: 'printf', args: ['\\000\\310\\n\\377'] },
   waits: { command: 'sleep', args: ['100000'] },
   family: { command: 'sh', args: ['-c', 'sleep 100000 & wait'] },
+  leavesFamily: { command: 'sh', args: ['-c', 'sleep 100000 & exit 4'] },
 } as const satisfies Record<string, ProcessRun>;
 
 const sink = (): { stream: Writable; bytes: () => Buffer } => {
@@ -102,8 +103,17 @@ export function processesContract(name: string, make: () => Processes & Streams)
       expect(await running.ended).toMatchObject({ code: 128, signal: 'SIGTERM' });
     });
 
+    it('says a program has exited while what it started still holds its output, and stopping the group then ends it', async () => {
+      const running = make().start(CONTRACT.leavesFamily, { group: true });
+      expect(await running.exited).toEqual({ code: 4 });
+      running.stop('SIGTERM');
+      expect(await running.ended).toMatchObject({ code: 4 });
+    });
+
     it('rejects a started program that is not there', async () => {
-      expect(await rejection(make().start(CONTRACT.missing).ended)).toBeInstanceOf(ProcessNotStarted);
+      const running = make().start(CONTRACT.missing);
+      expect(await rejection(running.ended)).toBeInstanceOf(ProcessNotStarted);
+      expect(await rejection(running.exited)).toBeInstanceOf(ProcessNotStarted);
     });
   });
 }

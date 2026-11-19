@@ -8,7 +8,8 @@ function followed() {
   let end: (result: ProcessResult) => void = () => undefined;
   let fail: (err: Error) => void = () => undefined;
   const stops: string[] = [];
-  const handle: Followed = { pid: undefined, stop: () => { stops.push('stopped'); }, ended: new Promise<ProcessResult>((done, failed) => { end = done; fail = failed; }) };
+  const ended = new Promise<ProcessResult>((done, failed) => { end = done; fail = failed; });
+  const handle: Followed = { pid: undefined, stop: () => { stops.push('stopped'); }, exited: ended, ended };
   return { handle, stops, end: (result: ProcessResult) => end(result), fail: (err: Error) => fail(err) };
 }
 

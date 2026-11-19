@@ -8,13 +8,13 @@ const same = (a: ProcessRun, b: ProcessRun): boolean => a.command === b.command 
 const asShWould = (run: ProcessRun): Answer | undefined => {
   if (same(run, CONTRACT.bothStreams)) return { stdout: 'one\ntwo\n', stderr: 'three\n' };
   if (same(run, CONTRACT.failing)) return { stdout: 'before\n', stderr: 'nope\n', code: 3 };
-  if (same(run, CONTRACT.echoed)) return { stdout: run.input ?? '' };
+  if (same(run, CONTRACT.echoed)) return { stdout: (input) => input };
   if (same(run, CONTRACT.withEnv)) return { stdout: `${run.env?.['KOALA_PROCESS_SAID'] ?? ''}\n` };
   if (same(run, CONTRACT.inFolder)) return { stdout: `${run.cwd ?? ''}\n` };
+  if (same(run, CONTRACT.leavesFamily)) return { code: 4 };
   if (same(run, CONTRACT.killed)) return { signal: 'SIGKILL' };
   if (same(run, CONTRACT.bytes)) return { stdout: Buffer.from([0, 200, 10, 255]) };
   if (same(run, CONTRACT.waits) || same(run, CONTRACT.family)) return { runsUntilStopped: true };
-  if (same(run, { command: 'cat', args: [] })) return { stdout: run.input ?? '' };
   return undefined;
 };
 

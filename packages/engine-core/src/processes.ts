@@ -27,6 +27,7 @@ export interface Processes {
 export interface Followed {
   readonly pid: number | undefined;
   stop(signal?: NodeJS.Signals): void;
+  exited: Promise<Pick<ProcessResult, 'code' | 'signal'>>;
   ended: Promise<ProcessResult>;
 }
 

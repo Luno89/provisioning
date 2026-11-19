@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { childEnv } from './child-env.js';
+import { ignore } from './failures.js';
 import { ProcessNotStarted, SIGNALLED, type Followed, type Heard, type Io, type Named, type ProcessResult, type ProcessRun, type Processes, type Streams } from './processes.js';
 
 export type EnvOf = (named: Named | undefined) => Record<string, string>;
@@ -19,6 +20,7 @@ const notPiped = (err: NodeJS.ErrnoException): boolean => err.code !== 'EPIPE';
 interface Child {
   child: ChildProcessWithoutNullStreams;
   closed: Promise<Pick<ProcessResult, 'code' | 'signal'>>;
+  exited: Promise<Pick<ProcessResult, 'code' | 'signal'>>;
   over(): boolean;
   failed(err: Error): void;
 }
@@ -35,8 +37,13 @@ function begin(envOf: EnvOf, run: ProcessRun, group: boolean): Child {
       done(ending(code, signal));
     });
   });
+  const exited = new Promise<Pick<ProcessResult, 'code' | 'signal'>>((done, fail) => {
+    child.on('exit', (code, signal) => { done(ending(code, signal)); });
+    closed.then(done, fail);
+  });
+  exited.catch(ignore('a program that could not start rejects ended as well, which is where its caller hears it'));
   child.stdin.on('error', (err: NodeJS.ErrnoException) => { if (notPiped(err)) failed(err); });
-  return { child, closed, over: () => over, failed };
+  return { child, closed, exited, over: () => over, failed };
 }
 
 function collect(stream: NodeJS.ReadableStream, hear: ((chunk: string) => void) | undefined): () => string {
@@ -91,7 +98,7 @@ function started(envOf: EnvOf, run: ProcessRun, io: Io): Followed {
   const stderr = collect(child.stderr, heard?.stderr);
   feed(begun, io.input ?? run.input);
   const ended = Promise.all([begun.closed, written]).then(([end]) => ({ ...end, stdout: stdout(), stderr: stderr() }));
-  return { pid: child.pid, stop: stopper(begun, group), ended };
+  return { pid: child.pid, stop: stopper(begun, group), exited: begun.exited, ended };
 }
 
 export interface NodeProcesses extends Processes, Streams {}

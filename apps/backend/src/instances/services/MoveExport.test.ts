@@ -328,7 +328,8 @@ describe('a pool instance reaching the cluster it runs in', () => {
     const bytes = Buffer.from([0, 255, 128, 10]);
     access.start.mockImplementation(async (_at, _args, io) => {
       io!.output!.end(bytes);
-      return { pid: undefined, stop: () => undefined, ended: Promise.resolve({ code: 0, stdout: '', stderr: '' }) };
+      const ended = Promise.resolve({ code: 0, stdout: '', stderr: '' });
+      return { pid: undefined, stop: () => undefined, exited: ended, ended };
     });
     const into = new PassThrough();
     const chunks: Buffer[] = [];
@@ -340,7 +341,8 @@ describe('a pool instance reaching the cluster it runs in', () => {
 
   it('fails a read with how kubectl ended and what it said', async () => {
     const access = starts();
-    access.start.mockResolvedValueOnce({ pid: undefined, stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: `${FORBIDDEN}\n` }) });
+    const refused = Promise.resolve({ code: 1, stdout: '', stderr: `${FORBIDDEN}\n` });
+    access.start.mockResolvedValueOnce({ pid: undefined, stop: () => undefined, exited: refused, ended: refused });
     await expect(moveClusterOn(access).read(['exec', 'pg'], new PassThrough())).rejects.toThrow(`kubectl ended with 1: ${FORBIDDEN}`);
   });
 });
