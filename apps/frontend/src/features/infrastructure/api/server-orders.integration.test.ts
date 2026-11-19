@@ -21,8 +21,7 @@ const backend = await startBackend(({ api, db, auth }) => {
     serverOrders: new ServerOrderService({
       store: db.infrastructure,
       dataKey: DATA_KEY,
-      ovhAccountOf: async () => undefined,
-      dnsCredentialsOf: (ownerId, provider) => credentials.dnsCredentialsOf(ownerId, provider),
+      credentials,
       startFollowing: outsideThisTier('Temporal'),
       stopFollowing: outsideThisTier('Temporal'),
     }),
