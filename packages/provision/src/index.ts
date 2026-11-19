@@ -1,4 +1,4 @@
-export { runSteps, StepFailed, TAIL_LINES, type Progress, type Reporter, type Step, type StepName, type StepState } from './steps.js';
+export { removeSteps, runSteps, StepFailed, TAIL_LINES, type Progress, type Reporter, type Step, type StepName, type StepState } from './steps.js';
 export { argvOf, CommandFailed, commandOutput, shown, type Command, type CommandOutput, type CommandRunner, type Ending, type Ran } from './commands.js';
 export { localCommands } from './local-commands.js';
 export { allReporters } from './reporters.js';
@@ -6,7 +6,8 @@ export { keptSudo, SUDO_REFRESH_MS, type Every, type KeptSudo, type KeptSudoOpti
 export { downloadChecked, type Download } from './download.js';
 export { ROLLING_LINES, terminalReporter, type Terminal } from './terminal-reporter.js';
 export { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
-export { composeCommand, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
+export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
+export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
 export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseOptions, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
 export { chartInputs, chartStep, followRelease, INPUTS_VALUE, type ChartCluster, type ChartContext, type ChartRelease } from './chart.js';
 export { assessWorkload, reconciledStatus, RECENT_RESTART_MS, type WorkloadHealth, type WorkloadStatus } from './workload-health.js';

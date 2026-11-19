@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
-import { runSteps, StepFailed, TAIL_LINES, type Step, type StepState } from './steps.js';
+import { removeSteps, runSteps, StepFailed, TAIL_LINES, type Step, type StepState } from './steps.js';
 
 interface Host { installed: Set<string>; applied: string[] }
 
@@ -113,5 +113,41 @@ describe('runSteps', () => {
     const step: Step<Host> = { ...install('docker'), check: async (ctx) => { order.push('checked'); return ctx.installed.has('docker') ? { done: true } : { done: false, why: 'no' }; } };
     await runSteps([step], host(), slow);
     expect(order[0]).toBe('reported');
+  });
+});
+
+const removable = (id: string, removed: string[], lines: string[] = []): Step<Host> => ({
+  ...install(id),
+  remove: async (ctx, progress) => {
+    for (const line of lines) progress.line(line);
+    ctx.installed.delete(id);
+    removed.push(id);
+  },
+});
+
+describe('removeSteps', () => {
+  it('removes what each step made, the last made first, saying each started and finished', async () => {
+    const removed: string[] = [];
+    const ctx = host('folder', 'mongo');
+    const reporter = memoryReporter();
+    await removeSteps([removable('folder', removed), install('room'), removable('mongo', removed, ['mongod stopped'])], ctx, reporter);
+    expect(removed).toEqual(['mongo', 'folder']);
+    expect(reporter.reported).toEqual([
+      { kind: 'started', id: 'mongo' },
+      { kind: 'line', id: 'mongo', text: 'mongod stopped' },
+      { kind: 'done', id: 'mongo' },
+      { kind: 'started', id: 'folder' },
+      { kind: 'done', id: 'folder' },
+    ]);
+  });
+
+  it('removes every step even when one fails, and then fails with where and why', async () => {
+    const removed: string[] = [];
+    const stuck: Step<Host> = { ...install('mongo'), remove: async (_ctx, progress) => { progress.line('mongod would not stop'); throw new Error('the port is still held'); } };
+    const failure = await failedOf(removeSteps([removable('folder', removed), stuck], host('folder', 'mongo'), memoryReporter()));
+    expect(removed).toEqual(['folder']);
+    expect(failure.stepId).toBe('mongo');
+    expect(failure.why).toBe('removing it failed: the port is still held');
+    expect(failure.tail).toEqual(['mongod would not stop']);
   });
 });

@@ -1,7 +1,7 @@
-import { failureOf, stillDown } from '@koala/engine-core/failures';
 import type { Command, CommandRunner } from './commands.js';
+import { serviceStep, type Provider } from './service.js';
 import type { Progress, Step, StepState } from './steps.js';
-import { Hopeless, waitUntil, type WaitOptions } from './wait-until.js';
+import type { WaitOptions } from './wait-until.js';
 
 export interface ComposeProject {
   program: readonly [string, ...string[]];
@@ -69,21 +69,6 @@ async function containersState(ctx: ComposeContext, compose: ComposeProject): Pr
   return { done: true };
 }
 
-async function answered(service: ComposeService): Promise<StepState> {
-  try {
-    return await service.answers();
-  } catch (err) {
-    const failure = failureOf(err);
-    if (failure.kind === 'final') throw new Hopeless(failure.reason, { cause: err });
-    return { done: false, why: `it does not answer: ${failure.reason}` };
-  }
-}
-
-async function stateOf(ctx: ComposeContext, service: ComposeService): Promise<StepState> {
-  const running = await containersState(ctx, service.compose);
-  return running.done ? answered(service) : running;
-}
-
 async function endedForGood(ctx: ComposeContext, compose: ComposeProject, progress: Progress): Promise<string | undefined> {
   const [wanted, found] = await Promise.all([configured(ctx, compose), containers(ctx, compose)]);
   for (const service of wanted.keys()) {
@@ -98,32 +83,17 @@ async function endedForGood(ctx: ComposeContext, compose: ComposeProject, progre
   return undefined;
 }
 
-export function composeStep(service: ComposeService): Step<ComposeContext> {
+export function composeProvider(title: string, compose: ComposeProject): Provider<ComposeContext> {
   return {
-    id: service.id,
-    title: service.title,
-    check: (ctx) => stateOf(ctx, service),
-    async apply(ctx, progress) {
-      const running = await containersState(ctx, service.compose);
-      const again: string[] = [];
-      if (running.done) {
-        const answer = await answered(service);
-        if (!answer.done) {
-          progress.line(`${service.title} runs with the compose file's settings but does not answer (${answer.why.replace(/^it does not answer: /, '')}), so its containers are made again`);
-          again.push('--force-recreate');
-        }
-      }
-      await ctx.commands.run(composeCommand(service.compose, ['up', '-d', ...again]), progress);
-      await waitUntil(
-        `${service.title} to answer`,
-        async () => {
-          const state = await stateOf(ctx, service);
-          if (!state.done) throw stillDown(state.why);
-          return true;
-        },
-        () => endedForGood(ctx, service.compose, progress),
-        ctx.wait,
-      );
+    running: (ctx) => containersState(ctx, compose),
+    async start(ctx, progress, unanswered) {
+      if (unanswered !== undefined) progress.line(`${title} runs with the compose file's settings but does not answer (${unanswered}), so its containers are made again`);
+      await ctx.commands.run(composeCommand(compose, ['up', '-d', ...(unanswered !== undefined ? ['--force-recreate'] : [])]), progress);
     },
+    ended: (ctx, progress) => endedForGood(ctx, compose, progress),
   };
+}
+
+export function composeStep(service: ComposeService): Step<ComposeContext> {
+  return serviceStep({ id: service.id, title: service.title, provider: composeProvider(service.title, service.compose), answers: service.answers });
 }
