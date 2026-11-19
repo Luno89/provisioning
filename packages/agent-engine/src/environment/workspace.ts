@@ -94,16 +94,6 @@ export function absentFrom(provides: readonly string[]): string[] {
   return COMMON_BINARIES.filter((binary) => !provides.includes(binary));
 }
 
-export function workspaceName(runId: string): string {
-  const slug = runId.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!slug) throw new Error(`Cannot name a workspace from run id ${JSON.stringify(runId)}`);
-  return `koala-run-${slug}`.slice(0, 63).replace(/-+$/, '');
-}
-
-export function lifetimeFor(budgetMs: number | undefined): number | undefined {
-  return budgetMs && budgetMs > 0 ? Math.ceil(budgetMs * 1.25) : undefined;
-}
-
 export function egressFor(
   mode: EgressMode,
   access: PackageAccess,

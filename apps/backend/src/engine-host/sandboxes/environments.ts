@@ -1,6 +1,13 @@
 import { ignore } from '@koala/engine-core/failures';
 import {
   BYPASS_ENV,
+  DEFAULT_CPU,
+  DEFAULT_MEMORY,
+  EGRESS_PROXY,
+  egressFor,
+  packageAccessFor,
+  type EgressRule,
+  type RunWorkspace,
   environmentFor,
   needsWorkspace,
   type AgentDefinition,
@@ -16,10 +23,7 @@ import { machineChoice } from '@koala/agent-engine/procedure';
 import { createNoneDriver } from '@koala/engine-core';
 import { createMachineDriver, type MachineBackend } from '../drivers/machine.js';
 import { environmentIdFor, type RunEnvironments } from './run-environments.js';
-import {
-  DEFAULT_CPU, DEFAULT_MEMORY, EGRESS_PROXY, egressFor, lifetimeFor, packageAccessFor,
-  type EgressRule, type RunWorkspace,
-} from './workspace.js';
+import { lifetimeFor } from './workspace.js';
 import type { ImageBuilder } from './image-builder.js';
 import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunEnvironment, RunTicket } from '../temporal/contracts.js';

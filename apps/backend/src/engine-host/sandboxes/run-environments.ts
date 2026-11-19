@@ -1,7 +1,7 @@
 import type { EnvironmentDriver, EnvironmentScope, EnvironmentSpec } from '@koala/engine-core';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 import type { RunTicket } from '../temporal/contracts.js';
-import type { RunWorkspace } from './workspace.js';
+import type { RunWorkspace } from '@koala/agent-engine';
 import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export interface ProvisionForRun {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildManifests, labelValue, workspaceName, type RunWorkspace } from './workspace.js';
+import type { RunWorkspace } from '@koala/agent-engine';
+import { buildManifests, labelValue, workspaceName } from './workspace.js';
 
 const LONG_RUN = 'eval2-6daa66c6-7dab-4acf-bf6d-c54e42840637-executor-reads-what-is-there';
 

@@ -1,4 +1,4 @@
-import { WORK_DIR } from '../sandboxes/workspace.js';
+import { WORK_DIR } from '@koala/agent-engine';
 import {
   capabilitiesOf,
   type DirEntry,

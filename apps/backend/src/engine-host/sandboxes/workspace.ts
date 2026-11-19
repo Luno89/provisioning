@@ -1,88 +1,11 @@
-import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
+import { POD, WORK_DIR, type RunWorkspace } from '@koala/agent-engine';
 import { WORKSPACE_STAMP, workspaceStamp } from '../../engine/lib/published-workspace.js';
 import { CLUSTER_DNS_EGRESS } from '../../engine/lib/workspace-spec.js';
 import { POD_PULL_SECRETS, REGISTRY_PULL_SECRET, registryPullSecret, type RegistryLogin } from '../../instances/lib/registry-pull.js';
 import { publicIpBlock } from '../../infrastructure/lib/egress-rules.js';
 
-export type EgressRule =
-  | { cidr: string; namespace?: undefined; ports?: number[] }
-  | { namespace: string; cidr?: undefined; ports?: number[] };
-
-export const WORK_DIR = '/work';
-
-export const POD = 'workspace';
-
-export const DEFAULT_CPU = '2';
-export const DEFAULT_MEMORY = '2Gi';
-
-
 export const WORK_VOLUME = 'work';
 export const WORK_VOLUME_SIZE = '10Gi';
-
-export const EGRESS_PROXY: EgressRule = { namespace: 'koala-egress', ports: [8888] };
-
-export interface RunWorkspace {
-  runId: string;
-  ownerId: string;
-  agent: string;
-  image: string;
-  provides: string[];
-  lifetimeMs?: number | undefined;
-  cpu: string;
-  memory: string;
-  egress: EgressRule[];
-  env: { name: string; value: string }[];
-  egressMode: EgressMode;
-  grantedHosts?: string[] | undefined;
-  persistent?: boolean | undefined;
-  sharedBy?: 'conversation' | undefined;
-}
-
-export const REGISTRY_MIRROR = 'http://verdaccio.koala-registry.svc.cluster.local:4873';
-
-export const PROXY_HOST = 'egress-proxy.koala-egress.svc.cluster.local:8888';
-
-export interface PackageAccess {
-  env: { name: string; value: string }[];
-  egress: EgressRule[];
-}
-
-const PROXY_ENV = [
-  { name: 'HTTPS_PROXY', value: `http://${PROXY_HOST}` },
-  { name: 'https_proxy', value: `http://${PROXY_HOST}` },
-  ...BYPASS_ENV,
-];
-
-export function packageAccessFor(provides: readonly string[]): PackageAccess {
-  const has = (binary: string) => provides.includes(binary);
-  const env: { name: string; value: string }[] = [];
-  const egress: EgressRule[] = [];
-
-  if (has('npm')) {
-    env.push({ name: 'NPM_CONFIG_REGISTRY', value: REGISTRY_MIRROR });
-    egress.push({ namespace: 'koala-registry', ports: [4873] });
-  }
-
-  if (has('pip') || has('go')) {
-    if (has('pip')) {
-      env.push(
-        { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
-        { name: 'PIP_TARGET', value: `${WORK_DIR}/.python-packages` },
-        { name: 'PYTHONPATH', value: `${WORK_DIR}/.python-packages` },
-      );
-    }
-    if (has('go')) {
-      env.push(
-        { name: 'GOPROXY', value: 'https://proxy.golang.org,direct' },
-        { name: 'GOSUMDB', value: 'sum.golang.org' },
-      );
-    }
-    env.push(...PROXY_ENV);
-    egress.push(EGRESS_PROXY);
-  }
-
-  return { env, egress };
-}
 
 const NAME_LIMIT = 63;
 
@@ -114,20 +37,6 @@ export function labelValue(text: string): string {
 
 export function lifetimeFor(wallClockLimitMs: number | undefined): number | undefined {
   return wallClockLimitMs && wallClockLimitMs > 0 ? Math.ceil(wallClockLimitMs * 1.25) : undefined;
-}
-
-export function egressFor(
-  mode: EgressMode,
-  access: PackageAccess,
-  granted: readonly EgressRule[] = [],
-): EgressRule[] {
-  if (mode === 'none') return [];
-
-  const viaProxy = mode === 'auto' || granted.length > 0 ? [EGRESS_PROXY] : [];
-  const all = [...access.egress, ...granted, ...viaProxy];
-
-  return all.filter((rule, index) => all.findIndex((other) =>
-    other.namespace === rule.namespace && other.cidr === rule.cidr) === index);
 }
 
 export function buildManifests(workspace: RunWorkspace, pull?: RegistryLogin | undefined): Record<string, unknown>[] {
