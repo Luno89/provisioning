@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   try {
     console.log('[1/5] the bench idles after a minute; koala gets a scenario and a baseline run');
     await http.put('/evals/level2/bench', { enabled: true, idleMinutes: 1, fullEveryHours: 24 * 365 });
-    const host = liveEngineHost(db);
+    const host = await liveEngineHost(db);
     const benched: Record<string, string> = {};
     for (const name of new Set(((await http.get('/evals/level2/scenarios')).data.scenarios as { agent: string }[]).map((scenario) => scenario.agent))) {
       const runnable = await host.registry.runnable(OWNER, name).catch(() => undefined);

@@ -3,7 +3,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { TABBYAPI_IMAGE, VLLM_IMAGE } from '../apps/backend/src/infrastructure/lib/model-images.js';
-import { DEV_NAMESPACE, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage } from './lib/dev-stack.js';
+import { DEV_NAMESPACE, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaPage, devKoalaTemporal, devKubectl, devOwner, devOwnerSignIn, devPortForward, devRootPage, type DevPortForward } from './lib/dev-stack.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { madeHere } from './lib/made-here.js';
 import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
@@ -75,8 +75,8 @@ const VLLM: Served = {
     const services = JSON.parse(await devKubectl(namespace, 'get', 'services', '-o', 'json')) as { items: { metadata: { name: string }; spec: { ports: { port: number }[] } }[] };
     const service = services.items.find((entry) => entry.spec.ports.some((port) => port.port === 8000));
     assert.ok(service, `no service on port 8000 in ${namespace}`);
-    const forward = devPortForward(namespace, `svc/${service.metadata.name}`, `${LOCAL_PORT}:8000`);
-    return { tokens: () => vllmTokens(LOCAL_PORT), stop: () => { forward.kill(); } };
+    const forward = await devPortForward(namespace, `svc/${service.metadata.name}`, `${LOCAL_PORT}:8000`);
+    return { tokens: () => vllmTokens(LOCAL_PORT), stop: () => { forward.stop(); } };
   },
 };
 
@@ -109,10 +109,10 @@ const TABBY: Served = {
 async function main(): Promise<void> {
   const owner = await devOwner();
   const api = client(owner.cookie);
-  const machineId = devKoalaEnv().INSTANCE_MACHINE_ID;
+  const machineId = (await devKoalaEnv()).INSTANCE_MACHINE_ID;
   assert.ok(machineId, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
   const clusterId = `machine-${machineId}`;
-  const db = devKoalaDatabase();
+  const db = await devKoalaDatabase();
   await db.init();
   const temporal = await devKoalaTemporal();
   const runIds = new Set<string>();

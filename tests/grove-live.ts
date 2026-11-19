@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   const started = Date.now();
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
-  const host = liveEngineHost(db);
+  const host = await liveEngineHost(db);
   const client = await getTemporalClient();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');

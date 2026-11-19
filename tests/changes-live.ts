@@ -51,7 +51,7 @@ async function main(): Promise<void> {
       id: scenarioId, name: 'Looks at the tasks first', describe: 'It calls list_tasks before answering.', agent: slug,
       procedure: { id: 'tool-rounds' }, input: { message: 'What should I work on next?' }, expect: { outcome: 'ok', toolsCalled: ['list_tasks'] },
     });
-    const host = liveEngineHost(db);
+    const host = await liveEngineHost(db);
     const benched: Record<string, string> = {};
     for (const name of new Set(((await http.get('/evals/level2/scenarios')).data.scenarios as { agent: string }[]).map((scenario) => scenario.agent))) {
       const runnable = await host.registry.runnable(OWNER, name).catch(() => undefined);
