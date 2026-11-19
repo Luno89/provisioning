@@ -5,7 +5,7 @@ import { describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams, succeeded } from '../../platform/index.js';
 import { CLUSTER_TOOL_PATHS, ClusterAccess } from '../services/ClusterAccess.js';
 import { clusterWide, namespacesOf } from './cluster-wide.js';
-import { privateCluster } from './private-cluster.js';
+import { controlPlaneGone, privateCluster } from './private-cluster.js';
 
 const shared = join(mkdtempSync(join(tmpdir(), 'koala-private-cluster-')), 'shared.yaml');
 writeFileSync(shared, inject('k3s').admin, { mode: 0o600 });
@@ -20,6 +20,8 @@ describe('a cluster of a test file\'s own', () => {
 
     expect(cluster.namespace).toMatch(/^vc-private-cluster-[0-9a-f]{8}$/);
     expect(await namespacesOf(shared)).toContain(cluster.namespace);
+    const sharedAccess = new ClusterAccess({ here: { koalaMachineId: 'desk', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-private-cluster-shared-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: inject('k3s').account });
+    expect(await controlPlaneGone(sharedAccess, cluster.namespace)).toBeUndefined();
 
     await access.apply(own, JSON.stringify({ apiVersion: 'rbac.authorization.k8s.io/v1', kind: 'ClusterRole', metadata: { name: 'only-in-here' }, rules: [] }));
     await access.apply(own, JSON.stringify({
@@ -40,5 +42,6 @@ describe('a cluster of a test file\'s own', () => {
     await cluster.stop();
 
     expect(await namespacesOf(shared)).not.toContain(cluster.namespace);
+    expect(await controlPlaneGone(sharedAccess, cluster.namespace)).toBe('its control plane is gone');
   }, 0);
 });
