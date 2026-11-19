@@ -16,6 +16,7 @@ import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
 import { selfUpgrade, selfUpgradeStep } from './self-upgrade.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
+import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
 
 const CHART = 'the chart root released';
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -50,10 +51,7 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
     },
   });
   settings.rootUrl = harness.url('');
-  const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await service!.join(made.value.token, 'box');
-  if (!joined.ok) throw new Error(joined.error);
+  const joined = { value: await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
   const ran = await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', presence: true });
   if (!ran.ok) throw new Error(ran.error);
   return {

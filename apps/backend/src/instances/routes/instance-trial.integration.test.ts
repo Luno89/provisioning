@@ -29,7 +29,7 @@ describe('an instance on Koala\'s servers and its trial, asking root over HTTP',
     const root = await rootWithAnInstance({ pool: true });
     const instance = await instanceOn(root);
     const started = await axios.post<{ command: string; expiresAt: string }>(instance.url(`${prefix}/move`), {});
-    expect(started.data.command).toMatch(/install\.sh \| sudo sh -s -- \S+$/);
+    expect(started.data.command).toMatch(/machine\.sh \| sh -s -- \S+$/);
     expect((await axios.get<{ move: { state: string } }>(instance.url(`${prefix}/move`))).data.move.state).toBe('waiting');
     expect((await axios.delete(instance.url(`${prefix}/move`))).data).toEqual({ stopping: true });
     expect(root.poolAsked).toEqual([`move ${root.instance.instanceId}`, `stop ${root.instance.instanceId}: you stopped the move`]);

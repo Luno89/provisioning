@@ -16,6 +16,7 @@ import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
 import { MailService } from '../../platform/services/MailService.js';
 import { excerptEnv, scriptExcerpt } from '../../../../../tests/coupling/shell-trace.js';
+import { koalaPlacedAndUp } from '../testing/placed-koala.js';
 
 const including = (items: unknown[]): unknown => expect.arrayContaining(items);
 
@@ -86,10 +87,7 @@ describe('what the installer tells root as it installs', () => {
         return instancesRouter({ instances: service, chart: async () => '', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
       },
     });
-    const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-    if (!made.ok) throw new Error(made.error);
-    const joined = await service!.join(made.value.token, 'box');
-    if (!joined.ok) throw new Error(joined.error);
+    const joined = { value: await koalaPlacedAndUp(service!, harness!.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
     return { credential: joined.value.credential, instanceId: joined.value.instanceId, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
   }
 

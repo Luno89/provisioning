@@ -21,6 +21,7 @@ import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { InstancePresence } from '../../instances/services/InstancePresence.js';
 import { InstanceSide, wireInstancePresence } from '../../instances/wiring/instances.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
+import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
 
 const KEY = 'sides-test-secret';
 const closers: Array<() => Promise<void>> = [];
@@ -73,10 +74,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     rootUrl: root.url, rootPublicKeys: () => [publicKeyPem(identityKeysFrom(pem).publicKey)], registry: 'r', imageTag: 't', domain: 'koala.test', meshLoginServer: 'https://mesh.koala.test',
     reach: new InstanceReach({ open: true, domain: 'koala.test' }),
   }, mesh);
-  const made = await instances.createJoinToken('bo', 'bobby');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await instances.join(made.value.token, 'bo-desktop');
-  if (!joined.ok) throw new Error(joined.error);
+  const joined = { value: await koalaPlacedAndUp(instances, rootDb, 'bo', { id: 'bo-desktop', name: 'bo-desktop', meshIp: '100.64.0.9' }, 'bobby') };
   const { instanceId, credential } = joined.value;
   const reported = await instances.report(instanceId, credential, { status: 'ready', url: instance.url });
   if (!reported.ok) throw new Error(reported.error);
