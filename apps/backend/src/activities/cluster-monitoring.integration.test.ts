@@ -10,7 +10,7 @@ const OLDER = '1.0.0';
 let cluster: WidgetCluster;
 
 beforeAll(async () => {
-  cluster = await widgetCluster('machine-desk', { readsSources: true });
+  cluster = await widgetCluster(import.meta.filename, 'machine-desk', { readsSources: true });
   cluster.publish(MONITORING_CHARTS.stack.chart, OLDER, ['size'], MONITORING_CHARTS.repo);
   cluster.publish(MONITORING_CHARTS.stack.chart, MONITORING_CHARTS.stack.version, ['size', 'colour'], MONITORING_CHARTS.repo);
 }, 0);

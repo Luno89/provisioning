@@ -4,15 +4,15 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, succeeded } from '../../platform/index.js';
 import { clusterWide, namespacesOf } from './cluster-wide.js';
-import { startK3s, type RealK3s } from './real-k3s.js';
+import { privateCluster, type PrivateCluster } from './private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
-let k3s: RealK3s;
+let k3s: PrivateCluster;
 let kubeconfig: string;
 const kubectl = (...args: string[]) => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] });
 
 beforeAll(async () => {
-  k3s = await startK3s();
+  k3s = await privateCluster(import.meta.filename);
   kubeconfig = join(mkdtempSync(join(tmpdir(), 'koala-cluster-wide-')), 'admin.yaml');
   writeFileSync(kubeconfig, k3s.admin, { mode: 0o600 });
 });

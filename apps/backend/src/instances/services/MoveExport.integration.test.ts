@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { ClusterAccess, startedMachine } from '../../infrastructure/index.js';
-import { startK3s, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../../infrastructure/testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { trustedKeys } from '../lib/identity-token.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
@@ -32,8 +32,8 @@ const manifests = [
 ].join('---\n');
 
 describe('a pool instance stopping for a move and taking work again, on a real cluster', () => {
-  let k3s: RealK3s;
-  beforeAll(async () => { k3s = await startK3s(); });
+  let k3s: PrivateCluster;
+  beforeAll(async () => { k3s = await privateCluster(import.meta.filename); });
   afterAll(async () => { await k3s?.stop(); });
 
   it('pauses its self-upgrade, scales its apps to nothing remembering how many ran, and starts them again as they were', async () => {

@@ -5,7 +5,7 @@ import { applyChartCrds } from './chart-crds.js';
 let cluster: WidgetCluster;
 
 beforeAll(async () => {
-  cluster = await widgetCluster('machine-crds', { readsSources: false });
+  cluster = await widgetCluster(import.meta.filename, 'machine-crds', { readsSources: false });
 }, 0);
 
 afterAll(async () => {

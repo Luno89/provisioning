@@ -6,7 +6,7 @@ import { reopening } from '@koala/engine-core/reopening';
 import { nodeProcesses, nodeStreams, succeeded } from '../../platform/index.js';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import { egressBehaviour } from '../testing/egress-behaviour.js';
-import { startK3s, type RealK3s } from '../testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { EgressProxyService, PROXY_NAMESPACE } from './EgressProxyService.js';
 import { EgressService } from './EgressService.js';
@@ -16,12 +16,12 @@ egressBehaviour(await emptiedEachTime());
 const PROXY_MANIFEST = resolve(import.meta.dirname, '../../../../../k8s/koala-egress/egress-proxy.yaml');
 
 describe('the egress proxy on a real cluster', () => {
-  let k3s: RealK3s;
+  let k3s: PrivateCluster;
   let adminFile: string;
   const admin = (...args: string[]): Promise<string> => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
 
   beforeAll(async () => {
-    k3s = await startK3s();
+    k3s = await privateCluster(import.meta.filename);
     adminFile = join(k3s.folder, 'admin.yaml');
     await admin('create', 'namespace', PROXY_NAMESPACE);
     await admin('create', 'configmap', 'egress-grants', '-n', PROXY_NAMESPACE, '--from-literal=passwd=', '--from-literal=acls.conf=');

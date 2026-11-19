@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, InfrastructureService, PLATFORM_PLAN, terraformPlacesFor, type Reach } from '../infrastructure/index.js';
 import { INGRESS_WEBHOOK } from '../infrastructure/lib/platform-provision.js';
-import { startK3s, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../infrastructure/testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { CannotRollOut } from './watched-apply.js';
@@ -15,14 +15,14 @@ const PROXY_MANIFEST = resolve(import.meta.dirname, '../../../../k8s/koala-egres
 const service = (key: string) => PLATFORM_PLAN.find((each) => each.key === key)!;
 const quickly = (ms: number): Promise<void> => new Promise((done) => { setTimeout(done, Math.min(ms, 500)); });
 
-let k3s: RealK3s;
+let k3s: PrivateCluster;
 let access: ClusterAccess;
 let own: Reach;
 let place: PlatformPlace;
 let infra: InfrastructureService;
 
 beforeAll(async () => {
-  k3s = await startK3s();
+  k3s = await privateCluster(import.meta.filename);
   access = new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-platform-')),

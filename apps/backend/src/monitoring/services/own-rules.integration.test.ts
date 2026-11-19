@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptValue, K3S_TRAEFIK_CONFIG, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess, runnersByRecord } from '../../infrastructure/index.js';
-import { startK3s, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../../infrastructure/testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { chartFolder, chartSourcesStandIn, type ChartSourcesStandIn } from '../../infrastructure/testing/chart-sources-stand-in.js';
 import { PROMETHEUS_CHART, PROMETHEUS_CHART_REPO } from '../lib/monitoring-history.js';
@@ -15,7 +15,7 @@ import { MonitoringService, prometheusAt, type PoolMonitor } from './MonitoringS
 import { AlertWatchService } from './AlertWatchService.js';
 import { prometheusStandIn, type PrometheusStandIn } from '../testing/prometheus-stand-in.js';
 
-let k3s: RealK3s;
+let k3s: PrivateCluster;
 let sources: ChartSourcesStandIn;
 const KEY = 'own-rules-key' as never;
 const RULE_TYPE = readFileSync(join(import.meta.dirname, '../testing/prometheusrules-crd-operator-0.93.1.json'), 'utf8');
@@ -43,7 +43,7 @@ beforeAll(async () => {
     'crds/prometheuses.yaml': crdOf('prometheuses', 'Prometheus'),
     'templates/prometheus.yaml': 'apiVersion: monitoring.coreos.com/v1\nkind: Prometheus\nmetadata: {name: kube-prometheus-stack-prometheus}\nspec:\n  enableRemoteWriteReceiver: {{ .Values.prometheus.prometheusSpec.enableRemoteWriteReceiver }}\n',
   }), PROMETHEUS_CHART_REPO);
-  k3s = await startK3s();
+  k3s = await privateCluster(import.meta.filename);
 }, 0);
 afterAll(async () => {
   await sources?.close();

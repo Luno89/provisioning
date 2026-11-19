@@ -34,7 +34,7 @@ import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { rootInstallsServed } from '../../instances/testing/root-installs.js';
 import { ClusterAccess, InfrastructureService, terraformPlacesFor, type ProvisioningRecord } from '../index.js';
-import { startK3s, type RealK3s } from '../testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 import { Provisioning } from '../services/Provisioning.js';
 
@@ -45,7 +45,7 @@ const ROOT_QUEUE = `${WORLD}-root`;
 const DESK = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
 
 let env: TestWorkflowEnvironment;
-let k3s: RealK3s;
+let k3s: PrivateCluster;
 let workers: Worker[] = [];
 let running: Promise<void>[] = [];
 const closing: (() => Promise<void>)[] = [];
@@ -101,7 +101,7 @@ async function rootSide(rootDb: Database) {
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-  k3s = await startK3s();
+  k3s = await privateCluster(import.meta.filename);
 }, 0);
 
 afterAll(async () => {

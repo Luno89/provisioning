@@ -13,7 +13,7 @@ import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
-import { startK3s } from '../infrastructure/testing/real-k3s.js';
+import { privateCluster } from '../infrastructure/testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
@@ -25,7 +25,7 @@ import { testDataDir } from '../platform/testing/data-dir.js';
 
 const REPO = path.resolve(import.meta.dirname, '../../../../');
 const CDKTF = path.join(REPO, 'packages', 'cdktf-infra');
-const k3s = await startK3s();
+const k3s = await privateCluster(import.meta.filename);
 
 const access = new ClusterAccess({
   here: { koalaMachineId: 'dev1', root: false },
@@ -87,7 +87,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
   });
 
   it('says a workload could not be read when the machine it was handed answers nowhere', async () => {
-    const nowhere = startedMachine('machine-gone', k3s.admin.replace(/server: https:\/\/127\.0\.0\.1:\d+/, 'server: https://127.0.0.1:1'));
+    const nowhere = startedMachine('machine-gone', k3s.admin.replace(/server: https:\/\/\S+/, 'server: https://127.0.0.1:1'));
     const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-gone', reach: nowhere }, steps);
     expect(read.health).toBe('unknown');
     expect(read.reason).toContain('127.0.0.1:1');

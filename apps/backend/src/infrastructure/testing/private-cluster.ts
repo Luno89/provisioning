@@ -10,6 +10,7 @@ import { testNamespaces } from './test-namespaces.js';
 
 export interface PrivateCluster {
   namespace: string;
+  address: string;
   admin: string;
   account: ServiceAccount;
   folder: string;
@@ -17,6 +18,7 @@ export interface PrivateCluster {
 }
 
 const RELEASE = 'cluster';
+const K3S_OWN = ['runtimeclass/nvidia', 'crd/helmcharts.helm.cattle.io', 'crd/helmchartconfigs.helm.cattle.io'];
 const NAMESPACE_ROOM = 63 - 'vc-'.length - '-12345678'.length;
 
 const slugOf = (file: string): string => basename(file).replace(/\.(integration\.)?test\.ts$/, '').replace(/\.ts$/, '').toLowerCase()
@@ -50,13 +52,16 @@ export async function privateCluster(file: string): Promise<PrivateCluster> {
     await access.kubectl(inside, ['wait', '--for=create', 'serviceaccount/default', '-n', 'default', '--timeout=720h']);
     await access.kubectl(inside, ['wait', '--for=create', 'deployment/coredns', '-n', 'kube-system', '--timeout=720h']);
     await access.kubectl(inside, ['wait', '--for=condition=Available', 'deployment/coredns', '-n', 'kube-system', '--timeout=720h']);
+    const k3sOwn = JSON.parse(await access.kubectl(host, ['get', ...K3S_OWN, '-o', 'json'])) as { items: { apiVersion: string; kind: string; metadata: { name: string; labels?: Record<string, string> }; status?: unknown }[] };
+    await access.apply(inside, k3sOwn.items.map(({ apiVersion, kind, metadata, status: _status, ...rest }) => JSON.stringify({ apiVersion, kind, metadata: { name: metadata.name, labels: metadata.labels ?? {} }, ...rest })).join('\n---\n'));
+    await access.kubectl(inside, ['wait', '--for=condition=Established', ...K3S_OWN.filter((name) => name.startsWith('crd/')), '--timeout=720h']);
     await access.kubectl(inside, ['create', 'serviceaccount', 'koala', '-n', 'default']);
     await access.kubectl(inside, ['create', 'clusterrolebinding', 'koala', '--clusterrole=cluster-admin', '--serviceaccount=default:koala']);
     const token = (await access.kubectl(inside, ['create', 'token', 'koala', '-n', 'default', '--duration=1h'])).trim();
     const account: ServiceAccount = { host: nodeAddress, port: nodePort, caFile: join(folder, 'ca.crt'), tokenFile: join(folder, 'token') };
     writeFileSync(account.caFile, Buffer.from(/certificate-authority-data: (\S+)/.exec(admin)![1]!, 'base64').toString('utf8'), { mode: 0o600 });
     writeFileSync(account.tokenFile, token, { mode: 0o600 });
-    return { namespace, admin, account, folder, stop: () => namespaces.removeAll() };
+    return { namespace, address: nodeAddress, admin, account, folder, stop: () => namespaces.removeAll() };
   } catch (failure) {
     await namespaces.removeAll();
     throw failure;

@@ -12,7 +12,7 @@ writeFileSync(shared, inject('k3s').admin, { mode: 0o600 });
 const onShared = (...args: string[]) => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', shared, ...args] });
 
 describe('a cluster of a test file\'s own', () => {
-  it('gives a file a cluster of its own inside the run\'s k3s that no other file sees, and takes it away after', async () => {
+  it('gives a file a cluster of its own inside the run\'s k3s that no other file sees, with the runtime and Helm kinds a machine\'s k3s has, and takes it away after', async () => {
     const before = await clusterWide(shared);
     const cluster = await privateCluster(import.meta.filename);
     const access = new ClusterAccess({ here: { koalaMachineId: 'desk', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-private-cluster-access-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: cluster.account });
@@ -31,6 +31,8 @@ describe('a cluster of a test file\'s own', () => {
     await access.kubectl(own, ['wait', '--for=condition=Ready', 'pod/web', '-n', 'shop', '--timeout=720h']);
 
     expect(await access.kubectl(own, ['get', 'clusterrole', 'only-in-here', '-o', 'name'])).toBe('clusterrole.rbac.authorization.k8s.io/only-in-here\n');
+    expect(await access.kubectl(own, ['get', 'runtimeclass', 'nvidia', '-o', 'jsonpath={.handler}'])).toBe('nvidia');
+    expect(await access.kubectl(own, ['get', 'helmchartconfigs', '-n', 'kube-system', '-o', 'name'])).toBe('');
     expect((await clusterWide(shared)).filter((entry) => !before.includes(entry))).toEqual([]);
     expect(await namespacesOf(shared)).not.toContain('shop');
     expect(await onShared('get', 'pods', '-n', cluster.namespace, '-l', 'vcluster.loft.sh/namespace=shop', '-o', 'name')).not.toBe('');
