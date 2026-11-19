@@ -4,7 +4,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import { claimSettingsFrom, createDatabase, type Database } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import {
-  bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, ovhAccountOf, READY_MARK, readOverSsh, redacted,
+  bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, READY_MARK, readOverSsh, redacted,
   runScriptOverSsh, ServerOrderProblem, ServerOrderService, setupCodeFrom, signInSecretsOf, sshAnswers,
 } from '../infrastructure/index.js';
 
@@ -20,8 +20,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
     const orders = new ServerOrderService({
       store: db.infrastructure,
       dataKey: keys.data,
-      ovhAccountOf: async (ownerId) => ovhAccountOf(await credentials.resolveCredentials(ownerId, 'ovh')),
-      dnsCredentialsOf: (ownerId, provider) => credentials.dnsCredentialsOf(ownerId, provider),
+      credentials,
       lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024 })).stdout,
     });
     return await work(orders);

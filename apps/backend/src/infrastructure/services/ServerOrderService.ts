@@ -10,7 +10,7 @@ import { rootSignInEnv, rootSignInProviders, type RootSignInProvider } from '../
 import { credentialEnvOf, dnsProviderNamed, DnsProviderRefusal, type DnsCredentials, type DnsZone } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, OvhError, type FetchLike } from './OvhClient.js';
-import type { OvhAccount } from '../lib/ovh-api.js';
+import type { CredentialService } from './CredentialService.js';
 import { forwardNotSeen, ipBlockFor, ptrValue, reverseDnsPath, reverseDnsSaid, samePtr, type ReverseDnsState } from '../lib/reverse-dns.js';
 
 export class ServerOrderProblem extends Error {
@@ -22,8 +22,7 @@ export class ServerOrderProblem extends Error {
 export interface ServerOrderDeps {
   store: Pick<InfrastructureStore, 'getServerOrders' | 'getServerOrder' | 'saveServerOrder' | 'patchServerOrder' | 'appendServerOrderLog'>;
   dataKey: SecretKey;
-  ovhAccountOf: (ownerId: string) => Promise<OvhAccount | undefined>;
-  dnsCredentialsOf: (ownerId: string, provider: string) => Promise<DnsCredentials | undefined>;
+  credentials: Pick<CredentialService, 'ovhAccountOf' | 'dnsCredentialsOf'>;
   dns?: DnsProviders;
   startFollowing?: (order: ServerOrder) => Promise<string>;
   stopFollowing?: (workflowId: string) => Promise<void>;
@@ -86,14 +85,14 @@ export class ServerOrderService {
   }
 
   private async ovh(ownerId: string): Promise<OvhClient> {
-    const account = await this.deps.ovhAccountOf(ownerId);
+    const account = await this.deps.credentials.ovhAccountOf(ownerId);
     if (!account) throw new ServerOrderProblem(409, 'Add your OVHcloud keys under Cloud providers first.');
     return new OvhClient(account, this.fetchImpl);
   }
 
   private async credentialsFor(ownerId: string, provider: string): Promise<DnsCredentials> {
     const described = dnsProviderNamed(provider);
-    const found = await this.deps.dnsCredentialsOf(ownerId, provider);
+    const found = await this.deps.credentials.dnsCredentialsOf(ownerId, provider);
     if (!found) throw new ServerOrderProblem(409, `Add your ${described.label} credentials under Cloud providers first. ${described.setup}`);
     return found;
   }
@@ -117,7 +116,7 @@ export class ServerOrderService {
       const found = await this.dns.detect(zone.trim().toLowerCase());
       if (!found.provider) return { zone: found.zone, nameservers: found.nameservers, problem: found.problem, credentials: false };
       const described = dnsProviderNamed(found.provider);
-      const credentials = Boolean(await this.deps.dnsCredentialsOf(ownerId, found.provider));
+      const credentials = Boolean(await this.deps.credentials.dnsCredentialsOf(ownerId, found.provider));
       return { zone: found.zone, nameservers: found.nameservers, provider: found.provider, label: described.label, credentials, ...(credentials ? {} : { setup: described.setup }) };
     }));
   }
@@ -244,8 +243,7 @@ export class ServerOrderService {
 
   async sshKey(ownerId: string, id: string): Promise<{ privateKey: string; host?: string | undefined }> {
     const order = await this.owned(ownerId, id);
-    if (!order.sshPrivateKey) throw new ServerOrderProblem(404, 'This server has no key from Koala yet.');
-    return { privateKey: decryptValue(order.sshPrivateKey, this.deps.dataKey), host: order.ip };
+    return { privateKey: this.privateKeyOf(order), host: order.ip };
   }
 
   async order(id: string): Promise<ServerOrder> {
@@ -357,7 +355,7 @@ export class ServerOrderService {
   }
 
   privateKeyOf(order: ServerOrder): string {
-    if (!order.sshPrivateKey) throw new Error('the server has no key from Koala yet');
+    if (!order.sshPrivateKey) throw new ServerOrderProblem(404, 'This server has no key from Koala yet.');
     return decryptValue(order.sshPrivateKey, this.deps.dataKey);
   }
 

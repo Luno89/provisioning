@@ -33,8 +33,10 @@ async function mount() {
       serverOrders: new ServerOrderService({
         store: db.infrastructure,
         dataKey: 'route-test-key',
-        ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
-        dnsCredentialsOf: async (_owner, provider) => (provider === 'cloudflare' ? cf.good : undefined),
+        credentials: {
+          ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
+          dnsCredentialsOf: async (_owner, provider) => (provider === 'cloudflare' ? cf.good : undefined),
+        },
         startFollowing: async (order) => { started.push(order.id); return `root-node-${order.id}`; },
         fetchImpl: ovh.fetch,
         dns: new DnsProviders(cf.fetch, async () => ['a.ns.cloudflare.com', 'b.ns.cloudflare.com']),

@@ -5,6 +5,7 @@ import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, type FetchLike } from './OvhClient.js';
+import { ovhAccountOf, type OvhAccount } from '../lib/ovh-api.js';
 import type { ClaimedUser, ClaimSettings, OperatorCredentials } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<unknown> {
@@ -249,6 +250,10 @@ export class CredentialService {
     if (!isDnsProviderName(provider)) return undefined;
     const resolved = await this.resolveCredentials(userId, provider);
     return resolved.mode === 'none' ? undefined : credentialsFromEnv(dnsProviderNamed(provider), resolved.env);
+  }
+
+  async ovhAccountOf(userId: string): Promise<OvhAccount | undefined> {
+    return ovhAccountOf(await this.resolveCredentials(userId, 'ovh'));
   }
 
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {

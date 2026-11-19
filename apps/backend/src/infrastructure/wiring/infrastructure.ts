@@ -32,7 +32,6 @@ import { workerRouter } from '../routes/worker.js';
 import { serverOrdersRouter } from '../routes/server-orders.js';
 import { ServerOrderService } from '../services/ServerOrderService.js';
 import { rootNodeWorkflowId } from '../lib/server-orders.js';
-import { ovhAccountOf } from '../lib/ovh-api.js';
 import { RootNodeWorkflow } from '../../workflows/RootNodeWorkflow.js';
 import type { Mounts } from '../../hub/index.js';
 import { QUEUES } from '../../platform/index.js';
@@ -84,8 +83,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const serverOrders = new ServerOrderService({
     store: db.infrastructure,
     dataKey: deps.dataKey,
-    ovhAccountOf: async (ownerId) => ovhAccountOf(await deps.credentials.resolveCredentials(ownerId, 'ovh')),
-    dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
+    credentials: deps.credentials,
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
       await (await getTemporalClient()).workflow.start(RootNodeWorkflow, {

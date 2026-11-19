@@ -39,7 +39,6 @@ export type { PlatformService as PlatformServicePlan, SecretSource, SecretValues
 export { serviceNameFor, usableServiceName } from './lib/service-name.js';
 export { bootstrapScript, KOALA_REPOSITORY, READY_MARK, redacted, setupCodeFrom } from './lib/server-orders.js';
 export type { ServerOrder, ServerOrderState } from './lib/server-orders.js';
-export { ovhAccountOf } from './lib/ovh-api.js';
 export { generateSshKeypair } from './lib/ssh-keypair.js';
 export { ovhSubsidiaryOf, vpsCatalogAdapters } from './lib/vps-catalog/adapters.js';
 export { serveHealth } from './lib/worker-health.js';

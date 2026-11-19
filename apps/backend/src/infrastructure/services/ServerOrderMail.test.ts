@@ -42,8 +42,10 @@ describe('root\'s mail once its server is bought', () => {
     service = new ServerOrderService({
       store: db.infrastructure,
       dataKey: 'server-order-mail-test-key',
-      ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'US' }),
-      dnsCredentialsOf: async (_owner, provider) => stored[provider],
+      credentials: {
+        ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'US' }),
+        dnsCredentialsOf: async (_owner, provider) => stored[provider],
+      },
       startFollowing: async (order) => `root-node-${order.id}`,
       lsRemote: async () => 'a\trefs/tags/v2026.10.29\n',
       fetchImpl: ovh.fetch,

@@ -7,6 +7,7 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderProblem, ServerOrderService } from './ServerOrderService.js';
+import { CredentialService } from './CredentialService.js';
 
 const fresh = await emptiedEachTime();
 
@@ -32,8 +33,10 @@ describe('buying root\'s server from OVHcloud', () => {
   const make = (overrides: Partial<ConstructorParameters<typeof ServerOrderService>[0]> = {}) => new ServerOrderService({
     store: db.infrastructure,
     dataKey: KEY,
-    ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
-    dnsCredentialsOf: async (_owner, provider) => stored[provider],
+    credentials: {
+      ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
+      dnsCredentialsOf: async (_owner, provider) => stored[provider],
+    },
     startFollowing: async (order) => { started.push(order.id); return `root-node-${order.id}`; },
     stopFollowing: async (workflowId) => { stopped.push(workflowId); },
     lsRemote: async () => lsRemote,
@@ -68,6 +71,18 @@ describe('buying root\'s server from OVHcloud', () => {
     expect(started).toEqual([]);
   });
 
+  it('prices with the OVHcloud keys and DNS credentials the person saved under Cloud providers, and asks for each while it is missing', async () => {
+    await db.accounts.saveUser({ id: 'op', email: 'op@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
+    const credentials = new CredentialService(db, KEY);
+    const saved = make({ credentials });
+    await expect(saved.quote('op', ASK)).rejects.toThrow(/Add your Cloudflare DNS credentials/);
+    await credentials.saveCredentials('op', 'cloudflare', cf.good);
+    await credentials.saveCredentials('op', 'porkbun', pb.good);
+    await expect(saved.quote('op', ASK)).rejects.toThrow(/Add your OVHcloud keys/);
+    await credentials.saveCredentials('op', 'ovh', { ...FAKE_OVH_KEYS, subsidiary: 'AU' });
+    expect(await saved.quote('op', ASK)).toMatchObject({ state: 'quoted', subsidiary: 'AU', quote: { currency: 'AUD', withTax: 15.4 }, dns: { domain: 'cloudflare', ingress: 'porkbun' } });
+  });
+
   it('finds each zone\'s DNS provider from its nameservers and keeps it on the order', async () => {
     expect((await service.quote('op', ASK)).dns).toEqual({ domain: 'cloudflare', ingress: 'porkbun' });
     expect(await service.zones('op', ['nowrinkles.dev', 'nowrinkles.app', 'elsewhere.test'])).toEqual([
@@ -78,7 +93,7 @@ describe('buying root\'s server from OVHcloud', () => {
   });
 
   it('refuses to price before the keys, each zone\'s DNS credentials and access to both zones are there', async () => {
-    await expect(make({ ovhAccountOf: async () => undefined }).quote('op', ASK)).rejects.toThrow(/OVHcloud keys/);
+    await expect(make({ credentials: { ovhAccountOf: async () => undefined, dnsCredentialsOf: async (_owner, provider) => stored[provider] } }).quote('op', ASK)).rejects.toThrow(/OVHcloud keys/);
     stored = { cloudflare: cf.good };
     await expect(service.quote('op', ASK)).rejects.toThrow(/Add your Porkbun DNS credentials/);
     stored = { cloudflare: cf.good, porkbun: pb.good };
