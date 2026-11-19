@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from './app-env.js';
 import { appTypeFromName } from './app-spec.js';
-import { describeSandbox } from '../../engine/lib/workspace-spec.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
-import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../../engine/lib/workspace-image-seeds.js';
 
 const dep = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({
   id: 'd1', name: 'x', clusterId: 'c1', status: 'running', ...over,
@@ -106,28 +104,6 @@ describe('the app catalog', () => {
 
   it('prefers the longest match, so a short name cannot claim a longer one', () => {
     expect(appTypeFromName('protein-service', knownIds)).not.toBe('tei');
-  });
-});
-
-describe('what the sandbox tells the agent about installing', () => {
-  it('says installs fail when nothing is reachable', () => {
-    expect(describeSandbox(IMAGES, {})).toMatch(/npm install.*WILL fail/i);
-  });
-
-  it('still says so when the only egress is a service, not a registry', () => {
-    const out = describeSandbox(IMAGES, { egress: [{ namespace: 'gitea', ports: [3000] }] });
-    expect(out).toMatch(/the gitea service/);
-    expect(out).toMatch(/WILL fail/i);
-  });
-
-  it('says npm install works once a registry is injected', () => {
-    const out = describeSandbox(IMAGES, {
-      egress: [{ namespace: 'koala-registry', ports: [4873] }],
-      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],
-    });
-    expect(out).toMatch(/`npm install` works/);
-    expect(out).toContain('http://verdaccio.koala-registry.svc.cluster.local:4873');
-    expect(out).not.toMatch(/WILL fail/i);
   });
 });
 

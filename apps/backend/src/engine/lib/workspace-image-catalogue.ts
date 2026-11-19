@@ -45,10 +45,3 @@ export function packageAccess(
     egress: entry.egress.map((r) => ({ ...r, ...(r.ports ? { ports: [...r.ports] } : {}) })),
   };
 }
-
-export function detailsForImage(
-  rows: readonly WorkspaceImageSpec[],
-  image: string,
-): WorkspaceImageSpec | undefined {
-  return rows.find((r) => r.image === image);
-}
