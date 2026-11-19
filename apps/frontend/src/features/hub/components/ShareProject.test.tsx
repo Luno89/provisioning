@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import * as hubApi from '../api'
 import ShareProject from './ShareProject'
 import type { GroupCheck, SharingPreview } from '../types'
+import { refused } from '../../../test/refused'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
@@ -117,5 +118,27 @@ describe('sharing a project from its settings', () => {
     fireEvent.click(back)
     await waitFor(() => expect(api.takeProjectBack).toHaveBeenCalledWith('p1', 'Shop'))
     expect(await screen.findByRole('button', { name: 'Share this project…' })).toBeTruthy()
+  })
+
+  it('says why it was not taken back, and keeps it shared', async () => {
+    api.getSharing.mockResolvedValue(sharedAs('acme'))
+    api.takeProjectBack.mockRejectedValue(refused(409, { error: 'This project is worked on another instance.' }))
+    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
+    fireEvent.change(await screen.findByLabelText('The project\'s name, to take it back'), { target: { value: 'Shop' } })
+    fireEvent.click(screen.getByRole('button', { name: /Take it back/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This project is worked on another instance.')
+    expect(screen.getByRole('button', { name: /Take it back/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Share this project…' })).toBeNull()
+  })
+
+  it('says why it was not shared, and keeps it on the instance', async () => {
+    api.getSharing.mockResolvedValue(unshared)
+    api.shareProject.mockRejectedValue(refused(409, { error: 'that group is taken' }))
+    wrap(<ShareProject project={{ id: 'p1', name: 'Shop' }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Share this project…' }))
+    await screen.findByTestId('share-address')
+    fireEvent.click(screen.getByRole('button', { name: 'Share Shop' }))
+    expect((await screen.findAllByRole('alert')).map((alert) => alert.textContent)).toContain('that group is taken')
+    expect(screen.getByRole('button', { name: 'Share Shop' })).toBeTruthy()
   })
 })
