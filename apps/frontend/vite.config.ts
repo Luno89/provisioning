@@ -22,7 +22,6 @@ export default defineConfig({
         '/socket.io': { ...toBackend, ws: true },
         '/oidc': toBackend,
         '/machine.sh': toBackend,
-        '/install.sh': toBackend,
       },
     },
   } : {}),

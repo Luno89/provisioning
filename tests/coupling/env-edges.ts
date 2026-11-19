@@ -14,7 +14,7 @@ export const CHART_VARIANTS: readonly string[][] = [
   REQUIRED,
   [...REQUIRED, 'routing.domain=koala.dev', 'routing.name=luno', 'mesh.loginServer=https://mesh.koala.dev', 'mesh.address=100.64.0.9'],
   [...REQUIRED, 'pool.enabled=true', 'pool.registryPullHost=127.0.0.1:31737'],
-  [...REQUIRED, 'move.enabled=true'],
+  [...REQUIRED, 'move.enabled=true', 'move.fromClusterId=pool-luno'],
 ];
 
 interface Rendered { kind?: string; metadata?: { name?: string }; data?: Record<string, unknown>; stringData?: Record<string, unknown>; spec?: unknown }

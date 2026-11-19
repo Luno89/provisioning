@@ -44,8 +44,8 @@ describe('an instance moving to its own machine through root', () => {
   };
 
   it('asks root for the install command and when it stops working', async () => {
-    answer = () => HttpResponse.json({ command: 'curl -fsSL https://app.koala.dev/install.sh | sudo sh', expiresAt: '2026-11-03T07:00:00.000Z', extra: 1 });
-    expect(await trial().startMove()).toEqual({ command: 'curl -fsSL https://app.koala.dev/install.sh | sudo sh', expiresAt: '2026-11-03T07:00:00.000Z' });
+    answer = () => HttpResponse.json({ command: 'curl -fsSL https://app.koala.dev/machine.sh | sh -s -- code', expiresAt: '2026-11-03T07:00:00.000Z', extra: 1 });
+    expect(await trial().startMove()).toEqual({ command: 'curl -fsSL https://app.koala.dev/machine.sh | sh -s -- code', expiresAt: '2026-11-03T07:00:00.000Z' });
     expect(calls).toEqual([{ method: 'POST', url: 'https://app.koala.dev/api/instances/move/self', authorization: 'Bearer cred' }]);
   });
 

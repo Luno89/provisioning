@@ -86,7 +86,9 @@
     "entries": [
       "apps/frontend/src/features/instances/api/instances.ts#startMyMove",
       "apps/frontend/src/features/instances/api/instances.ts#startInstanceMove",
-      "scripts/instance/install.sh#(script)"
+      "scripts/machine/machine.sh#(script)",
+      "apps/local-agent/src/join/join.ts#runJoin",
+      "apps/local-agent/src/koala-install.ts#installKoala"
     ],
     "concepts": [
       "work",

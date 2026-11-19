@@ -27,7 +27,7 @@ export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
 export { ACCOUNT_KEY, afterFailure, attemptsKeyFor, CONFIRM_CODES, confirmCodesKeyFor, confirmCodesSaid, CSP_REPORT_LIMIT, fullUntil, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, LOCKOUT, RATE_LIMITS, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './lib/http-limits.js';
 export type { LockoutRule, SignInAttempts } from './lib/http-limits.js';
-export { commandSafeCode, INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
+export { INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
 export type { InviteView } from './lib/invite-codes.js';
 export { at, isRecord, listAt, numberAt, recordAt, textAt } from './lib/json-shapes.js';
 export type { JsonRecord } from './lib/json-shapes.js';

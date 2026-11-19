@@ -9,7 +9,6 @@ import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 import type { Reach } from '../lib/instance-watch.js';
-import { commandSafeCode } from '../../platform/index.js';
 import { InstanceReach } from './InstanceReach.js';
 import { provisionReportOf, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { boundedLine, type MachineProgress } from '@koala/engine-core/machine-progress';
