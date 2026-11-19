@@ -93,4 +93,22 @@ describe('whether Temporal answers over TLS to its own CA', () => {
     expect(opened).toBe(true);
     expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'temporal' });
   });
+
+  it('waits, saying so, while its server completes the handshake but opens no gRPC connection yet, and ends answered once it does', async () => {
+    const port = await portToHandOn();
+    const handshaking = tls.createServer({ key: readFileSync(at('server.key')), cert: readFileSync(at('server.crt')), ALPNProtocols: ['h2'] }, (socket) => { socket.destroy(); });
+    await new Promise<void>((resolve) => handshaking.listen(port, '127.0.0.1', resolve));
+    let opened = false;
+    const pause = async (): Promise<void> => {
+      if (opened) return;
+      opened = true;
+      await new Promise<void>((resolve) => { handshaking.close(() => resolve()); });
+      await listening(systemInfoServer(), port);
+    };
+    const reporter = memoryReporter();
+    await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause } }, reporter);
+    expect(opened).toBe(true);
+    expect(reporter.linesOf('temporal').join('\n')).toContain('its TLS handshake completes, but its gRPC connection did not open yet');
+    expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'temporal' });
+  });
 });
