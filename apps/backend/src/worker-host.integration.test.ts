@@ -8,7 +8,7 @@ import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
 import { startHostWorker } from './worker-host.js';
 import { runThenLetGo } from './platform/wiring/fences.js';
-import { mongoClientFor } from './platform/lib/collection.js';
+import { leaseMongo } from './platform/lib/mongo-lease.js';
 import { MongoPlatformStore } from './platform/store.js';
 import { testDataDir } from './platform/testing/data-dir.js';
 
@@ -34,11 +34,11 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
 });
 
 const live = async () => {
-  const client = mongoClientFor(mongoUri);
+  const { client, release } = await leaseMongo(mongoUri);
   try {
     return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
   } finally {
-    await client.close();
+    await release();
   }
 };
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { MongoClient, type Db } from 'mongodb';
+import type { Db } from 'mongodb';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { describe, it, expect, inject } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
 import { MongoDB } from '../platform/lib/mongo-db.js';
@@ -12,14 +13,14 @@ const SEED_KEY = TEST_DATA_KEY;
 async function onItsOwnDatabase(body: (db: MongoDB, raw: Db) => Promise<void>): Promise<void> {
   const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });
-  const client = await MongoClient.connect(inject('mongoUri'));
+  const { client, release } = await leaseMongo(inject('mongoUri'));
   try {
     await db.init();
     await body(db, client.db(name));
   } finally {
     await db.dropDatabase();
     await db.close();
-    await client.close();
+    await release();
   }
 }
 

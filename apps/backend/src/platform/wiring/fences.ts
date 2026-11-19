@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ignore } from '@koala/engine-core/failures';
 import { hostname } from 'node:os';
-import { mongoClientFor } from '../lib/collection.js';
 import { theFence } from '../lib/fence.js';
 import type { MongoTarget } from '../lib/mongo-target.js';
-import { ensureReplicaSet } from '../lib/replica-set.js';
+import { leaseMongo } from '../lib/mongo-lease.js';
 import { MongoPlatformStore, type PlatformStore } from '../store.js';
 import { FenceWatch } from '../services/FenceWatch.js';
 
@@ -19,8 +18,7 @@ export async function holdFences(name: FencedProcess, store: PlatformStore): Pro
 }
 
 export async function holdFencesIn(name: FencedProcess, mongo: MongoTarget): Promise<FenceWatch> {
-  const client = await mongoClientFor(mongo.uri).connect();
-  await ensureReplicaSet(client);
+  const { client } = await leaseMongo(mongo.uri);
   return holdFences(name, new MongoPlatformStore(() => client.db(mongo.dbName)));
 }
 

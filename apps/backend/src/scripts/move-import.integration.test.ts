@@ -6,12 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
-import { MongoClient } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
 import { MOVE_IN_ID } from '../infrastructure/index.js';
 import { TOOLS } from '../infrastructure/testing/real-k3s.js';
-import { clientOptionsFor } from '../platform/lib/collection.js';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { TEST_DATA_KEY, testDatabaseAt } from '../platform/lib/test-database.js';
 import { moveMongo, restoreMongoInto } from './move-import.js';
 
@@ -53,11 +52,11 @@ describe('the move\'s Mongo step on the new machine', () => {
 
     expect(await restoreMongoInto({ uri: server.getUri(), dbName: 'koala' }, Readable.from([zlib.gzipSync(carried)]), () => undefined)).toBe(1);
 
-    const reader = new MongoClient(server.getUri(), clientOptionsFor(server.getUri()));
+    const reader = await leaseMongo(server.getUri());
     try {
-      expect((await reader.db('koala').collection<{ name: string }>('projects').find().toArray()).map((project) => project.name)).toEqual(['Shop']);
+      expect((await reader.client.db('koala').collection<{ name: string }>('projects').find().toArray()).map((project) => project.name)).toEqual(['Shop']);
     } finally {
-      await reader.close();
+      await reader.release();
     }
   });
 

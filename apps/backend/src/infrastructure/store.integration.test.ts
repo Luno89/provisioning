@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { MongoClient, type Db } from 'mongodb';
+import type { Db, MongoClient } from 'mongodb';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
 import { loadKey } from '../platform/lib/keys.js';
@@ -20,18 +21,19 @@ const deployment = (id: string, extra: Partial<DeploymentMetadata> = {}): Deploy
 
 describe('the deployments store keeps secrets sealed at rest', () => {
   let client: MongoClient;
+  let release: () => Promise<void>;
   let db: Db;
   let store: MongoInfrastructureStore;
 
   beforeAll(async () => {
-    client = await MongoClient.connect(inject('mongoUri'));
+    ({ client, release } = await leaseMongo(inject('mongoUri')));
     db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
     store = new MongoInfrastructureStore(() => db, key);
   });
 
   afterAll(async () => {
     await db.dropDatabase();
-    await client.close();
+    await release();
   });
 
   const raw = async (id: string) => db.collection('deployments').findOne({ _id: id as never });

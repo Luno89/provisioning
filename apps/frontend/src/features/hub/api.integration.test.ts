@@ -14,7 +14,7 @@ import { projectSharingRouter } from '../../../../backend/src/hub/routes/project
 import { HubService, type ProjectView } from '../../../../backend/src/hub/services/HubService'
 import { HubRelay } from '../../../../backend/src/hub/services/HubRelay'
 import { ProjectInviteService } from '../../../../backend/src/hub/services/ProjectInviteService'
-import { mongoHubStore } from '../../../../backend/src/hub/lib/hub-mongo'
+import { mongoHubStore } from '../../../../backend/src/hub/store'
 import type { SharedProject as BackendSharedProject } from '../../../../backend/src/hub/lib/hub'
 import { localHubSharing, localProjectGroups } from '../../../../backend/src/projects/testing/in-process-sharing'
 import { ProjectSharingService, type GroupCheck as BackendGroupCheck, type SharingPreview as BackendSharingPreview } from '../../../../backend/src/projects/services/ProjectSharingService'

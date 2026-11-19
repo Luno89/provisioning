@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { MongoClient } from 'mongodb';
 import { inject } from 'vitest';
 import { MongoDB, mongoTarget } from './mongo-db.js';
 import { loadKey } from './keys.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
-import { clientOptionsFor } from './collection.js';
+import { leaseMongo, type MongoLease } from './mongo-lease.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -16,20 +15,28 @@ declare module 'vitest' {
 export const TEST_DATA_KEY = loadKey({ DATA_KEY: 'test-database-data-key-0123456789abcdef' }, 'data');
 
 const open: MongoDB[] = [];
-const readers: Array<{ client: MongoClient; dbName: string }> = [];
+interface Reader { uri: string; dbName: string; lease?: Promise<MongoLease> }
+const readers: Reader[] = [];
+const reader = (uri: string, dbName: string): Reader => {
+  const made: Reader = { uri, dbName };
+  readers.push(made);
+  return made;
+};
+const held = (made: Reader): Promise<MongoLease> => {
+  made.lease ??= leaseMongo(made.uri);
+  return made.lease;
+};
 
 export interface StoredPayload { id: string; workflowId?: string | undefined; storedAt: Date; handedTo: string[]; size: number }
 
 export function testPayloadBlobs(): { blobs: PayloadBlobs; stored: () => Promise<StoredPayload[]> } {
   const uri = `${inject('mongoUri')}t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const { dbName } = mongoTarget({ MONGO_URI: uri });
-  const client = new MongoClient(uri, clientOptionsFor(uri));
-  readers.push({ client, dbName });
+  const stored = reader(uri, dbName);
   return {
     blobs: mongoPayloadBlobs(mongoTarget({ MONGO_URI: uri })),
     stored: async () => {
-      await client.connect();
-      const docs = await client.db(dbName).collection<{ blobId: string; index: number; workflowId?: string; storedAt: Date; handedTo?: string[]; data: { length(): number } }>('temporal_payload_chunks').find({}).sort({ blobId: 1, index: 1 }).toArray();
+      const docs = await (await held(stored)).client.db(dbName).collection<{ blobId: string; index: number; workflowId?: string; storedAt: Date; handedTo?: string[]; data: { length(): number } }>('temporal_payload_chunks').find({}).sort({ blobId: 1, index: 1 }).toArray();
       const found = new Map<string, StoredPayload>();
       for (const doc of docs) {
         const seen = found.get(doc.blobId);
@@ -54,10 +61,10 @@ export async function testDatabase(): Promise<MongoDB> {
 }
 
 export async function closeTestDatabases(): Promise<void> {
-  for (const reader of readers.splice(0, readers.length)) {
-    await reader.client.connect();
-    await reader.client.db(reader.dbName).dropDatabase();
-    await reader.client.close();
+  for (const made of readers.splice(0, readers.length)) {
+    const lease = await held(made);
+    await lease.client.db(made.dbName).dropDatabase();
+    await lease.release();
   }
   const closing = open.splice(0, open.length);
   for (const db of closing) {
@@ -72,11 +79,9 @@ export async function emptiedEachTime(): Promise<() => Promise<MongoDB>> {
   const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${base}${dbName}` }), dataKey: TEST_DATA_KEY });
   await db.init();
   open.push(db);
-  const client = new MongoClient(base, clientOptionsFor(base));
-  readers.push({ client, dbName });
+  const emptied = reader(base, dbName);
   return async () => {
-    await client.connect();
-    const collections = await client.db(dbName).collections();
+    const collections = await (await held(emptied)).client.db(dbName).collections();
     await Promise.all(collections.map((collection) => collection.deleteMany({})));
     return db;
   };

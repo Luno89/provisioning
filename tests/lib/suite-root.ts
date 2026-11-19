@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
 
 export interface SuiteRoot {
   suite: string;
@@ -79,12 +79,11 @@ export function forgetMeshUser(ownerId: string): void {
 }
 
 export async function logoutDeliveries(root: SuiteRoot): Promise<Array<{ url: string; attempts: number; lastError?: string }>> {
-  const client = new MongoClient(root.mongoUri);
+  const { client, release } = await leaseMongo(root.mongoUri);
   try {
-    await client.connect();
     return (await client.db(root.database).collection('logoutDeliveries').find({}).toArray()).map((doc) => ({ url: String(doc.url), attempts: Number(doc.attempts ?? 0), ...(doc.lastError ? { lastError: String(doc.lastError) } : {}) }));
   } finally {
-    await client.close();
+    await release();
   }
 }
 
@@ -108,11 +107,10 @@ export function dropSuiteNamespace(root: SuiteRoot): void {
 
 export async function dropSuiteDatabase(root: SuiteRoot): Promise<void> {
   if (!root.database.startsWith('koala_')) throw new Error(`${root.database} is not a suite's database`);
-  const client = new MongoClient(root.mongoUri);
+  const { client, release } = await leaseMongo(root.mongoUri);
   try {
-    await client.connect();
     await client.db(root.database).dropDatabase();
   } finally {
-    await client.close();
+    await release();
   }
 }

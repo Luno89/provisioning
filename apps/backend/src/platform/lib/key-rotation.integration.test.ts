@@ -1,5 +1,6 @@
 import crypto, { randomUUID } from 'node:crypto';
-import { MongoClient, type Db } from 'mongodb';
+import type { Db } from 'mongodb';
+import { leaseMongo, type MongoLease } from './mongo-lease.js';
 import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
 import { decryptValue, encryptValue } from './crypto.js';
 import { reencrypt } from './key-rotation.js';
@@ -12,18 +13,18 @@ const unversioned = (plaintext: string, secret: string): string => {
 };
 
 describe('a secret stored before keys had ids', () => {
-  let client: MongoClient;
+  let lease: MongoLease;
   let db: Db;
   const ring = { current: 'new-key', previous: ['old-key'] };
 
   beforeAll(async () => {
-    client = await MongoClient.connect(inject('mongoUri'));
-    db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    lease = await leaseMongo(inject('mongoUri'));
+    db = lease.client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
   });
 
   afterAll(async () => {
     await db.dropDatabase();
-    await client.close();
+    await lease.release();
   });
 
   it('is refused when read, naming npm run keys, and npm run keys moves it onto the current key', async () => {

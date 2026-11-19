@@ -1,15 +1,14 @@
-import { MongoClient } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { clientOptionsFor } from '../lib/collection.js';
+import { leaseMongo, type MongoLease } from '../lib/mongo-lease.js';
 import { MongoPlatformStore } from '../store.js';
 import { holdFencesIn } from './fences.js';
 
 const started: MongoMemoryServer[] = [];
-const clients: MongoClient[] = [];
+const leases: MongoLease[] = [];
 
 afterEach(async () => {
-  for (const client of clients.splice(0)) await client.close();
+  for (const lease of leases.splice(0)) await lease.release();
   for (const server of started.splice(0)) await server.stop();
 });
 
@@ -21,9 +20,9 @@ describe('a worker holding the fences as it starts', () => {
 
     const watch = await holdFencesIn('worker-engine', mongo);
 
-    const reader = new MongoClient(mongo.uri, clientOptionsFor(mongo.uri));
-    clients.push(reader);
-    const store = new MongoPlatformStore(() => reader.db(mongo.dbName));
+    const reader = await leaseMongo(mongo.uri);
+    leases.push(reader);
+    const store = new MongoPlatformStore(() => reader.client.db(mongo.dbName));
     expect((await store.processesSeenSince(new Date(0).toISOString())).map((row) => row.name)).toEqual(['worker-engine']);
     await watch.stop();
   });

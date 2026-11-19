@@ -543,7 +543,7 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
   const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(telemetryAccess);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId }));
-  const dependencies = workerDependencies(settings, settings.mongo);
+  const dependencies = await workerDependencies(settings, settings.mongo);
   reportCollectorTo(telemetry, dependencies);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId })));
   checkServices(dependencies, { gitea: settings.tenant.gitea.url, infisical: settings.tenant.infisical.url, minio: settings.tenant.minio, registryPush: settings.tenant.registry.push, webTools: settings.tenant.webTools });

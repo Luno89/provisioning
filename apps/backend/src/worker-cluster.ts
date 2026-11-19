@@ -58,7 +58,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
   const telemetryProxy = sharedClusterProxy(access);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = workerDependencies(settings, settings.mongo);
+  const dependencies = await workerDependencies(settings, settings.mongo);
   reportCollectorTo(telemetry, dependencies);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
   const plaintext = temporalTlsProblem(settings.temporal);

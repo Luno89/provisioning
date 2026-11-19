@@ -3,7 +3,7 @@ import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { mongoClientFor } from './platform/lib/collection.js';
+import { leaseMongo } from './platform/lib/mongo-lease.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { MongoPlatformStore } from './platform/store.js';
 import { startRole } from './platform/testing/roles-on-loopback.js';
@@ -34,11 +34,11 @@ const instance = async (): Promise<Record<string, string>> => ({
 });
 
 const live = async (): Promise<string[]> => {
-  const client = mongoClientFor(mongoUri);
+  const { client, release } = await leaseMongo(mongoUri);
   try {
     return (await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString())).map((process) => process.name);
   } finally {
-    await client.close();
+    await release();
   }
 };
 

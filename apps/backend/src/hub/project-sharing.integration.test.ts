@@ -1,7 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MongoClient } from 'mongodb';
+import type { MongoClient } from 'mongodb';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../platform/lib/settings.js';
@@ -33,12 +34,11 @@ const onInstance = (path: string) => `${roles.instance.url}/api${path}`;
 const onHub = (path: string) => `${roles.hub.url}/api/hub${path}`;
 
 async function withMongo<T>(work: (client: MongoClient) => Promise<T>): Promise<T> {
-  const client = new MongoClient(roles.mongoUri);
-  await client.connect();
+  const { client, release } = await leaseMongo(roles.mongoUri);
   try {
     return await work(client);
   } finally {
-    await client.close();
+    await release();
   }
 }
 

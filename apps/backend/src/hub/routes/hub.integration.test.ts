@@ -8,7 +8,7 @@ import { hubLinkRouter } from './hub-link.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { HubService } from '../services/HubService.js';
 import { ProjectInviteService } from '../services/ProjectInviteService.js';
-import { mongoHubStore } from '../lib/hub-mongo.js';
+import { mongoHubStore } from '../store.js';
 import type { HubStore } from '../lib/hub-store.js';
 import { hashCredential } from '../../instances/services/InstanceService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';

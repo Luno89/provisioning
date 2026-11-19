@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
 import { parse } from 'yaml';
 import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/index.js';
 import { DEV, devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
@@ -153,14 +153,13 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     for (const container of started.reverse()) {
       try { docker(['rm', '-f', container]); } catch { /* gone */ }
     }
-    const client = new MongoClient(mongoUri);
+    const { client, release } = await leaseMongo(mongoUri);
     try {
-      await client.connect();
       const shared = await client.db(names.databases.hub).collection('shared_projects').find({}, { projection: { _id: 1 } }).toArray();
       for (const database of sharedProjectDatabases(shared.map((doc) => doc._id))) await client.db(database).dropDatabase();
       for (const database of Object.values(names.databases)) if (ownedBySplit(database)) await client.db(database).dropDatabase();
     } finally {
-      await client.close();
+      await release();
     }
     try { temporal(['namespace', 'delete', '--namespace', names.namespace, '--yes']); } catch { /* never made */ }
   };
@@ -224,9 +223,8 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       { const { location } = await asOwner('/api/identity/go?to=hub'); return location === `${place.hubUrl}/api/auth/oidc/start` ? true : waiting(`root sent the owner to ${location}`); }, () => containerNotRunning(names.containers['hub']));
 
     const instanceDb = async () => {
-      const client = new MongoClient(withDatabase(mongoUri, names.databases.instance));
-      await client.connect();
-      return { db: client.db(names.databases.instance), close: () => client.close() };
+      const { client, release } = await leaseMongo(withDatabase(mongoUri, names.databases.instance));
+      return { db: client.db(names.databases.instance), close: release };
     };
 
     return {

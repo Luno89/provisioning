@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../platform/lib/mongo-lease.js';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from '../platform/testing/handoff.js';
 import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
@@ -165,8 +165,8 @@ describe('signing in across root, an instance and the hub, each its own process'
       expect(answer.status, JSON.stringify(answer.body)).toBe(200);
       return (answer.body as { dependencies: { dependency: string }[] }).dependencies.some((down) => down.dependency === 'root');
     };
-    const rootClient = new MongoClient(`${mongoUri}${databases.root}`);
-    await rootClient.connect();
+    const rootLease = await leaseMongo(`${mongoUri}${databases.root}`);
+    const rootClient = rootLease.client;
     const presentAtRoot = async () => {
       const watch = await rootClient.db(databases.root).collection('instanceWatches').findOne({ _id: instanceId as never }) as { presence?: boolean; reach?: { reachable?: boolean } } | null;
       return watch?.presence === true && watch.reach?.reachable === true ? true : waiting(`presence ${watch?.presence}, reachable ${watch?.reach?.reachable}`);
@@ -185,7 +185,7 @@ describe('signing in across root, an instance and the hub, each its own process'
       await root.start();
       await until('the instance to stop showing root as down', async () => ((await rootDown()) ? waiting('the instance still lists root as down') : true));
     } finally {
-      await rootClient.close();
+      await rootLease.release();
     }
   });
 
@@ -193,8 +193,7 @@ describe('signing in across root, an instance and the hub, each its own process'
     const run = await call(`${instance.url}/api/engine/runs`, { method: 'POST', body: { agent: 'koala', message: 'hello from the sign-in test' }, cookie: session });
     expect(run.status, JSON.stringify(run.body)).toBe(201);
     const runId = (run.body as { runId: string }).runId;
-    const client = new MongoClient(`${mongoUri}${databases.instance}`);
-    await client.connect();
+    const { client, release } = await leaseMongo(`${mongoUri}${databases.instance}`);
     const grantOf = async () => client.db(databases.instance).collection('runGrants').findOne({ runId }) as Promise<{ state: string; personId: string; revokedBecause?: string } | null>;
     try {
       await until('the run\'s grant to be live', async () => {
@@ -217,7 +216,7 @@ describe('signing in across root, an instance and the hub, each its own process'
       });
       expect((await grantOf())?.revokedBecause).toBe('signed-out-everywhere');
     } finally {
-      await client.close();
+      await release();
     }
   });
 });

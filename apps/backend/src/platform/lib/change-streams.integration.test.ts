@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { testDatabaseAt } from './test-database.js';
-import { mongoClientFor } from './collection.js';
+import { leaseMongo } from './mongo-lease.js';
 import { watchWrites } from './change-streams.js';
 
 describe('following writes to a collection on Mongo', () => {
   it('hears a record written after it is ready, and opens again when Mongo refuses the stream', async () => {
     const { uri, dbName } = await testDatabaseAt();
-    const client = mongoClientFor(uri);
-    await client.connect();
+    const { client, release } = await leaseMongo(uri);
     try {
       const collection = client.db(dbName).collection<{ _id: string; status: string }>('watched');
       let heard!: (id: string) => void;
@@ -28,7 +27,7 @@ describe('following writes to a collection on Mongo', () => {
       expect(warned[0]).toMatch(/^\[change-streams\] following watched stopped \(.*\$notAnOperator.*\); opening it again in 0 s$/);
     } finally {
       vi.restoreAllMocks();
-      await client.close();
+      await release();
     }
   });
 });

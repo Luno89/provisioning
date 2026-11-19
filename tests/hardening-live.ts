@@ -9,8 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
-import { createDatabase, roleFromEnv } from '../apps/backend/src/platform/index.js';
+import { createDatabase, leaseMongo, roleFromEnv } from '../apps/backend/src/platform/index.js';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { instanceRouteFiles } from '../apps/backend/src/instances/lib/instance-routes.js';
 import { PROXY_IMAGE, proxyCaddyfile } from '../apps/backend/src/instances/lib/pool.js';
@@ -241,12 +240,11 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
 }
 
 async function dropDatabases(): Promise<void> {
-  const client = new MongoClient(process.env.MONGO_URI || DEV_MONGO);
+  const { client, release } = await leaseMongo(process.env.MONGO_URI || DEV_MONGO);
   try {
-    await client.connect();
     for (const database of databases) if (database.startsWith('koala_hardening_')) await client.db(database).dropDatabase();
   } finally {
-    await client.close();
+    await release();
   }
 }
 

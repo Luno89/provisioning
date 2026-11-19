@@ -49,7 +49,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   const access = hostClusterAccess(settings);
   const telemetryProxy = sharedClusterProxy(access);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = workerDependencies(settings, settings.mongo);
+  const dependencies = await workerDependencies(settings, settings.mongo);
   reportCollectorTo(telemetry, dependencies);
   checkServices(dependencies, { webTools: settings.webTools });
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));

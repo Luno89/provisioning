@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { removeSteps, runSteps, type Step, type ServiceContext } from '@koala/provision';
 import { memoryReporter, stepFailureOf } from '@koala/provision/testing';
-import { mongoClientFor } from '../lib/collection.js';
+import { leaseMongo } from '../lib/mongo-lease.js';
 import { mongoStep } from '../wiring/root-services.js';
 import { madePrimary, testMongo } from './test-mongo.js';
 
@@ -36,9 +36,9 @@ describe('the test Mongo, a mongod of this run started by the step root\'s Mongo
     const { mongo, step } = stepFor(dbPath);
     await runSteps([step], ctx, memoryReporter());
     await madePrimary(mongo);
-    const client = mongoClientFor(mongo.uri());
+    const { client, release } = await leaseMongo(mongo.uri());
     await client.db('koala').collection('probe').insertOne({ written: true });
-    await client.close();
+    await release();
     expect(existsSync(dbPath)).toBe(true);
     await removeSteps([step], ctx, memoryReporter());
     expect(existsSync(dbPath)).toBe(false);
