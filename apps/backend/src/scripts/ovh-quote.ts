@@ -29,12 +29,7 @@ async function main(): Promise<void> {
     const orders = new ServerOrderService({
       store: db.infrastructure,
       dataKey: keys.data,
-      ovhAccountOf: async (ownerId) => {
-        const resolved = await credentials.resolveCredentials(ownerId, 'ovh');
-        const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-        return resolved.mode !== 'none' && applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
-      },
-      dnsCredentialsOf: async () => undefined,
+      credentials,
     });
     const quote = await orders.quoteAndDiscard(owner, plan, datacenter);
     console.log(`${plan} in ${datacenter}, priced by OVHcloud (the cart was deleted; nothing was bought):`);

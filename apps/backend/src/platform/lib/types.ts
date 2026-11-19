@@ -30,7 +30,73 @@ export interface ClusterMetadata {
   [key: string]: unknown;
 }
 
-export interface DeploymentMetadata {
+export interface RequestedAppSettings {
+  vllmModel?: string;
+  vllmGpuCount?: number;
+  vllmGpuVendor?: 'nvidia' | 'amd';
+  vllmCachePvc?: string;
+  vllmHfToken?: string;
+  vllmMaxModelLen?: number;
+  vllmGpuMemUtil?: number;
+  vllmExtraArgs?: string;
+  vllmToolCallingEnabled?: boolean;
+  vllmToolCallParser?: string;
+  vllmServedModelName?: string;
+  vllmMaxNumSeqs?: number;
+  vllmDtype?: 'auto' | 'half' | 'float16' | 'bfloat16' | 'float' | 'float32';
+  vllmEnablePrefixCaching?: boolean;
+  tabbyModel?: string;
+  tabbyRevision?: string;
+  tabbyGpuCount?: number;
+  tabbyHfToken?: string;
+  tabbyCachePvc?: string;
+  tabbyImageTag?: string;
+  tabbyCacheMode?: 'FP16' | 'Q8' | 'Q6' | 'Q4';
+  tabbyMaxSeqLen?: number;
+  tabbyMaxBatchSize?: number;
+  tabbyReasoning?: boolean;
+  tabbyToolFormat?: 'mistral' | 'mistral_old' | 'qwen3_coder' | 'gemma4' | 'glm4_5' | 'minimax_m2' | 'harmony';
+  tabbyInlineModelLoading?: boolean;
+  tabbyDisableAuth?: boolean;
+  tabbyMemoryLimit?: string;
+  tabbyShmSize?: string;
+  tabbyCpuLimit?: string;
+  tabbyExtraEnv?: string;
+  searxngSecretKey?: string;
+  searxngEngines?: string;
+  crawl4aiApiToken?: string;
+  crawl4aiMemoryLimit?: string;
+  crawl4aiShmSize?: string;
+  gitappEnv?: string;
+  webuiEnableWebSearch?: boolean;
+  webuiWebSearchEngine?: 'duckduckgo' | 'tavily' | 'brave' | 'serper' | 'bing';
+  webuiWebSearchApiKey?: string;
+  appSettings?: Record<string, string>;
+}
+
+export interface AppSettings extends RequestedAppSettings {
+  minioRootUser?: string;
+  minioRootPassword?: string;
+  minioStorage?: string;
+  nextcloudAdminPassword?: string;
+  nextcloudDbPassword?: string;
+  nextcloudDbRootPassword?: string;
+  hermesDashboardPassword?: string;
+  qdrantApiKey?: string;
+  qdrantStorage?: string;
+  qdrantMemoryLimit?: string;
+  quickwitS3Endpoint?: string;
+  quickwitS3AccessKey?: string;
+  quickwitS3SecretKey?: string;
+  quickwitBucket?: string;
+  teiModelId?: string;
+  teiUseGpu?: boolean;
+  teiMemoryLimit?: string;
+  verdaccioUpstream?: string;
+  verdaccioStorage?: string;
+}
+
+export interface DeploymentMetadata extends AppSettings {
   id: string;
   failure?: string | undefined;
   name: string;
@@ -70,68 +136,8 @@ export interface DeploymentMetadata {
   temporalWorkflowId?: string;
   lastSyncedAt?: string;
   llmApi?: { port: number; serviceSuffix?: string; apiPath?: string; model?: string };
-  vllmModel?: string;
-  vllmGpuCount?: number;
-  vllmGpuVendor?: 'nvidia' | 'amd';
-  vllmCachePvc?: string;
-  vllmHfToken?: string;
-  vllmMaxModelLen?: number;
-  vllmGpuMemUtil?: number;
-  vllmExtraArgs?: string;
-  vllmToolCallingEnabled?: boolean;
-  vllmToolCallParser?: string;
-  vllmServedModelName?: string;
-  vllmMaxNumSeqs?: number;
-  vllmDtype?: 'auto' | 'half' | 'float16' | 'bfloat16' | 'float' | 'float32';
-  vllmEnablePrefixCaching?: boolean;
-  tabbyModel?: string;
-  tabbyRevision?: string;
-  tabbyGpuCount?: number;
-  tabbyHfToken?: string;
-  tabbyCachePvc?: string;
-  tabbyImageTag?: string;
-  tabbyCacheMode?: 'FP16' | 'Q8' | 'Q6' | 'Q4';
-  tabbyMaxSeqLen?: number;
-  tabbyMaxBatchSize?: number;
-  tabbyReasoning?: boolean;
-  tabbyToolFormat?: 'mistral' | 'mistral_old' | 'qwen3_coder' | 'gemma4' | 'glm4_5' | 'minimax_m2' | 'harmony';
-  tabbyInlineModelLoading?: boolean;
-  tabbyDisableAuth?: boolean;
-  tabbyMemoryLimit?: string;
-  tabbyShmSize?: string;
-  tabbyCpuLimit?: string;
-  tabbyExtraEnv?: string;
-  searxngSecretKey?: string;
-  searxngEngines?: string;
-  crawl4aiApiToken?: string;
-  crawl4aiMemoryLimit?: string;
-  crawl4aiShmSize?: string;
-  minioRootUser?: string;
-  minioRootPassword?: string;
-  nextcloudAdminPassword?: string;
-  hermesDashboardPassword?: string;
-  nextcloudDbPassword?: string;
-  nextcloudDbRootPassword?: string;
-  minioStorage?: string;
-  qdrantApiKey?: string;
-  qdrantStorage?: string;
-  qdrantMemoryLimit?: string;
-  quickwitS3Endpoint?: string;
-  quickwitS3AccessKey?: string;
-  quickwitS3SecretKey?: string;
-  quickwitBucket?: string;
-  teiModelId?: string;
-  teiUseGpu?: boolean;
-  teiMemoryLimit?: string;
-  verdaccioUpstream?: string;
-  verdaccioStorage?: string;
-  gitappEnv?: string;
-  appSettings?: Record<string, string>;
   openWebuiTargetId?: string;
   hermesTargetId?: string;
-  webuiEnableWebSearch?: boolean;
-  webuiWebSearchEngine?: 'duckduckgo' | 'tavily' | 'brave' | 'serper' | 'bing';
-  webuiWebSearchApiKey?: string;
   [key: string]: unknown;
 }
 
@@ -208,6 +214,7 @@ export interface LocalAgentDeviceMetadata {
   os?: string | undefined;
   agents?: MachineAgent[] | undefined;
   agentsAt?: string | undefined;
+  agentsNotSetUp?: string | undefined;
   manualAgents?: ManualMachineAgent[] | undefined;
   agentBundle?: string | undefined;
   agentUpdate?: AgentUpdateReport | undefined;

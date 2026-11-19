@@ -61,7 +61,7 @@ export class Crawl4aiNativeApp extends Construct {
     super(scope, id);
 
     const namespaceName = config.namespace || "crawl4ai";
-    const image = `${config.webRepo || "unclecode/crawl4ai"}:${config.webTag || "latest"}`;
+    const image = `${config.webRepo || "unclecode/crawl4ai"}:${config.webTag || "latest@sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"}`;
     const serviceType = config.serviceType || defaultServiceType();
     const memoryLimit = config.memoryLimit || "4Gi";
     const shmSize = config.shmSize || "1Gi";

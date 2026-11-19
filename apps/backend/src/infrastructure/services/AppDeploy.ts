@@ -11,13 +11,13 @@ import {
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
 import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
-import { modelImageOf } from '../lib/model-images.js';
+import { modelImageOf, type ModelApp } from '../lib/model-images.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
-import { definedFields, DeployRequestProblem, type DeployRequest } from '../lib/deploy-request.js';
+import { appSettingsOf, definedFields, DeployRequestProblem, requestedSettingsOf, type DeployRequest } from '../lib/deploy-request.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 import type { ToolCallParsers } from '../../models/index.js';
 import { QUEUES } from '../../platform/index.js';
@@ -32,6 +32,20 @@ export interface AppDeployDeps {
   handOver: (clusterId: string) => Promise<HandOver>;
   logDir: string;
   toolCalling: Pick<ToolCallParsers, 'decide'>;
+}
+
+export function servingArgsOf(dep: Pick<DeploymentMetadata, 'appType' | 'tabbyCachePvc' | 'vllmCachePvc' | 'strategy'> & ModelApp): {
+  modelCacheHostPath?: string;
+  modelImage?: string;
+  strategy: string;
+} {
+  const modelImage = modelImageOf(dep);
+  return {
+    ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
+    ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
+    ...(modelImage ? { modelImage } : {}),
+    strategy: dep.strategy || 'helm',
+  };
 }
 
 export interface StartedDeploy {
@@ -91,48 +105,11 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
           dbRepo: config.dbRepo || config.pgRepo,
           dbTag: config.dbTag || config.pgTag,
           url: config.url,
-          vllmModel: config.vllmModel,
-          vllmGpuCount: config.vllmGpuCount,
-          vllmGpuVendor: config.vllmGpuVendor,
-          vllmCachePvc: config.vllmCachePvc,
+          ...requestedSettingsOf(config),
           vllmHfToken: config.vllmHfToken?.trim(),
-          vllmMaxModelLen: config.vllmMaxModelLen,
-          vllmGpuMemUtil: config.vllmGpuMemUtil,
-          vllmExtraArgs: config.vllmExtraArgs,
-          vllmToolCallingEnabled: config.vllmToolCallingEnabled,
-          vllmToolCallParser: config.vllmToolCallParser,
-          vllmServedModelName: config.vllmServedModelName,
-          vllmMaxNumSeqs: config.vllmMaxNumSeqs,
-          vllmDtype: config.vllmDtype,
-          vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
-          tabbyModel: config.tabbyModel,
-          tabbyRevision: config.tabbyRevision,
-          tabbyGpuCount: config.tabbyGpuCount,
           tabbyHfToken: config.tabbyHfToken?.trim(),
-          tabbyCachePvc: config.tabbyCachePvc,
-          tabbyImageTag: config.tabbyImageTag,
-          tabbyCacheMode: config.tabbyCacheMode,
-          tabbyMaxSeqLen: config.tabbyMaxSeqLen,
-          tabbyMaxBatchSize: config.tabbyMaxBatchSize,
-          tabbyReasoning: config.tabbyReasoning,
-          tabbyToolFormat: config.tabbyToolFormat,
-          tabbyInlineModelLoading: config.tabbyInlineModelLoading,
-          tabbyDisableAuth: config.tabbyDisableAuth,
-          tabbyMemoryLimit: config.tabbyMemoryLimit,
-          tabbyShmSize: config.tabbyShmSize,
-          tabbyCpuLimit: config.tabbyCpuLimit,
-          tabbyExtraEnv: config.tabbyExtraEnv,
-          searxngSecretKey: config.searxngSecretKey,
-          searxngEngines: config.searxngEngines,
-          crawl4aiApiToken: config.crawl4aiApiToken,
-          crawl4aiMemoryLimit: config.crawl4aiMemoryLimit,
-          crawl4aiShmSize: config.crawl4aiShmSize,
           openWebuiTargetId: config.openWebuiTargetId,
           hermesTargetId: config.hermesTargetId,
-          webuiEnableWebSearch: config.webuiEnableWebSearch,
-          webuiWebSearchEngine: config.webuiWebSearchEngine,
-          webuiWebSearchApiKey: config.webuiWebSearchApiKey,
-          appSettings: config.appSettings,
         }),
         ...(userId !== undefined ? { ownerId: userId } : {}),
       }
@@ -204,10 +181,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       namespace: dep.namespace,
       ...handed,
       clusterName: stack.clusterName,
-      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
-      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
-      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
-      strategy: dep.strategy || 'helm',
+      ...servingArgsOf(dep),
       appType: dep.appType,
       modules: dep.modules || [],
       odooRepo: (dep.webRepo as string) || '',
@@ -216,67 +190,8 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       dbTag: (dep.dbTag as string) || '',
       logFile: absoluteLogPath,
       deploymentId,
-      vllmModel: dep.vllmModel,
-      vllmGpuCount: dep.vllmGpuCount,
-      vllmGpuVendor: dep.vllmGpuVendor,
-      vllmCachePvc: dep.vllmCachePvc,
-      vllmHfToken: dep.vllmHfToken,
-      vllmMaxModelLen: dep.vllmMaxModelLen,
-      vllmGpuMemUtil: dep.vllmGpuMemUtil,
-      vllmExtraArgs: dep.vllmExtraArgs,
-      vllmToolCallingEnabled: dep.vllmToolCallingEnabled,
-      vllmToolCallParser: dep.vllmToolCallParser,
-      vllmServedModelName: dep.vllmServedModelName,
-      vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
-      vllmDtype: dep.vllmDtype,
-      vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
-      tabbyModel: dep.tabbyModel,
-      tabbyRevision: dep.tabbyRevision,
-      tabbyGpuCount: dep.tabbyGpuCount,
-      tabbyHfToken: dep.tabbyHfToken,
-      tabbyCachePvc: dep.tabbyCachePvc,
-      tabbyImageTag: dep.tabbyImageTag,
-      tabbyCacheMode: dep.tabbyCacheMode,
-      tabbyMaxSeqLen: dep.tabbyMaxSeqLen,
-      tabbyMaxBatchSize: dep.tabbyMaxBatchSize,
-      tabbyReasoning: dep.tabbyReasoning,
-      tabbyToolFormat: dep.tabbyToolFormat,
-      tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
-      tabbyDisableAuth: dep.tabbyDisableAuth,
-      tabbyMemoryLimit: dep.tabbyMemoryLimit,
-      tabbyShmSize: dep.tabbyShmSize,
-      tabbyCpuLimit: dep.tabbyCpuLimit,
-      tabbyExtraEnv: dep.tabbyExtraEnv,
-      searxngSecretKey: dep.searxngSecretKey,
-      searxngEngines: dep.searxngEngines,
-      crawl4aiApiToken: dep.crawl4aiApiToken,
-      crawl4aiMemoryLimit: dep.crawl4aiMemoryLimit,
-      crawl4aiShmSize: dep.crawl4aiShmSize,
-      minioRootUser: dep.minioRootUser,
-      minioRootPassword: dep.minioRootPassword,
-      nextcloudAdminPassword: dep.nextcloudAdminPassword,
-      nextcloudDbPassword: dep.nextcloudDbPassword,
-      nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
-      hermesDashboardPassword: dep.hermesDashboardPassword,
-      minioStorage: dep.minioStorage,
-      qdrantApiKey: dep.qdrantApiKey,
-      qdrantStorage: dep.qdrantStorage,
-      qdrantMemoryLimit: dep.qdrantMemoryLimit,
-      quickwitS3Endpoint: dep.quickwitS3Endpoint,
-      quickwitS3AccessKey: dep.quickwitS3AccessKey,
-      quickwitS3SecretKey: dep.quickwitS3SecretKey,
-      quickwitBucket: dep.quickwitBucket,
-      teiModelId: dep.teiModelId,
-      teiUseGpu: dep.teiUseGpu,
-      teiMemoryLimit: dep.teiMemoryLimit,
-      verdaccioUpstream: dep.verdaccioUpstream,
-      verdaccioStorage: dep.verdaccioStorage,
-      gitappEnv: dep.gitappEnv,
+      ...appSettingsOf(dep),
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
-      webuiEnableWebSearch: dep.webuiEnableWebSearch,
-      webuiWebSearchEngine: dep.webuiWebSearchEngine,
-      webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
-      appSettings: dep.appSettings,
     }
 
     await deps.db.infrastructure.saveDeploymentInfo({

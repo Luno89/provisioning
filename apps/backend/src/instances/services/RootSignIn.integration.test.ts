@@ -19,6 +19,15 @@ import { InstanceService, hashCredential } from './InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { IdentityService } from './IdentityService.js';
+import { instancesRouter } from '../routes/instances.js';
+import { rootTokenOf } from '../wiring/sign-in.js';
+import { InstanceWatchSetting } from './InstanceWatchSetting.js';
+import { InstanceTrial } from './InstanceTrial.js';
+import { InstanceUpdates } from './InstanceUpdates.js';
+import { hubLinkRouter } from '../../hub/routes/hub-link.js';
+import { ProjectInviteService } from '../../hub/services/ProjectInviteService.js';
+import { HubRootClient } from '../../hub/services/HubRootClient.js';
+import { principalOf } from '../../platform/lib/permissions.js';
 
 const freshHubDb = await emptiedEachTime();
 const freshInstanceDb = await emptiedEachTime();
@@ -284,5 +293,55 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect(await provider.personAtHub('made-up')).toBeUndefined();
     await provider.revoke({ personId: 'u2', at: new Date().toISOString(), because: 'signed-out-everywhere' });
     expect(await provider.personAtHub(hubToken!)).toBeUndefined();
+  });
+});
+
+describe('what an instance and the hub ask root for with what root signed', () => {
+  it('renews through root the token the instance holds for its owner once it is about to run out', async () => {
+    await signIn.announce();
+    offset = -21 * 60 * 1000;
+    const atInstance = signIn.verified((await signInAs('u1')).instanceJar.get('session'));
+    const held = await signIn.personToken(atInstance);
+    offset = 0;
+    const renewed = await signIn.personToken(atInstance);
+    expect(held).toBeTruthy();
+    expect(renewed).toBeTruthy();
+    expect(renewed).not.toBe(held);
+    expect(Date.parse((await instanceDb.instances.getClientSession(atInstance!.sid))!.accessExpiresAt!)).toBeGreaterThan(Date.now() + 60_000);
+  });
+
+  it('lets the instance\'s own clients ask root about its watch, its move and its updates with its service token', async () => {
+    root.app.use('/api/instances', express.json(), instancesRouter({ instances: rootService, chart: async () => '' }));
+    signIn.keepAnnouncing(() => undefined);
+    const asInstance = { rootUrl: root.url, instanceId: 'inst-u1', token: rootTokenOf(signIn)! };
+    expect(await new InstanceWatchSetting(asInstance).read()).toMatchObject({ notifyWhenUnreachable: true });
+    expect(await new InstanceWatchSetting(asInstance).set(false)).toMatchObject({ notifyWhenUnreachable: false });
+    expect(await new InstanceTrial(asInstance).moveState()).toBeNull();
+    const updates = new InstanceUpdates(asInstance, async () => { throw new Error('this instance was installed without a check-in, so nothing reads its jobs'); });
+    expect(await updates.view()).toMatchObject({ auto: true });
+    expect(await updates.findings()).toEqual({ findings: [] });
+    await expect(new InstanceWatchSetting({ ...asInstance, instanceId: 'inst-other' }).read()).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('sends an invite the hub asks for with its own service token, from the person it signed in, and takes none an instance asks for', async () => {
+    root.app.put('/api/hub-link/sign-in-key', (_req, res) => { res.json({ since: 'x' }); });
+    root.app.use('/api/hub-link', express.json(), hubLinkRouter({
+      invites: new ProjectInviteService({ invites: rootDb.accounts, people: rootDb.accounts, principalFor: (user) => principalOf(user, { role: 'root' }), limits: () => rootDb.accounts.getInviteLimits(), rootUrl: root.url }),
+      hash: hashCredential,
+      provider,
+      people: rootDb.accounts,
+    }));
+    const onHub = hubSignIn.verified((await signInAs('u2', hub)).instanceJar.get('session'));
+    const ask = (token: () => Promise<string>) => new HubRootClient({ rootUrl: root.url, token }).send(
+      { email: 'cy@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32), inviterId: 'u2', inviterEmail: 'u2@example.com' },
+      { id: 'u2', email: 'u2@example.com', vouch: () => hubSignIn.personToken(onHub) },
+    );
+    hubSignIn.keepAnnouncing(() => undefined);
+    const sent = await ask(() => hubSignIn.serviceToken());
+    expect(sent).toMatchObject({ link: matching(new RegExp(`^${root.url}/#/join\\?code=`)), emailed: false });
+    expect(await rootDb.accounts.getInvites()).toEqual([having({ email: 'cy@example.com', createdBy: 'u2', project: having({ name: 'Shop', role: 'client' }) })]);
+    signIn.keepAnnouncing(() => undefined);
+    await expect(ask(() => signIn.serviceToken())).rejects.toThrow('root would not send the invite (401)');
+    expect(await rootDb.accounts.getInvites()).toHaveLength(1);
   });
 });

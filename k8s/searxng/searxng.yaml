@@ -40,7 +40,7 @@ spec:
     spec:
       containers:
         - name: searxng
-          image: searxng/searxng:latest
+          image: searxng/searxng:latest@sha256:0b9f3ddd85efc8df189e6543d65702abfa8f3ed1c32229a53f7707cd12b554ef
           command:
             - /bin/sh
             - -c

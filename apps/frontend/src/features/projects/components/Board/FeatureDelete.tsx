@@ -32,7 +32,7 @@ export function FeatureDelete({ branchId, title, onDeleted }: { branchId: string
           <Trash2 size={12} /> Delete this feature
         </button>
       )}
-      {remove.error && <p className="mt-1 text-red-400">{errorMessage(remove.error)}</p>}
+      {remove.error && <p role="alert" className="mt-1 text-red-400">{errorMessage(remove.error)}</p>}
     </div>
   )
 }

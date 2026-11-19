@@ -1,6 +1,7 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { DeferredConclusion, KeeperSettings } from '../lib/conclusions.js';
+import type { KeepingState } from '../lib/memory-keeping.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import type { MemoryStore } from '../store.js';
 
@@ -9,12 +10,14 @@ export class MemoryMemoryStore implements MemoryStore {
   private readonly keeperSettings: Map<string, KeeperSettings>;
   private readonly deferred: MemoryRecords<DeferredConclusion>;
   private readonly watermarks: Map<string, string>;
+  private readonly keeping: Map<string, KeepingState>;
 
   constructor(collections: Collections = new Map()) {
     this.memories = new MemoryRecords(collectionIn<MemoryItem>(collections, 'memories'));
     this.keeperSettings = collectionIn<KeeperSettings>(collections, 'keeperSettings');
     this.deferred = new MemoryRecords(collectionIn<DeferredConclusion>(collections, 'deferredConclusions'));
     this.watermarks = collectionIn<string>(collections, 'memoryWatermarks');
+    this.keeping = collectionIn<KeepingState>(collections, 'memoryKeeping');
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -52,6 +55,15 @@ export class MemoryMemoryStore implements MemoryStore {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     if (this.deferred.get(id)?.ownerId === ownerId) this.deferred.delete(id);
+  }
+
+  async getKeepingState(ownerId: string): Promise<KeepingState | undefined> {
+    const state = this.keeping.get(ownerId);
+    return state ? copied(state) : undefined;
+  }
+
+  async saveKeepingState(state: KeepingState): Promise<void> {
+    this.keeping.set(state.ownerId, asStored(state));
   }
 
   async getMemoryWatermark(key: string): Promise<string | undefined> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useShellStore } from '../../platform/stores/shell';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TemporalPanel from './TemporalPanel';
@@ -26,11 +26,11 @@ const renderPanel = (
   vi.mocked(temporalApi.getWorkflowCount).mockResolvedValue(COUNTS);
   vi.mocked(temporalApi.listWorkflows).mockImplementation(async (_size, scope) => ({ workflows, all: scope === 'all' }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  return { client, ...render(
     <QueryClientProvider client={client}>
       <TemporalPanel />
     </QueryClientProvider>,
-  );
+  ) };
 };
 
 describe('TemporalPanel', () => {
@@ -78,6 +78,16 @@ describe('TemporalPanel', () => {
     expect(screen.getByRole('button', { name: 'Everything' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('keeps the workflows it last read and says why reading them again failed', async () => {
+    const { client } = renderPanel([{ workflowId: 'w1', status: 'RUNNING', owner: 'a' }]);
+    await screen.findByText('w1');
+    vi.mocked(temporalApi.listWorkflows).mockRejectedValue(new Error('Temporal is not reachable'));
+    await act(() => client.refetchQueries({ queryKey: temporalApi.temporalKeys.workflows(undefined) }));
+    expect(await screen.findByText('Temporal is not reachable')).toBeDefined();
+    expect(screen.getByText('w1')).toBeDefined();
+    expect(screen.queryByText('The workflows could not be read')).toBeNull();
+  });
+
   it('offers no switch to someone who sees only their own', async () => {
     renderPanel([{ workflowId: 'w1', status: 'RUNNING', owner: 'b' }]);
     await screen.findByText('w1');
@@ -104,6 +114,16 @@ describe('TemporalPanel', () => {
 
       await waitFor(() => expect(temporalApi.cancelWorkflow).toHaveBeenCalledWith('run-1'));
       expect(await screen.findByText(/Cancel requested/)).toBeDefined();
+    });
+
+    it('says why the workflow could not be cancelled', async () => {
+      useShellStore.setState({ user: { id: 'bo', email: 'bo@example.com' } as never });
+      vi.mocked(temporalApi.cancelWorkflow).mockRejectedValue(Object.assign(new Error('Request failed with status code 503'), { response: { status: 503, data: { error: 'Temporal is not answering since 09:14: connection refused' } } }));
+      await open('bo');
+      fireEvent.click(await screen.findByRole('button', { name: /Cancel workflow/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Yes, cancel it/ }));
+      expect(await screen.findByText('Temporal is not answering since 09:14: connection refused')).toBeDefined();
+      expect(screen.queryByText(/Cancel requested/)).toBeNull();
     });
 
     it('lets them change their mind', async () => {

@@ -211,7 +211,7 @@ async function app(root?: { rootPort: number }) {
         await db.platform.saveDependencyState({ process: 'worker-cluster', dependency: 'gitea', state: 'answering', at: '2026-10-29T10:05:00.000Z' });
       }
       const infrastructure = new InfrastructureViewService({
-        monitoring, contents, running, failures,
+        monitoring, contents, running, failures, memory: db.memory,
         ...(dependencies ? { dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() } } : {}),
       });
       return infrastructureRouter({ infrastructure });
@@ -228,6 +228,7 @@ interface InfrastructureAnswer {
   monitoring: { attention: unknown[] };
   koala: unknown;
   dependencies: DependencyDown[];
+  memoryKeepingDown?: { since: string; reason: string };
 }
 
 const failure: WorkFailure = { id: 'run:r1', ownerId: TEST_USER.id, workflowId: 'r1', kind: 'chat', title: 'Koala answering in "Labels"', opens: { kind: 'chat', id: 'c1' }, reason: 'the model refused', failedAt: '2026-10-17T11:00:00.000Z' };
@@ -263,6 +264,15 @@ describe('/api/infrastructure', () => {
     await harness.close();
     await app();
     expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.dependencies).toEqual([]);
+  });
+
+  it('tells the person when their own memories stopped being consolidated, and why, and no one else', async () => {
+    const { db } = await app();
+    const reason = 'Qdrant "vectors" is deployed but not answering: the cluster proxy could not reach desk';
+    await db.memory.saveKeepingState({ ownerId: TEST_USER.id, state: 'down', since: '2026-11-18T09:00:00.000Z', reason, at: '2026-11-18T10:00:00.000Z' });
+    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.memoryKeepingDown).toEqual({ since: '2026-11-18T09:00:00.000Z', reason });
+    harness.setUser({ ...TEST_USER, id: 'someone-else', email: 'else@example.com' });
+    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data).not.toHaveProperty('memoryKeepingDown');
   });
 
   it('reads one cluster', async () => {

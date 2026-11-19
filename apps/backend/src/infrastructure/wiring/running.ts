@@ -109,7 +109,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
     koala: deps.koala,
   });
   tenant.use('/api/infrastructure', infrastructureRouter({
-    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, dependencies: deps.dependencies, signals: deps.signals, egress: deps.egress }),
+    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, memory: db.memory, dependencies: deps.dependencies, signals: deps.signals, egress: deps.egress }),
   }));
   return { running };
 }

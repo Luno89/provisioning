@@ -1,9 +1,10 @@
 import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { DeferredConclusion, KeeperSettings } from './lib/conclusions.js';
+import type { KeepingRecords, KeepingState } from './lib/memory-keeping.js';
 import type { MemoryItem } from './lib/memory-store.js';
 
-export interface MemoryStore extends AreaStore {
+export interface MemoryStore extends AreaStore, KeepingRecords {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
   getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined>;
@@ -68,6 +69,18 @@ export class MongoMemoryStore implements MemoryStore {
 
   async deleteDeferredConclusion(ownerId: string, id: string): Promise<void> {
     await this.db().collection('deferredConclusions').deleteOne({ _id: id as never, ownerId });
+  }
+
+  async getKeepingState(ownerId: string): Promise<KeepingState | undefined> {
+    const doc = await this.db().collection('memoryKeeping').findOne({ _id: ownerId as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { ...(rest as Omit<KeepingState, 'ownerId'>), ownerId: String(_id) } as KeepingState;
+  }
+
+  async saveKeepingState(state: KeepingState): Promise<void> {
+    const { ownerId, ...rest } = state;
+    await this.db().collection('memoryKeeping').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
   }
 
   async getMemoryWatermark(key: string): Promise<string | undefined> {

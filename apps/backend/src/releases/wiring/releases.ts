@@ -107,6 +107,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     runs: engineReleaseRuns({ runs: deps.runs, client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined) }),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     chartAt: async (owner, repo, commit) => (await gitea.getRawFile(owner, repo, CHART_FILE, commit)) !== null,
+    io: deps.io,
     diff: (project, base, head) => deps.projectRepos.diffCommits({ ownerId: project.ownerId!, owner: project.giteaOwner!, repo: project.giteaRepo!, base, head }),
     releaseWhen: async (project) => (await treeTypeOfProject(db.projects, project))?.releaseWhen,
     clusterById,

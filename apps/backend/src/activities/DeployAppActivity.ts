@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
-  type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
+  type ProjectedBinding, StorageAdapter, buildAppEnv, envSettingsOf, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, appStackName, NO_STACK_ID, gitappPullSecretArgs, type MachineOfCluster, type Reach, unsizedModel } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, failureOf, type DatabaseSettings } from '../platform/index.js';
+import { createDatabase, failureOf, type AppSettings, type DatabaseSettings } from '../platform/index.js';
 
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { applyWatched } from './watched-apply.js';
@@ -25,7 +25,7 @@ async function nodeAllocatableBytes(kubectl: (args: string[]) => Promise<string>
   return Math.min(...sizes);
 }
 
-export interface DeployAppArgs {
+export interface DeployAppArgs extends AppSettings {
   name: string;
   machine?: MachineOfCluster | undefined;
   reach?: Reach | undefined;
@@ -42,70 +42,10 @@ export interface DeployAppArgs {
   dbTag: string;
   logFile: string;
   deploymentId?: string | undefined;
-  vllmModel?: string | undefined;
-  vllmGpuCount?: number | undefined;
-  vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
-  vllmCachePvc?: string | undefined;
-  vllmHfToken?: string | undefined;
-  vllmMaxModelLen?: number | undefined;
-  vllmGpuMemUtil?: number | undefined;
-  vllmExtraArgs?: string | undefined;
-  vllmToolCallingEnabled?: boolean | undefined;
-  vllmToolCallParser?: string | undefined;
-  vllmServedModelName?: string | undefined;
-  vllmMaxNumSeqs?: number | undefined;
-  vllmDtype?: string | undefined;
-  vllmEnablePrefixCaching?: boolean | undefined;
-  tabbyModel?: string | undefined;
-  tabbyRevision?: string | undefined;
-  tabbyGpuCount?: number | undefined;
-  tabbyHfToken?: string | undefined;
-  tabbyCachePvc?: string | undefined;
-  tabbyImageTag?: string | undefined;
-  tabbyCacheMode?: string | undefined;
-  tabbyMaxSeqLen?: number | undefined;
-  tabbyMaxBatchSize?: number | undefined;
-  tabbyReasoning?: boolean | undefined;
-  tabbyToolFormat?: string | undefined;
-  tabbyInlineModelLoading?: boolean | undefined;
-  tabbyMemoryLimit?: string | undefined;
-  tabbyShmSize?: string | undefined;
-  tabbyCpuLimit?: string | undefined;
-  tabbyDisableAuth?: boolean | undefined;
-  tabbyExtraEnv?: string | undefined;
-  searxngSecretKey?: string | undefined;
-  searxngEngines?: string | undefined;
-  crawl4aiApiToken?: string | undefined;
-  crawl4aiMemoryLimit?: string | undefined;
-  crawl4aiShmSize?: string | undefined;
-  minioRootUser?: string | undefined;
-  minioRootPassword?: string | undefined;
-  nextcloudAdminPassword?: string | undefined;
-  nextcloudDbPassword?: string | undefined;
-  nextcloudDbRootPassword?: string | undefined;
-  hermesDashboardPassword?: string | undefined;
-  minioStorage?: string | undefined;
-  qdrantApiKey?: string | undefined;
-  qdrantStorage?: string | undefined;
-  qdrantMemoryLimit?: string | undefined;
-  quickwitS3Endpoint?: string | undefined;
-  quickwitS3AccessKey?: string | undefined;
-  quickwitS3SecretKey?: string | undefined;
-  quickwitBucket?: string | undefined;
-  teiModelId?: string | undefined;
-  teiUseGpu?: boolean | undefined;
-  teiMemoryLimit?: string | undefined;
-  verdaccioUpstream?: string | undefined;
-  verdaccioStorage?: string | undefined;
-  gitappEnv?: string | undefined;
   modelCacheHostPath?: string | undefined;
   modelImage?: string | undefined;
   modelPreDownloaded?: boolean | undefined;
   openaiApiBaseUrl?: string | undefined;
-  webuiEnableWebSearch?: boolean | undefined;
-  webuiWebSearchEngine?: string | undefined;
-  webuiWebSearchApiKey?: string | undefined;
-  appSettings?: Record<string, string> | undefined;
 }
 
 export interface DeployAppResult {
@@ -342,11 +282,19 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     }
   }
 
+  const onPool = placedOnPool(Boolean(access.here.poolName), reach);
+  const tabbyMemoryLimit = args.tabbyMemoryLimit || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G` : undefined);
+  const tabbyShmSize = args.tabbyShmSize || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.shmBytes / 1024 ** 3)}Gi` : undefined);
+  const minioStorage = minioStorageFor(onPool, args.minioStorage);
   const env = buildAppEnv({
+    ...envSettingsOf(args),
+    ...(tabbyMemoryLimit ? { tabbyMemoryLimit } : {}),
+    ...(tabbyShmSize ? { tabbyShmSize } : {}),
+    ...(minioStorage ? { minioStorage } : {}),
     hfToken: modelHfToken(args),
     modelPreDownloaded: args.modelPreDownloaded === true,
     modelImage: args.modelImage,
-    serviceType: appServiceType(placedOnPool(Boolean(access.here.poolName), reach)),
+    serviceType: appServiceType(onPool),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
@@ -359,67 +307,8 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     webTag: finalOdooTag,
     dbRepo: args.dbRepo,
     dbTag: args.dbTag,
-    vllmModel: args.vllmModel,
-    vllmGpuCount: args.vllmGpuCount,
-    vllmGpuVendor: args.vllmGpuVendor,
-    vllmCachePvc: args.vllmCachePvc,
-    vllmMaxModelLen: args.vllmMaxModelLen,
-    vllmGpuMemUtil: args.vllmGpuMemUtil,
-    vllmExtraArgs: args.vllmExtraArgs,
-    vllmToolCallingEnabled: args.vllmToolCallingEnabled,
-    vllmToolCallParser: args.vllmToolCallParser,
-    vllmServedModelName: args.vllmServedModelName,
-    vllmMaxNumSeqs: args.vllmMaxNumSeqs,
-    vllmDtype: args.vllmDtype,
-    vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
-    tabbyModel: args.tabbyModel,
-    tabbyRevision: args.tabbyRevision,
-    tabbyGpuCount: args.tabbyGpuCount,
     tabbyModelSizeBytes,
-    tabbyCachePvc: args.tabbyCachePvc,
-    tabbyCacheMode: args.tabbyCacheMode,
-    tabbyMaxSeqLen: args.tabbyMaxSeqLen,
-    tabbyMaxBatchSize: args.tabbyMaxBatchSize,
-    tabbyReasoning: args.tabbyReasoning,
-    tabbyToolFormat: args.tabbyToolFormat,
-    tabbyInlineModelLoading: args.tabbyInlineModelLoading,
-    tabbyMemoryLimit: args.tabbyMemoryLimit
-      || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G` : undefined),
-    tabbyShmSize: args.tabbyShmSize
-      || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.shmBytes / 1024 ** 3)}Gi` : undefined),
-    tabbyCpuLimit: args.tabbyCpuLimit,
-    tabbyDisableAuth: args.tabbyDisableAuth,
-    tabbyExtraEnv: args.tabbyExtraEnv,
-    searxngSecretKey: args.searxngSecretKey,
-    searxngEngines: args.searxngEngines,
-    crawl4aiApiToken: args.crawl4aiApiToken,
-    crawl4aiMemoryLimit: args.crawl4aiMemoryLimit,
-    crawl4aiShmSize: args.crawl4aiShmSize,
-    minioRootUser: args.minioRootUser,
-    minioRootPassword: args.minioRootPassword,
-    nextcloudAdminPassword: args.nextcloudAdminPassword,
-    nextcloudDbPassword: args.nextcloudDbPassword,
-    nextcloudDbRootPassword: args.nextcloudDbRootPassword,
-    hermesDashboardPassword: args.hermesDashboardPassword,
-    minioStorage: minioStorageFor(placedOnPool(Boolean(access.here.poolName), reach), args.minioStorage),
-    qdrantApiKey: args.qdrantApiKey,
-    qdrantStorage: args.qdrantStorage,
-    qdrantMemoryLimit: args.qdrantMemoryLimit,
-    quickwitS3Endpoint: args.quickwitS3Endpoint,
-    quickwitS3AccessKey: args.quickwitS3AccessKey,
-    quickwitS3SecretKey: args.quickwitS3SecretKey,
-    quickwitBucket: args.quickwitBucket,
-    teiModelId: args.teiModelId,
-    teiUseGpu: args.teiUseGpu,
-    teiMemoryLimit: args.teiMemoryLimit,
-    verdaccioUpstream: args.verdaccioUpstream,
-    verdaccioStorage: args.verdaccioStorage,
-    gitappEnv: args.gitappEnv,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
-    webuiEnableWebSearch: args.webuiEnableWebSearch,
-    webuiWebSearchEngine: args.webuiWebSearchEngine,
-    webuiWebSearchApiKey: args.webuiWebSearchApiKey,
-    ...(args.appSettings ? { appSettings: args.appSettings } : {}),
     storageEnv,
   });
 

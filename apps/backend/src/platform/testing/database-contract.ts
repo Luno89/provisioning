@@ -49,6 +49,7 @@ async function seed(db: Database, world: World): Promise<void> {
   await db.infrastructure.saveCluster({ id: `cluster-${owner}`, ownerId: owner, name: `cluster-${owner}`, provider: 'k3d', status: 'destroyed' } as never);
   await db.memory.saveMemory({ id: `memory-${owner}`, ownerId: owner, projectId: project, text: 'kept' } as never);
   await db.memory.saveKeeperSettings({ ownerId: owner } as never);
+  await db.memory.saveKeepingState({ ownerId: owner, state: 'kept', at });
   await db.memory.saveMemoryWatermark(`conversation:${conversation}`, at);
   await db.monitoring.saveNotificationSettings({ ownerId: owner, level: 'all' } as never);
   await db.monitoring.saveAlertRule({ id: `rule-${owner}`, ownerId: owner } as never);
@@ -72,6 +73,7 @@ const ONE_ACCOUNT: Record<string, number> = {
   keeperSettings: 1,
   localAgentDevices: 1,
   memories: 1,
+  memoryKeeping: 1,
   modelEndpoints: 1,
   monitoringAlertRules: 1,
   notificationSettings: 1,

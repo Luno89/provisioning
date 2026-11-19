@@ -56,7 +56,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
     it('shows each machine\'s GPUs and any problem reading them, from the report its cluster keeps, and nothing for one that has not reported', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'rig', name: 'rig' }));
       await db.machines.saveLocalAgentDevice(device({ id: 'old', name: 'old' }));
-      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key' });
+      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', io: { to: () => ({ emit: () => true }) } });
       await clusters.reported({ id: 'rig', ownerId: 'bo', name: 'rig' }, 'stopped', { gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: ['the AMD kernel driver does not answer'] });
       const listed = await service({ clusters }).list('bo');
       expect(listed.find((entry) => entry.id === 'rig')).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] });
@@ -100,15 +100,27 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
     it('records the agents a machine found, as many as are well formed, and when', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'mine' }));
       const machines = service();
-      await machines.recordAgents('mine', [
+      await machines.recordAgents('mine', { agents: [
         { id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found', command: '/usr/bin/gemini', args: ['--acp'], name: 'Gemini CLI', version: '0.61.0' },
         { id: 'Not An Id', title: 'x', state: 'ready', source: 'found' },
-      ]);
+      ] });
       const saved = (await stored('mine'))!;
       expect(saved.agents?.map((agent) => agent.id)).toEqual(['gemini']);
       expect(saved.agentsAt).toBe(clock.toISOString());
-      await machines.recordAgents('gone', []);
+      await machines.recordAgents('gone', { agents: [] });
       expect(await stored('gone')).toBeUndefined();
+    });
+
+    it('shows a machine\'s coding agents as not set up, and why, as long as its own report says so', async () => {
+      await db.machines.saveLocalAgentDevice(device({ id: 'mine' }));
+      const machines = service();
+      devices.status.mockReturnValue({ online: true });
+      await machines.recordAgents('mine', { agents: [], notSetUp: 'the ACP registry could not be reached' });
+      expect((await machines.list('bo'))[0]).toMatchObject({ agents: [], agentsAt: clock.toISOString(), agentsNotSetUp: 'the ACP registry could not be reached' });
+      await machines.recordAgents('mine', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' }] });
+      const [after] = await machines.list('bo');
+      expect(after?.agents.map((agent) => agent.id)).toEqual(['gemini']);
+      expect(after).not.toHaveProperty('agentsNotSetUp');
     });
 
     it('notes when a machine was last connected here', async () => {
@@ -201,7 +213,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(projects.register).toHaveBeenCalledWith('bo', 'laptop - koala', { executionTarget: { kind: 'local-device', deviceId: 'mine' } });
       projects.removeFor.mockResolvedValue(undefined);
       const forgotten: string[] = [];
-      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key' });
+      const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', io: { to: () => ({ emit: () => true }) } });
       await clusters.reported({ ...machine, meshIp: '100.64.0.7' }, 'stopped');
       await db.infrastructure.saveDeployment({ id: 'shop', name: 'shop', clusterId: 'machine-mine', ownerId: 'bo', strategy: 'native', status: 'running' });
       const machines = service({ clusters });

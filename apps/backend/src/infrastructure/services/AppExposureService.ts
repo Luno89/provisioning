@@ -10,6 +10,7 @@ import {
 import { namespaceOf } from '../lib/app-namespace.js';
 import type { Reach } from '../lib/cluster-places.js';
 import { assertUpstreamTarget } from '../lib/upstream-target.js';
+import { tellDeploymentChanged } from './deployment-told.js';
 import type { ClusterAccess } from './ClusterAccess.js';
 
 export interface InstanceEdge {
@@ -234,7 +235,7 @@ export class AppExposureService extends BaseService<AppExposureDb> {
   private async saved(dep: DeploymentMetadata): Promise<DeploymentMetadata> {
     this.syncDerivedFields(dep);
     await this.db.infrastructure.saveDeployment(dep);
-    this.io?.emit('deployment-updated');
+    tellDeploymentChanged(this.io, dep.ownerId);
     return dep;
   }
 
@@ -315,7 +316,7 @@ export class AppExposureService extends BaseService<AppExposureDb> {
     const trimmed = exposurePath.trim();
     dep.exposurePath = trimmed && !trimmed.startsWith('/') ? `/${trimmed}` : trimmed;
     await this.db.infrastructure.saveDeployment(dep);
-    this.io?.emit('deployment-updated');
+    tellDeploymentChanged(this.io, dep.ownerId);
     return dep;
   }
 }

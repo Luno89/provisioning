@@ -34,6 +34,7 @@ import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { machinesRouter } from '../routes/machines.js';
 import { machineSides, temporalInstallWorkflows } from './sides.js';
+import { until } from '../testing/wiring-world.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fresh = await emptiedEachTime();
@@ -53,14 +54,6 @@ let told: unknown[] = [];
 let temporalDown = false;
 let closing: (() => Promise<void>) | undefined;
 const links: RootLink[] = [];
-
-async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const found = await look();
-    if (found !== undefined) return found;
-    await new Promise((done) => setTimeout(done, 20));
-  }
-}
 
 let current: () => MongoDB = () => { throw new Error('no database yet'); };
 

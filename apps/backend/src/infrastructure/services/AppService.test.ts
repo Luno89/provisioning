@@ -7,9 +7,11 @@ import type { BuilderService } from './BuilderService.js';
 import type { ClusterService } from './ClusterService.js';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterAccess } from './ClusterAccess.js';
+import type { Server as SocketServer } from 'socket.io';
 
 const at = 'then';
 const cluster: ClusterMetadata = { id: 'c1', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo' };
+const toldTo = (told: string[]): SocketServer => ({ to: (room: string) => ({ emit: (event: string) => { told.push(`${room} ${event}`); return true; } }) }) as unknown as SocketServer;
 const namespaceList = (names: string[]): string => JSON.stringify({ items: names.map((name) => ({ metadata: { name } })) });
 const app = (over: Partial<DeploymentMetadata> & Pick<DeploymentMetadata, 'id' | 'name'>): DeploymentMetadata => ({ clusterId: 'c1', strategy: 'helm', ownerId: 'bo', status: 'running', createdAt: at, ...over }) as DeploymentMetadata;
 
@@ -73,6 +75,17 @@ describe('reading an app on its cluster', () => {
     access.helm.mockResolvedValue('STATUS: deployed');
     expect(await apps.getHelmStatus('wp', 'bo')).toBe('STATUS: deployed');
     expect(access.helm).toHaveBeenCalledWith('c1', ['status', 'wordpress', '-n', 'wordpress']);
+    access.kubectl.mockImplementation(async (_cluster, args) => (args[1] === 'pods' ? 'wp-0   1/1   Running' : 'Scheduled   pod/wp-0'));
+    expect(await apps.getDiagnostics('wp', 'bo')).toBe('--- POD STATUS (Namespace: wordpress) ---\nwp-0   1/1   Running\n\n--- RECENT EVENTS ---\nScheduled   pod/wp-0');
+  });
+
+  it('shows a Palworld server\'s passwords from its Secret on the app\'s cluster, and nothing to anyone else', async () => {
+    const { db, access, apps } = setup();
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'pal', name: 'World', appType: 'palworld', namespace: 'world-1a2b3c' }));
+    access.kubectl.mockResolvedValue(JSON.stringify({ ADMIN_PASSWORD: Buffer.from('castle-key').toString('base64') }));
+    expect(await apps.signIns('pal', 'bo')).toEqual([{ describe: 'The in-game admin password (/AdminPassword)', password: 'castle-key' }]);
+    expect(access.kubectl).toHaveBeenCalledWith('c1', ['get', 'secret', 'palworld-secrets', '-n', 'world-1a2b3c', '-o', 'jsonpath={.data}', '--ignore-not-found']);
+    expect(await apps.signIns('pal', 'someone-else')).toBeUndefined();
   });
 
   it('says the cluster could not be read, rather than answering no pods or a release that is not there', async () => {
@@ -102,7 +115,9 @@ describe('updating an Odoo app\'s modules', () => {
     const updating = new AppService(db, infra, (apps as unknown as { clusters: ClusterService }).clusters, builder);
     const applied = new Promise<unknown[]>((settle) => { infra.deploy.mockImplementation(async (...args: unknown[]) => { settle(args); return { stdout: '', logFile: '' }; }); });
     await db.infrastructure.saveDeploymentInfo(odoo);
-    await updating.updateModules('d1', ['sale'], 'bo');
+    const told: string[] = [];
+    await updating.updateModules('d1', ['sale'], 'bo', toldTo(told));
+    expect(told).toContain('user:bo deployment-updated');
     const [stack, options] = await applied as [string, { env: Record<string, string> }];
     expect(stack).toBe('app-desk-shop1a2b');
     expect(options.env).toMatchObject({ DEPLOYMENT_ID: 'shop1a2b', APP_TYPE: 'odoo', DB_IMAGE_TAG: '16' });
@@ -113,7 +128,7 @@ describe('updating an Odoo app\'s modules', () => {
     const { db, infra, apps } = setup();
     const { deploymentId: _stack, ...unrecorded } = odoo;
     await db.infrastructure.saveDeploymentInfo(unrecorded as DeploymentMetadata);
-    await expect(apps.updateModules('d1', ['sale'], 'bo')).rejects.toThrow('cannot be destroyed, resized or changed through Koala');
+    await expect(apps.updateModules('d1', ['sale'], 'bo', toldTo([]))).rejects.toThrow('cannot be destroyed, resized or changed through Koala');
     expect((await apps.getById('d1', 'bo'))?.status).toBe('running');
     expect(infra.deploy).not.toHaveBeenCalled();
   });
@@ -122,7 +137,7 @@ describe('updating an Odoo app\'s modules', () => {
     const { db, infra, apps } = setup();
     const { webTag: _tag, ...untagged } = odoo;
     await db.infrastructure.saveDeploymentInfo(untagged as DeploymentMetadata);
-    await expect(apps.updateModules('d1', ['sale'], 'bo')).rejects.toThrow('shop records no image to build its modules on');
+    await expect(apps.updateModules('d1', ['sale'], 'bo', toldTo([]))).rejects.toThrow('shop records no image to build its modules on');
     expect((await apps.getById('d1', 'bo'))?.status).toBe('running');
     expect(infra.deploy).not.toHaveBeenCalled();
   });

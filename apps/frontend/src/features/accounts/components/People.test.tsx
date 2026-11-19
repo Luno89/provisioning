@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { People } from './People'
 import * as accountApi from '../api'
+import { refused } from '../../../test/refused'
 
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
@@ -46,5 +47,26 @@ describe('the people an admin can remove', () => {
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bo@example.com' } })
     fireEvent.click(remove)
     await waitFor(() => expect(accountApi.removePerson).toHaveBeenCalledWith('bo', 'bo@example.com'))
+  })
+
+  it('says why the removal was refused, keeping the confirmation open', async () => {
+    vi.mocked(accountApi.listPeople).mockResolvedValue([{ id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z' }])
+    vi.mocked(accountApi.getPersonRemoval).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
+    vi.mocked(accountApi.removePerson).mockRejectedValue(refused(409, { error: 'This account is being removed' }))
+    renderSection()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove…' }))
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'bo@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove account' }))
+    expect(await screen.findByText('This account is being removed')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove account' })).toBeInTheDocument()
+  })
+
+  it('says why the people could not be listed', async () => {
+    vi.mocked(accountApi.listPeople).mockRejectedValue(refused(403, { error: 'Admin only' }))
+    renderSection()
+
+    expect(await screen.findByText('Admin only')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove…' })).toBeNull()
   })
 })

@@ -32,7 +32,7 @@ import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
 import { InstanceSide, wireInstances, wireMoveExport } from './instances/wiring/instances.js';
-import { rootProviderFor, rootSignInFor } from './instances/wiring/sign-in.js';
+import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
 import { wireSockets } from './machines/wiring/sockets.js';
@@ -118,7 +118,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
   const rootSignIn = rootSignInFor({ role, instanceCredential: settings.instance?.credential, keys, db, revocations, publicUrl: PUBLIC_URL });
-  const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
+  const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
     way: settings.mail,
@@ -331,8 +331,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
-    serviceCaller: rootProvider ? (token) => rootProvider.serviceCaller(token) : undefined,
-    personAtHub: rootProvider ? (token) => rootProvider.personAtHub(token) : undefined,
+    rootProvider,
     vouch: rootSignIn && role.role === 'hub' ? (req) => rootSignIn.personToken((req as { clientSession?: Parameters<typeof rootSignIn.personToken>[0] }).clientSession) : undefined,
     rootToken,
   });

@@ -9,7 +9,11 @@ import type { ClusterAccess } from '../../infrastructure/index.js';
 import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
 import { ClusterProxyService } from '../../infrastructure/services/ClusterProxyService.js';
 import type { PoolMonitor } from '../services/MonitoringService.js';
-import { monitoringDepsFor, type MonitoredClusters, type PrometheusProxy } from './monitoring.js';
+import { monitoringDepsFor, monitoringServiceFor, type MonitoredClusters, type PrometheusProxy } from './monitoring.js';
+import { containing } from '../../platform/lib/test-matchers.js';
+import { http, HttpResponse, interceptHttp } from '../../platform/testing/http.js';
+
+const server = interceptHttp();
 
 const KEY = 'monitoring-wiring-key' as never;
 const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo' } as ClusterMetadata;
@@ -35,6 +39,36 @@ describe('the monitoring both the backend and the engine worker build', () => {
     const { clusters, proxy, db } = parts();
     proxy.serviceUrl.mockRejectedValue(new Error('desk is stopped until something runs on it'));
     await expect(monitoringDepsFor({ db, clusters, proxy }).prometheus(desk)).rejects.toThrow('desk is stopped until something runs on it');
+  });
+
+  it('reads a machine from the Prometheus of the cluster Koala runs in, by that machine\'s series, and Koala\'s own cluster by its own', async () => {
+    const { clusters, proxy, db } = parts();
+    clusters.ownCluster.mockResolvedValue(koalas);
+    clusters.ownClusterId.mockReturnValue(koalas.id);
+    proxy.serviceUrl.mockImplementation(async (clusterId) => `http://prometheus.${clusterId}.test/`);
+    const asked: string[] = [];
+    server.use(http.get('http://prometheus.machine-koala.test/api/v1/query', ({ request }) => {
+      asked.push(new URL(request.url).searchParams.get('query') ?? '');
+      return HttpResponse.json({ status: 'success', data: { resultType: 'vector', result: [] } });
+    }));
+    const monitoring = monitoringServiceFor({ db, clusters, proxy });
+
+    const machine = await monitoring.reach(desk);
+    await machine.metrics?.ask({ kind: 'cluster', question: 'nodes' });
+    const own = await monitoring.reach(koalas);
+    await own.metrics?.ask({ kind: 'cluster', question: 'nodes' });
+
+    expect([machine.state, own.state]).toEqual(['ok', 'ok']);
+    expect(asked.filter((query) => query !== 'vector(1)')).toEqual([containing('koala_cluster="machine-desk"'), containing('koala_cluster=""')]);
+    expect(proxy.serviceUrl.mock.calls.map(([clusterId]) => clusterId)).toEqual(['machine-koala', 'machine-koala']);
+  });
+
+  it('says a machine cannot be read where Koala runs in no cluster of its own for it to send to', async () => {
+    const { clusters, proxy, db } = parts();
+    clusters.ownCluster.mockResolvedValue(undefined);
+    clusters.ownClusterId.mockReturnValue(undefined);
+    expect(await monitoringServiceFor({ db, clusters, proxy }).reach(desk)).toMatchObject({ state: 'unreachable', reason: containing('this Koala runs in no cluster of its own for its machines to send to') });
+    expect(proxy.serviceUrl).not.toHaveBeenCalled();
   });
 
   it('runs kubectl, helm and apply through ClusterAccess by the cluster\'s id', async () => {

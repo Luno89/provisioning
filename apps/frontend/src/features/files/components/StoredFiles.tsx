@@ -23,6 +23,7 @@ interface Browsing {
   add: (dir: string, picked: PickedFile[]) => void
   moveTo: (paths: readonly string[], folder: string) => void
   move: (moves: readonly Move[]) => void
+  remove: (path: string) => void
 }
 
 function Ask({ text, yes, onYes, onNo }: { text: string; yes: string; onYes: () => void; onNo: () => void }) {
@@ -69,7 +70,6 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState<string | undefined>()
   const [removing, setRemoving] = useState(false)
-  const { remove } = useStoredChanges(browsing.scope)
   const chosen = browsing.selected.has(entry.path)
 
   const dragging = !browsing.rearranges ? {} : {
@@ -86,7 +86,7 @@ function Entry({ entry, depth, browsing, flat = false }: { entry: StoredFile; de
       {entry.type === 'file' && <a href={storedFileUrl(browsing.scope, entry.path)} aria-label={`Download ${entry.name}`} title="Download" className="rounded p-0.5 text-slate-500 hover:text-slate-200"><Download size={11} /></a>}
       {browsing.rearranges && <>
       <button type="button" aria-label={`Rename ${entry.name}`} title="Rename" onClick={() => setRenaming(entry.name)} className="rounded p-0.5 text-slate-500 hover:text-slate-200"><Pencil size={11} /></button>
-      <button type="button" aria-label={removing ? `Remove ${entry.name} for good` : `Remove ${entry.name}`} title={removing ? 'Click again to remove it for good' : 'Remove'} onClick={() => (removing ? remove.mutate(entry.path) : setRemoving(true))} onMouseLeave={() => setRemoving(false)} className={`rounded p-0.5 ${removing ? 'text-red-300' : 'text-slate-500 hover:text-red-300'}`}><Trash2 size={11} /></button>
+      <button type="button" aria-label={removing ? `Remove ${entry.name} for good` : `Remove ${entry.name}`} title={removing ? 'Click again to remove it for good' : 'Remove'} onClick={() => (removing ? browsing.remove(entry.path) : setRemoving(true))} onMouseLeave={() => setRemoving(false)} className={`rounded p-0.5 ${removing ? 'text-red-300' : 'text-slate-500 hover:text-red-300'}`}><Trash2 size={11} /></button>
       </>}
     </span>
   )
@@ -191,6 +191,7 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', onOpen, 
     add: (into, picked) => upload.mutate({ upload: { dir: into, picked }, replace: false }),
     moveTo,
     move,
+    remove: (path) => changes.removeMany.mutate([path]),
   }
   const failure = upload.error ?? changes.moveMany.error ?? changes.removeMany.error ?? changes.makeFolder.error
 

@@ -1,9 +1,11 @@
 import { chmod, chown, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { connect as tlsConnect } from 'node:tls';
 import { Connection } from '@temporalio/client';
 import { composeStep, type ComposeContext, type ComposeProject, type Step, type StepState } from '@koala/provision';
 import { mongoClientFor } from '../lib/collection.js';
+import { failureOf, stillDown } from '../lib/dependencies.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
 import { temporalApiKey, temporalJwks } from '../lib/temporal-auth.js';
 import { temporalTls } from '../lib/temporal-tls.js';
@@ -143,13 +145,42 @@ const project = (services: RootServices, files: string[]): ComposeProject => ({
   ...(services.project !== undefined ? { project: services.project } : {}),
 });
 
+function handshake(address: string, ca: Buffer): Promise<void> {
+  const split = address.lastIndexOf(':');
+  return new Promise((resolve, reject) => {
+    const socket = tlsConnect({ host: address.slice(0, split), port: Number(address.slice(split + 1)), ca, ALPNProtocols: ['h2'] }, () => {
+      socket.end();
+      resolve();
+    });
+    socket.once('error', reject);
+  });
+}
+
+async function whyNotConnected(address: string, ca: Buffer, err: unknown): Promise<Error> {
+  const connecting = failureOf(err);
+  if (connecting.kind === 'final') return err instanceof Error ? err : new Error(String(err));
+  try {
+    await handshake(address, ca);
+  } catch (refused) {
+    const handshaking = failureOf(refused);
+    return handshaking.kind === 'final' ? new Error(`Temporal's certificate is refused: ${handshaking.reason}`) : stillDown(`it takes no connections yet: ${handshaking.reason}`);
+  }
+  return stillDown(`its TLS handshake completes, but its gRPC connection did not open yet: ${connecting.reason}`);
+}
+
 export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
   return async () => {
-    const connection = await Connection.connect({
-      address: temporal.address,
-      tls: temporalTls({ caPath: join(temporal.tlsDir, 'ca.crt') }),
-      apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
-    });
+    const tls = temporalTls({ caPath: join(temporal.tlsDir, 'ca.crt') });
+    let connection: Connection;
+    try {
+      connection = await Connection.connect({
+        address: temporal.address,
+        tls,
+        apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
+      });
+    } catch (err) {
+      throw await whyNotConnected(temporal.address, tls.serverRootCACertificate, err);
+    }
     try {
       await connection.workflowService.getSystemInfo({});
       return { done: true };

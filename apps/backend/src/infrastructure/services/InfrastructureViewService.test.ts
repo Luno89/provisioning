@@ -24,8 +24,10 @@ function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload
   failures.shown.mockResolvedValue([{ id: 'run:a' } as WorkFailure]);
   const signals = mock<NonNullable<InfrastructureViewDeps['signals']>>();
   signals.open.mockResolvedValue([{ id: 's1' } as never]);
-  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, ...(over.dependencies ? { dependencies: { own: () => over.dependencies!.own, workers: async () => { const workers = over.dependencies!.workers; if (workers instanceof Error) throw workers; return workers; } } } : {}), ...(over.signals ? { signals } : {}) };
-  return { all, monitoring, contents, running, failures, signals };
+  const memory = mock<InfrastructureViewDeps['memory']>();
+  memory.getKeepingState.mockResolvedValue(undefined);
+  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, memory, ...(over.dependencies ? { dependencies: { own: () => over.dependencies!.own, workers: async () => { const workers = over.dependencies!.workers; if (workers instanceof Error) throw workers; return workers; } } } : {}), ...(over.signals ? { signals } : {}) };
+  return { all, monitoring, contents, running, failures, signals, memory };
 }
 
 describe('waitingOnPerson', () => {
@@ -94,6 +96,17 @@ describe('InfrastructureViewService', () => {
     expect(seen.dependencies).toEqual([root, { dependency: 'gitea', name: 'Gitea', since: gitea.since, reason: gitea.reason, process: 'worker-engine' }]);
     expect(seen.dependenciesUnread).toBeUndefined();
     expect((await new InfrastructureViewService(all).overview(member)).dependencies).toEqual([]);
+  });
+
+  it('tells each person when their own memories stopped being consolidated, and why, and nothing once they are kept again', async () => {
+    const { all, memory } = deps();
+    memory.getKeepingState.mockImplementation(async (ownerId) => (ownerId === 'person-1'
+      ? { ownerId, state: 'down', since: '2026-11-18T09:00:00.000Z', reason: 'Qdrant "vectors" is deployed but not answering: its pod is not ready', at: '2026-11-18T10:00:00.000Z' }
+      : { ownerId, state: 'kept', at: '2026-11-18T10:00:00.000Z' }));
+    const view = new InfrastructureViewService(all);
+    expect((await view.overview(viewer)).memoryKeepingDown).toEqual({ since: '2026-11-18T09:00:00.000Z', reason: 'Qdrant "vectors" is deployed but not answering: its pod is not ready' });
+    expect((await view.overview({ id: 'person-2' } as Viewer)).memoryKeepingDown).toBeUndefined();
+    expect(memory.getKeepingState).toHaveBeenCalledWith('person-2');
   });
 
   it('tells whoever runs this Koala that sandboxes\' egress proxy still holds grants from before, and since when, until it is synced', async () => {

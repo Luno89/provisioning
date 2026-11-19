@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { DependencyStates } from './DependencyStates.js';
@@ -6,7 +6,15 @@ import { createDatabase, type Database } from '../lib/db-interface.js';
 import { mongoTarget } from '../lib/mongo-target.js';
 import { downAcross } from '../lib/dependencies.js';
 import { testDatabase, TEST_DATA_KEY } from '../lib/test-database.js';
-import { answersHttp } from '../wiring/dependencies.js';
+import { answersHttp, collectorAnswers, workerDependencies } from '../wiring/dependencies.js';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { connectTemporalAs } from '../lib/temporal-client.js';
+import { hostWorkerSettingsFrom } from '../lib/settings.js';
+import { mongoClientFor } from '../lib/collection.js';
+import { MongoPlatformStore } from '../store.js';
+import { testIdentityKey, testKeyEnv } from '../testing/keys.js';
+import { testDataDir } from '../testing/data-dir.js';
 import { until } from '../testing/three-roles.js';
 import { startMinio, testBucket, type RealMinio } from '../../files/testing/real-minio.js';
 import { minioObjectStore, type ObjectStore } from '../../files/services/ObjectStore.js';
@@ -100,6 +108,45 @@ describe('the database stopping and starting again', () => {
     } finally {
       states.stop();
       await db.close();
+    }
+  });
+
+  it('keeps what a worker saw while Mongo was gone and records it for the backend once Mongo answers again', async () => {
+    const uri = new URL(server.getUri());
+    uri.pathname = '/worker-dependencies';
+    uri.searchParams.set('heartbeatFrequencyMS', '500');
+    uri.searchParams.set('serverSelectionTimeoutMS', '500');
+    const settings = hostWorkerSettingsFrom({
+      NODE_ENV: 'development', ...testKeyEnv('worker-dependencies'), ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey(), MONGO_URI: uri.toString(),
+      TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
+      HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', INSTANCE_IMAGE_TAG: 'test',
+    });
+    const reader = mongoClientFor(uri.toString());
+    const temporalRow = async () => (await new MongoPlatformStore(() => reader.db()).dependencyStates()).find((row) => row.process === 'worker-host' && row.dependency === 'temporal');
+    const outlasting = new URL(uri);
+    outlasting.searchParams.set('serverSelectionTimeoutMS', '1000');
+    const lateReader = mongoClientFor(outlasting.toString());
+    const collector = createServer((_req, res) => { res.end(); });
+    await new Promise<void>((listening) => collector.listen(0, '127.0.0.1', listening));
+    const states = workerDependencies(settings, settings.mongo);
+    states.checkWith('collector', collectorAnswers(() => `http://127.0.0.1:${(collector.address() as AddressInfo).port}`));
+    try {
+      await states.start();
+      expect(await until(async () => ((await temporalRow())?.state === 'down' ? true : undefined))).toBe(true);
+
+      await server.stop({ doCleanup: false });
+      await until(async () => (states.stateOf('mongo').state === 'down' ? true : undefined));
+      connectTemporalAs(settings);
+      await until(async () => (states.stateOf('temporal').state === 'answering' ? true : undefined));
+      await expect(new MongoPlatformStore(() => lateReader.db()).dependencyStates()).rejects.toThrow();
+
+      await server.start(true);
+      expect(await until(async () => ((await temporalRow())?.state === 'answering' ? true : undefined))).toBe(true);
+    } finally {
+      states.stop();
+      await reader.close();
+      await lateReader.close();
+      await new Promise((closed) => collector.close(closed));
     }
   });
 });

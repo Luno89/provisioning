@@ -7,6 +7,7 @@ import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.j
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
 import { ClusterUnreachable } from './ClusterAccess.js';
 import { AppExposureService, type ExposureClusters, type InstanceEdge } from './AppExposureService.js';
+import type { Server as SocketServer } from 'socket.io';
 
 const WEB = JSON.stringify({ items: [{ metadata: { name: 'shop-live' }, spec: { ports: [{ port: 8069 }] } }] });
 const TRAEFIK = JSON.stringify({ spec: { ports: [{ name: 'web', port: 80, nodePort: 31080 }] } });
@@ -23,7 +24,7 @@ function edgeOn(sites: string, over: Partial<InstanceEdge> = {}): InstanceEdge &
   return edge;
 }
 
-async function setUp(deployments: DeploymentMetadata[], options: { edge?: Partial<InstanceEdge> | 'none'; traefikIn?: 'traefik' | 'kube-system'; groups?: Map<string, string> } = {}) {
+async function setUp(deployments: DeploymentMetadata[], options: { edge?: Partial<InstanceEdge> | 'none'; traefikIn?: 'traefik' | 'kube-system'; groups?: Map<string, string>; told?: string[] } = {}) {
   const store = new MemoryInfrastructureStore();
   for (const dep of deployments) await store.saveDeployment(dep);
   await store.saveCluster(desk);
@@ -41,7 +42,9 @@ async function setUp(deployments: DeploymentMetadata[], options: { edge?: Partia
   const sites = mkdtempSync(join(tmpdir(), 'koala-edge-sites-'));
   const edge = options.edge === 'none' ? undefined : edgeOn(sites, options.edge);
   const groups = options.groups ?? new Map<string, string>();
-  const service = new AppExposureService({ infrastructure: store }, { access, getByIdUnscoped: async (id) => (await store.getClusters()).find((c) => c.id === id) }, undefined, {
+  const told = options.told;
+  const io = told ? { to: (room: string) => ({ emit: (event: string) => { told.push(`${room} ${event}`); return true; } }) } as unknown as SocketServer : undefined;
+  const service = new AppExposureService({ infrastructure: store }, { access, getByIdUnscoped: async (id) => (await store.getClusters()).find((c) => c.id === id) }, io, {
     edge,
     groupOf: async (dep) => (dep.gitappProjectId ? groups.get(dep.gitappProjectId) : undefined),
     domain: () => domain,
@@ -155,6 +158,18 @@ describe('exposing an app publicly, at an address root routes to the edge', () =
     groups.clear();
     await service.syncExposedApps();
     expect(await stored()).toMatchObject({ publicHostname: 'shop-luno.koala.dev', publicExposureUrl: 'https://shop.luno.koala.dev' });
+  });
+});
+
+describe('the path an app\'s link opens at', () => {
+  it('keeps the path the person sets, starting it with a slash, and tells their other pages', async () => {
+    const told: string[] = [];
+    const { service, stored } = await setUp([app({ ownerId: 'bo' })], { told });
+    expect(await service.updateExposurePath('d1abcdef', ' admin ')).toMatchObject({ exposurePath: '/admin' });
+    expect((await stored()).exposurePath).toBe('/admin');
+    expect(await service.updateExposurePath('d1abcdef', '/web/login')).toMatchObject({ exposurePath: '/web/login' });
+    expect(await service.updateExposurePath('d1abcdef', '  ')).toMatchObject({ exposurePath: '' });
+    expect(told).toEqual(['user:bo deployment-updated', 'user:bo deployment-updated', 'user:bo deployment-updated']);
   });
 });
 

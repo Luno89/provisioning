@@ -93,7 +93,6 @@ export function useStoredChanges(scope: FileScope) {
   const client = useQueryClient()
   const refresh = () => { void client.invalidateQueries({ queryKey: fileKeys.all }) }
   const list = (dir: string) => client.fetchQuery({ queryKey: fileKeys.list(scope, dir), queryFn: () => listStoredFiles(scope, dir), staleTime: 0 })
-  const remove = useMutation({ mutationFn: (path: string) => removeStoredFile(scope, path), onSuccess: refresh })
   const removeMany = useMutation({
     mutationFn: async (paths: readonly string[]) => { for (const path of paths) await removeStoredFile(scope, path) },
     onSettled: refresh,
@@ -116,7 +115,7 @@ export function useStoredChanges(scope: FileScope) {
     },
   })
   const makeFolder = useMutation({ mutationFn: (path: string) => makeStoredFolder(scope, path), onSuccess: refresh })
-  return { remove, removeMany, moveMany, makeFolder }
+  return { removeMany, moveMany, makeFolder }
 }
 
 export function useStoredSearch(scope: FileScope, query: string) {

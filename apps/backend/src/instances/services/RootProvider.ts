@@ -10,7 +10,7 @@ import {
   type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
-import { InstanceReach } from './InstanceReach.js';
+import type { InstanceReach } from './InstanceReach.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -20,7 +20,7 @@ export interface RootProviderSettings {
   cookieKey: string;
   hubUrl?: string | undefined;
   proxied: boolean;
-  reach?: InstanceReach | undefined;
+  reach: InstanceReach;
 }
 
 export interface ServiceCaller {
@@ -256,7 +256,7 @@ export class RootProvider {
   private async deliveryFetch(delivery: LogoutDelivery): Promise<typeof fetch> {
     if (delivery.clientId === HUB_CLIENT_ID) return globalThis.fetch;
     const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === delivery.clientId);
-    return (this.settings.reach ?? new InstanceReach({ open: false })).fetchFor(instance ?? {});
+    return this.settings.reach.fetchFor(instance ?? {});
   }
 
   private async deliverPending(): Promise<void> {

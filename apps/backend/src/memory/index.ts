@@ -1,5 +1,6 @@
 export { consolidateMemories } from './lib/memory-consolidate.js';
-export { consolidateOwner } from './lib/memory-keeping.js';
+export { keepEveryOwner } from './lib/memory-keeping.js';
+export type { KeepingOutcome, KeepingRecords, KeepingState } from './lib/memory-keeping.js';
 export type { ConsolidationReport } from './lib/memory-consolidate.js';
 export { indexMemories, removeMemories, searchMemories, similarTo, unindexerFrom } from './lib/memory-index.js';
 export type { MemoryUnindexer } from './lib/memory-index.js';

@@ -149,7 +149,14 @@ export interface InfrastructureOverview {
   dependencies: DependencyDown[]
   dependenciesUnread?: string
   egressBehind?: EgressBehind
+  memoryKeepingDown?: MemoryKeepingDown
   signals: SignalView[]
+}
+
+/** ── DUPLICATED, KNOWINGLY ── `KeepingState` in apps/backend/src/memory/lib/memory-keeping.ts is the authority. */
+export interface MemoryKeepingDown {
+  since: string
+  reason: string
 }
 
 /** ── DUPLICATED, KNOWINGLY ── `ProxyBehind` in apps/backend/src/infrastructure/services/EgressService.ts is the authority. */

@@ -1,9 +1,20 @@
 import { createHash } from 'node:crypto';
+import type { ResolvedCredentials } from './credential-resolver.js';
 
 export interface OvhKeys {
   applicationKey: string;
   applicationSecret: string;
   consumerKey: string;
+}
+
+export interface OvhAccount extends OvhKeys {
+  subsidiary: string;
+}
+
+export function ovhAccountOf(resolved: ResolvedCredentials): OvhAccount | undefined {
+  if (resolved.mode === 'none') return undefined;
+  const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
+  return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
 }
 
 export interface OvhSigned {

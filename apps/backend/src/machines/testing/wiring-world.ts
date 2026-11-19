@@ -1,0 +1,38 @@
+import { afterEach } from 'vitest';
+import type { MachineAccountsDeps } from '../services/MachineAccounts.js';
+import { MachineService, type MachineDeps } from '../services/MachineService.js';
+
+export function closedAfterEach(): Array<() => Promise<void> | void> {
+  const closers: Array<() => Promise<void> | void> = [];
+  afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
+  return closers;
+}
+
+export async function until<T>(look: () => T | undefined | Promise<T | undefined>): Promise<T> {
+  for (;;) {
+    const found = await look();
+    if (found !== undefined) return found;
+    await new Promise((done) => setTimeout(done, 20));
+  }
+}
+
+export function quietAccountSides(): Pick<MachineAccountsDeps, 'settings' | 'mesh' | 'koala' | 'followers' | 'toOwner' | 'toMachines'> {
+  return {
+    settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
+    mesh: { createPreAuthKey: async () => ({ key: 'hskey' }), removeNode: async () => undefined },
+    koala: { of: async () => undefined },
+    followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+    toOwner: { machinesChanged: () => undefined },
+    toMachines: { removed: () => false, koala: () => false, online: () => false },
+  };
+}
+
+export function onlineMachines(store: MachineDeps['store'], over: Pick<MachineDeps, 'bundle'> = {}): MachineService {
+  return new MachineService({
+    store,
+    devices: { status: () => ({ online: true }) } as never,
+    accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
+    projects: { register: async () => { throw new Error('not used'); } },
+    ...over,
+  });
+}

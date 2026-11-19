@@ -703,6 +703,12 @@ describe('AgentRunWorkflow', () => {
     expect(acts.stream.EngineLifecycleActivity.mock.calls.filter(([event]) => event.kind === 'run-ended')).toHaveLength(1);
   });
 
+  it('a run started before its ending was reported until heard goes on with today\'s code, reporting its ending the way it began', async () => {
+    const history = JSON.parse(await readFile(resolve(__dirname, 'testing/agent-run-before-endings-heard.json'), 'utf8')) as { events: Array<{ activityTaskScheduledEventAttributes?: { activityType?: { name?: string } } }> };
+    expect(history.events.filter((event) => event.activityTaskScheduledEventAttributes?.activityType?.name === 'EngineLifecycleActivity')).toHaveLength(2);
+    await expect(Worker.runReplayHistory({ workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')) }, history)).resolves.toBeUndefined();
+  });
+
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {
     const acts = activities({ script: [{ content: 'because it was' }] });
 

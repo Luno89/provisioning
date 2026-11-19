@@ -176,6 +176,14 @@ describe('what the memory keeper proposes', () => {
     expect(await listChanges()).toEqual([])
     await expect(dismissChange('nothing')).rejects.toMatchObject({ response: { status: 404, data: { error: 'there is no change waiting with that id' } } })
   })
+
+  it('dismisses a change waiting for them, which then shows as dismissed and is not dismissed twice', async () => {
+    const waiting: BackendChange = { id: 'change-1', ownerId: owner.id, kind: 'prompt', agent: 'koala', why: 'it named the wrong GPU', status: 'ready', prompt: 'Name the GPU.', currentPrompt: 'Answer.', createdAt: now }
+    await backend.db.checks.saveEvalRecord('evalAgentChanges', waiting)
+    await dismissChange('change-1')
+    expect(await listChanges()).toEqual([objectWith({ id: 'change-1', status: 'dismissed', decidedAt: expect.any(String) })])
+    await expect(dismissChange('change-1')).rejects.toMatchObject({ response: { status: 404 } })
+  })
 })
 
 describe('another person', () => {

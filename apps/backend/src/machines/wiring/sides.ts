@@ -97,7 +97,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     installs,
     mesh: deps.mesh,
   }) : undefined;
-  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, koalaMachineId: deps.koalaMachineId }) : undefined;
+  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: deps.dataKey, io: deps.io, koalaMachineId: deps.koalaMachineId }) : undefined;
   const root = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken ?? (async () => '') }) : undefined;
   machines = new MachineService({
     store: db.machines,

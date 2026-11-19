@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
-import { buildManifests, workspaceName, POD, type RunWorkspace } from './workspace.js';
+import { POD, type RunWorkspace } from '@koala/agent-engine';
+import { buildManifests, workspaceName } from './workspace.js';
 import {
   applyWorkspace,
   workspaceStampOf,

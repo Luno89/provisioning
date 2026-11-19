@@ -20,13 +20,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
     const orders = new ServerOrderService({
       store: db.infrastructure,
       dataKey: keys.data,
-      ovhAccountOf: async (ownerId) => {
-        const resolved = await credentials.resolveCredentials(ownerId, 'ovh');
-        if (resolved.mode === 'none') return undefined;
-        const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-        return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
-      },
-      dnsCredentialsOf: (ownerId, provider) => credentials.dnsCredentialsOf(ownerId, provider),
+      credentials,
       lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024 })).stdout,
     });
     return await work(orders);

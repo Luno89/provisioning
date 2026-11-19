@@ -12,6 +12,8 @@ import {
   type ReleaseBuildInput, type ReleaseHow, type ReleaseRunInput, type RollBackRunInput,
 } from '../lib/release-run.js';
 import { reopening, type Watching } from '../../platform/index.js';
+import { tellDeploymentChanged } from '../../infrastructure/index.js';
+import type { SocketLike } from '../../engine-host/temporal/stream-worker.js';
 
 export interface OdooReleaseStore {
   releases: {
@@ -59,6 +61,7 @@ export interface OdooReleaseDeps {
   runs: ReleaseRuns;
   how?: ((project: ProjectMetadata) => Promise<ReleaseHow>) | undefined;
   chartAt: (owner: string, repo: string, commit: string) => Promise<boolean>;
+  io: SocketLike;
   diff?: ((project: ProjectMetadata, base: string, head: string) => Promise<string>) | undefined;
   releaseWhen?: ((project: ProjectMetadata) => Promise<readonly string[] | undefined>) | undefined;
   clusterById?: ((id: string) => Promise<ClusterMetadata | undefined>) | undefined;
@@ -364,6 +367,7 @@ export class OdooReleaseService {
       status: existing?.status === 'running' ? 'running' : 'deploying',
       ...(existing ? {} : { createdAt: this.now() }),
     } as Partial<DeploymentMetadata> & { id: string });
+    tellDeploymentChanged(this.deps.io, ownerId);
   }
 
   async list(ownerId: string, projectId: string): Promise<OdooRelease[]> {
@@ -549,6 +553,7 @@ export class OdooReleaseService {
     const deployment = (await this.deps.store.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId);
     if (!deployment || (deployment.status === status && (!image || deployment.gitappImageTag === image))) return;
     await this.deps.store.infrastructure.saveDeploymentInfo({ id: deployment.id, status, ...(image ? { gitappImageTag: image } : {}) });
+    tellDeploymentChanged(this.deps.io, deployment.ownerId);
   }
 }
 

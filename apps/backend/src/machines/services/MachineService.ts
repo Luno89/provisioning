@@ -3,7 +3,7 @@ import { type ClusterMetadata, type LocalAgentDeviceMetadata, type ProjectMetada
 import { tokenExpired } from '../lib/device-tokens.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
-  machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem,
+  machineAgentsReportFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem,
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
 import type { AccountMachine } from './MachineAccounts.js';
@@ -52,6 +52,7 @@ export interface MachineView {
   connectedAt?: string | undefined;
   agents: MachineAgent[];
   agentsAt?: string | undefined;
+  agentsNotSetUp?: string | undefined;
   manualAgents: ManualMachineAgent[];
   agentUpdate?: AgentUpdateView | undefined;
   gpus?: ClusterMetadata['gpus'];
@@ -90,6 +91,7 @@ export class MachineService {
       ...(status.connectedAt ? { connectedAt: status.connectedAt } : {}),
       agents: device.agents ?? [],
       ...(device.agentsAt ? { agentsAt: device.agentsAt } : {}),
+      ...(device.agentsNotSetUp ? { agentsNotSetUp: device.agentsNotSetUp } : {}),
       manualAgents: device.manualAgents ?? [],
       ...(agentUpdate ? { agentUpdate } : {}),
     };
@@ -128,7 +130,11 @@ export class MachineService {
   async recordAgents(deviceId: string, raw: unknown): Promise<void> {
     const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     if (!device) return;
-    await this.deps.store.updateLocalAgentDevice(device.id, { set: { agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() } });
+    const report = machineAgentsReportFrom(raw);
+    await this.deps.store.updateLocalAgentDevice(device.id, {
+      set: { agents: report.agents, agentsAt: this.now().toISOString(), ...(report.notSetUp ? { agentsNotSetUp: report.notSetUp } : {}) },
+      ...(report.notSetUp ? {} : { unset: ['agentsNotSetUp'] }),
+    });
   }
 
   async recordAgentBundle(deviceId: string, auth: unknown): Promise<void> {

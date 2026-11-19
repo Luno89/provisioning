@@ -52,7 +52,7 @@ export function TreeDeletePanel({ treeId, treeName, onDeleted }: {
           <Trash2 size={12} /> Delete this tree
         </button>
       )}
-      {remove.error && <span className="text-red-400">The tree could not be deleted: {errorMessage(remove.error)}</span>}
+      {remove.error && <span role="alert" className="text-red-400">The tree could not be deleted: {errorMessage(remove.error)}</span>}
     </div>
   )
 }

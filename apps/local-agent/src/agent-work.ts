@@ -4,7 +4,7 @@ import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
 import type { MachineConfig } from './machine-config.js';
-import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, type DiscoveryDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
+import { KNOWN_AGENTS, manualAgentsFrom, reportAgents, type DiscoveryDeps, type ManualAgent } from './agent-discovery.js';
 import { installAgent } from './agent-install.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
@@ -25,6 +25,7 @@ export interface AgentPlace {
   service: ReturnType<typeof serviceManagerOf>;
   cluster: ClusterHost;
   discovery(rootDir: string): DiscoveryDeps;
+  agentsNotSetUp(): Promise<string | undefined>;
   startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker>;
   onStop(stop: () => void): void;
   exit(code: number): void;
@@ -41,9 +42,9 @@ function watchAgents(place: AgentPlace, socket: Socket, config: MachineConfig, s
   const deps = place.discovery(config.rootDir);
   const rediscover = async (): Promise<void> => {
     const manual = await manualOver(socket);
-    const found = await discoverAgents(deps, manual, (agents: FoundAgent[], launches) => {
+    const found = await reportAgents(deps, manual, () => place.agentsNotSetUp(), (report, launches) => {
       sessions.setLaunches(launches);
-      socket.emit('agents:found', { agents });
+      socket.emit('agents:found', report);
     });
     sessions.setLaunches(found.launches);
     const ready = found.agents.filter((agent) => agent.state === 'ready').map((agent) => agent.id);

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OtherSessions } from './OtherSessions'
 import { useShellStore } from '../../platform'
 import * as api from '../api'
+import { refused } from '../../../test/refused'
 
 vi.mock('../api', async (original) => ({ ...(await original<typeof import('../api')>()), endOtherSessions: vi.fn(async () => undefined) }))
 
@@ -21,6 +22,15 @@ describe('signing out everywhere else', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere else' }))
     await waitFor(() => expect(api.endOtherSessions).toHaveBeenCalledOnce())
     await waitFor(() => expect(pushed.mock.calls.map(([notice]) => notice.message).join('\n')).toContain('signed out'))
+  })
+
+  it('says why the other sessions were not ended', async () => {
+    vi.mocked(api.endOtherSessions).mockRejectedValueOnce(refused(401, { error: 'This sign-in has expired; sign in again' }))
+    const pushed = vi.spyOn(useShellStore.getState(), 'pushNotification')
+    show()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere else' }))
+    expect(await screen.findByText('This sign-in has expired; sign in again')).toBeInTheDocument()
+    expect(pushed.mock.calls.map(([notice]) => notice.message).join('\n')).not.toContain('signed out')
   })
 
   it('is not offered on an instance, whose sessions come from root', () => {

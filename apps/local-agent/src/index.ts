@@ -2,7 +2,7 @@ import { mkdir } from 'fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { configFile, loadMachineConfig } from './machine-config.js';
+import { agentsNotSetUp, configFile, loadMachineConfig } from './machine-config.js';
 import { linkToRoot } from './root-link.js';
 import { systemDeps } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
@@ -55,6 +55,7 @@ const thisComputer = (service: ReturnType<typeof serviceManagerOf>): AgentPlace 
   service,
   cluster: machineCluster,
   discovery: (rootDir) => systemDeps(rootDir, probeAcp),
+  agentsNotSetUp: () => agentsNotSetUp(),
   startDeviceWorker: async (options) => (await import('./engine-worker.js')).startDeviceWorker(options),
   onStop: (stop) => { for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, stop); },
   exit: (code) => process.exit(code),

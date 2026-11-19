@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildAppEnv, modelHfToken, type AppEnvArgs } from './app-env.js';
+import { buildAppEnv, FOLDED_SETTINGS, modelHfToken, type AppEnvArgs } from './app-env.js';
+import { APP_SETTINGS } from './deploy-request.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -11,7 +12,10 @@ const SENTINEL = (name: string) => `SENTINEL_${name}`;
 function declaredStringFields(): string[] {
   const src = readFileSync(join(here, 'app-env.ts'), 'utf8');
   const iface = src.slice(src.indexOf('export interface AppEnvArgs'), src.indexOf('\n}', src.indexOf('export interface AppEnvArgs')));
-  return [...iface.matchAll(/^\s{2}([a-zA-Z][A-Za-z0-9]*)\?:\s*string\s*\|\s*undefined;/gm)].map((m) => m[1]!);
+  const own = [...iface.matchAll(/^\s{2}([a-zA-Z][A-Za-z0-9]*)\?:\s*string\s*\|\s*undefined;/gm)].map((m) => m[1]!);
+  const folded: readonly string[] = FOLDED_SETTINGS;
+  const settings = Object.entries(APP_SETTINGS).filter(([name, kind]) => (kind === 'text' || Array.isArray(kind)) && !folded.includes(name)).map(([name]) => name);
+  return [...own, ...settings];
 }
 
 const base: AppEnvArgs = {

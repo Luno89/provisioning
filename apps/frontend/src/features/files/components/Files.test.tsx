@@ -10,6 +10,7 @@ import RepositoryFiles from './RepositoryFiles'
 import OwnFiles from './OwnFiles'
 import ChatFiles from './ChatFiles'
 import FileShares from './FileShares'
+import { refused } from '../../../test/refused'
 
 vi.mock('../api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
@@ -49,8 +50,6 @@ beforeEach(() => {
   vi.mocked(filesApi.storedRoom).mockResolvedValue({ free: 1024 ** 3 })
 })
 
-const refused = (status: number, data: unknown) => Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data } })
-
 describe('a project\'s stored files', () => {
   it('lists them with their sizes and download links, uploads what is dropped into the folder it is dropped on', async () => {
     vi.mocked(filesApi.listStoredFiles).mockImplementation(async (_scope, dir) => (dir === '' ? [{ name: 'docs', path: 'docs', type: 'dir' }, { name: 'brief.pdf', path: 'brief.pdf', type: 'file', size: 2048 }] : []))
@@ -87,6 +86,27 @@ describe('a project\'s stored files', () => {
     fireEvent.change(name, { target: { value: 'b.txt' } })
     fireEvent.keyDown(name, { key: 'Enter' })
     await waitFor(() => expect(filesApi.moveStoredFile).toHaveBeenCalledWith({ kind: 'mine' }, 'a.txt', 'b.txt'))
+  })
+
+  it('says why a file could not be removed, and keeps it listed', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1 }])
+    vi.mocked(filesApi.removeStoredFile).mockRejectedValueOnce(refused(404, { error: 'There is no file a.txt.' }))
+    show(<StoredFiles scope={{ kind: 'mine' }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove a.txt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.txt for good' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('There is no file a.txt.')
+    expect(screen.getByRole('button', { name: 'Open a.txt' })).toBeInTheDocument()
+  })
+
+  it('says why a folder could not be made', async () => {
+    vi.mocked(filesApi.makeStoredFolder).mockRejectedValueOnce(refused(409, { error: 'docs is not a folder here' }))
+    show(<StoredFiles scope={{ kind: 'mine' }} />)
+    await screen.findByText(/Nothing here yet/)
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    const name = screen.getByRole('textbox', { name: 'Name of the new folder' })
+    fireEvent.change(name, { target: { value: 'docs/invoices' } })
+    fireEvent.keyDown(name, { key: 'Enter' })
+    expect(await screen.findByRole('alert')).toHaveTextContent('docs is not a folder here')
   })
 
   it('shows a project\'s files at once, with nothing to choose first', async () => {
@@ -320,6 +340,15 @@ describe('the person\'s shared links', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stop sharing a.pdf' }))
     await waitFor(() => expect(filesApi.revokeFileShare).toHaveBeenCalledWith('share-1'))
   })
+
+  it('says why a link could not be stopped, and keeps it listed', async () => {
+    vi.mocked(filesApi.listFileShares).mockResolvedValue([{ id: 'share-1', token: 'b'.repeat(32), ownerId: 'u1', path: 'docs/a.pdf', name: 'a.pdf', createdAt: 't', expiresAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }])
+    vi.mocked(filesApi.revokeFileShare).mockRejectedValueOnce(refused(404, { error: 'Not found' }))
+    show(<FileShares />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop sharing a.pdf' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not found')
+    expect(screen.getByTitle('docs/a.pdf')).toBeInTheDocument()
+  })
 })
 
 describe('code dropped on the repository', () => {
@@ -329,6 +358,14 @@ describe('code dropped on the repository', () => {
     await act(async () => { dropOn(screen.getByTestId('drop-target'), [code]) })
     await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', ref: 'leaf/l1' }, [{ path: 'logo.png', file: code }], expect.any(Function)))
     expect(await screen.findByText('Committed logo.png to the branch leaf/l1.')).toBeInTheDocument()
+  })
+
+  it('says why the code was not committed', async () => {
+    vi.mocked(projectFilesApi.dropIntoRepository).mockRejectedValueOnce(refused(409, { error: 'this project has no repository' }))
+    show(<RepositoryFiles projectId="p1">{() => <span>tree</span>}</RepositoryFiles>)
+    await act(async () => { dropOn(screen.getByTestId('drop-target'), [new File(['x'], 'a.ts')]) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('this project has no repository')
+    expect(screen.queryByTestId('drop-outcome')).toBeNull()
   })
 })
 

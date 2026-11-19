@@ -25,7 +25,7 @@ const machine = (options: WorldOptions = {}): World => joinWorld({
   files: { [`${AGENT_DIR}/bundle.sha256`]: `${'a'.repeat(64)}\n`, ...options.files },
 });
 
-async function join(world: World, argv: string[], answers: Record<string, boolean> = {}): Promise<Ran> {
+async function join(world: World, argv: string[], answers: Record<string, boolean> = {}, setUpAgents?: () => Promise<void>): Promise<Ran> {
   let said = '';
   const root = memoryReporter();
   const asked: string[] = [];
@@ -47,7 +47,10 @@ async function join(world: World, argv: string[], answers: Record<string, boolea
     },
     agentDir: AGENT_DIR,
     node: NODE,
-    setUpAgents: async (choice, folder) => { agents.push(`${choice} in ${folder}`); },
+    setUpAgents: async (choice, folder) => {
+      agents.push(`${choice} in ${folder}`);
+      await setUpAgents?.();
+    },
     rootReporter: () => root,
     every: () => ({ stop: () => undefined }),
   });
@@ -305,5 +308,65 @@ describe('a join that fails', () => {
     expect(ran.code).toBe(1);
     expect(ran.said).toContain('Tailscale gives this machine no private address, so Koala could not reach its cluster');
     expect(world.files.has(K3S_CONFIG)).toBe(false);
+  });
+});
+
+describe('the settings this machine kept from its last join', () => {
+  const SETTINGS = `${HOME}/.config/koala/machine.json`;
+
+  it('stops at the join, naming the file, why and what to do, and makes no machine, when they are not the settings Koala writes', async () => {
+    const world = machine({ tailscale: { installed: true }, executables: ['/usr/bin/systemctl'], files: { [SETTINGS]: 'not what Koala writes' } });
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (`);
+    expect(ran.said).toContain(`If this machine is on My Machines already, remove it there; then delete ${SETTINGS} and run this command again.`);
+    expect(ran.root.reported.at(-1)).toMatchObject({ kind: 'failed', id: 'join' });
+    expect(world.joins).toEqual([]);
+    expect(world.files.get(SETTINGS)).toBe('not what Koala writes');
+    expect(ran.agents).toEqual([]);
+  });
+
+  it('stops the same way when they name no device token', async () => {
+    const world = machine({ tailscale: { installed: true }, files: { [SETTINGS]: '{"rootUrl":"https://root.test"}' } });
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (it names no device token)`);
+    expect(world.joins).toEqual([]);
+  });
+
+  it('stops, saying how to make them readable, when they cannot be read', async () => {
+    const world = machine({ tailscale: { installed: true } });
+    const reads = world.host.readOwn;
+    world.host.readOwn = async (file) => {
+      if (file === SETTINGS) throw new Error(`${SETTINGS} could not be read: EACCES: permission denied, open '${SETTINGS}'`);
+      return reads(file);
+    };
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${SETTINGS} could not be read: EACCES: permission denied, open '${SETTINGS}'. Make it yours and readable only by you (chown ${world.host.user} ${SETTINGS}; chmod 600 ${SETTINGS}), then run this command again.`);
+    expect(world.joins).toEqual([]);
+  });
+});
+
+describe('setting up the coding agents', () => {
+  const SETTINGS = `${HOME}/.config/koala/machine.json`;
+
+  it('still joins when it fails, keeping why in the machine\'s settings for its agent to report, not as a warning', async () => {
+    const world = machine({ tailscale: { installed: true }, executables: ['/usr/bin/systemctl'] });
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code'], {}, async () => { throw new Error('the ACP registry could not be reached'); });
+    expect(ran.code, ran.said).toBe(0);
+    expect(statesOf(ran.root)).toContain('service done');
+    expect(JSON.parse(world.files.get(SETTINGS)!)).toMatchObject({ token: 'token-1', agentsNotSetUp: 'the ACP registry could not be reached' });
+    expect(ran.said).toContain('The coding agents are not set up: the ACP registry could not be reached. My Machines shows them so; run this command again to set them up.');
+    expect(ran.said).not.toContain('it looks again each time this machine connects');
+  });
+
+  it('forgets the failure once running the command again sets them up', async () => {
+    const world = machine({ tailscale: { installed: true }, executables: ['/usr/bin/systemctl'] });
+    await join(world, ['--yes', '--no-cluster', 'first-code'], {}, async () => { throw new Error('the ACP registry could not be reached'); });
+    expect(JSON.parse(world.files.get(SETTINGS)!)).toHaveProperty('agentsNotSetUp');
+    const again = await join(world, ['--yes', '--no-cluster', 'second-code']);
+    expect(again.code, again.said).toBe(0);
+    expect(JSON.parse(world.files.get(SETTINGS)!)).not.toHaveProperty('agentsNotSetUp');
   });
 });

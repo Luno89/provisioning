@@ -21,6 +21,11 @@ function ownText(row: TreeModelRow, models: readonly ModelProvider[]): string {
   return `Its own: ${nameOf(models, row.own.modelId)}`
 }
 
+function Saving({ save }: { save: { isPending: boolean; error: unknown } }) {
+  if (save.isPending) return <span className="flex items-center gap-1 text-slate-500"><Loader2 size={11} className="animate-spin" /> Saving…</span>
+  return save.error ? <span role="alert" className="text-red-400">{errorMessage(save.error) || 'The choice was not saved.'}</span> : null
+}
+
 function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; models: ModelProvider[] }) {
   const qc = useQueryClient()
   const setView = useShellStore((s) => s.setView)
@@ -73,8 +78,7 @@ function Row({ treeId, row, models }: { treeId: string; row: TreeModelRow; model
       {choosing && row.noMachine && (
         <span className="text-[11px] text-slate-500">{row.name}'s procedure has no way to hand its work to a machine, so only your models are offered.</span>
       )}
-      {save.isPending && <span className="flex items-center gap-1 text-slate-500"><Loader2 size={11} className="animate-spin" /> Saving…</span>}
-      {save.error && <span className="text-red-400">{errorMessage(save.error) || 'The choice was not saved.'}</span>}
+      <Saving save={save} />
     </li>
   )
 }
@@ -127,8 +131,7 @@ function EveryAgent({ treeId, rows, models }: { treeId: string; rows: TreeModelR
         />
       )}
       {skipped.length > 0 && <span className="text-[11px] text-slate-500">{skipped.join(', ')} cannot hand work to a machine, so {skipped.length === 1 ? 'it stays' : 'they stay'} as before.</span>}
-      {save.isPending && <span className="flex items-center gap-1 text-slate-500"><Loader2 size={11} className="animate-spin" /> Saving…</span>}
-      {save.error && <span className="text-red-400">{errorMessage(save.error) || 'The choice was not saved.'}</span>}
+      <Saving save={save} />
     </li>
   )
 }
@@ -137,7 +140,7 @@ export function TreeModels({ treeId }: { treeId: string }) {
   const rows = useQuery({ queryKey: groveKeys.models(treeId), queryFn: () => getTreeModels(treeId) })
   const models = useQuery({ queryKey: providerKeys.list(), queryFn: listModels })
 
-  if (rows.error) return <p className="text-red-400">Could not read the tree's models: {errorMessage(rows.error)}</p>
+  if (rows.error) return <p role="alert" className="text-red-400">Could not read the tree's models: {errorMessage(rows.error)}</p>
   if (!rows.data) return null
 
   return (

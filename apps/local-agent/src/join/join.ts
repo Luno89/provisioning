@@ -7,6 +7,7 @@ import type { JoinContext } from './context.js';
 import type { JoinHost } from './host.js';
 import { joinPins, type JoinPins } from './pins.js';
 import { JoinStopped, planJoin } from './plan.js';
+import { keepAgentsNotSetUp } from './steps/join-root.js';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
 import { rootProgress, rootReporter, rootUrlOf } from '../root-progress.js';
 
@@ -68,10 +69,11 @@ export async function runJoin(argv: readonly string[], deps: JoinDeps): Promise<
     const reporter = allReporters(terminalReporter(deps.terminal), (deps.rootReporter ?? ((url, code) => rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, deps.host.fetch))))(args.url, args.code));
     await runSteps(plan.steps, ctx, reporter);
     section('Coding agents on this machine');
-    await deps.setUpAgents(args.adapters, folder).then(
-      () => undefined,
-      (err: Error) => { say(`Koala could not look for coding agents now (${err.message}); it looks again each time this machine connects.`); },
-    );
+    const notSetUp = await deps.setUpAgents(args.adapters, folder).then(() => undefined, (err: Error) => err.message);
+    if (notSetUp) {
+      await keepAgentsNotSetUp(ctx, notSetUp);
+      say(`The coding agents are not set up: ${notSetUp}. My Machines shows them so; run this command again to set them up.`);
+    }
     if (plan.service) await runSteps([plan.service], ctx, reporter);
     else {
       section('Start it with');

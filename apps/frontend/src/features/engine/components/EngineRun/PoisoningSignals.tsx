@@ -44,7 +44,7 @@ export function SignalRow({ signal, className, onChanged }: { signal: SignalView
       )}
       {signal.matchUnreadable && <p className="basis-full text-[11px] text-amber-300">{signal.matchUnreadable}</p>}
       {retired !== undefined && <p className="basis-full text-[11px] text-emerald-300">Retired {retired} {retired === 1 ? 'memory' : 'memories'}.</p>}
-      {failed && <p className="basis-full text-[11px] text-rose-300">{errorMessage(failed)}</p>}
+      {failed && <p role="alert" className="basis-full text-[11px] text-rose-300">{errorMessage(failed)}</p>}
     </li>
   )
 }

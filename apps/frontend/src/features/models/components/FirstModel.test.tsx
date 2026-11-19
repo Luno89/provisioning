@@ -61,6 +61,16 @@ describe('a person with no model yet', () => {
     expect(modelsApi.setDefaultModel).not.toHaveBeenCalled()
   })
 
+  it('says why the pick did not become the default, and keeps offering the models', async () => {
+    vi.mocked(modelsApi.listModels).mockResolvedValue([model('free/one', { pricing: free })])
+    vi.mocked(modelsApi.getDefaultModel).mockResolvedValue({ defaultModelId: null, globalModelOverride: false })
+    vi.mocked(modelsApi.setDefaultModel).mockRejectedValue(Object.assign(new Error('Request failed with status code 503'), { response: { status: 503, data: { error: 'Koala\'s database is not answering since 10:02: connection refused' } } }))
+    renderIt()
+    fireEvent.click(await screen.findByRole('button', { name: /free\/one/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Koala\'s database is not answering since 10:02: connection refused')
+    expect(screen.getByRole('button', { name: /free\/one/ })).toBeEnabled()
+  })
+
   it('shows nothing once a default is set', async () => {
     vi.mocked(modelsApi.listModels).mockResolvedValue([model('a')])
     vi.mocked(modelsApi.getDefaultModel).mockResolvedValue({ defaultModelId: 'a', globalModelOverride: false })

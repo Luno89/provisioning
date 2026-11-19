@@ -16,6 +16,9 @@ import { localHubSync } from '../testing/in-process-hub.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
+import { ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
+import { localHubSharing, localProjectGroups } from '../../projects/testing/in-process-sharing.js';
+import type { ConversationNotice } from '../../engine/index.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const now = '2026-10-21T00:00:00Z';
@@ -340,16 +343,24 @@ describe('keeping main in step with the hub\'s, with real git', () => {
     const db = await testDatabase();
     const owner = await bare();
     const hub = await bare();
-    const conflicts: { files: string[]; kept: string }[] = [];
+    const told: ConversationNotice[] = [];
     const ran: ProcessRun[] = [];
-    const repos: HubRepoSides = { ends: async () => ({ owner: { url: owner }, hub: { url: hub } }), conflicted: async (_link, conflict) => { conflicts.push(conflict); } };
+    const onHub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } });
+    const sharing = new ProjectSharingService({
+      store: db, sharing: localHubSharing(onHub, 'i1'), sync: { once: async () => undefined }, dataKey: 'k'.repeat(32) as never,
+      ownerRepo: async () => ({ url: owner }), notify: async (_owner, _scope, notice) => { told.push(notice); },
+      groups: localProjectGroups(db), republish: async () => undefined,
+    });
+    await db.projects.saveProject({ id: 'p1', ownerId: 'ann', name: 'Shop', createdAt: now } as never);
+    await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
+    const repos: HubRepoSides = { ends: async () => ({ owner: { url: owner }, hub: { url: hub } }), conflicted: sharing.repoSides().conflicted };
     const lines: string[] = [];
     const sync = new HubSyncService({
-      store: db.hub, transport: localHubSync(new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } }), 'i1'), origin: 'instance:i1', repos,
+      store: db.hub, transport: localHubSync(onHub, 'i1'), origin: 'instance:i1', repos,
       git: { run: (given) => { ran.push(given); return nodeProcesses.run(given); } }, log: (line) => lines.push(line),
     });
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'hub-1', pulledThrough: 0, sharedAt: now, repo: { url: 'http://gitea/p1.git', username: 'bot', tokenEnc: 'sealed' } });
-    return { db, owner, hub, sync, conflicts, ran, lines };
+    return { db, owner, hub, sync, told, ran, lines };
   }
 
   const heads = async (repo: string) => (await run('git', ['-C', repo, 'rev-parse', 'main'])).stdout.trim();
@@ -371,8 +382,8 @@ describe('keeping main in step with the hub\'s, with real git', () => {
     expect((await db.hub.getHubLinks())[0]?.repoHeads).toEqual({ owner: fromMember, hub: fromMember });
   });
 
-  it('keeps the hub\'s main beside the owner\'s on a conflict, tells the project once, and leaves it alone until a side moves', async () => {
-    const { db, owner, hub, sync, conflicts, ran } = await withRepos();
+  it('keeps the hub\'s main beside the owner\'s on a conflict, tells the project\'s channel once which files and which branch, and leaves it alone until a side moves', async () => {
+    const { db, owner, hub, sync, told, ran } = await withRepos();
     await commit(owner, 'a.txt', 'one');
     await sync.syncRepos();
     const ownerHead = await commit(owner, 'a.txt', 'owner');
@@ -381,18 +392,22 @@ describe('keeping main in step with the hub\'s, with real git', () => {
     expect(await sync.syncRepos()).toBe(0);
     const [saved] = await db.hub.getHubLinks();
     expect(saved?.repoConflict).toMatchObject({ owner: ownerHead, hub: hubHead });
-    expect(conflicts).toEqual([{ files: ['a.txt'], kept: saved!.repoConflict!.kept }]);
     expect(saved!.repoConflict!.kept).toMatch(/^hub\/main-\d{14}$/);
+    expect(told).toEqual([expect.objectContaining({
+      kind: 'hub-main-conflict',
+      refs: { projectId: 'p1', treeId: 't1' },
+      text: expect.stringContaining(`Shop's main and the shared main on the hub changed the same lines (a.txt), so neither was changed. The hub's main is kept as the branch ${saved!.repoConflict!.kept}`) as unknown,
+    })]);
     expect([await heads(owner), await heads(hub)]).toEqual([ownerHead, hubHead]);
 
     const before = ran.length;
     await sync.syncRepos();
-    expect(conflicts).toHaveLength(1);
+    expect(told).toHaveLength(1);
     expect(ran.length).toBe(before + 2);
 
     const moved = await commit(hub, 'c.txt', 'more');
     await sync.syncRepos();
-    expect(conflicts).toHaveLength(2);
+    expect(told).toHaveLength(2);
     expect((await db.hub.getHubLinks())[0]?.repoConflict).toMatchObject({ hub: moved });
   });
 

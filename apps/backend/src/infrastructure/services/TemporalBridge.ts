@@ -13,12 +13,13 @@ import type { DeploymentHealth } from '../store.js'
 import { missingNamespaceReason, namespacesByName, namespaceOf, removalHoldOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
+import { tellDeploymentChanged } from './deployment-told.js'
 import { fileURLToPath } from 'url';
 import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
 import { at, listAt, textAt } from '../../platform/index.js'
-import { definedFields, deployRequestOf } from '../lib/deploy-request.js'
+import { appSettingsOf, definedFields, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
 import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
 
@@ -34,14 +35,14 @@ export type GroveRunStatus =
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
-import { consolidateOwner, type ConsolidationReport } from '../../memory/index.js'
+import { keepEveryOwner, type ConsolidationReport } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '@koala/provision'
 import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
 import type { ToolCallParsers } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
-import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
+import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, servingArgsOf, type AppDeployDeps } from './AppDeploy.js'
 import { executeDestroyAppWorkflow } from '../../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
@@ -51,8 +52,6 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 import { QUEUES } from '../../platform/index.js';
-import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js'
-import { modelImageOf } from '../lib/model-images.js'
 
 const GRPC_NOT_FOUND = 5
 
@@ -335,6 +334,7 @@ export class TemporalBridge {
     const action = followedAction(followed)
     const wfId = followed.record.temporalWorkflowId
     if (!action || !wfId) return
+    if (followed.kind === 'deployment') tellDeploymentChanged(this.io, followed.record.ownerId)
     if (followed.kind === 'deployment') void this.follow(wfId, action, followed.record.id, followed.record.name, followed.record)
     else void this.follow(wfId, action, followed.record.id, followed.record.projectId)
   }
@@ -380,52 +380,33 @@ export class TemporalBridge {
       return meta
     }
     const applied = async () => this.appliedOutcome(wfId, deployment())
+    const ownerId = meta?.ownerId
     let pipelineImageTag: string | undefined
     if (name === 'COMPLETED' && action === 'pipeline-run') {
       pipelineImageTag = (await this.resultOf<Awaited<ReturnType<typeof executePipelineRunWorkflow>>>(wfId, 'the image it built')).imageTag
     }
 
-    if (action === 'app-deploy') {
-      if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
+    if (action === 'app-deploy' || action === 'app-resize' || action === 'app-sync-config') {
+      if (name === 'COMPLETED') {
         const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
-        if (done.status === 'running') {
+        const storage = action === 'app-resize' ? { ...meta?.storage, ...meta?.newStorage } : meta?.storage
+        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, storage)
+        if (action === 'app-deploy' && done.status === 'running') {
           await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
         }
+      } else {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'app-destroy') {
       if (name === 'FAILED') {
         await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
         await this.db.infrastructure.deleteDeployment(resourceId)
         await this.db.accounts.forgetDefaultModels([resourceId])
-        if (this.io && meta?.ownerId) this.io.to(`user:${meta.ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
+        if (this.io && ownerId) this.io.to(`user:${ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
       }
-      if (this.io) this.io.emit('deployment-updated')
-    } else if (action === 'app-resize') {
-      const newStorage = { ...meta?.storage, ...meta?.newStorage }
-      if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
-        const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
-      }
-      if (this.io) this.io.emit('deployment-updated')
-    } else if (action === 'app-sync-config') {
-      if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
-        const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
-      }
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'pipeline-run') {
       if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
         await updatePipelineRunStatus(this.db, resourceId, 'failed', { errorMessage: `Workflow ${name}` })
@@ -519,7 +500,7 @@ export class TemporalBridge {
     }
     const tell = async (dep: DeploymentMetadata, health: DeploymentHealth): Promise<void> => {
       await this.db.infrastructure.patchDeploymentHealth(dep.id, health)
-      if (this.io) this.io.emit('deployment-updated')
+      tellDeploymentChanged(this.io, dep.ownerId)
     }
 
     for (const dep of deployments) {
@@ -588,10 +569,14 @@ export class TemporalBridge {
     if (this.consolidating) return
     this.consolidating = true
     try {
-      const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
       const place = { db: this.db, reach: (ownerId: string) => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId) }
-      for (const ownerId of owners) {
-        const report = await consolidateOwner(place, ownerId)
+      for (const outcome of await keepEveryOwner(place)) {
+        const { ownerId } = outcome.state
+        if (!('report' in outcome)) {
+          console.warn(`[Consolidate] ${ownerId}'s memories are not consolidated since ${outcome.state.since}: ${outcome.state.reason}`)
+          continue
+        }
+        const { report } = outcome
         if (report.deduped || report.promoted || report.decayed) {
           console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
             + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
@@ -755,10 +740,7 @@ export class TemporalBridge {
       namespace: dep.namespace,
       ...handed,
       ...appStackOf(dep, cluster),
-      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
-      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
-      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
-      strategy: dep.strategy || 'helm',
+      ...servingArgsOf(dep),
       appType: appTypeOf(dep),
       webRepo: dep.webRepo,
       webTag: dep.webTag,
@@ -766,67 +748,8 @@ export class TemporalBridge {
       dbTag: dep.dbTag,
       storage: dep.storage || {},
       logFile: absoluteLogPath,
-      vllmModel: dep.vllmModel,
-      vllmGpuCount: dep.vllmGpuCount,
-      vllmGpuVendor: dep.vllmGpuVendor,
-      vllmCachePvc: dep.vllmCachePvc,
-      vllmHfToken: dep.vllmHfToken,
-      vllmMaxModelLen: dep.vllmMaxModelLen,
-      vllmGpuMemUtil: dep.vllmGpuMemUtil,
-      vllmExtraArgs: dep.vllmExtraArgs,
-      vllmToolCallingEnabled: dep.vllmToolCallingEnabled,
-      vllmToolCallParser: dep.vllmToolCallParser,
-      vllmServedModelName: dep.vllmServedModelName,
-      vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
-      vllmDtype: dep.vllmDtype,
-      vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
-      tabbyModel: dep.tabbyModel,
-      tabbyRevision: dep.tabbyRevision,
-      tabbyGpuCount: dep.tabbyGpuCount,
-      tabbyHfToken: dep.tabbyHfToken,
-      tabbyCachePvc: dep.tabbyCachePvc,
-      tabbyImageTag: dep.tabbyImageTag,
-      tabbyCacheMode: dep.tabbyCacheMode,
-      tabbyMaxSeqLen: dep.tabbyMaxSeqLen,
-      tabbyMaxBatchSize: dep.tabbyMaxBatchSize,
-      tabbyReasoning: dep.tabbyReasoning,
-      tabbyToolFormat: dep.tabbyToolFormat,
-      tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
-      tabbyDisableAuth: dep.tabbyDisableAuth,
-      tabbyMemoryLimit: dep.tabbyMemoryLimit,
-      tabbyShmSize: dep.tabbyShmSize,
-      tabbyCpuLimit: dep.tabbyCpuLimit,
-      tabbyExtraEnv: dep.tabbyExtraEnv,
-      searxngSecretKey: dep.searxngSecretKey,
-      searxngEngines: dep.searxngEngines,
-      crawl4aiApiToken: dep.crawl4aiApiToken,
-      crawl4aiMemoryLimit: dep.crawl4aiMemoryLimit,
-      crawl4aiShmSize: dep.crawl4aiShmSize,
-      minioRootUser: dep.minioRootUser,
-      minioRootPassword: dep.minioRootPassword,
-      nextcloudAdminPassword: dep.nextcloudAdminPassword,
-      nextcloudDbPassword: dep.nextcloudDbPassword,
-      nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
-      hermesDashboardPassword: dep.hermesDashboardPassword,
-      minioStorage: dep.minioStorage,
-      qdrantApiKey: dep.qdrantApiKey,
-      qdrantStorage: dep.qdrantStorage,
-      qdrantMemoryLimit: dep.qdrantMemoryLimit,
-      quickwitS3Endpoint: dep.quickwitS3Endpoint,
-      quickwitS3AccessKey: dep.quickwitS3AccessKey,
-      quickwitS3SecretKey: dep.quickwitS3SecretKey,
-      quickwitBucket: dep.quickwitBucket,
-      teiModelId: dep.teiModelId,
-      teiUseGpu: dep.teiUseGpu,
-      teiMemoryLimit: dep.teiMemoryLimit,
-      verdaccioUpstream: dep.verdaccioUpstream,
-      verdaccioStorage: dep.verdaccioStorage,
-      gitappEnv: dep.gitappEnv,
+      ...appSettingsOf(dep),
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
-      webuiEnableWebSearch: dep.webuiEnableWebSearch,
-      webuiWebSearchEngine: dep.webuiWebSearchEngine,
-      webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
-      appSettings: dep.appSettings,
     }
 
     await this.db.infrastructure.saveDeploymentInfo({

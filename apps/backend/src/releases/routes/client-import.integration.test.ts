@@ -65,6 +65,7 @@ async function harness() {
         runs: temporal.runs,
         how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
         chartAt: async () => true,
+        io: { to: () => ({ emit: () => true }) },
         clusterById: (id) => clusters.getByIdUnscoped(id),
         now: () => NOW,
         newId: () => 'r1',

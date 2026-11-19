@@ -33,6 +33,7 @@ export {
   type MonitorSet,
   type MonitorContext,
 } from './runtime/monitors.js';
+export type { ModelThinkingProfile } from './model/thinking-classifier.js';
 
 // Approval Gates
 export {
@@ -132,9 +133,12 @@ export {
   BYPASS_ENV,
   PROXY_BYPASS,
   absentFrom,
-  workspaceName,
-  lifetimeFor,
   egressFor,
+  WORK_DIR,
+  POD,
+  DEFAULT_CPU,
+  DEFAULT_MEMORY,
+  EGRESS_PROXY,
   type RunWorkspace,
   type EgressRule,
   type PackageAccess,

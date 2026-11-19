@@ -120,7 +120,7 @@ export function RootLayout() {
 
   const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && placement.data.servesTenants;
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000, enabled: tenant });
-  const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000, enabled: tenant });
+  const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, enabled: tenant });
   const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders, enabled: tenant });
 
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d) => d.id === showLogModal.id) : null;

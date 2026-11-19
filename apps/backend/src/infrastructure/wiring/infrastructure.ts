@@ -83,13 +83,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const serverOrders = new ServerOrderService({
     store: db.infrastructure,
     dataKey: deps.dataKey,
-    ovhAccountOf: async (ownerId) => {
-      const resolved = await deps.credentials.resolveCredentials(ownerId, 'ovh');
-      if (resolved.mode === 'none') return undefined;
-      const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-      return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
-    },
-    dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
+    credentials: deps.credentials,
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
       await (await getTemporalClient()).workflow.start(RootNodeWorkflow, {

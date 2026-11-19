@@ -44,6 +44,7 @@ describe('failureOf', () => {
     expect(failureOf(Object.assign(new Error('Failed'), { name: 'ServiceError', cause: { code: 4 } }))).toEqual({ kind: 'temporary', reason: 'it did not answer in time: Failed' });
     expect(failureOf(Object.assign(new Error('workflow not found'), { name: 'WorkflowNotFoundError' }))).toEqual({ kind: 'final', reason: 'workflow not found' });
     expect(failureOf(Object.assign(new Error('tonic'), { name: 'TransportError' })).kind).toBe('temporary');
+    expect(failureOf(new Error('Failed to connect before the deadline'))).toEqual({ kind: 'temporary', reason: 'its connection did not open yet: Failed to connect before the deadline' });
   });
 
   it('takes Mongo\'s network errors as temporary and its other errors as final', () => {

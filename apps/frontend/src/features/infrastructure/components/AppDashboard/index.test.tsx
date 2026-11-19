@@ -65,7 +65,10 @@ const setup = (d: Deployment = deployment(), initialTab: Parameters<typeof AppDa
   return { onClose, user: userEvent.setup() };
 };
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(modelsApi.useToolCallParsers).mockImplementation(() => ({ data: TOOL_CALL_PARSERS, isError: false }) as never);
+});
 
 describe('the dashboard', () => {
   it('names the deployment it is showing', () => {
@@ -157,6 +160,14 @@ describe('vLLM\'s tool calling in an app\'s settings', () => {
     expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmModel: 'Qwen/Qwen3-8B', vllmGpuCount: 1, vllmToolCallingEnabled: true, vllmToolCallParser: '' }));
   });
 
+  it('says why the parsers Koala knows could not be listed, and still offers the one chosen from the model', async () => {
+    vi.mocked(modelsApi.useToolCallParsers).mockReturnValue({ data: undefined, isError: true, error: Object.assign(new Error('Request failed with status code 503'), { response: { status: 503, data: { error: 'Koala\'s database is not answering since 10:02: connection refused' } } }) } as never);
+    const { user } = setup(served(), 'storage');
+    await user.click(screen.getByLabelText(/^Serve tool calling/));
+    expect(screen.getByRole('alert')).toHaveTextContent('Koala could not list the tool call parsers it knows: Koala\'s database is not answering since 10:02: connection refused');
+    expect(screen.getByRole('option', { name: 'Chosen from its chat template: hermes' })).toBeInTheDocument();
+  });
+
   it('shows the settings of the app it is switched to, not those of the one before', () => {
     const first = served();
     const second = served({ id: 'd2', name: 'mistral', vllmModel: 'mistralai/Mistral-7B-Instruct-v0.3', vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' } as Partial<Deployment>);
@@ -184,6 +195,22 @@ describe('vLLM\'s tool calling in an app\'s settings', () => {
     await user.selectOptions(screen.getByLabelText(/^Tool Call Parser/), 'mistral');
     await user.click(screen.getByRole('button', { name: /Save & Restart/ }));
     expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ vllmToolCallingEnabled: true, vllmToolCallParser: 'mistral' }));
+  });
+});
+
+describe('an app\'s volumes in its settings', () => {
+  it('shows each volume the app keeps with its current size, and saves a new size typed for one', async () => {
+    const patched = vi.spyOn(deploymentsApi, 'patchDeploymentConfig').mockResolvedValue({} as never);
+    const { user } = setup(deployment({ name: 'books', appType: 'audiobookshelf', storage: { library: '20Gi' } } as Partial<Deployment>), 'storage');
+    expect(screen.getByText('Library Volume')).toBeInTheDocument();
+    expect(screen.getByText('Metadata Volume')).toBeInTheDocument();
+    expect(screen.getByText('Config Volume')).toBeInTheDocument();
+    expect(screen.getByText('Current: 20Gi')).toBeInTheDocument();
+    expect(screen.getByText('Current: 2Gi')).toBeInTheDocument();
+    expect(screen.queryByText('No Volumes Configured')).toBeNull();
+    await user.type(screen.getByLabelText('Target Size:', { selector: '#vol-size-library' }), '50Gi');
+    await user.click(screen.getByRole('button', { name: /Save & Restart/ }));
+    expect(patched).toHaveBeenCalledWith('d1', expect.objectContaining({ storage: { library: '50Gi' } }));
   });
 });
 

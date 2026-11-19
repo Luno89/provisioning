@@ -127,6 +127,17 @@ export function machineAgentsFrom(raw: unknown): MachineAgent[] {
   });
 }
 
+export interface MachineAgentsReport {
+  agents: MachineAgent[];
+  notSetUp?: string;
+}
+
+export function machineAgentsReportFrom(raw: unknown): MachineAgentsReport {
+  const report = raw as { agents?: unknown; notSetUp?: unknown } | null | undefined;
+  const notSetUp = short(report?.notSetUp, 1000);
+  return { agents: machineAgentsFrom(report?.agents), ...(notSetUp ? { notSetUp } : {}) };
+}
+
 export function manualAgentsProblem(raw: unknown): string | null {
   if (!Array.isArray(raw)) return 'send the agents as a list';
   const seen = new Set<string>();

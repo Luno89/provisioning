@@ -62,6 +62,7 @@ export interface LocalAgentDevice {
   connectedAt?: string
   agents: MachineAgent[]
   agentsAt?: string
+  agentsNotSetUp?: string
   manualAgents: ManualMachineAgent[]
   agentUpdate?: AgentUpdateView
   gpus?: NonNullable<ReportedGpus['gpus']>

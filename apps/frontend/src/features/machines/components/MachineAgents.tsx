@@ -124,12 +124,16 @@ export default function MachineAgents({ device }: { device: LocalAgentDevice }) 
   return (
     <div className="mt-3 pl-6">
       <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Coding agents</div>
-      {device.agents.length === 0 ? (
+      {device.agentsNotSetUp && (
+        <p role="alert" className="text-[11px] text-amber-300 mb-1">
+          The coding agents are not set up: {device.agentsNotSetUp}. Running the command that adds {device.name} again sets them up.
+        </p>
+      )}
+      {device.agents.length > 0 && <ul>{device.agents.map((agent) => <AgentRow key={agent.id} device={device} agent={agent} />)}</ul>}
+      {device.agents.length === 0 && !device.agentsNotSetUp && (
         <p className="text-[11px] text-slate-500">
           {device.agentsAt ? 'None found on this machine.' : device.online ? 'Looking…' : 'It has not said yet: it looks when it connects.'}
         </p>
-      ) : (
-        <ul>{device.agents.map((agent) => <AgentRow key={agent.id} device={device} agent={agent} />)}</ul>
       )}
       <AddByHand device={device} />
     </div>

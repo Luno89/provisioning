@@ -299,7 +299,6 @@ export class MonitoringService {
 
   private async prometheusOf(cluster: ClusterMetadata): Promise<PrometheusClient> {
     if (this.isOwn(cluster)) return scopedTo(await this.deps.prometheus(cluster), OWN_SERIES);
-    if (!this.onMachine(cluster)) return this.deps.prometheus(cluster);
     const own = await this.deps.ownCluster();
     if (!own) throw new Error('this Koala runs in no cluster of its own for its machines to send to');
     return scopedTo(await this.deps.prometheus(own), cluster.id);

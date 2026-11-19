@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { configFile, folderProblem, loadMachineConfig, machineConfigFrom } from './machine-config.js';
+import { agentsNotSetUp, configFile, folderProblem, loadMachineConfig, machineConfigFrom } from './machine-config.js';
 
 let dir: string | undefined;
 afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
@@ -46,5 +46,18 @@ describe('the folder Koala works in on a machine', () => {
     expect(folderProblem('/home/sam/koala', '/home/sam')).toBeUndefined();
     expect(folderProblem('/srv/koala-work', '/home/sam')).toBeUndefined();
     expect(folderProblem('/home/samuel', '/home/sam')).toBeUndefined();
+  });
+});
+
+describe('what the machine\'s last join kept about its coding agents', () => {
+  it('reads why they were not set up, fresh each time, and nothing once a join set them up', async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'koala-machine-config-'));
+    const file = path.join(dir, 'machine.json');
+    const env = { KOALA_MACHINE_CONFIG: file };
+    expect(await agentsNotSetUp(env)).toBeUndefined();
+    await writeFile(file, JSON.stringify({ rootUrl: 'https://root.test', token: 't', rootDir: dir, agentsNotSetUp: 'the ACP registry could not be reached' }));
+    expect(await agentsNotSetUp(env)).toBe('the ACP registry could not be reached');
+    await writeFile(file, JSON.stringify({ rootUrl: 'https://root.test', token: 't', rootDir: dir }));
+    expect(await agentsNotSetUp(env)).toBeUndefined();
   });
 });

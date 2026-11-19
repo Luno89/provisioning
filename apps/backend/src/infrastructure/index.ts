@@ -1,6 +1,6 @@
 export { destroyAppArgs, destroyAppWorkflowId } from './lib/app-destroy.js';
 export type { DestroyAppArgs, MachineOfCluster } from './lib/app-destroy.js';
-export { buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
+export { buildAppEnv, envSettingsOf, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
 export { namespaceOf, platformNamespaceProblem, podLogTarget, removeNamespace } from './lib/app-namespace.js';
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
 export { renderApp, seedAppSpecs, seedConstructBackedTypes, specSecrets, visibleAppSpecs } from './lib/app-spec.js';
@@ -79,6 +79,7 @@ export { RegistryService } from './services/RegistryService.js';
 export { ServerOrderProblem, ServerOrderService } from './services/ServerOrderService.js';
 export { readOverSsh, runScriptOverSsh, sshAnswers } from './services/ssh-session.js';
 export { StorageAdapter } from './services/StorageAdapter.js';
+export { DEPLOYMENT_UPDATED, tellDeploymentChanged } from './services/deployment-told.js';
 export type { GroveRunStatus, TemporalBridge } from './services/TemporalBridge.js';
 export { VpsCatalogService } from './services/VpsCatalogService.js';
 export type { WorkFailureService } from './services/WorkFailureService.js';

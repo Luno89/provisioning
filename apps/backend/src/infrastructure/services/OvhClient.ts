@@ -1,12 +1,8 @@
 import { ignore } from '@koala/engine-core/failures';
-import { ovhErrorMessage, ovhHeaders, type OvhKeys } from '../lib/ovh-api.js';
+import { ovhErrorMessage, ovhHeaders, type OvhAccount } from '../lib/ovh-api.js';
 import { ovhHostFor } from '../lib/vps-catalog/adapters.js';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-
-export interface OvhAccount extends OvhKeys {
-  subsidiary: string;
-}
 
 export class OvhError extends Error {
   constructor(readonly status: number, message: string) {

@@ -20,7 +20,7 @@ import {
   publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
-import { rootSignInFor } from './instances/wiring/sign-in.js';
+import { rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
@@ -175,7 +175,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     `session=${engineRole.role === 'instance' && rootSignIn
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
-  const placeOnPool = poolMonitorFrom(settings.poolMonitor, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
+  const placeOnPool = poolMonitorFrom(settings.poolMonitor, rootTokenOf(rootSignIn));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({

@@ -3,7 +3,8 @@ import { mkdtemp, rm, stat } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { workspaceRunning, type KubeRunner, type KubeStreamer } from './kube.js';
-import { POD, workspaceName } from './workspace.js';
+import { POD } from '@koala/agent-engine';
+import { workspaceName } from './workspace.js';
 
 export type MergeOutcome = 'merged' | 'conflict' | 'nothing' | 'failed';
 

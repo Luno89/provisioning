@@ -2,7 +2,8 @@ import type { AgentDefinition } from '@koala/agent-engine';
 import type { RunEnvironment, RunTicket } from '../temporal/contracts.js';
 import { NothingToShareError, type EnvironmentResolver } from './environments.js';
 import { destroyWorkspace, workspaceRunning, type KubeRunner } from './kube.js';
-import { POD, workspaceName } from './workspace.js';
+import { POD } from '@koala/agent-engine';
+import { workspaceName } from './workspace.js';
 import type { SavedDocuments, WorkspaceDocuments } from './workspace-documents.js';
 import { conversationWorkspaceRunId, repoForWorkspace } from './workspace-repos.js';
 

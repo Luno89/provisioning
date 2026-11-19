@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { HUB_ROLES } from '../lib/hub.js';
-import { publicJwkShaped, type SignInKey } from '../../instances/index.js';
+import { publicJwkShaped, type RootProvider, type SignInKey } from '../../instances/index.js';
 import type { ProjectInviteService } from '../services/ProjectInviteService.js';
 
 const sameHash = (a: string, b: string): boolean => {
@@ -16,8 +16,7 @@ export function hubLinkRouter(deps: {
   credentialHash?: string | undefined;
   hash: (secret: string) => string;
   signInKeys?: { get(): Promise<SignInKey | undefined>; save(key: SignInKey): Promise<void> } | undefined;
-  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
-  personAtHub?: ((token: string) => Promise<string | undefined>) | undefined;
+  provider?: Pick<RootProvider, 'serviceCaller' | 'personAtHub'> | undefined;
   people: { getUserById(id: string): Promise<{ id: string; email: string; removal?: unknown } | undefined> };
 }): Router {
   const router = Router();
@@ -36,13 +35,13 @@ export function hubLinkRouter(deps: {
 
   router.post('/invite', asyncRoute(async (req, res) => {
     const given = bearer(req);
-    const vouched = !credentialed(given) && given ? (await deps.serviceCaller?.(given))?.kind === 'hub' : false;
+    const vouched = !credentialed(given) && given ? (await deps.provider?.serviceCaller(given))?.kind === 'hub' : false;
     if (!credentialed(given) && !vouched) return res.status(401).json({ error: 'only this root\'s hub sends project invites' });
     const body = (req.body ?? {}) as Record<string, unknown>;
     const fields = ['email', 'projectName', 'role', 'join', 'inviterToken'] as const;
     if (fields.some((field) => typeof body[field] !== 'string' || !(body[field] as string).trim())) return res.status(400).json({ error: `an invite names ${fields.join(', ')}` });
     if (!HUB_ROLES.includes(body.role as never)) return res.status(400).json({ error: 'that is not a role on a project' });
-    const inviterId = await deps.personAtHub?.(body.inviterToken as string);
+    const inviterId = await deps.provider?.personAtHub(body.inviterToken as string);
     const inviter = inviterId ? await deps.people.getUserById(inviterId) : undefined;
     if (!inviter || inviter.removal) return res.status(403).json({ error: 'root does not know who is inviting: the invite carries no sign-in root gave them at the hub' });
     const { email, projectName, role, join } = body as Record<(typeof fields)[number], string>;

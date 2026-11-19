@@ -3,6 +3,7 @@ import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenAcrossClusters, BrokenWorkload, ClusterContents, UnreadCluster } from './ClusterContentsService.js';
 import type { KoalaView, Overview, Viewer } from '../../monitoring/index.js';
+import type { KeepingRecords } from '../../memory/index.js';
 import type { RunningOutcome, RunningView } from './RunningService.js';
 import type { ProxyBehind } from './EgressService.js';
 import { allowed, downAcross, type DependencyDown, type DependencyStateRow } from '../../platform/index.js';
@@ -19,6 +20,7 @@ export interface InfrastructureOverview {
   dependencies: DependencyDown[];
   dependenciesUnread?: string | undefined;
   egressBehind?: ProxyBehind | undefined;
+  memoryKeepingDown?: { since: string; reason: string } | undefined;
   signals: SignalView[];
 }
 
@@ -27,6 +29,7 @@ export interface InfrastructureViewDeps {
   contents: { broken(viewer: Viewer): Promise<BrokenAcrossClusters>; contents(viewer: Viewer, clusterId: string): Promise<ClusterContents> };
   running: { view(ownerId: string): Promise<RunningOutcome<RunningView>> };
   failures: { shown(ownerId: string): Promise<WorkFailure[]>; clear(ownerId: string, ids: readonly string[] | 'all'): Promise<number> };
+  memory: Pick<KeepingRecords, 'getKeepingState'>;
   dependencies?: { own(): DependencyDown[]; workers(): Promise<DependencyStateRow[]> } | undefined;
   signals?: { open(ownerId: string): Promise<SignalView[]> } | undefined;
   egress?: { proxyBehindSince(): ProxyBehind | undefined } | undefined;
@@ -49,7 +52,7 @@ export class InfrastructureViewService {
     const seesPlatform = (): boolean => allowed(viewer, 'see-platform-dependencies', { kind: 'install' });
     const seesDependencies = this.deps.dependencies && seesPlatform();
     const egressBehind = this.deps.egress && seesPlatform() ? this.deps.egress.proxyBehindSince() : undefined;
-    const [monitoring, koala, broken, running, failures, signals, dependencies] = await Promise.all([
+    const [monitoring, koala, broken, running, failures, signals, dependencies, keeping] = await Promise.all([
       this.deps.monitoring.overview(viewer),
       this.deps.monitoring.koala(viewer),
       this.deps.contents.broken(viewer),
@@ -57,6 +60,7 @@ export class InfrastructureViewService {
       this.deps.failures.shown(viewer.id),
       this.deps.signals ? this.deps.signals.open(viewer.id) : Promise.resolve([]),
       seesDependencies ? this.dependencies() : Promise.resolve<{ down: DependencyDown[]; unread?: string }>({ down: [] }),
+      this.deps.memory.getKeepingState(viewer.id),
     ]);
     const appsTold = new Set(monitoring.attention.filter((entry) => entry.subject.kind === 'app').map((entry) => entry.subject.id));
     const workloads = broken.workloads.filter((workload) => !(workload.about.kind === 'app' && appsTold.has(workload.about.id)));
@@ -72,6 +76,7 @@ export class InfrastructureViewService {
       dependencies: dependencies.down,
       ...(dependencies.unread ? { dependenciesUnread: dependencies.unread } : {}),
       ...(egressBehind ? { egressBehind } : {}),
+      ...(keeping?.state === 'down' ? { memoryKeepingDown: { since: keeping.since, reason: keeping.reason } } : {}),
       signals,
     };
   }

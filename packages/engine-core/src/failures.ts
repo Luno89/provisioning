@@ -30,6 +30,7 @@ const S3_TEMPORARY = new Set(['SlowDown', 'ServiceUnavailable', 'InternalError',
 const MONGO_TEMPORARY = new Set(['MongoNetworkError', 'MongoNetworkTimeoutError', 'MongoServerSelectionError', 'MongoNotConnectedError', 'MongoTopologyClosedError']);
 const GRPC_UNAVAILABLE = 14;
 const GRPC_DEADLINE_EXCEEDED = 4;
+const GRPC_NOT_CONNECTED_YET = 'Failed to connect before the deadline';
 
 const STILL_DOWN = 'DependencyStillDown';
 
@@ -108,6 +109,7 @@ export function failureOf(error: unknown): Failure {
   const grpc = grpcCodeOf(error);
   if (grpc === GRPC_UNAVAILABLE) return temporary(`it is unavailable: ${messageOf(error)}`);
   if (grpc === GRPC_DEADLINE_EXCEEDED) return temporary(`it did not answer in time: ${messageOf(error)}`);
+  if (messageOf(error) === GRPC_NOT_CONNECTED_YET) return temporary(`its connection did not open yet: ${messageOf(error)}`);
   const name = nameOf(error);
   if (name && MONGO_TEMPORARY.has(name)) return temporary(`it cannot be reached: ${messageOf(error)}`);
   if (name === 'TransportError') return temporary(`it cannot be reached: ${messageOf(error)}`);

@@ -29,7 +29,7 @@ export type { GrantRequest, GrantStartedBy, Handover, RevokedBecause, RunEnded }
 export { samplingAt, temperatureProblem } from './lib/run-knobs.js';
 export type { TemperatureSampling } from './lib/run-knobs.js';
 export { modelsOf } from './lib/run-traces.js';
-export type { ModelThinkingProfile } from './lib/thinking-classifier.js';
+export type { ModelThinkingProfile } from '@koala/agent-engine';
 export { migrateAgentTools } from './lib/tool-grant-migration.js';
 export { checksForNote, isToolNote, noteSubject } from './lib/tool-notes.js';
 export { ASK_MARKS, procedureRanIn, runsUnder, unansweredAsks } from './lib/turn-log.js';

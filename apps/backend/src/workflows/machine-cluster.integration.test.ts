@@ -86,7 +86,7 @@ beforeEach(async () => {
   db = await fresh();
   gate = new IdleGate();
   host = new DeskHost(gate);
-  clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY });
+  clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: KEY, io: { to: () => ({ emit: () => true }) } });
   handed.length = 0;
   await clusters.reported(DESK, 'stopped');
 });
