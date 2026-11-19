@@ -4,6 +4,16 @@
   "main": "main.ts",
   "type": "module",
   "types": "main.ts",
+  "exports": {
+    ".": {
+      "types": "./main.ts",
+      "default": "./main.ts"
+    },
+    "./state-name": {
+      "types": "./lib/state-name.ts",
+      "default": "./lib/state-name.ts"
+    }
+  },
   "license": "MPL-2.0",
   "private": true,
   "scripts": {

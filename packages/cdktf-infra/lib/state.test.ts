@@ -1,6 +1,7 @@
 import { App, TerraformStack, Testing } from "cdktf";
 import { describe, expect, it } from "vitest";
-import { keepState, stateSecretSuffix, statePath } from "./state.js";
+import { keepState, statePath } from "./state.js";
+import { stateSecretName, stateSecretSuffix } from "./state-name.js";
 
 const backendOf = (stack: TerraformStack): unknown => (JSON.parse(Testing.synth(stack)) as { terraform?: { backend?: unknown } }).terraform?.backend;
 
@@ -40,6 +41,11 @@ describe("the suffix a stack's state Secret is named with", () => {
 
   it("is the stack's own name with -state, so it never ends in a number Terraform would take for a chunk of the state", () => {
     expect(stateSecretSuffix("app-machine-desk-40213377")).toBe("app-machine-desk-40213377-state");
+  });
+
+  it("is kept by Terraform in the Secret tfstate-default- and the suffix, the name a move renames it by", () => {
+    expect(stateSecretName("app-machine-desk-40213377")).toBe("tfstate-default-app-machine-desk-40213377-state");
+    expect(stateSecretName("App_Desk.1")).toBe(`tfstate-default-${stateSecretSuffix("App_Desk.1")}`);
   });
 
   it("fits a label and a Secret's name however long or odd the stack's name, and two names never share one", () => {

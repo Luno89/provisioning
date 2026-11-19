@@ -1,5 +1,5 @@
+import { stateSecretName, stateSecretSuffix } from 'cdktf-infra/state-name';
 import { appStackName } from '../../infrastructure/lib/deployment-id.js';
-import { stateSecretName, stateSecretSuffix } from '../../infrastructure/lib/state-secret.js';
 import type { KubeObject } from './app-move.js';
 
 export interface StateRetarget {
