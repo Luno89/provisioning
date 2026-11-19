@@ -102,7 +102,7 @@ async function rootSide(rootDb: Database) {
   const instances = new InstanceService(rootDb, {
     rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
     reach: new InstanceReach({ open: true, domain: '' }),
-    installs: { setupHeard: (installId, report) => installs!.setupHeard(installId, report) },
+    installs: { setupHeard: (installId, report) => installs!.setupHeard(installId, report), progressHeard: (installId, progress) => installs!.progressHeard(installId, progress) },
   }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
   installs = new KoalaInstalls({
     devices: () => rootDb.machines.getLocalAgentDevices(),

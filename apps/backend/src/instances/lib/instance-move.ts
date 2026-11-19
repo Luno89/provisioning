@@ -36,6 +36,25 @@ export function moveProblem(instance: Pick<InstanceRecord, 'pool' | 'status' | '
   return undefined;
 }
 
+export function movedRecord(instance: InstanceRecord): InstanceRecord | { error: string } {
+  const { move, pool: _place, ...rest } = instance;
+  if (!instance.install?.move || !move) return { error: 'the move has no machine it was put on' };
+  if (!move.credentialHash || !move.target?.meshIp || !move.target.url) return { error: 'the new machine never said where it answers' };
+  const machine = move.target.machine;
+  return {
+    ...rest,
+    credentialHash: move.credentialHash,
+    machineId: instance.install.machineId,
+    meshIp: move.target.meshIp,
+    url: move.target.url,
+    status: 'ready',
+    detail: `Moved to ${machine ?? 'your machine'}`,
+    setup: move.setup,
+    ...(machine ? { machine } : {}),
+    ...(instance.install.imageTag ? { running: instance.install.imageTag } : {}),
+  };
+}
+
 export interface PostgresPlace {
   namespace: string;
   pod: string;

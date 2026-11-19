@@ -5,7 +5,7 @@ import { HeadscaleService, ROOT_CLUSTER_ID } from '../infrastructure/index.js';
 import { hostAccess, hostSettings } from './host-settings.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
-  kubeconfigFile, issueMoveToken, type InstanceRecord, COMPONENT_RESOURCES,
+  kubeconfigFile, issueMoveToken, movedRecord, type InstanceRecord, COMPONENT_RESOURCES,
   PLATFORM_TAG, poolChartValues, proxyCaddyfile, setupHeard, setupSaid, type PoolSettings,
 } from '../instances/index.js';
 import { PoolNode } from './pool-node.js';
@@ -267,17 +267,9 @@ export async function PoolMoveSwitchActivity(args: { instanceId: string }): Prom
   if (!instance?.name) return null;
   const name = instance.name;
   if (instance.move) {
-    const { move, pool: _place, ...rest } = instance;
-    if (!move.credentialHash || !move.target?.meshIp || !move.target.url) throw ApplicationFailure.nonRetryable('the new machine never said where it answers', 'MoveIncomplete');
-    await writeInstance({
-      ...rest,
-      credentialHash: move.credentialHash,
-      meshIp: move.target.meshIp,
-      url: move.target.url,
-      status: 'ready',
-      detail: `Moved to ${move.target.machine ?? 'your machine'}`,
-      ...(move.target.machine ? { machine: move.target.machine } : {}),
-    });
+    const moved = movedRecord(instance);
+    if ('error' in moved) throw ApplicationFailure.nonRetryable(moved.error, 'MoveIncomplete');
+    await writeInstance(moved);
   }
   await poolNode().remove(name);
   await PoolProxyActivity();

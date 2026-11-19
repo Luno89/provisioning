@@ -155,11 +155,11 @@ export class MachineAccounts {
       .map(machineJoinView);
   }
 
-  async createJoinCode(ownerId: string, koalaName?: string): Promise<{ code: string; command: string; expiresAt: string }> {
+  async createJoinCode(ownerId: string, koalaName?: string, move = false): Promise<{ code: string; command: string; expiresAt: string }> {
     if (!meshUsable(this.deps.settings.meshLoginServer)) throw Object.assign(new Error(NO_MESH), { status: 409 });
     const code = newMachineCode();
     const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
-    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), id: uuidv4(), ownerId, expiresAt, keptUntil: expiresAt, ...(koalaName ? { koalaName } : {}) });
+    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), id: uuidv4(), ownerId, expiresAt, keptUntil: expiresAt, ...(koalaName ? { koalaName } : {}), ...(move ? { move: true as const } : {}) });
     return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
   }
 
@@ -227,7 +227,7 @@ export class MachineAccounts {
       ...tokenLifetime(this.now()),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
-      ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
+      ...(found.koalaName || found.move ? { koalaWanted: { name: found.koalaName ?? '', ...(found.move ? { move: true as const } : {}) } } : {}),
     };
     await this.deps.store.saveLocalAgentDevice(device);
     await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id, deviceTokenHash: device.tokenHash }, unset: ['keptUntil'] });
@@ -286,11 +286,11 @@ export class MachineAccounts {
     const device = await this.byId(deviceId);
     if (!device?.koalaWanted) return { ok: true, value: { placing: false } };
     if (!this.deps.installs) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
-    const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined);
-    if (!placed.ok) {
-      if (placed.status !== 409 || device.meshIp) await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaRefused: { reason: placed.error, at: this.now().toISOString() } }, unset: ['koalaWanted'] });
-      return placed;
-    }
+    const refused = async (refusal: { status: number; error: string }): Promise<void> => {
+      if (refusal.status !== 409 || device.meshIp) await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaRefused: { reason: refusal.error, at: this.now().toISOString() } }, unset: ['koalaWanted'] });
+    };
+    const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined, device.koalaWanted.move === true, refused);
+    if (!placed.ok) return placed;
     await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted', 'koalaRefused'] });
     return { ok: true, value: { placing: true } };
   }

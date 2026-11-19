@@ -14,7 +14,7 @@ import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } f
 import { POOL_SETUP_HEARD, poolInstanceWorkflowId, poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
-import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
+import { InstanceService, type MoveMachines, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
 import { InstanceRoutes, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
@@ -173,6 +173,7 @@ export interface InstancesWiringDeps {
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
   installs?: SetupInstalls | undefined;
+  moves?: MoveMachines | undefined;
 }
 
 export interface InstancesWiring {
@@ -303,6 +304,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
     reach: new InstanceReach(settings.reach),
     installs: deps.installs,
+    moves: deps.moves,
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {

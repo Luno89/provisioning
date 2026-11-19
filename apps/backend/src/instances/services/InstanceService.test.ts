@@ -412,51 +412,113 @@ describe('moving a trial instance to the person\'s own machine', () => {
     moveStopped: async (id: string, reason: string) => { calls.push(`stopped ${id}: ${reason}`); },
   };
   const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-10-01T00:00:00.000Z', trialEndsAt: '2026-10-15T00:00:00.000Z' };
+  const desk = { id: 'desk', name: 'bo-desktop', meshIp: '100.64.0.20' };
+  const moves = {
+    joinCode: async (ownerId: string, koalaName: string) => {
+      calls.push(`code ${ownerId} ${koalaName}`);
+      return { code: 'c0de', command: 'curl -fsSL https://app.example.com/machine.sh | sh -s -- c0de', expiresAt: '2026-10-02T13:00:00.000Z' };
+    },
+    poolClusterId: (name: string) => `pool-${name}`,
+  };
+  const installs = {
+    setupHeard: async (installId: string, report: unknown) => { calls.push(`setup ${installId} ${JSON.stringify(report)}`); return { ok: true as const, value: { recorded: true as const } }; },
+    progressHeard: async (installId: string, progress: unknown) => { calls.push(`progress ${installId} ${JSON.stringify(progress)}`); return { ok: true as const, value: { recorded: true as const } }; },
+  };
+  const record = async () => (await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')!;
+  const placedOnDesk = async () => {
+    const placing = await service.placeOn('bo', desk, undefined, 'install-1');
+    if (!placing.ok) throw new Error(placing.error);
+    const placed = await service.placedKoala('install-1', desk);
+    if (!placed.ok) throw new Error(placed.error);
+    return placed.value;
+  };
 
   beforeEach(async () => {
     calls.length = 0;
-    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => now, () => { routeChanges += 1; }, workflows);
+    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 }, moves, installs }, mesh, () => now, () => { routeChanges += 1; }, workflows);
     await db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', name: 'bo', url: 'https://bo.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'), meshIp: '100.64.0.9', pool });
   });
 
-  it('gives the person a move command for the same instance, and keeps the pool copy working until the new machine has everything', async () => {
-    const started = await service.startMove('bo');
-    if (!started.ok) throw new Error(started.error);
-    expect(started.value.command).toBe(`curl -fsSL https://app.example.com/install.sh | sudo sh -s -- ${started.value.token}`);
-    expect(calls).toEqual(['move inst-bo']);
+  it('gives the person the command that adds a machine, marked to bring this Koala over, and wakes the move', async () => {
+    expect(await service.startMove('bo')).toEqual({ ok: true, value: { command: 'curl -fsSL https://app.example.com/machine.sh | sh -s -- c0de', expiresAt: '2026-10-02T13:00:00.000Z' } });
+    expect(calls).toEqual(['code bo bo', 'move inst-bo']);
     expect(await service.moveOf('bo')).toMatchObject({ state: 'waiting' });
-
-    const joined = await service.join(started.value.token, 'bo-desktop');
-    if (!joined.ok) throw new Error(joined.error);
-    expect(joined.value).toMatchObject({ instanceId: 'inst-bo', name: 'bo', move: true });
-    expect((await service.ownerOf('inst-bo', 'pool-secret')).ok).toBe(true);
-    expect((await service.ownerOf('inst-bo', joined.value.credential)).ok).toBe(false);
-    expect(await service.moveSource('inst-bo', joined.value.credential)).toEqual({ ok: true, value: { name: 'bo', instanceId: 'inst-bo' } });
-    expect((await service.moveSource('inst-bo', 'pool-secret')).ok).toBe(false);
-
-    await service.report('inst-bo', joined.value.credential, { status: 'installing', detail: 'Copying its secrets', meshIp: '100.64.0.20' });
-    expect(await service.mine('bo')).toMatchObject({ status: 'ready', move: { state: 'copying', detail: 'Copying its secrets', machine: 'bo-desktop' } });
-    expect((await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')?.meshIp).toBe('100.64.0.9');
-    expect((await service.report('inst-bo', joined.value.credential, { status: 'ready', moved: true })).ok).toBe(false);
-    await service.report('inst-bo', joined.value.credential, { status: 'ready', moved: true, url: 'https://bo.koala.dev', meshIp: '100.64.0.20' });
-    expect(calls).toEqual(['move inst-bo', 'finished inst-bo']);
-    expect(await service.moveOf('bo')).toMatchObject({ state: 'switching' });
-    expect((await service.stopMove('bo')).ok).toBe(false);
+    expect((await service.startMove('bo')).ok).toBe(true);
+    expect(calls).toEqual(['code bo bo', 'move inst-bo', 'code bo bo']);
   });
 
-  it('stops when the new machine says it failed, and can start again with a new command', async () => {
-    const started = await service.startMove('bo');
-    if (!started.ok) throw new Error(started.error);
-    const joined = await service.join(started.value.token, 'bo-desktop');
-    if (!joined.ok) throw new Error(joined.error);
-    await service.report('inst-bo', joined.value.credential, { status: 'failed', detail: 'The move stopped: finish or stop what runs first' });
-    expect(calls).toEqual(['move inst-bo', 'stopped inst-bo: The move stopped: finish or stop what runs first']);
-    expect(await service.moveOf('bo')).toMatchObject({ state: 'failed' });
-    expect((await service.moveSource('inst-bo', joined.value.credential)).ok).toBe(false);
-    const again = await service.startMove('bo');
-    expect(again.ok).toBe(true);
-    expect(calls.at(-1)).toBe('move inst-bo');
-    expect(await service.moveOf('bo')).toMatchObject({ state: 'waiting' });
+  it('says so when it cannot make the command, and when this root cannot move instances', async () => {
+    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 }, moves: { ...moves, joinCode: async () => { throw Object.assign(new Error('Koala\'s root runs no private network'), { status: 409 }); } } }, mesh, () => now, () => undefined, workflows);
+    expect(await service.startMove('bo')).toEqual({ ok: false, status: 409, error: 'Koala\'s root runs no private network' });
+    expect(calls).toEqual([]);
+    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => now, () => undefined, workflows);
+    expect(await service.startMove('bo')).toMatchObject({ ok: false, status: 503 });
+    expect(await service.placeOn('bo', desk, undefined, 'install-1')).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it('puts Koala on a machine of a person whose Koala is on Koala\'s servers as a move, leaving the pool copy serving', async () => {
+    expect(await service.placeOn('bo', desk, undefined, 'install-1')).toEqual({ ok: true, value: { instanceId: 'inst-bo' } });
+    expect(calls).toEqual(['move inst-bo']);
+    expect(await record()).toMatchObject({
+      status: 'ready', url: 'https://bo.koala.dev', meshIp: '100.64.0.9', credentialHash: hashCredential('pool-secret'),
+      install: { id: 'install-1', machineId: 'desk', state: 'asked', move: true },
+      move: { state: 'joined', detail: 'Asking bo-desktop to move Koala onto itself', target: { machine: 'bo-desktop', meshIp: '100.64.0.20' } },
+    });
+    expect((await record()).machineId).toBeUndefined();
+    expect(await service.mine('bo')).toMatchObject({ status: 'ready', move: { state: 'joined', machine: 'bo-desktop' }, install: { id: 'install-1', move: true } });
+    expect(await service.placeOn('bo', desk, 'other', 'install-2')).toMatchObject({ ok: false, status: 400 });
+    expect(await service.placeOn('bo', desk, undefined, 'install-2')).toEqual({ ok: true, value: { instanceId: 'inst-bo', replaces: 'install-1' } });
+    expect(calls).toEqual(['move inst-bo']);
+  });
+
+  it('hands the machine the move\'s own credential and where the move comes from, keeping the pool copy\'s credential until the switch', async () => {
+    const placed = await placedOnDesk();
+    expect(placed).toMatchObject({ installId: 'install-1', instanceId: 'inst-bo', machineId: 'desk', meshAddress: '100.64.0.20', name: 'bo', move: { fromClusterId: 'pool-bo' } });
+    expect(await record()).toMatchObject({ credentialHash: hashCredential('pool-secret'), move: { credentialHash: hashCredential(placed.credential) }, install: { imageTag: 'abc123' } });
+    expect((await service.ownerOf('inst-bo', 'pool-secret')).ok).toBe(true);
+    expect((await service.ownerOf('inst-bo', placed.credential)).ok).toBe(false);
+    expect(await service.moveSource('inst-bo', placed.credential)).toEqual({ ok: true, value: { name: 'bo', instanceId: 'inst-bo' } });
+    expect((await service.moveSource('inst-bo', 'pool-secret')).ok).toBe(false);
+    expect(await service.installedUrl((await service.installOf('install-1'))!, 'http://100.64.0.20:30320')).toEqual({ ok: true, value: 'http://100.64.0.20:30320' });
+    expect((await service.installedUrl((await service.installOf('install-1'))!, 'http://100.64.0.9:30320')).ok).toBe(false);
+  });
+
+  it('hands what the Koala it moves to says to its install: its setup, its lines, and its failure with why', async () => {
+    const { credential } = await placedOnDesk();
+    await db.instances.updateInstall('inst-bo', 'install-1', { 'install.state': 'installing', 'install.stage': 'koala', 'install.title': 'Bringing Koala over' });
+    const line = { revision: 1, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started' } };
+    expect(await service.report('inst-bo', credential, { provision: line })).toMatchObject({ ok: true });
+    expect(await service.report('inst-bo', credential, { status: 'installing', detail: 'Copying its secrets' })).toMatchObject({ ok: true });
+    expect(await service.report('inst-bo', credential, { status: 'failed', detail: 'the pool copy did not answer' })).toMatchObject({ ok: true });
+    expect(calls.slice(1)).toEqual([
+      `setup install-1 ${JSON.stringify(line)}`,
+      `progress install-1 ${JSON.stringify({ stage: 'koala', title: 'Bringing Koala over', state: 'started', line: 'Copying its secrets' })}`,
+      `progress install-1 ${JSON.stringify({ stage: 'koala', title: 'Bringing Koala over', state: 'failed', why: 'the pool copy did not answer' })}`,
+    ]);
+    expect(await record()).toMatchObject({ status: 'ready', url: 'https://bo.koala.dev', move: { state: 'joined' } });
+    expect((await service.report('inst-bo', credential, { status: 'ready', moved: true, url: 'http://100.64.0.20:30320' })).ok).toBe(true);
+    expect(calls.filter((call) => call.startsWith('finished'))).toEqual([]);
+  });
+
+  it('hears nothing from a move whose install has ended or never was', async () => {
+    await db.instances.saveInstance({ ...(await record()), move: { state: 'copying', startedAt: 'now', credentialHash: hashCredential('move-secret') } });
+    expect(await service.report('inst-bo', 'move-secret', { status: 'installing', detail: 'Copying' })).toMatchObject({ ok: false, status: 409 });
+    expect(await service.report('inst-bo', 'move-secret', { provision: { revision: 1, progress: { stage: 'gitea', title: 'Gitea', state: 'started' } } })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it('tries again on the same machine once a move stopped, as a new move', async () => {
+    await placedOnDesk();
+    await db.instances.saveInstance({ ...(await record()), move: { ...(await record()).move!, state: 'failed', detail: 'Moving Koala to bo-desktop stopped at Bringing Koala over: no room' }, install: { ...(await record()).install!, state: 'failed' } });
+    expect(await service.placeOn('bo', desk, undefined, 'install-2')).toEqual({ ok: true, value: { instanceId: 'inst-bo' } });
+    expect(calls).toEqual(['move inst-bo', 'move inst-bo']);
+    expect((await record()).move).toMatchObject({ state: 'joined' });
+    expect((await record()).move!.credentialHash).toBeUndefined();
+  });
+
+  it('refuses a move code once the Koala it was for is no longer on Koala\'s servers, and a move of a Koala still being set up', async () => {
+    await db.instances.saveInstance({ ...(await record()), status: 'installing' });
+    expect(await service.placeOn('bo', desk, undefined, 'install-1')).toMatchObject({ ok: false, status: 409, error: 'the instance is still being set up; move it once it runs' });
+    expect(await service.placeOn('cy', desk, 'cy', 'install-2', true)).toMatchObject({ ok: false, status: 409, error: 'your Koala is not on Koala\'s servers, so there is nothing of it to move' });
   });
 
   it('keeps root\'s word on a pool instance\'s state: its own check-in neither makes it ready early nor changes it while it moves', async () => {
@@ -629,15 +691,13 @@ describe('putting a person\'s Koala on one of their machines', () => {
     expect(again.value.credential).not.toBe(placed.value.credential);
   });
 
-  it('puts it again on the same machine, naming the install it replaces, and refuses another machine while one holds it, one off the mesh, or a trial on Koala\'s servers', async () => {
+  it('puts it again on the same machine, naming the install it replaces, and refuses another machine while one holds it, and one off the mesh', async () => {
     await service.placeOn('u1', desk, 'luno', 'install-1');
     expect(await service.placeOn('u1', desk, undefined, 'install-2')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u1'), replaces: 'install-1' } });
     expect(await service.placedKoala('install-1', desk)).toMatchObject({ ok: false, status: 404 });
     expect(await service.placedKoala('install-2', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' })).toMatchObject({ ok: false, status: 404 });
     expect(await service.placeOn('u1', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' }, undefined, 'install-3')).toMatchObject({ ok: false, status: 409, error: 'your Koala is on desk; moving it is a step of its own' });
     expect(await service.placeOn('u2', { id: 'nas', name: 'nas' }, 'nasbox', 'install-4')).toMatchObject({ ok: false, status: 409, error: 'nas is not on your private network yet; Koala is put on it once it is' });
-    await db.instances.saveInstance({ id: instanceIdFor('u3'), ownerId: 'u3', url: '', createdAt: 'then', updatedAt: 'then', status: 'ready', pool: { namespace: 'pool-x' } as never });
-    expect(await service.placeOn('u3', desk, 'trial', 'install-5')).toMatchObject({ ok: false, status: 409 });
   });
 
   it('finds an instance by its install, and takes where Koala answers on the machine only at the instance\'s own mesh address', async () => {
@@ -706,7 +766,7 @@ describe('an instance telling root how its setup after the chart goes', () => {
       if (down) return { ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' };
       handed.push([installId, report]);
       return { ok: true, value: { recorded: true } };
-    } } }, mesh, () => now);
+    }, progressHeard: async () => ({ ok: true, value: { recorded: true } }) } }, mesh, () => now);
     const placed = await service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-1');
     if (!placed.ok) throw new Error(placed.error);
     const koala = await service.placedKoala('install-1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' });
@@ -766,12 +826,15 @@ describe('a pool instance setting itself up', () => {
     expect(handed).toEqual([]);
   });
 
-  it('records the setup of the Koala it moves to on the move, for My Machines to show, and how it ends', async () => {
-    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now', detail: 'Copying its data', credentialHash: hashCredential('move-secret'), target: { machine: 'bo-desktop' } } });
-    expect(await service.report('inst-bo', 'move-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready', move: { state: 'copying', setup: { revision: 1, stage: 'searxng', state: 'running' } } } });
-    expect(await service.moveOf('bo')).toMatchObject({ state: 'copying', detail: 'Koala on bo-desktop is setting itself up: SearXNG, web search' });
-    await service.report('inst-bo', 'move-secret', { provision: { revision: 1, progress: { stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' } } });
-    expect(await service.moveOf('bo')).toMatchObject({ state: 'copying', detail: 'Koala on bo-desktop stopped setting itself up at SearXNG, web search: no room' });
+  it('hands the setup of the Koala it moves to to the move\'s install, leaving the instance serving where it is', async () => {
+    const setups: unknown[] = [];
+    service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 }, installs: {
+      setupHeard: async (installId, report) => { setups.push([installId, report]); return { ok: true, value: { recorded: true } }; },
+      progressHeard: async () => ({ ok: true, value: { recorded: true } }),
+    } }, mesh, () => now, () => undefined, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} });
+    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now', detail: 'Copying its data', credentialHash: hashCredential('move-secret'), target: { machine: 'bo-desktop' } }, install: { id: 'install-1', machineId: 'desk', state: 'installing', at: 'now', move: true } });
+    expect(await service.report('inst-bo', 'move-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready' } });
+    expect(setups).toEqual([['install-1', line]]);
     expect(await service.report('inst-bo', 'move-secret', { provision: { revision: 0, progress: line.progress } })).toMatchObject({ ok: false, status: 400 });
     expect(handed).toEqual([]);
   });

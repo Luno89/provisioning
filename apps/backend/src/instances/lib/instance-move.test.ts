@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, checkMoveToken, trustedKeys, publicKeyPem } from './identity-token.js';
-import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE } from './instance-move.js';
+import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedRecord, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE } from './instance-move.js';
 import { kubeAccessFrom, serviceProxyPath } from './kubeconfig-access.js';
 
 const KEYS = { SESSION_KEY: 'a'.repeat(64), DATA_KEY: 'b'.repeat(64), PAYLOAD_KEY: 'c'.repeat(64), EGRESS_KEY: 'd'.repeat(64) };
@@ -99,5 +99,31 @@ describe('a pool instance while it moves', () => {
   it('still answers the move, its own status and the check that keeps it in service, and nothing else', () => {
     expect(['/move/parts/keys', '/instance-trial/move', '/auth/me', '/auth/sign-in'].every(answersWhileMoving)).toBe(true);
     expect(['/engine/runs', '/projects', '/auth/handoff', '/conversations/x/messages'].some(answersWhileMoving)).toBe(false);
+  });
+});
+
+describe('the record a move switches to', () => {
+  const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 't', trialEndsAt: 't' };
+  const moving = {
+    id: 'inst-bo', ownerId: 'bo', name: 'bo', url: 'https://bo.koala.dev', status: 'ready' as const, createdAt: 't', updatedAt: 't', credentialHash: 'pool', meshIp: '100.64.0.1', pool,
+    setup: { revision: 4, state: 'up' as const, stage: 'set-up', title: 'Koala is set up', at: 't' },
+    install: { id: 'install-1', machineId: 'desk', state: 'ready' as const, at: 't', imageTag: 'v7', move: true as const },
+    move: { state: 'switching' as const, startedAt: 't', credentialHash: 'moved', target: { machine: 'bo-desktop', meshIp: '100.64.0.20', url: 'http://100.64.0.20:30320' }, setup: { revision: 1, state: 'up' as const, stage: 'set-up', title: 'Koala is set up', at: 't' } },
+  };
+
+  it('names the machine it moved to, with the move\'s credential, address, setup and release, and nothing of the pool', () => {
+    const moved = movedRecord(moving);
+    expect(moved).toMatchObject({
+      machineId: 'desk', machine: 'bo-desktop', meshIp: '100.64.0.20', url: 'http://100.64.0.20:30320', credentialHash: 'moved', running: 'v7',
+      status: 'ready', detail: 'Moved to bo-desktop', setup: { revision: 1 }, install: { id: 'install-1', state: 'ready' },
+    });
+    expect(moved).not.toHaveProperty('pool');
+    expect(moved).not.toHaveProperty('move');
+  });
+
+  it('refuses a move that never said where it answers, or never had a machine', () => {
+    expect(movedRecord({ ...moving, move: { ...moving.move, target: { machine: 'bo-desktop', meshIp: '100.64.0.20' } } })).toEqual({ error: 'the new machine never said where it answers' });
+    const { install: _install, ...noInstall } = moving;
+    expect(movedRecord(noInstall)).toEqual({ error: 'the move has no machine it was put on' });
   });
 });

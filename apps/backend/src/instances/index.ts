@@ -7,7 +7,7 @@ export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOf
 export type { AddressScope } from './lib/edge-addresses.js';
 export { checkMoveToken, generateIdentityKey, issueMoveToken, MOVE_TOKEN_HEADER, moveTokenOnce, publicKeyPem } from './lib/identity-token.js';
 export type { IdentityKeyPair, UsedTokenClaim } from './lib/identity-token.js';
-export { drained, GITEA_DATA, MOVE_STEP_WORDS, MOVED_POSTGRES, movedStateSecrets, PG_RESTORE } from './lib/instance-move.js';
+export { drained, GITEA_DATA, MOVE_STEP_WORDS, MOVED_POSTGRES, movedRecord, movedStateSecrets, PG_RESTORE } from './lib/instance-move.js';
 export type { MovePart } from './lib/instance-move.js';
 export { nameProblem, suggestedGroup } from './lib/instance-names.js';
 export { dataHolds } from './lib/instance-updates.js';

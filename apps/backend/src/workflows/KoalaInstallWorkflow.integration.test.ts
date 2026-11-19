@@ -7,9 +7,11 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
+import { poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
+import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let env: TestWorkflowEnvironment;
@@ -106,6 +108,47 @@ describe('root driving Koala onto a machine', () => {
     const { seen, result } = await run(installing, async () => undefined, () => 'replaced');
     expect(seen).toEqual(['ask']);
     expect(result).toBe('replaced');
+  });
+
+  it('ends a move the way the install ended, telling the move of the instance it names', async () => {
+    const moves: string[] = [];
+    const moved = async (ending: InstallAnswer, signal: { name: string; args: unknown[] }) => {
+      const taskQueue = `koala-move-test-${Math.random().toString(36).slice(2, 8)}`;
+      const instanceId = `inst-${Math.random().toString(36).slice(2, 8)}`;
+      const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
+      const worker = await Worker.create({
+        interceptors: { activity: activityInterceptors() },
+        ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+        taskQueue,
+        workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
+        activities: {
+          KoalaInstallAskActivity: async () => 'asked',
+          KoalaInstallStageActivity: async () => (typeof ending === 'object' ? { ...ending, instanceId } : ending),
+          PoolMoveStartActivity: async () => { moves.push('start'); },
+          PoolMoveSwitchActivity: async () => { moves.push('switch'); return { name: 'bo' }; },
+          PoolMoveStopActivity: async ({ reason }: { reason: string }) => { moves.push(`stop: ${reason}`); },
+        },
+      });
+      return worker.runUntil(async () => {
+        const move = await env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', { workflowId: poolMoveWorkflowId(instanceId), taskQueue, args: [{ instanceId }], searchAttributes: { KoalaOwner: ['bo'] } });
+        while (!moves.includes('start')) await new Promise((done) => setTimeout(done, 20));
+        const install = await env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] } });
+        await install.signal(signal.name, ...signal.args);
+        return { install: await install.result(), move: await move.result() };
+      });
+    };
+    expect(await moved({ instanceId: '', ended: 'ready' }, { name: KOALA_INSTALL_SIGNALS.setup, args: [{ revision: 1, progress: stage('set-up', 'done') }] })).toEqual({ install: 'ready', move: 'moved' });
+    expect(moves).toEqual(['start', 'switch']);
+    moves.length = 0;
+    expect(await moved({ instanceId: '', ended: 'failed', why: 'Moving Koala to desk stopped at Bringing Koala\'s keys: no answer' }, { name: KOALA_INSTALL_SIGNALS.progress, args: [stage('keys', 'failed', { why: 'no answer' })] })).toEqual({ install: 'failed', move: 'stopped' });
+    expect(moves).toEqual(['start', 'stop: Moving Koala to desk stopped at Bringing Koala\'s keys: no answer']);
+  });
+
+  it('ends a move whose move has already ended without failing itself', async () => {
+    const { result } = await run(() => ({ instanceId: 'inst-gone', ended: 'ready' }), async (handle) => {
+      await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala-moved', 'done', { url: 'https://bo.koala.app' }));
+    });
+    expect(result).toBe('ready');
   });
 
   it('waits on the machine however long it takes, and stops only when cancelled', async () => {

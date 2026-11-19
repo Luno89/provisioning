@@ -51,7 +51,7 @@ import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
-  savedHuggingFaceTokenOf,
+  savedHuggingFaceTokenOf, poolClusterId,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import { GiteaService, pushToBuild } from './projects/index.js';
@@ -351,6 +351,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
     instanceArrived, installs: koalaInstalls,
+    moves: machineAccounts ? { joinCode: (ownerId, koalaName) => machineAccounts.createJoinCode(ownerId, koalaName, true), poolClusterId } : undefined,
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));

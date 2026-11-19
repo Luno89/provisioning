@@ -298,14 +298,16 @@ describe('the new machine reading a moving instance through root', () => {
         });
         const instances = new InstanceService(db, {
           rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', domain: 'koala.dev',
+          moves: { joinCode: async () => ({ command: 'curl', expiresAt: 'later' }), poolClusterId: (name) => `pool-${name}` },
         }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => now, () => {}, {
           start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveFinished: async () => {}, moveStopped: async () => {},
         });
-        const started = await instances.startMove(TEST_USER.id);
-        if (!started.ok) throw new Error(started.error);
-        const joined = await instances.join(started.value.token, 'desk');
-        if (!joined.ok) throw new Error(joined.error);
-        moveCredential = joined.value.credential;
+        const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
+        const placing = await instances.placeOn(TEST_USER.id, desk, undefined, 'install-1');
+        if (!placing.ok) throw new Error(placing.error);
+        const placed = await instances.placedKoala('install-1', desk);
+        if (!placed.ok) throw new Error(placed.error);
+        moveCredential = placed.value.credential;
         return instancesRouter({
           instances, chart: async () => '', operatorOnly: (_req: Request, res: Response) => { res.status(403).end(); },
           moveRelay: { open: async (source: { name: string }, part: string) => {

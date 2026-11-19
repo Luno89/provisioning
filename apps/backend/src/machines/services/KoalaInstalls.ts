@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { KOALA_INSTALL_PROGRESS, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { koalaInstallProgress, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
@@ -8,8 +8,10 @@ import { TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
 
+export type Refusal = Extract<Outcome<never>, { ok: false }>;
+
 export interface InstallPlaces {
-  placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>>;
+  placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string, move: boolean): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>>;
   placedKoala(installId: string, machine: PlacingMachine): Promise<Outcome<PlacedKoala>>;
   installOf(installId: string): Promise<InstanceRecord | undefined>;
   installedUrl(instance: InstanceRecord, raw: unknown): Promise<Outcome<string>>;
@@ -57,17 +59,21 @@ export class KoalaInstalls {
     return (await places.installsOn(machineId)).filter((instance) => installUnfinished(instance.install));
   };
 
-  async start(ownerId: string, device: LocalAgentDeviceMetadata, requestedName: unknown): Promise<Outcome<{ installId: string }>> {
+  async start(ownerId: string, device: LocalAgentDeviceMetadata, requestedName: unknown, move = false, refused: (refusal: Refusal) => Promise<void> = async () => undefined): Promise<Outcome<{ installId: string }>> {
     const places = this.deps.places();
     if (!places) return { ok: false, status: 503, error: NO_PLACES };
     const installId = (this.deps.newId ?? uuidv4)();
-    const placed = await places.placeOn(ownerId, placing(device), requestedName, installId);
-    if (!placed.ok) return placed;
+    const placed = await places.placeOn(ownerId, placing(device), requestedName, installId, move);
+    if (!placed.ok) {
+      await refused(placed);
+      return placed;
+    }
     if (placed.value.replaces) await this.deps.workflows.cancel(placed.value.replaces);
     try {
       await this.deps.workflows.start(installId, ownerId);
     } catch (err) {
       const why = `root could not start putting Koala on ${device.name}: ${reasonOf(err)}`;
+      await refused({ ok: false, status: 503, error: why });
       await places.installNotStarted(placed.value.instanceId, installId, why);
       this.deps.toOwner.installChanged(ownerId);
       return { ok: false, status: 503, error: why };
@@ -81,13 +87,13 @@ export class KoalaInstalls {
     const match = matchDeviceToken(await this.deps.devices(), token, this.now());
     if (!match) return { ok: false, status: 401, error: 'this machine is not one of Koala\'s: run the command from My Machines again' };
     if (match.expired) return { ok: false, status: 401, error: TOKEN_EXPIRED_SAID };
-    const read = progressOf(body, KOALA_INSTALL_PROGRESS);
-    if (!read.ok) return { ok: false, status: 400, error: read.problem };
     const places = this.deps.places();
     if (!places) return { ok: false, status: 503, error: NO_PLACES };
     const instance = await places.installOf(installId);
     if (!instance?.install || instance.install.machineId !== match.device.id) return { ok: false, status: 404, error: NO_SUCH_INSTALL };
     if (!installUnfinished(instance.install)) return { ok: false, status: 409, error: `that install has ended ${instance.install.state}` };
+    const read = progressOf(body, koalaInstallProgress(Boolean(instance.install.move)));
+    if (!read.ok) return { ok: false, status: 400, error: read.problem };
     let progress = read.value;
     if (progress.url !== undefined) {
       const url = await places.installedUrl(instance, progress.url);
@@ -99,6 +105,10 @@ export class KoalaInstalls {
 
   async setupHeard(installId: string, report: ProvisionReport): Promise<Outcome<{ recorded: true }>> {
     return this.handed(() => this.deps.workflows.setup(installId, report));
+  }
+
+  async progressHeard(installId: string, progress: MachineProgress): Promise<Outcome<{ recorded: true }>> {
+    return this.handed(() => this.deps.workflows.progress(installId, progress));
   }
 
   private async handed(hand: () => Promise<void>): Promise<Outcome<{ recorded: true }>> {
