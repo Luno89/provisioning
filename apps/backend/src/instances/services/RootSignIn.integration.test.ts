@@ -26,6 +26,7 @@ import { InstanceTrial } from './InstanceTrial.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
 import { hubLinkRouter } from '../../hub/routes/hub-link.js';
 import { ProjectInviteService } from '../../hub/services/ProjectInviteService.js';
+import { HubRootClient } from '../../hub/services/HubRootClient.js';
 import { principalOf } from '../../platform/lib/permissions.js';
 
 const freshHubDb = await emptiedEachTime();
@@ -331,19 +332,16 @@ describe('what an instance and the hub ask root for with what root signed', () =
       people: rootDb.accounts,
     }));
     const onHub = hubSignIn.verified((await signInAs('u2', hub)).instanceJar.get('session'));
-    const ask = async (token: string) => fetch(`${root.url}/api/hub-link/invite`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ email: 'cy@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32), inviterToken: await hubSignIn.personToken(onHub) }),
-    });
+    const ask = (token: () => Promise<string>) => new HubRootClient({ rootUrl: root.url, token }).send(
+      { email: 'cy@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32), inviterId: 'u2', inviterEmail: 'u2@example.com' },
+      { id: 'u2', email: 'u2@example.com', vouch: () => hubSignIn.personToken(onHub) },
+    );
     hubSignIn.keepAnnouncing(() => undefined);
-    const sent = await ask(await hubSignIn.serviceToken());
-    expect(sent.status).toBe(201);
-    expect(await sent.json()).toMatchObject({ link: matching(new RegExp(`^${root.url}/#/join\\?code=`)), emailed: false });
+    const sent = await ask(() => hubSignIn.serviceToken());
+    expect(sent).toMatchObject({ link: matching(new RegExp(`^${root.url}/#/join\\?code=`)), emailed: false });
     expect(await rootDb.accounts.getInvites()).toEqual([having({ email: 'cy@example.com', createdBy: 'u2', project: having({ name: 'Shop', role: 'client' }) })]);
     signIn.keepAnnouncing(() => undefined);
-    const refused = await ask(await signIn.serviceToken());
-    expect(refused.status).toBe(401);
+    await expect(ask(() => signIn.serviceToken())).rejects.toThrow('root would not send the invite (401)');
     expect(await rootDb.accounts.getInvites()).toHaveLength(1);
   });
 });
