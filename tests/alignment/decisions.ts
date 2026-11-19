@@ -471,7 +471,8 @@ export const DECISIONS: Decision[] = [
     words: [
       { at: '2026-11-18T23:19', text: 'is copy and pasted code frequency part of our coupling or any other gates?' },
       { at: '2026-11-18T23:48', text: 'I would prefer none and "harmless repetition" should be vetted pretty harshly' },
+      { at: '2026-11-19T06:07', text: 'Looks good, go' },
     ],
-    reading: 'The aim is no copied code. A copy found is removed when one side is dead, or merged into one home when both are live; repetition is kept only with a stated reason the owner can challenge, never because it looks harmless. On 2026-11-18 jscpd measured 309 copies (3,134 lines, 1.69%) over the workspaces\' source, 20 of them between workspaces, none marked as a known copy.',
+    reading: 'The aim is no copied code. A copy found is removed when one side is dead, or merged into one home when both are live; repetition is kept only with a stated reason the owner can challenge, never because it looks harmless. On 2026-11-18 jscpd measured 309 copies (3,134 lines, 1.69%) over the workspaces\' source, 20 of them between workspaces, none marked as a known copy. On 2026-11-19 the owner agreed the plan from the libraries and resources audits: one implementation per job in a package, its production and test pieces injected (a process runner, one Temporal setup with the converter required, one fetch client for backend and frontend with axios gone, files and scratch folders, one wait and pacing, one logger, OpenTelemetry for metrics, ports for Mongo, containers, git, tokens, clocks and ids); child processes get only the environment they need, the machine reaches Temporal over TLS, and nothing listens on a machine\'s network address.',
   },
 ];
