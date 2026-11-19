@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Server as SocketServer } from 'socket.io';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { linkToRoot, type Koala, type RootLink } from '../../../../local-agent/src/root-link.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -12,18 +12,10 @@ import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/ident
 import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
+import { closedAfterEach, until } from '../testing/wiring-world.js';
 
 const DAY = 24 * 3600 * 1000;
-const closers: Array<() => Promise<void> | void> = [];
-afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
-
-async function until<T>(look: () => T | undefined | Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const found = await look();
-    if (found !== undefined) return found;
-    await new Promise((done) => setTimeout(done, 20));
-  }
-}
+const closers = closedAfterEach();
 
 async function root(clock: () => Date, koala: { url: string; audience: string } | null = { url: 'http://koala.test', audience: 'inst-1' }) {
   const db: Database = await testDatabase();

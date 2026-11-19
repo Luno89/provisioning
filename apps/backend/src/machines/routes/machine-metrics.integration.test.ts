@@ -2,12 +2,13 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import protobuf from 'protobufjs';
 import { compress, uncompress } from 'snappyjs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
 import { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { newMetricsToken } from '../lib/machine-metrics.js';
 import { machinesRouter } from './machines.js';
+import { closedAfterEach } from '../testing/wiring-world.js';
 
 const WriteRequest = protobuf.parse(`
 syntax = "proto3";
@@ -21,8 +22,7 @@ type Labels = Array<{ name: string; value: string }>;
 const batch = (labels: Labels) => Buffer.from(compress(WriteRequest.encode(WriteRequest.fromObject({ timeseries: [{ labels, samples: [{ value: 1, timestamp: 1_793_000_000_000 }] }] })).finish()));
 const labelsIn = (body: Buffer) => (WriteRequest.toObject(WriteRequest.decode(Buffer.from(uncompress(body)))) as { timeseries: Array<{ labels: Labels }> }).timeseries.map((series) => series.labels);
 
-const closers: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
+const closers = closedAfterEach();
 
 async function prometheusReceiver(status = 204) {
   const received: Array<{ body: Buffer; headers: http.IncomingHttpHeaders }> = [];

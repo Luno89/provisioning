@@ -12,9 +12,9 @@ import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-datab
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
-import { MachineService } from '../services/MachineService.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import { until, onlineMachines } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 const root = identityKeysFrom(generateIdentityKey());
@@ -55,24 +55,11 @@ const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
   return host;
 };
 
-async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const value = await probe();
-    if (value !== undefined) return value;
-    await new Promise((done) => setTimeout(done, 20));
-  }
-}
-
 const desk = async () => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk');
 
 beforeEach(async () => {
   db = await fresh();
-  const machines = new MachineService({
-    store: db.machines,
-    devices: { status: () => ({ online: true }) } as never,
-    accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
-    projects: { register: async () => { throw new Error('not used'); } },
-  });
+  const machines = onlineMachines(db.machines);
   await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', meshIp: '100.64.0.7', createdAt: new Date().toISOString() });
   server = http.createServer();
   io = new SocketServer(server);

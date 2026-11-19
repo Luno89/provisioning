@@ -21,6 +21,7 @@ import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
 import { deviceByWorkToken } from './machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import { until } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 
@@ -73,14 +74,6 @@ function connectTo(namespace: string, token: string, onToken?: (token: string, a
 }
 const account = (token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void) => connectTo('/machine-account', token, onToken);
 const work = (token: string) => connectTo('/agent', token);
-
-async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const value = await probe();
-    if (value !== undefined) return value;
-    await new Promise((done) => setTimeout(done, 20));
-  }
-}
 
 const stored = async () => (await db.machines.getLocalAgentDevices()).find((one) => one.id === 'desk')!;
 

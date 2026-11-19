@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect } from 'socket.io-client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { runSteps } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import { joinArgsOf } from '../../../../local-agent/src/join/args.js';
@@ -22,12 +22,11 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
-import { MachineService } from '../services/MachineService.js';
 import { machinesRouter } from '../routes/machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import { closedAfterEach, until, quietAccountSides, onlineMachines } from '../testing/wiring-world.js';
 
-const closers: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
+const closers = closedAfterEach();
 
 const signing = identityKeysFrom(generateIdentityKey());
 const keys = testKeys('machine-agents-reports-secret');
@@ -47,22 +46,14 @@ async function listening(server: http.Server): Promise<string> {
 async function koala() {
   const db: MongoDB = await testDatabase();
   const accounts = new MachineAccounts({
-    store: db.machines, signing, settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
-    mesh: { createPreAuthKey: async () => ({ key: 'hskey' }), removeNode: async () => undefined },
-    koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    toOwner: { machinesChanged: () => undefined },
-    toMachines: { removed: () => false, koala: () => false, online: () => false },
+    ...quietAccountSides(),
+    store: db.machines, signing,
   });
   const app = express();
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const rootUrl = await listening(http.createServer(app));
-  const machines = new MachineService({
-    store: db.machines,
-    devices: { status: () => ({ online: true }) } as never,
-    accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
-    projects: { register: async () => { throw new Error('not used'); } },
-  });
+  const machines = onlineMachines(db.machines);
   const server = http.createServer();
   const io = new SocketServer(server);
   closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
@@ -99,14 +90,6 @@ async function reports(koalaUrl: string, ctx: JoinContext, home: string, deps: D
   closers.push(async () => { socket.close(); });
   await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
   await reportAgents(deps, [], () => agentsNotSetUp(settingsEnv(home)), (report) => { socket.emit('agents:found', report); });
-}
-
-async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const value = await probe();
-    if (value !== undefined) return value;
-    await new Promise((done) => setTimeout(done, 20));
-  }
 }
 
 describe('a machine whose coding agents its join could not set up', () => {

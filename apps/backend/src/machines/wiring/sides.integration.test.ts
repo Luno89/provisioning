@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { MACHINE_JOINS_CHANGED } from '@koala/engine-core/machine-join';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -21,18 +21,10 @@ import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { InstancePresence } from '../../instances/services/InstancePresence.js';
 import { InstanceSide, wireInstancePresence } from '../../instances/wiring/instances.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
+import { closedAfterEach, until } from '../testing/wiring-world.js';
 
 const KEY = 'sides-test-secret';
-const closers: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
-
-async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const found = await look();
-    if (found !== undefined) return found;
-    await new Promise((done) => setTimeout(done, 20));
-  }
-}
+const closers = closedAfterEach();
 
 function recordingDevices(): MachineDevices & { dropped: string[]; told: string[] } {
   const dropped: string[] = [];
