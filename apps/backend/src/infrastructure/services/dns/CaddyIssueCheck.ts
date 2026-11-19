@@ -8,6 +8,7 @@ import { X509Certificate } from 'node:crypto';
 import {
   caddyEvent, certificatePathIn, namesFromSubjectAltName, stagingOnlyProblem, withoutSecrets, type IssuedCertificate,
 } from '../../lib/dns-issue-check.js';
+import { childEnv, DOCKER_CLIENT, passedOn } from '../../../platform/index.js';
 
 const run = promisify(execFile);
 
@@ -29,17 +30,19 @@ export interface CaddyIssueResult {
   logNamedSecret: boolean;
 }
 
+const dockerEnv = (): Record<string, string> => childEnv(passedOn(DOCKER_CLIENT));
+
 const READ_ENV_THEN_RUN = 'while IFS= read -r line && [ -n "$line" ]; do export "$line"; done; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile';
 
 export async function buildCaddyImage(image: string, context: string): Promise<void> {
-  await run('docker', ['build', '-q', '-t', image, context], { maxBuffer: 64 * 1024 * 1024 });
+  await run('docker', ['build', '-q', '-t', image, context], { maxBuffer: 64 * 1024 * 1024, env: dockerEnv() });
 }
 
 export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyIssueResult> {
   const folder = mkdtempSync(join(tmpdir(), 'koala-dns-issue-check-'));
   const container = `koala-dns-issue-check-${request.zone.replace(/[^a-z0-9]/gi, '-')}-${process.pid}`;
   const removeAll = (): void => {
-    spawnSync('docker', ['rm', '-f', container], { stdio: 'ignore' });
+    spawnSync('docker', ['rm', '-f', container], { stdio: 'ignore', env: dockerEnv() });
     rmSync(folder, { recursive: true, force: true });
   };
   const onSignal = (signal: NodeJS.Signals): void => {
@@ -60,7 +63,7 @@ export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyI
       '-v', `${join(folder, 'config')}:/config`,
     ];
 
-    const adapted = await run('docker', ['run', '--rm', '--user', user, ...mounts, request.image, 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile'], { maxBuffer: 16 * 1024 * 1024 });
+    const adapted = await run('docker', ['run', '--rm', '--user', user, ...mounts, request.image, 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile'], { maxBuffer: 16 * 1024 * 1024, env: dockerEnv() });
     const problem = stagingOnlyProblem(JSON.parse(adapted.stdout) as Parameters<typeof stagingOnlyProblem>[0], request.zone);
     if (problem) return { obtained: false, why: `refused before asking anyone: ${problem}`, cleanupErrors: [], logNamedSecret: false };
 
@@ -69,7 +72,7 @@ export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyI
         'run', '-i', '--rm', '--name', container, '--user', user,
         '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
         ...mounts, '--entrypoint', 'sh', request.image, '-c', READ_ENV_THEN_RUN,
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      ], { stdio: ['pipe', 'pipe', 'pipe'], env: dockerEnv() });
       const cleanupErrors: string[] = [];
       const tail: string[] = [];
       let logNamedSecret = false;

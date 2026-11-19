@@ -6,7 +6,7 @@ import zlib from 'zlib';
 import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
 import { MongoClient } from 'mongodb';
-import { clientOptionsFor, type Followed, type Io } from '../../platform/index.js';
+import { childEnv, clientOptionsFor, type Followed, type Io } from '../../platform/index.js';
 import type { Reach, Target } from '../../infrastructure/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
@@ -195,7 +195,7 @@ export class MoveExport {
   }
 
   private command(args: string[]): { out: Readable; done: Promise<void> } {
-    const child: ChildProcess = (this.deps.spawn ?? spawnProcess)(args[0]!, args.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child: ChildProcess = (this.deps.spawn ?? spawnProcess)(args[0]!, args.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
     let said = '';
     child.stderr?.on('data', (chunk) => { said = `${said}${chunk}`.slice(-2000); });
     const done = new Promise<void>((resolve, reject) => {

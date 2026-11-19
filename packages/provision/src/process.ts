@@ -1,12 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Provider } from './service.js';
 import { tail } from './tail.js';
+import { childEnv, type Named } from '@koala/engine-core/child-env';
 
 export interface ProcessSpec {
   name: string;
   command: string;
   args: readonly string[];
-  env?: NodeJS.ProcessEnv;
+  env?: Named;
 }
 
 export interface ProcessProvider extends Provider<object> {
@@ -33,7 +34,7 @@ export function processProvider(spec: ProcessSpec): ProcessProvider {
     running: async () => (child && !endedWhy ? { done: true } : { done: false, why: endedWhy ?? `${spec.name} is not started` }),
     async start() {
       endedWhy = undefined;
-      const started = spawn(spec.command, [...spec.args], { env: spec.env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const started = spawn(spec.command, [...spec.args], { env: childEnv(spec.env), stdio: ['ignore', 'pipe', 'pipe'] });
       child = started;
       started.stdout.on('data', heard);
       started.stderr.on('data', heard);

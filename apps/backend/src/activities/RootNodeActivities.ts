@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ApplicationFailure } from '@temporalio/common';
-import { claimSettingsFrom, createDatabase, type Database } from '../platform/index.js';
+import { childEnv, claimSettingsFrom, createDatabase, unpromptedGit, type Database } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import {
   bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, READY_MARK, readOverSsh, redacted,
@@ -21,7 +21,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
       store: db.infrastructure,
       dataKey: keys.data,
       credentials,
-      lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024 })).stdout,
+      lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024, env: childEnv(unpromptedGit({})) })).stdout,
     });
     return await work(orders);
   } finally {

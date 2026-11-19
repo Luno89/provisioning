@@ -8,7 +8,7 @@ describe('the files a stack keeps its Terraform state in', () => {
 });
 
 describe('where Terraform keeps a process\'s state', () => {
-  const pod = { KUBERNETES_SERVICE_HOST: '10.43.0.1', POD_NAMESPACE: 'koala' };
+  const pod = { KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443', POD_NAMESPACE: 'koala' };
 
   it('is the data folder where the settings say local, and nowhere guessed when they say nothing', () => {
     expect(() => terraformStateFrom({})).toThrow('TERRAFORM_STATE is not set');
@@ -19,13 +19,14 @@ describe('where Terraform keeps a process\'s state', () => {
 
   it('is the instance\'s own namespace in its cluster when the chart says kubernetes, the data folder kept to find state from before', () => {
     const home = stateHomeIn(terraformStateFrom({ ...pod, TERRAFORM_STATE: 'kubernetes' }), '/data/terraform');
-    expect(home).toEqual({ kind: 'kubernetes', namespace: 'koala', dir: '/data/terraform' });
-    expect(cdktfStateEnv(home)).toEqual({ CDKTF_STATE_NAMESPACE: 'koala' });
+    expect(home).toEqual({ kind: 'kubernetes', namespace: 'koala', api: { host: '10.43.0.1', port: '443' }, dir: '/data/terraform' });
+    expect(cdktfStateEnv(home)).toEqual({ CDKTF_STATE_NAMESPACE: 'koala', KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443' });
   });
 
   it('refuses kubernetes outside a pod or without its namespace, and any other kind, rather than keep state somewhere else', () => {
     expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1' })).toThrow('POD_NAMESPACE is not set');
     expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', POD_NAMESPACE: 'koala' })).toThrow('not running in a pod');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', POD_NAMESPACE: 'koala', KUBERNETES_SERVICE_HOST: '10.43.0.1' })).toThrow('not running in a pod');
     expect(() => terraformStateFrom({ TERRAFORM_STATE: 's3' })).toThrow('either local or in kubernetes');
   });
 });

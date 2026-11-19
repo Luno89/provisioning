@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { childEnv } from '../../platform/index.js';
 
 export interface SshTarget {
   host: string;
@@ -34,7 +35,7 @@ const sshArgs = (target: SshTarget, keyPath: string): string[] => [
 
 export function runScriptOverSsh(target: SshTarget, script: string, onLine: (line: string) => void): Promise<number> {
   return withKey(target.privateKey, (keyPath) => new Promise<number>((resolve, reject) => {
-    const child = spawn('ssh', [...sshArgs(target, keyPath), 'bash -s'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('ssh', [...sshArgs(target, keyPath), 'bash -s'], { stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
     let pending = '';
     const take = (chunk: Buffer) => {
       pending += chunk.toString();

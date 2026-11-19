@@ -429,7 +429,7 @@ describe('the instance chart', () => {
     };
     const backend = backendSettingsFrom(envOf('backend'));
     expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, trustProxy: 1, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
-    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1 });
+    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1, gatewayTls: { certPath: '/etc/koala/machine-gateway-tls/tls.crt', keyPath: '/etc/koala/machine-gateway-tls/tls.key' } });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
     expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 }, root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' } });
@@ -439,6 +439,7 @@ describe('the instance chart', () => {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
       const ports = (container.ports ?? []) as Array<{ name: string; containerPort: number }>;
       const env = envOf(process);
+      expect(env.POD_IP, `${process} listens on its own pod's address`).toBe(given.POD_IP);
       if (process === 'backend') expect(ports).toEqual(expect.arrayContaining([{ name: 'http', containerPort: Number(env.PORT) }, { name: 'machine-gateway', containerPort: Number(env.MACHINE_GATEWAY_PORT) }]));
       else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'wf-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
     }

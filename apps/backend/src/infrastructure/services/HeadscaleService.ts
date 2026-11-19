@@ -3,7 +3,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
+import { childEnv, decryptValue, DOCKER_CLIENT, encryptValue, passedOn, type SecretKey } from '../../platform/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -57,7 +57,7 @@ export class HeadscaleService {
 
     const { stdout } = await execFileAsync('docker', [
       'exec', CONTAINER_NAME, 'headscale', 'apikeys', 'create', '--expiration', '87600h',
-    ]);
+    ], { env: childEnv(passedOn(DOCKER_CLIENT)) });
     const key = stdout.trim();
     if (!key) throw new Error('"headscale apikeys create" returned no key — is the container running?');
     this.apiKeyCache = key;

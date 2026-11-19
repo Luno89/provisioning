@@ -117,8 +117,14 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
   };
 }
 
+export interface TemporalTls {
+  ca: string;
+  serverName: string;
+}
+
 export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
   address: string;
+  tls: TemporalTls;
   token: string;
   payloads: { ring: Keyring; blobs: BlobReach };
   namespace?: string | undefined;
@@ -132,7 +138,11 @@ export interface DeviceWorker extends Worker {
 }
 
 export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker> {
-  const connection = await NativeConnection.connect({ address: options.address, metadata: { authorization: `Bearer ${options.token}` } });
+  const connection = await NativeConnection.connect({
+    address: options.address,
+    tls: { serverRootCACertificate: Buffer.from(options.tls.ca), serverNameOverride: options.tls.serverName },
+    metadata: { authorization: `Bearer ${options.token}` },
+  });
   const taskQueue = deviceQueue(options.deviceId);
 
   const worker = await Worker.create({

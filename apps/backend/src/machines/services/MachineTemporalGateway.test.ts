@@ -107,6 +107,7 @@ let deviceLookups: string[];
 const gateway = (over: Partial<MachineTemporalGatewayDeps> = {}) => new MachineTemporalGateway({
   upstream: 'temporal:7233',
   upstreamKey: () => 'the-gateway-token',
+  tls: { cert: 'the-gateway-certificate', key: 'the-gateway-key' },
   namespace: 'default',
   keys: () => ['the-key'],
   deviceOf: async (token) => {
@@ -306,7 +307,7 @@ describe('a machine reaching Temporal through the gateway', () => {
 });
 
 describe('the gateway\'s listening', () => {
-  type Server = http2.Http2Server;
+  type Server = http2.Http2SecureServer;
 
   const served = () => {
     const server = mock<Server>();

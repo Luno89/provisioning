@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { childEnv } from '@koala/engine-core/child-env';
 import { MACHINE_TREES, type MachineGitOp, type MachineGitResult } from '@koala/engine-core';
 import { insideRoot } from './acp-session.js';
 import { present } from './file-present.js';
@@ -52,8 +53,7 @@ export const remoteFor =(backendUrl: string, repo: string): string =>
 
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
   const git = options.git ?? runGit;
-  const { SSH_ASKPASS: _ssh, GIT_ASKPASS: _git, ...inherited } = process.env;
-  const env: NodeJS.ProcessEnv = { ...inherited, GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY };
+  const env: NodeJS.ProcessEnv = childEnv({ GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY });
   const tokenNow = (): string => (typeof options.token === 'function' ? options.token() : options.token);
   const signedIn = () => ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${tokenNow()}`];
   const hidden = (text: string): string => text.replaceAll(tokenNow(), '***').trim();

@@ -7,16 +7,22 @@ import type { BlobReach } from '@koala/engine-core/payloads';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDeviceActivities, deviceQueue, startDeviceWorker } from './engine-worker.js';
 import { IdleGate } from './idle-gate.js';
+import { makeCertificates, tlsInFrontOf, type TestCertificates } from './testing/temporal-tls.js';
 
 let env: TestWorkflowEnvironment;
 let rootDir: string;
+let certificates: TestCertificates;
+let front: { address: string; close(): Promise<void> };
 
 beforeAll(async () => {
   env = await TestWorkflowEnvironment.createLocal();
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-device-boot-'));
+  certificates = makeCertificates();
+  front = await tlsInFrontOf(env.address, certificates);
 });
 
 afterAll(async () => {
+  await front.close();
   await env.teardown();
   await fs.rm(rootDir, { recursive: true, force: true });
 });
@@ -33,7 +39,8 @@ describe('the device worker, started as the machine agent starts it', () => {
     const worker = await startDeviceWorker({
       rootDir,
       deviceId: 'boot-desk',
-      address: env.address,
+      address: front.address,
+      tls: { ca: certificates.ca, serverName: certificates.serverName },
       token: 'device-token',
       payloads: { ring: { current: 'device-boot-payload-key-0123456789abcdef' }, blobs },
       gate: new IdleGate(),

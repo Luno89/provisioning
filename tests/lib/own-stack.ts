@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
-import { devFile, devTemporalCa } from './dev-temporal.js';
+import { devFile, devGatewayTls, devTemporalCa } from './dev-temporal.js';
 import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } from './split-stack.js';
 import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
@@ -76,7 +76,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     ...unreachedPlatformServices(url),
   };
   const run = (process: OwnProcess, command: string, extra: Record<string, string> = {}): void => {
-    docker(['run', '-d', '--name', container[process], '--network', 'host', '--restart', 'on-failure', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...envArgs({ ...env, ...extra }), image, command]);
+    docker(['run', '-d', '--name', container[process], '--network', 'host', '--restart', 'on-failure', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...(process === 'backend' ? devGatewayTls() : []), ...envArgs({ ...env, ...extra }), image, command]);
     started.push(container[process]);
   };
   const backendAnswers = () => until('the backend answering', () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(container.backend));

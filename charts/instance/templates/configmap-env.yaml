@@ -33,6 +33,8 @@ data:
   {{- end }}
   {{- if .Values.mesh.address }}
   MACHINE_TEMPORAL_ADDRESS: {{ printf "%s:%v" .Values.mesh.address .Values.machineGateway.nodePort | quote }}
+  MACHINE_GATEWAY_TLS_CERT: /etc/koala/machine-gateway-tls/tls.crt
+  MACHINE_GATEWAY_TLS_KEY: /etc/koala/machine-gateway-tls/tls.key
   {{- end }}
   {{- if and .Values.mesh.address .Values.backend.nodePort }}
   MACHINE_METRICS_URL: {{ printf "http://%s:%v/api/machines/metrics" .Values.mesh.address .Values.backend.nodePort | quote }}

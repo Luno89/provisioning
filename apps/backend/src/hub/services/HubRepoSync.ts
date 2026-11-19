@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { inheritedEnv, nodeProcesses, unpromptedGit, type ProcessResult, type Processes } from '../../platform/index.js';
+import { nodeProcesses, unpromptedGit, type ProcessResult, type Processes } from '../../platform/index.js';
 
 class GitFailed extends Error {
   constructor(result: ProcessResult) {
@@ -22,15 +22,12 @@ export type MainSync =
 
 const BOT = ['-c', 'user.name=Koala', '-c', 'user.email=koala@localhost'];
 
-const onlyWhatItNames = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  ({ ...Object.fromEntries(Object.keys(inheritedEnv()).map((key) => [key, undefined])), ...env });
-
 function envFor(ends: readonly GitEnd[]): NodeJS.ProcessEnv {
-  return onlyWhatItNames(unpromptedGit(inheritedEnv(), {
+  return unpromptedGit({}, {
     'maintenance.auto': 'false',
     'gc.auto': '0',
     ...Object.fromEntries(ends.filter((end) => end.auth).map((end) => [`http.${end.url}.extraHeader`, `Authorization: Basic ${Buffer.from(`${end.auth!.username}:${end.auth!.token}`).toString('base64')}`])),
-  }));
+  });
 }
 
 const masked = (text: string, ends: readonly GitEnd[]): string => ends.reduce((said, end) => (end.auth ? said.replaceAll(end.auth.token, '***') : said), text);

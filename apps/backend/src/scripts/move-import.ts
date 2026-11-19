@@ -6,11 +6,11 @@ import {
   type KubeObject, type MovePart,
 } from '../instances/index.js';
 import { clusterAccessFrom, MOVE_IN_ID, type ClusterAccess } from '../infrastructure/index.js';
-import { createDatabase, ensureReplicaSet, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings, type PlatformKeys } from '../platform/index.js';
+import { childEnv, createDatabase, ensureReplicaSet, mongoClientFor, moveImportSettingsFrom, reopening, type MoveImportSettings, type PlatformKeys } from '../platform/index.js';
 
 function run(args: string[], input?: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(args[0]!, args.slice(1), { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(args[0]!, args.slice(1), { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: childEnv() });
     let out = '';
     let said = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });

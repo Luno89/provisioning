@@ -1,9 +1,10 @@
 import { activityInterceptors } from '@koala/engine-core';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import http2 from 'node:http2';
-import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { dirname, join, resolve } from 'node:path';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { Client, Connection } from '@temporalio/client';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { Context } from '@temporalio/activity';
@@ -26,6 +27,9 @@ const handedBlobs = new Set<string>();
 const upstreamAuth: (string | undefined)[] = [];
 let relay: http2.Http2Server;
 let relayed: http2.ClientHttp2Session;
+const TLS_DIR = dirname(inject('temporalCa'));
+const CA = readFileSync(join(TLS_DIR, 'ca.crt'));
+const overTls = { serverRootCACertificate: CA, serverNameOverride: 'temporal' };
 
 const withoutPseudo = (headers: http2.IncomingHttpHeaders, keep: string[] = []) =>
   Object.fromEntries(Object.entries(headers).filter(([name]) => !name.startsWith(':') || keep.includes(name)));
@@ -67,6 +71,7 @@ beforeAll(async () => {
       await blobs.handTo(workflowId, deviceId);
     },
     log: (line) => refusals.push(line),
+    tls: { cert: readFileSync(join(TLS_DIR, 'server.crt')), key: readFileSync(join(TLS_DIR, 'server.key')) },
   });
   address = `127.0.0.1:${await gateway.listen(0, '127.0.0.1')}`;
 });
@@ -78,7 +83,7 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const asMachine = (token: string) => NativeConnection.connect({ address, metadata: { authorization: `Bearer ${token}` } });
+const asMachine = (token: string) => NativeConnection.connect({ address, tls: overTls, metadata: { authorization: `Bearer ${token}` } });
 
 const refusedWith = async (attempt: Promise<unknown>, said: RegExp) => {
   const err = await attempt.then(() => undefined, (failure: unknown) => failure);
@@ -142,12 +147,20 @@ describe('a machine reaching Temporal through the gateway', () => {
   });
 
   it('refuses everything else a machine might ask, and anyone without a machine\'s token', async () => {
-    const client = new Client({ connection: await Connection.connect({ address, metadata: { authorization: 'Bearer token-d1' } }), namespace: env.namespace ?? 'default' });
+    const client = new Client({ connection: await Connection.connect({ address, tls: overTls, metadata: { authorization: 'Bearer token-d1' } }), namespace: env.namespace ?? 'default' });
     await refusedWith(client.workflow.list()[Symbol.asyncIterator]().next(), /machine asks Temporal only for its own work|UNIMPLEMENTED/);
     await refusedWith(client.workflow.start('askMachine', { taskQueue: 'gateway-test', workflowId: 'not-allowed', args: ['d1', 'x'] }), /machine asks Temporal only for its own work|UNIMPLEMENTED/);
     await refusedWith(client.workflow.getHandle('anything').signal('cancelRun'), /machine asks Temporal only for its own work|UNIMPLEMENTED/);
     await refusedWith(client.activity.complete(Buffer.from('a-forged-task-token'), 'done'), /tasks it was handed|PERMISSION_DENIED/);
-    await refusedWith(Connection.connect({ address, metadata: { authorization: 'Bearer not-a-machine' } }), /this machine is not known here; add it again from My Machines/);
-    await refusedWith(Connection.connect({ address }), /this machine is not known here/);
+    await refusedWith(Connection.connect({ address, tls: overTls, metadata: { authorization: 'Bearer not-a-machine' } }), /this machine is not known here; add it again from My Machines/);
+    await refusedWith(Connection.connect({ address, tls: overTls }), /this machine is not known here/);
+  });
+
+  it('answers a machine only over TLS, refusing one that speaks to it in plaintext', async () => {
+    await expect(NativeConnection.connect({ address, metadata: { authorization: 'Bearer token-d1' } })).rejects.toThrow();
+    const plain = http2.connect(`http://${address}`);
+    const failed = await new Promise<string>((done) => { plain.once('error', (err: Error) => done(err.message)); plain.once('close', () => done('closed')); plain.once('connect', () => { const asked = plain.request({ ':path': '/temporal.api.workflowservice.v1.WorkflowService/GetSystemInfo' }); asked.once('response', () => done('answered')); asked.once('error', (err: Error) => done(err.message)); asked.end(); }); });
+    plain.destroy();
+    expect(failed).not.toBe('answered');
   });
 });

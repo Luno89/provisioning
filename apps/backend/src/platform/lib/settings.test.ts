@@ -115,7 +115,11 @@ describe('the settings a backend reads once, at start', () => {
   it('takes an instance\'s, with the services the chart names and nothing guessed for the ones it does not', () => {
     const settings = backendSettingsFrom(INSTANCE);
     expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL, crawl4aiToken: 'crawl-token' } });
-    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, poolMonitor: { off: ANY_TEXT } });
+    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, gatewayTls: { off: saying('MACHINE_GATEWAY_TLS_CERT') }, poolMonitor: { off: ANY_TEXT } });
+    const gateway = { MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:30322', MACHINE_GATEWAY_TLS_CERT: '/etc/koala/temporal-tls/tls.crt', MACHINE_GATEWAY_TLS_KEY: '/etc/koala/temporal-tls/tls.key' };
+    expect(backendSettingsFrom({ ...INSTANCE, ...gateway }).instance).toMatchObject({ machineTemporalAddress: '100.64.0.7:30322', gatewayTls: { certPath: '/etc/koala/temporal-tls/tls.crt', keyPath: '/etc/koala/temporal-tls/tls.key' } });
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, MACHINE_TEMPORAL_ADDRESS: gateway.MACHINE_TEMPORAL_ADDRESS }))).toContain('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, MACHINE_GATEWAY_TLS_CERT: gateway.MACHINE_GATEWAY_TLS_CERT }))).toContain('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
     expect(settings.endpointRules).toEqual({ scriptedBase: 'http://instance.nowrinkles.svc.cluster.local/api/checks/scripted', lab: false });
     expect(settings.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(settings.mesh).toEqual({ off: 'instance runs no mesh; root does' });
@@ -162,6 +166,13 @@ describe('the settings each worker reads once, at start', () => {
     const problems = problemsOf(() => hostWorkerSettingsFrom(ROOT));
     expect(problems).toEqual(expect.arrayContaining([expect.stringMatching(/^HEALTH_PORT is not set/), expect.stringMatching(/^TEMPORAL_METRICS_PORT is not set/)]));
     expect(problemsOf(() => hostWorkerSettingsFrom({ ...ROOT, ...WORKER, HEALTH_PORT: 'any' }))).toContain('HEALTH_PORT is not a port: any');
+  });
+
+  it('listens on loopback on a computer, and on its own pod\'s address in a pod, never on every address the machine has', () => {
+    expect(hostWorkerSettingsFrom({ ...ROOT, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '9465' }).listenHost).toBe('127.0.0.1');
+    expect(hostWorkerSettingsFrom({ ...ROOT, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '9465', POD_IP: '10.42.0.9' }).listenHost).toBe('10.42.0.9');
+    expect(backendSettingsFrom(INSTANCE).listenHost).toBe('127.0.0.1');
+    expect(backendSettingsFrom({ ...INSTANCE, POD_IP: '10.42.0.9' }).listenHost).toBe('10.42.0.9');
   });
 
   it('asks an instance\'s host worker for nothing of root\'s', () => {

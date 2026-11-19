@@ -44,7 +44,10 @@ describe('payloads a machine keeps with its instance', () => {
   it('takes the payload keyring and the way to Temporal Koala hands it, and refuses to go on without a keyring', async () => {
     const ring = { current: 'c'.repeat(64), previous: ['p'.repeat(64)] };
     expect(await engineSettingsOver(socketAnswering(() => ({ ring })).socket)).toEqual({ ring });
-    expect(await engineSettingsOver(socketAnswering(() => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } })).socket)).toEqual({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } });
+    const gateway = { address: '100.64.0.7:7234', namespace: 'default', ca: '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n', serverName: 'luno-temporal' };
+    expect(await engineSettingsOver(socketAnswering(() => ({ ring, temporal: gateway })).socket)).toEqual({ ring, temporal: gateway });
+    await expect(engineSettingsOver(socketAnswering(() => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } })).socket)).rejects.toThrow('a machine reaches Temporal only over TLS');
+    await expect(engineSettingsOver(socketAnswering(() => ({ ring, temporal: { ...gateway, serverName: '' } })).socket)).rejects.toThrow('a machine reaches Temporal only over TLS');
     expect(await engineSettingsOver(socketAnswering(() => ({ ring, temporal: { address: 7 } })).socket)).toEqual({ ring });
     await expect(engineSettingsOver(socketAnswering(() => ({ error: 'this Koala runs no work on machines' })).socket)).rejects.toThrow('this Koala runs no work on machines');
     expect(ringFingerprint(ring)).not.toBe(ringFingerprint({ current: 'c'.repeat(64) }));

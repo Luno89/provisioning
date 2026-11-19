@@ -1,13 +1,14 @@
 import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import http2 from 'node:http2';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -44,6 +45,7 @@ let io: SocketServer;
 let url = '';
 let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
+const TLS_DIR = path.dirname(inject('temporalCa'));
 let temporal: http2.Http2Server;
 let folder = '';
 const clients: ClientSocket[] = [];
@@ -78,7 +80,7 @@ const work = (token: string) => connectTo('/agent', token);
 const stored = async () => (await db.machines.getLocalAgentDevices()).find((one) => one.id === 'desk')!;
 
 function gatewayAnswer(token: string): Promise<string | undefined> {
-  const session = http2.connect(`http://${gatewayAddress}`);
+  const session = http2.connect(`https://${gatewayAddress}`, { ca: readFileSync(path.join(TLS_DIR, 'ca.crt')), servername: 'temporal' });
   return new Promise((resolve) => {
     const stream = session.request({ ':method': 'POST', ':path': POLL_PATH, 'content-type': 'application/grpc', authorization: `Bearer ${token}` });
     const settle = (headers: http2.IncomingHttpHeaders) => {
@@ -148,6 +150,7 @@ beforeEach(async () => {
     upstream: `127.0.0.1:${(temporal.address() as AddressInfo).port}`,
     upstreamKey: () => 'the-gateway-token',
     namespace: 'default',
+    tls: { cert: readFileSync(path.join(TLS_DIR, 'server.crt')), key: readFileSync(path.join(TLS_DIR, 'server.key')) },
     keys: () => ['the-key'],
     deviceOf: deviceByWorkToken(db, trust, () => clock),
     handed: async () => undefined,

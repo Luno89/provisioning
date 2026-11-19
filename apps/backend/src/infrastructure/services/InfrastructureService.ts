@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError, inheritedEnv } from '../../platform/index.js';
+import { childEnv, CommandFailedError, DOCKER_CLIENT, passedOn } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { cdktfStateEnv, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, type TerraformStateHome, type TerraformStateKind } from '../lib/terraform-state.js';
 
@@ -65,16 +65,12 @@ const dropSharedOutput = (stateDir: string): Promise<void> => {
   return gone;
 };
 
-function commandEnv(extra: Record<string, string> | undefined): NodeJS.ProcessEnv {
-  const inherited = inheritedEnv();
-  const env: NodeJS.ProcessEnv = {
-    ...inherited,
+function commandEnv(extra: Record<string, string> | undefined): Record<string, string> {
+  return childEnv({
     ...extra,
-    PATH: `${inherited.PATH}:${BIN_DIR}`,
+    PATH: [passedOn(['PATH']).PATH, BIN_DIR].filter(Boolean).join(':'),
     CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
-  };
-  delete env.TF_PLUGIN_CACHE_DIR;
-  return env;
+  });
 }
 
 function terraformQuietly(args: string[], cwd: string, extra: Record<string, string>): Promise<string> {
@@ -158,7 +154,7 @@ export class InfrastructureService {
   async buildImage(tag: string, dockerfile: string, context: string, options: ExecuteOptions = {}) {
     const dockerfilePath = path.join(context, 'Dockerfile');
     await fs.writeFile(dockerfilePath, dockerfile);
-    return this.runCommand('docker', ['build', '-t', tag, '.'], tag, { ...options, env: { ...options.env, CD_DIR: context } });
+    return this.runCommand('docker', ['build', '-t', tag, '.'], tag, { ...options, env: { ...options.env, ...passedOn(DOCKER_CLIENT), CD_DIR: context } });
   }
 
   async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}): Promise<{ stdout: string; logFile: string }> {
@@ -167,7 +163,7 @@ export class InfrastructureService {
     const cwd = options.env?.CD_DIR || this.terraform.cdktfDir;
     await fs.mkdir(this.terraform.logDir, { recursive: true });
 
-    console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
+    console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)}`);
 
     return new Promise<{ stdout: string; logFile: string }>((resolve, reject) => {
       let stdout = '', stderr = '';
