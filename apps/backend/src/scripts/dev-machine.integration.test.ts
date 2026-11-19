@@ -1,4 +1,7 @@
 import http from 'node:http';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Router, type Express, type NextFunction, type Request, type Response } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,8 +12,13 @@ import { IdentityService } from '../instances/services/IdentityService.js';
 import { InstanceService } from '../instances/services/InstanceService.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { harnessApp, TEST_USER } from '../platform/routes/test-harness.js';
-import { untilKoalaReady } from './dev-machine.js';
+import { joinThisComputer, untilKoalaReady } from './dev-machine.js';
 import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
+import { MachineAccounts } from '../machines/services/MachineAccounts.js';
+import { myMachinesRouter } from '../machines/routes/my-machines.js';
+import { quietAccountSides } from '../machines/testing/wiring-world.js';
+import { hashMachineCode } from '../machines/lib/machines.js';
+import { DEV } from '../instances/index.js';
 
 interface Root {
   rootApi: string;
@@ -103,5 +111,47 @@ describe('dev waiting for root to say this computer\'s Koala is up', () => {
     await expect(untilKoalaReady('session=dev', { rootApi: root.rootApi, say: (line) => said.push(line), pause: async () => undefined }))
       .rejects.toThrow('putting Koala on this computer failed: k3s did not start: port 6443 is taken');
     expect(said).toEqual(['your Koala is failed: k3s did not start: port 6443 is taken']);
+  });
+});
+
+describe('dev joining this computer to root as a machine', () => {
+  let place = '';
+  let path0: string | undefined;
+  afterEach(async () => {
+    process.env.PATH = path0;
+    await rm(place, { recursive: true, force: true });
+  });
+
+  async function rootGivingCommands(machineCommand: (out: string) => string) {
+    place = await mkdtemp(path.join(tmpdir(), 'koala-dev-join-'));
+    const bin = path.join(place, 'bin');
+    await mkdir(bin);
+    const out = path.join(place, 'ran');
+    await writeFile(path.join(bin, 'curl'), `#!/bin/sh\ncat <<'SCRIPT'\n${machineCommand(out)}\nSCRIPT\n`);
+    await chmod(path.join(bin, 'curl'), 0o755);
+    path0 = process.env.PATH;
+    process.env.PATH = `${bin}:${path0 ?? ''}`;
+    const db = await testDatabase();
+    const accounts = new MachineAccounts({ ...quietAccountSides(), store: db.machines, signing: identityKeysFrom(generateIdentityKey()) });
+    const app = await harnessApp({ prefix: '/api', router: () => Router().use('/my-machines', myMachinesRouter({ accounts, koalaOf: async () => undefined })) }, db, () => TEST_USER);
+    const server = await listen(app, 0);
+    return { db, out, config: path.join(place, 'config'), folder: path.join(place, 'koala'), rootApi: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  }
+
+  it('writes this checkout\'s own Koala values, asks root for a machine command for your Koala, and runs it working in the folder dev names', async () => {
+    const root = await rootGivingCommands((out) => `printf '%s\\n' "$@" > '${out}'`);
+    const said: string[] = [];
+    await joinThisComputer('session=dev', 'http://dev.localhost:5173', { rootApi: root.rootApi, config: root.config, folder: root.folder, say: (line) => said.push(line) });
+    const [code, ...rest] = (await readFile(root.out, 'utf8')).trim().split('\n');
+    expect(rest).toEqual(['--folder', root.folder]);
+    expect(await root.db.machines.getMachineJoin(hashMachineCode(code!))).toMatchObject({ ownerId: TEST_USER.id, koalaName: DEV.instanceName });
+    expect(await readFile(path.join(root.config, 'koala-values.yaml'), 'utf8')).toContain('publicUrl: "http://dev.localhost:5173"');
+    expect(said).toEqual(['this computer joins your account as a machine, as anyone\'s does; it asks for sudo for Tailscale and k3s']);
+  });
+
+  it('stops saying how the machine command ended when it fails', async () => {
+    const root = await rootGivingCommands(() => 'exit 3');
+    await expect(joinThisComputer('session=dev', 'http://dev.localhost:5173', { rootApi: root.rootApi, config: root.config, folder: root.folder, say: () => undefined }))
+      .rejects.toThrow('the machine command stopped (3)');
   });
 });
