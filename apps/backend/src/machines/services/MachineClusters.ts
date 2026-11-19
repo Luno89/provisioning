@@ -4,6 +4,8 @@ import { tellDeploymentChanged } from '../../infrastructure/index.js';
 import type { SocketLike } from '../../engine-host/temporal/stream-worker.js';
 import { appsOn, clusterCapacityOf, machineClusterId, newMachineCluster, type ReportedClusterState } from '../lib/machine-clusters.js';
 
+export type GpuReportOf = Pick<ClusterMetadata, 'gpus' | 'gpuProblems' | 'gpusWithoutDriver'>;
+
 export interface MachineClustersDeps {
   store: Pick<Database['infrastructure'], 'getClusters' | 'saveCluster' | 'patchCluster' | 'deleteCluster' | 'getDeployments' | 'deleteDeploymentsOfCluster'>;
   accounts: Pick<Database['accounts'], 'forgetDefaultModels'>;
@@ -30,7 +32,7 @@ export class MachineClusters {
       return undefined;
     }
     const reported: Partial<ClusterMetadata> = {
-      ...(gpus ? { gpus: gpus.gpus, gpuProblems: gpus.problems } : {}),
+      ...(gpus ? { gpus: gpus.gpus, gpuProblems: gpus.problems, gpusWithoutDriver: gpus.withoutDriver } : {}),
       ...(capacity ? { capacity: clusterCapacityOf(capacity, gpus?.gpus ?? cluster?.gpus) } : {}),
     };
     if (cluster) {
@@ -66,10 +68,11 @@ export class MachineClusters {
     return appsOn(await this.deps.store.getDeployments(), clusterId, leaving).length === 0;
   }
 
-  async gpuReports(): Promise<Map<string, Pick<ClusterMetadata, 'gpus' | 'gpuProblems'>>> {
-    return new Map((await this.deps.store.getClusters()).filter((cluster) => cluster.gpus || cluster.gpuProblems).map((cluster) => [cluster.id, {
+  async gpuReports(): Promise<Map<string, GpuReportOf>> {
+    return new Map((await this.deps.store.getClusters()).filter((cluster) => cluster.gpus || cluster.gpuProblems || cluster.gpusWithoutDriver).map((cluster) => [cluster.id, {
       ...(cluster.gpus ? { gpus: cluster.gpus } : {}),
       ...(cluster.gpuProblems ? { gpuProblems: cluster.gpuProblems } : {}),
+      ...(cluster.gpusWithoutDriver ? { gpusWithoutDriver: cluster.gpusWithoutDriver } : {}),
     }]));
   }
 

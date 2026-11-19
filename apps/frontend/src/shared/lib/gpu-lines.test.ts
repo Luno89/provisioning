@@ -9,6 +9,13 @@ describe('what a machine\'s card says about its GPUs', () => {
     expect(gpuLines({ gpus: [{ ...RTX, runtime: false }], gpuProblems: [] })).toEqual(['GPUs: 2 × NVIDIA GeForce RTX 3090, 24 GiB each, not usable yet: NVIDIA\'s CDI support is not installed'])
   })
 
+  it('names each card the machine has without its driver, and says so', () => {
+    expect(gpuLines({ gpus: [], gpuProblems: [], gpusWithoutDriver: [{ vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 }, { vendor: 'amd', device: 'Navi 31 [Radeon RX 7900 XT/7900 XTX]', count: 2 }] })).toEqual([
+      'GPUs: 1 × NVIDIA GA102 [GeForce RTX 3090], its driver is not installed',
+      'GPUs: 2 × AMD Navi 31 [Radeon RX 7900 XT/7900 XTX], their driver is not installed',
+    ])
+  })
+
   it('says what kept the machine from reading them, and nothing for a machine that has not said', () => {
     expect(gpuLines({ gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] })).toEqual(['GPUs could not be read: nvidia-smi is installed but does not answer'])
     expect(gpuLines({ gpus: [], gpuProblems: [] })).toEqual([])

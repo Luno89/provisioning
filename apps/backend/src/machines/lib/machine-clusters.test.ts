@@ -6,8 +6,8 @@ const RTX = { vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 245
 
 describe('what a machine reports about its cluster', () => {
   it('is its state, its GPUs and the problems it had reading them, and an agent from before GPUs reports none to keep or replace', () => {
-    expect(reportedCluster({ state: 'running', gpus: [RTX], problems: [] })).toEqual({ state: 'running', gpus: { gpus: [RTX], problems: [] } });
-    expect(reportedCluster({ state: 'stopped', gpus: [], problems: ['nvidia-smi is installed but does not answer'] })).toEqual({ state: 'stopped', gpus: { gpus: [], problems: ['nvidia-smi is installed but does not answer'] } });
+    expect(reportedCluster({ state: 'running', gpus: [RTX], problems: [] })).toEqual({ state: 'running', gpus: { gpus: [RTX], problems: [], withoutDriver: [] } });
+    expect(reportedCluster({ state: 'stopped', gpus: [], problems: ['nvidia-smi is installed but does not answer'] })).toEqual({ state: 'stopped', gpus: { gpus: [], problems: ['nvidia-smi is installed but does not answer'], withoutDriver: [] } });
     expect(reportedCluster({ state: 'stopped' })).toEqual({ state: 'stopped' });
     expect(reportedCluster({ state: 'exploded', gpus: [RTX] })).toBeUndefined();
     expect(reportedCluster(undefined)).toBeUndefined();
@@ -30,7 +30,7 @@ describe('what a machine reports about its cluster', () => {
   });
 
   it('carries how many cores and how much memory the machine has, kept only when both are whole numbers above nothing', () => {
-    expect(reportedCluster({ state: 'running', gpus: [RTX], problems: [], capacity: { cpuCores: 16, memoryMiB: 64215 } })).toEqual({ state: 'running', gpus: { gpus: [RTX], problems: [] }, capacity: { cpuCores: 16, memoryMiB: 64215 } });
+    expect(reportedCluster({ state: 'running', gpus: [RTX], problems: [], capacity: { cpuCores: 16, memoryMiB: 64215 } })).toEqual({ state: 'running', gpus: { gpus: [RTX], problems: [], withoutDriver: [] }, capacity: { cpuCores: 16, memoryMiB: 64215 } });
     expect(reportedCluster({ state: 'stopped', capacity: { cpuCores: 8, memoryMiB: 32000 } })).toEqual({ state: 'stopped', capacity: { cpuCores: 8, memoryMiB: 32000 } });
     for (const capacity of [{ cpuCores: 0, memoryMiB: 1 }, { cpuCores: 2.5, memoryMiB: 1 }, { cpuCores: 2, memoryMiB: -1 }, { cpuCores: 2 }, 'lots'] as unknown[]) {
       expect(reportedCluster({ state: 'stopped', capacity })).toEqual({ state: 'stopped' });
@@ -46,5 +46,19 @@ describe('what a machine reports about its cluster', () => {
 
   it('keeps a few problems, each a line of words, and nothing else', () => {
     expect(reportedCluster({ state: 'running', gpus: [], problems: ['a', 7, '', 'b'.repeat(600), ...Array.from({ length: 10 }, () => 'c')] })?.gpus?.problems).toEqual(['a', 'b'.repeat(500), 'c', 'c', 'c', 'c', 'c', 'c']);
+  });
+
+  it('carries the cards the machine has without their driver, each of a vendor Koala knows, named and counted, and nothing else', () => {
+    const bare = { vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 };
+    const reported = reportedCluster({ state: 'stopped', gpus: [], problems: [], withoutDriver: [
+      bare,
+      { ...bare, vendor: 'intel' },
+      { ...bare, device: ' ' },
+      { ...bare, count: 0 },
+      { ...bare, count: MOST_GPUS_OF_A_KIND + 1 },
+      'nonsense',
+      { vendor: 'amd', device: `  ${'y'.repeat(200)}`, count: 2, extra: 'dropped' },
+    ] });
+    expect(reported).toEqual({ state: 'stopped', gpus: { gpus: [], problems: [], withoutDriver: [bare, { vendor: 'amd', device: 'y'.repeat(120), count: 2 }] } });
   });
 });

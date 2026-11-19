@@ -1,4 +1,4 @@
-import { GPU_VENDORS, gpuCountOf, type GpuReport, type GpuVendor, type MachineCapacity, type MachineGpu } from '@koala/engine-core';
+import { GPU_VENDORS, gpuCountOf, type GpuReport, type GpuVendor, type GpuWithoutDriver, type MachineCapacity, type MachineGpu } from '@koala/engine-core';
 import type { ClusterMetadata, DeploymentMetadata, LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 
@@ -29,6 +29,18 @@ const keptGpu = (raw: unknown): MachineGpu | undefined => {
 export const reportedGpus = (raw: unknown): MachineGpu[] | undefined =>
   Array.isArray(raw) ? raw.map(keptGpu).filter((gpu): gpu is MachineGpu => Boolean(gpu)) : undefined;
 
+const keptWithoutDriver = (raw: unknown): GpuWithoutDriver | undefined => {
+  const gpu = raw as Partial<Record<keyof GpuWithoutDriver, unknown>> | undefined;
+  if (!gpu || typeof gpu !== 'object' || !GPU_VENDORS.includes(gpu.vendor as GpuVendor)) return undefined;
+  const device = typeof gpu.device === 'string' ? gpu.device.trim().slice(0, 120) : '';
+  const { count } = gpu;
+  if (!device || typeof count !== 'number' || !Number.isInteger(count) || count <= 0 || count > MOST_GPUS_OF_A_KIND) return undefined;
+  return { vendor: gpu.vendor as GpuVendor, device, count };
+};
+
+const reportedWithoutDriver = (raw: unknown): GpuWithoutDriver[] =>
+  (Array.isArray(raw) ? raw : []).map(keptWithoutDriver).filter((gpu): gpu is GpuWithoutDriver => Boolean(gpu));
+
 const reportedProblems = (raw: unknown): string[] =>
   (Array.isArray(raw) ? raw : []).filter((line): line is string => typeof line === 'string' && line.trim() !== '').map((line) => line.trim().slice(0, LONGEST_PROBLEM)).slice(0, MOST_PROBLEMS);
 
@@ -54,7 +66,7 @@ export const reportedCluster = (raw: unknown): ReportedCluster | undefined => {
   const capacity = reportedCapacity((raw as { capacity?: unknown }).capacity);
   return {
     state,
-    ...(gpus ? { gpus: { gpus, problems: reportedProblems((raw as { problems?: unknown }).problems) } } : {}),
+    ...(gpus ? { gpus: { gpus, problems: reportedProblems((raw as { problems?: unknown }).problems), withoutDriver: reportedWithoutDriver((raw as { withoutDriver?: unknown }).withoutDriver) } } : {}),
     ...(capacity ? { capacity } : {}),
   };
 };

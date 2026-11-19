@@ -28,6 +28,7 @@ const DESK = { id: 'desk', ownerId: 'bo', name: 'desk', meshIp: '100.64.0.7' };
 const fresh = await emptiedEachTime();
 
 class DeskHost implements ClusterHost {
+  readonly platform = 'linux';
   active = false;
   startedAt = 0;
   wantedNow = false;

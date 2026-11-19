@@ -16,6 +16,10 @@ describe('the GPUs a model server can be given on a machine', () => {
   it('says why there is no GPU to give when the machine has not said, shows none, or cannot pass them to a pod', () => {
     expect(gpuChoicesOf({ name: 'rig', provider: 'machine' })).toEqual({ vendors: [], problem: 'rig has not said which GPUs it has: its agent is from before GPUs were reported, or it has not connected since. Once it connects with a current agent, it says. It cannot run there until then.' })
     expect(gpuChoicesOf({ name: 'rig', provider: 'machine', gpus: [], gpuProblems: ['nvidia-smi is installed but does not answer'] }).problem).toBe('rig shows no GPU: nvidia-smi is installed but does not answer. It cannot run there until then.')
+    expect(gpuChoicesOf({ name: 'rig', provider: 'machine', gpus: [], gpuProblems: [] }).problem).toBe('rig shows no GPU: no NVIDIA or AMD GPU answers there, so apps there cannot be given one. It cannot run there until then.')
+    const bare = [{ vendor: 'nvidia', device: 'GA102 [GeForce RTX 3090]', count: 1 }]
+    expect(gpuChoicesOf({ name: 'rig', provider: 'machine', gpus: [], gpuProblems: [], gpusWithoutDriver: bare }).problem).toBe('rig has 1 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed. It cannot run there until then.')
+    expect(gpuChoicesOf({ name: 'rig', provider: 'machine', gpus: [{ vendor: 'amd', model: 'RX 7900 XTX', count: 1, runtime: true }], gpusWithoutDriver: bare }, { runsOn: ['nvidia'] }).problem).toBe('rig has 1 × NVIDIA GA102 [GeForce RTX 3090] whose driver is not installed. It cannot run there until then.')
     expect(gpuChoicesOf({ ...rig, gpus: [{ ...rig.gpus[0]!, runtime: false }] }).problem).toBe('rig has 2 NVIDIA GPUs, and pods there cannot be given them yet: NVIDIA\'s CDI support is not installed. Run the command from My Machines again on it, which offers to install it (the NVIDIA Container Toolkit). It cannot run there until then.')
     expect(gpuChoicesOf({ name: 'koala', provider: 'pool', gpus: rig.gpus }).problem).toBe('Only a machine\'s own cluster runs apps on GPUs, and koala is not one. It cannot run there until then.')
   })

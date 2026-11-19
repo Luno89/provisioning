@@ -310,6 +310,7 @@ const stoppedPause = (pause: (ms: number) => Promise<void>, stop: AbortSignal) =
 
 function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost {
   return {
+    platform: host.platform,
     run: async (file, args) => {
       stop.throwIfAborted();
       return host.run(file, args);

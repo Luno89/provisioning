@@ -16,6 +16,7 @@ export interface WorldOptions {
   root?: (body: Record<string, unknown>) => { status: number; body: unknown };
   downloads?: Record<string, string>;
   following?: (followed: number, signal: AbortSignal | undefined) => Response;
+  pci?: string | false;
 }
 
 export const HOME = '/home/ada';
@@ -57,6 +58,7 @@ export function joinWorld(options: WorldOptions = {}): World {
   for (const file of files.keys()) modified.set(file, clock * 1000);
   const mesh = { server: options.tailscale?.server, ip: options.tailscale?.ip };
   if (options.tailscale?.installed === true) executables.add('/usr/bin/tailscale');
+  if (options.pci !== false) executables.add('/usr/bin/lspci');
   const service = { enabled: false, activeSince: undefined as number | undefined };
   let scratches = 0;
 
@@ -98,6 +100,7 @@ export function joinWorld(options: WorldOptions = {}): World {
         }
         return {};
       case 'loginctl': return {};
+      case 'lspci': return options.pci === false || args.join(' ') !== '-vmmnnk' ? undefined : { stdout: options.pci ?? '' };
       case 'tailscale':
         if (at(0) === 'debug') return { stdout: JSON.stringify({ ControlURL: mesh.server ?? 'https://controlplane.tailscale.com', LoggedOut: mesh.server === undefined, WantRunning: mesh.server !== undefined, Config: { PrivateNodeKey: 'privkey:never-shown' } }) };
         if (at(0) === 'ip') return mesh.ip ? { stdout: `${mesh.ip}\n` } : { code: 1, stderr: 'no current Tailscale IPs; state: NeedsLogin' };

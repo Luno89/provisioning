@@ -57,7 +57,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       await db.machines.saveLocalAgentDevice(device({ id: 'rig', name: 'rig' }));
       await db.machines.saveLocalAgentDevice(device({ id: 'old', name: 'old' }));
       const clusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: 'machine-service-key', io: { to: () => ({ emit: () => true }) } });
-      await clusters.reported({ id: 'rig', ownerId: 'bo', name: 'rig' }, 'stopped', { gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: ['the AMD kernel driver does not answer'] });
+      await clusters.reported({ id: 'rig', ownerId: 'bo', name: 'rig' }, 'stopped', { gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], problems: ['the AMD kernel driver does not answer'], withoutDriver: [] });
       const listed = await service({ clusters }).list('bo');
       expect(listed.find((entry) => entry.id === 'rig')).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] });
       expect(listed.find((entry) => entry.id === 'old')).not.toHaveProperty('gpus');

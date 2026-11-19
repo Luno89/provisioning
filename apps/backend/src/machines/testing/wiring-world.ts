@@ -27,7 +27,7 @@ export function quietAccountSides(): Pick<MachineAccountsDeps, 'settings' | 'mes
   };
 }
 
-export function onlineMachines(store: MachineDeps['store'], over: Pick<MachineDeps, 'bundle'> = {}): MachineService {
+export function onlineMachines(store: MachineDeps['store'], over: Pick<MachineDeps, 'bundle' | 'clusters'> = {}): MachineService {
   return new MachineService({
     store,
     devices: { status: () => ({ online: true }) } as never,

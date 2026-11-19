@@ -1,4 +1,6 @@
 
+import type { GpuWithoutDriver } from '@koala/engine-core/machine-gpus'
+
 export type ClusterStatus =
   | 'provisioning'
   | 'healthy'
@@ -18,6 +20,7 @@ export interface Cluster {
   meshIp?: string
   gpus?: MachineGpu[]
   gpuProblems?: string[]
+  gpusWithoutDriver?: GpuWithoutDriver[]
 }
 
 export interface MachineGpu {

@@ -67,6 +67,7 @@ export interface LocalAgentDevice {
   agentUpdate?: AgentUpdateView
   gpus?: NonNullable<ReportedGpus['gpus']>
   gpuProblems?: string[]
+  gpusWithoutDriver?: NonNullable<ReportedGpus['gpusWithoutDriver']>
 }
 
 export interface MachineJoinCode {

@@ -52,6 +52,7 @@ export const onMachine = (machineRoot: string) => (file: string): string => (mac
 export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), machineRoot = '/' }: { wantedAt?: string; koalaHere?: string; machineRoot?: string } = {}): ClusterHost => {
   const at = onMachine(machineRoot);
   return {
+  platform: process.platform,
   run: async (file, args) => (await execute(at(file), args.map(at), { env: childEnv(passedOn(PERSON_SESSION)), maxBuffer: 16 * 1024 * 1024 })).stdout,
   exists: (file) => access(at(file)).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
   read: (file) => readFile(at(file), 'utf8'),

@@ -31,6 +31,10 @@
       "types": "./src/failures.ts",
       "default": "./src/failures.ts"
     },
+    "./machine-gpus": {
+      "types": "./src/machine-gpus.ts",
+      "default": "./src/machine-gpus.ts"
+    },
     "./machine-join": {
       "types": "./src/machine-join.ts",
       "default": "./src/machine-join.ts"
