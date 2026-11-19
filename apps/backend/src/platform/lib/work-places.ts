@@ -27,7 +27,7 @@ export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
     'PoolTrialNextActivity', 'PoolTrialStepActivity', 'PoolRemoveActivity', 'PoolMoveStartActivity', 'PoolMoveSwitchActivity', 'PoolMoveStopActivity',
     'DependencyWatchActivity',
     'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
-    'KoalaInstallAskActivity', 'KoalaInstallStageActivity',
+    'KoalaInstallAskActivity', 'KoalaInstallStageActivity', 'KoalaInstallStoppedActivity',
   ],
   instance: [
     'ServerOrderFollowActivity', 'ServerOrderRebuildActivity', 'ServerOrderSshActivity', 'ServerOrderDnsActivity', 'ServerOrderReleaseActivity',

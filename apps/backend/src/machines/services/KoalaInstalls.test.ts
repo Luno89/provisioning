@@ -155,6 +155,13 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
   });
 
+  it('stops an install by cancelling its workflow, and answers 503 while that workflow cannot be reached', async () => {
+    expect(await installs.stop('install-1')).toEqual({ ok: true, value: { recorded: true } });
+    expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
+    workflows.cancel.mockRejectedValue(new Error('Temporal is down'));
+    expect(await installs.stop('install-1')).toEqual({ ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' });
+  });
+
   it('judges the machine\'s token by the time it is now when given no clock, refusing one that lapsed', async () => {
     const DAY = 24 * 60 * 60 * 1000;
     const lapsed = { ...desk, ...tokenLifetime(new Date(Date.now() - 200 * DAY)) };

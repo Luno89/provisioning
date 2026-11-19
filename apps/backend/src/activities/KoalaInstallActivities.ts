@@ -1,7 +1,7 @@
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import type { KoalaInstallState, ProvisionReport } from '@koala/engine-core/koala-install';
 import { createDatabase, type Database } from '../platform/index.js';
-import { askedAgain, installFields, installSetupHeard, installUnfinished, stageHeard, type InstallPatch, type InstanceRecord } from '../instances/index.js';
+import { askedAgain, installFields, installSetupHeard, installStopped, installUnfinished, stageHeard, type InstallPatch, type InstanceRecord } from '../instances/index.js';
 import { hostSettings } from './host-settings.js';
 
 export interface MoveEnded {
@@ -64,9 +64,11 @@ export function koalaInstallActivities(deps: KoalaInstallDeps) {
       withInstall(deps, installId, (instance, at) => ('setup' in heard
         ? installSetupHeard({ install: instance.install, setup: setupOf(instance), machine: machineOf(instance) }, heard.setup, at)
         : stageHeard(instance.install, heard.progress, machineOf(instance), at))),
+    KoalaInstallStoppedActivity: ({ installId }: { installId: string }): Promise<InstallAnswer> =>
+      withInstall(deps, installId, (instance, at) => installStopped(instance.install, machineOf(instance), at)),
   };
 }
 
 const onHost = koalaInstallActivities({ db: hostDb, now: () => new Date() });
 
-export const { KoalaInstallAskActivity, KoalaInstallStageActivity } = onHost;
+export const { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } = onHost;

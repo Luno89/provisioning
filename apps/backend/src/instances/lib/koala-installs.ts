@@ -76,6 +76,13 @@ export function stageHeard(install: KoalaInstallRecord, progress: MachineProgres
   };
 }
 
+export const INSTALL_STOPPED_SAID = 'it was stopped before it finished';
+
+export function installStopped(install: KoalaInstallRecord, machine: string, at: string): InstallPatch {
+  const stopped = install.move ? `Moving Koala to ${machine} stopped` : `Putting Koala on ${machine} stopped`;
+  return { install: { ...install, state: 'failed', line: undefined, why: INSTALL_STOPPED_SAID, at }, status: 'failed', detail: `${stopped}: ${INSTALL_STOPPED_SAID}` };
+}
+
 export function installSetupHeard(instance: { install: KoalaInstallRecord; setup?: InstanceSetup | undefined; machine?: string | undefined }, report: ProvisionReport, at: string): InstallPatch | undefined {
   const setup = setupHeard(instance.setup, report, at);
   if (!setup) return undefined;

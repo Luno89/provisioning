@@ -404,6 +404,7 @@ describe('moving a trial instance to the person\'s own machine', () => {
   const installs = {
     setupHeard: async (installId: string, report: unknown) => { calls.push(`setup ${installId} ${JSON.stringify(report)}`); return { ok: true as const, value: { recorded: true as const } }; },
     progressHeard: async (installId: string, progress: unknown) => { calls.push(`progress ${installId} ${JSON.stringify(progress)}`); return { ok: true as const, value: { recorded: true as const } }; },
+    stop: async (installId: string) => { calls.push(`stop ${installId}`); return { ok: true as const, value: { recorded: true as const } }; },
   };
   const record = async () => (await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')!;
   const placedOnDesk = async () => {
@@ -536,6 +537,17 @@ describe('moving a trial instance to the person\'s own machine', () => {
     expect(await service.startMove('nobody')).toMatchObject({ ok: false, status: 404 });
     expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
     expect(calls.at(-1)).toBe('stopped inst-bo: you stopped the move');
+  });
+
+  it('stops a move a machine has taken up by stopping its install, which tells the move, and a move still waiting for its machine by telling the move', async () => {
+    await placedOnDesk();
+    calls.length = 0;
+    expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
+    expect(calls).toEqual(['stop install-1']);
+    await db.instances.updateInstall('inst-bo', 'install-1', { 'install.state': 'failed' });
+    calls.length = 0;
+    expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
+    expect(calls).toEqual(['stopped inst-bo: you stopped the move']);
   });
 });
 

@@ -104,6 +104,16 @@ describe('the install workflow\'s activities on a move from Koala\'s servers', (
       .toEqual({ instanceId: 'inst-bo', ended: 'failed', why: 'Moving Koala to desk stopped at Bringing Koala\'s keys: the pool copy did not answer' });
     expect((await failing.record()).move).toMatchObject({ state: 'failed' });
   });
+
+  it('records a move that was stopped as stopped, on the move, telling the move why, and leaves the pool copy serving', async () => {
+    const { activities, record } = await moving();
+    expect(await activities.KoalaInstallStoppedActivity({ installId: 'install-1' })).toEqual({ instanceId: 'inst-bo', ended: 'failed', why: 'Moving Koala to desk stopped: it was stopped before it finished' });
+    expect(await record()).toMatchObject({
+      status: 'ready', url: 'https://bo.koala.dev', credentialHash: 'pool',
+      install: { state: 'failed', why: 'it was stopped before it finished' }, move: { state: 'failed', detail: 'Moving Koala to desk stopped: it was stopped before it finished' },
+    });
+    expect(await activities.KoalaInstallStoppedActivity({ installId: 'install-1' })).toBe('failed');
+  });
 });
 
 describe('the install workflow\'s activities as the host worker runs them', () => {

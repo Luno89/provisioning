@@ -37,6 +37,7 @@ async function run(answers: (heard: InstallHeard) => InstallAnswer, drive: (hand
         seen.push(`${'setup' in heard ? `setup ${heard.setup.revision} ` : ''}${progress.stage} ${progress.state}${progress.line ? ` ${progress.line}` : ''}`);
         return answers(heard);
       },
+      KoalaInstallStoppedActivity: async () => { seen.push('stopped'); return 'failed'; },
     },
   });
   const result = await worker.runUntil(async () => {
@@ -112,7 +113,7 @@ describe('root driving Koala onto a machine', () => {
 
   it('ends a move the way the install ended, telling the move of the instance it names', async () => {
     const moves: string[] = [];
-    const moved = async (ending: InstallAnswer, signal: { name: string; args: unknown[] }) => {
+    const moved = async (ending: InstallAnswer, signal: { name: string; args: unknown[] } | 'cancel') => {
       const taskQueue = `koala-move-test-${Math.random().toString(36).slice(2, 8)}`;
       const instanceId = `inst-${Math.random().toString(36).slice(2, 8)}`;
       const installId = `install-${Math.random().toString(36).slice(2, 8)}`;
@@ -124,6 +125,7 @@ describe('root driving Koala onto a machine', () => {
         activities: {
           KoalaInstallAskActivity: async () => 'asked',
           KoalaInstallStageActivity: async () => (typeof ending === 'object' ? { ...ending, instanceId } : ending),
+          KoalaInstallStoppedActivity: async () => ({ instanceId, ended: 'failed', why: 'Moving Koala to desk stopped: it was stopped before it finished' }),
           PoolMoveStartActivity: async () => { moves.push('start'); },
           PoolMoveSwitchActivity: async () => { moves.push('switch'); return { name: 'bo' }; },
           PoolMoveStopActivity: async ({ reason }: { reason: string }) => { moves.push(`stop: ${reason}`); },
@@ -133,8 +135,9 @@ describe('root driving Koala onto a machine', () => {
         const move = await env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', { workflowId: poolMoveWorkflowId(instanceId), taskQueue, args: [{ instanceId }], searchAttributes: { KoalaOwner: ['bo'] } });
         while (!moves.includes('start')) await new Promise((done) => setTimeout(done, 20));
         const install = await env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] } });
-        await install.signal(signal.name, ...signal.args);
-        return { install: await install.result(), move: await move.result() };
+        if (signal === 'cancel') await install.cancel();
+        else await install.signal(signal.name, ...signal.args);
+        return { install: await install.result().then((ended) => ended, (err: unknown) => (err instanceof WorkflowFailedError ? err.cause?.name : err)), move: await move.result() };
       });
     };
     expect(await moved({ instanceId: '', ended: 'ready' }, { name: KOALA_INSTALL_SIGNALS.setup, args: [{ revision: 1, progress: stage('set-up', 'done') }] })).toEqual({ install: 'ready', move: 'moved' });
@@ -142,6 +145,9 @@ describe('root driving Koala onto a machine', () => {
     moves.length = 0;
     expect(await moved({ instanceId: '', ended: 'failed', why: 'Moving Koala to desk stopped at Bringing Koala\'s keys: no answer' }, { name: KOALA_INSTALL_SIGNALS.progress, args: [stage('keys', 'failed', { why: 'no answer' })] })).toEqual({ install: 'failed', move: 'stopped' });
     expect(moves).toEqual(['start', 'stop: Moving Koala to desk stopped at Bringing Koala\'s keys: no answer']);
+    moves.length = 0;
+    expect(await moved('installing', 'cancel')).toEqual({ install: 'CancelledFailure', move: 'stopped' });
+    expect(moves).toEqual(['start', 'stop: Moving Koala to desk stopped: it was stopped before it finished']);
   });
 
   it('ends a move whose move has already ended without failing itself', async () => {
@@ -157,7 +163,7 @@ describe('root driving Koala onto a machine', () => {
       await env.sleep('30 days');
       await handle.cancel();
     });
-    expect(seen).toEqual(['ask']);
+    expect(seen).toEqual(['ask', 'stopped']);
     expect(result).toBeInstanceOf(WorkflowFailedError);
   });
 });

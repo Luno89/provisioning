@@ -417,6 +417,7 @@ describe('moving a trial instance to the person\'s own machine', () => {
   const installs = {
     setupHeard: async (installId: string, report: unknown) => { calls.push(`setup ${installId} ${JSON.stringify(report)}`); return { ok: true as const, value: { recorded: true as const } }; },
     progressHeard: async (installId: string, progress: unknown) => { calls.push(`progress ${installId} ${JSON.stringify(progress)}`); return { ok: true as const, value: { recorded: true as const } }; },
+    stop: async (installId: string) => { calls.push(`stop ${installId}`); return { ok: true as const, value: { recorded: true as const } }; },
   };
   const record = async () => (await db.instances.getInstances()).find((entry) => entry.id === 'inst-bo')!;
   const placedOnDesk = async () => {
@@ -549,6 +550,17 @@ describe('moving a trial instance to the person\'s own machine', () => {
     expect(await service.startMove('nobody')).toMatchObject({ ok: false, status: 404 });
     expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
     expect(calls.at(-1)).toBe('stopped inst-bo: you stopped the move');
+  });
+
+  it('stops a move a machine has taken up by stopping its install, which tells the move, and a move still waiting for its machine by telling the move', async () => {
+    await placedOnDesk();
+    calls.length = 0;
+    expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
+    expect(calls).toEqual(['stop install-1']);
+    await db.instances.updateInstall('inst-bo', 'install-1', { 'install.state': 'failed' });
+    calls.length = 0;
+    expect(await service.stopMove('bo')).toEqual({ ok: true, value: { stopping: true } });
+    expect(calls).toEqual(['stopped inst-bo: you stopped the move']);
   });
 });
 
@@ -753,7 +765,7 @@ describe('an instance telling root how its setup after the chart goes', () => {
       if (down) return { ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' };
       handed.push([installId, report]);
       return { ok: true, value: { recorded: true } };
-    }, progressHeard: async () => ({ ok: true, value: { recorded: true } }) } }, mesh, () => now);
+    }, progressHeard: async () => ({ ok: true, value: { recorded: true } }), stop: async () => ({ ok: true, value: { recorded: true } }) } }, mesh, () => now);
     const placed = await service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-1');
     if (!placed.ok) throw new Error(placed.error);
     const koala = await service.placedKoala('install-1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' });
@@ -818,6 +830,7 @@ describe('a pool instance setting itself up', () => {
     service = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 }, installs: {
       setupHeard: async (installId, report) => { setups.push([installId, report]); return { ok: true, value: { recorded: true } }; },
       progressHeard: async () => ({ ok: true, value: { recorded: true } }),
+      stop: async () => ({ ok: true, value: { recorded: true } }),
     } }, mesh, () => now, () => undefined, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} });
     await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now', detail: 'Copying its data', credentialHash: hashCredential('move-secret'), target: { machine: 'bo-desktop' } }, install: { id: 'install-1', machineId: 'desk', state: 'installing', at: 'now', move: true } });
     expect(await service.report('inst-bo', 'move-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready' } });

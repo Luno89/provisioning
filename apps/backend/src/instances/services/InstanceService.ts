@@ -33,6 +33,7 @@ export interface PoolWorkflows {
 export interface SetupInstalls {
   setupHeard(installId: string, report: ProvisionReport): Promise<Outcome<{ recorded: true }>>;
   progressHeard(installId: string, progress: MachineProgress): Promise<Outcome<{ recorded: true }>>;
+  stop(installId: string): Promise<Outcome<{ recorded: true }>>;
 }
 
 export interface MoveMachines {
@@ -562,6 +563,11 @@ export class InstanceService {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance?.move || instance.move.state === 'failed') return { ok: false, status: 404, error: 'nothing is moving' };
     if (instance.move.state === 'switching') return { ok: false, status: 409, error: 'the instance is switching to its new machine already' };
+    if (instance.install?.move && installUnfinished(instance.install)) {
+      if (!this.settings.installs) return { ok: false, status: 503, error: 'this root follows no installs of Koala' };
+      const stopped = await this.settings.installs.stop(instance.install.id);
+      return stopped.ok ? { ok: true, value: { stopping: true } } : stopped;
+    }
     await this.poolWorkflows?.moveStopped?.(instance.id, 'you stopped the move');
     return { ok: true, value: { stopping: true } };
   }

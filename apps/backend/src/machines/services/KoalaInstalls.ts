@@ -185,6 +185,10 @@ export class KoalaInstalls {
     return this.handed(() => this.deps.workflows.progress(installId, progress));
   }
 
+  async stop(installId: string): Promise<Outcome<{ recorded: true }>> {
+    return this.handed(() => this.deps.workflows.cancel(installId));
+  }
+
   private async handed(hand: () => Promise<void>): Promise<Outcome<{ recorded: true }>> {
     try {
       await hand();
