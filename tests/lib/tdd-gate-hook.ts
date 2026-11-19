@@ -76,7 +76,7 @@ function onEdit(input: HookInput): HookAnswer | undefined {
   const head = git(root, 'rev-parse', 'HEAD') ?? '';
   const file = stateFile(root);
   const state = readState(file);
-  if (state?.head === head && state.red) return undefined;
+  if (state?.head === head && (state.red || state.refactor?.files.includes(path))) return undefined;
   const tests = changedTests(root);
   const verdict = editVerdict(state, head, tests, tests.length > 0 ? runTests(root, tests) : undefined);
   return answerOf(verdict, root, head, file);
@@ -101,13 +101,38 @@ function onCommit(input: HookInput): HookAnswer | undefined {
   return answerOf(verdict, root, head, undefined);
 }
 
+export type RefactorStart = { ok: true } | { ok: false; why: string };
+
+export function startRefactor(cwd: string, files: string[]): RefactorStart {
+  const root = git(cwd, 'rev-parse', '--show-toplevel');
+  if (!root) return { ok: false, why: `${cwd} is not in a git checkout` };
+  const paths = files.map((path) => relative(root, resolve(cwd, path)));
+  const notSource = paths.filter((path) => kindOf(path) !== 'source');
+  if (notSource.length > 0) return { ok: false, why: `${notSource.join(', ')} is not source the gate holds, so it needs no refactor step` };
+  const siblings = [...new Set(paths.flatMap((path) => siblingTests(path, (candidate) => existsSync(join(root, candidate)))))];
+  const untested = paths.filter((path) => siblingTests(path, (candidate) => existsSync(join(root, candidate))).length === 0);
+  if (untested.length > 0) return { ok: false, why: `${untested.join(', ')} has no test next to it, so a refactor could not show it kept its behaviour: write its test first` };
+  const run = runTests(root, siblings);
+  if (!run.passed) return { ok: false, why: `make the touched code's tests green first; a refactor starts and ends green:\n${run.output.split('\n').filter((line) => line.trim()).slice(-15).join('\n')}` };
+  const file = stateFile(root);
+  const head = git(root, 'rev-parse', 'HEAD') ?? '';
+  const state = readState(file);
+  const kept = state?.head === head ? state : { head };
+  if (file) writeFileSync(file, JSON.stringify({ ...kept, refactor: { files: [...new Set([...(kept.refactor?.files ?? []), ...paths])], at: new Date().toISOString() } } satisfies GateState));
+  return { ok: true };
+}
+
 export function hookAnswer(input: HookInput): HookAnswer | undefined {
   if (EDITS.has(input.tool_name)) return onEdit(input);
   if (input.tool_name === 'Bash') return onCommit(input);
   return undefined;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename) && process.argv[2] === 'refactor') {
+  const started = startRefactor(process.cwd(), process.argv.slice(3));
+  process.stdout.write(started.ok ? `refactor of ${process.argv.slice(3).join(', ')} started: its tests are green, keep them green and commit\n` : `${started.why}\n`);
+  process.exitCode = started.ok ? 0 : 1;
+} else if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
   const input = JSON.parse(readFileSync(0, 'utf8')) as HookInput;
   const answer = hookAnswer(input);
   if (answer) process.stdout.write(JSON.stringify(answer));

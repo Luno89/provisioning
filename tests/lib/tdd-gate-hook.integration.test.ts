@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { hookAnswer } from './tdd-gate-hook.js';
+import { hookAnswer, startRefactor } from './tdd-gate-hook.js';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const SCRATCH = join(REPO, 'node_modules', '.cache');
@@ -59,6 +59,22 @@ describe('the red-green gate on a real repository', () => {
     write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => b + a;\n');
     git('add', '-A');
     expect(commit(dir)).toBeUndefined();
+  });
+
+  it('lets a declared refactor edit source with no new test, once the touched code\'s tests are green, and refuses it while they are red', () => {
+    const { dir, git, write } = aRepo();
+    expect(startRefactor(dir, ['scripts/sum.ts'])).toEqual({ ok: true });
+    expect(edit(dir, 'scripts/sum.ts')).toBeUndefined();
+    write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => b + a;\n');
+    git('add', '-A');
+    expect(commit(dir)).toBeUndefined();
+
+    write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(4); });\n");
+    git('add', '-A');
+    git('commit', '-q', '--no-verify', '-m', 'a red test, for the case');
+    const refused = startRefactor(dir, ['scripts/sum.ts']);
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.why).toMatch(/green first/);
   });
 
   it('refuses a commit whose source changed through the shell with no test seen failing', () => {
