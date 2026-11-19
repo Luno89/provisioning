@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HANDED_PORTS, portToHandOn } from '../testing/ports.js';
+import { sharedTmp } from '../testing/shared.js';
 
 describe('a port to hand to another process', () => {
   it('is below the range the system picks outgoing ports from, never handed twice, and claimed for this process', async () => {
@@ -13,7 +13,7 @@ describe('a port to hand to another process', () => {
     for (const port of ports) {
       expect(port).toBeGreaterThanOrEqual(HANDED_PORTS.first);
       expect(port).toBeLessThanOrEqual(HANDED_PORTS.last);
-      expect(readFileSync(join(tmpdir(), 'koala-ports', String(port)), 'utf8')).toBe(String(process.pid));
+      expect(readFileSync(join(sharedTmp(), 'koala-ports', String(port)), 'utf8')).toBe(String(process.pid));
     }
   });
 
@@ -39,9 +39,9 @@ describe('a port to hand to another process', () => {
     const living = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
     try {
       const next = await portToHandOn();
-      mkdirSync(join(tmpdir(), 'koala-ports'), { recursive: true });
-      writeFileSync(join(tmpdir(), 'koala-ports', String(next + 1)), String(living.pid));
-      writeFileSync(join(tmpdir(), 'koala-ports', String(next + 2)), String(ended.pid));
+      mkdirSync(join(sharedTmp(), 'koala-ports'), { recursive: true });
+      writeFileSync(join(sharedTmp(), 'koala-ports', String(next + 1)), String(living.pid));
+      writeFileSync(join(sharedTmp(), 'koala-ports', String(next + 2)), String(ended.pid));
       expect(await portToHandOn()).toBe(next + 2);
     } finally {
       living.kill();
