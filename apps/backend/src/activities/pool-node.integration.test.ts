@@ -14,7 +14,7 @@ function rootsNode(): { access: ClusterAccess; pool: PoolNode } {
   const rootKubeconfig = join(folder, 'pool.yaml');
   writeFileSync(rootKubeconfig, k3s.admin, { mode: 0o600 });
   const access = new ClusterAccess({ here: { root: true }, folder, processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, rootKubeconfig });
-  return { access, pool: new PoolNode({ access, node: ROOT_CLUSTER_ID, sleep: async () => undefined }) };
+  return { access, pool: new PoolNode({ access, node: ROOT_CLUSTER_ID, charts: join(folder, 'charts'), sleep: async () => undefined }) };
 }
 
 describe('the pool\'s node reached as root\'s cluster, on a real k3s', () => {

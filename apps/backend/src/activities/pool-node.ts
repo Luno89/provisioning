@@ -19,6 +19,7 @@ export type PoolNodeAccess = Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>;
 export interface PoolNodeDeps {
   access: PoolNodeAccess;
   node: Target;
+  charts: string;
   sleep?: ((ms: number) => Promise<void>) | undefined;
 }
 
@@ -137,7 +138,7 @@ export class PoolNode {
     const namespace = poolNamespace(name);
     await this.apply([namespaceManifest(name, instance.ownerId, instance.registryPort), backendAccessManifest(name)]);
     await this.apply([probeIngressPolicy(name, { hostNamespace: namespace })]);
-    await installVcluster(this.deps.access, this.deps.node, { name, namespace, values: vclusterValues(name, slot) }, this.sleep);
+    await installVcluster(this.deps.access, this.deps.node, this.deps.charts, { name, namespace, values: vclusterValues(name, slot) }, this.sleep);
   }
 
   async install(name: string, job: string, values: unknown, image: PoolSettings['image']): Promise<void> {

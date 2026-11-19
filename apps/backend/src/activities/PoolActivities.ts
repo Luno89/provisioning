@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase, MailService, type Database } from '../platform/index.js';
 import { HeadscaleService, ROOT_CLUSTER_ID } from '../infrastructure/index.js';
@@ -40,7 +41,7 @@ function rootPublicKey(): string {
   return publicKeyPem(role.signing.publicKey);
 }
 
-const poolNode = (): PoolNode => new PoolNode({ access: hostAccess(), node: ROOT_CLUSTER_ID });
+const poolNode = (): PoolNode => new PoolNode({ access: hostAccess(), node: ROOT_CLUSTER_ID, charts: path.join(hostSettings().dataDir, 'charts') });
 
 function settings(): PoolSettings {
   const found = rootSettings().pool;

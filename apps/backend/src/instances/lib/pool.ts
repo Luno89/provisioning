@@ -3,6 +3,7 @@ export const REGISTRY_PORT_LABEL = 'koala.dev/registry-port';
 export const OWNER_LABEL = 'koala.dev/owner';
 export const RUNTIME_CLASS = 'gvisor';
 export const VCLUSTER_CHART_VERSION = '0.37.2';
+export const VCLUSTER_CHART_SHA256 = '0e3e1df3802a1199653930cfadcf52ba309ea7d5282a1a8541452bea8a9cf707';
 export const ADMISSION_POLICY = 'koala-pool-gvisor';
 export const PROXY = { namespace: 'kube-system', name: 'pool-proxy' } as const;
 export const PROXY_IMAGE = 'caddy:2.10.2-alpine';
