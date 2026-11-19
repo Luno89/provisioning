@@ -13,7 +13,7 @@ export interface QuietWatchOptions { after?: number; out?: number | 'inherit'; e
 export function watchQuiet(options: QuietWatchOptions = {}): QuietWatch {
   const group = randomUUID();
   const out = options.out ?? 'inherit';
-  const watcher = spawn(TSX, [STATUS, 'watch', group, String(options.after ?? QUIET_AFTER_MS), String(process.pid)], { stdio: ['ignore', out, out], env: { ...process.env, ...(options.env ?? {}) } });
+  const watcher = spawn(TSX, [STATUS, 'watch', group, String(options.after ?? QUIET_AFTER_MS)], { stdio: ['pipe', out, out], env: { ...process.env, ...(options.env ?? {}) } });
   return {
     env: { [GROUP]: group },
     stop: () => { if (watcher.exitCode === null && watcher.signalCode === null) watcher.kill(); },
