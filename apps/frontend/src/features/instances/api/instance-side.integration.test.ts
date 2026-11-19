@@ -32,6 +32,7 @@ import { InstanceWatchSetting } from '../../../../../backend/src/instances/servi
 import { InstanceTrial } from '../../../../../backend/src/instances/services/InstanceTrial'
 import { IdentityService } from '../../../../../backend/src/instances/services/IdentityService'
 import { ReleaseCatalogue } from '../../../../../backend/src/instances/services/ReleaseCatalogue'
+import { machineCommand, newMachineCode } from '../../../../../backend/src/machines/lib/machines'
 import type { RootSignIn } from '../../../../../backend/src/instances/services/RootSignIn'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
 import { principalOf } from '../../../../../backend/src/platform/lib/permissions'
@@ -66,6 +67,10 @@ root.use('/api/instances', instancesRouter({
     imageTag: NEWER,
     domain: DOMAIN,
     pool: { slots: 2, trialDays: 30 },
+    moves: {
+      joinCode: async () => ({ command: machineCommand(rootUrl, newMachineCode()), expiresAt: new Date(Date.now() + 3_600_000).toISOString() }),
+      poolClusterId: (name) => `pool-${name}`,
+    },
     releases: new ReleaseCatalogue(rootDb.instances, {
       dataVersion: async () => 0,
       repoRoot: charts,
@@ -164,7 +169,7 @@ describe('an instance\'s settings, as an instance asks root for them with its cr
   it('starts its move to the owner\'s machine, reads it under way and stops it', async () => {
     expect(await getInstanceMove()).toBeNull()
     const started = await startInstanceMove()
-    expect(started).toEqual({ command: containing(`curl -fsSL ${rootUrl}/install.sh | sudo sh -s -- `), expiresAt: anyOf(String) })
+    expect(started).toEqual({ command: containing(`curl -fsSL ${rootUrl}/machine.sh | sh -s -- `), expiresAt: anyOf(String) })
     expect(await getInstanceMove()).toEqual({ state: 'waiting', startedAt: anyOf(String), detail: 'Waiting for your machine to run the move command' })
     expect(await stopInstanceMove()).toEqual({ stopping: true })
     expect(moves).toEqual([`move ${INSTANCE_ID}`, `stop ${INSTANCE_ID}: you stopped the move`])

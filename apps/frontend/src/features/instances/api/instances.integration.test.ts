@@ -17,6 +17,7 @@ import { identityRouter } from '../../../../../backend/src/instances/routes/iden
 import { instancesRouter } from '../../../../../backend/src/instances/routes/instances'
 import { IdentityService } from '../../../../../backend/src/instances/services/IdentityService'
 import { InstanceService, type PoolOffer as BackendPoolOffer } from '../../../../../backend/src/instances/services/InstanceService'
+import { machineCommand, newMachineCode } from '../../../../../backend/src/machines/lib/machines'
 import { DependencyWatch, type WatchView as BackendDependencies } from '../../../../../backend/src/instances/services/DependencyWatch'
 import { MailReputation, type MailReputationView as BackendMailView } from '../../../../../backend/src/platform/services/MailReputation'
 import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-role'
@@ -36,6 +37,10 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
     imageTag: 'dev',
     domain: DOMAIN,
     pool: { slots: 1, trialDays: 30 },
+    moves: {
+      joinCode: async () => ({ command: machineCommand(origin, newMachineCode()), expiresAt: new Date(Date.now() + 3_600_000).toISOString() }),
+      poolClusterId: (name) => `pool-${name}`,
+    },
   }, outsideThisTier<HeadscaleService>('Headscale'), () => new Date(), () => undefined, {
     start: async (instanceId) => { poolWork.push(`start ${instanceId}`) },
     trialChanged: async (instanceId) => { poolWork.push(`trial ${instanceId}`) },
@@ -113,7 +118,7 @@ describe('a person\'s instance, where accounts are held', () => {
     const [instance] = await backend.db.instances.getInstances()
     await backend.db.instances.saveInstance({ ...instance!, status: 'ready', url: `https://kangaroo.${DOMAIN}` })
     const move = await startMyMove()
-    expect(move).toEqual(objectWith({ command: containing(`curl -fsSL ${backend.origin}/install.sh | sudo sh -s -- `), expiresAt: anyOf(String) }))
+    expect(move).toEqual(objectWith({ command: containing(`curl -fsSL ${backend.origin}/machine.sh | sh -s -- `), expiresAt: anyOf(String) }))
     expect(poolWork).toContain(`move ${instance!.id}`)
     expect((await getMySetup())?.move).toEqual({ state: 'waiting', startedAt: anyOf(String), detail: 'Waiting for your machine to run the move command' })
     expect(await stopMyMove()).toEqual({ stopping: true })
