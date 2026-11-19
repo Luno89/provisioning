@@ -658,13 +658,21 @@ describe('putting a person\'s Koala on one of their machines', () => {
     expect(again.value.credential).not.toBe(placed.value.credential);
   });
 
-  it('puts it again on the same machine, naming the install it replaces, and refuses another machine while one holds it, and one off the mesh', async () => {
+  it('puts it again on the same machine, naming the install it replaces, refuses another machine while one holds it and one off the mesh, and moves a trial on Koala\'s servers, which keeps answering there until the switch', async () => {
     await service.placeOn('u1', desk, 'luno', 'install-1');
     expect(await service.placeOn('u1', desk, undefined, 'install-2')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u1'), replaces: 'install-1' } });
     expect(await service.placedKoala('install-1', desk)).toMatchObject({ ok: false, status: 404 });
     expect(await service.placedKoala('install-2', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' })).toMatchObject({ ok: false, status: 404 });
     expect(await service.placeOn('u1', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' }, undefined, 'install-3')).toMatchObject({ ok: false, status: 409, error: 'your Koala is on desk; moving it is a step of its own' });
     expect(await service.placeOn('u2', { id: 'nas', name: 'nas' }, 'nasbox', 'install-4')).toMatchObject({ ok: false, status: 409, error: 'nas is not on your private network yet; Koala is put on it once it is' });
+    await db.instances.saveInstance({ id: instanceIdFor('u3'), ownerId: 'u3', url: 'https://trial.pool.test', credentialHash: 'pool-copy-hash', name: 'trial', createdAt: 'then', updatedAt: 'then', status: 'ready', pool: { namespace: 'pool-x' } as never });
+    const moved: string[] = [];
+    const moving = new InstanceService(db, { ...settings, moves: { joinCode: async () => { throw new Error('this test places the move directly'); }, poolClusterId: (name: string) => `pool-${name}` } }, mesh, () => now, () => undefined, {
+      start: async () => undefined, trialChanged: async () => undefined, remove: async () => undefined, move: async (id: string) => { moved.push(id); },
+    });
+    expect(await moving.placeOn('u3', desk, 'trial', 'install-5')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u3') } });
+    expect(moved).toEqual([instanceIdFor('u3')]);
+    expect((await db.instances.getInstances('u3'))[0]).toMatchObject({ status: 'ready', url: 'https://trial.pool.test', credentialHash: 'pool-copy-hash', install: { id: 'install-5', machineId: 'desk', state: 'asked', move: true }, move: { state: 'joined' } });
   });
 
   it('ends an install it could not start as failed, saying why, and shows the person its stage', async () => {
