@@ -2,8 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 
-const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
-
 export interface SuiteRoot {
   suite: string;
   database: string;
@@ -30,7 +28,9 @@ export function withDatabase(uri: string, database: string): string {
 export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
   const stamp = Date.now().toString(36);
   const database = `koala_${suite.replace(/-/g, '_')}_${stamp}`;
-  const mongoUri = withDatabase(process.env.MONGO_URI || DEV_MONGO, database);
+  const base = process.env.MONGO_URI?.trim();
+  if (!base) throw new Error(`${suite} makes its root a database of its own beside MONGO_URI, which is not set: run it with the dev stack's apps/backend/.env, which names it`);
+  const mongoUri = withDatabase(base, database);
   const setupCode = randomBytes(12).toString('base64url');
   const namespace = `${suite}-${stamp}`;
   return {
