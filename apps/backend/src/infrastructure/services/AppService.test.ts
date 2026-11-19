@@ -75,6 +75,17 @@ describe('reading an app on its cluster', () => {
     access.helm.mockResolvedValue('STATUS: deployed');
     expect(await apps.getHelmStatus('wp', 'bo')).toBe('STATUS: deployed');
     expect(access.helm).toHaveBeenCalledWith('c1', ['status', 'wordpress', '-n', 'wordpress']);
+    access.kubectl.mockImplementation(async (_cluster, args) => (args[1] === 'pods' ? 'wp-0   1/1   Running' : 'Scheduled   pod/wp-0'));
+    expect(await apps.getDiagnostics('wp', 'bo')).toBe('--- POD STATUS (Namespace: wordpress) ---\nwp-0   1/1   Running\n\n--- RECENT EVENTS ---\nScheduled   pod/wp-0');
+  });
+
+  it('shows a Palworld server\'s passwords from its Secret on the app\'s cluster, and nothing to anyone else', async () => {
+    const { db, access, apps } = setup();
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'pal', name: 'World', appType: 'palworld', namespace: 'world-1a2b3c' }));
+    access.kubectl.mockResolvedValue(JSON.stringify({ ADMIN_PASSWORD: Buffer.from('castle-key').toString('base64') }));
+    expect(await apps.signIns('pal', 'bo')).toEqual([{ describe: 'The in-game admin password (/AdminPassword)', password: 'castle-key' }]);
+    expect(access.kubectl).toHaveBeenCalledWith('c1', ['get', 'secret', 'palworld-secrets', '-n', 'world-1a2b3c', '-o', 'jsonpath={.data}', '--ignore-not-found']);
+    expect(await apps.signIns('pal', 'someone-else')).toBeUndefined();
   });
 
   it('says the cluster could not be read, rather than answering no pods or a release that is not there', async () => {
