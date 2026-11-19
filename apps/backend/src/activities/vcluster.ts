@@ -37,7 +37,7 @@ export function vclusterChart(access: VclusterAccess, node: Target, charts: stri
       await access.helm(node, ['pull', 'vcluster', '--repo', 'https://charts.loft.sh', '--version', VCLUSTER_CHART_VERSION, '--destination', dir]);
       const pulled = path.join(dir, VCLUSTER_CHART_FILE);
       const digest = createHash('sha256').update(await fs.readFile(pulled)).digest('hex');
-      if (digest !== VCLUSTER_CHART_SHA256) throw new Error(`the vcluster chart ${VCLUSTER_CHART_VERSION} from https://charts.loft.sh has the digest ${digest}, not the pinned ${VCLUSTER_CHART_SHA256}, so it was not installed`);
+      if (digest !== VCLUSTER_CHART_SHA256) throw new Error(`the vcluster chart ${VCLUSTER_CHART_VERSION} its repository gave has the digest ${digest}, not the pinned ${VCLUSTER_CHART_SHA256}, so it was not installed`);
       const landing = path.join(charts, `.${VCLUSTER_CHART_FILE}.${randomUUID()}`);
       await fs.copyFile(pulled, landing);
       await fs.rename(landing, cached);
