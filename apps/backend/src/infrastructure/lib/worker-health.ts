@@ -1,6 +1,6 @@
 import http from 'node:http';
 
-export function serveHealth(port: number, ready: () => boolean): http.Server {
+export function serveHealth(port: number, host: string, ready: () => boolean): http.Server {
   const server = http.createServer((req, res) => {
     if (req.url !== '/healthz') {
       res.writeHead(404).end();
@@ -9,6 +9,6 @@ export function serveHealth(port: number, ready: () => boolean): http.Server {
     const ok = ready();
     res.writeHead(ok ? 200 : 503, { 'content-type': 'text/plain' }).end(ok ? 'ok' : 'starting');
   });
-  server.listen(port, '0.0.0.0');
+  server.listen(port, host);
   return server;
 }

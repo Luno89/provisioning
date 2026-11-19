@@ -108,7 +108,7 @@ async function main() {
     telemetryOptions: {
       metrics: {
         prometheus: {
-          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+          bindAddress: `${settings.listenHost}:${settings.temporalMetricsPort}`,
         },
       },
     },
@@ -118,7 +118,7 @@ async function main() {
   ensureClusterMonitoring(steps, koalaClusterMonitoring(Boolean(settings.clusters.here.poolName), steps.access.own()))
     .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
     .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
-  if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => worker.getState() === 'RUNNING');
   await runThenLetGo(worker, fences);
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }

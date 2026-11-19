@@ -100,14 +100,14 @@ async function main() {
     telemetryOptions: {
       metrics: {
         prometheus: {
-          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+          bindAddress: `${settings.listenHost}:${settings.temporalMetricsPort}`,
         },
       },
     },
   });
   const { worker, telemetry, fences } = await startHostWorker(settings);
   logger.info(`[HostWorker] ✅ Listening for ${settings.role.role}'s work on the host queue`);
-  if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => worker.getState() === 'RUNNING');
   await runThenLetGo(worker, fences);
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }

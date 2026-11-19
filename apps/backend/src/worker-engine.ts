@@ -586,7 +586,7 @@ async function main() {
     telemetryOptions: {
       metrics: {
         prometheus: {
-          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+          bindAddress: `${settings.listenHost}:${settings.temporalMetricsPort}`,
         },
       },
     },
@@ -597,7 +597,7 @@ async function main() {
 
   let activities: Awaited<ReturnType<typeof buildActivities>> | undefined;
   let current: Worker | undefined;
-  if (settings.healthPort) serveHealth(settings.healthPort, () => current?.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => current?.getState() === 'RUNNING');
   void dependencies.start();
 
   const connecting = reopening();

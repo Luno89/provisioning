@@ -47,7 +47,9 @@ export class SettingsError extends Error {
 }
 
 const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount';
-export const MACHINE_GATEWAY_HOST = '0.0.0.0';
+const LOOPBACK = '127.0.0.1';
+
+export const listenHostFrom = (env: Env): string => env.POD_IP?.trim() || LOOPBACK;
 
 export interface TemporalSettings {
   address: string;
@@ -79,6 +81,7 @@ export interface CommonSettings extends ConnectionSettings {
   koalaProcess: KoalaProcess;
   role: RoleConfig;
   dataDir: string;
+  listenHost: string;
   production: boolean;
   underTest: boolean;
   lab: boolean;
@@ -344,6 +347,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
     koalaProcess,
     role,
     dataDir,
+    listenHost: listenHostFrom(env),
     production,
     underTest: env.NODE_ENV === 'test',
     lab: labFrom(env),

@@ -77,11 +77,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            {{- if eq $process "backend" }}
             - name: POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            {{- if eq $process "backend" }}
             - name: PORT
               value: {{ $.Values.backend.port | quote }}
             - name: MACHINE_GATEWAY_PORT

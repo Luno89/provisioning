@@ -158,6 +158,13 @@ describe('the settings each worker reads once, at start', () => {
     expect(problemsOf(() => hostWorkerSettingsFrom({ ...ROOT, ...WORKER, HEALTH_PORT: 'any' }))).toContain('HEALTH_PORT is not a port: any');
   });
 
+  it('listens on loopback on a computer, and on its own pod\'s address in a pod, never on every address the machine has', () => {
+    expect(hostWorkerSettingsFrom({ ...ROOT, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '9465' }).listenHost).toBe('127.0.0.1');
+    expect(hostWorkerSettingsFrom({ ...ROOT, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '9465', POD_IP: '10.42.0.9' }).listenHost).toBe('10.42.0.9');
+    expect(backendSettingsFrom(INSTANCE).listenHost).toBe('127.0.0.1');
+    expect(backendSettingsFrom({ ...INSTANCE, POD_IP: '10.42.0.9' }).listenHost).toBe('10.42.0.9');
+  });
+
   it('asks an instance\'s host worker for nothing of root\'s', () => {
     expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
   });

@@ -428,6 +428,7 @@ describe('the instance chart', () => {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
       const ports = (container.ports ?? []) as Array<{ name: string; containerPort: number }>;
       const env = envOf(process);
+      expect(env.POD_IP, `${process} listens on its own pod's address`).toBe(given.POD_IP);
       if (process === 'backend') expect(ports).toEqual(expect.arrayContaining([{ name: 'http', containerPort: Number(env.PORT) }, { name: 'machine-gateway', containerPort: Number(env.MACHINE_GATEWAY_PORT) }]));
       else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'wf-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
     }
