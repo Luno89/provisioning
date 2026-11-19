@@ -247,11 +247,9 @@ describe('Koala moved from Koala\'s servers onto a machine that joins with the m
     const { env: joined } = await joining.json() as { env: Record<string, string> };
 
     const handed: PlacedKoala[] = [];
-    const sent: unknown[] = [];
-    const link = agent((raw) => { sent.push(raw); const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); }, joined.KOALA_DEVICE_TOKEN);
+    const link = agent((raw) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); }, joined.KOALA_DEVICE_TOKEN);
     const placed = await until(async () => handed[0]);
-    expect(placed).toMatchObject({ instanceId: instanceIdFor('bo'), machineId: joined.KOALA_DEVICE_ID, name: 'bobby' });
-    expect(sent[0]).toMatchObject({ installId: placed.installId, move: { fromClusterId: 'pool-bobby' } });
+    expect(placed).toMatchObject({ instanceId: instanceIdFor('bo'), machineId: joined.KOALA_DEVICE_ID, name: 'bobby', move: { fromClusterId: 'pool-bobby' } });
     expect(await instanceOf()).toMatchObject({
       status: 'ready', url: 'https://bobby.koala.dev', credentialHash: hashCredential('pool-secret'),
       install: { id: placed.installId, move: true }, move: { credentialHash: hashCredential(placed.credential), target: { machine: 'desk', meshIp: '100.64.0.7' } },
