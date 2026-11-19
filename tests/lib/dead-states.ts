@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { AxiosInstance } from 'axios';
+import { ProcessFailed, type ProcessRun } from '@koala/engine-core/processes';
+import { here } from './processes.js';
 
 export async function runEndedBadly(http: AxiosInstance, runId: string): Promise<string | undefined> {
   const { endings } = (await http.get('/engine/runs/endings', { params: { ids: runId } })).data as { endings: { runId: string; ended?: { how: string; reason?: string } }[] };
@@ -23,14 +23,29 @@ export async function keeperPaused(http: AxiosInstance): Promise<string | undefi
   return keeper.paused ? 'the memory keeper is paused, so it will not run' : undefined;
 }
 
-const docker = promisify(execFile);
+const NO_SUCH_CONTAINER = /No such (object|container)/;
+
+async function stateOf(name: string): Promise<string | undefined> {
+  const run: ProcessRun = { command: 'docker', args: ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', name] };
+  const inspected = await here.run(run);
+  if (inspected.code === 0) return inspected.stdout.trim();
+  if (NO_SUCH_CONTAINER.test(inspected.stderr)) return undefined;
+  throw new ProcessFailed(run, inspected);
+}
+
+async function lastLinesOf(name: string): Promise<string> {
+  const run: ProcessRun = { command: 'docker', args: ['logs', '--tail', '15', name] };
+  const logs = await here.run(run);
+  if (logs.code !== 0) throw new ProcessFailed(run, logs);
+  return `${logs.stdout}${logs.stderr}`.trim();
+}
 
 export async function containerNotRunning(name: string): Promise<string | undefined> {
-  const inspected = await docker('docker', ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', name]).then((out) => out.stdout.trim(), () => undefined);
+  const inspected = await stateOf(name);
   if (inspected === undefined) return `the container ${name} is gone`;
   const [status, code] = inspected.split(' ');
   if (status === 'running' || status === 'created' || status === 'restarting') return undefined;
-  const logs = await docker('docker', ['logs', '--tail', '15', name]).then((out) => `${out.stdout}${out.stderr}`.trim(), () => '');
+  const logs = await lastLinesOf(name);
   return `the container ${name} is ${status} (exit code ${code})${logs ? `, its last lines:\n${logs}` : ''}`;
 }
 
@@ -50,11 +65,11 @@ export async function runEndedBadlyOver(get: (path: string) => Promise<Response>
 
 export async function startedContainerStopped(names: readonly string[]): Promise<string | undefined> {
   for (const name of names) {
-    const inspected = await docker('docker', ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', name]).then((out) => out.stdout.trim(), () => undefined);
+    const inspected = await stateOf(name);
     if (inspected === undefined) continue;
     const [status, code] = inspected.split(' ');
     if (status === 'exited' || status === 'dead') {
-      const logs = await docker('docker', ['logs', '--tail', '15', name]).then((out) => `${out.stdout}${out.stderr}`.trim(), () => '');
+      const logs = await lastLinesOf(name);
       return `the container ${name} is ${status} (exit code ${code})${logs ? `, its last lines:\n${logs}` : ''}`;
     }
   }

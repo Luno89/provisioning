@@ -28,59 +28,59 @@ function aRepo(): { dir: string; git: (...args: string[]) => string; write: (pat
 
 const edit = (dir: string, path: string) => hookAnswer({ tool_name: 'Edit', tool_input: { file_path: join(dir, path) }, cwd: dir });
 const commit = (dir: string) => hookAnswer({ tool_name: 'Bash', tool_input: { command: 'git commit -m change' }, cwd: dir });
-const denied = (answer: ReturnType<typeof hookAnswer>) => answer?.hookSpecificOutput.permissionDecision === 'deny' ? answer.hookSpecificOutput.permissionDecisionReason : undefined;
+const denied = (answer: Awaited<ReturnType<typeof hookAnswer>>) => answer?.hookSpecificOutput.permissionDecision === 'deny' ? answer.hookSpecificOutput.permissionDecisionReason : undefined;
 
 describe('the red-green gate on a real repository', () => {
-  it('refuses a source edit until a new test fails, then refuses the commit until it passes', () => {
+  it('refuses a source edit until a new test fails, then refuses the commit until it passes', async () => {
     const { dir, git, write } = aRepo();
-    expect(denied(edit(dir, 'scripts/sum.ts'))).toMatch(/write the failing test first/);
+    expect(denied(await edit(dir, 'scripts/sum.ts'))).toMatch(/write the failing test first/);
 
     write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\nit('adds three', () => { expect(sum(1, 2, 3)).toBe(6); });\n");
-    expect(edit(dir, 'scripts/sum.ts')).toBeUndefined();
+    expect(await edit(dir, 'scripts/sum.ts')).toBeUndefined();
 
     write('scripts/sum.ts', 'export const sum = (a: number, b: number) => a + b;\n// unfinished\n');
     git('add', '-A');
-    expect(denied(commit(dir))).toMatch(/do not pass yet/);
+    expect(denied(await commit(dir))).toMatch(/do not pass yet/);
 
     write('scripts/sum.ts', 'export const sum = (...all: number[]) => all.reduce((total, n) => total + n, 0);\n');
     git('add', '-A');
-    expect(commit(dir)).toBeUndefined();
+    expect(await commit(dir)).toBeUndefined();
   });
 
-  it('refuses a new test that already passes, since it shows nothing missing', () => {
+  it('refuses a new test that already passes, since it shows nothing missing', async () => {
     const { dir, write } = aRepo();
     write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\nit('adds again', () => { expect(sum(2, 2)).toBe(4); });\n");
-    expect(denied(edit(dir, 'scripts/sum.ts'))).toMatch(/make it fail first/);
+    expect(denied(await edit(dir, 'scripts/sum.ts'))).toMatch(/make it fail first/);
   });
 
-  it('lets a refactor commit through when the file\'s own tests stay green, and a plan edit through at any time', () => {
+  it('lets a refactor commit through when the file\'s own tests stay green, and a plan edit through at any time', async () => {
     const { dir, git, write } = aRepo();
-    expect(hookAnswer({ tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md') }, cwd: dir })).toBeUndefined();
+    expect(await hookAnswer({ tool_name: 'Edit', tool_input: { file_path: join(dir, 'CLAUDE.md') }, cwd: dir })).toBeUndefined();
     write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => b + a;\n');
     git('add', '-A');
-    expect(commit(dir)).toBeUndefined();
+    expect(await commit(dir)).toBeUndefined();
   });
 
-  it('lets a declared refactor edit source with no new test, once the touched code\'s tests are green, and refuses it while they are red', () => {
+  it('lets a declared refactor edit source with no new test, once the touched code\'s tests are green, and refuses it while they are red', async () => {
     const { dir, git, write } = aRepo();
-    expect(startRefactor(dir, ['scripts/sum.ts'])).toEqual({ ok: true });
-    expect(edit(dir, 'scripts/sum.ts')).toBeUndefined();
+    expect(await startRefactor(dir, ['scripts/sum.ts'])).toEqual({ ok: true });
+    expect(await edit(dir, 'scripts/sum.ts')).toBeUndefined();
     write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => b + a;\n');
     git('add', '-A');
-    expect(commit(dir)).toBeUndefined();
+    expect(await commit(dir)).toBeUndefined();
 
     write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(4); });\n");
     git('add', '-A');
     git('commit', '-q', '--no-verify', '-m', 'a red test, for the case');
-    const refused = startRefactor(dir, ['scripts/sum.ts']);
+    const refused = await startRefactor(dir, ['scripts/sum.ts']);
     expect(refused.ok).toBe(false);
     expect(!refused.ok && refused.why).toMatch(/green first/);
   });
 
-  it('refuses a commit whose source changed through the shell with no test seen failing', () => {
+  it('refuses a commit whose source changed through the shell with no test seen failing', async () => {
     const { dir, git, write } = aRepo();
     write('scripts/other.ts', 'export const other = 1;\n');
     git('add', '-A');
-    expect(denied(commit(dir))).toMatch(/no test/);
+    expect(denied(await commit(dir))).toMatch(/no test/);
   });
 });

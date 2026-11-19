@@ -13,8 +13,8 @@
  * /dev/kvm to be accessible — fails fast with a clear message otherwise.
  */
 import { until } from './until.js';
-import { execFile, spawn, type ChildProcess } from 'child_process';
-import { promisify } from 'util';
+import { succeeded, type Followed } from '@koala/engine-core/processes';
+import { here } from './processes.js';
 import fs from 'fs/promises';
 import fssync from 'fs';
 import os from 'os';
@@ -24,8 +24,6 @@ import { calculateRequiredVmMemoryMB } from './memory-budget.js';
 import { lanNicArgument, macFor, netplanFor, type LanSocket } from './vm-network.js';
 import { ensureImageCaches, hostFromVm, registriesYamlForVm } from './image-cache.js';
 import { randomBytes } from 'crypto';
-
-const execFileAsync = promisify(execFile);
 
 const CACHE_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.vm-cache');
 const BASE_IMAGE_URL = 'https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img';
@@ -76,11 +74,7 @@ function monitorCommand(socketPath: string, command: string): Promise<string> {
 async function checkPrereqs(): Promise<void> {
   const missing: string[] = [];
   for (const bin of ['qemu-system-x86_64', 'qemu-img', 'cloud-localds', 'ssh-keygen', 'ssh']) {
-    try {
-      await execFileAsync('which', [bin]);
-    } catch {
-      missing.push(bin);
-    }
+    if ((await here.run({ command: 'which', args: [bin] })).code !== 0) missing.push(bin);
   }
   if (missing.length > 0) {
     throw new Error(
@@ -105,9 +99,19 @@ async function ensureBaseImage(): Promise<string> {
   }
   console.log(`  ⬇  Downloading Ubuntu 22.04 cloud image (~600MB, cached at ${BASE_IMAGE_PATH} for future runs)...`);
   const tmpPath = `${BASE_IMAGE_PATH}.downloading`;
-  await execFileAsync('curl', ['-fL', '-o', tmpPath, BASE_IMAGE_URL], { maxBuffer: 1024 * 1024 * 1024 });
+  await succeeded(here, { command: 'curl', args: ['-fL', '-o', tmpPath, BASE_IMAGE_URL] });
   await fs.rename(tmpPath, BASE_IMAGE_PATH);
   return BASE_IMAGE_PATH;
+}
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    throw err;
+  }
 }
 
 export function findFreePort(): Promise<number> {
@@ -155,7 +159,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   const monitorPath = path.join(os.tmpdir(), `koala-vm-${randomBytes(6).toString('hex')}.sock`);
 
   console.log(`  🔑 Generating throwaway SSH keypair for ${name}...`);
-  await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', `disposable-vm-${name}`]);
+  await succeeded(here, { command: 'ssh-keygen', args: ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', `disposable-vm-${name}`] });
   const publicKey = (await fs.readFile(`${keyPath}.pub`, 'utf8')).trim();
   const privateKey = await fs.readFile(keyPath, 'utf8');
 
@@ -166,7 +170,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   // giving the overlay a real virtual size here is all that's needed — no extra cloud-init config.
   const diskGB = options.diskGB ?? 20;
   console.log(`  💽 Creating copy-on-write overlay disk for ${name} (${diskGB}G, auto-grown by cloud-init)...`);
-  await execFileAsync('qemu-img', ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', baseImage, overlayPath, `${diskGB}G`]);
+  await succeeded(here, { command: 'qemu-img', args: ['create', '-f', 'qcow2', '-F', 'qcow2', '-b', baseImage, overlayPath, `${diskGB}G`] });
 
   await fs.writeFile(userDataPath, [
     '#cloud-config',
@@ -202,7 +206,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     await fs.writeFile(networkConfigPath, netplanFor({ uplinkMac: macs.uplink, lan: { mac: macs.lan, address: options.lan.address, ...(options.lan.nameservers ? { nameservers: options.lan.nameservers } : {}) } }));
   }
   console.log(`  📀 Building cloud-init seed image for ${name}...`);
-  await execFileAsync('cloud-localds', [...(options.lan ? ['-N', networkConfigPath] : []), seedPath, userDataPath, metaDataPath]);
+  await succeeded(here, { command: 'cloud-localds', args: [...(options.lan ? ['-N', networkConfigPath] : []), seedPath, userDataPath, metaDataPath] });
 
   const sshPort = await findFreePort();
   const k3sApiPort = await findFreePort();
@@ -219,9 +223,9 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   // out to be an unconstrained Loki chart default (~9.8Gi for one sub-component alone, now fixed
   // in constructs/logging.ts) — no amount of guessing the VM size upward would have reliably
   // found that; measuring what's actually requested did.
-  const memoryMB = options.memoryMB ?? calculateRequiredVmMemoryMB();
+  const memoryMB = options.memoryMB ?? await calculateRequiredVmMemoryMB();
   console.log(`  🚀 Booting ${name} (KVM-accelerated, ${memoryMB}MB RAM, SSH on 127.0.0.1:${sshPort}, k3s API on 127.0.0.1:${k3sApiPort})...`);
-  await execFileAsync('qemu-system-x86_64', [
+  await succeeded(here, { command: 'qemu-system-x86_64', args: [
     '-enable-kvm',
     '-cpu', 'host',
     '-m', String(memoryMB),
@@ -236,35 +240,28 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     ...(options.lan ? ['-nic', lanNicArgument(options.lan, macs.lan)] : []),
     '-daemonize',
     '-pidfile', pidPath,
-  ]);
+  ] });
 
-  const tunnels: ChildProcess[] = [];
+  const qemuPid = async (): Promise<number | undefined> =>
+    (fssync.existsSync(pidPath) ? Number((await fs.readFile(pidPath, 'utf8')).trim()) || undefined : undefined);
+  const tunnels: Followed[] = [];
   const destroy = async () => {
-    for (const tunnel of tunnels) tunnel.kill('SIGTERM');
-    try {
-      const pid = (await fs.readFile(pidPath, 'utf8')).trim();
-      if (pid) process.kill(Number(pid), 'SIGKILL');
-    } catch {
-      // Already dead or never started — fine.
-    }
+    for (const tunnel of tunnels) tunnel.stop('SIGTERM');
+    const pid = await qemuPid();
+    if (pid && running(pid)) process.kill(pid, 'SIGKILL');
     await fs.rm(workDir, { recursive: true, force: true });
     await fs.rm(monitorPath, { force: true });
   };
 
   console.log(`  ⏳ Waiting for ${name} to finish booting and accept SSH...`);
   const gone = async (): Promise<string | undefined> => {
-    const pid = Number((await fs.readFile(pidPath, 'utf8').catch(() => '')).trim());
+    const pid = await qemuPid();
     if (!pid) return `${name}'s QEMU left no process id; see ${serialLogPath} for boot console output`;
-    try {
-      process.kill(pid, 0);
-      return undefined;
-    } catch {
-      return `${name}'s QEMU process ${pid} is gone; see ${serialLogPath} for boot console output`;
-    }
+    return running(pid) ? undefined : `${name}'s QEMU process ${pid} is gone; see ${serialLogPath} for boot console output`;
   };
   try {
     await until(`${name} to finish booting and accept SSH`, async () => {
-      await execFileAsync('ssh', [
+      await succeeded(here, { command: 'ssh', args: [
         '-i', keyPath,
         '-p', String(sshPort),
         '-o', 'StrictHostKeyChecking=no',
@@ -273,7 +270,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
         '-o', 'BatchMode=yes',
         'ubuntu@127.0.0.1',
         'cloud-init status --wait',
-      ]);
+      ] });
       return true;
     }, gone);
   } catch (err) {
@@ -282,13 +279,13 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   }
   console.log(`  ✅ ${name} is up and SSH-reachable`);
   for (const forward of options.loopback ?? []) {
-    tunnels.push(spawn('ssh', [
+    tunnels.push(here.start({ command: 'ssh', args: [
       '-i', keyPath, '-p', String(sshPort), '-N',
       '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'BatchMode=yes',
       '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15',
       '-L', `127.0.0.1:${forward.host}:127.0.0.1:${forward.guest}`,
       'ubuntu@127.0.0.1',
-    ], { stdio: 'ignore' }));
+    ] }));
     console.log(`  ↔ 127.0.0.1:${forward.host} reaches ${name}'s own 127.0.0.1:${forward.guest}`);
   }
 

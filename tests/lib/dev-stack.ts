@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { promisify } from 'node:util';
 import { Client, Connection } from '@temporalio/client';
 import { buildDataConverter } from '@koala/engine-core/payloads';
 import { createDatabase, type Database } from '../../apps/backend/src/platform/lib/db-interface.js';
@@ -9,10 +8,11 @@ import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
 import { temporalApiKey } from '../../apps/backend/src/platform/lib/temporal-auth.js';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 import { DEV, devGiteaOnThisComputer } from '../../apps/backend/src/instances/lib/dev-root.js';
-import { nodeStreams } from '../../apps/backend/src/platform/services/processes.js';
+import { succeeded } from '@koala/engine-core/processes';
 import type { KoalasCluster } from '../../apps/backend/src/engine-host/sandboxes/kube.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
 import { devFile } from './dev-temporal.js';
+import { here } from './processes.js';
 
 export const DEV_KUBECONFIG = '/etc/rancher/k3s/k3s.yaml';
 export const DEV_NAMESPACE = 'nowrinkles';
@@ -26,13 +26,11 @@ export const devDataDir = new URL('../../apps/backend/data', import.meta.url).pa
 const kubectl = (...args: string[]): string =>
   execFileSync('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, ...args], { encoding: 'utf8' }).trim();
 
-const run = promisify(execFile);
-
 export const devKubectl = async (namespace: string, ...args: string[]): Promise<string> =>
-  (await run('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', namespace, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
+  (await succeeded(here, { command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', namespace, ...args] })).trim();
 
 export const devKubectlCluster = async (...args: string[]): Promise<string> =>
-  (await run('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
+  (await succeeded(here, { command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args] })).trim();
 
 export const devPortForward = (namespace: string, target: string, ports: string): ChildProcess =>
   spawn('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', namespace, 'port-forward', target, ports], { stdio: 'ignore' });
@@ -51,16 +49,9 @@ const RESULT = 'KOALA-RESULT ';
 
 export async function devInKoala<T>(source: string): Promise<T> {
   const program = `process.chdir('/app/apps/backend');\nconst result = await (async () => {\n${source}\n})();\nconsole.log(${JSON.stringify(RESULT)} + JSON.stringify(result ?? null));\nprocess.exit(0);\n`;
-  const said = await new Promise<string>((resolve, reject) => {
-    const child = spawn('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, 'exec', '-i', '-c', 'backend', `deploy/${DEV_RELEASE}-backend`, '--', 'node', '--import', 'tsx', '--input-type=module'], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString('utf8'); });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`running in your Koala's backend pod ended ${code}: ${err.slice(-600)}`))));
-    child.stdin.end(program);
-  });
+  const ran = await here.run({ command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, 'exec', '-i', '-c', 'backend', `deploy/${DEV_RELEASE}-backend`, '--', 'node', '--import', 'tsx', '--input-type=module'], input: program });
+  if (ran.code !== 0) throw new Error(`running in your Koala's backend pod ended ${ran.code}: ${ran.stderr.slice(-600)}`);
+  const said = ran.stdout;
   const line = said.split('\n').find((entry) => entry.startsWith(RESULT));
   if (!line) throw new Error(`your Koala's backend pod gave no result: ${said.slice(-600)}`);
   return JSON.parse(line.slice(RESULT.length)) as T;
@@ -138,5 +129,5 @@ export function devKoalaDatabase(): Database {
 }
 
 export function devKoalasCluster(): KoalasCluster {
-  return { start: (args, io) => Promise.resolve(nodeStreams.start({ command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args] }, io)) };
+  return { start: (args, io) => Promise.resolve(here.start({ command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args] }, io)) };
 }

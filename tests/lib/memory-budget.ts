@@ -22,7 +22,8 @@
  * `requests:` block's `memory:` line is reliably shaped enough (Helm's own templates emit it
  * consistently) that a targeted regex is simpler than adding one just for this.
  */
-import { execFileSync } from 'child_process';
+import { succeeded } from '@koala/engine-core/processes';
+import { here } from './processes.js';
 import path from 'path';
 import { LOKI_VALUES, PROMTAIL_VALUES } from '../../packages/cdktf-infra/lib/logging-values.js';
 
@@ -109,18 +110,18 @@ function sumRequestedMemoryMB(renderedYaml: string): number {
  * (requests aren't hard caps — real usage can run over, and scheduling needs slack to avoid the
  * exact "Insufficient memory" failure this was built to stop guessing around).
  */
-export function calculateRequiredVmMemoryMB(): number {
+export async function calculateRequiredVmMemoryMB(): Promise<number> {
   const K3S_AND_OS_OVERHEAD_MB = 1536;
   const SAFETY_MARGIN = 1.4;
 
   let chartTotal = 0;
   for (const c of CHARTS) {
     try {
-      const rendered = execFileSync(HELM, [
-        'template', c.name, c.chart,
-        '--repo', c.repo,
-        '--values', '-',
-      ], { input: JSON.stringify(c.values), maxBuffer: 20 * 1024 * 1024 }).toString();
+      const rendered = await succeeded(here, {
+        command: HELM,
+        args: ['template', c.name, c.chart, '--repo', c.repo, '--values', '-'],
+        input: JSON.stringify(c.values),
+      });
       let mb = sumRequestedMemoryMB(rendered);
       let source = 'requested';
       const typical = TYPICAL_FOOTPRINT_MB[c.name];

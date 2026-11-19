@@ -1,4 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { here } from './processes.js';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -272,19 +273,12 @@ export interface RoundResult { step: GateStep; passed: boolean; minutes: number;
 
 const clock = () => new Date().toISOString().slice(11, 19);
 
-function runLogged(repo: string, commit: string, step: GateStep, env: Record<string, string>, logFile: string): Promise<RoundResult> {
-  return new Promise((done) => {
-    const started = Date.now();
-    const log = createWriteStream(logFile);
-    const child = spawn('npm', ['run', step.script, '--silent'], { cwd: repo, env: { ...process.env, ...env, ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
-    const write = (chunk: Buffer) => { for (const line of chunk.toString().split('\n')) if (line) log.write(`${clock()} ${line}\n`); };
-    child.stdout.on('data', write);
-    child.stderr.on('data', write);
-    child.on('close', (code) => {
-      log.end();
-      done({ step, passed: code === 0, minutes: minutesSince(started), seconds: (Date.now() - started) / 1000, log: logFile });
-    });
-  });
+async function runLogged(repo: string, commit: string, step: GateStep, env: Record<string, string>, logFile: string): Promise<RoundResult> {
+  const started = Date.now();
+  const log = createWriteStream(logFile);
+  const write = (chunk: string) => { for (const line of chunk.split('\n')) if (line) log.write(`${clock()} ${line}\n`); };
+  const ran = await here.run({ command: 'npm', args: ['run', step.script, '--silent'], cwd: repo, env: { ...env, ...timingEnv(repo, commit), KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } }, { stdout: write, stderr: write }).finally(() => log.end());
+  return { step, passed: ran.code === 0, minutes: minutesSince(started), seconds: (Date.now() - started) / 1000, log: logFile };
 }
 
 export async function runRounds(repo: string, commit: string, rounds: readonly GateStep[][], env: Record<string, string>): Promise<RoundResult[]> {
