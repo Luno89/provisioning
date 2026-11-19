@@ -171,6 +171,18 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z', credentialHash: 'h1' });
       expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
     });
+
+    it('changes a field however deep it lies in a move, keeping the rest of the move', async () => {
+      const store = await make();
+      const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, move: true as const, at: '2026-11-18T10:00:00.000Z' };
+      const move = { state: 'joined' as const, startedAt: '2026-11-18T09:00:00.000Z', credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7' } };
+      await store.saveInstance(instance('inst-a', 'o1', { install, move, credentialHash: 'h1' }));
+      expect(await store.updateInstall('inst-a', 'install-1', { 'move.state': 'copying', 'move.target.url': 'http://100.64.0.7:30320', updatedAt: '2026-11-18T10:01:00.000Z' })).toBe(true);
+      expect((await store.getInstances('o1'))[0]).toMatchObject({
+        credentialHash: 'h1',
+        move: { state: 'copying', startedAt: move.startedAt, credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7', url: 'http://100.64.0.7:30320' } },
+      });
+    });
   });
 
   describe('watching whether an instance can be reached', () => {

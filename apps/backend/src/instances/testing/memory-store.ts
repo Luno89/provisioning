@@ -96,9 +96,9 @@ export class MemoryInstancesStore implements InstancesStore {
     if (!found?.install || found.install.id !== installId) return false;
     const next = copied(found) as unknown as Record<string, unknown>;
     for (const [path, value] of Object.entries(fields)) {
-      const [first, second] = path.split('.') as [string, string | undefined];
-      const holder = second === undefined ? next : (next[first] ??= {}) as Record<string, unknown>;
-      const key = second ?? first;
+      const steps = path.split('.');
+      const key = steps.pop()!;
+      const holder = steps.reduce((within, step) => (within[step] ??= {}) as Record<string, unknown>, next);
       if (value === undefined) delete holder[key];
       else holder[key] = copied(value);
     }

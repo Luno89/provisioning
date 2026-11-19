@@ -77,3 +77,46 @@ describe('what root keeps of Koala being put on a machine', () => {
     expect(installView(asked)).not.toHaveProperty('move');
   });
 });
+
+describe('what root keeps of Koala moving from Koala\'s servers onto a machine', () => {
+  const moving = askedInstall('install-1', 'desk', '2026-11-18T10:00:00.000Z', true);
+  const koalaStage = { stage: 'koala', title: 'Bringing Koala over' };
+  const moved = { stage: 'koala-moved', title: 'Starting Koala on this machine' };
+
+  it('is made as a move, and asks the machine to move Koala onto itself', () => {
+    expect(moving).toEqual({ id: 'install-1', machineId: 'desk', state: 'asked', at: '2026-11-18T10:00:00.000Z', move: true });
+    expect(askedAgain(moving, 'desk', AT).detail).toBe('Asking desk to move Koala onto itself');
+    expect(askedAgain({ ...moving, state: 'installing', ...koalaStage }, 'desk', AT).detail).toBe('Moving Koala to desk: Bringing Koala over');
+  });
+
+  it('ends its machine\'s part at the move\'s last stage, not at the first Koala it starts', () => {
+    const koalaDone = stageHeard(moving, { ...koalaStage, state: 'done' }, 'desk', AT);
+    expect(koalaDone).toMatchObject({ install: { state: 'installing' }, detail: 'Moving Koala to desk: Bringing Koala over' });
+    expect(koalaDone.install.koalaUp).toBeUndefined();
+    const movedDone = stageHeard(koalaDone.install, { ...moved, state: 'done', url: 'http://100.64.0.7:30320' }, 'desk', AT);
+    expect(movedDone).toMatchObject({ install: { state: 'installing', koalaUp: true }, detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320' });
+    expect(installSetupHeard({ install: movedDone.install, machine: 'desk' }, { revision: 1, progress: setUp }, AT)).toMatchObject({ install: { state: 'ready' }, detail: 'Switching your address to your machine' });
+  });
+
+  it('fails naming the stage it stopped at, as a move', () => {
+    expect(stageHeard(moving, { ...koalaStage, state: 'failed', why: 'job/move-mongo-1 failed' }, 'desk', AT))
+      .toMatchObject({ install: { state: 'failed', why: 'job/move-mongo-1 failed' }, detail: 'Moving Koala to desk stopped at Bringing Koala over: job/move-mongo-1 failed' });
+  });
+
+  it('is written on the move, never on what the instance on Koala\'s servers serves, until the switch', () => {
+    const line = stageHeard(moving, { ...koalaStage, state: 'started', line: 'waiting for job/move-data-1 runs' }, 'desk', AT);
+    expect(installFields(line, AT)).toEqual({
+      'install.state': 'installing', 'install.stage': 'koala', 'install.title': 'Bringing Koala over', 'install.line': 'waiting for job/move-data-1 runs', 'install.why': undefined, 'install.at': AT, 'install.koalaUp': undefined, 'install.setUp': undefined,
+      'move.state': 'copying', 'move.detail': 'Moving Koala to desk: Bringing Koala over, waiting for job/move-data-1 runs', updatedAt: AT,
+    });
+    const movedDone = stageHeard({ ...moving, imageTag: 'v7' }, { ...moved, state: 'done', url: 'http://100.64.0.7:30320' }, 'desk', AT);
+    expect(installFields(movedDone, AT)).toMatchObject({ 'move.state': 'copying', 'move.target.url': 'http://100.64.0.7:30320' });
+    const ready = installSetupHeard({ install: movedDone.install, machine: 'desk' }, { revision: 1, progress: setUp }, AT)!;
+    const written = installFields(ready, AT);
+    expect(written).toMatchObject({ 'install.state': 'ready', 'move.state': 'switching', 'move.detail': 'Switching your address to your machine', 'move.setup': { revision: 1, state: 'up' } });
+    expect(installFields(askedAgain(moving, 'desk', AT), AT)).toMatchObject({ 'move.state': 'joined', 'move.detail': 'Asking desk to move Koala onto itself' });
+    const failed = installFields(stageHeard(moving, { ...koalaStage, state: 'failed', why: 'no room' }, 'desk', AT), AT);
+    expect(failed).toMatchObject({ 'move.state': 'failed' });
+    for (const fields of [written, failed]) for (const served of ['status', 'detail', 'url', 'running', 'setup']) expect(fields).not.toHaveProperty(served);
+  });
+});
