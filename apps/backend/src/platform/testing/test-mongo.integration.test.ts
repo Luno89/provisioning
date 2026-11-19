@@ -7,7 +7,7 @@ import { removeSteps, runSteps, type Step, type ServiceContext } from '@koala/pr
 import { memoryReporter, stepFailureOf } from '@koala/provision/testing';
 import { leaseMongo } from '../lib/mongo-lease.js';
 import { mongoStep } from '../wiring/root-services.js';
-import { madePrimary, testMongo } from './test-mongo.js';
+import { madePrimary, TEST_MONGO_CACHE_GB, testMongo } from './test-mongo.js';
 
 const ctx: ServiceContext = {};
 const started: Step<ServiceContext>[] = [];
@@ -42,6 +42,16 @@ describe('the test Mongo, a mongod of this run started by the step root\'s Mongo
     expect(existsSync(dbPath)).toBe(true);
     await removeSteps([step], ctx, memoryReporter());
     expect(existsSync(dbPath)).toBe(false);
+  });
+
+  it('keeps its cache to a quarter of a gigabyte, so many test runs fit on one computer beside each other', async () => {
+    const { mongo, step } = stepFor(join(await folder(), 'mongo'));
+    await runSteps([step], ctx, memoryReporter());
+    await madePrimary(mongo);
+    const { client, release } = await leaseMongo(mongo.uri());
+    const status = await client.db('admin').command({ serverStatus: 1 }) as { wiredTiger: { cache: Record<string, number> } };
+    await release();
+    expect(status.wiredTiger.cache['maximum bytes configured']).toBe(TEST_MONGO_CACHE_GB * 1024 ** 3);
   });
 
   it('fails at once when mongod cannot start, saying why and how much room the disk it writes to has', async () => {

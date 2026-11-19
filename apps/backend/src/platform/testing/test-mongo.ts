@@ -5,6 +5,8 @@ import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { bytes, freeAt, processProvider, type ProcessProvider, type Provider, type ServiceContext } from '@koala/provision';
 import { leaseMongo } from '../lib/mongo-lease.js';
 
+export const TEST_MONGO_CACHE_GB = 0.25;
+
 export interface TestMongo extends Provider<ServiceContext> {
   address(): string;
   uri(): string;
@@ -43,7 +45,7 @@ export function testMongo(dbPath: string): TestMongo {
         await mkdir(dbPath, { recursive: true });
         port = await portToHandOn();
         const binary = await MongoBinary.getPath();
-        mongod = processProvider({ name: 'mongod', command: binary, args: ['--port', String(port), '--dbpath', dbPath, '--replSet', 'rs0', '--bind_ip', '127.0.0.1', '--unixSocketPrefix', dirname(dbPath)] });
+        mongod = processProvider({ name: 'mongod', command: binary, args: ['--port', String(port), '--dbpath', dbPath, '--replSet', 'rs0', '--bind_ip', '127.0.0.1', '--unixSocketPrefix', dirname(dbPath), '--wiredTigerCacheSizeGB', String(TEST_MONGO_CACHE_GB)] });
       } catch (err) {
         throw new Error(`the test Mongo could not start: ${err instanceof Error ? err.message : String(err)} ${await disk(dbPath)}`, { cause: err });
       }
