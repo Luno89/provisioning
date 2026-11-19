@@ -1,4 +1,6 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { localCommands } from '@koala/provision';
+import { containersOn } from '@koala/provision/testing';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -314,13 +316,13 @@ export function commitLedger(repo: string, message: string): boolean {
   return true;
 }
 
-export function buildAppImage(repo: string, commit: string, log: (line: string) => void): string {
+export async function buildAppImage(repo: string, commit: string, log: (line: string) => void): Promise<string> {
   const image = `nowrinkles/app:${imageTagOf(commit)}`;
-  try {
-    execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' });
+  const containers = containersOn(localCommands(process.env), { line: log });
+  if (await containers.imageThere(image)) {
     log(`${image} is already built`);
     return image;
-  } catch { /* not yet */ }
+  }
   const started = Date.now();
   const context = mkdtempSync(join(tmpdir(), `app-image-${imageTagOf(commit)}-`));
   try {
@@ -329,7 +331,7 @@ export function buildAppImage(repo: string, commit: string, log: (line: string) 
       stdio: ['ignore', 'inherit', 'inherit'],
       env: { ...process.env, TERRAFORM: join(repo, 'bin/terraform'), CDKTF: join(repo, 'node_modules/.bin/cdktf') },
     });
-    execFileSync('docker', ['build', '-q', '--build-arg', 'BUILDKIT_INLINE_CACHE=1', '-t', image, context], { stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, DOCKER_BUILDKIT: '1' } });
+    await containers.build(image, context, ['--build-arg', 'BUILDKIT_INLINE_CACHE=1']);
   } finally {
     rmSync(context, { recursive: true, force: true });
   }

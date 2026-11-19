@@ -7,7 +7,7 @@ import type { ProgressContract } from '@koala/engine-core/machine-progress';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
 import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
-import { installKoala, koalaPlacements, koalaUrlOf, koalaValues, machineChartCluster, placedFrom, type PlacedKoala } from './koala-install.js';
+import { installKoala, koalaPlacements, koalaUrlOf, koalaValues, placedFrom, type PlacedKoala } from './koala-install.js';
 
 const CHART = Buffer.from('a chart');
 const PLACED: PlacedKoala = {
@@ -123,14 +123,6 @@ describe('putting Koala on this machine', () => {
     const named = { ...PLACED, domain: 'koala.app' };
     expect(koalaUrlOf(named)).toBe('https://bobby.koala.app');
     expect(koalaValues(named)).toMatchObject({ publicUrl: 'https://bobby.koala.app', routing: { name: 'bobby', domain: 'koala.app' }, edge: { nodePort: 30321 } });
-  });
-
-  it('reaches this machine\'s k3s with helm and kubectl through its own kubeconfig', async () => {
-    const { host, ran } = machine();
-    const cluster = machineChartCluster(host, HELM);
-    await cluster.helm(['list', '-n', 'nowrinkles']);
-    await cluster.kubectl(['get', 'pods']);
-    expect(ran).toEqual([[HELM, 'list', '-n', 'nowrinkles', '--kubeconfig', K3S_KUBECONFIG], [K3S_BINARY, 'kubectl', '--kubeconfig', K3S_KUBECONFIG, 'get', 'pods']]);
   });
 
   it('holds the cluster for Koala, starts it, applies root\'s chart with helm waiting on nothing, follows it until all is up, and tells root each stage with this machine\'s own token', async () => {

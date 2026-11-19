@@ -4,10 +4,9 @@ import { resolve } from 'node:path';
 import { parse } from 'yaml';
 import { inject } from 'vitest';
 import { localCommands, removeSteps, runSteps } from '@koala/provision';
-import { containerProvider, type ContainerContext, memoryReporter } from '@koala/provision/testing';
+import { containerProvider, containersOn, type ContainerContext, memoryReporter, throwawayLabel } from '@koala/provision/testing';
 import { STORED_FILES_BUCKET } from '../lib/stored-files.js';
 import type { MinioSettings } from '../services/ObjectStore.js';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import { minioStep } from '../wiring/minio-step.js';
 
 const CHART_VALUES = resolve(import.meta.dirname, '../../../../../charts/instance/values.yaml');
@@ -47,7 +46,7 @@ export async function startMinio(options: { port?: number } = {}): Promise<RealM
     settings: { ...place(), accessKey, secretKey },
     name,
     stop: () => removeSteps([step], on, reporter),
-    halt: async () => { await on.commands.run({ command: 'docker', args: ['stop', name] }, { line: () => undefined }); },
+    halt: () => containersOn(on.commands).stop(name),
     resume: () => runSteps([step], on, reporter),
   };
 }

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nodeProcesses, succeeded } from '../../platform/index.js';
-import { TOOLS } from './real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 export interface TestNamespaces {
   name(prefix: string): string;
@@ -22,7 +22,7 @@ export function testNamespaces(admin: string): TestNamespaces {
     },
     removeAll: async () => {
       if (!named.length) return;
-      const kubectl = (...args: string[]) => succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] });
+      const kubectl = (...args: string[]) => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] });
       const volumes = (JSON.parse(await kubectl('get', 'persistentvolumes', '-o', 'json')) as { items: { metadata: { name: string }; spec: { claimRef?: { namespace: string } } }[] }).items
         .filter((volume) => named.includes(volume.spec.claimRef?.namespace ?? '')).map((volume) => `persistentvolume/${volume.metadata.name}`);
       for (const namespace of named) await kubectl('delete', 'pods', '--all', '-n', namespace, '--grace-period=0', '--force', '--ignore-not-found', '--wait=false');

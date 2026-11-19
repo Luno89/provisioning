@@ -6,8 +6,8 @@ import { reopening } from '@koala/engine-core/reopening';
 import { nodeProcesses, nodeStreams, succeeded } from '../../platform/index.js';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import { egressBehaviour } from '../testing/egress-behaviour.js';
-import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { startK3s, type RealK3s } from '../testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { EgressProxyService, PROXY_NAMESPACE } from './EgressProxyService.js';
 import { EgressService } from './EgressService.js';
 
@@ -18,7 +18,7 @@ const PROXY_MANIFEST = resolve(import.meta.dirname, '../../../../../k8s/koala-eg
 describe('the egress proxy on a real cluster', () => {
   let k3s: RealK3s;
   let adminFile: string;
-  const admin = (...args: string[]): Promise<string> => succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
+  const admin = (...args: string[]): Promise<string> => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
 
   beforeAll(async () => {
     k3s = await startK3s();
@@ -33,7 +33,7 @@ describe('the egress proxy on a real cluster', () => {
 
   it('a revoked grant leaves the proxy\'s config once the proxy answers again', async () => {
     const db = await testDatabase();
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'home', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-egress-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, serviceAccount: k3s.account });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'home', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-egress-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account });
     const egress = new EgressService({ store: db.infrastructure, proxy: new EgressProxyService({ kube: access, secret: 'egress-test-secret' }), again: () => reopening(200), log: () => undefined });
     await db.infrastructure.saveEgressRequest({ id: 'r1', ownerId: 'owner', agentSlug: 'executor', host: 'example.com', why: 'docs', status: 'requested', createdAt: 'x', updatedAt: 'x' });
     const held = async (): Promise<string> => admin('exec', '-n', PROXY_NAMESPACE, 'deploy/egress-proxy', '-c', 'squid', '--', 'cat', '/etc/squid/grants/acls.conf');

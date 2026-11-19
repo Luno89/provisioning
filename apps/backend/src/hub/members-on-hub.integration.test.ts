@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { leaseMongo, type MongoLease } from '../platform/lib/mongo-lease.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startModelStandIn, type ModelStandIn } from '../models/testing/model-stand-in.js';
 import { call, startThreeRoles, until, waiting, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
@@ -11,7 +11,7 @@ const PROJECT = `split-shop-${STAMP}`;
 const GROUP = `sp${STAMP}`.slice(0, 20);
 let roles: ThreeRoles;
 let model: ModelStandIn;
-let mongo: MongoClient;
+let mongo: MongoLease;
 let atInstance: string;
 let ownerHub: string;
 let machineId: string;
@@ -23,18 +23,17 @@ const members: Member[] = [];
 
 const onInstance = (path: string) => `${roles.instance.url}/api${path}`;
 const onHub = (path: string) => `${roles.hub.url}/api/hub${path}`;
-const instanceDb = () => mongo.db(roles.databases.instance);
+const instanceDb = () => mongo.client.db(roles.databases.instance);
 const grants = async (): Promise<Grant[]> => instanceDb().collection('runGrants').find({}).toArray() as unknown as Promise<Grant[]>;
 
 beforeAll(async () => {
   model = await startModelStandIn('Noted.', { holding: true });
   roles = await startThreeRoles('members', { gitea: true, instanceWorkers: ['engine'] });
-  mongo = new MongoClient(roles.mongoUri);
-  await mongo.connect();
+  mongo = await leaseMongo(roles.mongoUri);
 });
 
 afterAll(async () => {
-  await mongo?.close();
+  await mongo?.release();
   await roles?.close();
   await model?.close();
 });

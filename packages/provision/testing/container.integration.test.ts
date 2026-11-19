@@ -1,19 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import { memoryReporter } from './memory-reporter.js';
 import { containerProvider, type ContainerProvider } from './container.js';
+import { containersOn, throwawayLabel } from './containers.js';
 import { localCommands } from '../src/local-commands.js';
 import { serviceStep } from '../src/service.js';
 import { removeSteps, runSteps, StepFailed, type Step } from '../src/steps.js';
 
 const IMAGE = 'alpine:3.20';
 const ctx = { commands: localCommands(process.env) };
-const quiet = { line: () => undefined };
 const made: Step<typeof ctx>[] = [];
 afterEach(async () => { await removeSteps(made.splice(0), ctx, memoryReporter()); });
 
-const docker = async (...args: string[]) => (await ctx.commands.run({ command: 'docker', args, accept: [0, 1] }, quiet)).stdout.trim();
+const containers = containersOn(ctx.commands);
 
 function served(command: readonly string[]): { container: ContainerProvider; step: Step<typeof ctx> } {
   const container = containerProvider({ name: `koala-container-${randomUUID().slice(0, 8)}`, image: IMAGE, run: [...throwawayLabel(), '-p', '127.0.0.1::8080'], command, publish: [8080] });
@@ -37,20 +36,20 @@ describe('a service that is a container of this run', () => {
     const { container, step } = served(HTTPD);
     await runSteps([step], ctx, memoryReporter());
     expect(container.published(8080)).toBeGreaterThan(0);
-    expect(await docker('inspect', '-f', '{{.State.Status}}', container.name)).toBe('running');
+    expect((await containers.status(container.name))?.state).toBe('running');
     await removeSteps([step], ctx, memoryReporter());
-    expect(await docker('ps', '-a', '--filter', `name=^${container.name}$`, '--format', '{{.Names}}')).toBe('');
+    expect(await containers.status(container.name)).toBeUndefined();
   });
 
   it('starts the same container again once it was stopped, keeping what it holds', async () => {
     const { container, step } = served(HTTPD);
     await runSteps([step], ctx, memoryReporter());
-    const id = await docker('inspect', '-f', '{{.Id}}', container.name);
-    await docker('stop', container.name);
+    const id = await containers.idOf(container.name);
+    await containers.stop(container.name);
     const reporter = memoryReporter();
     await runSteps([step], ctx, reporter);
     expect(reporter.reported.filter((entry) => entry.kind !== 'line').map((entry) => entry.kind)).toEqual(['started', 'done']);
-    expect(await docker('inspect', '-f', '{{.Id}}', container.name)).toBe(id);
+    expect(await containers.idOf(container.name)).toBe(id);
   });
 
   it('fails once the container exits, with its code and the last it said', async () => {

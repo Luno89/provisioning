@@ -13,7 +13,8 @@ import { startHuggingFaceStandIn, STAND_IN_IMAGE, type HuggingFaceStandIn } from
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
-import { startK3s, TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { startK3s } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -31,7 +32,7 @@ const access = new ClusterAccess({
   folder: mkdtempSync(path.join(tmpdir(), 'koala-cluster-steps-')),
   processes: nodeProcesses,
   streams: nodeStreams,
-  tools: TOOLS,
+  tools: CLUSTER_TOOL_PATHS,
   serviceAccount: k3s.account,
 });
 const KOALA: Reach = access.own();

@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SHARED_VARIABLE } from '@koala/engine-core/testing/shared';
-import { THIS_CHECKOUT } from '@koala/engine-core/testing/throwaway-containers';
+import { THIS_CHECKOUT } from './containers.js';
 import { localCommands } from '../src/local-commands.js';
 import { roomStep } from '../src/room.js';
 import { removeSteps, runSteps, type Step } from '../src/steps.js';

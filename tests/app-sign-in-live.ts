@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import type { ChildProcess } from 'node:child_process';
 import axios, { type AxiosInstance } from 'axios';
 import { madeHere } from './lib/made-here.js';
-import { devKoalaApi, devKoalaEnv, devKubectl, devOwner, devPortForward } from './lib/dev-stack.js';
+import { devKoalaApi, devKoalaEnv, devKubectl, devOwner, devPortForward, type DevPortForward } from './lib/dev-stack.js';
 import { until, waiting, Hopeless } from './lib/until.js';
 
 const NAME = `hermes-${Date.now().toString(36)}`;
@@ -32,13 +31,13 @@ const mine = async (api: AxiosInstance): Promise<Deployment[]> => (await api.get
 async function main(): Promise<void> {
   const owner = await devOwner();
   const api = client(owner.cookie);
-  const machine = devKoalaEnv().INSTANCE_MACHINE_ID;
+  const machine = (await devKoalaEnv()).INSTANCE_MACHINE_ID;
   assert.ok(machine, 'dev\'s Koala names no INSTANCE_MACHINE_ID, so it runs on no machine of its own');
   const cluster = `machine-${machine}`;
   const apps = madeHere<Deployment>({ name: 'deployments', list: () => mine(api), idOf: (app) => app.id, stampOf: () => undefined });
   await apps.before();
   let id: string | undefined;
-  let forward: ChildProcess | undefined;
+  let forward: DevPortForward | undefined;
 
   try {
     const deployed = await stage(`a Hermes, ${NAME}, deploys on the cluster of the machine Koala runs on, ${cluster}, with a password Koala made for it`, async () => {
@@ -80,12 +79,12 @@ async function main(): Promise<void> {
     });
 
     await stage('the dashboard signs in its password, and refuses the old default and anyone not signed in', async () => {
-      forward = devPortForward(namespace, 'svc/hermes', `${LOCAL_PORT}:9119`);
+      forward = await devPortForward(namespace, 'svc/hermes', `${LOCAL_PORT}:9119`);
       const hermes = axios.create({ baseURL: `http://127.0.0.1:${LOCAL_PORT}`, proxy: false, validateStatus: () => true, timeout: 10_000 });
       const providers = await until('the dashboard answering through the port-forward', async () => {
         const answer = await hermes.get('/api/auth/providers');
         return answer.status === 200 ? answer.data as object : waiting(`the dashboard answered ${answer.status}: ${JSON.stringify(answer.data).slice(0, 200)}`);
-      }, async () => (forward?.exitCode === null ? undefined : 'the port-forward to the dashboard exited'));
+      }, async () => (!forward?.exited() ? undefined : 'the port-forward to the dashboard exited'));
       const listed = JSON.stringify(providers);
       const provider = /"(?:id|name)":"(basic[^"]*)"/.exec(listed)?.[1] ?? 'basic';
       const signedOut = (await hermes.get('/api/auth/me')).status;
@@ -101,7 +100,7 @@ async function main(): Promise<void> {
       assert.equal(me, 200, 'the session the password made does not open the dashboard');
     });
   } finally {
-    forward?.kill();
+    forward?.stop();
     if (id) {
       await stage(`${NAME} destroyed`, async () => {
         const gone = await api.delete(`/api/deployments/${id}`);

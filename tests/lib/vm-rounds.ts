@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process';
+import { hostContainers } from './dead-states.js';
 import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,8 +57,8 @@ async function main(): Promise<void> {
   mkdirSync(LOGS, { recursive: true });
 
   const commit = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  const image = buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
-  execFileSync('docker', ['tag', image, 'nowrinkles/app:dev']);
+  const image = await buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
+  await hostContainers.tag(image, 'nowrinkles/app:dev');
   console.log(`  ${image} is nowrinkles/app:dev`);
 
   const available = availableMemoryMB();

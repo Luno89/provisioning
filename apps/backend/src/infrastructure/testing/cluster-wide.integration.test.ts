@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, succeeded } from '../../platform/index.js';
 import { clusterWide, namespacesOf } from './cluster-wide.js';
-import { startK3s, TOOLS, type RealK3s } from './real-k3s.js';
+import { startK3s, type RealK3s } from './real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 let k3s: RealK3s;
 let kubeconfig: string;
-const kubectl = (...args: string[]) => succeeded(nodeProcesses, { command: TOOLS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] });
+const kubectl = (...args: string[]) => succeeded(nodeProcesses, { command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] });
 
 beforeAll(async () => {
   k3s = await startK3s();

@@ -3,8 +3,7 @@ import { dirname } from 'node:path';
 import { MongoBinary } from 'mongodb-memory-server';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { bytes, freeAt, processProvider, type ProcessProvider, type Provider, type ServiceContext } from '@koala/provision';
-import { mongoClientFor } from '../lib/collection.js';
-import { ensureReplicaSet } from '../lib/replica-set.js';
+import { leaseMongo } from '../lib/mongo-lease.js';
 
 export interface TestMongo extends Provider<ServiceContext> {
   address(): string;
@@ -70,10 +69,6 @@ export function testMongo(dbPath: string): TestMongo {
 }
 
 export async function madePrimary(mongo: TestMongo): Promise<void> {
-  const client = mongoClientFor(mongo.uri());
-  try {
-    await ensureReplicaSet(client);
-  } finally {
-    await client.close();
-  }
+  const lease = await leaseMongo(mongo.uri());
+  await lease.release();
 }

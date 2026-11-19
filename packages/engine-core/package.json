@@ -63,10 +63,6 @@
       "types": "./testing/shared.ts",
       "default": "./testing/shared.ts"
     },
-    "./testing/throwaway-containers": {
-      "types": "./testing/throwaway-containers.ts",
-      "default": "./testing/throwaway-containers.ts"
-    },
     "./child-env": {
       "types": "./src/child-env.ts",
       "default": "./src/child-env.ts"

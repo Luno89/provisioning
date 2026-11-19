@@ -18,6 +18,11 @@ import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
 import type { DestroyAppArgs } from '../activities/DestroyAppActivity.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
+import type { ProvisionPieceWorkflow } from './ProvisionPieceWorkflow.js';
+import type { ProvisionPieceRun } from '../activities/ProvisionPieceActivity.js';
+import type { ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisionPieceInput } from '../infrastructure/index.js';
+import { provisionPieceStart } from './provision-piece.js';
 import { testWorker } from './testing/test-worker.js';
 import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
@@ -103,6 +108,7 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
       DeployAppActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'deploy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'deployed', msg: 'deployed', displayUrl: '' }; },
       CheckWorkloadActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'check', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { health: 'healthy', reason: '' }; },
       DestroyAppActivity: async (args: DestroyAppArgs) => { handed.push({ activity: 'destroy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'destroyed', msg: 'destroyed' }; },
+      ProvisionPieceActivity: async (run: ProvisionPieceRun) => { handed.push({ activity: 'piece', kubeconfig: run.kubeconfig }); },
     },
   });
   const stream = await testWorker(env, {
@@ -158,5 +164,21 @@ describe('a machine\'s own cluster under the deploy and destroy workflows', () =
     await working(() => destroy('books'));
     expect(host.active).toBe(true);
     expect((await stored()).status).toBe('healthy');
+  });
+});
+
+describe('a machine\'s own cluster under a piece of a Koala\'s setup', () => {
+  it('a piece for the machine starts k3s there, records it running with its kubeconfig sealed, hands the piece that kubeconfig, and stops k3s once nothing else is on it', async () => {
+    const target: ProvisionTarget = { kind: 'machine', clusterId: 'machine-desk', machine: 'desk', deviceId: DESK.id };
+    const args: ProvisionPieceInput = { ownerId: 'bo', recordId: `provision-machine-desk~${Math.random().toString(36).slice(2, 8)}`, target, revision: 3, piece: 'monitoring' };
+    const result = await working(async () => (await world.client.workflow.start<typeof ProvisionPieceWorkflow>('ProvisionPieceWorkflow', provisionPieceStart(args, QUEUE))).result());
+    expect(result).toEqual({ ok: true });
+    expect(handed).toEqual([{ activity: 'piece', kubeconfig: ONE_MESH }]);
+    expect(host.busyWhileStarting).toEqual(['starting its cluster']);
+    expect(host.active).toBe(false);
+    expect(host.wantedNow).toBe(false);
+    const record = await stored();
+    expect(record.status).toBe('stopped');
+    expect(decryptValue(record.kubeconfigEnc!, KEY)).toBe(ONE_MESH);
   });
 });

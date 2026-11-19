@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { hostContainers } from './lib/dead-states.js';
 import { join, resolve } from 'node:path';
 import { checkedThrough, HOTFIX, HOTFIX_STEPS, nextVersion, RELEASE_SIGNERS, RELEASE_STEPS, roundsOf, shippedThrough, signingKeyProblem, stillToRun, tagMessage, type StepPassed } from './lib/gates.js';
 import { availableMemoryMB } from './lib/vm-rounds.js';
@@ -38,8 +39,8 @@ async function main(): Promise<void> {
     const left = stillToRun(RELEASE_STEPS, already);
     if (already.length) console.log(`  already passed for ${commit.slice(0, 12)}: ${already.map((step) => step.script.replace(/^test:/, '')).join(', ')}`);
     if (left.length === 0) return { checked: already, failed: [] };
-    const image = buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
-    execFileSync('docker', ['tag', image, 'nowrinkles/app:dev']);
+    const image = await buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
+    await hostContainers.tag(image, 'nowrinkles/app:dev');
     console.log(`  ${image} is nowrinkles/app:dev for the VM suites`);
     const available = availableMemoryMB();
     const rounds = roundsOf(left, available);
@@ -86,12 +87,12 @@ async function main(): Promise<void> {
   const started = Date.now();
   let steps: StepPassed[];
   if (HOTFIXING) {
-    buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
+    await buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
     steps = runSteps(REPO, commit, HOTFIX_STEPS, {});
   } else {
     const { checked, failed } = await runChecks();
     if (failed.length) throw new Error(`${failed.length} release step${failed.length === 1 ? '' : 's'} failed, so nothing is tagged; the ones that passed are kept for this commit:\n  ${failed.join('\n  ')}`);
-    buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
+    await buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
     steps = RELEASE_STEPS.map((step) => checked.find((passed) => passed.script === step.script)!);
   }
   writeRecord(REPO, { ...(readRecord(REPO, commit) ?? record), shipped, released: { at: new Date().toISOString(), steps, version, previous, ...(HOTFIXING ? { hotfix: true as const } : {}) } });

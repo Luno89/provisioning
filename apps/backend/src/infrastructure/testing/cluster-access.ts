@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nodeProcesses, nodeStreams, type Database, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
 import type { ServiceAccount } from '../lib/cluster-places.js';
-import { ClusterAccess } from '../services/ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from '../services/ClusterAccess.js';
 
 export interface TestClusterAccess {
   dataKey?: SecretKey | undefined;
@@ -32,7 +32,7 @@ export const testClusterAccess = (db: Pick<Database, 'infrastructure'>, options:
   folder: options.folder ?? mkdtempSync(join(tmpdir(), 'koala-test-clusters-')),
   processes: options.processes ?? (options.answers ? answering(options.answers) : nodeProcesses),
   streams: options.streams ?? nodeStreams,
-  tools: { kubectl: 'kubectl', helm: 'helm' },
+  tools: CLUSTER_TOOL_PATHS,
   clusters: db.infrastructure,
   dataKey: options.dataKey,
   serviceAccount: options.serviceAccount,

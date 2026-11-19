@@ -5,7 +5,7 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ClusterAccess } from '../../infrastructure/index.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { mcpReachFrom } from './McpReach.js';
 import { testNamespaces } from '../../infrastructure/testing/test-namespaces.js';
 
@@ -22,7 +22,7 @@ describe('reaching a person\'s MCP server through ClusterAccess', () => {
     const namespace = MCP;
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't', meshIp: '100.64.0.7', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
     await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', machineId: 'nas', status: 'stopped', ownerId: 'bo', createdAt: 't' } as ClusterMetadata);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-mcp-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY, serviceAccount: k3s.account });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-mcp-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY, serviceAccount: k3s.account });
     await access.kubectl('machine-desk', ['create', 'namespace', namespace]);
     await access.kubectl('machine-desk', ['create', 'service', 'nodeport', 'gitapp', '-n', namespace, '--tcp=8080:8080']);
     const nodePort = Number(await access.kubectl('machine-desk', ['get', 'service', 'gitapp', '-n', namespace, '-o', 'jsonpath={.spec.ports[0].nodePort}']));

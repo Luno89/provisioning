@@ -5,8 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { TOOLS } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { ClusterProxyService } from './ClusterProxyService.js';
 
 const KEY = 'test-key' as never;
@@ -23,7 +22,7 @@ describe('forwarding to a service in a cluster through ClusterAccess', () => {
     const db = await testDatabase();
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata);
     await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', machineId: 'nas', status: 'stopped', ownerId: 'bo', createdAt: 't' } as ClusterMetadata);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-proxy-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-proxy-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.kubectl('machine-desk', ['-n', 'kube-system', 'rollout', 'status', 'deployment/coredns']);
     const proxy = new ClusterProxyService(access, async () => false);
     const dns = { service: 'kube-dns', namespace: 'kube-system', remotePort: 53 };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../apps/backend/src/platform/lib/mongo-lease.js';
 import { temporal } from '@temporalio/proto';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set BIG_RUN_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model deployment the run should use');
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
-  const host = liveEngineHost(db);
+  const host = await liveEngineHost(db);
   const client = await getTemporalClient();
 
   const runnable = await host.registry.runnable(OWNER, AGENT);
@@ -66,13 +66,12 @@ async function main(): Promise<void> {
   console.log(`[3/4] ${runs.length} executions, ${events} events, the largest ${(largest / 1024).toFixed(0)} KB`);
 
   const { uri, dbName } = mongoTarget(process.env);
-  const mongo = new MongoClient(uri);
-  await mongo.connect();
-  const [stored] = await mongo.db(dbName).collection('temporal_payload_chunks').aggregate<{ chunks: number; bytes: number; largest: number }>([
+  const mongo = await leaseMongo(uri);
+  const [stored] = await mongo.client.db(dbName).collection('temporal_payload_chunks').aggregate<{ chunks: number; bytes: number; largest: number }>([
     { $match: { workflowId: runId } },
     { $group: { _id: null, chunks: { $sum: 1 }, bytes: { $sum: { $binarySize: '$data' } }, largest: { $max: { $binarySize: '$data' } } } },
   ]).toArray();
-  await mongo.close();
+  await mongo.release();
   console.log(`[4/4] stored outside Temporal: ${stored?.chunks ?? 0} payloads, ${((stored?.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB in all, the largest ${((stored?.largest ?? 0) / 1024).toFixed(0)} KB`);
   console.log(`      answer: ${JSON.stringify(result.outputs).slice(0, 300)}`);
 

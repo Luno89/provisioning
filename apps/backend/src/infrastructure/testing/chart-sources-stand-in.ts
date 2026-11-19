@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { TOOLS } from './real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 export interface ChartSourcesStandIn {
   url: string;
@@ -35,8 +35,8 @@ export async function chartSourcesStandIn(): Promise<ChartSourcesStandIn> {
       const path = repository.replace(/^https:\/\//, '');
       const folder = join(served, path);
       mkdirSync(folder, { recursive: true });
-      execFileSync(TOOLS.helm, ['package', chart, '--destination', folder]);
-      execFileSync(TOOLS.helm, ['repo', 'index', folder, '--url', path ? `${url}/${path}` : url]);
+      execFileSync(CLUSTER_TOOL_PATHS.helm, ['package', chart, '--destination', folder]);
+      execFileSync(CLUSTER_TOOL_PATHS.helm, ['repo', 'index', folder, '--url', path ? `${url}/${path}` : url]);
     },
     close: () => new Promise((closed) => { server.close(() => closed()); }),
   };

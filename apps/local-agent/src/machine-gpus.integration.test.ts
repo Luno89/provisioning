@@ -1,12 +1,11 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { removeThrowaway, throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
+import { localCommands } from '@koala/provision';
+import { containersOn, throwawayLabel } from '@koala/provision/testing';
 
-const run = promisify(execFile);
+const containers = containersOn(localCommands(process.env));
 const REPO = path.resolve(import.meta.dirname, '../../..');
 const pins = JSON.parse(readFileSync(path.join(REPO, 'dependencies.pins.json'), 'utf8')) as { components: { kind: string; name: string; version: string }[] };
 const NODE_IMAGE = `node:${pins.components.find((pin) => pin.kind === 'image' && pin.name === 'node')!.version}`;
@@ -18,25 +17,25 @@ const TWO_CARDS_ON_PCI = `${card('01:00.0', 'nvidia')}\n${card('06:00.0', 'nvidi
 
 const started: string[] = [];
 afterEach(async () => {
-  for (const name of started.splice(0)) await removeThrowaway(name);
+  for (const name of started.splice(0)) await containers.remove(name);
 });
 
 async function machine(nvidiaSmi: string | undefined, cdi: boolean, runtime = true, lspci = TWO_CARDS_ON_PCI): Promise<unknown> {
   const name = `koala-gpu-read-${randomUUID().slice(0, 8)}`;
   const coverage = process.env.NODE_V8_COVERAGE;
-  await run('docker', [
-    'run', '-d', '--name', name, ...throwawayLabel(), '--user', `${process.getuid!()}:${process.getgid!()}`, '-v', `${REPO}:${REPO}:ro`,
+  await containers.run(name, [
+    ...throwawayLabel(), '--user', `${process.getuid!()}:${process.getgid!()}`, '-v', `${REPO}:${REPO}:ro`,
     ...(coverage ? ['-v', `${coverage}:${coverage}`, '-e', `NODE_V8_COVERAGE=${coverage}`] : []),
     NODE_IMAGE, 'sleep', 'infinity',
   ]);
   started.push(name);
-  const asRoot = (script: string) => run('docker', ['exec', '--user', '0', name, 'sh', '-c', script]);
+  const asRoot = (script: string, ...args: string[]) => containers.exec(name, ['sh', '-c', script, ...args], { user: '0' });
   if (nvidiaSmi !== undefined) await asRoot(`printf '#!/bin/sh\\n%s\\n' '${nvidiaSmi}' > /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi`);
-  await run('docker', ['exec', '--user', '0', name, 'sh', '-c', 'printf "%s" "$1" > /usr/local/share/pci-cards && printf \'#!/bin/sh\\n[ "$*" = "-vmmnnk" ] || exit 64\\ncat /usr/local/share/pci-cards\\n\' > /usr/local/bin/lspci && chmod +x /usr/local/bin/lspci', 'sh', lspci]);
+  await asRoot('printf "%s" "$1" > /usr/local/share/pci-cards && printf \'#!/bin/sh\\n[ "$*" = "-vmmnnk" ] || exit 64\\ncat /usr/local/share/pci-cards\\n\' > /usr/local/bin/lspci && chmod +x /usr/local/bin/lspci', 'sh', lspci);
   if (runtime) await asRoot('printf "#!/bin/sh\\n" > /usr/bin/nvidia-container-runtime && chmod +x /usr/bin/nvidia-container-runtime');
   if (cdi) await asRoot('printf "#!/bin/sh\\n" > /usr/bin/nvidia-cdi-hook && chmod +x /usr/bin/nvidia-cdi-hook');
-  const { stdout } = await run('docker', ['exec', '-e', 'HOME=/tmp', name, 'node', TSX, READER], { maxBuffer: 1 << 20 });
-  return JSON.parse(stdout.trim().split('\n').at(-1)!);
+  const stdout = await containers.exec(name, ['node', TSX, READER], { env: { HOME: '/tmp' } });
+  return JSON.parse(stdout.split('\n').at(-1)!);
 }
 
 describe('the GPUs a machine reports, read by the agent on a machine of its own', () => {

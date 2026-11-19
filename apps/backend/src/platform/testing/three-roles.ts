@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { MongoClient } from 'mongodb';
+import { leaseMongo } from '../lib/mongo-lease.js';
 import { ignore } from '@koala/engine-core/failures';
 import { expect, inject } from 'vitest';
 import { waiting, waitUntil, type Found, type Waiting } from '@koala/provision';
@@ -166,10 +166,9 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await rm(rootData, { recursive: true, force: true });
     await rm(instanceData, { recursive: true, force: true });
     await rm(hubData, { recursive: true, force: true });
-    const client = new MongoClient(mongoUri);
-    await client.connect();
+    const { client, release } = await leaseMongo(mongoUri);
     for (const database of Object.values(databases)) await client.db(database).dropDatabase();
-    await client.close();
+    await release();
   };
   const giteaFor = (url: string) => (gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: url } : {});
   const rootData = await mkdtemp(join(tmpdir(), `koala-${label}-root-data-`));
@@ -204,7 +203,10 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
-    const instanceEnv = { ...plan.instanceEnv, ...shared, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
+    const gatewayPort = await portToHandOn();
+    const temporalTls = dirname(inject('temporalCa'));
+    const machineGateway = { MACHINE_GATEWAY_PORT: String(gatewayPort), MACHINE_TEMPORAL_ADDRESS: `127.0.0.1:${gatewayPort}`, MACHINE_GATEWAY_TLS_CERT: join(temporalTls, 'server.crt'), MACHINE_GATEWAY_TLS_KEY: join(temporalTls, 'server.key') };
+    const instanceEnv = { ...plan.instanceEnv, ...shared, ...machineGateway, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
     const [instance, hub] = await Promise.all([
       startRole('instance', instanceEnv, ports.instance),
       startRole('hub', { ...plan.hubEnv, ...shared, DATA_DIR: hubData, ...giteaFor(place.hubUrl) }, ports.hub),

@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set CONTINUE_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model deployment the run should use');
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
-  const host = liveEngineHost(db);
+  const host = await liveEngineHost(db);
   const client = await getTemporalClient();
 
   const runnable = await host.registry.runnable(OWNER, AGENT);

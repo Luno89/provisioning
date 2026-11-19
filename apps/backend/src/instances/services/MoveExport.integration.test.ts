@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { ClusterAccess, startedMachine } from '../../infrastructure/index.js';
-import { startK3s, TOOLS, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { startK3s, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { trustedKeys } from '../lib/identity-token.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { MoveExport, moveClusterOn, SELF_UPGRADE } from './MoveExport.js';
@@ -36,7 +37,7 @@ describe('a pool instance stopping for a move and taking work again, on a real c
   afterAll(async () => { await k3s?.stop(); });
 
   it('pauses its self-upgrade, scales its apps to nothing remembering how many ran, and starts them again as they were', async () => {
-    const access = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-move-export-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
+    const access = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-move-export-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS });
     const own = startedMachine('machine-pool', k3s.admin);
     await access.apply(own, appCrds);
     await access.kubectl(own, ['wait', '--for=condition=Established', 'crd/ingressroutes.traefik.io', 'crd/middlewares.traefik.io', 'crd/probes.monitoring.coreos.com', 'crd/servicemonitors.monitoring.coreos.com', 'crd/podmonitors.monitoring.coreos.com', 'crd/prometheusrules.monitoring.coreos.com']);

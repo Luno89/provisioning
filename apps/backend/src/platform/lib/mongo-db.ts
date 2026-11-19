@@ -14,14 +14,12 @@ import { MongoMemoryStore } from '../../memory/store.js';
 import { MongoChecksStore } from '../../checks/store.js';
 import { MongoInfrastructureStore } from '../../infrastructure/store.js';
 import { MongoEngineStore } from '../../engine/store.js';
-import { MongoClient, type Db } from 'mongodb';
+import type { Db } from 'mongodb';
 import type { Database } from './db-interface.js';
 import type { MongoTarget } from './mongo-target.js';
 import type { SecretKey } from './crypto.js';
-import { clientOptionsFor } from './collection.js';
-import { ensureReplicaSet } from './replica-set.js';
+import { leaseMongo, type MongoLease } from './mongo-lease.js';
 import type { DependencyReporter } from './dependencies.js';
-import { reportMongoReach } from './mongo-reach.js';
 import { fencedDb } from './fenced-db.js';
 import { theFence } from './fence.js';
 
@@ -33,7 +31,7 @@ export interface DatabaseSettings {
 }
 
 export class MongoDB implements Database {
-  private client: MongoClient | null = null;
+  private lease: MongoLease | null = null;
   private db: Db | null = null;
   private readonly reporters: DependencyReporter[] = [];
   readonly platform: MongoPlatformStore;
@@ -71,11 +69,8 @@ export class MongoDB implements Database {
   async init(): Promise<void> {
     const { uri, dbName } = this.settings.mongo;
 
-    this.client = new MongoClient(uri, clientOptionsFor(uri));
-    for (const reporter of this.reporters) reportMongoReach(this.client, reporter);
-    await this.client.connect();
-    await ensureReplicaSet(this.client);
-    this.db = fencedDb(this.client.db(dbName), theFence());
+    this.lease = await leaseMongo(uri, this.reporters);
+    this.db = fencedDb(this.lease.client.db(dbName), theFence());
 
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();
@@ -99,13 +94,13 @@ export class MongoDB implements Database {
   }
 
   reportReachTo(reporter: DependencyReporter): void {
-    if (this.client) throw new Error('the database reports how Mongo answers only to those told before it connects');
+    if (this.lease) throw new Error('the database reports how Mongo answers only to those told before it connects');
     this.reporters.push(reporter);
   }
 
   transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
-    if (!this.client) throw new Error('the database is not connected');
-    return this.client.withSession((session) => session.withTransaction(() => work({ session })));
+    if (!this.lease) throw new Error('the database is not connected');
+    return this.lease.client.withSession((session) => session.withTransaction(() => work({ session })));
   }
 
   async dropDatabase(): Promise<void> {
@@ -113,9 +108,9 @@ export class MongoDB implements Database {
   }
 
   async close(): Promise<void> {
-    if (this.client) {
-      await this.client.close();
-      this.client = null;
+    if (this.lease) {
+      await this.lease.release();
+      this.lease = null;
       this.db = null;
     }
   }

@@ -6,9 +6,8 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedMachine } from '../lib/cluster-places.js';
-import { TOOLS } from '../testing/real-k3s.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
-import { ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
 import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
 import { theFence } from '../../platform/index.js';
 
@@ -38,7 +37,7 @@ async function door(records: ClusterMetadata[], overrides: Partial<ClusterAccess
     folder: mkdtempSync(join(tmpdir(), 'koala-cluster-access-')),
     processes: nodeProcesses,
     streams: nodeStreams,
-    tools: TOOLS,
+    tools: CLUSTER_TOOL_PATHS,
     dataKey: KEY,
     serviceAccount: k3s.account,
     ...overrides,

@@ -7,7 +7,7 @@ import { nodeStreams } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedMachine } from '../../infrastructure/lib/cluster-places.js';
 import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { EXEC_PIDS, GROUPED_EXEC, STOP_GROUPED_EXEC } from './cluster-backend.js';
 import { createKubeRunner, createKubeStreamer, type KoalasCluster, type KubeRunner } from './kube.js';
 import { SEND_IN } from './workspace-documents.js';
@@ -72,7 +72,7 @@ describe('the sandbox runner against a real k3s', () => {
   beforeAll(async () => {
     const access = testClusterAccess(await testDatabase());
     const kubeconfig = await access.kubeconfigOf(startedMachine('machine-sandbox', k3s.admin));
-    cluster = { start: async (args, io) => nodeStreams.start({ command: TOOLS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] }, io) };
+    cluster = { start: async (args, io) => nodeStreams.start({ command: CLUSTER_TOOL_PATHS.kubectl, args: ['--kubeconfig', kubeconfig, ...args] }, io) };
     run = createKubeRunner(cluster);
     for (const step of [
       ['create', 'namespace', namespace],

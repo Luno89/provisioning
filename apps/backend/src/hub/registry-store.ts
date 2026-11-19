@@ -1,10 +1,9 @@
-import { MongoClient, type Db } from 'mongodb';
-import { projectDatabase, type HubInvite, type HubMember, type SharedProject } from './hub.js';
-import type { HubStore, SharedProjectStore } from './hub-store.js';
-import type { HubChange, SyncedDoc } from './hub-sync.js';
-import type { HubRequest, HubStatus } from './hub-board.js';
-import { clientOptionsFor } from '../../platform/lib/collection.js';
-import { ensureReplicaSet } from '../../platform/lib/replica-set.js';
+import type { Db } from 'mongodb';
+import { leaseMongo, type MongoLease } from '../platform/index.js';
+import { projectDatabase, type HubInvite, type HubMember, type SharedProject } from './lib/hub.js';
+import type { HubStore as HubRegistryStore, SharedProjectStore } from './lib/hub-store.js';
+import type { HubChange, SyncedDoc } from './lib/hub-sync.js';
+import type { HubRequest, HubStatus } from './lib/hub-board.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
   if (!doc) return undefined;
@@ -12,8 +11,8 @@ const without = <T>(doc: Record<string, unknown> | null, key: string, as: string
   return { ...rest, [as]: String(_id) } as T;
 };
 
-export function mongoHubStore(uri: string, registry: string): HubStore {
-  const client = new MongoClient(uri, clientOptionsFor(uri));
+export function mongoHubStore(uri: string, registry: string): HubRegistryStore {
+  let lease: MongoLease | undefined;
   let db: Db | undefined;
   const reg = () => {
     if (!db) throw new Error('the hub store is not open');
@@ -21,7 +20,10 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
   };
 
   const project = (id: string): SharedProjectStore => {
-    const own = () => client.db(projectDatabase(id));
+    const own = () => {
+      if (!lease) throw new Error('the hub store is not open');
+      return lease.client.db(projectDatabase(id));
+    };
     return {
       async members() {
         return (await own().collection('members').find({}).toArray()).map((doc) => without<HubMember>(doc, '_id', 'personId')!);
@@ -77,12 +79,16 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
 
   return {
     async init() {
-      await client.connect();
-      await ensureReplicaSet(client);
-      db = client.db(registry);
+      lease = await leaseMongo(uri);
+      db = lease.client.db(registry);
       await db.collection('shared_memberships').createIndex({ personId: 1, projectId: 1 }, { unique: true });
     },
-    async close() { await client.close(); },
+    async close() {
+      const held = lease;
+      lease = undefined;
+      db = undefined;
+      await held?.release();
+    },
     async saveProject(shared) {
       const { id, ...rest } = shared;
       await reg().collection('shared_projects').replaceOne({ _id: id as never }, rest, { upsert: true });

@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { TOOLS } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
@@ -22,7 +21,7 @@ describe('checking each app on a real cluster', () => {
     const db = await testDatabase();
     const machine = { id: 'machine-apps', name: 'machine-apps', provider: 'machine', machineId: 'apps', status: 'healthy', ownerId: 'u1', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
     await db.infrastructure.saveCluster(machine);
-    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-apps-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS, dataKey: KEY });
+    const access = new ClusterAccess({ clusters: db.infrastructure, here: { koalaMachineId: 'dev1', root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-apps-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, dataKey: KEY });
     await access.kubectl('machine-apps', ['create', 'namespace', HERE]);
     const app = (id: string, namespace: string): DeploymentMetadata =>
       ({ id, name: id, namespace, clusterId: 'machine-apps', strategy: 'helm', appType: 'wordpress', ownerId: 'u1', status: 'running', createdAt: 't' }) as DeploymentMetadata;

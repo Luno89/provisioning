@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
 import { expectReadyOnlySinceStart } from '@koala/provision/testing';
-import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterOnConnect, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterOnConnect, clusterState, kubeconfigOnMesh, machineChartCluster, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
@@ -124,5 +124,15 @@ describe('a machine\'s own cluster', () => {
   it('judges readiness only from a transition since the start, and points the kubeconfig at the mesh', () => {
     expectReadyOnlySinceStart(readySince);
     expect(kubeconfigOnMesh('server: https://localhost:6443', '100.64.0.2')).toBe('server: https://100.64.0.2:6443');
+  });
+});
+
+describe('Koala\'s chart on this machine\'s own k3s', () => {
+  it('reaches this machine\'s k3s with helm and kubectl through its own kubeconfig', async () => {
+    const { machine, calls } = host();
+    const cluster = machineChartCluster(machine, '/home/bo/.local/share/koala/bin/helm');
+    await cluster.helm(['list', '-n', 'nowrinkles']);
+    await cluster.kubectl(['get', 'pods']);
+    expect(calls).toEqual([`/home/bo/.local/share/koala/bin/helm list -n nowrinkles --kubeconfig ${K3S_KUBECONFIG}`, `${K3S_BINARY} kubectl --kubeconfig ${K3S_KUBECONFIG} get pods`]);
   });
 });

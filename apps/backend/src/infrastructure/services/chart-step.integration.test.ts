@@ -5,10 +5,9 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { chartInputs, chartStep, runSteps, StepFailed, type ChartRelease } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
-import { TOOLS } from '../testing/real-k3s.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 import { tinyChart } from '../testing/tiny-chart.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 
 const k3s = inject('k3s');
 const namespaces = testNamespaces(k3s.admin);
@@ -16,7 +15,7 @@ afterAll(async () => { await namespaces.removeAll(); }, 0);
 
 
 function onK3s() {
-  const access = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-chart-step-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
+  const access = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-chart-step-')), processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS });
   return access.chartCluster({ clusterId: 'tiny', kind: 'machine', kubeconfig: k3s.admin });
 }
 

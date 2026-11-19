@@ -48,9 +48,9 @@ async function teardown(): Promise<void> {
   }
   for (const name of ['nw-live-root', WORKER, MAILBOX]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try { run(bin('k3d'), ['cluster', 'delete', CLUSTER]); } catch { /* not created */ }
-  if (ownerId) forgetMeshUser(ownerId);
+  if (ownerId) await forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
-  dropSuiteNamespace(ROOT);
+  await dropSuiteNamespace(ROOT);
 }
 
 async function main(): Promise<void> {
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   step('root starts, and publishes its public key');
   try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  makeSuiteNamespace(ROOT);
+  await makeSuiteNamespace(ROOT);
   run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', `PORT=${ROOT_PORT}`, ...rootIdentity(ROOT_FOR_PODS, { tag: 'instance-live', registry: '127.0.0.1:5001' }),
     '-e', `MESH_LOGIN_SERVER=${DEV_HEADSCALE}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),

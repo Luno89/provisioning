@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const extensions = extensionServiceFor(db);
-  const host = liveEngineHost(db);
+  const host = await liveEngineHost(db);
   const client = await getTemporalClient();
   const stamp = Date.now().toString(36);
   const extension = `live-${stamp}`;

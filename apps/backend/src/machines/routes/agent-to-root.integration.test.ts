@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
-import { koalaInstallProgressPath } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_FOLLOW_PATH, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
 import { runSteps, type Step } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import { joinArgsOf } from '../../../../local-agent/src/join/args.js';
@@ -30,7 +30,7 @@ import { closedAfterEach, quietAccountSides } from '../testing/wiring-world.js';
 
 const closers = closedAfterEach();
 
-async function root() {
+async function root(followBeatMs?: number) {
   const db: Database = await testDatabase();
   const heard: Array<[string, MachineProgress]> = [];
   const instances = new InstanceService(db, {
@@ -55,7 +55,7 @@ async function root() {
   await watched.ready;
   const app = express();
   app.use(express.json());
-  app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
+  app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) }, followBeatMs }));
   const server = http.createServer(app);
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   closers.push(() => new Promise<void>((done) => { server.close(() => done()); }));
@@ -130,8 +130,8 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       }
     };
 
-    async function joinedWithKoala(name?: string) {
-      const world = await root();
+    async function joinedWithKoala(name?: string, followBeatMs?: number) {
+      const world = await root(followBeatMs);
       const { code } = await world.accounts.createJoinCode('bo', name);
       const ctx = await joinContext(world.url, code);
       await runSteps([joinRootStep(world.url)], ctx, memoryReporter());
@@ -140,7 +140,7 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
         rootUrl: world.url, token: ctx.joined!.token, fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
         interrupted: new AbortController().signal, wait: { pause: async () => undefined },
       });
-      return { ...world, deviceId: ctx.joined!.deviceId, said, following };
+      return { ...world, deviceId: ctx.joined!.deviceId, token: ctx.joined!.token, said, following };
     }
 
     async function heard(world: Awaited<ReturnType<typeof root>>, installId: string, progress: MachineProgress, setUp = false): Promise<void> {
@@ -175,6 +175,28 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       const plain = await joinedWithKoala();
       expect(await plain.following).toBe('none');
       expect(plain.said).toEqual([]);
+    });
+
+    it('keeps the follow of an install that has gone quiet open with a beat, so the machine hears root is still there', async () => {
+      const world = await joinedWithKoala('bobby', 25);
+      await world.accounts.recordMeshIp(world.deviceId, '100.64.0.7');
+      expect(await world.accounts.deliverKoala(world.deviceId)).toEqual({ ok: true, value: { placing: true } });
+      await settledOn(world.following, () => world.said.includes('# Putting Koala on this machine'));
+      const quiet = new AbortController();
+      const answer = await fetch(`${world.url}${KOALA_INSTALL_FOLLOW_PATH}`, { headers: { authorization: `Bearer ${world.token}`, accept: 'text/event-stream' }, signal: quiet.signal });
+      expect(answer.status).toBe(200);
+      const decoder = new TextDecoder();
+      let streamed = '';
+      for await (const chunk of answer.body as unknown as AsyncIterable<Uint8Array>) {
+        streamed += decoder.decode(chunk, { stream: true });
+        if (streamed.includes(': beat\n\n')) break;
+      }
+      quiet.abort();
+      expect(streamed).toMatch(/^data: \{"install":\{.+\}\n\n(: beat\n\n)+$/s);
+      expect(world.said).toEqual(['# Putting Koala on this machine']);
+      const installId = (await world.db.instances.getInstances('bo'))[0]!.install!.id;
+      await heard(world, installId, { stage: 'koala', title: 'Koala', state: 'failed', why: 'the image could not be pulled' });
+      expect(await world.following).toBe('failed');
     });
 
     it('is refused a token that is not a machine\'s', async () => {

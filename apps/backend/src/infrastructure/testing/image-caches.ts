@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { localCommands } from '@koala/provision';
+import { containersOn, type Containers } from '@koala/provision/testing';
 
 export const IMAGE_CACHES = [
   { registry: 'docker.io', upstream: 'https://registry-1.docker.io', port: 5101 },
@@ -15,25 +13,17 @@ const REGISTRY_IMAGE = 'registry:2';
 
 export const imageCacheContainer = (registry: string): string => `koala-image-cache-${registry.replace(/\./g, '-')}`;
 
-async function state(name: string): Promise<string | undefined> {
-  try {
-    return (await run('docker', ['inspect', '--format', '{{.State.Status}}', name])).stdout.trim();
-  } catch {
-    return undefined;
-  }
-}
-
-export async function ensureImageCaches(): Promise<void> {
+export async function ensureImageCaches(containers: Containers = containersOn(localCommands(process.env))): Promise<void> {
   for (const cache of IMAGE_CACHES) {
     const name = imageCacheContainer(cache.registry);
-    const now = await state(name);
+    const now = (await containers.status(name))?.state;
     if (now === 'running') continue;
     if (now) {
-      await run('docker', ['start', name]);
+      await containers.start(name);
       continue;
     }
-    await run('docker', [
-      'run', '-d', '--name', name, '--restart', 'unless-stopped',
+    await containers.run(name, [
+      '--restart', 'unless-stopped',
       '-p', `127.0.0.1:${cache.port}:5000`,
       '-v', `${name}:/var/lib/registry`,
       '-e', `REGISTRY_PROXY_REMOTEURL=${cache.upstream}`,

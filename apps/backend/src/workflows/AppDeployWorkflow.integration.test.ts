@@ -14,7 +14,7 @@ import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
 import { InfrastructureService, terraformPlacesFor } from '../infrastructure/services/InfrastructureService.js';
 import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
-import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
@@ -34,7 +34,7 @@ const access = new ClusterAccess({
   folder: mkdtempSync(join(tmpdir(), 'koala-app-deploy-wf-')),
   processes: nodeProcesses,
   streams: nodeStreams,
-  tools: TOOLS,
+  tools: CLUSTER_TOOL_PATHS,
   serviceAccount: k3s.account,
 });
 const steps: ClusterSteps = { access, infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' }, testDataDir())), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }, { dataDir: testDataDir() }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }, testDataDir()), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };

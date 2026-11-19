@@ -96,7 +96,7 @@ export async function followInstall(follow: InstallFollow): Promise<FollowEnd> {
     };
     const lost = (err: unknown): FollowEnd => {
       if (follow.interrupted.aborted) return 'interrupted';
-      const why = quiet.signal.aborted ? reasonOf(quiet.signal.reason) : reasonOf(err);
+      const why = reasonOf(quiet.signal.aborted ? quiet.signal.reason : err);
       if (connected) follow.say(`The connection to root dropped (${why}); following again`);
       connected = false;
       throw new Dropped(why);

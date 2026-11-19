@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { useDependencyHttp } from '@koala/engine-core/http';
 import type { SinkListener } from '@koala/engine-core/telemetry-sdk';
-import { mongoClientFor } from '../lib/collection.js';
 import { answerFailure, dependenciesOf, minioHealthUrl, temporaryStatus, type DependencyId, type DependencyReporter } from '../lib/dependencies.js';
 import type { MongoTarget } from '../lib/mongo-target.js';
-import { reportMongoReach } from '../lib/mongo-reach.js';
+import type { Db } from 'mongodb';
+import { leaseMongo, type MongoLease } from '../lib/mongo-lease.js';
 import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, WebToolSettings } from '../lib/settings.js';
 import { getTemporalClient, reportTemporalTo } from '../lib/temporal-client.js';
 import { MongoPlatformStore } from '../store.js';
@@ -77,11 +77,15 @@ export function dependencyStatesFor(settings: ProcessSettings, options: { record
   return states;
 }
 
-export function workerDependencies(settings: Exclude<ProcessSettings, BackendSettings>, mongo: MongoTarget): DependencyStates {
-  const client = mongoClientFor(mongo.uri);
-  const store = new MongoPlatformStore(() => client.db(mongo.dbName));
+export async function workerDependencies(settings: Exclude<ProcessSettings, BackendSettings>, mongo: MongoTarget): Promise<DependencyStates> {
+  let lease: MongoLease | undefined;
+  const db = (): Db => {
+    if (!lease) throw new Error('this worker has not reached its Mongo yet');
+    return lease.client.db(mongo.dbName);
+  };
+  const store = new MongoPlatformStore(db);
   const states = dependencyStatesFor(settings, { record: (row) => store.saveDependencyState(row) });
-  reportMongoReach(client, states);
-  states.checkWith('mongo', async () => { await client.db(mongo.dbName).command({ ping: 1 }); });
+  lease = await leaseMongo(mongo.uri, [states]);
+  states.checkWith('mongo', async () => { await db().command({ ping: 1 }); });
   return states;
 }

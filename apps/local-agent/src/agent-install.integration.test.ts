@@ -95,6 +95,44 @@ describe('installing an agent a machine lacks', () => {
     expect(outcome.output.split('\n')[0]).toBe("Claude Agent needs a newer Node.js than this machine's v20.11.0");
   });
 
+  describe('with this machine\'s own npm, in a home of its own', () => {
+    let home: string | undefined;
+    beforeEach(async () => {
+      home = process.env.HOME;
+      process.env.HOME = path.join(dir, 'home');
+      await mkdir(process.env.HOME, { recursive: true });
+      await writeFile(path.join(process.env.HOME, '.npmrc'), `prefix=${path.join(dir, 'global')}\noffline=true\naudit=false\nfund=false\nupdate-notifier=false\n`);
+    });
+    afterEach(() => { process.env.HOME = home; });
+
+    const adapter = async (engines?: Record<string, string>): Promise<string> => {
+      const made = path.join(dir, 'made', 'package');
+      await mkdir(made, { recursive: true });
+      await writeFile(path.join(made, 'package.json'), JSON.stringify({ name: 'koala-test-acp', version: '0.91.0', bin: { 'koala-test-acp': 'acp.js' }, ...(engines ? { engines } : {}) }));
+      await writeFile(path.join(made, 'acp.js'), '#!/usr/bin/env node\n');
+      const tarball = path.join(dir, 'koala-test-acp-0.91.0.tgz');
+      execFileSync('tar', ['-czf', tarball, '-C', path.dirname(made), 'package']);
+      return tarball;
+    };
+    const npmEntry = (pkg: string) => ({ name: 'Koala Test Agent', version: '0.91.0', distribution: { npx: { package: pkg } } });
+
+    it('installs the adapter the registry names into the person\'s own global folder, and says what npm said', async () => {
+      const tarball = await adapter();
+      const outcome = await installAgent({ registry: 'koala-test-acp' }, { ...systemInstallDeps(), fetch: registryFetch(npmEntry(tarball), undefined, [], 'koala-test-acp') });
+      expect(outcome.ok, outcome.output).toBe(true);
+      expect(outcome.output.split('\n')[0]).toBe(`Installed ${tarball}`);
+      await access(path.join(dir, 'global', 'bin', 'koala-test-acp'), constants.X_OK);
+    });
+
+    it('says the adapter needs a newer Node.js when this machine\'s npm refuses it for its engine', async () => {
+      const tarball = await adapter({ node: '>=99' });
+      const outcome = await installAgent({ registry: 'koala-test-acp' }, { ...systemInstallDeps(), fetch: registryFetch(npmEntry(tarball), undefined, [], 'koala-test-acp') });
+      expect(outcome.ok).toBe(false);
+      expect(outcome.output.split('\n')[0]).toBe(`Koala Test Agent needs a newer Node.js than this machine's ${process.version}`);
+      await expect(access(path.join(dir, 'global', 'bin', 'koala-test-acp'))).rejects.toThrow();
+    });
+  });
+
   it('takes the build for this machine over npm when the registry lists both', async () => {
     const both = { ...entry, distribution: { ...entry.distribution, npx: { package: 'agy@1.4.0' } } };
     const into = path.join(dir, 'agents', 'antigravity-acp');

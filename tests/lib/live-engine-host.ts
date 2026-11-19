@@ -13,7 +13,7 @@ import { clusterAccessFrom, sharedClusterProxy } from '../../apps/backend/src/in
 import { corpusEndpoints } from '../../apps/backend/src/engine/wiring/web-tools.js';
 import { unindexerFrom } from '../../apps/backend/src/memory/index.js';
 
-export function liveEngineHost(db: Database) {
+export async function liveEngineHost(db: Database) {
   const keys = loadKeys(process.env);
   const extensions = extensionServiceFor(db);
   const clusters = clusterSettingsFrom(process.env);
@@ -26,7 +26,7 @@ export function liveEngineHost(db: Database) {
     models: createModelService({ db, dataKey: keys.data, ...clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the live engine host runs no Terraform' }, devDataDir)), mesh: { off: 'the live engine host reaches no mesh' }, endpointRules: { lab: false }, dataDir: devDataDir }),
     stores: storesFromDatabase(db, unindexerFrom((ownerId) => corpusEndpoints(webPlace, ownerId))),
     cluster: devKoalasCluster(),
-    registry: devRegistry(),
+    registry: await devRegistry(),
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
     revokeRegistryPushToken: (name: string) => gitea.revokeToken(name),

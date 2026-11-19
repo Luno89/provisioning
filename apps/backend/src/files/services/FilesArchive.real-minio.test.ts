@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
-import { Client } from 'minio';
 import { describe, expect, inject, it } from 'vitest';
 import { storedFilesTwin } from '../testing/stored-files-twin.js';
 import { archiveOldFiles } from './FilesArchive.js';
-import { minioBucketReader } from './ObjectStore.js';
+import { minioBucketReader, minioClient } from './ObjectStore.js';
 
 describe('archiving a real MinIO app\'s buckets', () => {
   it('reads every key of the old buckets, nested ones included, with the type each was stored with', async () => {
     const settings = inject('minio');
-    const client = new Client({ endPoint: settings.endPoint, port: settings.port, useSSL: false, accessKey: settings.accessKey, secretKey: settings.secretKey });
+    const client = minioClient({ ...settings, useSSL: false });
     const bucket = 'koala-files';
     if (!(await client.bucketExists(bucket))) await client.makeBucket(bucket);
     const project = `p-${randomUUID().slice(0, 8)}`;
@@ -18,7 +17,7 @@ describe('archiving a real MinIO app\'s buckets', () => {
     const twin = storedFilesTwin();
     const done = await archiveOldFiles({
       files: twin.files,
-      servers: async () => [{ ownerId: 'bo', appName: 'old', reader: minioBucketReader(settings) }],
+      servers: async () => [{ ownerId: 'bo', appName: 'old', reader: minioBucketReader(client) }],
       async *oldArtifacts() { yield* []; },
       forgetOldArtifacts: async () => 0,
     });

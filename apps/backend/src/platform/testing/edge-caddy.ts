@@ -3,9 +3,8 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import type { Step } from '@koala/provision';
-import { containerProvider, type ContainerContext, type ContainerProvider } from '@koala/provision/testing';
+import { containerProvider, type ContainerContext, type ContainerProvider, throwawayLabel } from '@koala/provision/testing';
 import { caddyStep } from '../wiring/root-services.js';
 
 const CHART_VALUES = resolve(import.meta.dirname, '../../../../../charts/instance/values.yaml');
