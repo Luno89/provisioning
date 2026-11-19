@@ -1,6 +1,6 @@
 import { workFor } from '@koala/engine-core/work-for';
 import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { namesItsWork } from '../../platform/lib/temporal-client.js';
@@ -10,25 +10,21 @@ import { createAgentRegistry } from '../registries/registry.js';
 import { createRunStarter, type WorkflowStarter } from '../registries/run-starter.js';
 import { workflowOfRun, type ProcedureRunInput } from './contracts.js';
 import { temporalWorkflowStarter } from './workflow-starter.js';
-import { testWorker } from '../../workflows/testing/test-worker.js';
+import { environmentForFile, testWorker } from '../../workflows/testing/test-worker.js';
 import { testClient } from '@koala/engine-core/testing/temporal';
-import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestTemporal;
-
-beforeAll(async () => { env = await realTemporalEnvironment(); });
-afterAll(async () => { await env?.teardown(); });
+const file = environmentForFile(realTemporalEnvironment);
 
 describe('a run started through Temporal for a project', () => {
   it('runs as its owner\'s work for that project, and hears every answer, approval and cancel sent to it', async () => {
     const taskQueue = `run-start-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await testWorker(env, {
-      namespace: env.namespace ?? 'default',
+    const worker = await testWorker(file.env, {
+      namespace: file.env.namespace ?? 'default',
       taskQueue,
       workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/run-start.fixture-workflow.ts'), [resolve(import.meta.dirname, '../../workflows/telemetry-interceptors.ts')]),
       activities: { SeenActivity: async () => workFor() ?? null },
     });
-    const naming = testClient(env, { interceptors: { workflow: [namesItsWork] } });
+    const naming = testClient(file.env, { interceptors: { workflow: [namesItsWork] } });
     const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => temporalWorkflowStarter(naming.workflow), taskQueue, newRunId: () => `run-${taskQueue}` });
     await worker.runUntil(async () => {
       const { runId } = await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', projectId: 'p1' });
@@ -45,7 +41,7 @@ describe('two processes starting the same run at once through Temporal', () => {
     const taskQueue = `run-race-${Math.random().toString(36).slice(2, 8)}`;
     const db = await testDatabase();
     const grants = new RunGrantService({ store: db.engine });
-    const naming = testClient(env, { interceptors: { workflow: [namesItsWork] } });
+    const naming = testClient(file.env, { interceptors: { workflow: [namesItsWork] } });
     const temporal = temporalWorkflowStarter(naming.workflow);
     let arrived = 0;
     let release!: () => void;
@@ -78,7 +74,10 @@ describe('two processes starting the same run at once through Temporal', () => {
     expect(live).toHaveLength(1);
     const history = await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).fetchHistory();
     const started = history.events?.[0]?.workflowExecutionStartedEventAttributes?.input?.payloads?.[0];
-    const input = started ? naming.options.loadedDataConverter.payloadConverter.fromPayload<ProcedureRunInput>(started) : undefined;
+    const { payloadCodecs, payloadConverter } = naming.options.loadedDataConverter;
+    let opened = started ? [started] : [];
+    for (const codec of [...payloadCodecs].reverse()) opened = await codec.decode(opened);
+    const input = opened[0] ? payloadConverter.fromPayload<ProcedureRunInput>(opened[0]) : undefined;
     expect(input?.ticket.grantId).toBe(live[0]!.id);
     await naming.workflow.getHandle(workflowOfRun(`run-${taskQueue}`)).cancel();
   });

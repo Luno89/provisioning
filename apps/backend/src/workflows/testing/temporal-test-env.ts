@@ -3,7 +3,7 @@ import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
 import { Connection, type Client } from '@temporalio/client';
 import Long from 'long';
-import { inject } from 'vitest';
+import { afterAll, beforeAll, beforeEach, inject } from 'vitest';
 import type { TemporalPayloads } from '@koala/engine-core/temporal';
 import { localTemporal, temporalAt, testClient, testPayloads, timeSkippingClient, timeSkippingTemporal, type TestTemporal } from '@koala/engine-core/testing/temporal';
 import { registerOwnerAttribute } from '../../platform/lib/temporal-client.js';
@@ -61,6 +61,28 @@ export async function newWorld(env: TestTemporal): Promise<TestWorld> {
   if (env.client.workflow instanceof TimeSkippingWorkflowClient) Object.defineProperty(client, 'workflow', { value: timeSkippingClient(env, { namespace }) });
   return { namespace, client };
 }
+
+export interface WorldPerTest {
+  readonly env: TestTemporal;
+  readonly world: TestWorld;
+}
+
+export function worldPerTest(): WorldPerTest {
+  let env: TestTemporal | undefined;
+  let world: TestWorld | undefined;
+  beforeAll(async () => { env = await clockSkippingEnvironment(); });
+  beforeEach(async () => { world = await newWorld(made(env)); });
+  afterAll(async () => { await env?.teardown(); });
+  return {
+    get env() { return made(env); },
+    get world() { return made(world); },
+  };
+}
+
+const made = <T>(thing: T | undefined): T => {
+  if (thing === undefined) throw new Error('this file\'s Temporal environment and world are made in beforeAll and beforeEach; a test reached them before they were made');
+  return thing;
+};
 
 export async function temporalTestEnvironment(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
   const env = await clockSkippingEnvironment(payloads);

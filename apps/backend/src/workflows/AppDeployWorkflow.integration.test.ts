@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from '../activities/CheckWorkloadActivity.js';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
-import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
+import { clusterActivities } from '../worker-cluster.js';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../platform/testing/http.js';
 import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAppActivity.js';
@@ -18,15 +18,14 @@ import { TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { bundled, temporalTestEnvironment, type TestTemporal } from './testing/temporal-test-env.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { mongoTarget } from '../platform/lib/mongo-target.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { testWorker } from './testing/test-worker.js';
-import type { TestTemporal } from '@koala/engine-core/testing/temporal';
+import { NO_SETUP } from './testing/no-cluster-setup.js';
 
-const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
 
 const k3s = inject('k3s');
 const QUEUE = `app-deploy-k3s-${Math.random().toString(36).slice(2, 8)}`;

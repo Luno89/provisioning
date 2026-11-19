@@ -1,67 +1,57 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ConversationConclusionWorkflow, turnEndedSignal, turnStartedSignal } from './ConversationConclusionWorkflow.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type ConcludeWorkspaceArgs, type LifecycleEvent } from '../engine-host/temporal/contracts.js';
-import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
+import { bundled, worldPerTest } from './testing/temporal-test-env.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { createWorkspaceProjectActivities } from '../activities/WorkspaceProjectActivity.js';
 import { testWorker } from './testing/test-worker.js';
-import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MINUTE = 60_000;
 
-let env: TestTemporal;
+const temporal = worldPerTest();
 
-beforeAll(async () => {
-  env = await clockSkippingEnvironment();
-});
-
-let world: TestWorld;
-
-beforeEach(async () => {
-  world = await newWorld(env);
-});
-
-afterAll(async () => {
-  await env?.teardown();
-});
+async function concluding() {
+  const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
+  const concluded: LifecycleEvent[] = [];
+  const workspaces: ConcludeWorkspaceArgs[] = [];
+  const timers = await testWorker(temporal.env, {
+    namespace: temporal.world.namespace,
+    taskQueue,
+    workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
+    activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
+  });
+  const backend = await testWorker(temporal.env, {
+    namespace: temporal.world.namespace,
+    taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+    activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
+  });
+  return { taskQueue, concluded, workspaces, timers, backend };
+}
 
 describe('a conversation\'s countdown to concluding', () => {
   it('concludes once the conversation has been quiet for the agent\'s time after its last turn, and a new message starts the count again', async () => {
-    const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
-    const concluded: LifecycleEvent[] = [];
-    const workspaces: ConcludeWorkspaceArgs[] = [];
-    const timers = await testWorker(env, {
-      namespace: world.namespace,
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
-      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
-    });
-    const backend = await testWorker(env, {
-      namespace: world.namespace,
-      taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-      activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
-    });
+    const { taskQueue, concluded, workspaces, timers, backend } = await concluding();
 
     await timers.runUntil(() => backend.runUntil(async () => {
-      const client = world.client.workflow;
+      const client = temporal.world.client.workflow;
       const where = { workflowId: 'conclude-conversation-c1', taskQueue, args: [{ ownerId: 'u1', conversationId: 'c1' }] as [{ ownerId: string; conversationId: string }] };
       const start = (signal: 'turnEnded' | 'turnStarted', args: [{ quietMs: number }] | []) => (signal === 'turnEnded'
         ? client.signalWithStart(ConversationConclusionWorkflow, { ...where, signal: turnEndedSignal, signalArgs: args as [{ quietMs: number }] })
         : client.signalWithStart(ConversationConclusionWorkflow, { ...where, signal: turnStartedSignal, signalArgs: [] }));
 
       const handle = await start('turnEnded', [{ quietMs: 10 * MINUTE }]);
-      await env.sleep(8 * MINUTE);
+      await temporal.env.sleep(8 * MINUTE);
       expect(concluded).toEqual([]);
 
       await start('turnStarted', []);
-      await env.sleep(30 * MINUTE);
+      await temporal.env.sleep(30 * MINUTE);
       expect(concluded, 'it concluded while a turn was still running').toEqual([]);
 
       await start('turnEnded', [{ quietMs: 10 * MINUTE }]);
-      await env.sleep(9 * MINUTE);
+      await temporal.env.sleep(9 * MINUTE);
       expect(concluded, 'it concluded before ten quiet minutes had passed since the last turn').toEqual([]);
 
       await handle.result();
@@ -71,30 +61,17 @@ describe('a conversation\'s countdown to concluding', () => {
   });
 
   it('follows the time the agent is configured with', async () => {
-    const taskQueue = `conclusion-test-${Math.random().toString(36).slice(2, 8)}`;
-    const concluded: LifecycleEvent[] = [];
-    const workspaces: ConcludeWorkspaceArgs[] = [];
-    const timers = await testWorker(env, {
-      namespace: world.namespace,
-      taskQueue,
-      workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
-      activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; }, ...createWorkspaceProjectActivities(await testDatabase()) },
-    });
-    const backend = await testWorker(env, {
-      namespace: world.namespace,
-      taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-      activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
-    });
+    const { taskQueue, concluded, workspaces, timers, backend } = await concluding();
 
     await timers.runUntil(() => backend.runUntil(async () => {
-      const handle = await world.client.workflow.signalWithStart(ConversationConclusionWorkflow, {
+      const handle = await temporal.world.client.workflow.signalWithStart(ConversationConclusionWorkflow, {
         workflowId: 'conclude-conversation-c2',
         taskQueue,
         args: [{ ownerId: 'u1', conversationId: 'c2' }],
         signal: turnEndedSignal,
         signalArgs: [{ quietMs: 2 * MINUTE }],
       });
-      await env.sleep(MINUTE);
+      await temporal.env.sleep(MINUTE);
       expect(concluded).toEqual([]);
       await handle.result();
       expect(concluded).toHaveLength(1);

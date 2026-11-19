@@ -1,0 +1,3 @@
+import type { ClusterSetup } from '../../worker-cluster.js';
+
+export const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } }, moveOver: { instanceId: 'unused', steps: {} as never, parts: () => { throw new Error('this test moves no Koala') }, records: { getMoveIn: async () => { throw new Error('this test moves no Koala') }, saveMoveIn: async () => { throw new Error('this test moves no Koala') } } } };
