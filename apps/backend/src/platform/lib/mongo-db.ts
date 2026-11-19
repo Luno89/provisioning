@@ -109,10 +109,9 @@ export class MongoDB implements Database {
 
   async close(): Promise<void> {
     if (this.lease) {
-      const lease = this.lease;
+      await this.lease.release();
       this.lease = null;
       this.db = null;
-      await lease.release();
     }
   }
 }
