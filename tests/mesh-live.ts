@@ -107,9 +107,9 @@ async function teardown(): Promise<void> {
     const other = users.find((user) => user.name === OTHER_USER);
     if (other) headscale('users', 'destroy', '--identifier', String(other.id), '--force');
   } catch { /* never made */ }
-  if (ownerId) forgetMeshUser(ownerId);
+  if (ownerId) await forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
-  dropSuiteNamespace(ROOT);
+  await dropSuiteNamespace(ROOT);
   for (const vm of vms) await vm.destroy();
 }
 
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
 
   step('root starts, with the mesh at its address on this computer');
   for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
-  makeSuiteNamespace(ROOT);
+  await makeSuiteNamespace(ROOT);
   await startRoot(TAG);
   run('docker', ['run', '-d', '--name', WORKER_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', `MESH_LOGIN_SERVER=${MESH}`, ...workerEnv(ROOT), IMAGE, 'worker-host']);

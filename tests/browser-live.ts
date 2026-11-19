@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       console.error(`\n── the page at ${watching.page.url()} (screenshot ${shot}) ──\n${(await watching.page.locator('body').innerText().catch(() => '')).slice(0, 2000)}`);
       console.error(`── what the page reported ──\n${watching.problems.join('\n')}`);
     }
-    for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);
+    for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${await stack.logs(side, 40)}`);
     throw err;
   } finally {
     await browser.close();

@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import { localCommands, removeSteps, runSteps, StepFailed, type Step } from '@koala/provision';
-import { containerProvider, type ContainerContext, memoryReporter } from '@koala/provision/testing';
+import { containerProvider, containersOn, type ContainerContext, memoryReporter, throwawayLabel } from '@koala/provision/testing';
 import { MINIO_TEST_IMAGE, startMinio } from '../testing/real-minio.js';
 import { minioStep } from './minio-step.js';
 
@@ -17,8 +16,7 @@ describe('MinIO, started by its one step', () => {
     const { endPoint, port } = minio.settings;
     expect((await fetch(`http://${endPoint}:${port}/minio/health/live`)).ok).toBe(true);
     await minio.stop();
-    const left = await ctx.commands.run({ command: 'docker', args: ['ps', '-a', '--filter', `name=^${minio.name}$`, '--format', '{{.Names}}'] }, { line: () => undefined });
-    expect(left.stdout.trim()).toBe('');
+    expect(await containersOn(ctx.commands).status(minio.name)).toBeUndefined();
   });
 
   it('fails as soon as MinIO exits, saying what it said', async () => {

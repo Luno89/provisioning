@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { hostContainers } from './dead-states.js';
 import { randomBytes } from 'node:crypto';
 import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
 
@@ -66,15 +67,15 @@ export async function firstAdmin(rootUrl: string, root: SuiteRoot): Promise<Firs
   return { id: body.user.id, email: body.user.email, password, cookie };
 }
 
-export function forgetMeshUser(ownerId: string): void {
-  const headscale = (...args: string[]) => execFileSync('docker', ['exec', 'provisioning-headscale', 'headscale', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+export async function forgetMeshUser(ownerId: string): Promise<void> {
+  const headscale = (...args: string[]): Promise<string> => hostContainers.exec('provisioning-headscale', ['headscale', ...args]);
   const name = `platform-${ownerId}`;
   try {
-    const nodes = JSON.parse(headscale('nodes', 'list', '-o', 'json')) as Array<{ id: number; user?: { name?: string } }>;
-    for (const node of nodes.filter((entry) => entry.user?.name === name)) headscale('nodes', 'delete', '-i', String(node.id), '--force');
-    const users = JSON.parse(headscale('users', 'list', '-o', 'json')) as Array<{ id: number; name: string }>;
+    const nodes = JSON.parse(await headscale('nodes', 'list', '-o', 'json')) as Array<{ id: number; user?: { name?: string } }>;
+    for (const node of nodes.filter((entry) => entry.user?.name === name)) await headscale('nodes', 'delete', '-i', String(node.id), '--force');
+    const users = JSON.parse(await headscale('users', 'list', '-o', 'json')) as Array<{ id: number; name: string }>;
     const user = users.find((entry) => entry.name === name);
-    if (user) headscale('users', 'destroy', '--identifier', String(user.id), '--force');
+    if (user) await headscale('users', 'destroy', '--identifier', String(user.id), '--force');
   } catch { /* never joined */ }
 }
 
@@ -87,22 +88,20 @@ export async function logoutDeliveries(root: SuiteRoot): Promise<Array<{ url: st
   }
 }
 
-const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-
-export function temporalContainer(): string {
-  const name = docker(['ps', '--filter', 'label=com.docker.compose.service=temporal', '--format', '{{.Names}}']).split('\n')[0];
+export async function temporalContainer(): Promise<string> {
+  const name = (await hostContainers.named('label=com.docker.compose.service=temporal'))[0];
   if (!name) throw new Error('the dev stack\'s Temporal is not running');
   return name;
 }
 
-export const temporal = (args: string[]): string => docker(['exec', temporalContainer(), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+export const temporal = async (args: string[]): Promise<string> => hostContainers.exec(await temporalContainer(), ['temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
 
-export function makeSuiteNamespace(root: SuiteRoot): void {
-  temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);
+export async function makeSuiteNamespace(root: SuiteRoot): Promise<void> {
+  await temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);
 }
 
-export function dropSuiteNamespace(root: SuiteRoot): void {
-  try { temporal(['namespace', 'delete', '--namespace', root.namespace, '--yes']); } catch { /* never made */ }
+export async function dropSuiteNamespace(root: SuiteRoot): Promise<void> {
+  try { await temporal(['namespace', 'delete', '--namespace', root.namespace, '--yes']); } catch { /* never made */ }
 }
 
 export async function dropSuiteDatabase(root: SuiteRoot): Promise<void> {

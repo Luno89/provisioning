@@ -121,9 +121,9 @@ async function teardown(): Promise<void> {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
-  if (ownerId) forgetMeshUser(ownerId);
+  if (ownerId) await forgetMeshUser(ownerId);
   await dropSuiteDatabase(ROOT).catch(() => undefined);
-  dropSuiteNamespace(ROOT);
+  await dropSuiteNamespace(ROOT);
   await vm?.destroy();
   await target?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
@@ -194,7 +194,7 @@ async function main(): Promise<void> {
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
   const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml',
     '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_SLOT_CPU=4', '-e', 'POOL_SLOT_STORAGE_GIB=100', '-e', 'POOL_TRIAL_DAYS=14'];
-  makeSuiteNamespace(ROOT);
+  await makeSuiteNamespace(ROOT);
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(),
     '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `APP_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,

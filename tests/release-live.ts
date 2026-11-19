@@ -101,8 +101,8 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
 
 const json = <T>(answer: Answer): T => JSON.parse(answer.body) as T;
 
-function buildImage(commit: string, label: string): string {
-  buildAppImage(REPO, commit, (line) => note(`${label}: ${line}`));
+async function buildImage(commit: string, label: string): Promise<string> {
+  await buildAppImage(REPO, commit, (line) => note(`${label}: ${line}`));
   return imageTagOf(commit);
 }
 
@@ -145,8 +145,8 @@ async function main(): Promise<void> {
   const candidateTag = imageTagOf(candidate);
 
   step(`the image is built at ${PREVIOUS_LABEL} (${imageTagOf(previous)}) and at the candidate (${candidateTag})`);
-  previousTag = buildImage(previous, PREVIOUS_LABEL);
-  buildImage(candidate, 'candidate');
+  previousTag = await buildImage(previous, PREVIOUS_LABEL);
+  await buildImage(candidate, 'candidate');
 
   step('root: a disposable VM on a lab network, bootstrapped by the real bootstrap.sh in lab mode');
   const lanPort = await findFreePort();

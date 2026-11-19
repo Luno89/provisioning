@@ -250,7 +250,7 @@ async function dropDatabases(): Promise<void> {
 
 async function main(): Promise<void> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
-  const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
+  const image = await buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
   try {
     await clientAddresses(image);
     await plaintextRefusals(image);
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
       await noStubClouds(stack);
       await rootNeverCallsMadeUpAddresses(stack, image);
     } catch (err) {
-      for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);
+      for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${await stack.logs(side, 40)}`);
       throw err;
     } finally {
       await stack.stop();

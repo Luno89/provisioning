@@ -3,10 +3,9 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { k3sStep, localCommands, removeSteps, runSteps, waiting, waitUntil, type Step, type Waiting } from '@koala/provision';
-import { containerProvider, type ContainerContext, memoryReporter } from '@koala/provision/testing';
+import { containerProvider, containersOn, type ContainerContext, memoryReporter, throwawayLabel } from '@koala/provision/testing';
 import type { ServiceAccount } from '../lib/cluster-places.js';
 import { ClusterCommandFailed, clusterAccessOfKubeconfig } from '../services/ClusterAccess.js';
-import { throwawayLabel } from '@koala/engine-core/testing/throwaway-containers';
 import { ensureImageCaches, IMAGE_CACHES, imageCacheContainer } from './image-caches.js';
 
 export const K3S_TEST_IMAGE = 'rancher/k3s:v1.36.4-k3s1@sha256:edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657';
@@ -27,10 +26,11 @@ export interface RealK3s {
 const quiet = { line: () => undefined };
 
 async function mirrorsThroughCaches(ctx: ContainerContext): Promise<string> {
-  await ensureImageCaches();
+  const containers = containersOn(ctx.commands);
+  await ensureImageCaches(containers);
   const lines = ['mirrors:'];
   for (const cache of IMAGE_CACHES) {
-    const address = (await ctx.commands.run({ command: 'docker', args: ['inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', imageCacheContainer(cache.registry)] }, quiet)).stdout.trim();
+    const address = await containers.addressOf(imageCacheContainer(cache.registry));
     if (!address) throw new Error(`the image cache for ${cache.registry} has no address on Docker's network`);
     lines.push(`  "${cache.registry}":`, '    endpoint:', `      - "http://${address}:5000"`);
   }
@@ -53,7 +53,7 @@ const answersAt = async (kubectl: Kubectl, args: readonly string[]): Promise<boo
 
 function addOnsStep(name: string, kubectl: Kubectl, ended: () => Promise<string | undefined>): Step<ContainerContext> {
   const applied = async (ctx: ContainerContext): Promise<true | Waiting> => {
-    const manifests = (await ctx.commands.run({ command: 'docker', args: ['exec', name, 'ls', '/var/lib/rancher/k3s/server/manifests'] }, quiet)).stdout.split('\n').filter((file) => file.endsWith('.yaml'));
+    const manifests = (await containersOn(ctx.commands).exec(name, ['ls', '/var/lib/rancher/k3s/server/manifests'])).split('\n').filter((file) => file.endsWith('.yaml'));
     if (manifests.includes('traefik.yaml')) return waiting('traefik.yaml is still among its manifests');
     const events = (await kubectl(['get', 'events', '-n', 'kube-system', '--field-selector', 'involvedObject.kind=Addon,reason=AppliedManifest', '-o', 'jsonpath={range .items[*]}{.involvedObject.name}{"\\n"}{end}'])).split('\n');
     const unapplied = manifests.filter((file) => !events.includes(file.replace(/\.yaml$/, '')));
@@ -84,7 +84,7 @@ export async function startK3s(): Promise<RealK3s> {
   const kubeconfig = async (): Promise<string> => {
     if (admin) return adminFile;
     const written = join(folder, 'k3s.yaml');
-    await ctx.commands.run({ command: 'docker', args: ['cp', `${name}:/etc/rancher/k3s/k3s.yaml`, written] }, quiet);
+    await containersOn(ctx.commands).copyOut(name, '/etc/rancher/k3s/k3s.yaml', written);
     admin = readFileSync(written, 'utf8').replace('https://127.0.0.1:6443', `https://127.0.0.1:${container.published(6443)}`);
     writeFileSync(adminFile, admin, { mode: 0o600 });
     return adminFile;

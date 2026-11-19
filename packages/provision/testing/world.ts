@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { removeThrowaway, throwawayOrphans } from '@koala/engine-core/testing/throwaway-containers';
 import type { CommandRunner } from '../src/commands.js';
 import type { Progress, Step } from '../src/steps.js';
 import { waiting, waitUntil } from '../src/wait-until.js';
+import { containersOn } from './containers.js';
 
 export const RUN_VARIABLE = 'KOALA_TEST_RUN';
 export const TESTS_FOLDER = 'koala-tests';
@@ -174,28 +174,29 @@ async function leftProcesses(run: TestRun): Promise<Leftover[]> {
   return found;
 }
 
-async function leftContainers(run: TestRun): Promise<Leftover[]> {
-  return (await throwawayOrphans(run.checkout)).map((name) => ({ said: `removed throwaway container ${name}, whose test run is gone`, remove: () => removeThrowaway(name) }));
+async function leftContainers(run: TestRun, commands: CommandRunner): Promise<Leftover[]> {
+  const containers = containersOn(commands);
+  return (await containers.throwawayOrphans(run.checkout)).map((name) => ({ said: `removed throwaway container ${name}, whose test run is gone`, remove: () => containers.remove(name) }));
 }
 
 export interface LeftoversOptions {
   containers?: boolean;
 }
 
-async function leftovers(run: TestRun, options: LeftoversOptions): Promise<Leftover[]> {
-  return [...await leftProcesses(run), ...await leftFolders(run), ...(options.containers ? await leftContainers(run) : [])];
+async function leftovers(run: TestRun, options: LeftoversOptions, ctx: WorldContext): Promise<Leftover[]> {
+  return [...await leftProcesses(run), ...await leftFolders(run), ...(options.containers ? await leftContainers(run, ctx.commands) : [])];
 }
 
 export function leftoversStep(run: TestRun, options: LeftoversOptions = {}): Step<WorldContext> {
   return {
     id: 'leftovers',
     title: `What this checkout's gone test runs left${options.containers ? ', containers included' : ''}`,
-    async check() {
-      const found = await leftovers(run, options);
+    async check(ctx) {
+      const found = await leftovers(run, options, ctx);
       return found.length === 0 ? { done: true } : { done: false, why: `gone test runs left ${found.map((one) => one.said.replace(/^(removed|stopped) /, '')).join('; ')}` };
     },
-    async apply(_ctx, progress) {
-      for (const leftover of await leftovers(run, options)) {
+    async apply(ctx, progress) {
+      for (const leftover of await leftovers(run, options, ctx)) {
         await leftover.remove(progress);
         progress.line(leftover.said);
       }

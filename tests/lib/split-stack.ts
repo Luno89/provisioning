@@ -16,7 +16,7 @@ import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 import { until, waiting } from './until.js';
 import type { Waiting } from '@koala/provision';
-import { containerNotRunning } from './dead-states.js';
+import { containerNotRunning, hostContainers } from './dead-states.js';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
@@ -83,14 +83,12 @@ export interface SplitStack {
   instanceId: string;
   instanceCredential: string;
   instanceDb: () => Promise<{ db: import('mongodb').Db; close: () => Promise<void> }>;
-  logs: (process: SplitProcess, lines?: number) => string;
-  exec: (process: SplitProcess, command: string) => string;
+  logs: (process: SplitProcess, lines?: number) => Promise<string>;
+  exec: (process: SplitProcess, command: string) => Promise<string>;
   restart: (process: SplitProcess) => Promise<void>;
-  terminate: (workflowId: string, reason: string) => void;
+  terminate: (workflowId: string, reason: string) => Promise<void>;
   stop: () => Promise<void>;
 }
-
-const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 export { temporal, temporalContainer } from './suite-root.js';
 
@@ -138,20 +136,13 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
   const started: string[] = [];
   const mongoUri = process.env.MONGO_URI || DEV_MONGO;
   const envFile = devFile('apps/backend/.env');
-  const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
+  const image = await buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
 
-  const logs = (process: SplitProcess | 'files', lines = 60): string => {
-    try {
-      return execFileSync('docker', ['logs', '--tail', String(lines), names.containers[process]], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      const failed = err as { stdout?: string; stderr?: string };
-      return `${failed.stdout ?? ''}${failed.stderr ?? ''}`;
-    }
-  };
+  const logs = (process: SplitProcess | 'files', lines = 60): Promise<string> => hostContainers.logs(names.containers[process], lines).catch((failure: Error) => failure.message);
 
   const stop = async (): Promise<void> => {
     for (const container of started.reverse()) {
-      try { docker(['rm', '-f', container]); } catch { /* gone */ }
+      await hostContainers.remove(container);
     }
     const { client, release } = await leaseMongo(mongoUri);
     try {
@@ -161,19 +152,19 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     } finally {
       await release();
     }
-    try { temporal(['namespace', 'delete', '--namespace', names.namespace, '--yes']); } catch { /* never made */ }
+    try { await temporal(['namespace', 'delete', '--namespace', names.namespace, '--yes']); } catch { /* never made */ }
   };
 
-  const run = (process: SplitProcess | 'mailbox' | 'files', args: string[]): void => {
-    docker(['run', '-d', '--name', names.containers[process], ...args]);
+  const run = async (process: SplitProcess | 'mailbox' | 'files', args: string[]): Promise<void> => {
+    await hostContainers.run(names.containers[process], args);
     started.push(names.containers[process]);
   };
 
   try {
-    temporal(['namespace', 'create', '--namespace', names.namespace, '--retention', '24h']);
-    run('mailbox', ['-p', `127.0.0.1:${ports.smtp}:1025`, '-p', `127.0.0.1:${ports.mailApi}:8025`, MAILPIT_IMAGE]);
+    await temporal(['namespace', 'create', '--namespace', names.namespace, '--retention', '24h']);
+    await run('mailbox', ['-p', `127.0.0.1:${ports.smtp}:1025`, '-p', `127.0.0.1:${ports.mailApi}:8025`, MAILPIT_IMAGE]);
     const files = minioRun(ports.files);
-    run('files', files.args);
+    await run('files', files.args);
     await until('the instance\'s MinIO being ready', () => minioReady(ports.files), () => containerNotRunning(names.containers['files']));
 
     const setupCode = randomBytes(12).toString('base64url');
@@ -190,7 +181,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       WATCH_UNREACHABLE_MINUTES: '1',
       CERTIFICATES: 'internal',
     });
-    const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend', extra: string[] = []): void =>
+    const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend', extra: string[] = []): Promise<void> =>
       run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...extra, ...envArgs(env), image, command]);
 
     const draft = (owner: { id: string; email: string }) => devSplitPlan({
@@ -202,8 +193,8 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     });
 
     const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
-    backend('root', rootEnv);
-    backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
+    await backend('root', rootEnv);
+    await backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
     await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => containerNotRunning(names.containers['root']));
 
     const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, namespace: names.namespace, metricsPort: ports.metrics, env: [] });
@@ -213,9 +204,9 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
 
-    backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
-    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
-    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...unreachedPlatformServices(place.hubUrl) });
+    await backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
+    if (options.engine) await backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
+    await backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...unreachedPlatformServices(place.hubUrl) });
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['instance']));
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['hub']));
     const asOwner = fetchSide(place.rootUrl, owner.cookie);
@@ -228,13 +219,13 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     };
 
     return {
-      exec: (process, command) => docker(['exec', names.containers[process], 'sh', '-c', command]),
+      exec: (process, command) => hostContainers.exec(names.containers[process], ['sh', '-c', command]),
       restart: async (process) => {
-        docker(['restart', names.containers[process]]);
+        await hostContainers.restart(names.containers[process]);
         const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : process === 'hub' ? place.hubUrl : undefined;
         if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(names.containers[process]));
       },
-      terminate: (workflowId, reason) => { docker(['exec', temporalContainer(), 'temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
+      terminate: async (workflowId, reason) => { await hostContainers.exec(await temporalContainer(), ['temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
       names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl, hubUrl: place.hubUrl,
       mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id, instanceCredential,
       instanceDb, logs, stop,

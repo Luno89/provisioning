@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   } finally {
     console.log('[13] removing the VM, root and the instance');
     if (!passed) {
-      for (const side of ['root', 'instance'] as const) console.log(`    ${side} said, last:\n${stack.logs(side, 40).split('\n').map((line) => `      ${line}`).join('\n')}`);
+      for (const side of ['root', 'instance'] as const) console.log(`    ${side} said, last:\n${(await stack.logs(side, 40)).split('\n').map((line) => `      ${line}`).join('\n')}`);
     }
     await vm?.destroy();
     console.log('    the VM is gone');
@@ -226,7 +226,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     console.log('[8] Koala names a bundle its download does not match: the agent refuses it, keeps running as it is, and My Machines says why');
     const installedNow = await agentOnVm();
     const named = 'f'.repeat(64);
-    stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/backend/data/machine-agent/machine-agent.tgz.sha256`);
+    await stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/backend/data/machine-agent/machine-agent.tgz.sha256`);
     await onVm('systemctl --user restart koala-machine');
     const refused = await until('My Machines saying the update failed', updateIs('failed'), gone);
     assert.equal(refused.agentUpdate?.current, named);
@@ -252,7 +252,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     assert.equal(holding.status, 201, JSON.stringify(holding.data));
     const heldRun = (holding.data as { runId: string }).runId;
     await until('the session holding on the machine', async () => { const held = await onVm('test -e ~/koala-held && echo held || echo not'); return held === 'held' ? true : waiting(`the hold marker says ${held}`); }, gone);
-    stack.exec('instance', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
+    await stack.exec('instance', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
     await stack.restart('instance');
     const newer = await served();
     assert.notEqual(newer, first);
@@ -266,7 +266,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     console.log(`    waiting, busy with ${holdingUp.agentUpdate?.busyWith?.join(', ')}; still ${first.slice(0, 12)}`);
 
     console.log('[10] the run is terminated, so it never closes its own session: Koala hears it closed and tells the machine, which closes the session, stops taking work, finds itself idle, updates itself and comes back as its service on the newer agent, up to date');
-    stack.terminate(heldRun, 'machine-live ends the run without its ending');
+    await stack.terminate(heldRun, 'machine-live ends the run without its ending');
     const updated = await until('the machine on the newer agent', updateIs('current', seen, newer), goneOr(updateFailed));
     assert.deepEqual(updated.agentUpdate, { state: 'current', current: newer, running: newer });
     const after = await agentOnVm();
