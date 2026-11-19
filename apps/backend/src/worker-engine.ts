@@ -15,7 +15,7 @@ import {
   TreeHomeService, webhookUrlAt, type GroveRunLauncher,
 } from './projects/index.js';
 import {
-  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
+  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem,
   sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
@@ -41,6 +41,7 @@ import { CustomizationsService } from './releases/services/CustomizationsService
 import { releaseHowOf, projectChoicesPatch, type ClientImport } from './releases/index.js';
 import { ODOO_RELEASE_ADAPTER } from './extensions/odoo/release-adapter.js';
 import { syncVaultFromProject } from './extensions/releases/vault-sync.js';
+import { deploySettledOn } from './extensions/releases/deploy-ending.js';
 import { provisionPiecesOn } from './extensions/provision/pieces.js';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
@@ -233,19 +234,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
           }, project, run);
           return { workflowId: started.workflowId };
         },
-        settled: async (workflowId) => {
-          const handle = (await getTemporalClient()).workflow.getHandle(workflowId);
-          for (;;) {
-            activityBeat();
-            const status = (await handle.describe()).status.name;
-            if (status !== 'RUNNING') {
-              const verdict = await handle.result().then((value) => value as { workload?: string; workloadReason?: string }, (err: unknown) => ({ failed: failureReason(status, err) }));
-              if ('failed' in verdict) return { ok: false, reason: verdict.failed };
-              return verdict.workload === 'unhealthy' ? { ok: false, reason: verdict.workloadReason || 'the app never became healthy' } : { ok: true };
-            }
-            await new Promise((done) => setTimeout(done, 5_000));
-          }
-        },
+        settled: deploySettledOn(getTemporalClient),
       },
     },
     provision: {

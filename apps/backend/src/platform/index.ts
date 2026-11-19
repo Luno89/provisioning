@@ -90,8 +90,8 @@ export type { CloudCredentials, CloudProvider, ClusterMetadata, DeploymentMetada
 export { HOST_ACTIVITIES, placesOf, queueOf, QUEUES, roleRuns, WORKFLOWS } from './lib/work-places.js';
 export type { Place } from './lib/work-places.js';
 export { createWorkerLogger } from './lib/worker-logger.js';
-export { closedAs, closedWith } from './lib/workflow-close.js';
-export type { ClosedAs } from './lib/workflow-close.js';
+export { closedAs, closedWith, endingOf } from './lib/workflow-close.js';
+export type { ClosedAs, WorkflowEnding } from './lib/workflow-close.js';
 export type { ConcludedWorkspace } from './lib/workflow-ids.js';
 export { runStamp } from './lib/workflow-ids.js';
 export { mayTouch, ownedQuery, ownerIn, PLATFORM_OWNER, seesEverything, startedFor, withinQuery, workflowScope } from './lib/workflow-owner.js';

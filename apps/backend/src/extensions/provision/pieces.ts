@@ -1,5 +1,5 @@
-import { WorkflowFailedError, type Client } from '@temporalio/client';
-import { failureReason } from '../../platform/index.js';
+import type { Client } from '@temporalio/client';
+import { endingOf, failureReason } from '../../platform/index.js';
 import type { ProvisionPieceResult } from '../../infrastructure/index.js';
 import { provisionPieceStart } from '../../workflows/provision-piece.js';
 import type { ProvisionPieces } from './operations/handlers.js';
@@ -27,12 +27,8 @@ export function provisionPiecesOn(workflows: PieceWorkflows): ProvisionPieces {
       const cancel = () => { cancelling ??= handle.cancel().then(() => undefined, (err: unknown) => err); };
       signal?.addEventListener('abort', cancel, { once: true });
       if (signal?.aborted) cancel();
-      const ended = await handle.result().then(
-        (value): ProvisionPieceResult => resultOf(value, handle.workflowId),
-        (err: unknown): ProvisionPieceResult => {
-          if (!(err instanceof WorkflowFailedError)) throw err;
-          return { ok: false, why: signal?.aborted ? STOPPED : failureReason('FAILED', err) };
-        },
+      const ended = await endingOf(handle).then(
+        (ending): ProvisionPieceResult => ('failed' in ending ? { ok: false, why: signal?.aborted ? STOPPED : ending.failed } : resultOf(ending.ended, handle.workflowId)),
       ).finally(() => signal?.removeEventListener('abort', cancel));
       const refused = await cancelling;
       if (refused) throw new Error(`${handle.workflowId} could not be cancelled when the run was stopped: ${failureReason('FAILED', refused)}`, { cause: refused });
