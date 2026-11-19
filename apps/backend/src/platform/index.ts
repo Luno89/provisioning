@@ -122,7 +122,7 @@ export { SessionEnds } from './services/SessionEnds.js';
 export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
 export { childEnv, passedOn, DOCKER_CLIENT, PERSON_SESSION } from './services/child-env.js';
-export { nodeProcesses, nodeStreams } from '@koala/engine-core/node-processes';
+export { nodeProcesses, nodeRunner, nodeStreams } from '@koala/engine-core/node-processes';
 export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';
 export type { Tx } from './lib/transaction.js';
 export type { PlatformStore } from './store.js';

@@ -1,6 +1,7 @@
 export { removeSteps, runSteps, StepFailed, TAIL_LINES, type Progress, type Reporter, type Step, type StepName, type StepState } from './steps.js';
 export { argvOf, CommandFailed, commandOutput, shown, type Command, type CommandOutput, type CommandRunner, type Ending, type Ran } from './commands.js';
-export { localCommands } from './local-commands.js';
+export { commandsOver, localCommands } from './local-commands.js';
+export { lineSplitter, type LineSplitter } from './lines.js';
 export { allReporters } from './reporters.js';
 export { keptSudo, SUDO_REFRESH_MS, type Every, type KeptSudo, type KeptSudoOptions } from './kept-sudo.js';
 export { downloadChecked, type Download } from './download.js';

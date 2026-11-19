@@ -1,14 +1,13 @@
 import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { mockFn } from 'vitest-mock-extended';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import type { Shell } from '../lib/shell.js';
+import { recordingProcesses, type Script } from '@koala/engine-core/testing/processes';
 import { RegistryService } from './RegistryService.js';
 
 const server = interceptHttp();
-const service = (shell: Shell = mockFn<Shell>()) => new RegistryService(memoryDatabase(), shell);
+const service = (docker: Script = () => undefined) => new RegistryService(memoryDatabase(), recordingProcesses(docker));
 const hubTags = (names: string[], next: string | null = null) => HttpResponse.json({ results: names.map((name) => ({ name })), next });
 
 describe('RegistryService.search', () => {
@@ -81,21 +80,18 @@ describe('RegistryService.getTags', () => {
 
 describe('RegistryService.getLocalTags', () => {
   it('lists the tags Docker has for an image, once each, without the untagged', async () => {
-    const shell = mockFn<Shell>();
-    shell.calledWith('docker images --format "{{.Tag}}" "nginx"').mockResolvedValue({ stdout: '1.27\n1.27\n<none>\n \nlatest\n', stderr: '' });
-    expect(await service(shell).getLocalTags('nginx')).toEqual(['1.27', 'latest']);
+    const docker: Script = (run) => (run.command === 'docker' && run.args.join(' ') === 'images --format {{.Tag}} -- nginx' ? { stdout: '1.27\n1.27\n<none>\n \nlatest\n' } : undefined);
+    expect(await service(docker).getLocalTags('nginx')).toEqual(['1.27', 'latest']);
   });
 
-  it('escapes what could break out of the quoted name', async () => {
-    const shell = mockFn<Shell>();
-    shell.mockResolvedValue({ stdout: '', stderr: '' });
-    await service(shell).getLocalTags('a"; rm -rf /; "');
-    expect(shell.mock.calls[0]?.[0]).toBe('docker images --format "{{.Tag}}" "a\\"; rm -rf /; \\""');
+  it('hands the image name to Docker as one argument, so nothing in it reaches a shell', async () => {
+    const processes = recordingProcesses(() => ({ stdout: '' }));
+    await new RegistryService(memoryDatabase(), processes).getLocalTags('a"; rm -rf /; "');
+    expect(processes.ran.map((run) => [run.command, ...run.args])).toEqual([['docker', 'images', '--format', '{{.Tag}}', '--', 'a"; rm -rf /; "']]);
   });
 
   it('lists none when Docker cannot be asked', async () => {
-    const shell = mockFn<Shell>();
-    shell.mockRejectedValue(new Error('docker: not found'));
-    expect(await service(shell).getLocalTags('nginx')).toEqual([]);
+    expect(await service(() => undefined).getLocalTags('nginx')).toEqual([]);
+    expect(await service(() => ({ code: 1, stderr: 'Cannot connect to the Docker daemon' })).getLocalTags('nginx')).toEqual([]);
   });
 });

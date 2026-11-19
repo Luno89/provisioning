@@ -105,7 +105,9 @@ export function spawnedProcesses(envOf: EnvOf): NodeProcesses {
   };
 }
 
-const local = spawnedProcesses(inheritedOnly);
+export const nodeRunner: NodeProcesses = spawnedProcesses(inheritedOnly);
+
+const local = nodeRunner;
 
 export const nodeProcesses: Processes = local;
 

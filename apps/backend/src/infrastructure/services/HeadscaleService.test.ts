@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { HeadscaleService } from './HeadscaleService.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
+import { recordingProcesses } from '@koala/engine-core/testing/processes';
 
 const BASE = 'http://headscale.test';
 const server = interceptHttp();
@@ -12,6 +13,23 @@ const authorized = (request: Request): boolean => request.headers.get('authoriza
 const knowsUser = (name: string, id = '7') => http.get(`${BASE}/api/v1/user`, ({ request }) => (authorized(request) && new URL(request.url).searchParams.get('name') === name ? HttpResponse.json({ users: [{ id, name }] }) : HttpResponse.json({ users: [] })));
 
 describe('HeadscaleService', () => {
+  it('makes an api key with headscale in its container when it was given none, and signs with it', async () => {
+    const docker = recordingProcesses(() => ({ stdout: 'made-key\n' }));
+    server.use(
+      http.get(`${BASE}/api/v1/user`, ({ request }) => (request.headers.get('authorization') === 'Bearer made-key' ? HttpResponse.json({ users: [{ id: '7', name: 'platform-u1' }] }) : new HttpResponse(null, { status: 401 }))),
+      http.get(`${BASE}/api/v1/node`, () => HttpResponse.json({ nodes: [] })),
+    );
+    const headscale = new HeadscaleService('master-key', { headscaleUrl: BASE }, testDataDir(), docker);
+    expect(await headscale.listUserDevices('u1')).toEqual([]);
+    expect(docker.ran.map((run) => [run.command, ...run.args])).toEqual([['docker', 'exec', 'provisioning-headscale', 'headscale', 'apikeys', 'create', '--expiration', '87600h']]);
+  });
+
+  it('says why headscale could not make an api key', async () => {
+    const docker = recordingProcesses(() => ({ code: 1, stderr: 'No such container: provisioning-headscale\n' }));
+    const headscale = new HeadscaleService('master-key', { headscaleUrl: BASE }, testDataDir(), docker);
+    await expect(headscale.listUserDevices('u1')).rejects.toThrow('No such container: provisioning-headscale');
+  });
+
   it('signs every call with the api key it was given, trimmed', async () => {
     server.use(knowsUser('platform-u1'), http.get(`${BASE}/api/v1/node`, ({ request }) => (authorized(request) ? HttpResponse.json({ nodes: [] }) : new HttpResponse(null, { status: 401 }))));
     expect(await service().listUserDevices('u1')).toEqual([]);

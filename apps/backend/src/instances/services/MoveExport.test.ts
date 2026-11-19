@@ -1,5 +1,4 @@
 import { movedSettingsFrom } from '../lib/instance-move.js';
-import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import fs from 'fs';
 import os from 'os';
@@ -8,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
 import { mock } from 'vitest-mock-extended';
-import { fakeSpawn, type SpawnRig } from '../testing/fake-spawn.js';
+import { recordingProcesses, type RecordingProcesses } from '@koala/engine-core/testing/processes';
 import { MoveExport, moveClusterOn, MOVING_FILE, VOLUME_HELPER, type ClusterStarts, type MoveCluster } from './MoveExport.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
@@ -22,7 +21,8 @@ let db: Database;
 let dataDir: string;
 let running: string[] | 'unknown';
 let refusing: string[];
-let rig: SpawnRig;
+let rig: RecordingProcesses;
+const ranBy = (processes: RecordingProcesses): string[][] => processes.ran.map((run) => [run.command, ...run.args]);
 let asked: string[];
 let cluster: MoveCluster;
 let move: MoveExport;
@@ -52,7 +52,7 @@ const makeMove = (env: NodeJS.ProcessEnv = KEYS): MoveExport => new MoveExport({
   moved: movedSettingsFrom(env),
   running: async () => running,
   cluster,
-  spawn: rig.spawn,
+  streams: rig,
   claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
 });
 
@@ -61,7 +61,7 @@ beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
   running = [];
   refusing = [];
-  rig = fakeSpawn(() => undefined);
+  rig = recordingProcesses((run) => ({ stdout: `${run.command} output` }));
   asked = [];
   const refused = (line: string): boolean => refusing.some((prefix) => line.startsWith(prefix));
   cluster = {
@@ -110,7 +110,7 @@ describe('a pool instance deciding whether root may have a part of it', () => {
   it('judges a token by the clock it is given', async () => {
     const later = new MoveExport({
       instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS),
-      running: async () => [], cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
+      running: async () => [], cluster, streams: rig, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
     });
     expect(await later.check(issueMoveToken(root, 'inst-bo', 'keys'), 'keys')).toMatchObject({ status: 401 });
   });
@@ -144,7 +144,7 @@ describe('a pool instance stopping for a move', () => {
     const workOf = vi.fn(async (ownerId: string) => (ownerId === 'owner-bo' ? ['Koala chat: plan the shop'] : []));
     const owned = new MoveExport({
       instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'mongodb://unused', dbName: 'provisioning' },
-      moved: movedSettingsFrom(KEYS), running: workOf, cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
+      moved: movedSettingsFrom(KEYS), running: workOf, cluster, streams: rig, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
     });
     expect(await owned.freeze()).toEqual({ status: 409, error: 'finish or stop what runs first, then start the move again: Koala chat: plan the shop' });
     expect(workOf).toHaveBeenCalledWith('owner-bo');
@@ -209,11 +209,7 @@ describe('a pool instance taking work again', () => {
   it('reports a program of its own that cannot be started at all', async () => {
     const missing = new MoveExport({
       instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true,
-      spawn: (() => {
-        const failing = Object.assign(new EventEmitter(), { stderr: new PassThrough(), stdout: new PassThrough() });
-        setImmediate(() => failing.emit('error', new Error('spawn tar ENOENT')));
-        return failing;
-      }) as never,
+      streams: recordingProcesses(() => undefined),
     });
     await expect(missing.open('data').done).rejects.toThrow('spawn tar ENOENT');
   });
@@ -241,7 +237,7 @@ describe('the parts of a pool instance root may take', () => {
     expect(await read(opened.out)).toBe('tar output');
     await opened.done;
     expect(opened.type).toBe('application/gzip');
-    expect(rig.ran.at(-1)).toEqual(['tar', 'czf', '-', '-C', dataDir, '--', '.gitea-admin-password', 'caddy']);
+    expect(ranBy(rig).at(-1)).toEqual(['tar', 'czf', '-', '-C', dataDir, '--', '.gitea-admin-password', 'caddy']);
   });
 
   it('dumps each database from its own pod and archives Gitea\'s files', async () => {
@@ -257,7 +253,7 @@ describe('the parts of a pool instance root may take', () => {
     await read(files.out);
     expect(files.type).toBe('application/gzip');
     expect(asked.at(-1)).toMatch(/^exec -n gitea deploy\/gitea -c gitea /);
-    expect(rig.ran).toEqual([]);
+    expect(ranBy(rig)).toEqual([]);
   });
 
   it('hands over the Secrets Terraform keeps its state in, from its own namespace, without what made them its cluster\'s', async () => {
@@ -332,7 +328,7 @@ describe('a pool instance reaching the cluster it runs in', () => {
     const bytes = Buffer.from([0, 255, 128, 10]);
     access.start.mockImplementation(async (_at, _args, io) => {
       io!.output!.end(bytes);
-      return { stop: () => undefined, ended: Promise.resolve({ code: 0, stdout: '', stderr: '' }) };
+      return { pid: undefined, stop: () => undefined, ended: Promise.resolve({ code: 0, stdout: '', stderr: '' }) };
     });
     const into = new PassThrough();
     const chunks: Buffer[] = [];
@@ -344,7 +340,7 @@ describe('a pool instance reaching the cluster it runs in', () => {
 
   it('fails a read with how kubectl ended and what it said', async () => {
     const access = starts();
-    access.start.mockResolvedValueOnce({ stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: `${FORBIDDEN}\n` }) });
+    access.start.mockResolvedValueOnce({ pid: undefined, stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: `${FORBIDDEN}\n` }) });
     await expect(moveClusterOn(access).read(['exec', 'pg'], new PassThrough())).rejects.toThrow(`kubectl ended with 1: ${FORBIDDEN}`);
   });
 });

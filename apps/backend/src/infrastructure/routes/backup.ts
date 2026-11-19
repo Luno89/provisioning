@@ -1,31 +1,29 @@
 import { Router } from 'express';
-import { startProcess, type StartProcess } from '../lib/shell.js';
 import path from 'path';
+import { ProcessNotStarted } from '@koala/engine-core/processes';
+import { asyncRoute, nodeProcesses, type Processes } from '../../platform/index.js';
 
 export interface BackupRouterDeps {
   repoRoot: string;
-  startScript?: StartProcess | undefined;
+  processes?: Processes | undefined;
 }
 
 export function backupRouter(deps: BackupRouterDeps): Router {
   const router = Router();
-  const startScript = deps.startScript ?? startProcess;
+  const processes = deps.processes ?? nodeProcesses;
 
-  router.post('/run', (_req, res) => {
+  router.post('/run', asyncRoute(async (_req, res) => {
     const script = path.join(deps.repoRoot, 'scripts/backup-to-drive.sh');
-    const child = startScript('bash', [script], { cwd: deps.repoRoot });
-
     let output = '';
-    child.stdout.on('data', (d: Buffer) => { output += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { output += d.toString(); });
-
-    child.on('close', (exitCode) => {
-      res.json({ success: exitCode === 0, output });
-    });
-    child.on('error', (err) => {
-      res.status(500).json({ success: false, output: `${output}\n${err.message}` });
-    });
-  });
+    const said = (chunk: string): void => { output += chunk; };
+    try {
+      const ran = await processes.run({ command: 'bash', args: [script], cwd: deps.repoRoot }, { stdout: said, stderr: said });
+      res.json({ success: ran.code === 0, output });
+    } catch (err) {
+      if (!(err instanceof ProcessNotStarted)) throw err;
+      res.status(500).json({ success: false, output: `${output}\n${err.reason}` });
+    }
+  }));
 
   return router;
 }

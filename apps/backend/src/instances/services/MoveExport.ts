@@ -3,10 +3,9 @@ import fs from 'fs/promises';
 import { readdirSync } from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
 import { MongoClient } from 'mongodb';
-import { childEnv, clientOptionsFor, type Followed, type Io } from '../../platform/index.js';
+import { clientOptionsFor, nodeStreams, type Followed, type Io, type Streams } from '../../platform/index.js';
 import type { Reach, Target } from '../../infrastructure/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
@@ -50,11 +49,13 @@ export interface MoveExportDeps {
   moved: MovedSettings;
   running: (ownerId: string) => Promise<string[] | 'unknown'>;
   claim: UsedTokenClaim;
-  spawn?: typeof spawnProcess;
+  streams?: Streams | undefined;
   now?: () => number;
 }
 
 export type MoveRefusal = { status: 401 | 409 | 500 | 503; error: string };
+
+const SAID_KEPT = 2000;
 
 export const VOLUME_HELPER = 'koala-move-volume';
 export const SELF_UPGRADE = { name: 'instance-self-upgrade', namespace: 'nowrinkles' } as const;
@@ -195,14 +196,13 @@ export class MoveExport {
   }
 
   private command(args: string[]): { out: Readable; done: Promise<void> } {
-    const child: ChildProcess = (this.deps.spawn ?? spawnProcess)(args[0]!, args.slice(1), { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
-    let said = '';
-    child.stderr?.on('data', (chunk) => { said = `${said}${chunk}`.slice(-2000); });
-    const done = new Promise<void>((resolve, reject) => {
-      child.on('error', reject);
-      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${args[0]} ended with ${code}: ${said.trim()}`))));
+    const out = new PassThrough();
+    const [command, ...rest] = args;
+    const running = (this.deps.streams ?? nodeStreams).start({ command: command!, args: rest }, { output: out });
+    const done = running.ended.then((ended) => {
+      if (ended.code !== 0) throw new Error(`${command} ended with ${ended.signal ?? ended.code}: ${ended.stderr.slice(-SAID_KEPT).trim()}`);
     });
-    return { out: child.stdout!, done };
+    return { out, done };
   }
 
   private mongo(): { out: Readable; done: Promise<void> } {

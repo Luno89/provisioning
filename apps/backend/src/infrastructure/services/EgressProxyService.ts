@@ -1,34 +1,27 @@
 import type { EgressGrantRecord } from '@koala/harness-types';
 import { renderGrants } from '../lib/egress-proxy.js';
-import { startProcess, type StartProcess } from '../lib/shell.js';
+import { nodeProcesses, type Processes } from '../../platform/index.js';
 import type { ClusterAccess } from './ClusterAccess.js';
 
 export const PROXY_NAMESPACE = 'koala-egress';
 
 export type ProxyKube = Pick<ClusterAccess, 'own' | 'apply' | 'kubectl'>;
 
-export function sha512Crypt(password: string, salt: string, start: StartProcess = startProcess): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = start('openssl', ['passwd', '-6', '-salt', salt, '-stdin']);
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (chunk: Buffer) => { out += chunk; });
-    child.stderr.on('data', (chunk: Buffer) => { err += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(`openssl could not hash: ${err.trim()}`))));
-    child.stdin.end(password);
-  });
+export async function sha512Crypt(password: string, salt: string, processes: Processes = nodeProcesses): Promise<string> {
+  const hashed = await processes.run({ command: 'openssl', args: ['passwd', '-6', '-salt', salt, '-stdin'], input: password });
+  if (hashed.code !== 0) throw new Error(`openssl could not hash: ${hashed.stderr.trim()}`);
+  return hashed.stdout.trim();
 }
 
 const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64');
 
 export class EgressProxyService {
-  constructor(private readonly deps: { kube: ProxyKube; secret: string; start?: StartProcess | undefined }) {}
+  constructor(private readonly deps: { kube: ProxyKube; secret: string; processes?: Processes | undefined }) {}
 
   async files(grants: readonly EgressGrantRecord[]): Promise<{ passwd: string; acls: string }> {
     const active = grants.filter((grant) => !grant.revokedAt);
     const { users, acls } = renderGrants(this.deps.secret, active);
-    const lines = await Promise.all(users.map(async ({ user, password }) => `${user}:${await sha512Crypt(password, user.slice(1, 17), this.deps.start)}`));
+    const lines = await Promise.all(users.map(async ({ user, password }) => `${user}:${await sha512Crypt(password, user.slice(1, 17), this.deps.processes)}`));
     return { passwd: lines.length ? `${lines.join('\n')}\n` : '', acls };
   }
 

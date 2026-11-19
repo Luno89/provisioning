@@ -4,7 +4,9 @@ import axios from 'axios';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFileSync, spawn, type SpawnOptions } from 'child_process';
+import { execFileSync } from 'child_process';
+import { nodeStreams } from '@koala/engine-core/node-processes';
+import type { Streams } from '@koala/engine-core/processes';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { moveRouter } from './move.js';
 import { MoveExport, MOVING_FILE, type MoveCluster } from '../services/MoveExport.js';
@@ -50,10 +52,13 @@ const cluster: MoveCluster = {
 
 const refuse = (prefixes: string[]): void => { refusing = prefixes; };
 
-const recordingSpawn = ((command: string, args: string[], options: SpawnOptions) => {
-  spawned.push([command, ...args]);
-  return spawn(command, args, options);
-}) as typeof spawn;
+const recordingStreams: Streams = {
+  ...nodeStreams,
+  start: (run, io) => {
+    spawned.push([run.command, ...run.args]);
+    return nodeStreams.start(run, io);
+  },
+};
 
 beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
@@ -67,7 +72,7 @@ beforeEach(async () => {
     router: async (db) => {
       const move = new MoveExport({
         instanceId: 'inst-bo', ownerId: 'owner-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
-        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, moved: movedSettingsFrom(KEYS), running: async () => running, cluster, spawn: recordingSpawn,
+        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, moved: movedSettingsFrom(KEYS), running: async () => running, cluster, streams: recordingStreams,
         claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
       });
       await move.load();

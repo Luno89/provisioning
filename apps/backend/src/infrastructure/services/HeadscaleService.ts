@@ -1,11 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
-import { childEnv, decryptValue, DOCKER_CLIENT, encryptValue, passedOn, type SecretKey } from '../../platform/index.js';
-
-const execFileAsync = promisify(execFile);
+import { decryptValue, DOCKER_CLIENT, encryptValue, nodeProcesses, passedOn, succeeded, type Processes, type SecretKey } from '../../platform/index.js';
 
 const CONTAINER_NAME = 'provisioning-headscale';
 
@@ -25,6 +21,7 @@ export class HeadscaleService {
     private readonly masterKey: SecretKey,
     private readonly mesh: { headscaleUrl: string; headscaleApiKey?: string | undefined } | { off: string },
     private readonly dataDir: string,
+    private readonly processes: Processes = nodeProcesses,
   ) {}
 
   private get baseUrl(): string {
@@ -55,9 +52,11 @@ export class HeadscaleService {
       ignore('a stored key that is missing, unreadable or refused is replaced by a new one')(failure);
     }
 
-    const { stdout } = await execFileAsync('docker', [
-      'exec', CONTAINER_NAME, 'headscale', 'apikeys', 'create', '--expiration', '87600h',
-    ], { env: childEnv(passedOn(DOCKER_CLIENT)) });
+    const stdout = await succeeded(this.processes, {
+      command: 'docker',
+      args: ['exec', CONTAINER_NAME, 'headscale', 'apikeys', 'create', '--expiration', '87600h'],
+      env: passedOn(DOCKER_CLIENT),
+    });
     const key = stdout.trim();
     if (!key) throw new Error('"headscale apikeys create" returned no key — is the container running?');
     this.apiKeyCache = key;

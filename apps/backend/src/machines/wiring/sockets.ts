@@ -1,11 +1,10 @@
 import fs from 'fs/promises';
 import type { KeyObject } from 'crypto';
 import path from 'path';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
   type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
-  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets, childEnv,
+  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets, nodeStreams, type Followed, type Streams,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
@@ -62,10 +61,12 @@ export interface SocketsWiringDeps {
   machineTemporal?: MachineTemporal | undefined;
   runs?: RunLiveness | undefined;
   now?: (() => Date) | undefined;
+  streams?: Streams | undefined;
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
   const { io, db, role, payloadKey, clusters, apps } = deps;
+  const streams = deps.streams ?? nodeStreams;
   const podLogs = new PodLogTails({ access: clusters.access, say: (room, text) => io.to(room).emit('kube-log', text), log: (message) => console.warn(message) });
   signSocketsIn(io, { auth: deps.auth, sessionSockets: deps.sessionSockets });
 
@@ -157,7 +158,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     const user = signedInUser(data);
     const connectedUser = user?.id;
     if (connectedUser) void socket.join(userRoom(connectedUser));
-    const socketTails = new Map<string, ChildProcessWithoutNullStreams>();
+    const socketTails = new Map<string, Followed>();
 
     const joinRoom = async (id: unknown) => {
       const resource = await authorizeRoom(user, id);
@@ -169,7 +170,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
 
       const existing = socketTails.get(id);
       if (existing) {
-        existing.kill();
+        existing.stop('SIGTERM');
         socketTails.delete(id);
       }
 
@@ -186,24 +187,13 @@ export function wireSockets(deps: SocketsWiringDeps): void {
           }
         }
 
-        const tail = spawn('tail', ['-n', String(LOG_TAIL_LINES), '-f', logPath], { env: childEnv() });
+        const said = (chunk: string): void => { socket.emit('log', chunk); };
+        const tail = streams.start({ command: 'tail', args: ['-n', String(LOG_TAIL_LINES), '-f', logPath] }, { heard: { stdout: said, stderr: said } });
         socketTails.set(id, tail);
-
-        tail.stdout.on('data', (data: Buffer) => {
-          socket.emit('log', data.toString());
-        });
-
-        tail.stderr.on('data', (data: Buffer) => {
-          socket.emit('log', data.toString());
-        });
-
-        tail.on('error', (err) => {
+        const forget = (): void => { if (socketTails.get(id) === tail) socketTails.delete(id); };
+        tail.ended.then(forget, (err: Error) => {
           console.warn(`[log-tail] ${logPath}: ${err.message}`);
-          socketTails.delete(id);
-        });
-
-        tail.on('close', () => {
-          socketTails.delete(id);
+          forget();
         });
       }
     };
@@ -247,7 +237,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       void socket.leave(id);
       const tail = socketTails.get(id);
       if (tail) {
-        tail.kill();
+        tail.stop('SIGTERM');
         socketTails.delete(id);
       }
     });
@@ -260,7 +250,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
 
     socket.on('disconnect', () => {
       for (const tail of socketTails.values()) {
-        tail.kill();
+        tail.stop('SIGTERM');
       }
       socketTails.clear();
     });
