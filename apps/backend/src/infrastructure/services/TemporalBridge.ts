@@ -42,7 +42,7 @@ import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
 import type { ToolCallParsers } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
-import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
+import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, servingArgsOf, type AppDeployDeps } from './AppDeploy.js'
 import { executeDestroyAppWorkflow } from '../../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
@@ -52,8 +52,6 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 import { QUEUES } from '../../platform/index.js';
-import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js'
-import { modelImageOf } from '../lib/model-images.js'
 
 const GRPC_NOT_FOUND = 5
 
@@ -388,17 +386,16 @@ export class TemporalBridge {
       pipelineImageTag = (await this.resultOf<Awaited<ReturnType<typeof executePipelineRunWorkflow>>>(wfId, 'the image it built')).imageTag
     }
 
-    if (action === 'app-deploy') {
-      if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
+    if (action === 'app-deploy' || action === 'app-resize' || action === 'app-sync-config') {
+      if (name === 'COMPLETED') {
         const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
-        if (done.status === 'running') {
+        const storage = action === 'app-resize' ? { ...meta?.storage, ...meta?.newStorage } : meta?.storage
+        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, storage)
+        if (action === 'app-deploy' && done.status === 'running') {
           await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
         }
+      } else {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
       }
       tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'app-destroy') {
@@ -408,25 +405,6 @@ export class TemporalBridge {
         await this.db.infrastructure.deleteDeployment(resourceId)
         await this.db.accounts.forgetDefaultModels([resourceId])
         if (this.io && ownerId) this.io.to(`user:${ownerId}`).emit('resource-destroyed', { id: resourceId, type: 'deployment', name: resourceName })
-      }
-      tellDeploymentChanged(this.io, ownerId)
-    } else if (action === 'app-resize') {
-      const newStorage = { ...meta?.storage, ...meta?.newStorage }
-      if (name === 'FAILED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
-        const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
-      }
-      tellDeploymentChanged(this.io, ownerId)
-    } else if (action === 'app-sync-config') {
-      if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage, failure)
-      } else if (name === 'COMPLETED') {
-        const done = await applied()
-        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
       }
       tellDeploymentChanged(this.io, ownerId)
     } else if (action === 'pipeline-run') {
@@ -762,10 +740,7 @@ export class TemporalBridge {
       namespace: dep.namespace,
       ...handed,
       ...appStackOf(dep, cluster),
-      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
-      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
-      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
-      strategy: dep.strategy || 'helm',
+      ...servingArgsOf(dep),
       appType: appTypeOf(dep),
       webRepo: dep.webRepo,
       webTag: dep.webTag,

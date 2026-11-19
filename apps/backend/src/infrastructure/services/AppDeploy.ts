@@ -11,7 +11,7 @@ import {
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity } from '../lib/cluster-capacity.js';
 import { gpuAskOf, gpuDeployRefusal } from '../lib/cluster-gpus.js';
-import { modelImageOf } from '../lib/model-images.js';
+import { modelImageOf, type ModelApp } from '../lib/model-images.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
@@ -32,6 +32,20 @@ export interface AppDeployDeps {
   handOver: (clusterId: string) => Promise<HandOver>;
   logDir: string;
   toolCalling: Pick<ToolCallParsers, 'decide'>;
+}
+
+export function servingArgsOf(dep: Pick<DeploymentMetadata, 'appType' | 'tabbyCachePvc' | 'vllmCachePvc' | 'strategy'> & ModelApp): {
+  modelCacheHostPath?: string;
+  modelImage?: string;
+  strategy: string;
+} {
+  const modelImage = modelImageOf(dep);
+  return {
+    ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
+    ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
+    ...(modelImage ? { modelImage } : {}),
+    strategy: dep.strategy || 'helm',
+  };
 }
 
 export interface StartedDeploy {
@@ -167,10 +181,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       namespace: dep.namespace,
       ...handed,
       clusterName: stack.clusterName,
-      ...(dep.appType === 'tabbyapi' ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) } : {}),
-      ...(dep.appType === 'vllm' ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) } : {}),
-      ...(modelImageOf(dep) ? { modelImage: modelImageOf(dep) } : {}),
-      strategy: dep.strategy || 'helm',
+      ...servingArgsOf(dep),
       appType: dep.appType,
       modules: dep.modules || [],
       odooRepo: (dep.webRepo as string) || '',
