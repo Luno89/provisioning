@@ -130,7 +130,7 @@ beforeEach(async () => {
     sessionKey: HUB_SESSION,
     dataKey: DATA_KEY,
     announce: { path: '/api/hub-link/sign-in-key', headers: {} },
-  }, hubDb, new AccessRevocations());
+  }, hubDb, new AccessRevocations(), () => Date.now() + offset);
   const hubAuth = createAuth({ db: hubDb, sessionKey: HUB_SESSION, publicUrl: hub.url, role: 'hub', clientSessions: hubSignIn, sessionEnds: new SessionEnds(hubDb.platform) });
   const hubIdentity = new IdentityService({ role: 'hub', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]) } as never, hubDb);
   hub.app.use('/api/auth', signInRouter({ signIn: hubSignIn, identity: hubIdentity, auth: hubAuth, publicUrl: hub.url, landing: '/hub' }));
@@ -284,5 +284,17 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect(await provider.personAtHub('made-up')).toBeUndefined();
     await provider.revoke({ personId: 'u2', at: new Date().toISOString(), because: 'signed-out-everywhere' });
     expect(await provider.personAtHub(hubToken!)).toBeUndefined();
+  });
+
+  it('renews through root the token the hub holds for a person once it is about to run out, so root still knows who the hub acts for', async () => {
+    offset = -21 * 60 * 1000;
+    const onHub = hubSignIn.verified((await signInAs('u2', hub)).instanceJar.get('session'));
+    const held = await hubSignIn.personToken(onHub);
+    expect(await provider.personAtHub(held!)).toBe('u2');
+    offset = 0;
+    const renewed = await hubSignIn.personToken(onHub);
+    expect(renewed).toBeTruthy();
+    expect(renewed).not.toBe(held);
+    expect(await provider.personAtHub(renewed!)).toBe('u2');
   });
 });
