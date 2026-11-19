@@ -3,7 +3,8 @@ import { fakeCommands, type Answer } from '../testing/fake-commands.js';
 import { memoryReporter } from '../testing/memory-reporter.js';
 import type { Command } from './commands.js';
 import { composeStep, type ComposeProject } from './compose.js';
-import { runSteps, StepFailed, type StepState } from './steps.js';
+import { runSteps, type StepState } from './steps.js';
+import { stepFailureOf } from '../testing/step-failure.js';
 import type { WaitOptions } from './wait-until.js';
 
 const PROJECT: ComposeProject = { program: ['docker', 'compose'], files: ['/repo/docker-compose.mongo.yml'], project: 'koala-test' };
@@ -41,12 +42,6 @@ const docker = (host: Host) => fakeCommands((command): Answer | undefined => {
 const verbs = (ran: Command[]): string[] => ran.map((command) => said(command).join(' '));
 
 const answering = (answers: StepState[]): (() => Promise<StepState>) => async () => answers.shift() ?? { done: true };
-
-const failureOf = async (run: Promise<void>): Promise<StepFailed> => {
-  const err: unknown = await run.then(() => undefined, (thrown: unknown) => thrown);
-  if (!(err instanceof StepFailed)) throw new Error(`expected StepFailed, the run ended with ${String(err)}`);
-  return err;
-};
 
 describe('a service started through its compose file', () => {
   it('is left alone when every service runs with the compose file\'s settings and answers', async () => {
@@ -110,7 +105,7 @@ describe('a service started through its compose file', () => {
       throw new Error('Failed to connect before the deadline');
     };
     const commands = docker(host);
-    const failure = await failureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands, wait: instant }, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands, wait: instant }, memoryReporter()));
     expect(failure.why).toContain('Temporal to answer: temporal exited with 1');
     expect(failure.tail).toContain('temporal-1  | unable to start: listen tcp :7233: bind: address already in use');
     expect(asked).toBe(3);
@@ -142,7 +137,7 @@ describe('a service started through its compose file', () => {
       afterUp: (h) => { h.containers['temporal'] = { state: 'exited', exitCode: 1, hash: 't' }; },
     };
     const commands = docker(host);
-    const failure = await failureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers: answering([]) })], { commands, wait: instant }, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers: answering([]) })], { commands, wait: instant }, memoryReporter()));
     expect(failure.why).toContain('Temporal to answer: temporal exited with 1');
     expect(failure.tail).toContain('temporal-1  | unable to start: sql schema version compatibility check failed');
     expect(verbs(commands.ran)).toContain('logs --no-color --tail 40 temporal');
@@ -172,13 +167,13 @@ describe('a service started through its compose file', () => {
       asked += 1;
       throw Object.assign(new Error('Authentication failed'), { response: { status: 401 } });
     };
-    const failure = await failureOf(runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers })], { commands: docker(host), wait: instant }, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers })], { commands: docker(host), wait: instant }, memoryReporter()));
     expect(failure.why).toContain('it refused the request (401)');
     expect(asked).toBe(1);
   });
 
   it('fails with compose\'s own words when compose cannot start it', async () => {
-    const failure = await failureOf(runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers: answering([]) })], { commands: docker({ configured: { mongodb: 'h1' }, containers: {}, upFails: true }), wait: instant }, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers: answering([]) })], { commands: docker({ configured: { mongodb: 'h1' }, containers: {}, upFails: true }), wait: instant }, memoryReporter()));
     expect(failure.why).toContain('up -d exited with 1');
     expect(failure.tail).toContain('Error response from daemon: port is already allocated');
   });

@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { composeStep, runSteps, StepFailed } from '@koala/provision';
-import { fakeCommands, memoryReporter } from '@koala/provision/testing';
+import { composeStep, runSteps } from '@koala/provision';
+import { fakeCommands, memoryReporter, stepFailureOf } from '@koala/provision/testing';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { temporalAnswers, type RootServices } from './root-services.js';
 
@@ -72,16 +72,10 @@ function systemInfoServer(): http2.Http2SecureServer {
   return server;
 }
 
-const ended = async (run: Promise<void>): Promise<StepFailed> => {
-  const err: unknown = await run.then(() => undefined, (thrown: unknown) => thrown);
-  if (!(err instanceof StepFailed)) throw new Error(`expected StepFailed, the run ended with ${String(err)}`);
-  return err;
-};
-
 describe('whether Temporal answers over TLS to its own CA', () => {
   it('fails at once, saying why, when the server on its address shows a certificate another CA signed', async () => {
     const port = await listening(tls.createServer({ key: readFileSync(at('other-ca.key')), cert: readFileSync(at('other-ca.crt')) }));
-    const failure = await ended(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause: async () => undefined } }, memoryReporter()));
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: { program: ['docker', 'compose'], files: [] }, answers: temporalAnswers(temporalOn(port)) })], { commands: running(), wait: { pause: async () => undefined } }, memoryReporter()));
     expect(failure.why).toContain('Temporal\'s certificate is refused');
     expect(failure.why).toContain('self-signed certificate');
   });

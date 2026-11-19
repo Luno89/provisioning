@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
-import { runSteps, StepFailed, TAIL_LINES, type Step, type StepState } from './steps.js';
+import { stepFailureOf } from '../testing/step-failure.js';
+import { runSteps, TAIL_LINES, type Step, type StepState } from './steps.js';
 
 interface Host { installed: Set<string>; applied: string[] }
 
@@ -16,12 +17,6 @@ const install = (id: string, lines: string[] = []): Step<Host> => ({
     ctx.installed.add(id);
   },
 });
-
-const failedOf = async (run: Promise<void>): Promise<StepFailed> => {
-  const err: unknown = await run.then(() => undefined, (thrown: unknown) => thrown);
-  if (!(err instanceof StepFailed)) throw new Error(`expected the run to fail with StepFailed, it ended with ${String(err)}`);
-  return err;
-};
 
 describe('runSteps', () => {
   it('applies each step that is not done, in order, and says each started and finished', async () => {
@@ -55,7 +50,7 @@ describe('runSteps', () => {
       check: async (): Promise<StepState> => ({ done: false, why: 'port 6443 is still closed' }),
       apply: async (_ctx, progress) => { progress.line('firewall-cmd: success'); },
     };
-    const failure = await failedOf(runSteps([stubborn, install('k3s')], ctx, reporter));
+    const failure = await stepFailureOf(runSteps([stubborn, install('k3s')], ctx, reporter));
     expect(failure.stepId).toBe('firewall');
     expect(failure.title).toBe('Opening the firewall');
     expect(failure.why).toBe('port 6443 is still closed');
@@ -76,7 +71,7 @@ describe('runSteps', () => {
         throw new Error('the checksum did not match');
       },
     };
-    const failure = await failedOf(runSteps([broken], host(), memoryReporter()));
+    const failure = await stepFailureOf(runSteps([broken], host(), memoryReporter()));
     expect(failure.why).toBe('the checksum did not match');
     expect(failure.tail).toEqual(['downloading']);
     expect(failure.cause).toBeInstanceOf(Error);
@@ -89,7 +84,7 @@ describe('runSteps', () => {
       check: async () => { throw new Error('permission denied reading /var/run/docker.sock'); },
       apply: async () => undefined,
     };
-    const failure = await failedOf(runSteps([unreadable], host(), memoryReporter()));
+    const failure = await stepFailureOf(runSteps([unreadable], host(), memoryReporter()));
     expect(failure.stepId).toBe('docker');
     expect(failure.why).toContain('permission denied reading /var/run/docker.sock');
   });
@@ -101,7 +96,7 @@ describe('runSteps', () => {
       check: async () => ({ done: false, why: 'not built' }),
       apply: async (_ctx, progress) => { for (let line = 1; line <= TAIL_LINES + 5; line += 1) progress.line(`line ${line}`); },
     };
-    const failure = await failedOf(runSteps([chatty], host(), memoryReporter()));
+    const failure = await stepFailureOf(runSteps([chatty], host(), memoryReporter()));
     expect(failure.tail).toHaveLength(TAIL_LINES);
     expect(failure.tail[0]).toBe('line 6');
     expect(failure.tail.at(-1)).toBe(`line ${TAIL_LINES + 5}`);
