@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, inject } from 'vitest';
-import { mongoHubStore } from '../store.js';
+import { mongoHubStore } from '../registry-store.js';
 import type { HubStore } from '../lib/hub-store.js';
 import { hubServiceBehaviour } from '../testing/hub-service-behaviour.js';
 

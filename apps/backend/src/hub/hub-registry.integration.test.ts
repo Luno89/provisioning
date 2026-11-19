@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, inject } from 'vitest';
 import { sharedProjectsContract } from './testing/hub-store-contract.js';
 import type { HubStore } from './lib/hub-store.js';
-import { mongoHubStore } from './store.js';
+import { mongoHubStore } from './registry-store.js';
 
 const opened: HubStore[] = [];
 afterAll(async () => { for (const store of opened.splice(0)) await store.close(); });
