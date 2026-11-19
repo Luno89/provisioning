@@ -40,10 +40,10 @@ export interface RootSidesOptions {
 export async function rootSidesOf(site: Site, options: RootSidesOptions = {}): Promise<RootSides> {
   const { db, io, origin, api } = site
   const role = roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() })
-  let made: MachineSides | undefined
+  const made: { sides?: MachineSides } = {}
   const sidesMade = (): MachineSides => {
-    if (!made) throw new Error('root\'s machine sides are asked for before they are made')
-    return made
+    if (!made.sides) throw new Error('root\'s machine sides are asked for before they are made')
+    return made.sides
   }
   const installs = () => {
     const found = sidesMade().installs
@@ -77,7 +77,7 @@ export async function rootSidesOf(site: Site, options: RootSidesOptions = {}): P
     instances: () => ({ places }),
     installWorkflows: workflows,
   })
-  made = sides
+  made.sides = sides
   if (!sides.accounts || !sides.installsWatched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
   afterAll(() => sides.installsWatched?.close())
   await sides.installsWatched.ready
