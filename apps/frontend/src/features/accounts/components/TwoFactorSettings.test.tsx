@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as accountApi from '../api'
 import { useShellStore } from '../../platform/stores/shell'
 import { TwoFactorSettings } from './TwoFactorSettings'
+import { refused } from '../../../test/refused'
 
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
@@ -43,6 +44,28 @@ describe('two-factor sign-in in Settings', () => {
     fireEvent.change(screen.getByLabelText('A code from your two-factor sign-in'), { target: { value: '654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(accountApi.saveTwoFactor).toHaveBeenCalledWith({ enabled: false, preferredMethod: 'email' }, { code: '654321' }))
+  })
+
+  it('says why the change was refused and keeps it to try again', async () => {
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, confirmWith: 'password', permissions: { 'manage-own-account': true } } as never)
+    vi.mocked(accountApi.saveTwoFactor).mockRejectedValue(refused(401, { error: 'Enter your password to do this' }))
+    show()
+    fireEvent.click(screen.getByLabelText('Two-factor sign-in'))
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'not-my-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter your password to do this')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(useShellStore.getState().user).toMatchObject({ twoFactorEnabled: false })
+  })
+
+  it('says why no code was sent', async () => {
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: true, twoFactorPreferredMethod: 'email', confirmWith: 'two-factor', permissions: { 'manage-own-account': true } } as never)
+    vi.mocked(accountApi.sendConfirmCode).mockRejectedValue(refused(429, { error: 'You can have 5 confirmation codes in the last 15 minutes' }))
+    show()
+    fireEvent.click(screen.getByLabelText('Two-factor sign-in'))
+    fireEvent.click(screen.getByRole('button', { name: 'Send me a code' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('You can have 5 confirmation codes in the last 15 minutes')
+    expect(screen.queryByText('Sent. It works for five minutes.')).toBeNull()
   })
 
   it('shows nothing inside an instance, where the account is kept by root', () => {

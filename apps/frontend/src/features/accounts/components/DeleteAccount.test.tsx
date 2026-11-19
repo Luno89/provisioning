@@ -96,5 +96,13 @@ describe('deleting your account from inside an instance', () => {
     expect(screen.queryByRole('button', { name: 'Delete account…' })).toBeNull()
     expect(accountApi.getRemovalPreview).not.toHaveBeenCalled()
   })
+
+  it('says why it cannot send you to Koala when the instance does not answer', async () => {
+    vi.mocked(authApi.accountRemovalPlace).mockRejectedValue(Object.assign(new Error('Network Error'), { isAxiosError: true }))
+    renderSection()
+
+    expect(await screen.findByText('Network Error')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Delete my account on Koala…' })).toBeNull()
+  })
 })
 

@@ -10,6 +10,7 @@ import RepositoryFiles from './RepositoryFiles'
 import OwnFiles from './OwnFiles'
 import ChatFiles from './ChatFiles'
 import FileShares from './FileShares'
+import { refused } from '../../../test/refused'
 
 vi.mock('../api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
@@ -48,8 +49,6 @@ beforeEach(() => {
   vi.mocked(filesApi.listFileShares).mockResolvedValue([])
   vi.mocked(filesApi.storedRoom).mockResolvedValue({ free: 1024 ** 3 })
 })
-
-const refused = (status: number, data: unknown) => Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data } })
 
 describe('a project\'s stored files', () => {
   it('lists them with their sizes and download links, uploads what is dropped into the folder it is dropped on', async () => {
