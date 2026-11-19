@@ -1,8 +1,8 @@
-import type { DeploymentMetadata } from '../../platform/index.js';
+import type { AppSettings, DeploymentMetadata, RequestedAppSettings } from '../../platform/index.js';
 
 type Field<K extends keyof DeploymentMetadata> = Exclude<DeploymentMetadata[K], undefined>;
 
-export type DeployRequest = {
+export type DeployRequest = RequestedAppSettings & {
   id?: string;
   name?: string;
   namespace?: string;
@@ -20,51 +20,10 @@ export type DeployRequest = {
   pgRepo?: string;
   pgTag?: string;
   url?: string;
-  vllmModel?: string;
-  vllmGpuCount?: number;
-  vllmGpuVendor?: Field<'vllmGpuVendor'>;
-  vllmCachePvc?: string;
-  vllmHfToken?: string;
-  vllmMaxModelLen?: number;
-  vllmGpuMemUtil?: number;
-  vllmExtraArgs?: string;
-  vllmToolCallingEnabled?: boolean;
-  vllmToolCallParser?: Field<'vllmToolCallParser'>;
-  vllmServedModelName?: string;
-  vllmMaxNumSeqs?: number;
-  vllmDtype?: Field<'vllmDtype'>;
-  vllmEnablePrefixCaching?: boolean;
-  tabbyModel?: string;
-  tabbyRevision?: string;
-  tabbyGpuCount?: number;
-  tabbyHfToken?: string;
-  tabbyCachePvc?: string;
-  tabbyImageTag?: string;
-  tabbyCacheMode?: Field<'tabbyCacheMode'>;
-  tabbyMaxSeqLen?: number;
-  tabbyMaxBatchSize?: number;
-  tabbyReasoning?: boolean;
-  tabbyToolFormat?: Field<'tabbyToolFormat'>;
-  tabbyInlineModelLoading?: boolean;
-  tabbyDisableAuth?: boolean;
-  tabbyMemoryLimit?: string;
-  tabbyShmSize?: string;
-  tabbyCpuLimit?: string;
-  tabbyExtraEnv?: string;
-  searxngSecretKey?: string;
-  searxngEngines?: string;
-  crawl4aiApiToken?: string;
-  crawl4aiMemoryLimit?: string;
-  crawl4aiShmSize?: string;
   openWebuiTargetId?: string;
   hermesTargetId?: string;
-  webuiEnableWebSearch?: boolean;
-  webuiWebSearchEngine?: Field<'webuiWebSearchEngine'>;
-  webuiWebSearchApiKey?: string;
-  appSettings?: Record<string, string>;
   gitappProjectId?: string;
   gitappImageTag?: string;
-  gitappEnv?: string;
 };
 
 type Kind = 'text' | 'number' | 'flag' | 'texts' | 'textRecord' | readonly string[];
@@ -76,10 +35,7 @@ const CACHE_MODES = ['FP16', 'Q8', 'Q6', 'Q4'] as const satisfies readonly Field
 const TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'] as const satisfies readonly Field<'tabbyToolFormat'>[];
 const SEARCH_ENGINES = ['duckduckgo', 'tavily', 'brave', 'serper', 'bing'] as const satisfies readonly Field<'webuiWebSearchEngine'>[];
 
-const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
-  id: 'text', name: 'text', namespace: 'text', clusterId: 'text', strategy: STRATEGIES, appType: 'text',
-  modules: 'texts', storage: 'textRecord',
-  webRepo: 'text', webTag: 'text', odooRepo: 'text', odooTag: 'text', dbRepo: 'text', dbTag: 'text', pgRepo: 'text', pgTag: 'text', url: 'text',
+const REQUESTED_SETTINGS: { [K in keyof Required<RequestedAppSettings>]: Kind } = {
   vllmModel: 'text', vllmGpuCount: 'number', vllmGpuVendor: GPU_VENDORS, vllmCachePvc: 'text', vllmHfToken: 'text',
   vllmMaxModelLen: 'number', vllmGpuMemUtil: 'number', vllmExtraArgs: 'text', vllmToolCallingEnabled: 'flag',
   vllmToolCallParser: 'text', vllmServedModelName: 'text', vllmMaxNumSeqs: 'number', vllmDtype: DTYPES,
@@ -89,9 +45,35 @@ const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
   tabbyReasoning: 'flag', tabbyToolFormat: TOOL_FORMATS, tabbyInlineModelLoading: 'flag', tabbyDisableAuth: 'flag',
   tabbyMemoryLimit: 'text', tabbyShmSize: 'text', tabbyCpuLimit: 'text', tabbyExtraEnv: 'text',
   searxngSecretKey: 'text', searxngEngines: 'text', crawl4aiApiToken: 'text', crawl4aiMemoryLimit: 'text', crawl4aiShmSize: 'text',
-  openWebuiTargetId: 'text', hermesTargetId: 'text', webuiEnableWebSearch: 'flag', webuiWebSearchEngine: SEARCH_ENGINES,
-  webuiWebSearchApiKey: 'text', appSettings: 'textRecord', gitappProjectId: 'text', gitappImageTag: 'text', gitappEnv: 'text',
+  gitappEnv: 'text', webuiEnableWebSearch: 'flag', webuiWebSearchEngine: SEARCH_ENGINES, webuiWebSearchApiKey: 'text', appSettings: 'textRecord',
 };
+
+export const APP_SETTINGS: { [K in keyof Required<AppSettings>]: Kind } = {
+  ...REQUESTED_SETTINGS,
+  minioRootUser: 'text', minioRootPassword: 'text', minioStorage: 'text',
+  nextcloudAdminPassword: 'text', nextcloudDbPassword: 'text', nextcloudDbRootPassword: 'text', hermesDashboardPassword: 'text',
+  qdrantApiKey: 'text', qdrantStorage: 'text', qdrantMemoryLimit: 'text',
+  quickwitS3Endpoint: 'text', quickwitS3AccessKey: 'text', quickwitS3SecretKey: 'text', quickwitBucket: 'text',
+  teiModelId: 'text', teiUseGpu: 'flag', teiMemoryLimit: 'text', verdaccioUpstream: 'text', verdaccioStorage: 'text',
+};
+
+const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {
+  ...REQUESTED_SETTINGS,
+  id: 'text', name: 'text', namespace: 'text', clusterId: 'text', strategy: STRATEGIES, appType: 'text',
+  modules: 'texts', storage: 'textRecord',
+  webRepo: 'text', webTag: 'text', odooRepo: 'text', odooTag: 'text', dbRepo: 'text', dbTag: 'text', pgRepo: 'text', pgTag: 'text', url: 'text',
+  openWebuiTargetId: 'text', hermesTargetId: 'text', gitappProjectId: 'text', gitappImageTag: 'text',
+};
+
+function picked<T extends object>(keys: readonly (keyof T)[], from: T): T {
+  const kept: Partial<T> = {};
+  for (const key of keys) if (from[key] !== undefined) kept[key] = from[key];
+  return kept as T;
+}
+
+export const appSettingsOf = (app: AppSettings): AppSettings => picked(Object.keys(APP_SETTINGS) as (keyof AppSettings)[], app);
+
+export const requestedSettingsOf = (request: RequestedAppSettings): RequestedAppSettings => picked(Object.keys(REQUESTED_SETTINGS) as (keyof RequestedAppSettings)[], request);
 
 export class DeployRequestProblem extends Error {
   readonly status = 400;

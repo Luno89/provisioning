@@ -1,9 +1,20 @@
 import { randomBytes } from 'node:crypto';
 import { clusterUrl } from './cluster-dns.js';
 import { namespaceOf } from './app-namespace.js';
-import type { DeploymentMetadata } from '../../platform/index.js';
+import type { AppSettings, DeploymentMetadata } from '../../platform/index.js';
+import { appSettingsOf } from './deploy-request.js';
 
-export interface AppEnvArgs {
+export const FOLDED_SETTINGS = ['vllmHfToken', 'tabbyHfToken', 'tabbyImageTag'] as const satisfies readonly (keyof AppSettings)[];
+
+export type EnvSettings = Omit<AppSettings, typeof FOLDED_SETTINGS[number]>;
+
+export function envSettingsOf(app: AppSettings): EnvSettings {
+  const settings: AppSettings = appSettingsOf(app);
+  for (const folded of FOLDED_SETTINGS) delete settings[folded];
+  return settings;
+}
+
+export interface AppEnvArgs extends EnvSettings {
   serviceType: string;
   physicalName: string;
   strategy: string;
@@ -17,68 +28,11 @@ export interface AppEnvArgs {
   webTag?: string | undefined;
   dbRepo?: string | undefined;
   dbTag?: string | undefined;
-  vllmModel?: string | undefined;
-  vllmGpuCount?: number | undefined;
-  vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
   modelPreDownloaded?: boolean | undefined;
   modelImage?: string | undefined;
-  vllmCachePvc?: string | undefined;
   hfToken?: string | undefined;
-  vllmMaxModelLen?: number | undefined;
-  vllmGpuMemUtil?: number | undefined;
-  vllmExtraArgs?: string | undefined;
-  vllmToolCallingEnabled?: boolean | undefined;
-  vllmToolCallParser?: string | undefined;
-  vllmServedModelName?: string | undefined;
-  vllmMaxNumSeqs?: number | undefined;
-  vllmDtype?: string | undefined;
-  vllmEnablePrefixCaching?: boolean | undefined;
-  tabbyModel?: string | undefined;
-  tabbyRevision?: string | undefined;
-  tabbyGpuCount?: number | undefined;
   tabbyModelSizeBytes?: number | undefined;
-  tabbyCachePvc?: string | undefined;
-  tabbyCacheMode?: string | undefined;
-  tabbyMaxSeqLen?: number | undefined;
-  tabbyMaxBatchSize?: number | undefined;
-  tabbyReasoning?: boolean | undefined;
-  tabbyToolFormat?: string | undefined;
-  tabbyInlineModelLoading?: boolean | undefined;
-  tabbyDisableAuth?: boolean | undefined;
-  tabbyMemoryLimit?: string | undefined;
-  tabbyShmSize?: string | undefined;
-  tabbyCpuLimit?: string | undefined;
-  tabbyExtraEnv?: string | undefined;
-  searxngSecretKey?: string | undefined;
-  searxngEngines?: string | undefined;
-  crawl4aiApiToken?: string | undefined;
-  crawl4aiMemoryLimit?: string | undefined;
-  crawl4aiShmSize?: string | undefined;
-  minioRootUser?: string | undefined;
-  minioRootPassword?: string | undefined;
-  nextcloudAdminPassword?: string | undefined;
-  nextcloudDbPassword?: string | undefined;
-  nextcloudDbRootPassword?: string | undefined;
-  hermesDashboardPassword?: string | undefined;
-  minioStorage?: string | undefined;
-  qdrantApiKey?: string | undefined;
-  qdrantStorage?: string | undefined;
-  qdrantMemoryLimit?: string | undefined;
-  quickwitS3Endpoint?: string | undefined;
-  quickwitS3AccessKey?: string | undefined;
-  quickwitS3SecretKey?: string | undefined;
-  quickwitBucket?: string | undefined;
-  teiModelId?: string | undefined;
-  teiUseGpu?: boolean | undefined;
-  teiMemoryLimit?: string | undefined;
-  verdaccioUpstream?: string | undefined;
-  verdaccioStorage?: string | undefined;
-  gitappEnv?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
-  webuiEnableWebSearch?: boolean | undefined;
-  webuiWebSearchEngine?: string | undefined;
-  webuiWebSearchApiKey?: string | undefined;
-  appSettings?: Record<string, string> | undefined;
   storageEnv: Record<string, string>;
 }
 

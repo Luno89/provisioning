@@ -1,5 +1,5 @@
 import {
-  StorageAdapter, buildAppEnv, modelHfToken, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
+  StorageAdapter, buildAppEnv, envSettingsOf, modelHfToken, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import { namespacedOn, waitUntilRolledOut } from './cluster-jobs.js';
 import { applyWatched } from './watched-apply.js';
@@ -8,8 +8,9 @@ import { handedReach } from './handed-reach.js';
 import { appServiceType, appStackName, NO_STACK_ID, placedOnPool } from '../infrastructure/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
+import type { AppSettings } from '../platform/index.js';
 
-export interface SyncConfigArgs {
+export interface SyncConfigArgs extends AppSettings {
   name: string;
   namespace?: string | undefined;
   clusterId: string;
@@ -28,44 +29,7 @@ export interface SyncConfigArgs {
   modelImage?: string | undefined;
   modelPreDownloaded?: boolean | undefined;
   deploymentId?: string | undefined;
-  vllmModel?: string | undefined;
-  vllmGpuCount?: number | undefined;
-  vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
-  vllmCachePvc?: string | undefined;
-  vllmHfToken?: string | undefined;
-  vllmMaxModelLen?: number | undefined;
-  vllmGpuMemUtil?: number | undefined;
-  vllmExtraArgs?: string | undefined;
-  vllmToolCallingEnabled?: boolean | undefined;
-  vllmToolCallParser?: string | undefined;
-  vllmServedModelName?: string | undefined;
-  vllmMaxNumSeqs?: number | undefined;
-  vllmDtype?: string | undefined;
-  vllmEnablePrefixCaching?: boolean | undefined;
-  tabbyModel?: string | undefined;
-  tabbyRevision?: string | undefined;
-  tabbyGpuCount?: number | undefined;
-  tabbyHfToken?: string | undefined;
-  tabbyCachePvc?: string | undefined;
-  tabbyImageTag?: string | undefined;
-  tabbyCacheMode?: string | undefined;
-  tabbyMaxSeqLen?: number | undefined;
-  tabbyMaxBatchSize?: number | undefined;
-  tabbyReasoning?: boolean | undefined;
-  tabbyToolFormat?: string | undefined;
-  tabbyInlineModelLoading?: boolean | undefined;
-  tabbyDisableAuth?: boolean | undefined;
-  tabbyExtraEnv?: string | undefined;
-  searxngSecretKey?: string | undefined;
-  searxngEngines?: string | undefined;
-  crawl4aiApiToken?: string | undefined;
-  crawl4aiMemoryLimit?: string | undefined;
-  crawl4aiShmSize?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
-  webuiEnableWebSearch?: boolean | undefined;
-  webuiWebSearchEngine?: string | undefined;
-  webuiWebSearchApiKey?: string | undefined;
-  appSettings?: Record<string, string> | undefined;
 }
 
 export interface SyncConfigResult {
@@ -90,6 +54,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const deploymentId = args.deploymentId;
 
   const env = buildAppEnv({
+    ...envSettingsOf(args),
     modelPreDownloaded: args.modelPreDownloaded === true,
     modelImage: args.modelImage,
     hfToken: modelHfToken(args),
@@ -104,41 +69,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     webTag: args.webTag,
     dbRepo: args.dbRepo,
     dbTag: args.dbTag,
-    vllmModel: args.vllmModel,
-    vllmGpuCount: args.vllmGpuCount,
-    vllmGpuVendor: args.vllmGpuVendor,
-    vllmCachePvc: args.vllmCachePvc,
-    vllmMaxModelLen: args.vllmMaxModelLen,
-    vllmGpuMemUtil: args.vllmGpuMemUtil,
-    vllmExtraArgs: args.vllmExtraArgs,
-    vllmToolCallingEnabled: args.vllmToolCallingEnabled,
-    vllmToolCallParser: args.vllmToolCallParser,
-    vllmServedModelName: args.vllmServedModelName,
-    vllmMaxNumSeqs: args.vllmMaxNumSeqs,
-    vllmDtype: args.vllmDtype,
-    vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
-    tabbyModel: args.tabbyModel,
-    tabbyRevision: args.tabbyRevision,
-    tabbyGpuCount: args.tabbyGpuCount,
-    tabbyCachePvc: args.tabbyCachePvc,
-    tabbyCacheMode: args.tabbyCacheMode,
-    tabbyMaxSeqLen: args.tabbyMaxSeqLen,
-    tabbyMaxBatchSize: args.tabbyMaxBatchSize,
-    tabbyReasoning: args.tabbyReasoning,
-    tabbyToolFormat: args.tabbyToolFormat,
-    tabbyInlineModelLoading: args.tabbyInlineModelLoading,
-    tabbyDisableAuth: args.tabbyDisableAuth,
-    tabbyExtraEnv: args.tabbyExtraEnv,
-    searxngSecretKey: args.searxngSecretKey,
-    searxngEngines: args.searxngEngines,
-    crawl4aiApiToken: args.crawl4aiApiToken,
-    crawl4aiMemoryLimit: args.crawl4aiMemoryLimit,
-    crawl4aiShmSize: args.crawl4aiShmSize,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
-    webuiEnableWebSearch: args.webuiEnableWebSearch,
-    webuiWebSearchEngine: args.webuiWebSearchEngine,
-    webuiWebSearchApiKey: args.webuiWebSearchApiKey,
-    ...(args.appSettings ? { appSettings: args.appSettings } : {}),
     storageEnv,
   });
 
