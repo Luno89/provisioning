@@ -1,5 +1,14 @@
-import type { MockProxy } from 'vitest-mock-extended';
-import type { ClusterAccess, Reach } from '../../infrastructure/index.js';
+import { mock, type MockProxy } from 'vitest-mock-extended';
+import type { ClusterAccess, InfisicalService, InfrastructureService, Reach } from '../../infrastructure/index.js';
+import type { GiteaService } from '../../projects/index.js';
+
+export function stepsOn(access: MockProxy<ClusterAccess>, infra: MockProxy<InfrastructureService>, dataKey: string) {
+  return {
+    access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(),
+    database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey },
+    machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics',
+  };
+}
 
 export interface AnsweringCluster {
   reached?: (target: Reach) => void;

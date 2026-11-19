@@ -1,19 +1,16 @@
+import { records } from './testing/recorded-database.js';
 import { mkdtempSync } from 'node:fs';
 import { http, HttpResponse } from 'msw';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { MockActivityEnvironment } from '@temporalio/testing';
-import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
-import type { GiteaService } from '../projects/index.js';
+import { ClusterUnreachable, type ClusterAccess, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { interceptHttp } from '../platform/testing/http.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
-import { records } from './testing/recorded-database.js';
-import { answerAsACluster } from './testing/answering-cluster.js';
-
-vi.mock('../platform/index.js', async (actual) => (await import('./testing/recorded-database.js')).withRecordedDatabase(await actual<typeof import('../platform/index.js')>()));
+import { answerAsACluster, stepsOn } from './testing/answering-cluster.js';
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { clusterActivities } = await import('../worker-cluster.js');
@@ -29,7 +26,7 @@ let infra: MockProxy<InfrastructureService>;
 let reached: Reach[];
 let nodes: string;
 
-const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey: 'cluster-steps-test-key' }, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+const steps = () => stepsOn(access, infra, 'cluster-steps-test-key');
 
 const deploy = (over: Partial<DeployAppArgs> = {}): DeployAppArgs => ({
   name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk',

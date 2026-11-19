@@ -1,23 +1,20 @@
+import { records } from './testing/recorded-database.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkflowClient } from '@temporalio/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import type { ClusterAccess, ClusterService, InfisicalService, InfrastructureService, Reach } from '../infrastructure/index.js';
+import type { ClusterAccess, ClusterService, InfrastructureService, Reach } from '../infrastructure/index.js';
 import { startAppDeploy } from '../infrastructure/services/AppDeploy.js';
 import { TemporalBridge } from '../infrastructure/services/TemporalBridge.js';
-import type { GiteaService } from '../projects/index.js';
 import type { AppSettings, ClusterMetadata, DeploymentMetadata } from '../platform/index.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import type { ToolCallParsers } from '../models/index.js';
 import type { DeployAppArgs } from './DeployAppActivity.js';
 import type { SyncConfigArgs } from './SyncConfigActivity.js';
-import { records } from './testing/recorded-database.js';
-import { answerAsACluster } from './testing/answering-cluster.js';
-
-vi.mock('../platform/index.js', async (actual) => (await import('./testing/recorded-database.js')).withRecordedDatabase(await actual<typeof import('../platform/index.js')>()));
+import { answerAsACluster, stepsOn } from './testing/answering-cluster.js';
 
 const { DeployAppActivity } = await import('./DeployAppActivity.js');
 const { SyncConfigActivity } = await import('./SyncConfigActivity.js');
@@ -53,7 +50,7 @@ const APP: DeploymentMetadata = {
 let access: MockProxy<ClusterAccess>;
 let infra: MockProxy<InfrastructureService>;
 
-const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey: KEY }, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+const steps = () => stepsOn(access, infra, KEY);
 
 async function handedToTheWorkflow(start: (workflow: MockProxy<Pick<WorkflowClient, 'start' | 'getHandle'>>) => Promise<unknown>): Promise<Record<string, unknown>> {
   const workflow = mock<Pick<WorkflowClient, 'start' | 'getHandle'>>();

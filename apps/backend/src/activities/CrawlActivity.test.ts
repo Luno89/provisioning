@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { records } from './testing/recorded-database.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { http, HttpResponse } from 'msw';
 import { ApplicationFailure } from '@temporalio/common';
@@ -10,10 +11,7 @@ import type { ClusterAccess } from '../infrastructure/index.js';
 import type { CorpusEndpoints } from '../engine/index.js';
 import { crawlPages } from '../engine/lib/crawl-client.js';
 import { giveHostActivities } from './host-settings.js';
-import { records } from './testing/recorded-database.js';
 import { crawlActivities, crawlPlaceFor, DiscardFrontierActivity, NextBatchActivity, PurgeCorpusActivity, SeedFrontierActivity } from './CrawlActivity.js';
-
-vi.mock('../platform/index.js', async (actual) => (await import('./testing/recorded-database.js')).withRecordedDatabase(await actual<typeof import('../platform/index.js')>()));
 
 const CRAWL4AI = 'http://crawl4ai.instance.test:11235';
 const PAGE = 'The retry budget is three attempts per job, and each attempt waits twice as long as the one before it, so a job that keeps failing is given up on after about a minute of trying again.';
