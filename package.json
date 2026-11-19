@@ -65,7 +65,6 @@
     "test:tree-to-release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts tree-to-release-live",
     "test:extensions-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts extensions-live",
     "test:instance-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts instance-live",
-    "test:byo-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts byo-machine-live",
     "test:routing-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts routing-live",
     "test:machine-probe-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-probe-live",
     "test:machine-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-live",

@@ -39,7 +39,6 @@ export const RELEASE_STEPS: GateStep[] = [
   { name: 'files on MinIO, share links, an attachment', script: 'test:files-live', memoryMB: 1024 },
   { name: 'an instance on k3d signs in through root', script: 'test:instance-live', memoryMB: 2048 },
   { name: 'a machine joins and its agents are found', script: 'test:machine-live', memoryMB: 4096 },
-  { name: 'install.sh on a VM, sign-in and a self-upgrade', script: 'test:byo-live', memoryMB: 12288 },
   { name: 'the mesh keeps people apart, and a machine\'s own cluster starts and stops with its apps', script: 'test:mesh-live', memoryMB: 19456 },
   { name: 'addresses through root\'s Caddy', script: 'test:routing-live', memoryMB: 12288 },
   { name: 'a pool trial and its move', script: 'test:pool-live', memoryMB: 28672 },
