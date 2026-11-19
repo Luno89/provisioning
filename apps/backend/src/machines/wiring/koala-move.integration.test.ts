@@ -346,4 +346,26 @@ describe('a move root stops on the machine, on a real k3s', () => {
       await root.close();
     }
   }, 600_000);
+
+  it('removes nothing of a Koala that reached ready when a later move comes onto the machine, and stops that move with why', async () => {
+    const root = await rootWithAMovingKoala(db, 'install-ran');
+    try {
+      const files = mkdtempSync(join(work, 'machine-'));
+      await installing(root.placed, thisMachine(files));
+      expect(stages(root.heard).at(-1)).toBe('koala-moved done http://100.64.0.7:30320');
+
+      const later = await root.placedAgain('install-later');
+      root.heard.length = 0;
+      const said = await installing(later, thisMachine(files));
+      const clear = root.heard.filter((progress) => progress.stage === 'clear');
+      expect(clear.map((progress) => progress.state)).toEqual(['started', 'failed']);
+      expect(clear.at(-1)?.why).toMatch(new RegExp(`^${later.machineId} already runs a Koala of yours, from its install install-ran, ready since \\d{4}-\\d\\d-\\d\\dT[\\d:.]+Z; it may hold your work, so the move removed nothing of it\\. Move onto another machine instead$`));
+      expect(said.at(-1)).toBe(`Making room for your Koala on this machine failed: ${clear.at(-1)?.why}`);
+      expect(JSON.parse(await helm('history', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '-o', 'json'))).toHaveLength(2);
+      expect(await kubectl('get', 'deployment', `${KOALA_RELEASE}-backend`, '-n', KOALA_NAMESPACE, '-o', 'jsonpath={.status.availableReplicas}')).toBe('1');
+      expect(await kubectl('get', 'secret', `${KOALA_RELEASE}-keys`, '-n', KOALA_NAMESPACE, '-o', 'name')).toBe(`secret/${KOALA_RELEASE}-keys\n`);
+    } finally {
+      await root.close();
+    }
+  }, 0);
 });

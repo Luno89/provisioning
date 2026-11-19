@@ -5,7 +5,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { KOALA_INSTALL_LAST_STAGE, KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_PLATFORM_NAMESPACES, koalaInstallLastStage, koalaInstallProgressPath, koalaStopOf, MOVED_FOR_LABEL, type KoalaMove, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { allReporters, chartInputs, chartStep, runSteps, runsInputs, StepFailed, waitUntil, type ChartCluster, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
-import { K3S_BINARY, K3S_KUBECONFIG, clusterState, runMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KUBECONFIG, clusterState, koalaEverRan, runMachineCluster, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
 import { askRoot, rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
 export type { PlacedKoala };
@@ -162,6 +162,9 @@ export async function removeKoala(host: ClusterHost, helm: string, instanceId: s
   if (what.length) line('nothing of that Koala is left on this machine');
 }
 
+const keptKoala = (machineId: string, held: KoalaHeld): string =>
+  `${machineId} already runs a Koala of yours, from ${held.installId ? `its install ${held.installId}, ready since ${held.readyAt}` : 'an install made before this machine noted when its Koala was ready'}; it may hold your work, so the move removed nothing of it. Move onto another machine instead`;
+
 const clearEarlier: Step<InstallContext> = {
   id: 'clear',
   title: 'Making room for your Koala on this machine',
@@ -170,6 +173,7 @@ const clearEarlier: Step<InstallContext> = {
     : { done: false, why: 'this machine does not hold Koala for this move yet' }),
   apply: async (ctx, progress) => {
     const held = await ctx.host.heldKoala();
+    if (held && koalaEverRan(held)) throw new Error(keptKoala(ctx.placed.machineId, held));
     if (held) await removeKoala(ctx.host, ctx.helm, held.instanceId, (text) => progress.line(text), ctx.wait);
     await ctx.host.holdKoala(ctx.placed.instanceId, ctx.placed.installId);
   },
@@ -312,7 +316,7 @@ function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost {
     list: (dir) => host.list(dir),
     wanted: (running) => host.wanted(running),
     isWanted: () => host.isWanted(),
-    holdKoala: (instanceId, installId) => host.holdKoala(instanceId, installId),
+    holdKoala: (instanceId, installId, readyAt) => host.holdKoala(instanceId, installId, readyAt),
     holdsKoala: () => host.holdsKoala(),
     heldKoala: () => host.heldKoala(),
     letKoalaGo: () => host.letKoalaGo(),
@@ -337,6 +341,17 @@ function quietOnceStopped(reporter: Reporter, stop: AbortSignal): Reporter {
   };
 }
 
+function notesReady(host: ClusterHost, placed: PlacedKoala): Reporter {
+  const last = koalaInstallLastStage(Boolean(placed.move));
+  const note = async (step: StepName): Promise<void> => {
+    if (step.id !== last) return;
+    const held = await host.heldKoala();
+    if (held?.installId !== placed.installId || held.readyAt) return;
+    await host.holdKoala(placed.instanceId, placed.installId, new Date(host.now()).toISOString());
+  };
+  return { started: () => undefined, alreadyDone: note, line: () => undefined, done: note, failed: () => undefined };
+}
+
 const stoppedLine = (placed: PlacedKoala): string =>
   `${placed.move ? 'Moving Koala here' : 'Putting Koala on this machine'} stopped: root stopped it before it finished`;
 
@@ -356,9 +371,9 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps, 
   );
   const work = await mkdtemp(path.join(os.tmpdir(), 'koala-install-'));
   try {
-    if (!placed.move) await deps.cluster.holdKoala(placed.instanceId, placed.installId);
+    if (!placed.move && (await deps.cluster.heldKoala())?.installId !== placed.installId) await deps.cluster.holdKoala(placed.instanceId, placed.installId);
     if (own) deps.say(`Koala takes this machine's own values from ${own.file}`);
-    await runSteps(placed.move ? KOALA_MOVE_STEPS : KOALA_INSTALL_STEPS, { placed, host, helm: deps.helm, fetch: fetcher, work, own, wait }, quietOnceStopped(allReporters(saying(deps.say), root), stop));
+    await runSteps(placed.move ? KOALA_MOVE_STEPS : KOALA_INSTALL_STEPS, { placed, host, helm: deps.helm, fetch: fetcher, work, own, wait }, quietOnceStopped(allReporters(saying(deps.say), notesReady(deps.cluster, placed), root), stop));
     deps.say(`Koala runs on this machine at ${url}`);
   } catch (err) {
     if (stop.aborted) deps.say(stoppedLine(placed));
@@ -371,6 +386,10 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps, 
 async function removeMadeBy(deps: KoalaInstallDeps, installId: string): Promise<void> {
   const held = await deps.cluster.heldKoala();
   if (held?.installId !== installId) return;
+  if (koalaEverRan(held)) {
+    deps.say(`root asked to remove the Koala of install ${installId}, but it was ready since ${held.readyAt} and may hold your work, so nothing of it was removed`);
+    return;
+  }
   deps.say('removing what the stopped move put on this machine');
   await runMachineCluster(deps.cluster, { kind: 'start' });
   await removeKoala(deps.cluster, deps.helm, held.instanceId, (text) => deps.say(`  ${text}`), deps.wait);

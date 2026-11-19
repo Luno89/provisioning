@@ -6,7 +6,7 @@ import { KOALA_INSTALL_PROGRESS, KOALA_MOVE_KEYS_PATH, KOALA_MOVE_PROGRESS, koal
 import type { ProgressContract } from '@koala/engine-core/machine-progress';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
-import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KUBECONFIG, K3S_MARKER, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
 import { installKoala, koalaPlacements, koalaUrlOf, koalaValues, machineChartCluster, placedFrom, type PlacedKoala } from './koala-install.js';
 
 const CHART = Buffer.from('a chart');
@@ -31,7 +31,7 @@ const rolledOut = (ready: boolean) => ({ items: [
 
 interface Namespace { metadata: { name: string; labels?: Record<string, string> } }
 
-function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolledOut(true)], earlier: { held?: { instanceId: string; installId?: string }; namespaces?: Namespace[]; released?: boolean } = {}) {
+function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolledOut(true)], earlier: { held?: KoalaHeld; namespaces?: Namespace[]; released?: boolean } = {}) {
   const host = mock<ClusterHost>();
   const ran: string[][] = [];
   const applied: unknown[] = [];
@@ -44,7 +44,7 @@ function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolle
   host.read.mockResolvedValue('server: https://127.0.0.1:6443\n');
   host.meshIp.mockResolvedValue('100.64.0.7');
   host.now.mockReturnValue(Date.parse('2026-11-05T10:00:00Z'));
-  host.holdKoala.mockImplementation(async (instanceId, installId) => { held = { instanceId, installId }; });
+  host.holdKoala.mockImplementation(async (instanceId, installId, readyAt) => { held = { instanceId, installId, ...(readyAt ? { readyAt } : {}) }; });
   host.heldKoala.mockImplementation(async () => held);
   host.letKoalaGo.mockImplementation(async () => { held = undefined; });
   host.wanted.mockResolvedValue(undefined);
@@ -347,7 +347,7 @@ describe('root stopping Koala on this machine, and a move starting clean', () =>
       'clear started', 'clear started removing what was put on this machine for Koala before: instance, nowrinkles, gitea, pipeline-builds, searxng, books',
       'clear started nothing of that Koala is left on this machine', 'clear done',
     ]);
-    expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-7' });
+    expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-7', readyAt: '2026-11-05T10:00:00.000Z' });
     expect(said(heard).at(-1)).toBe('koala-moved done http://100.64.0.7:30320');
   });
 
@@ -356,7 +356,44 @@ describe('root stopping Koala on this machine, and a move starting clean', () =>
     const { fetchImpl } = root(CHART, () => undefined, KOALA_MOVE_PROGRESS);
     await installKoala(MOVING, deps(host, fetchImpl));
     expect(removals(ran)).toEqual([]);
-    expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-7' });
+    expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-7', readyAt: '2026-11-05T10:00:00.000Z' });
+  });
+
+  it('on a move onto a machine whose Koala ever ran, removes nothing of it and stops with why, since that Koala may hold the person\'s work', async () => {
+    const earlier: KoalaHeld = { instanceId: 'inst-1', installId: 'install-6', readyAt: '2026-11-01T09:00:00.000Z' };
+    const { host, ran, held } = machine([rolledOut(true)], { held: earlier, namespaces: LEFT, released: true });
+    const { fetchImpl, heard } = root(CHART, () => undefined, KOALA_MOVE_PROGRESS);
+    await installKoala(MOVING, deps(host, fetchImpl));
+    expect(removals(ran)).toEqual([]);
+    expect(ran.some(([file, verb]) => file === HELM && verb === 'upgrade')).toBe(false);
+    expect(said(heard).slice(3)).toEqual([
+      'clear started',
+      'clear failed desk already runs a Koala of yours, from its install install-6, ready since 2026-11-01T09:00:00.000Z; it may hold your work, so the move removed nothing of it. Move onto another machine instead',
+    ]);
+    expect(held()).toEqual(earlier);
+  });
+
+  it('on a move onto a machine holding a Koala from before installs were noted ready, takes that Koala as one that ran and removes nothing of it', async () => {
+    const { host, ran, held } = machine([rolledOut(true)], { held: { instanceId: 'inst-1' }, namespaces: LEFT, released: true });
+    const { fetchImpl, heard } = root(CHART, () => undefined, KOALA_MOVE_PROGRESS);
+    await installKoala(MOVING, deps(host, fetchImpl));
+    expect(removals(ran)).toEqual([]);
+    expect(said(heard).at(-1)).toBe('clear failed desk already runs a Koala of yours, from an install made before this machine noted when its Koala was ready; it may hold your work, so the move removed nothing of it. Move onto another machine instead');
+    expect(held()).toEqual({ instanceId: 'inst-1' });
+  });
+
+  it('notes on the machine when its Koala is ready, before root hears it, and keeps that note when the same install is asked again', async () => {
+    const { host, held } = machine([rolledOut(true)]);
+    const noted: Array<KoalaHeld | undefined> = [];
+    const { fetchImpl } = root(CHART, (body) => {
+      if (body.stage === 'koala' && body.state === 'done') noted.push(held());
+      return undefined;
+    });
+    await installKoala(PLACED, deps(host, fetchImpl));
+    await installKoala(PLACED, deps(host, fetchImpl));
+    expect(noted).toEqual([{ instanceId: 'inst-1', installId: 'install-7', readyAt: '2026-11-05T10:00:00.000Z' }]);
+    expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-7', readyAt: '2026-11-05T10:00:00.000Z' });
+    expect(host.holdKoala.mock.calls.filter((call) => call[2] === undefined)).toHaveLength(1);
   });
 
   it('stops a move under way when root says so, then removes what that move made and lets the cluster go', async () => {
@@ -388,6 +425,17 @@ describe('root stopping Koala on this machine, and a move starting clean', () =>
     await placements.stop('not a stop');
     expect(removals(ran)).toEqual([]);
     expect(held()).toEqual({ instanceId: 'inst-1', installId: 'install-9' });
+  });
+
+  it('removes nothing when root stops an install whose Koala reached ready, and says why', async () => {
+    const ready: KoalaHeld = { instanceId: 'inst-1', installId: 'install-9', readyAt: '2026-11-01T09:00:00.000Z' };
+    const { host, ran, held } = machine([rolledOut(true)], { held: ready, namespaces: LEFT, released: true });
+    const lines: string[] = [];
+    const placements = koalaPlacements(deps(host, root().fetchImpl, { say: (line: string) => lines.push(line) }));
+    await placements.stop({ installId: 'install-9', remove: true });
+    expect(removals(ran)).toEqual([]);
+    expect(held()).toEqual(ready);
+    expect(lines.at(-1)).toBe('root asked to remove the Koala of install install-9, but it was ready since 2026-11-01T09:00:00.000Z and may hold your work, so nothing of it was removed');
   });
 
   it('stops the install it runs for a Koala when root places that Koala again under a newer install', async () => {
