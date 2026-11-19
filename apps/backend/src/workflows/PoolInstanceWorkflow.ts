@@ -6,8 +6,8 @@ import type * as pool from '../activities/PoolActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
-const steps = proxyActivities<typeof pool>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 3 } });
-const record = proxyActivities<Pick<typeof pool, 'PoolFailedActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 10 } });
+const steps = proxyActivities<typeof pool>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
+const record = proxyActivities<Pick<typeof pool, 'PoolFailedActivity'>>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
 const setup = proxyActivities<Pick<typeof pool, 'PoolSetupActivity'>>({ ...LIVE_ACTIVITY, retry: ACTIVITY_RETRY });
 
 export const poolSetupHeard = defineSignal<[ProvisionReport]>(POOL_SETUP_HEARD);
