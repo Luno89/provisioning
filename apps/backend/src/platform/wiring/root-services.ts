@@ -2,7 +2,7 @@ import { chmod, chown, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Connection } from '@temporalio/client';
-import { composeStep, type ComposeContext, type ComposeProject, type Step, type StepState } from '@koala/provision';
+import { composeProvider, composeStep, serviceStep, type ComposeContext, type ComposeProject, type Provider, type ServiceContext, type Step, type StepState } from '@koala/provision';
 import { mongoClientFor } from '../lib/collection.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
 import { temporalApiKey, temporalJwks } from '../lib/temporal-auth.js';
@@ -159,9 +159,9 @@ export function temporalAnswers(temporal: RootServices['temporal']): () => Promi
   };
 }
 
-export function mongoAnswers(address: string): () => Promise<StepState> {
+export function mongoAnswers(address: () => string): () => Promise<StepState> {
   return async () => {
-    const client = mongoClientFor(`mongodb://${address}/`);
+    const client = mongoClientFor(`mongodb://${address()}/`);
     try {
       const problem = await replicaSetProblem(client);
       return problem ? { done: false, why: problem } : { done: true };
@@ -169,6 +169,12 @@ export function mongoAnswers(address: string): () => Promise<StepState> {
       await client.close();
     }
   };
+}
+
+export const MONGO_TITLE = 'Mongo, as a replica set';
+
+export function mongoStep<Context extends ServiceContext>(provider: Provider<Context>, address: () => string): Step<Context> {
+  return serviceStep({ id: 'mongo', title: MONGO_TITLE, provider, answers: mongoAnswers(address) });
 }
 
 export function httpAnswers(url: string): () => Promise<StepState> {
@@ -186,7 +192,7 @@ function stepsOf(services: RootServices, name: RootServiceName): Step<ComposeCon
     case 'temporal':
       return [...keys, composeStep({ id: 'temporal', title: 'Temporal, answering over TLS', compose: project(services, services.temporal.files), answers: temporalAnswers(services.temporal) })];
     case 'mongo':
-      return [composeStep({ id: 'mongo', title: 'Mongo, as a replica set', compose: project(services, services.mongo.files), answers: mongoAnswers(services.mongo.address) })];
+      return [mongoStep(composeProvider(MONGO_TITLE, project(services, services.mongo.files)), () => services.mongo.address)];
     case 'headscale':
       return [composeStep({ id: 'headscale', title: 'Headscale, the mesh\'s coordination server', compose: project(services, services.headscale.files), answers: httpAnswers(`${services.headscale.url}/health`) })];
     case 'registry':
