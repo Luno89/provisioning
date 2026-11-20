@@ -1,7 +1,7 @@
 import type { RegistryHosts, RegistryLoginSource } from '../instances/index.js';
 import { BUILDER_TOOLS, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
-import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
+import { BUILT_IN_SCENARIOS } from '../eval/index.js';
 import { environmentHandlers } from '@koala/engine-core';
 import { createAgentDirectory, grantStoreFrom, type AgentRecordStore, type ToolGrantStore } from './registries/agent-directory.js';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';

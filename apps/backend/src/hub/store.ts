@@ -15,9 +15,9 @@ const SYNCED_COLLECTIONS: Readonly<Record<SyncedKind, string>> = {
 };
 
 export class MongoHubStore implements HubStore {
-  private readonly links: Records<HubLink & { id: string }>;
-  private readonly dirty: Records<HubDirty & { id: string }>;
-  private readonly snapshots: Records<{ id: string; projectId: string; kind: SyncedKind; doc: SyncedDoc }>;
+  private readonly links: Records;
+  private readonly dirty: Records;
+  private readonly snapshots: Records;
 
   constructor(private readonly db: () => Db) {
     this.links = new Records(db, 'hubLinks');

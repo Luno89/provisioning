@@ -1,5 +1,5 @@
 import { BaseService, withBuiltIns } from '../../platform/index.js';
-import { capableImage, imageForLanguage, isWorkspaceLanguage } from '../lib/workspace-image-catalogue.js';
+import { capableImage, imageForLanguage } from '../lib/workspace-image-catalogue.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
 export class WorkspaceImageService extends BaseService {
@@ -13,9 +13,5 @@ export class WorkspaceImageService extends BaseService {
 
   async capableImage(userId: string, language: string | undefined, requires: readonly string[] = []): Promise<string> {
     return capableImage(await this.list(userId), language, requires);
-  }
-
-  async isLanguage(userId: string, value: unknown): Promise<boolean> {
-    return isWorkspaceLanguage(await this.list(userId), value);
   }
 }

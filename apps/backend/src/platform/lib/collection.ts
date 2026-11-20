@@ -1,4 +1,4 @@
-import { MongoClient, type Collection as DriverCollection, type Db, type Document, type Filter, type IndexDescription, type MongoClientOptions, type Sort } from 'mongodb';
+import { MongoClient, type Collection as DriverCollection, type Db, type Document, type Filter, type IndexDescription, type MongoClientOptions } from 'mongodb';
 
 export type Identified = { id: string };
 
@@ -51,36 +51,11 @@ export function fieldChanges(fields: Record<string, unknown>): FieldChanges {
   return { ...(set.length ? { $set: Object.fromEntries(set) } : {}), ...(unset.length ? { $unset: Object.fromEntries(unset) } : {}) };
 }
 
-export class Records<T extends Identified> {
+export class Records {
   constructor(private readonly db: () => Db, readonly name: string) {}
 
   get raw(): DriverCollection {
     return this.db().collection(this.name);
-  }
-
-  async all(filter: Filter<Document> = {}, sort?: Sort): Promise<T[]> {
-    const cursor = this.raw.find(filter);
-    const docs = await (sort ? cursor.sort(sort) : cursor).toArray();
-    return docs.map((doc) => fromDoc<T>(doc));
-  }
-
-  async one(filter: Filter<Document>): Promise<T | undefined> {
-    const doc = await this.raw.findOne(filter);
-    return doc ? fromDoc<T>(doc) : undefined;
-  }
-
-  async byId(id: string): Promise<T | undefined> {
-    return this.one({ _id: id as never });
-  }
-
-  async put(entity: T): Promise<void> {
-    const { id, ...rest } = entity;
-    await this.raw.replaceOne({ _id: id as never }, rest, { upsert: true });
-  }
-
-  async patch(id: string, fields: Partial<T>): Promise<void> {
-    const changes = fieldChanges(fields);
-    if (changes.$set || changes.$unset) await this.raw.updateOne({ _id: id as never }, changes);
   }
 
   async remove(id: string): Promise<void> {
@@ -90,10 +65,6 @@ export class Records<T extends Identified> {
   async removeWhere(filter: Filter<Document>): Promise<number> {
     const { deletedCount } = await this.raw.deleteMany(filter);
     return deletedCount;
-  }
-
-  async count(filter: Filter<Document> = {}): Promise<number> {
-    return this.raw.countDocuments(filter);
   }
 
   async indexes(descriptions: IndexDescription[]): Promise<void> {

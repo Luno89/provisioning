@@ -1,9 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolDefinition } from '@koala/agent-engine';
 import type { TemperatureSampling } from '../../engine/index.js';
-import { BUILT_IN_SCENARIOS } from '../../eval/level2/scenarios.js';
-import { scenarioProblems, type Scenario } from '../../eval/level2/scenario.js';
-import type { ScenarioResult } from '../../eval/level2/results.js';
+import { BUILT_IN_SCENARIOS, scenarioProblems, type Scenario, type ScenarioResult } from '../../eval/index.js';
 import type { Client } from '@temporalio/client';
 import { CheckRunWorkflow, type CheckRunInput, type CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
 import type { EvalRecord, EvalRecordStore } from '../lib/eval-run.js';
