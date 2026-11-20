@@ -82,10 +82,25 @@ function onEdit(input: HookInput): HookAnswer | undefined {
   return answerOf(verdict, root, head, file);
 }
 
+const unquoted = (word: string): string => word.replace(/^(['"])(.*)\1$/, '$2');
+
+export function commitDir(command: string, cwd: string): string {
+  let dir = cwd;
+  for (const part of command.split(/&&|\|\||;|\n/)) {
+    const words = part.trim().split(/\s+/);
+    if (words[0] === 'cd' && words[1]) dir = resolve(dir, unquoted(words[1]));
+    if (words[0] === 'git' && /(\s|^)commit(\s|$)/.test(part)) {
+      const at = words.indexOf('-C');
+      return at >= 0 && words[at + 1] ? resolve(dir, unquoted(words[at + 1]!)) : dir;
+    }
+  }
+  return dir;
+}
+
 function onCommit(input: HookInput): HookAnswer | undefined {
   const command = input.tool_input.command ?? '';
   if (!COMMIT.test(command)) return undefined;
-  const root = git(input.cwd, 'rev-parse', '--show-toplevel');
+  const root = git(commitDir(command, input.cwd), 'rev-parse', '--show-toplevel');
   if (!root) return undefined;
   if (git(root, 'rev-parse', '-q', '--verify', 'MERGE_HEAD') !== undefined) return undefined;
   const all = /\s(-a|--all|-am|-a\s)/.test(` ${command}`);
