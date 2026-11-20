@@ -65,6 +65,34 @@ describe('the red-green gate on a real repository', () => {
     expect(commit(dir)).toBeUndefined();
   });
 
+  it('takes a test moved with the code it tests as moved, not new, so a removal that moves it needs no red', () => {
+    const { dir, git, write } = aRepo();
+    write('scripts/sum.ts', 'export const sum = (a: number, b: number) => a + b;\nexport const twice = (a: number) => a * 2;\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'more');
+
+    write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => a + b;\n');
+    mkdirSync(join(dir, 'scripts/math'), { recursive: true });
+    git('mv', 'scripts/sum.test.ts', 'scripts/math/sum.test.ts');
+    write('scripts/math/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from '../sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\n");
+    git('add', '-A');
+    expect(commit(dir)).toBeUndefined();
+  });
+
+  it('holds a source file moved to a new place to red-green like any other source change', () => {
+    const { dir, git, write } = aRepo();
+    const many = Array.from({ length: 12 }, (_, at) => `export const plus${at} = (a: number) => a + ${at};\n`).join('');
+    write('scripts/many.ts', many);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'many');
+    mkdirSync(join(dir, 'scripts/math'), { recursive: true });
+    git('mv', 'scripts/many.ts', 'scripts/math/many.ts');
+    write('scripts/math/many.ts', `${many}export const unproven = (a: number) => a - 1;\n`);
+    git('add', '-A');
+    expect(git('diff', '--cached', '--name-status')).toMatch(/^R/m);
+    expect(denied(commit(dir))).toMatch(/no test/);
+  });
+
   it('refuses a new test that already passes, since it shows nothing missing', () => {
     const { dir, write } = aRepo();
     write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\nit('adds again', () => { expect(sum(2, 2)).toBe(4); });\n");

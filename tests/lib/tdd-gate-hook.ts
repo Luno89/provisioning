@@ -113,7 +113,8 @@ function onCommit(input: HookInput): HookAnswer | undefined {
   const removalsOnly = source.length > 0 && source.every((change) => change.added === 0);
   const total = (key: 'added' | 'removed') => source.reduce((sum, change) => sum + change[key], 0);
   const shrinks = total('removed') > total('added');
-  const newTests = tests.filter((path) => git(root, 'cat-file', '-e', `HEAD:${path}`) === undefined);
+  const moved = new Set(lines(git(root, 'diff', '--cached', '-M', '--name-status')).filter((line) => line.startsWith('R')).map((line) => line.split('\t')[2]));
+  const newTests = tests.filter((path) => !moved.has(path) && git(root, 'cat-file', '-e', `HEAD:${path}`) === undefined);
   const toRun = tests.length > 0 ? tests : siblings;
   const run = source.length > 0 && !removalsOnly && toRun.length > 0 ? runTests(root, toRun) : undefined;
   const verdict = commitVerdict({ state: readState(stateFile(root)), head, source: source.map((change) => change.path), removalsOnly, shrinks, newTests, changedTests: tests, siblings, run });
