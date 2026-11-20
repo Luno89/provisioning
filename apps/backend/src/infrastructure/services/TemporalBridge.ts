@@ -660,6 +660,11 @@ export class TemporalBridge {
     await this.following.get(wfId)
   }
 
+  private async startFollowedAs(dep: DeploymentMetadata, wfId: string, followedFor: NonNullable<DeploymentMetadata['followedFor']>, start: () => Promise<unknown>): Promise<void> {
+    await this.forProject(dep.gitappProjectId, start)
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId, followedFor })
+  }
+
   async resizeDisk(deploymentId: string, storage: Record<string, string>): Promise<WorkflowDeal> {
     const deployments = await this.db.infrastructure.getDeployments()
     const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
@@ -691,14 +696,7 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeResizeDiskWorkflow, {
-      workflowId: wfId,
-      taskQueue: CLUSTER_QUEUE,
-      args: [activityArgs],
-      ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
-    }))
-
-    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId, followedFor: { workflowId: wfId, action: 'app-resize', newStorage: storage } })
+    await this.startFollowedAs(dep, wfId, { workflowId: wfId, action: 'app-resize', newStorage: storage }, () => this.client!.workflow.start(executeResizeDiskWorkflow, { workflowId: wfId, taskQueue: CLUSTER_QUEUE, args: [activityArgs], ...startedFor(dep.ownerId ?? PLATFORM_OWNER) }))
 
     return {
       id: wfId,
@@ -754,14 +752,7 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
     })
 
-    await this.forProject(dep.gitappProjectId, () => this.client!.workflow.start(executeSyncConfigWorkflow, {
-      workflowId: wfId,
-      taskQueue: CLUSTER_QUEUE,
-      args: [activityArgs],
-      ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
-    }))
-
-    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId, followedFor: { workflowId: wfId, action: 'app-sync-config' } })
+    await this.startFollowedAs(dep, wfId, { workflowId: wfId, action: 'app-sync-config' }, () => this.client!.workflow.start(executeSyncConfigWorkflow, { workflowId: wfId, taskQueue: CLUSTER_QUEUE, args: [activityArgs], ...startedFor(dep.ownerId ?? PLATFORM_OWNER) }))
 
     return {
       id: wfId,
