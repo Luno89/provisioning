@@ -6,10 +6,9 @@ import { createDatabase, type Database } from '../../apps/backend/src/platform/l
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
 import { temporalApiKey } from '../../apps/backend/src/platform/lib/temporal-auth.js';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
-import { DEV, devGiteaOnThisComputer } from '../../apps/backend/src/instances/lib/dev-root.js';
+import { DEV } from '../../apps/backend/src/instances/lib/dev-root.js';
 import { ClusterCommandFailed, clusterAccessOfKubeconfig, type ClusterAccess } from '../../apps/backend/src/infrastructure/services/ClusterAccess.js';
 import type { Reach } from '../../apps/backend/src/infrastructure/lib/cluster-places.js';
-import type { KoalasCluster } from '../../apps/backend/src/engine-host/sandboxes/kube.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
 import { devFile } from './dev-temporal.js';
 
@@ -19,8 +18,6 @@ export const DEV_RELEASE = 'instance';
 
 export const devRootApi = `http://localhost:${DEV.rootApiPort}`;
 export const devKoalaApi = `http://127.0.0.1:${DEV.instanceNodePort}`;
-export const devGiteaUrl = devGiteaOnThisComputer;
-export const devDataDir = new URL('../../apps/backend/data', import.meta.url).pathname;
 
 const DEV_CLUSTER = 'this computer\'s k3s';
 
@@ -54,12 +51,6 @@ export async function devPortForward(namespace: string, target: string, ports: s
 
 export async function devKoalaEnv(): Promise<Record<string, string>> {
   return JSON.parse(await kubectl('get', 'configmap', `${DEV_RELEASE}-env`, '-o', 'jsonpath={.data}')) as Record<string, string>;
-}
-
-export async function devRegistry(): Promise<{ pull: string; push: string }> {
-  const pull = (await devKoalaEnv()).KOALA_REGISTRY;
-  assert.ok(pull, 'dev\'s Koala names no KOALA_REGISTRY its cluster pulls images from');
-  return { pull, push: new URL(devGiteaUrl).host };
 }
 
 const RESULT = 'KOALA-RESULT ';
@@ -145,9 +136,4 @@ export async function devKoalaDatabase(): Promise<Database> {
     ...keys,
     MONGO_URI: `mongodb://admin:${encodeURIComponent(keys.MONGO_ROOT_PASSWORD!)}@${address}:27017/${database}?authSource=admin&directConnection=true`,
   }));
-}
-
-export function devKoalasCluster(): KoalasCluster {
-  const { access, target } = devCluster();
-  return { start: (args, io) => access.start(target, args, io) };
 }

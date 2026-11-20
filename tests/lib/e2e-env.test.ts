@@ -7,7 +7,7 @@ describe('the checks ship runs', () => {
     const all = MECHANICS_CHECKS().map((scenario) => scenario.id);
     for (const id of Object.keys(NOT_ON_AN_INSTANCE)) expect(all).toContain(id);
     expect(shipChecks()).toEqual(all.filter((id) => !(id in NOT_ON_AN_INSTANCE)));
-    expect(e2eEnv('owner').CHECKS_LIVE_SCENARIOS!.split(',')).toEqual(shipChecks());
+    expect(e2eEnv().CHECKS_LIVE_SCENARIOS!.split(',')).toEqual(shipChecks());
     expect(shipChecks()).toContain('mechanics-monitoring');
   });
 });

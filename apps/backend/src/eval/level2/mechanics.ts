@@ -775,7 +775,7 @@ const itemChats: Scenario = {
   ],
 };
 
-export const PROBE = 'koala_probe';
+const PROBE = 'koala_probe';
 export const PROBE_FILES: Record<string, string> = {
   [`addons/${PROBE}/__init__.py`]: 'from . import models\n',
   [`addons/${PROBE}/__manifest__.py`]: "{\n    'name': 'Koala probe',\n    'version': '20.0.1.0.0',\n    'depends': ['base'],\n    'data': ['security/ir.access.csv'],\n    'license': 'LGPL-3',\n}\n",

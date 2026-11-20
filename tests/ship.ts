@@ -4,7 +4,6 @@ import { CHECKS_STEP, HOTFIX, HOTFIX_STEPS, SHIP_STEPS, checkedThrough, checksTo
 import { e2eEnv, shipChecks } from './lib/e2e-env.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { devOwner } from './lib/dev-stack.js';
 import { ANSWERS } from './alignment/answers.js';
 import { currentDrift } from './alignment/drift-run.js';
 import { gateOf, gateRefusal } from './alignment/gate.js';
@@ -101,9 +100,8 @@ async function main(): Promise<void> {
       if (plan.freshStack) await freshDevStack(REPO);
       const stack = await devStackProblem(REPO);
       if (stack) throw new Error(stack);
-      const owner = (await devOwner()).id;
       console.log('\n━━ the live suites, against the dev stack');
-      runSteps(REPO, commit, plan.live, e2eEnv(owner), hooks);
+      runSteps(REPO, commit, plan.live, e2eEnv(), hooks);
     }
     reportSlower(REPO, commit);
     const left = stillToRun(SHIP_STEPS, kept);

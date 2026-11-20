@@ -2,17 +2,15 @@ import { resolve } from 'node:path';
 import { E2E_STEPS } from './lib/gates.js';
 import { devStackProblem, git, minutesSince, runSteps } from './lib/gate-runs.js';
 import { e2eEnv } from './lib/e2e-env.js';
-import { devOwner } from './lib/dev-stack.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 
 async function main(): Promise<void> {
   const stack = await devStackProblem(REPO);
   if (stack) throw new Error(stack);
-  const admin = (await devOwner()).id;
   const commit = git(REPO, ['rev-parse', 'HEAD']);
   const started = Date.now();
-  const steps = runSteps(REPO, commit, E2E_STEPS, e2eEnv(admin));
+  const steps = runSteps(REPO, commit, E2E_STEPS, e2eEnv());
   console.log(`\n✓ the e2e tier: ${steps.length} suites in ${minutesSince(started)} min against the dev stack`);
 }
 

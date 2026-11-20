@@ -119,8 +119,8 @@ npm run deps:update -- <package>  # take a vulnerability fix that is due
 
 Single test file: `npx vitest run <path>` from its workspace. Per-workspace scripts: `npm run <script> -w <workspace>`.
 
-**The live suites.** Which ones ship runs and which the release runs are the gate lists in `tests/lib/gates.ts`. A suite that needs
-this computer's machine agent or a model's own judgement runs by hand. Ship runs `gpu-live` and `v1-live` (v1 end to end in Chromium)
+**The live suites.** Which ones ship runs and which the release runs are the gate lists in `tests/lib/gates.ts`. Every live suite is on
+one of them: the hand-run suites were archived (owner, 2026-11-20), and `docs/archive-ledger.md` says where each scenario lives now. Ship runs `gpu-live` and `v1-live` (v1 end to end in Chromium)
 on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 
 ## The dev stack

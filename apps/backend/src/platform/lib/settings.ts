@@ -750,18 +750,6 @@ export function clusterSettingsFrom(env: Env): PodStepSettings {
     : undefined);
 }
 
-export function connectionSettingsFrom(env: Env): ConnectionSettings {
-  const read = new Reading(env);
-  const keys = read.take(() => loadKeys(env));
-  const mongo = read.take(() => mongoTarget(env));
-  const address = hostPortSetting(read, 'TEMPORAL_CONNECTION_ADDRESS', 'it is where Temporal answers');
-  const namespace = required(read, 'TEMPORAL_NAMESPACE', 'it is the Temporal namespace this install works in');
-  const caPath = required(read, 'TEMPORAL_TLS_CA', 'it is the file holding Temporal\'s certificate authority');
-  return finish(read, 'this program', keys && mongo && address && namespace && caPath
-    ? { keys, mongo, temporal: { address, namespace, caPath } }
-    : undefined);
-}
-
 export function databaseSettingsFrom(env: Env): { mongo: MongoTarget; dataKey: PlatformKeys['data'] } {
   const read = new Reading(env);
   const dataKey = read.take(() => loadKey(env, 'data'));

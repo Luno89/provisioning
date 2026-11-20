@@ -7,11 +7,8 @@ export const NOT_ON_AN_INSTANCE: Readonly<Record<string, string>> = {
 
 export const shipChecks = (): string[] => MECHANICS_CHECKS().map((scenario) => scenario.id).filter((id) => !(id in NOT_ON_AN_INSTANCE));
 
-export function e2eEnv(admin: string): Record<string, string> {
+export function e2eEnv(): Record<string, string> {
   return {
-    GROVE_LIVE_OWNER: admin,
-    CHECKS_LIVE_OWNER: admin,
-    INSTANCE_LIVE_OWNER: admin,
     CHECKS_LIVE_SCENARIOS: shipChecks().join(','),
     CHECKS_LIVE_TOGETHER: '3',
   };

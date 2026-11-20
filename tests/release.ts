@@ -12,8 +12,6 @@ const CHECKING = process.argv.includes('--check');
 const named = process.argv.slice(2).find((arg) => !arg.startsWith('--'));
 
 async function main(): Promise<void> {
-  const admin = process.env.MECHANICS_ADMIN;
-  if (!admin && !HOTFIXING) throw new Error('set MECHANICS_ADMIN to the admin the suites act as');
   const branch = git(REPO, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch !== 'main') throw new Error(`release runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
@@ -27,10 +25,6 @@ async function main(): Promise<void> {
   if (record.released) throw new Error(`${commit.slice(0, 12)} was already released as ${record.released.version}`);
   const previous = git(REPO, ['describe', '--tags', '--abbrev=0', '--match', 'v*', commit]);
   const env = {
-    GROVE_LIVE_OWNER: admin ?? '',
-    CHECKS_LIVE_OWNER: admin ?? '',
-    INSTANCE_LIVE_OWNER: admin ?? '',
-    ODOO_RELEASE_LIVE_OWNER: admin ?? '',
     RELEASE_LIVE_PREVIOUS: previous,
   };
 

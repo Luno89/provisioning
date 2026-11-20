@@ -169,6 +169,8 @@ dsl change, no new node type.
 
 ## Phases
 
+> The `test:*-live` suites named below were archived on 2026-11-20; the mentions stay as history. Where each scenario is proven now is in `docs/archive-ledger.md`, under "Hand-run live suites (archived 2026-11-20)".
+
 ### P0 — task/leaf expansion + shared parts *(small)* — **implemented**
 
 Locked model calls (2026-09-23, with owner):
@@ -687,6 +689,8 @@ parks for human review; the volume lives and the pod is started on demand.
   (3–4 recorded leaves, legacy vs engine).
 
 ## Migration ledger (opened 2026-09-26)
+
+> The `test:*-live` suites named below were archived on 2026-11-20; the mentions stay as history. Where each scenario is proven now is in `docs/archive-ledger.md`, under "Hand-run live suites (archived 2026-11-20)".
 
 `8c82a85d` and `dfe36114` removed the legacy chat, LeafWorkflow, Harness, Lab, personas/packs and
 ~200 `lib/` modules. The owner's rule (2026-09-25): legacy functionality is a set of feature
