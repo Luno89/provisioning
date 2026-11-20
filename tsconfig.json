@@ -13,6 +13,7 @@
     { "path": "./packages/context-engine" },
     { "path": "./packages/engine-core" },
     { "path": "./packages/provision" },
+    { "path": "./packages/coupling" },
     { "path": "./tests" }
   ],
   // Visit https://aka.ms/tsconfig to read more about this file
