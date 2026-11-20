@@ -12,9 +12,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `hardening-live` | 2026-11-05 17:33 | — |
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
 | `instance-live` | 2026-11-02 21:03 | 2026-11-02 20:55 |
-| `machine-chat-live` | 2026-10-28 02:48 | — |
 | `machine-live` | 2026-11-04 07:41 | 2026-11-04 07:38 |
-| `machine-probe-live` | 2026-11-04 05:28 | 2026-11-04 05:25 |
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-11-05 19:41 | 2026-11-05 18:44 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
@@ -24,6 +22,4 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
 | `root-metrics-live` | 2026-11-06 00:36 | 2026-11-06 00:33 |
 | `routing-live` | 2026-11-02 07:22 | 2026-11-01 05:35 |
-| `telemetry-live` | 2026-11-05 17:36 | — |
-| `tree-to-release-live` | — | 2026-11-02 21:35 |
 | `v1-live` | 2026-11-17 23:23 | 2026-11-17 23:18 |

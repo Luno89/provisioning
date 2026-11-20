@@ -11,9 +11,6 @@
     "passed": "2026-11-08T21:59:38.908Z",
     "failed": "2026-11-08T00:36:00.994Z"
   },
-  "telemetry-live": {
-    "passed": "2026-11-05T17:36:23.489Z"
-  },
   "release-live": {
     "failed": "2026-11-01T23:08:38.857Z",
     "passed": "2026-11-02T06:54:44.138Z"
@@ -46,9 +43,6 @@
     "failed": "2026-11-09T16:12:42.834Z",
     "passed": "2026-11-17T16:12:22.799Z"
   },
-  "machine-chat-live": {
-    "passed": "2026-10-28T02:48:34.732Z"
-  },
   "pool-live": {
     "failed": "2026-10-31T20:44:38.419Z",
     "passed": "2026-11-02T05:52:08.680Z"
@@ -64,16 +58,9 @@
   "hardening-live": {
     "passed": "2026-11-05T17:33:22.337Z"
   },
-  "tree-to-release-live": {
-    "failed": "2026-11-02T21:35:08.390Z"
-  },
   "browser-live": {
     "failed": "2026-11-09T20:18:58.628Z",
     "passed": "2026-11-17T16:00:09.620Z"
-  },
-  "machine-probe-live": {
-    "failed": "2026-11-04T05:25:44.173Z",
-    "passed": "2026-11-04T05:28:10.860Z"
   },
   "root-metrics-live": {
     "failed": "2026-11-06T00:33:51.900Z",
