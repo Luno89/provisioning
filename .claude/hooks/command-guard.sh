@@ -25,6 +25,7 @@ esac
 command=$(jq -r '.tool_input.command // ""' <<<"$input")
 
 [[ "$command" =~ $secret ]] && refuse "$SECRETS"
+[[ "$command" =~ pgrep[[:space:]]+(-[[:alpha:]]*[[:space:]]+)*-[[:alpha:]]*f ]] && [[ "$command" =~ (^|[^[:alnum:]_])kill([[:space:]]|$) ]] && refuse "Never stop processes found by a pattern (pgrep -f can match the shell running it, as pkill -f does): find the pid once, read it, then stop that pid."
 [[ "$command" =~ \|[[:space:]]*tail([[:space:]][^\;\&\|]*)?\&\& ]] && refuse "A gate piped through tail and then chained with && hides the gate's exit code: write the output to a file, then read the exit code (owner's rule: never judge typecheck, lint or tests through | tail)."
 
 while IFS= read -r part; do
