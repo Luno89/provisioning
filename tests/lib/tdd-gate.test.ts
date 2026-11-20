@@ -83,6 +83,22 @@ describe('committing source', () => {
     expect(commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: [], siblings: ['a.test.ts'], run: { passed: true, output: '' } })).toEqual({ allow: true });
   });
 
+  it('lets a removal through once the tests it trimmed pass, since a test that only lost cases has nothing to fail on first', () => {
+    expect(commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: true, output: '' } })).toEqual({ allow: true });
+  });
+
+  it('refuses a removal whose trimmed tests do not pass', () => {
+    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output: 'FAIL x.test.ts > it' } });
+    expect(verdict.allow).toBe(false);
+    expect(verdict.allow === false && verdict.why).toMatch(/FAIL x\.test\.ts/);
+  });
+
+  it('still holds a removal that brings a new test file to red first', () => {
+    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: ['y.test.ts'], changedTests: ['x.test.ts', 'y.test.ts'], siblings: [], run: { passed: true, output: '' } });
+    expect(verdict.allow).toBe(false);
+    expect(verdict.allow === false && verdict.why).toMatch(/never seen failing/);
+  });
+
   it('refuses a change to code that no test is next to and no test was written for', () => {
     const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: [], siblings: [], run: undefined });
     expect(verdict.allow).toBe(false);

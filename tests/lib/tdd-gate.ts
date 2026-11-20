@@ -41,6 +41,8 @@ export interface CommitFacts {
   head: string;
   source: string[];
   removalsOnly: boolean;
+  shrinks?: boolean;
+  newTests?: string[];
   changedTests: string[];
   siblings: string[];
   run: TestRun | undefined;
@@ -51,6 +53,10 @@ const tail = (output: string) => output.split('\n').filter((line) => line.trim()
 export function commitVerdict(facts: CommitFacts): Verdict {
   if (facts.source.length === 0 || facts.removalsOnly) return { allow: true };
   const red = facts.state?.head === facts.head && facts.state.red;
+  if (facts.shrinks && (facts.newTests ?? []).length === 0 && facts.changedTests.length > 0) {
+    if (!facts.run?.passed) return { allow: false, why: `a removal keeps what is left of its tests green, and these do not pass:\n${tail(facts.run?.output ?? '')}` };
+    return { allow: true };
+  }
   if (facts.changedTests.length > 0) {
     if (!red) return { allow: false, why: `the new or changed tests (${facts.changedTests.join(', ')}) were never seen failing before the source changed: show red first, then make it pass` };
     if (!facts.run?.passed) return { allow: false, why: `the change's tests do not pass yet:\n${tail(facts.run?.output ?? '')}` };
