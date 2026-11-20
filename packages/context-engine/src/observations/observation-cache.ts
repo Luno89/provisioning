@@ -34,12 +34,4 @@ export class ObservationCache {
   has(id: string): boolean {
     return this.store.has(id);
   }
-
-  clear(): void {
-    this.store.clear();
-  }
-
-  get size(): number {
-    return this.store.size;
-  }
 }

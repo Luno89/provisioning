@@ -8,5 +8,3 @@ export * from './state/state-vector.js';
 export * from './state/state-renderer.js';
 export * from './compactor/compactor-types.js';
 export * from './compactor/progressive-compactor.js';
-export * from './adapters/openai-adapter.js';
-export * from './adapters/koala-adapter.js';
