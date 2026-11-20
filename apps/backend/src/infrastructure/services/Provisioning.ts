@@ -235,7 +235,6 @@ export class Provisioning implements Provisioner {
       return this.settle(record, `the setup could not start: ${messageOf(err)}`);
     }
     const named = await this.deps.store.patchProvisioning(record.id, { workflowId }, true);
-    this.follow(record.id, workflowId);
     return named ?? { ...record, workflowId };
   }
 

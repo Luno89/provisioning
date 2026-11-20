@@ -137,6 +137,7 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
       log: () => undefined,
     });
     closing.push(() => provisioning.close());
+    await provisioning.start();
 
     const [one, two] = await Promise.all([provisioning.ensure({ kind: 'koala', clusterId }, 'missing'), provisioning.ensure({ kind: 'koala', clusterId }, 'asked')]);
     expect(one.id).toBe(two.id);
