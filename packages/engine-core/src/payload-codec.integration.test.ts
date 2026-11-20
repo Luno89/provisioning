@@ -1,17 +1,15 @@
-import { activityInterceptors } from './classified-failures.js';
 import { randomBytes } from 'node:crypto';
 import { Client } from '@temporalio/client';
 import { temporal as proto } from '@temporalio/proto';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildDataConverter, OFFLOAD_ABOVE_BYTES, type BlobReach, type StoredBlob } from './payload-codec.js';
-import { queueFor, temporal, workflowBundle } from '../testing/temporal.js';
+import { CompressionCodec, OFFLOAD_ABOVE_BYTES, payloadStorage, type BlobReach } from './payload-codec.js';
+import { createClient, createWorker } from './temporal.js';
+import { memoryBlobs, queueFor, temporal, workflowBundle, type TestTemporal } from '../testing/temporal.js';
 import { echoed } from '../testing/workflows.js';
 
 const KEY = 'payload-key-for-the-integration-tier';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await temporal();
@@ -21,33 +19,23 @@ afterAll(async () => {
   await env.teardown();
 });
 
-const blobStore = (): BlobReach & { stored: Map<string, StoredBlob> } => {
-  const stored = new Map<string, StoredBlob>();
-  return {
-    stored,
-    async put(blobs) { for (const blob of blobs) stored.set(blob.id, blob); },
-    async get(ids) {
-      return new Map(ids.flatMap((id) => {
-        const blob = stored.get(id);
-        return blob ? [[id, blob.data] as const] : [];
-      }));
-    },
-  };
-};
+const blobStore = memoryBlobs;
 
-const clientWith = (key: string | undefined, blobs?: BlobReach): Client =>
-  new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: buildDataConverter(key, blobs) });
+const clientWith = (key: string, blobs: BlobReach): Client =>
+  createClient({ connection: env.connection, namespace: env.namespace ?? 'default', payloads: { ring: key, blobs } });
+
+const clientThatDoesNotDecrypt = (blobs: BlobReach): Client =>
+  new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: { payloadCodecs: [new CompressionCodec()], externalStorage: payloadStorage(blobs) } });
 
 async function echoedThrough(blobs: BlobReach, value: unknown): Promise<{ result: unknown; workflowId: string; history: Buffer }> {
   const taskQueue = queueFor('payloads');
   const workflowId = queueFor('echoed');
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
+  const worker = await createWorker({
     connection: env.nativeConnection,
     namespace: env.namespace ?? 'default',
     taskQueue,
     workflowBundle: await workflowBundle(),
-    dataConverter: buildDataConverter(KEY, blobs),
+    payloads: { ring: KEY, blobs },
     activities: { echo: async (given: unknown) => given, waitForStop: async () => 'never asked' },
   });
   const result = await worker.runUntil(clientWith(KEY, blobs).workflow.execute(echoed, { taskQueue, workflowId, args: [value] }));
@@ -94,7 +82,7 @@ describe('payloads sealed on their way through Temporal', () => {
     const blobs = blobStore();
     const { workflowId } = await echoedThrough(blobs, 'sealed');
 
-    const failure = await clientWith(undefined, blobs).workflow.getHandle<typeof echoed>(workflowId).result().catch((err: unknown) => err);
+    const failure = await clientThatDoesNotDecrypt(blobs).workflow.getHandle<typeof echoed>(workflowId).result().catch((err: unknown) => err);
 
     expect((failure as Error).message).toBe('Unknown encoding: binary/encrypted-aes-256-gcm');
   });

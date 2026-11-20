@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi, type MockIns
 import axios from 'axios';
 import { Client, Connection } from '@temporalio/client';
 import { temporal } from '@temporalio/proto';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { PLATFORM_OWNER, startedFor } from '../../platform/lib/workflow-owner.js';
 import { anyOf, arrayWith } from '../../platform/lib/test-matchers.js';
@@ -11,11 +10,13 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { temporalRouter } from './temporal.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
+import { createClient } from '@koala/engine-core/temporal';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const quiet = { validateStatus: () => true };
 const { EventType } = temporal.api.enums.v1;
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let listed: MockInstance<Client['workflow']['list']>;
 let counted: MockInstance<Client['workflow']['count']>;
 
@@ -68,7 +69,7 @@ describe('whether the page shows Temporal as connected', () => {
 
   it('says not connected, and why, when Temporal does not answer', async () => {
     const connection = await Connection.connect({ address: env.connection.options.address });
-    const client = new Client({ connection, namespace: env.client.options.namespace });
+    const client = createClient({ connection, namespace: env.client.options.namespace, payloads: env.payloads });
     await connection.close();
     const h = await harness({ client });
     const status = await axios.get(h.url('/api/temporal/status'), quiet);

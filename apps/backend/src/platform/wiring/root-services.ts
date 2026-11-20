@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { connect as tlsConnect } from 'node:tls';
-import { Connection } from '@temporalio/client';
+import type { Connection } from '@temporalio/client';
+import { connectTemporal } from '@koala/engine-core/temporal';
 import { composeProvider, composeStep, serviceStep, type ComposeContext, type ComposeProject, type Provider, type ServiceContext, type Step, type StepState } from '@koala/provision';
 import { mongoClientFor } from '../lib/collection.js';
 import { answerFailure, failureOf, stillDown } from '../lib/dependencies.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
-import { temporalApiKey, temporalJwks } from '../lib/temporal-auth.js';
-import { temporalTls } from '../lib/temporal-tls.js';
+import { temporalJwks } from '../lib/temporal-auth.js';
+import { temporalDial } from '../lib/temporal-connection.js';
 import { answersHttp } from './dependencies.js';
 
 export const ROOT_SERVICE_NAMES = ['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry', 'caddy'] as const;
@@ -175,18 +176,14 @@ async function whyNotConnected(address: string, ca: Buffer, err: unknown): Promi
 
 export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
   return async () => {
-    const tls = temporalTls({ caPath: join(temporal.tlsDir, 'ca.crt') });
-    const connection = Connection.lazy({
-      address: temporal.address,
-      tls,
-      apiKey: temporalApiKey(temporal.key(), { subject: 'koala-root-services', namespace: temporal.namespace, role: 'read' })(),
-    });
+    const dial = temporalDial('koala-root-services', { temporal: { address: temporal.address, namespace: temporal.namespace, caPath: join(temporal.tlsDir, 'ca.crt') }, keys: { temporal: temporal.key() } }, 'read');
+    let connection: Connection;
     try {
-      try {
-        await connection.ensureConnected();
-      } catch (err) {
-        throw await whyNotConnected(temporal.address, tls.serverRootCACertificate, err);
-      }
+      connection = await connectTemporal(dial, 'client');
+    } catch (err) {
+      throw await whyNotConnected(temporal.address, Buffer.from(dial.tls.ca), err);
+    }
+    try {
       await connection.workflowService.getSystemInfo({});
       return { done: true };
     } finally {

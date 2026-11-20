@@ -1,37 +1,23 @@
 #!/usr/bin/env node
 import { QUEUES, liveSince } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
-import {
-  catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE,
-} from './engine/index.js';
+import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
-import {
-  koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
-  treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
-  treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
-  TreeHomeService, webhookUrlAt, type GroveRunLauncher,
-} from './projects/index.js';
-import {
-  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem,
-  sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
-  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
-} from './platform/index.js';
+import { koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE, treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars, TreeHomeService, webhookUrlAt, type GroveRunLauncher } from './projects/index.js';
+import { stopIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
-import { Worker, Runtime } from '@temporalio/worker';
+import { Runtime, type Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
-import {
-  InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor,
-  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth, savedHuggingFaceTokenOf,
-} from './infrastructure/index.js';
+import { InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor, ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth, savedHuggingFaceTokenOf } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
@@ -60,17 +46,7 @@ import { createKubeRunner, onKoalasCluster } from './engine-host/sandboxes/kube.
 
 import { createEventBus } from '@koala/agent-engine';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
-import {
-  createEngineActivities,
-  createEffortTracker,
-  createEngineHost,
-  PoisoningWatch,
-  storesFromDatabase,
-  DEFAULT_ENGINE_TASK_QUEUE,
-  type Task,
-  type MergeArgs,
-  type RecordTracesArgs,
-} from './engine-host/index.js';
+import { createEngineActivities, createEffortTracker, createEngineHost, PoisoningWatch, storesFromDatabase, DEFAULT_ENGINE_TASK_QUEUE, type Task, type MergeArgs, type RecordTracesArgs } from './engine-host/index.js';
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools, corpusEndpoints } from './engine/wiring/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
@@ -81,12 +57,11 @@ import { bindChatWithItsFiles } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { chatTemplatesOverHttp, ToolCallParsers, TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { ignore } from '@koala/engine-core/failures';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
-import { workflowInterceptorModules } from './worker-interceptors.js';
 import { watchedWorker } from './worker-program.js';
+import { backendWorker } from './worker-interceptors.js';
 import { temporalWorkflowStarter } from './engine-host/temporal/workflow-starter.js';
 import type { WorkflowStarter } from './engine-host/registries/run-starter.js';
 import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
@@ -555,18 +530,7 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
 
 export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
   const activities = built ?? await buildActivities(settings, dependencies);
-  const connection = await connectTemporalWorker('koala-worker-engine', settings);
-  const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-  const worker = await Worker.create({
-    ...WORKER_DEFAULTS,
-    connection,
-    namespace: settings.temporal.namespace,
-    ...(dataConverter ? { dataConverter } : {}),
-    taskQueue: QUEUES.engine,
-    workflowsPath: resolve(__dirname, 'workflows'),
-    interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-    activities,
-  });
+  const worker = await backendWorker(settings, { subject: 'koala-worker-engine', taskQueue: QUEUES.engine, activities });
   return { worker, activities };
 }
 

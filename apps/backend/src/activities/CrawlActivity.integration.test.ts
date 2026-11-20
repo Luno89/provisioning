@@ -1,9 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import { ApplicationFailure } from '@temporalio/common';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { hostWorkerSettingsFrom } from '../platform/index.js';
 import { testKeyEnv } from '../platform/testing/keys.js';
@@ -17,12 +14,14 @@ import { INDEX_ID } from '../engine/lib/corpus-client.js';
 import { bundled, temporalTestEnvironment } from '../workflows/testing/temporal-test-env.js';
 import type { executeIngestWorkflow } from '../workflows/IngestWorkflow.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
+import { testWorker } from '../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const PAGE = 'The retry budget is three attempts per job, and each attempt waits twice as long as the one before it, so a job that keeps failing is given up on after about a minute of trying again.';
 const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
 
 let standIn: CorpusStandIn;
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let db: MongoDB;
 let mongoUri: string;
 
@@ -59,10 +58,7 @@ describe('crawling a site into a person\'s corpus', () => {
   it('reads the pages with the instance\'s own Crawl4AI at its settings\' address, and keeps them in the person\'s index, vectors and database', async () => {
     standIn.page('https://docs.example.com/', PAGE);
     const taskQueue = `ingest-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({
-      ...WORKER_DEFAULTS,
-      interceptors: { activity: activityInterceptors() },
-      connection: env.nativeConnection,
+    const worker = await testWorker(env, {
       namespace: env.namespace ?? 'default',
       taskQueue,
       workflowBundle: await bundled(resolve(import.meta.dirname, '../workflows/IngestWorkflow.ts')),

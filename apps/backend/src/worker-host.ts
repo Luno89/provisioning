@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
@@ -8,14 +7,13 @@ import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js
 import { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { checkServices } from './platform/wiring/dependencies.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
-import { workflowInterceptorModules } from './worker-interceptors.js';
+import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
 import { runAsProgram, watchedWorker } from './worker-program.js';
@@ -58,31 +56,13 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   const { address } = settings.temporal;
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  let worker;
-  const connecting = reopening();
-  while (true) {
-    try {
-      const connection = await connectTemporalWorker('koala-worker-host', settings);
-      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-      worker = await Worker.create({
-    ...WORKER_DEFAULTS,
-        connection,
-        namespace: settings.temporal.namespace,
-        ...(dataConverter ? { dataConverter } : {}),
-        taskQueue: queue,
-        workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities: hostActivitiesFor(settings.role.role),
-      });
-      break;
-    } catch (err) {
-      dependencies.failed('temporal', err);
-      logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);
-      await connecting.after();
-    }
-  }
+  const worker = await backendWorkerOnceTemporalAnswers(settings, { tag: '[HostWorker]', logger, dependencies }, {
+    subject: 'koala-worker-host',
+    taskQueue: queue,
+    activities: hostActivitiesFor(settings.role.role),
+  });
 
-  return { worker: worker!, telemetry, fences };
+  return { worker, telemetry, fences };
 }
 
 runAsProgram(import.meta.url, {

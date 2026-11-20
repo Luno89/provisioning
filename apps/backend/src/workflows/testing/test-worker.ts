@@ -1,6 +1,5 @@
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
-import { Worker, type WorkerOptions } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import type { Worker } from '@temporalio/worker';
+import { testWorker as koalaTestWorker, type TestTemporal, type TestWorkerOptions as KoalaTestWorkerOptions } from '@koala/engine-core/testing/temporal';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll } from 'vitest';
@@ -9,11 +8,11 @@ import { bundled } from './temporal-test-env.js';
 const workflowsFolder = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export interface FileEnvironment {
-  readonly env: TestWorkflowEnvironment;
+  readonly env: TestTemporal;
 }
 
-export function environmentForFile(make: () => Promise<TestWorkflowEnvironment>): FileEnvironment {
-  let env: TestWorkflowEnvironment | undefined;
+export function environmentForFile(make: () => Promise<TestTemporal>): FileEnvironment {
+  let env: TestTemporal | undefined;
   beforeAll(async () => { env = await make(); });
   afterAll(async () => { await env?.teardown(); });
   return {
@@ -26,20 +25,15 @@ export function environmentForFile(make: () => Promise<TestWorkflowEnvironment>)
 
 export const uniqueName = (prefix: string): string => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
-export interface TestWorkerOptions {
-  taskQueue: string;
+export type TestWorkerOptions = KoalaTestWorkerOptions & {
   workflows?: string;
   workflowInterceptors?: string[];
-  activityInterceptors?: NonNullable<WorkerOptions['interceptors']>['activity'];
-  activities?: object;
-}
+};
 
-export async function testWorker(env: TestWorkflowEnvironment, options: TestWorkerOptions): Promise<Worker> {
-  const { taskQueue, workflows, workflowInterceptors = [], activities } = options;
-  return Worker.create({
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue,
-    interceptors: { activity: options.activityInterceptors ?? activityInterceptors() },
+export async function testWorker(env: TestTemporal, options: TestWorkerOptions): Promise<Worker> {
+  const { workflows, workflowInterceptors = [], ...rest } = options;
+  return koalaTestWorker(env, {
+    ...rest,
     ...(workflows ? { workflowBundle: await bundled(resolve(workflowsFolder, workflows), workflowInterceptors.map((module) => resolve(workflowsFolder, module))) } : {}),
-    ...(activities ? { activities } : {}),
   });
 }

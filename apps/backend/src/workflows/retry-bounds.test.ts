@@ -33,9 +33,14 @@ describe('how activities are retried', () => {
   it.each(['worker-cluster.ts', 'worker-engine.ts', 'worker-host.ts', 'engine-host/temporal/stream-worker.ts', '../../local-agent/src/engine-worker.ts'])(
     '%s classifies every activity\'s failure, so a misconfiguration or a bug fails at once and is never retried',
     (file) => {
-      expect(readFileSync(join(here, '..', file), 'utf8')).toMatch(/activity: activityInterceptors\(\)/);
+      expect(readFileSync(join(here, '..', file), 'utf8')).toMatch(/\b(createWorker|backendWorker|backendWorkerOnceTemporalAnswers)\(/);
     },
   );
+
+  it('builds every worker, in the backend and on a machine, with the classification among its interceptors', () => {
+    expect(readFileSync(join(here, '../worker-interceptors.ts'), 'utf8')).toMatch(/\bcreateWorker\(/);
+    expect(readFileSync(join(here, '../../../../packages/engine-core/src/temporal.ts'), 'utf8')).toMatch(/interceptors: \{ activity: activityInterceptors\(\)/);
+  });
 
   it('has the classification among the interceptors every worker takes', () => {
     expect(readFileSync(join(here, '../../../../packages/engine-core/src/classified-failures.ts'), 'utf8')).toMatch(/export const activityInterceptors = \(\) => \[[^\]]*classifiedFailures\(\)/);

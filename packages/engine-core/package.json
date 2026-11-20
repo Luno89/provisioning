@@ -79,6 +79,22 @@
       "types": "./src/work-for.ts",
       "default": "./src/work-for.ts"
     },
+    "./temporal": {
+      "types": "./src/temporal.ts",
+      "default": "./src/temporal.ts"
+    },
+    "./workflow-owner": {
+      "types": "./src/workflow-owner.ts",
+      "default": "./src/workflow-owner.ts"
+    },
+    "./testing/temporal": {
+      "types": "./testing/temporal.ts",
+      "default": "./testing/temporal.ts"
+    },
+    "./testing/temporal-tls": {
+      "types": "./testing/temporal-tls.ts",
+      "default": "./testing/temporal-tls.ts"
+    },
     "./work-header": {
       "types": "./src/work-header.ts",
       "default": "./src/work-header.ts"
@@ -92,7 +108,9 @@
     "@opentelemetry/sdk-metrics": "2.12.0",
     "@opentelemetry/sdk-trace-base": "2.12.0",
     "@opentelemetry/sdk-trace-node": "2.12.0",
+    "@temporalio/client": "^1.23.0",
     "@temporalio/common": "^1.23.0",
+    "@temporalio/worker": "^1.23.0",
     "undici": "^7.27.2"
   },
   "scripts": {
@@ -103,10 +121,8 @@
   },
   "devDependencies": {
     "@temporalio/activity": "^1.23.0",
-    "@temporalio/client": "^1.23.0",
     "@temporalio/proto": "^1.23.0",
     "@temporalio/testing": "^1.23.0",
-    "@temporalio/worker": "^1.23.0",
     "@temporalio/workflow": "^1.23.0",
     "axios": "^1.17.0"
   }

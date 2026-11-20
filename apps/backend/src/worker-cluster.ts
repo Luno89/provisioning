@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { Worker } from '@temporalio/worker';
-import { dirname, resolve } from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import { DeployAppActivity, type DeployAppArgs } from './activities/DeployAppActivity.js';
@@ -13,15 +12,14 @@ import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activitie
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
-import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, reopening, temporalTlsProblem, sharedPayloadBlobs, telemetrySettings } from './platform/index.js';
+import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
 import { collectorSink } from './monitoring/index.js';
 import { checkServices } from './platform/wiring/dependencies.js';
-import { workflowInterceptorModules } from './worker-interceptors.js';
+import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
@@ -80,35 +78,17 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  let worker;
-  const connecting = reopening();
-  while (true) {
-    try {
-      const connection = await connectTemporalWorker('koala-worker-cluster', settings);
-      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
-      worker = await Worker.create({
-    ...WORKER_DEFAULTS,
-        connection,
-        namespace: settings.temporal.namespace,
-        ...(dataConverter ? { dataConverter } : {}),
-        taskQueue: queue,
-        workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: activityInterceptors(), workflowModules: workflowInterceptorModules(settings.role) },
-        activities: clusterActivities(steps, {
+  const worker = await backendWorkerOnceTemporalAnswers(settings, { tag: '[ClusterWorker]', logger, dependencies }, {
+    subject: 'koala-worker-cluster',
+    taskQueue: queue,
+    activities: clusterActivities(steps, {
           place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
           lines: recordedLines(db.infrastructure),
           provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
         }, settings.tests.huggingFaceUrl),
-      });
-      break;
-    } catch (err) {
-      dependencies.failed('temporal', err);
-      logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);
-      await connecting.after();
-    }
-  }
+  });
 
-  return { worker: worker!, steps, telemetry, fences };
+  return { worker, steps, telemetry, fences };
 }
 
 runAsProgram(import.meta.url, {

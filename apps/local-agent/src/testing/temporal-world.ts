@@ -2,16 +2,16 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { TestWorkflowEnvironment, type LocalTestWorkflowEnvironmentOptions } from '@temporalio/testing';
 import { Server, type Socket } from 'socket.io';
 import { afterAll, beforeAll } from 'vitest';
-import { makeCertificates, tlsInFrontOf, type TestCertificates } from './temporal-tls.js';
+import { startTestTemporal, type TestTemporal, type TestTemporalServer } from '@koala/engine-core/testing/temporal';
+import { makeCertificates, type TestCertificates } from '@koala/engine-core/testing/temporal-tls';
 
 export interface TemporalWorld {
-  env: TestWorkflowEnvironment;
+  env: TestTemporal;
   rootDir: string;
   certificates: TestCertificates;
-  front: { address: string; close(): Promise<void> };
+  front: { address: string };
 }
 
 interface MachinePayloadsAnswer {
@@ -19,17 +19,18 @@ interface MachinePayloadsAnswer {
   temporal: { address: string; namespace: string; ca: string; serverName: string };
 }
 
-export function temporalBehindTls(prefix: string, local: LocalTestWorkflowEnvironmentOptions = {}): TemporalWorld {
+export function temporalBehindTls(prefix: string): TemporalWorld {
   const world = {} as TemporalWorld;
+  let server: TestTemporalServer | undefined;
   beforeAll(async () => {
-    world.env = await TestWorkflowEnvironment.createLocal(local);
-    world.rootDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
     world.certificates = makeCertificates();
-    world.front = await tlsInFrontOf(world.env.address, world.certificates);
+    server = await startTestTemporal(world.certificates);
+    world.env = server.env;
+    world.front = { address: server.tlsAddress };
+    world.rootDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   });
   afterAll(async () => {
-    await world.front.close();
-    await world.env.teardown();
+    await server?.close();
     await fs.rm(world.rootDir, { recursive: true, force: true });
   });
   return world;

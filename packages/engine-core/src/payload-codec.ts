@@ -95,7 +95,7 @@ const deserialize = (bytes: Uint8Array): Payload => {
 
 export class EncryptionCodec implements PayloadCodec {
   constructor(private readonly masterKey: SecretKey) {
-    if (!masterKey) throw new Error('EncryptionCodec requires a master key (PAYLOAD_KEY)');
+    if (!masterKey || !ringOf(masterKey).current) throw new Error('EncryptionCodec requires a master key (PAYLOAD_KEY)');
   }
 
   async encode(payloads: Payload[]): Promise<Payload[]> {
@@ -180,9 +180,9 @@ export function payloadStorage(blobs: BlobReach, threshold = OFFLOAD_ABOVE_BYTES
   return new ExternalStorage({ drivers: [new BlobStorageDriver(blobs)], payloadSizeThreshold: threshold });
 }
 
-export function buildDataConverter(masterKey: SecretKey | undefined, blobs?: BlobReach) {
+export function buildDataConverter(masterKey: SecretKey, blobs?: BlobReach) {
   return {
-    payloadCodecs: [new CompressionCodec(), ...(masterKey ? [new EncryptionCodec(masterKey)] : [])],
+    payloadCodecs: [new CompressionCodec(), new EncryptionCodec(masterKey)],
     ...(blobs ? { externalStorage: payloadStorage(blobs) } : {}),
   };
 }

@@ -2,9 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -16,8 +13,10 @@ import { createStoredFilesActivities } from './stored-files-activities.js';
 import { temporalStoredFileCommits } from './StoredFileCommits.js';
 import { roomOn } from './room.js';
 import { StoredFiles } from './StoredFiles.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let world: StoredFilesWorld;
 let stop: () => Promise<void> = async () => undefined;
 
@@ -29,8 +28,8 @@ beforeAll(async () => {
   const activities = createStoredFilesActivities({ records: db.files, objects, now: () => clock.now });
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = env.namespace ?? 'default';
-  const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  const workflows = await testWorker(env, { namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });
+  const stream = await testWorker(env, { namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   const running = Promise.all([workflows.run(), stream.run()]);
   stop = async () => {
     workflows.shutdown();

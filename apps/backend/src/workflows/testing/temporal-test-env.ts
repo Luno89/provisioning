@@ -1,19 +1,13 @@
-import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
-import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
+import { TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
-import { Client, Connection } from '@temporalio/client';
-import { inject } from 'vitest';
-import { OWNER_ATTRIBUTE } from '../../platform/lib/workflow-owner.js';
+import { Connection, type Client } from '@temporalio/client';
+import { afterAll, beforeAll, beforeEach, inject } from 'vitest';
+import type { TemporalPayloads } from '@koala/engine-core/temporal';
+import { localTemporal, temporalAt, testClient, testPayloads, timeSkippingClient, timeSkippingTemporal, type TestTemporal } from '@koala/engine-core/testing/temporal';
 import { readyNamespace, registerOwnerAttribute } from '../../platform/lib/temporal-client.js';
 
-declare module 'vitest' {
-  export interface ProvidedContext {
-    temporalAddress: string;
-    temporalTlsAddress: string;
-    temporalCa: string;
-  }
-}
+export type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 export interface FreshNamespace {
   namespace: string;
@@ -33,11 +27,11 @@ export async function freshNamespace(address: string = inject('temporalAddress')
   };
 }
 
-export async function realTemporalEnvironment(): Promise<TestWorkflowEnvironment> {
+export async function realTemporalEnvironment(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
   const address = inject('temporalAddress');
-  if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE], executable: temporalServerExecutable() } });
+  if (!address) return localTemporal(payloads);
   const fresh = await freshNamespace(address);
-  const env = await TestWorkflowEnvironment.createFromExistingServer({ address, namespace: fresh.namespace });
+  const env = await temporalAt(address, { namespace: fresh.namespace, payloads });
   const teardown = env.teardown.bind(env);
   env.teardown = async () => {
     await teardown();
@@ -46,8 +40,8 @@ export async function realTemporalEnvironment(): Promise<TestWorkflowEnvironment
   return env;
 }
 
-export async function clockSkippingEnvironment(): Promise<TestWorkflowEnvironment> {
-  const env = await TestWorkflowEnvironment.createTimeSkipping();
+export async function clockSkippingEnvironment(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
+  const env = await timeSkippingTemporal(payloads);
   await registerOwnerAttribute(env.connection, env.namespace ?? 'default');
   return env;
 }
@@ -57,18 +51,40 @@ export interface TestWorld {
   client: Client;
 }
 
-export async function newWorld(env: TestWorkflowEnvironment): Promise<TestWorld> {
+export async function newWorld(env: TestTemporal): Promise<TestWorld> {
   if (!env.supportsTimeSkipping) throw new Error('a world of its own is a namespace the time-skipping server makes on first use; on a real server, take a freshNamespace');
   const namespace = `world-${randomUUID()}`;
   await registerOwnerAttribute(env.connection, namespace);
-  const client = new Client({ connection: env.connection, namespace });
-  if (env.client.workflow instanceof TimeSkippingWorkflowClient) Object.defineProperty(client, 'workflow', { value: new TimeSkippingWorkflowClient({ connection: env.connection, namespace }) });
+  const client = testClient(env, { namespace });
+  if (env.client.workflow instanceof TimeSkippingWorkflowClient) Object.defineProperty(client, 'workflow', { value: timeSkippingClient(env, { namespace }) });
   return { namespace, client };
 }
 
-export async function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
-  const env = await clockSkippingEnvironment();
-  Object.defineProperty(env, 'client', { value: new Client({ connection: env.connection, namespace: env.namespace ?? 'default' }) });
+export interface WorldPerTest {
+  readonly env: TestTemporal;
+  readonly world: TestWorld;
+}
+
+export function worldPerTest(): WorldPerTest {
+  let env: TestTemporal | undefined;
+  let world: TestWorld | undefined;
+  beforeAll(async () => { env = await clockSkippingEnvironment(); });
+  beforeEach(async () => { world = await newWorld(made(env)); });
+  afterAll(async () => { await env?.teardown(); });
+  return {
+    get env() { return made(env); },
+    get world() { return made(world); },
+  };
+}
+
+const made = <T>(thing: T | undefined): T => {
+  if (thing === undefined) throw new Error('this file\'s Temporal environment and world are made in beforeAll and beforeEach; a test reached them before they were made');
+  return thing;
+};
+
+export async function temporalTestEnvironment(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
+  const env = await clockSkippingEnvironment(payloads);
+  Object.defineProperty(env, 'client', { value: testClient(env) });
   return env;
 }
 

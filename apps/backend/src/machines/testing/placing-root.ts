@@ -4,9 +4,6 @@ import { resolve } from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
@@ -15,7 +12,7 @@ import { InstanceService } from '../../instances/services/InstanceService.js';
 import { NO_MESH, rootInstanceSettings } from '../../instances/testing/root-installs.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
-import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
+import { bundled, temporalTestEnvironment, type TestTemporal } from '../../workflows/testing/temporal-test-env.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -24,9 +21,10 @@ import type { InstallWorkflows, KoalaInstalls } from '../services/KoalaInstalls.
 import { machinesRouter } from '../routes/machines.js';
 import { machineSides, temporalInstallWorkflows, type MachineSides } from '../wiring/sides.js';
 import { until } from './wiring-world.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
 
 export interface InstallWorkflowWorld {
-  env: TestWorkflowEnvironment;
+  env: TestTemporal;
   workflows(down?: () => boolean): InstallWorkflows;
   close(): Promise<void>;
 }
@@ -34,9 +32,8 @@ export interface InstallWorkflowWorld {
 export async function installWorkflowWorld(db: () => MongoDB): Promise<InstallWorkflowWorld> {
   const env = await temporalTestEnvironment();
   const taskQueue = `koala-install-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue,
+  const worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default', taskQueue,
     workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/KoalaInstallWorkflow.ts')),
     activities: koalaInstallActivities({ db: async () => ({ db: db(), close: async () => undefined }), now: () => new Date() }),
   });

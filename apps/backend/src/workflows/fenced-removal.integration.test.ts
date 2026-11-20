@@ -1,12 +1,9 @@
-import { activityInterceptors, WORKER_DEFAULTS } from '@koala/engine-core';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { Readable } from 'node:stream';
 import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import { Client } from '@temporalio/client';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import { createAccountRemovalActivities, NO_MESH_HERE, type AccountRemovalDeps } from '../activities/RemoveAccountActivities.js';
@@ -25,8 +22,11 @@ import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { holdFences } from '../platform/wiring/fences.js';
 import type { FenceWatch } from '../platform/services/FenceWatch.js';
 import { bundled, freshNamespace, realTemporalEnvironment, type FreshNamespace } from './testing/temporal-test-env.js';
+import { testWorker } from './testing/test-worker.js';
+import { testClient } from '@koala/engine-core/testing/temporal';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let db: MongoDB;
 let watch: FenceWatch;
 const objects = minioObjectStore({ ...inject('minio'), bucket: testBucket() });
@@ -47,7 +47,7 @@ let world: { namespace: string; client: Client; fresh: FreshNamespace };
 
 beforeEach(async () => {
   const fresh = await freshNamespace();
-  world = { namespace: fresh.namespace, client: new Client({ connection: env.connection, namespace: fresh.namespace }), fresh };
+  world = { namespace: fresh.namespace, client: testClient(env, { namespace: fresh.namespace }), fresh };
 });
 
 afterEach(async () => {
@@ -100,17 +100,14 @@ const fakeApps = { clusterById: async () => undefined, handOver: async (clusterI
 
 async function workers(queue: string, removal: object, removalWorkflow: string, stragglerOf: Straggler & { activity: (args: { ownerId: string; projectId?: string | undefined }) => Promise<string[]> }) {
   const namespace = world.namespace;
-  const removing = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, removalWorkflow)), activities: removal });
-  const straggling = await Worker.create({
-    ...WORKER_DEFAULTS,
-    interceptors: { activity: activityInterceptors() },
-    connection: env.nativeConnection,
+  const removing = await testWorker(env, { namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, removalWorkflow)), activities: removal });
+  const straggling = await testWorker(env, {
     namespace,
     taskQueue: `${queue}-straggler`,
     workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/straggler.fixture-workflow.ts'), [resolve(import.meta.dirname, 'telemetry-interceptors.ts')]),
     activities: { StraggleActivity: stragglerOf.activity },
   });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined } });
+  const stream = await testWorker(env, { namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined } });
   const running = Promise.all([removing.run(), straggling.run(), stream.run()]);
   return async () => {
     removing.shutdown();
@@ -120,7 +117,7 @@ async function workers(queue: string, removal: object, removalWorkflow: string, 
   };
 }
 
-const naming = () => new Client({ connection: env.connection, namespace: world.namespace, interceptors: { workflow: [namesItsWork] } });
+const naming = () => testClient(env, { namespace: world.namespace, interceptors: { workflow: [namesItsWork] } });
 
 describe('an account being removed while a step of its run is still writing', () => {
   it('waits for every live process to hold the account\'s fence, waits on no timer, and leaves nothing the late step tried to keep', async () => {

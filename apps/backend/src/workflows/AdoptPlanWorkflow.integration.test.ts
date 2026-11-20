@@ -1,10 +1,7 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { timeSkippingClient } from '@koala/engine-core/testing/temporal';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { AdoptPlanWorkflow } from './AdoptPlanWorkflow.js';
@@ -28,10 +25,12 @@ import { bundled, clockSkippingEnvironment, newWorld, type TestWorld } from './t
 import { workFor } from '@koala/engine-core/work-for';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 
 beforeAll(async () => {
   env = await clockSkippingEnvironment();
@@ -228,9 +227,8 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never, workSeen?: [string, unknown][]): Promise<AdoptPlanResult> {
   const taskQueue = `adopt-test-${Math.random().toString(36).slice(2, 8)}`;
   const seeing = <A extends unknown[], R>(name: string, step: (...args: A) => Promise<R>) => async (...args: A): Promise<R> => { workSeen?.push([name, workFor()]); return step(...args); };
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: temporalWorld.namespace,
+  const worker = await testWorker(env, {
+    namespace: temporalWorld.namespace,
     taskQueue,
     workflowBundle: await bundled(resolve(__dirname), [resolve(__dirname, 'telemetry-interceptors.ts')]),
     activities: {
@@ -246,9 +244,8 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
       }),
     },
   });
-  const streamWorker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: temporalWorld.namespace,
+  const streamWorker = await testWorker(env, {
+    namespace: temporalWorld.namespace,
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: {
       EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => {
@@ -260,7 +257,7 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
       },
     },
   });
-  const naming = new TimeSkippingWorkflowClient({ connection: env.connection, namespace: temporalWorld.namespace, interceptors: [namesItsWork] });
+  const naming = timeSkippingClient(env, { namespace: temporalWorld.namespace, interceptors: [namesItsWork] });
   return streamWorker.runUntil(worker.runUntil(() => naming.execute(AdoptPlanWorkflow, {
     args: [{ ownerId: 'user-1', proposalId }],
     taskQueue,

@@ -5,11 +5,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import tls from 'node:tls';
 
-export interface TestCertificates {
-  ca: string;
+export interface ServingCertificate {
   cert: string;
   key: string;
+}
+
+export interface TestCertificates extends ServingCertificate {
+  ca: string;
+  caPath: string;
   serverName: string;
+}
+
+export interface TlsFront {
+  address: string;
+  close(): Promise<void>;
 }
 
 const SERVER_NAME = 'koala-temporal';
@@ -23,10 +32,10 @@ export function makeCertificates(): TestCertificates {
   openssl(['req', '-new', '-key', join(dir, 'server.key'), '-subj', `/CN=${SERVER_NAME}`, '-out', join(dir, 'server.csr')]);
   writeFileSync(join(dir, 'ext'), `subjectAltName=DNS:${SERVER_NAME}\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature\n`);
   openssl(['x509', '-req', '-in', join(dir, 'server.csr'), '-CA', join(dir, 'ca.crt'), '-CAkey', join(dir, 'ca.key'), '-CAcreateserial', '-CAserial', join(dir, 'ca.srl'), '-days', '1', '-sha256', '-extfile', join(dir, 'ext'), '-out', join(dir, 'server.crt')]);
-  return { ca: readFileSync(join(dir, 'ca.crt'), 'utf8'), cert: readFileSync(join(dir, 'server.crt'), 'utf8'), key: readFileSync(join(dir, 'server.key'), 'utf8'), serverName: SERVER_NAME };
+  return { ca: readFileSync(join(dir, 'ca.crt'), 'utf8'), caPath: join(dir, 'ca.crt'), cert: readFileSync(join(dir, 'server.crt'), 'utf8'), key: readFileSync(join(dir, 'server.key'), 'utf8'), serverName: SERVER_NAME };
 }
 
-export function tlsInFrontOf(address: string, certificates: TestCertificates): Promise<{ address: string; close(): Promise<void> }> {
+export function tlsInFrontOf(address: string, certificates: ServingCertificate): Promise<TlsFront> {
   const port = Number(address.slice(address.lastIndexOf(':') + 1));
   const open = new Set<net.Socket>();
   const server = tls.createServer({ key: certificates.key, cert: certificates.cert, ALPNProtocols: ['h2'] }, (secured) => {

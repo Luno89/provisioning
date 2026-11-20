@@ -7,9 +7,7 @@ import express from 'express';
 import { reopening } from '@koala/engine-core/reopening';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket } from 'socket.io-client';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { PROVISIONING_CHANGED, type ProvisioningView } from '@koala/engine-core/koala-install';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -25,11 +23,13 @@ import { pieceHeard } from '../lib/provisioning.js';
 import { isOff } from '../../platform/index.js';
 import { wireProvisioning } from './provisioning.js';
 import { PROVISION_AGENT } from '../../extensions/provision/names.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const OWNER = { id: 'owner-1', email: 'owner@example.com' };
 const WORKFLOWS = fileURLToPath(new URL('../testing/provision.fixture-workflow.ts', import.meta.url));
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let worker: Worker;
 let working: Promise<void>;
 const taskQueue = `provision-${Math.random().toString(36).slice(2, 8)}`;
@@ -46,7 +46,7 @@ const runs: Pick<RunStarter, 'start'> = {
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
-  worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(WORKFLOWS) });
+  worker = await testWorker(env, { namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(WORKFLOWS) });
   working = worker.run();
 });
 

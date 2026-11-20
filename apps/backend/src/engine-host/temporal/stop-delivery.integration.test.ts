@@ -2,13 +2,14 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Context } from '@temporalio/activity';
 import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { heartbeatWhileRunning, STOPS_ARRIVE_WITHIN_MS, WORKER_DEFAULTS } from '@koala/engine-core';
+import { STOPS_ARRIVE_WITHIN_MS } from '@koala/engine-core';
 import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const QUEUE = 'stop-delivery-test';
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let worker: Worker;
 let running: Promise<void>;
 let startedAt = 0;
@@ -16,12 +17,10 @@ let heardAt = 0;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-  worker = await Worker.create({
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
+  worker = await testWorker(env, {
     taskQueue: QUEUE,
     workflowBundle: await bundled(resolve(__dirname, 'testing/stop-delivery.fixture-workflow.ts')),
     maxHeartbeatThrottleInterval: STOPS_ARRIVE_WITHIN_MS,
-    interceptors: { activity: [heartbeatWhileRunning()] },
     activities: {
       async holdUntilStopped(): Promise<void> {
         startedAt = Date.now();

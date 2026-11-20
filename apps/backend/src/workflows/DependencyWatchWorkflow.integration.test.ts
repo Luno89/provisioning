@@ -1,12 +1,11 @@
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
 import { describe, it, expect } from 'vitest';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Context } from '@temporalio/activity';
-import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { bundled, clockSkippingEnvironment } from './testing/temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
@@ -22,13 +21,13 @@ const watchUntilChecked = async (check: (tries: number) => void): Promise<{ chec
   }
 };
 
-const watchIn = async (env: TestWorkflowEnvironment, check: (tries: number) => void): Promise<{ checked: Checked; began: number; tries: number }> => {
+const watchIn = async (env: TestTemporal, check: (tries: number) => void): Promise<{ checked: Checked; began: number; tries: number }> => {
   const taskQueue = `dependency-watch-${Math.random().toString(36).slice(2, 8)}`;
   let tries = 0;
   let settle: (checked: Checked) => void = () => undefined;
   const checkedOnce = new Promise<Checked>((done) => { settle = done; });
-  const worker = await Worker.create({
-    ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue,
+  const worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default', taskQueue,
     workflowBundle: await bundled(resolve(__dirname, 'DependencyWatchWorkflow.ts')),
     activities: {
       DependencyWatchActivity: async () => {

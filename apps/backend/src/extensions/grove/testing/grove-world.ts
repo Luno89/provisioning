@@ -1,22 +1,12 @@
-import { activityInterceptors } from '@koala/engine-core';
-import { WORKER_DEFAULTS, type ToolContract } from '@koala/engine-core';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { type ToolContract } from '@koala/engine-core';
 import { afterAll, beforeAll, beforeEach } from 'vitest';
 import { temporalTestEnvironment } from '../../../workflows/testing/temporal-test-env.js';
 import type { WorkflowHandle } from '@temporalio/client';
 import { ApplicationFailure } from '@temporalio/common';
-import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type { EngineEvent, ModelProvider, Persona } from '@koala/agent-engine';
-import {
-  replyExit,
-  stepImplementation,
-  type ChatMessage,
-  type ModelReply,
-  type Procedure,
-  type RunEffort,
-} from '@koala/agent-engine/procedure';
+import { replyExit, stepImplementation, type ChatMessage, type ModelReply, type Procedure, type RunEffort } from '@koala/agent-engine/procedure';
 import { createCompactContextNode } from '../../../engine-host/nodes/model-nodes.js';
 import { inMemoryConversations } from '../../../engine-host/nodes/conversation-nodes.js';
 import { createHostNodes, hostNodesFor } from '../../../engine-host/nodes/index.js';
@@ -29,13 +19,7 @@ import type { KubeRunner } from '../../../engine-host/sandboxes/kube.js';
 import { createSandboxDriver } from '../../../engine-host/drivers/sandbox.js';
 import { createNodeRunner } from '../../../engine-host/temporal/activities.js';
 import { runCancelledVia } from '../../../engine-host/temporal/run-cancellation.js';
-import {
-  DEFAULT_STREAM_TASK_QUEUE,
-  type GroveRunResult,
-  type PublishArgs,
-  type RecordTracesArgs,
-  type ResolveAgentArgs,
-} from '../../../engine-host/temporal/contracts.js';
+import { DEFAULT_STREAM_TASK_QUEUE, type GroveRunResult, type PublishArgs, type RecordTracesArgs, type ResolveAgentArgs } from '../../../engine-host/temporal/contracts.js';
 import { createTaskTools } from '../../../engine-host/tools/task-tools.js';
 import { TASK_TOOLS } from '../../../engine-host/tools/task-tools-catalogue.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
@@ -50,6 +34,8 @@ import { seededAgents, seededProcedures } from '../../seeds.js';
 import { extensionRuntimes, operationHandlers } from '../../runtime.js';
 import type { HostOperationRun } from '../../types.js';
 import { ignore } from '@koala/engine-core/failures';
+import { testWorker } from '../../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const WORKFLOWS = resolve(dirname(fileURLToPath(import.meta.url)), '../../../workflows');
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
@@ -91,7 +77,7 @@ const classify = (seen: string, system: string): string => {
   return 'unknown';
 };
 
-export function groveWorldPerFile(environment: () => Promise<TestWorkflowEnvironment> = temporalTestEnvironment): GroveWorld {
+export function groveWorldPerFile(environment: () => Promise<TestTemporal> = temporalTestEnvironment): GroveWorld {
   const grove = new GroveWorld();
   beforeAll(() => grove.startOn(environment));
   afterAll(() => grove.stop());
@@ -112,18 +98,18 @@ export class GroveWorld {
   writerFails: string | undefined;
   private clock = 0;
 
-  private temporal: TestWorkflowEnvironment | undefined;
+  private temporal: TestTemporal | undefined;
 
   constructor() {
     this.reset();
   }
 
-  get env(): TestWorkflowEnvironment {
+  get env(): TestTemporal {
     if (!this.temporal) throw new Error('the grove world has no Temporal: its file\'s beforeAll has not started one');
     return this.temporal;
   }
 
-  async startOn(environment: () => Promise<TestWorkflowEnvironment>): Promise<void> {
+  async startOn(environment: () => Promise<TestTemporal>): Promise<void> {
     this.temporal = await environment();
   }
 
@@ -412,9 +398,8 @@ export class GroveWorld {
     };
 
     const taskQueue = `grove-test-${Math.random().toString(36).slice(2, 8)}`;
-    const engineWorker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace,
+    const engineWorker = await testWorker(env, {
+      namespace,
       taskQueue,
       workflowsPath: WORKFLOWS,
       activities: {
@@ -435,9 +420,8 @@ export class GroveWorld {
         EngineRecordTracesActivity: async (args: RecordTracesArgs) => { traces.push(...args.traces.map((trace) => ({ ...trace, runId: args.runId }))); },
       },
     });
-    const streamWorker = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace,
+    const streamWorker = await testWorker(env, {
+      namespace,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
         EngineStreamNodeActivity: createNodeRunner([this.scriptModel(rounds, (kind) => callOf(kind).resolve(), options.hang), this.decideModel(), createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),

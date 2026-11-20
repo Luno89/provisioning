@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import type { StoredFilesActivities } from '../files/lib/stored-files-work.js';
@@ -12,8 +9,10 @@ import { temporalStoredFileCommits } from '../files/services/StoredFileCommits.j
 import { MemoryFilesStore } from '../files/testing/memory-store.js';
 import { MemoryObjectStore } from '../files/testing/memory-object-store.js';
 import { bundled, temporalTestEnvironment, newWorld, type TestWorld } from './testing/temporal-test-env.js';
+import { testWorker } from './testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 const AT = '2026-11-07T10:00:00.000Z';
 const scope = { kind: 'project', id: 'p1' } as const;
 
@@ -39,8 +38,8 @@ const begun = async (records: MemoryFilesStore, objects: MemoryObjectStore, id: 
 async function running<T>(activities: StoredFilesActivities, work: (queue: string) => Promise<T>): Promise<T> {
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = world.namespace;
-  const workflows = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
-  const stream = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  const workflows = await testWorker(env, { namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
+  const stream = await testWorker(env, { namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
   return workflows.runUntil(stream.runUntil(work(queue)));
 }
 

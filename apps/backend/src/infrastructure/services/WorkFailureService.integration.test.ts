@@ -1,8 +1,4 @@
-import { activityInterceptors } from '@koala/engine-core';
 import { resolve } from 'node:path';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
@@ -12,6 +8,8 @@ import { createStreamActivities, type StreamServices } from '../../engine-host/t
 import { bundled, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { WorkFailureService } from './WorkFailureService.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
+import { testWorker } from '../../workflows/testing/test-worker.js';
+import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 
@@ -74,7 +72,7 @@ describe('work that failed', () => {
 });
 
 describe('a workflow that fails tells the backend itself', () => {
-  let env: TestWorkflowEnvironment;
+  let env: TestTemporal;
   beforeAll(async () => { env = await temporalTestEnvironment(); });
   afterAll(async () => { await env?.teardown(); });
 
@@ -83,14 +81,12 @@ describe('a workflow that fails tells the backend itself', () => {
     const namespace = env.namespace ?? 'default';
     const taskQueue = `failures-${Math.random().toString(36).slice(2, 8)}`;
     const reports: WorkflowFailedReport[] = [];
-    const workflows = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue,
+    const workflows = await testWorker(env, {
+      namespace, taskQueue,
       workflowBundle: await bundled(resolve(__dirname, '../testing/failure.fixture-workflow.ts'), [resolve(__dirname, '../../workflows/failure-reports.ts')]),
     });
-    const stream = await Worker.create({
-      interceptors: { activity: activityInterceptors() },
-      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+    const stream = await testWorker(env, {
+      namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineWorkflowFailedActivity: createStreamActivities({ ...mock<StreamServices>(), workflowFailed: async (report) => { reports.push(report); await service.workflowFailed(report); } }).EngineWorkflowFailedActivity },
     });
 

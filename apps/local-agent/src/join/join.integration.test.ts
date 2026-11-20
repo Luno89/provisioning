@@ -13,7 +13,7 @@ import { KOALA_INSTALL_FOLLOW_PATH } from '@koala/engine-core/koala-install';
 import { createServer as createSecureServer } from 'node:https';
 import { localCommands, type CommandRunner, type Every, type WaitOptions } from '@koala/provision';
 import { K3S_BINARY, K3S_MARKER } from '../machine-cluster.js';
-import { makeCertificates } from '../testing/temporal-tls.js';
+import { makeCertificates } from '@koala/engine-core/testing/temporal-tls';
 import { followInstall } from './follow-install.js';
 import { localJoinHost, stopsOnCtrlC } from './host.js';
 import { runJoin } from './join.js';

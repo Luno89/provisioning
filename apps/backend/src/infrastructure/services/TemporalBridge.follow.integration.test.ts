@@ -1,10 +1,7 @@
 import { resolve } from 'node:path';
-import { Client, Connection } from '@temporalio/client';
+import { Connection } from '@temporalio/client';
 import { temporal } from '@temporalio/proto';
-import { Worker } from '@temporalio/worker';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
-import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import { describe, expect, inject, it, vi } from 'vitest';
 import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
@@ -13,8 +10,9 @@ import { ClusterService } from './ClusterService.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { resolveVllmCacheHostPath } from '../../models/index.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
+import { environmentForFile, testWorker } from '../../workflows/testing/test-worker.js';
+import { createClient } from '@koala/engine-core/temporal';
 
-let env: TestWorkflowEnvironment;
 
 function followedThrough(bridge: TemporalBridge): { followings: Promise<void>[]; settled: (workflowId: string) => Promise<void> } {
   const followings: Promise<void>[] = [];
@@ -35,16 +33,15 @@ function followedThrough(bridge: TemporalBridge): { followings: Promise<void>[];
   return { followings, settled };
 }
 
-beforeAll(async () => { env = await realTemporalEnvironment(); });
-afterAll(async () => { await env?.teardown(); });
+const file = environmentForFile(realTemporalEnvironment);
 
 describe('following work Koala started anywhere to its end', () => {
   it('settles each app another process deploys when its workflow ends, from the record alone, and takes a workflow Temporal never had as failed', async () => {
     const db = await testDatabase();
-    const namespace = env.namespace ?? 'default';
+    const namespace = file.env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const bridge = new TemporalBridge(db, testDataDir());
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: file.env.payloads });
     const followings: Promise<void>[] = [];
     let allFollowed!: () => void;
     const threeFollowed = new Promise<void>((done) => { allFollowed = done; });
@@ -56,7 +53,7 @@ describe('following work Koala started anywhere to its end', () => {
       return following;
     });
     const taskQueue = `follow-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await testWorker(file.env, { namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: '', ...extra });
 
     await worker.runUntil(async () => {
@@ -64,7 +61,7 @@ describe('following work Koala started anywhere to its end', () => {
       for (const [id, outcome] of [['shop', 'healthy'], ['blog', 'fails']] as const) {
         await db.infrastructure.saveDeployment(app(id, id === 'shop' ? { failure: 'an earlier attempt did not come up' } : {}));
         const workflowId = `deploy-${id}-${taskQueue}`;
-        await env.client.workflow.start('deploys', { taskQueue, workflowId, args: [outcome] });
+        await file.env.client.workflow.start('deploys', { taskQueue, workflowId, args: [outcome] });
         await db.infrastructure.saveDeploymentInfo({ id, temporalWorkflowId: workflowId });
       }
       await db.infrastructure.saveDeployment(app('wiki', { temporalWorkflowId: `never-started-${taskQueue}` }));
@@ -84,17 +81,17 @@ describe('following work Koala started anywhere to its end', () => {
 
 describe('cancelling and reading work in Temporal', () => {
   it('cancels a workflow that runs, says one that finished or never ran is not running, and reads a workflow\'s history', async () => {
-    const namespace = env.namespace ?? 'default';
+    const namespace = file.env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const bridge = new TemporalBridge(await testDatabase(), testDataDir());
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: file.env.payloads });
     const taskQueue = `cancel-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
+    const worker = await testWorker(file.env, { namespace, taskQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) });
 
     await worker.runUntil(async () => {
-      const done = await env.client.workflow.start('deploys', { taskQueue, workflowId: `done-${taskQueue}`, args: ['healthy'] });
+      const done = await file.env.client.workflow.start('deploys', { taskQueue, workflowId: `done-${taskQueue}`, args: ['healthy'] });
       await done.result();
-      const waiting = await env.client.workflow.start('waitsToBeCancelled', { taskQueue, workflowId: `waiting-${taskQueue}` });
+      const waiting = await file.env.client.workflow.start('waitsToBeCancelled', { taskQueue, workflowId: `waiting-${taskQueue}` });
 
       expect(await bridge.cancelWorkflow(waiting.workflowId)).toBe('cancelled');
       await expect(waiting.result()).rejects.toThrow();
@@ -113,11 +110,11 @@ describe('cancelling and reading work in Temporal', () => {
 describe('settling the work the bridge itself starts', () => {
   it('destroys an app, resizes and syncs an app, records a build and crawls, each settled from its workflow\'s end through the record its start wrote', async () => {
     const db = await testDatabase();
-    const namespace = env.namespace ?? 'default';
+    const namespace = file.env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-follow-key' as never;
     const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: file.env.payloads });
     const decided: string[] = [];
     bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };
     const { followings, settled } = followedThrough(bridge);
@@ -133,7 +130,7 @@ describe('settling the work the bridge itself starts', () => {
     await db.infrastructure.saveDeployment(app('shop', { appType: 'gitapp', gitappProjectId: 'p1', gitappImageTag: 'reg/bo/shop:aaa' }));
 
     const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
-    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
+    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => testWorker(file.env, { namespace, taskQueue, workflowBundle: bundle })));
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
       await bridge.followWork();
       const started = [await bridge.destroyApp('gone'), await bridge.resizeDisk('grown', { data: '20Gi' }), await bridge.syncConfig('synced'), await bridge.syncConfig('model')];
@@ -165,22 +162,22 @@ describe('settling the work the bridge itself starts', () => {
 
   it('destroys an app still deploying by cancelling its deploy and waiting for it to end before the removal starts', async () => {
     const db = await testDatabase();
-    const namespace = env.namespace ?? 'default';
+    const namespace = file.env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-stop-key' as never;
     const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
-    bridge.client = new Client({ connection, namespace });
+    bridge.client = createClient({ connection, namespace, payloads: file.env.payloads });
     const { followings, settled } = followedThrough(bridge);
     await db.infrastructure.saveCluster({ id: 'c2', name: 'desk', provider: 'machine', machineId: 'desk', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     const deployQueue = `deploying-${Math.random().toString(36).slice(2, 8)}`;
     const workers = await Promise.all([
-      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: deployQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) }),
-      Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue: 'cluster-ops-queue', workflowBundle: await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts')) }),
+      testWorker(file.env, { namespace, taskQueue: deployQueue, workflowBundle: await bundled(resolve(__dirname, '../testing/follow.fixture-workflow.ts')) }),
+      testWorker(file.env, { namespace, taskQueue: 'cluster-ops-queue', workflowBundle: await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts')) }),
     ]);
 
-    let deploy!: Awaited<ReturnType<typeof env.client.workflow.start>>;
+    let deploy!: Awaited<ReturnType<typeof file.env.client.workflow.start>>;
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
-      deploy = await env.client.workflow.start('waitsToBeCancelled', { taskQueue: deployQueue, workflowId: `deploy-halfway-${deployQueue}` });
+      deploy = await file.env.client.workflow.start('waitsToBeCancelled', { taskQueue: deployQueue, workflowId: `deploy-halfway-${deployQueue}` });
       await db.infrastructure.saveDeployment({ id: 'halfway', name: 'halfway', clusterId: 'c2', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: deploy.workflowId, appType: 'wordpress', deploymentId: 'halfway-stack' });
       await bridge.followWork();
       const destroying = await bridge.destroyApp('halfway');

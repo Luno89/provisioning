@@ -1,17 +1,12 @@
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import type { TestProject } from 'vitest/node';
-
-declare module 'vitest' {
-  export interface ProvidedContext {
-    temporalAddress: string;
-  }
-}
+import { startTestTemporal } from './testing/temporal.js';
+import { makeCertificates } from './testing/temporal-tls.js';
 
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
-  const env = await TestWorkflowEnvironment.createLocal({ server: { executable: temporalServerExecutable() } });
-  project.provide('temporalAddress', env.address);
-  return async () => {
-    await env.teardown();
-  };
+  const certificates = makeCertificates();
+  const server = await startTestTemporal(certificates);
+  project.provide('temporalAddress', server.address);
+  project.provide('temporalTlsAddress', server.tlsAddress);
+  project.provide('temporalCa', certificates.caPath);
+  return () => server.close();
 }

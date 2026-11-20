@@ -1,15 +1,11 @@
-import { activityInterceptors } from '@koala/engine-core';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { WORKER_DEFAULTS } from '@koala/engine-core';
-import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { CheckWorkloadActivity, type CheckWorkloadArgs } from '../activities/CheckWorkloadActivity.js';
 import type { ClusterSteps } from '../activities/cluster-steps.js';
 import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
-import { clusterActivities, type ClusterSetup } from '../worker-cluster.js';
+import { clusterActivities } from '../worker-cluster.js';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../platform/testing/http.js';
 import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAppActivity.js';
@@ -22,13 +18,14 @@ import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
-import { bundled, temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { bundled, temporalTestEnvironment, type TestTemporal } from './testing/temporal-test-env.js';
 import type { executeDeployAppWorkflow } from './AppDeployWorkflow.js';
 import type { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { mongoTarget } from '../platform/lib/mongo-target.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
+import { testWorker } from './testing/test-worker.js';
+import { NO_SETUP } from './testing/no-cluster-setup.js';
 
-const NO_SETUP: ClusterSetup = { place: { koalaNamespace: 'koala', pool: false, dataDir: '/nowhere', crawl4aiToken: 'unused' }, lines: { heard: async () => { throw new Error('this test sets no Koala up') } }, provisioner: { ensure: async () => { throw new Error('this test sets no Koala up') }, settled: async () => { throw new Error('this test sets no Koala up') } } };
 
 const k3s = inject('k3s');
 const QUEUE = `app-deploy-k3s-${Math.random().toString(36).slice(2, 8)}`;
@@ -45,7 +42,7 @@ const KOALA = access.own();
 const LOG = join(mkdtempSync(join(tmpdir(), 'koala-app-deploy-wf-log-')), 'app.log');
 const deployed: Array<{ clusterId: string; reach: unknown }> = [];
 
-let env: TestWorkflowEnvironment;
+let env: TestTemporal;
 let bundle: Awaited<ReturnType<typeof bundled>>;
 
 const placedRefused = async (args: DeployAppArgs) => {
@@ -67,9 +64,8 @@ beforeAll(async () => {
 const huggingFace = interceptHttp();
 
 async function working<T>(work: Promise<T>, deployApp: (args: DeployAppArgs) => Promise<unknown> = placedRefused): Promise<T> {
-  const worker = await Worker.create({
-    interceptors: { activity: activityInterceptors() },
-    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE,
+  const worker = await testWorker(env, {
+    namespace: env.namespace ?? 'default', taskQueue: QUEUE,
     workflowBundle: bundle,
     activities: {
       DeployAppActivity: deployApp,
