@@ -47,6 +47,24 @@ describe('the red-green gate on a real repository', () => {
     expect(commit(dir)).toBeUndefined();
   });
 
+  it('lets a removal through that trims a test still passing, with no red, yet holds one that adds a new test file to red first', () => {
+    const { dir, git, write } = aRepo();
+    write('scripts/sum.ts', 'export const sum = (a: number, b: number) => a + b;\nexport const twice = (a: number) => a * 2;\nexport const thrice = (a: number) => a * 3;\n');
+    write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum, thrice, twice } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\nit('doubles', () => { expect(twice(2)).toBe(4); });\nit('triples', () => { expect(thrice(2)).toBe(6); });\n");
+    git('add', '-A');
+    git('commit', '-q', '-m', 'more');
+
+    write('scripts/sum.ts', 'export const sum = (a: number, b: number): number => a + b;\n');
+    write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\n");
+    write('scripts/other.test.ts', "import { expect, it } from 'vitest';\nit('is new', () => { expect(1).toBe(1); });\n");
+    git('add', '-A');
+    expect(denied(commit(dir))).toMatch(/never seen failing/);
+
+    git('rm', '-q', '--cached', 'scripts/other.test.ts');
+    rmSync(join(dir, 'scripts/other.test.ts'));
+    expect(commit(dir)).toBeUndefined();
+  });
+
   it('refuses a new test that already passes, since it shows nothing missing', () => {
     const { dir, write } = aRepo();
     write('scripts/sum.test.ts', "import { expect, it } from 'vitest';\nimport { sum } from './sum.js';\nit('adds', () => { expect(sum(1, 2)).toBe(3); });\nit('adds again', () => { expect(sum(2, 2)).toBe(4); });\n");

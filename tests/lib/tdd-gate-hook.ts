@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { commitVerdict, editVerdict, kindOf, siblingTests, type GateState, type TestRun, type Verdict } from './tdd-gate.js';
+import { commitVerdict, editVerdict, kindOf, siblingTests, vitestOf, type GateState, type TestRun, type Verdict } from './tdd-gate.js';
 
 export interface HookInput { tool_name: string; tool_input: { file_path?: string; command?: string }; cwd: string }
 export interface HookAnswer { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } }
 
-const VITEST = resolve(import.meta.dirname, '..', '..', 'node_modules', '.bin', 'vitest');
+const GATE = resolve(import.meta.dirname, '..', '..');
 const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const COMMIT = /(^|[;&|]\s*|\s)git\s+(-C\s+\S+\s+)?commit(\s|$)/;
 const RUNNABLE = /\.(test|integration\.test|real-[a-z-]+\.test)\.(ts|tsx)$/;
@@ -39,7 +39,7 @@ function runTests(root: string, tests: string[]): TestRun {
   let passed = true;
   let output = '';
   for (const [workspace, files] of byWorkspace) {
-    const run = spawnSync(VITEST, ['run', ...files], { cwd: join(root, workspace), encoding: 'utf8', env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    const run = spawnSync(vitestOf(root, GATE, existsSync), ['run', ...files], { cwd: join(root, workspace), encoding: 'utf8', env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
     output += `${run.stdout ?? ''}${run.stderr ?? ''}`;
     if (run.status !== 0) passed = false;
   }
@@ -105,15 +105,18 @@ function onCommit(input: HookInput): HookAnswer | undefined {
   if (git(root, 'rev-parse', '-q', '--verify', 'MERGE_HEAD') !== undefined) return undefined;
   const all = /\s(-a|--all|-am|-a\s)/.test(` ${command}`);
   const numstat = [...lines(git(root, 'diff', '--cached', '--numstat')), ...(all ? lines(git(root, 'diff', '--numstat')) : [])];
-  const changes = numstat.map((line) => { const [added, , path] = line.split('\t'); return { added: Number(added), path: path ?? '' }; });
+  const changes = numstat.map((line) => { const [added, removed, path] = line.split('\t'); return { added: Number(added), removed: Number(removed), path: path ?? '' }; });
   const source = changes.filter((change) => kindOf(change.path) === 'source');
   const head = git(root, 'rev-parse', 'HEAD') ?? '';
   const tests = changedTests(root);
   const siblings = [...new Set(source.flatMap((change) => siblingTests(change.path, (path) => existsSync(join(root, path)))))];
   const removalsOnly = source.length > 0 && source.every((change) => change.added === 0);
+  const total = (key: 'added' | 'removed') => source.reduce((sum, change) => sum + change[key], 0);
+  const shrinks = total('removed') > total('added');
+  const newTests = tests.filter((path) => git(root, 'cat-file', '-e', `HEAD:${path}`) === undefined);
   const toRun = tests.length > 0 ? tests : siblings;
   const run = source.length > 0 && !removalsOnly && toRun.length > 0 ? runTests(root, toRun) : undefined;
-  const verdict = commitVerdict({ state: readState(stateFile(root)), head, source: source.map((change) => change.path), removalsOnly, changedTests: tests, siblings, run });
+  const verdict = commitVerdict({ state: readState(stateFile(root)), head, source: source.map((change) => change.path), removalsOnly, shrinks, newTests, changedTests: tests, siblings, run });
   return answerOf(verdict, root, head, undefined);
 }
 

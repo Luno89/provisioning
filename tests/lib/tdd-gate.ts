@@ -18,6 +18,11 @@ export function kindOf(path: string): Kind {
   return 'other';
 }
 
+export function vitestOf(checkout: string, gate: string, exists: (path: string) => boolean): string {
+  const own = `${checkout}/node_modules/.bin/vitest`;
+  return exists(own) ? own : `${gate}/node_modules/.bin/vitest`;
+}
+
 export function siblingTests(path: string, exists: (path: string) => boolean): string[] {
   const match = /^(.*)\.(ts|tsx)$/.exec(path);
   if (!match) return [];
@@ -41,16 +46,28 @@ export interface CommitFacts {
   head: string;
   source: string[];
   removalsOnly: boolean;
+  shrinks?: boolean;
+  newTests?: string[];
   changedTests: string[];
   siblings: string[];
   run: TestRun | undefined;
 }
 
-const tail = (output: string) => output.split('\n').filter((line) => line.trim()).slice(-25).join('\n');
+const FAILED = /(^|\s)(FAIL|×|AssertionError|Error:)\s/;
+
+const tail = (output: string) => {
+  const kept = output.split('\n').filter((line) => line.trim());
+  const failed = kept.filter((line) => FAILED.test(line)).slice(0, 40);
+  return [...failed, ...(failed.length > 0 ? ['…'] : []), ...kept.slice(-25)].join('\n');
+};
 
 export function commitVerdict(facts: CommitFacts): Verdict {
   if (facts.source.length === 0 || facts.removalsOnly) return { allow: true };
   const red = facts.state?.head === facts.head && facts.state.red;
+  if (facts.shrinks && (facts.newTests ?? []).length === 0 && facts.changedTests.length > 0) {
+    if (!facts.run?.passed) return { allow: false, why: `a removal keeps what is left of its tests green, and these do not pass:\n${tail(facts.run?.output ?? '')}` };
+    return { allow: true };
+  }
   if (facts.changedTests.length > 0) {
     if (!red) return { allow: false, why: `the new or changed tests (${facts.changedTests.join(', ')}) were never seen failing before the source changed: show red first, then make it pass` };
     if (!facts.run?.passed) return { allow: false, why: `the change's tests do not pass yet:\n${tail(facts.run?.output ?? '')}` };
