@@ -123,8 +123,8 @@ Coupler v2 (`packages/coupling`, `npm run coupling`, ship's `test:coupling`) jud
 
 | What it did | Concept | Files | Removed in |
 |---|---|---|---|
-| Rules R1–R5: a call no test runs for real at all, or only live (R1, R3); a call between areas or processes never tested with its caller (R2); a call with no implementation (R4); service and route code missing either its mocked or its real-dependency test (R5) | the coupling rules, plan `coupling-generic.md` | `tests/coupling/audit.ts`, `rules.ts`, `rules.test.ts`, `baseline.json` | PENDING |
-| The HTML report of every edge, by area | the coupling report | `tests/coupling/result.ts`, `render.ts`, `page.ts`, `report.ts` | PENDING |
-| Which tests last ran each call, kept across the last five audits, so a new breach named the test that varies | feedback the tool owes (owner, 2026-11-16) | `tests/coupling/ran-history.ts`, `ran-history.test.ts` | PENDING |
+| Rules R1–R5: a call no test runs for real at all, or only live (R1, R3); a call between areas or processes never tested with its caller (R2); a call with no implementation (R4); service and route code missing either its mocked or its real-dependency test (R5) | the coupling rules, plan `coupling-generic.md` | `tests/coupling/audit.ts`, `rules.ts`, `rules.test.ts`, `baseline.json` | 527259a22 |
+| The HTML report of every edge, by area | the coupling report | `tests/coupling/result.ts`, `render.ts`, `page.ts`, `report.ts` | 527259a22 |
+| Which tests last ran each call, kept across the last five audits, so a new breach named the test that varies | feedback the tool owes (owner, 2026-11-16) | `tests/coupling/ran-history.ts`, `ran-history.test.ts` | 527259a22 |
 
 Still owed by v2, from what this took: a report page, and naming where a new gap came from (the last run that covered it).
