@@ -18,6 +18,11 @@ export function kindOf(path: string): Kind {
   return 'other';
 }
 
+export function vitestOf(checkout: string, gate: string, exists: (path: string) => boolean): string {
+  const own = `${checkout}/node_modules/.bin/vitest`;
+  return exists(own) ? own : `${gate}/node_modules/.bin/vitest`;
+}
+
 export function siblingTests(path: string, exists: (path: string) => boolean): string[] {
   const match = /^(.*)\.(ts|tsx)$/.exec(path);
   if (!match) return [];

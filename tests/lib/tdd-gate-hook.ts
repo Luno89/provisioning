@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { commitVerdict, editVerdict, kindOf, siblingTests, type GateState, type TestRun, type Verdict } from './tdd-gate.js';
+import { commitVerdict, editVerdict, kindOf, siblingTests, vitestOf, type GateState, type TestRun, type Verdict } from './tdd-gate.js';
 
 export interface HookInput { tool_name: string; tool_input: { file_path?: string; command?: string }; cwd: string }
 export interface HookAnswer { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } }
 
-const VITEST = resolve(import.meta.dirname, '..', '..', 'node_modules', '.bin', 'vitest');
+const GATE = resolve(import.meta.dirname, '..', '..');
 const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const COMMIT = /(^|[;&|]\s*|\s)git\s+(-C\s+\S+\s+)?commit(\s|$)/;
 const RUNNABLE = /\.(test|integration\.test|real-[a-z-]+\.test)\.(ts|tsx)$/;
@@ -39,7 +39,7 @@ function runTests(root: string, tests: string[]): TestRun {
   let passed = true;
   let output = '';
   for (const [workspace, files] of byWorkspace) {
-    const run = spawnSync(VITEST, ['run', ...files], { cwd: join(root, workspace), encoding: 'utf8', env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    const run = spawnSync(vitestOf(root, GATE, existsSync), ['run', ...files], { cwd: join(root, workspace), encoding: 'utf8', env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
     output += `${run.stdout ?? ''}${run.stderr ?? ''}`;
     if (run.status !== 0) passed = false;
   }

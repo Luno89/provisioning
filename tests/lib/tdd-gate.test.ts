@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commitVerdict, editVerdict, kindOf, siblingTests, type GateState } from './tdd-gate.js';
+import { commitVerdict, editVerdict, kindOf, siblingTests, vitestOf, type GateState } from './tdd-gate.js';
 
 const HEAD = 'abc123';
 
@@ -91,6 +91,12 @@ describe('committing source', () => {
     const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output: 'FAIL x.test.ts > it' } });
     expect(verdict.allow).toBe(false);
     expect(verdict.allow === false && verdict.why).toMatch(/FAIL x\.test\.ts/);
+  });
+
+  it('runs a checkout\'s tests with that checkout\'s own vitest, so a worktree never loads a second copy of its libraries, and the gate\'s own only where the checkout has none', () => {
+    const worktree = '/code/.claude/worktrees/w';
+    expect(vitestOf(worktree, '/code', (path) => path === `${worktree}/node_modules/.bin/vitest`)).toBe(`${worktree}/node_modules/.bin/vitest`);
+    expect(vitestOf('/tmp/a-repo', '/code', () => false)).toBe('/code/node_modules/.bin/vitest');
   });
 
   it('names the failing tests when other workspaces\' passing runs come after them', () => {
