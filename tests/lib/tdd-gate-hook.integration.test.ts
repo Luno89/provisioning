@@ -77,6 +77,15 @@ describe('the red-green gate on a real repository', () => {
     expect(!refused.ok && refused.why).toMatch(/green first/);
   });
 
+  it('judges the checkout a command moves into before it commits, not the one the session started in', () => {
+    const { dir, write, git } = aRepo();
+    write('scripts/other.ts', 'export const other = 1;\n');
+    git('add', '-A');
+    const elsewhere = REPO;
+    expect(denied(hookAnswer({ tool_name: 'Bash', tool_input: { command: `cd ${dir} && git commit -m change` }, cwd: elsewhere }))).toMatch(/no test/);
+    expect(denied(hookAnswer({ tool_name: 'Bash', tool_input: { command: `git -C ${dir} commit -m change` }, cwd: elsewhere }))).toMatch(/no test/);
+  });
+
   it('lets a merge commit through, since each side was held to red-green where it was made', () => {
     const { dir, git, write } = aRepo();
     git('checkout', '-q', '-b', 'side');
