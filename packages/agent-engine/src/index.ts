@@ -189,3 +189,4 @@ export {
   seededAgentSlugs,
   definedToolNames,
 } from './agent/seeds.js';
+export { withBuiltIns } from './lib/ownership.js';

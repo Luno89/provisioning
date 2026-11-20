@@ -113,7 +113,6 @@
  "src apps/backend/src/models/routes/models.ts <-> apps/backend/src/models/routes/models.ts #476129d97697": 1,
  "src apps/backend/src/monitoring/lib/web-push.ts <-> apps/backend/src/platform/lib/temporal-auth.ts #5b846401c0ac": 1,
  "src apps/backend/src/monitoring/services/MonitoringService.ts <-> apps/backend/src/monitoring/services/MonitoringService.ts #2f775c18478a": 1,
- "src apps/backend/src/platform/lib/ownership.ts <-> packages/agent-engine/src/lib/ownership.ts #86f3e6a0eb5f": 1,
  "src apps/backend/src/platform/lib/platform-role.ts <-> apps/backend/src/platform/lib/platform-role.ts #bae78d2bc5fd": 1,
  "src apps/backend/src/platform/services/processes.ts <-> apps/backend/src/platform/services/processes.ts #a3897d23c929": 1,
  "src apps/backend/src/projects/lib/item-changes.ts <-> apps/backend/src/projects/lib/item-changes.ts #4a49407028e6": 1,
