@@ -7,6 +7,12 @@ describe('k3s\'s settings on a machine', () => {
     expect(K3S_NODE_PORTS).toBe('kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10\n');
   });
 
+  it('adds a pull-through cache as a registry\'s mirror, its endpoint the cache rather than the registry', () => {
+    expect(withMirror(undefined, 'docker.io', 'http://127.0.0.1:5101')).toBe('mirrors:\n  "docker.io":\n    endpoint:\n      - "http://127.0.0.1:5101"\n');
+    const both = withMirror(withMirror(undefined, 'registry.koala.test:5000'), 'docker.io', 'http://127.0.0.1:5101');
+    expect(both).toBe('mirrors:\n  "docker.io":\n    endpoint:\n      - "http://127.0.0.1:5101"\n  "registry.koala.test:5000":\n    endpoint:\n      - "http://registry.koala.test:5000"\n');
+  });
+
   it('adds root\'s registry as a mirror, keeping every mirror already there', () => {
     expect(withMirror(undefined, 'registry.koala.test:5000')).toBe('mirrors:\n  "registry.koala.test:5000":\n    endpoint:\n      - "http://registry.koala.test:5000"\n');
     expect(withMirror('mirrors:\n  "docker.io":\n    endpoint:\n      - "https://mirror.example"\nconfigs: {}\n', 'registry.koala.test:5000')).toBe(

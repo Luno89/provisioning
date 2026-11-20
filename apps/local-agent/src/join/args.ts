@@ -9,11 +9,13 @@ export interface JoinArgs {
   cluster: boolean;
   adapters: AdapterChoice;
   k3sMirror?: string;
+  imageMirrors: Record<string, string>;
 }
 
 export class JoinUsage extends Error {}
 
-const VALUED = new Set(['--folder', '--adapters', '--url', '--k3s-mirror']);
+const VALUED = new Set(['--folder', '--adapters', '--url', '--k3s-mirror', '--image-mirror']);
+const IMAGE_MIRROR = /^([a-z0-9.-]+(?::[0-9]+)?)=(https?:\/\/\S+)$/;
 
 export function joinArgsOf(argv: readonly string[]): JoinArgs {
   let code = '';
@@ -24,6 +26,7 @@ export function joinArgsOf(argv: readonly string[]): JoinArgs {
   let cluster = true;
   let adapters: string | undefined;
   let k3sMirror: string | undefined;
+  const imageMirrors: Record<string, string> = {};
   for (let at = 0; at < argv.length; at += 1) {
     const arg = argv[at]!;
     if (VALUED.has(arg)) {
@@ -33,7 +36,11 @@ export function joinArgsOf(argv: readonly string[]): JoinArgs {
       if (arg === '--folder') folder = value;
       else if (arg === '--adapters') adapters = value;
       else if (arg === '--url') url = value;
-      else k3sMirror = value;
+      else if (arg === '--image-mirror') {
+        const match = IMAGE_MIRROR.exec(value);
+        if (!match) throw new JoinUsage('--image-mirror takes <registry>=<url>, for example docker.io=http://127.0.0.1:5101');
+        imageMirrors[match[1]!] = match[2]!;
+      } else k3sMirror = value;
     } else if (arg === '--yes') yes = true;
     else if (arg === '--no-service') service = false;
     else if (arg === '--no-cluster') cluster = false;
@@ -54,5 +61,6 @@ export function joinArgsOf(argv: readonly string[]): JoinArgs {
     adapters: chosen as AdapterChoice,
     ...(folder !== undefined ? { folder } : {}),
     ...(k3sMirror !== undefined ? { k3sMirror } : {}),
+    imageMirrors,
   };
 }

@@ -14,6 +14,10 @@
     "./testing": {
       "types": "./testing/index.ts",
       "default": "./testing/index.ts"
+    },
+    "./testing/containers": {
+      "types": "./testing/containers.ts",
+      "default": "./testing/containers.ts"
     }
   },
   "dependencies": {

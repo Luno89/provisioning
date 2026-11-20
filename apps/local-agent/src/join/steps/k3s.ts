@@ -27,7 +27,10 @@ const putAll = async (ctx: JoinContext, wanted: readonly Wanted[], progress: Pro
 async function configWanted(ctx: JoinContext): Promise<Wanted[]> {
   const meshIp = await meshAddress(ctx);
   if (!meshIp) throw new Error('Tailscale gives this machine no private address, so Koala could not reach its cluster');
-  const registries = withMirror(await ctx.host.read(K3S_REGISTRIES), joinedOf(ctx).registry);
+  const registries = Object.entries(ctx.args.imageMirrors).reduce(
+    (now, [registry, endpoint]) => withMirror(now, registry, endpoint),
+    withMirror(await ctx.host.read(K3S_REGISTRIES), joinedOf(ctx).registry),
+  );
   return [
     { file: K3S_CONFIG, content: k3sConfig(meshIp, ctx.host.group), mode: '644' },
     { file: K3S_NODE_PORTS_FILE, content: K3S_NODE_PORTS, mode: '644' },

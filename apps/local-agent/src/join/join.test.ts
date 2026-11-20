@@ -98,6 +98,13 @@ describe('joining a fresh Linux machine with --yes', () => {
     expect(ran.said).toContain('This machine shows on My Machines in a moment');
   });
 
+  it('has k3s pull images through the caches it was given, beside root\'s registry', async () => {
+    const world = machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'] });
+    const ran = await join(world, ['--yes', 'the-code', '--image-mirror', 'docker.io=http://127.0.0.1:5101']);
+    expect(ran.code, ran.said).toBe(0);
+    expect(world.files.get(K3S_REGISTRIES)).toBe('mirrors:\n  "docker.io":\n    endpoint:\n      - "http://127.0.0.1:5101"\n  "registry.root.test:5000":\n    endpoint:\n      - "http://registry.root.test:5000"\n');
+  });
+
   it('asks sudo for the password once, and starts k3s never', async () => {
     const world = machine({ files: { '/etc/os-release': UBUNTU }, executables: ['/usr/bin/systemctl'] });
     await join(world, ['--yes', 'the-code']);

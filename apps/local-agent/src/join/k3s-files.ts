@@ -14,14 +14,14 @@ export const K3S_NODE_PORTS = 'kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.
 export const k3sConfig = (meshIp: string, group: string): string =>
   `disable:\n  - traefik\n  - servicelb\ntls-san:\n  - ${meshIp}\nwrite-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: ${group}\n`;
 
-const mirrorEntry = (registry: string): string => `  "${registry}":\n    endpoint:\n      - "http://${registry}"\n`;
+const mirrorEntry = (registry: string, endpoint: string): string => `  "${registry}":\n    endpoint:\n      - "${endpoint}"\n`;
 
-export function withMirror(now: string | undefined, registry: string): string | undefined {
+export function withMirror(now: string | undefined, registry: string, endpoint = `http://${registry}`): string | undefined {
   if (!registry) return now;
   if (now?.includes(`"${registry}":`)) return now;
-  if (now !== undefined && /^mirrors:.*$/m.test(now)) return now.replace(/^mirrors:.*\n?/m, (line) => `${line.endsWith('\n') ? line : `${line}\n`}${mirrorEntry(registry)}`);
+  if (now !== undefined && /^mirrors:.*$/m.test(now)) return now.replace(/^mirrors:.*\n?/m, (line) => `${line.endsWith('\n') ? line : `${line}\n`}${mirrorEntry(registry, endpoint)}`);
   const before = now === undefined || now === '' ? '' : now.endsWith('\n') ? now : `${now}\n`;
-  return `${before}mirrors:\n${mirrorEntry(registry)}`;
+  return `${before}mirrors:\n${mirrorEntry(registry, endpoint)}`;
 }
 
 export const sudoRule = (user: string, systemctl: string): string =>

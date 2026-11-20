@@ -1,6 +1,7 @@
 export { destroyAppArgs, destroyAppWorkflowId } from './lib/app-destroy.js';
 export type { DestroyAppArgs, MachineOfCluster } from './lib/app-destroy.js';
 export { buildAppEnv, envSettingsOf, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
+export { IMAGE_CACHES, imageMirrorsOnThisComputer } from './lib/image-caches.js';
 export { namespaceOf, platformNamespaceProblem, podLogTarget, removeNamespace } from './lib/app-namespace.js';
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
 export { renderApp, seedAppSpecs, seedConstructBackedTypes, specSecrets, visibleAppSpecs } from './lib/app-spec.js';

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
 import { DEV, devKoalaValues, koalaReadinessOf, MY_KOALA_PATH, readEnvFile } from '../instances/index.js';
+import { imageMirrorsOnThisComputer } from '../infrastructure/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CHECKOUT = resolve(here, '../../../..');
@@ -60,7 +61,11 @@ export interface ThisComputer {
   config: string;
   folder: string;
   say: (line: string) => void;
+  imageMirrors?: Record<string, string>;
 }
+
+const mirrorArgs = (mirrors: Record<string, string> = {}): string =>
+  Object.entries(mirrors).map(([registry, endpoint]) => ` --image-mirror "${registry}=${endpoint}"`).join('');
 
 export async function joinThisComputer(cookie: string, instanceWeb: string, here: ThisComputer): Promise<void> {
   await mkdir(here.config, { recursive: true });
@@ -69,7 +74,7 @@ export async function joinThisComputer(cookie: string, instanceWeb: string, here
   if (!made.ok) throw new Error(`root gave no machine command: ${made.status} ${await made.text()}`);
   const { command } = await made.json() as { command: string };
   here.say('this computer joins your account as a machine, as anyone\'s does; it asks for sudo for Tailscale and k3s');
-  const code = await new Promise<number>((done) => spawn('sh', ['-c', `${command} --folder "${here.folder}"`], { stdio: 'inherit', env: childEnv(passedOn(PERSON_SESSION)) }).on('exit', (exit) => done(exit ?? 1)));
+  const code = await new Promise<number>((done) => spawn('sh', ['-c', `${command} --folder "${here.folder}"${mirrorArgs(here.imageMirrors)}`], { stdio: 'inherit', env: childEnv(passedOn(PERSON_SESSION)) }).on('exit', (exit) => done(exit ?? 1)));
   if (code !== 0) throw new Error(`the machine command stopped (${code})`);
 }
 
@@ -99,7 +104,7 @@ async function main(): Promise<void> {
   const urls = readEnvFile(await readFile(join(DATA, 'urls.env'), 'utf8'));
   await untilRootAnswers(DEV_ROOT);
   const cookie = await owner(root.ADMIN_SETUP_CODE!);
-  if (!await joinedHere(urls.ROOT_WEB!)) await joinThisComputer(cookie, urls.INSTANCE_WEB!, { rootApi: ROOT_API, config: CONFIG, folder: join(os.homedir(), 'koala'), say });
+  if (!await joinedHere(urls.ROOT_WEB!)) await joinThisComputer(cookie, urls.INSTANCE_WEB!, { rootApi: ROOT_API, config: CONFIG, folder: join(os.homedir(), 'koala'), say, imageMirrors: imageMirrorsOnThisComputer() });
   await untilKoalaReady(cookie, DEV_ROOT);
   say(`your Koala runs on this computer: ${urls.INSTANCE_WEB}`);
   process.exit(0);

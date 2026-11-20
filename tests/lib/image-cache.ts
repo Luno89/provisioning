@@ -1,4 +1,4 @@
-import { IMAGE_CACHES } from '../../apps/backend/src/infrastructure/testing/image-caches.js';
+import { ensureImageCaches as ensureCaches, IMAGE_CACHES } from '../../apps/backend/src/infrastructure/testing/image-caches.js';
 
 export { ensureImageCaches, IMAGE_CACHES, imageCacheContainer } from '../../apps/backend/src/infrastructure/testing/image-caches.js';
 
@@ -15,4 +15,8 @@ export function registriesYamlForVm(host: string): string {
     '    endpoint:',
     `      - "http://${host}:${cache.port}"`,
   ])].join('\n');
+}
+
+if (process.argv[1] && process.argv[1].endsWith('image-cache.ts') && process.argv[2] === 'ensure') {
+  void ensureCaches().catch((err: unknown) => { console.error(err); process.exitCode = 1; });
 }

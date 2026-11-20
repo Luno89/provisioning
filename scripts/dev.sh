@@ -88,6 +88,7 @@ if [ "${JOINING}" = 1 ]; then
   npx concurrently --names "${ROOT_NAMES}" "${ROOT_PROCESSES[@]}" > "${DEV_DATA}/first-start.log" 2>&1 &
   STARTING=$!
   trap 'kill ${STARTING} 2>/dev/null || true; stop_keeping_sudo' EXIT
+  npx tsx "${ROOT}/tests/lib/image-cache.ts" ensure
   npx tsx "${ROOT}/apps/backend/src/scripts/dev-machine.ts"
   kill "${STARTING}" 2>/dev/null || true
   wait "${STARTING}" 2>/dev/null || true

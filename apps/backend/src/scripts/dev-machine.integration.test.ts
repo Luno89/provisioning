@@ -138,6 +138,13 @@ describe('dev joining this computer to root as a machine', () => {
     return { db, out, config: path.join(place, 'config'), folder: path.join(place, 'koala'), rootApi: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
   }
 
+  it('has the machine command pull every image through this computer\'s caches, so a reset downloads nothing that did not change', async () => {
+    const root = await rootGivingCommands((out) => `printf '%s\\n' "$@" > '${out}'`);
+    await joinThisComputer('session=dev', 'http://dev.localhost:5173', { rootApi: root.rootApi, config: root.config, folder: root.folder, say: () => undefined, imageMirrors: { 'docker.io': 'http://127.0.0.1:5101', 'ghcr.io': 'http://127.0.0.1:5102' } });
+    const [, ...rest] = (await readFile(root.out, 'utf8')).trim().split('\n');
+    expect(rest).toEqual(['--folder', root.folder, '--image-mirror', 'docker.io=http://127.0.0.1:5101', '--image-mirror', 'ghcr.io=http://127.0.0.1:5102']);
+  });
+
   it('writes this checkout\'s own Koala values, asks root for a machine command for your Koala, and runs it working in the folder dev names', async () => {
     const root = await rootGivingCommands((out) => `printf '%s\\n' "$@" > '${out}'`);
     const said: string[] = [];
