@@ -15,7 +15,7 @@ dynamic DNS.
   agent also runs coding agents you have there (Claude Code, Codex, Gemini, Antigravity, Goose).
 - **Your Koala** (an instance) is a set of pods on one of your machines, signed in through root.
 - **The hub** holds projects you share with other people.
-- **The pool** lets someone without a machine try Koala on Koala's servers, and move to their own machine later.
+- **The pool** (trying Koala on Koala's servers) is tabled until the hosted version is out; `docs/archive-ledger.md` says where its code is.
 
 | Part | What |
 |---|---|

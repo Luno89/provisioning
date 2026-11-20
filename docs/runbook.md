@@ -94,7 +94,7 @@ Putting one back: write the line into `apps/backend/.env` as it was, `systemctl 
   `BACKUP_REPOSITORY` is set. See them: `systemctl list-timers 'koala-*'`, `journalctl -u koala-backup -n 50`.
 - **Releases**: `koala-release-watch.timer`, hourly once started, runs `scripts/root-node/release-watch.sh`: it finds
   GitHub's newest published release and, when newer than root's, runs `update.sh` with it.
-- **Root's services**: `nowrinkles.service` (the backend) and `nowrinkles-workers.service` (the host worker, which runs root's work: the pool, removals at root, the dependency watch).
+- **Root's services**: `nowrinkles.service` (the backend) and `nowrinkles-workers.service` (the host worker, which runs root's work: removals at root, the dependency watch).
   `journalctl -u nowrinkles -n 200`, `journalctl -u nowrinkles-workers -n 200`.
 - **Watching instances**: root probes every instance and emails its owner after 10 minutes unreachable (on the branch
   being merged; see section 6).
@@ -106,7 +106,7 @@ On the dev box: `npm run release:check` (every release step, in rounds), then `n
 
 Root then moves at its next hourly look, or now: `bash scripts/root-node/release-watch.sh <tag>` on root, or
 `ROOT_SSH=<user@host> npm run release` from the dev box. Root refuses a tag not signed by a key in
-`/etc/koala/release-signers`, and refuses while a workflow is working, an activity or a workflow task in flight (wait, or add `--force`, which costs each one a retry); one waiting on a timer or a person, such as the daily dependency check or a trial, does not hold it up.
+`/etc/koala/release-signers`, and refuses while a workflow is working, an activity or a workflow task in flight (wait, or add `--force`, which costs each one a retry); one waiting on a timer or a person, such as the daily dependency check, does not hold it up.
 `update.sh` builds and checks everything before restarting, and goes back to the previous commit by itself if the
 backend does not come back.
 
@@ -132,7 +132,7 @@ On a freshly bootstrapped root (bootstrap first, then restore):
 
 The drill: `npm run test:restore-live` proves this on two VMs before every release (about 12 minutes). Run it by hand
 against the real bucket once before the first person, and once a quarter. Not backed up by root: each instance's own
-data (it lives on the person's machine, or in their pool namespace).
+data (it lives on the person's machine).
 
 ## 6. Root or an instance cannot be reached
 
@@ -142,8 +142,7 @@ data (it lives on the person's machine, or in their pool namespace).
   if that fails, the OVHcloud KVM console. On the box: `systemctl status nowrinkles nowrinkles-workers`,
   `docker ps -a`, `df -h`, then the sections below.
 - **An instance down**: root emails its owner after 10 minutes, and once when it is back; root's People list says "not
-  answering since …". A pool instance also emails root's operator. For a pool instance: its namespace on the pool node
-  (`kubectl get pods -n pool-<name>`). For one on a person's own machine: it is theirs; the email tells them.
+  answering since …". The instance is on the person's own machine: it is theirs; the email tells them.
 
 ## 7. A secret leaked
 
