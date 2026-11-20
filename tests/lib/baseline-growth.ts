@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 export type Baseline = Record<string, number>;
 
 export const STAGED: ReadonlyArray<{ path: string; by: 'rule' | 'total' }> = [
-  { path: 'tests/coupling/baseline.json', by: 'rule' },
   { path: 'tests/copies/baseline.json', by: 'rule' },
   { path: 'tests/coupling/untested.json', by: 'total' },
 ];

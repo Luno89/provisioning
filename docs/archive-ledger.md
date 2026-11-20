@@ -116,3 +116,15 @@ root's page for someone with no Koala yet: "Straight to adding a machine (Recomm
 | Account removal of a pool instance | Removing an account deleted its trial instance with everything in it | the pool | as above | `RootAccountRemovalWorkflow.ts` (`PoolRemoveActivity`), `RootRemovalActivities.ts` (`poolInstanceId`), `PersonInstance.where`/`trialEndsAt`, `person-instance.ts` | a83994fdf |
 | The move to one's own machine | A trial moved onto a machine the person joined with a move command: root relayed the pool copy's parts, the machine cleared earlier Koalas, brought the keys over, applied the chart moving then moved, the chart's `move-data`/`move-mongo` steps restored data and records, and the `moved` provision piece brought Gitea, Infisical and the apps over | the move (`plans/archive/data-move.md`) | owner, 2026-11-20: "Archive it with the pool (Recommended)" | `PoolMoveWorkflow.ts`, `activities/move-over.ts`, `instances/lib/{instance-move,app-move,mongo-move,state-retarget}.ts`, `instances/services/{MoveExport,MoveParts,MoveRelay,mongo-restore}.ts`, `instances/routes/move.ts`, `scripts/move-import.ts`, `InstanceMove.tsx`, `MovePanel.tsx`, the move arms of `koala-installs.ts`, `KoalaInstallActivities.ts`, `KoalaInstallWorkflow.ts`, `KoalaInstalls.ts`, `MachineAccounts.ts`, `engine-core/koala-install.ts` (`KOALA_MOVE_*`, `PROVISION_MOVED_PIECE`, `MOVED_FOR_LABEL`, `KoalaStop.remove`), `local-agent/src/koala-install.ts` (`KOALA_MOVE_STEPS`, `removeKoala`), the provision procedure's `moved` node (version 3), `MoveIn`/`movesIn`, chart `move.*` | a83994fdf |
 | `test:pool-live` | The release suite that started a trial on a VM pool node and moved it to a machine | the pool | as above | `tests/pool-live.ts`, its gate, VM round and ledger lines | a83994fdf |
+
+## The old coupling audit (replaced 2026-11-20)
+
+Coupler v2 (`packages/coupling`, `npm run coupling`, ship's `test:coupling`) judges the same job by confidence across layers and a list of untested functions that only shrinks. Owner, 2026-11-20: "Remove it now".
+
+| What it did | Concept | Files | Removed in |
+|---|---|---|---|
+| Rules R1–R5: a call no test runs for real at all, or only live (R1, R3); a call between areas or processes never tested with its caller (R2); a call with no implementation (R4); service and route code missing either its mocked or its real-dependency test (R5) | the coupling rules, plan `coupling-generic.md` | `tests/coupling/audit.ts`, `rules.ts`, `rules.test.ts`, `baseline.json` | PENDING |
+| The HTML report of every edge, by area | the coupling report | `tests/coupling/result.ts`, `render.ts`, `page.ts`, `report.ts` | PENDING |
+| Which tests last ran each call, kept across the last five audits, so a new breach named the test that varies | feedback the tool owes (owner, 2026-11-16) | `tests/coupling/ran-history.ts`, `ran-history.test.ts` | PENDING |
+
+Still owed by v2, from what this took: a report page, and naming where a new gap came from (the last run that covered it).

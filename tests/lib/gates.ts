@@ -2,7 +2,7 @@ import { COOLING_OFF_DAYS, devOnly, type JudgedVulnerability, type Vulnerability
 
 export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
 
-export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md', 'tests/coupling/baseline.json', 'tests/coupling/untested.json', 'tests/copies/baseline.json', 'tests/test-failures.json'];
+export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md', 'tests/coupling/untested.json', 'tests/copies/baseline.json', 'tests/test-failures.json'];
 
 export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 

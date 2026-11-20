@@ -5,13 +5,14 @@ import { TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { commitOf, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import type { Position, Ran, RanRange } from './collect.js';
 import { mappedFunctions, type V8Function } from './mapped.js';
-import { STARTUP } from './report.js';
 
 export const LIVE = join(OUT, 'live');
 export const POD_SOURCE = '/app';
 
 export const checkoutPathOf = (path: string, root: string): string =>
   path === POD_SOURCE || path.startsWith(`${POD_SOURCE}/`) ? join(root, path.slice(POD_SOURCE.length)) : path;
+
+export const STARTUP = 'startup';
 
 export const runsInPod = (entry: string): boolean => entry.startsWith(`${POD_SOURCE}/`);
 

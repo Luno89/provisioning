@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import type { Setup } from '../tiers/projects.js';
 import { commitOf, gatheredIn, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import { changedBetween, changedLines, fileHashes, testsToRerun } from './impact.js';
-import { runsIn } from './report.js';
+import { runsIn } from './artifacts.js';
 import { providedIn, setupsFor } from './setups.js';
 import { workspaceOf, WORKSPACES, type Workspace } from './workspaces.js';
 

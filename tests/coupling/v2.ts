@@ -2,8 +2,12 @@ import type { Codebase, Kind, Layer, Link, Run, Sharing } from '@koala/coupling'
 import type { Ran } from './collect.js';
 import type { Edge, Graph, Unit } from './graph.js';
 import { judge, siteRan, unitsRanBy } from './join.js';
-import { crossesProcess } from './rules.js';
+import { STARTUP } from './live.js';
 import { areaOf } from './workspaces.js';
+
+const CROSS_PROCESS: ReadonlySet<Edge['through']> = new Set(['temporal', 'socket', 'http', 'env']);
+
+export const crossesProcess = (edge: Edge): boolean => CROSS_PROCESS.has(edge.through);
 
 export const DEPENDENCIES: Readonly<Record<string, Layer>> = {
   mongodb: 'component',
@@ -31,7 +35,7 @@ export interface Context {
 }
 
 export const layerOf = (testFile: string): Layer =>
-  /-live\.ts$/.test(testFile) ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
+  /-live\.ts$/.test(testFile) || testFile === STARTUP ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
 
 const REAL_THINGS = /(^|\/)testing\/(real-[^/]+|private-cluster|cluster-wide|root-services-world|containers?|temporal-test-env)\.ts$/;
 const CONTRACTS = /(^|\/)testing\/[^/]*contract\.ts$/;

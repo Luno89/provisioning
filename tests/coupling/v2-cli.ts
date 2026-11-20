@@ -2,9 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { heldTo, judge, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
-import { ARTIFACTS, OUT, ROOT, runsOf, type Gathered } from './artifacts.js';
+import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
-import { runsIn } from './report.js';
 import { codebaseOf, DEPENDENCIES, SHARING, versionsIn, type Since } from './v2.js';
 
 const WEIGHTS: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
