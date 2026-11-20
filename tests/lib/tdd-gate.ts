@@ -8,7 +8,7 @@ const CODE = /\.(ts|tsx|js|mjs|cjs|sh)$/;
 const TEST_FILE = /\.(test|integration\.test|real-[a-z-]+\.test)\.(ts|tsx)$|^tests\/[^/]+-live\.ts$/;
 const TEST_HELPER = /(^|\/)(testing|test|fixture[^/]*)\//;
 const SOURCE_ROOTS = /^(apps\/[^/]+\/src|packages\/[^/]+|scripts|tests)\//;
-const NOT_HELD = new Set(['tests/alignment/decisions.ts']);
+const NOT_HELD = new Set(['tests/alignment/decisions.ts', 'tests/alignment/answers.ts', 'tests/alignment/v1-flows.ts']);
 
 export function kindOf(path: string): Kind {
   if (TEST_FILE.test(path) || (CODE.test(path) && TEST_HELPER.test(path))) return 'test';

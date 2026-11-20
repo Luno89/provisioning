@@ -69,7 +69,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The GPU toolkit is offered at join when a GPU is found; B4\'s question is that offer.',
         screen: { on: 'terminal' },
         code: ['apps/local-agent/src/join/plan.ts#planJoin'],
-        decisions: ['gpu-is-core'],
+        decisions: ['gpu-is-core', 'how-a-machine-cluster-is-made'],
       },
       {
         id: 'B6',

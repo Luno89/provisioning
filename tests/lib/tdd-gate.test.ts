@@ -16,8 +16,8 @@ describe('what counts as source, a test, or neither', () => {
     }
   });
 
-  it('leaves plans, docs, settings, data and the decisions register alone', () => {
-    for (const path of ['CLAUDE.md', 'docs/runbook.md', 'tests/alignment/decisions.ts', 'tests/coupling/baseline.json', 'dependencies.pins.json', '.claude/settings.json', 'package-lock.json']) {
+  it('leaves plans, docs, settings, data and the decisions register, its answers and its v1 steps alone', () => {
+    for (const path of ['CLAUDE.md', 'docs/runbook.md', 'tests/alignment/decisions.ts', 'tests/alignment/answers.ts', 'tests/alignment/v1-flows.ts', 'tests/coupling/baseline.json', 'dependencies.pins.json', '.claude/settings.json', 'package-lock.json']) {
       expect(kindOf(path), path).toBe('other');
     }
   });

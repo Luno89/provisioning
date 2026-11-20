@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+tsx="$root/node_modules/.bin/tsx"
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+"$tsx" tests/lib/baseline-growth.ts
+
+if grep -qE '^tests/alignment/(decisions|answers)\.ts$' <<<"$staged"; then
+  "$tsx" tests/alignment/decisions-cli.ts
+fi
+
+if grep -qE '^(apps|packages|scripts|tests|charts)/' <<<"$staged"; then
+  "$tsx" tests/alignment/drift-cli.ts --check
+fi
