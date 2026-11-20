@@ -28,15 +28,32 @@ services:
       timeout: 5s
       retries: 30
 
+  temporal-schema:
+    image: temporalio/admin-tools:1.32.2@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
+    restart: "no"
+    labels:
+      koala.one-shot: "true"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    entrypoint: ["sh", "/schema/temporal-schema.sh"]
+    environment:
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+    volumes:
+      - ./charts/instance/files/temporal-schema.sh:/schema/temporal-schema.sh:ro
+
   temporal:
-    image: temporalio/auto-setup:1.29.3
+    image: temporalio/server:1.32.2@sha256:7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670
     ports:
       - "${PLATFORM_BIND:-127.0.0.1}:7233:7233"
       - "127.0.0.1:9233:9233"
     restart: unless-stopped
     depends_on:
-      postgresql:
-        condition: service_healthy
+      temporal-schema:
+        condition: service_completed_successfully
       temporal-keys:
         condition: service_healthy
     environment:
@@ -59,13 +76,8 @@ services:
       - PROMETHEUS_ENDPOINT=0.0.0.0:9233
     volumes:
       - tf-data:/home/temporal/temporal
+      - ./charts/instance/files/temporal-dynamic-config.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro
       - ./apps/backend/data/temporal-tls:/etc/temporal/tls:ro
-    healthcheck:
-      test: ["CMD-SHELL", "temporal operator cluster health --address 127.0.0.1:7236 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-
 volumes:
   tf-data:
   pg-data:

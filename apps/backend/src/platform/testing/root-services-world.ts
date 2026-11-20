@@ -35,7 +35,7 @@ export async function rootServicesWorld(): Promise<RootServicesWorld> {
         `    volumes: !override ["${join(folder, 'temporal-keys')}:/srv/.well-known:ro"]`,
         '  temporal:',
         `    ports: !override ["127.0.0.1:${temporal}:7233"]`,
-        `    volumes: !override ["tf-data:/home/temporal/temporal", "${tlsDir}:/etc/temporal/tls:ro"]`,
+        `    volumes: !override ["tf-data:/home/temporal/temporal", "${join(REPO, 'charts/instance/files/temporal-dynamic-config.yaml')}:/etc/temporal/config/dynamicconfig/docker.yaml:ro", "${tlsDir}:/etc/temporal/tls:ro"]`,
         '',
       ].join('\n'))],
       address: `127.0.0.1:${temporal}`,

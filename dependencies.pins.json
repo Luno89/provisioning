@@ -997,10 +997,11 @@
     },
     {
       "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.29.3",
+      "name": "temporalio/server",
+      "version": "1.32.2",
+      "sha256": "7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670",
       "where": "root, the dev box and every instance",
-      "source": "docker.io/temporalio/auto-setup:1.29.3",
+      "source": "docker.io/temporalio/server:1.32.2",
       "github": "temporalio/temporal",
       "osv": {
         "ecosystem": "Go",
@@ -1009,90 +1010,68 @@
       "uses": [
         {
           "file": "docker-compose.temporal.yml",
-          "pattern": "temporalio/auto-setup:([0-9.]+)"
+          "pattern": "image: temporalio/server:([0-9.]+)@sha256"
         },
         {
           "file": "charts/instance/values.yaml",
-          "pattern": "  image: temporalio/auto-setup:([0-9.]+)"
+          "pattern": "  image: temporalio/server:([0-9.]+)@sha256"
         }
       ],
-      "released": "2026-02-04T18:13:10Z"
+      "shaUses": [
+        {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "image: temporalio/server:[0-9.]+@sha256:([0-9a-f]{64})"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "  image: temporalio/server:[0-9.]+@sha256:([0-9a-f]{64})"
+        }
+      ],
+      "released": "2026-11-02T18:38:48Z"
     },
     {
       "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.25.2",
-      "where": "an instance's Temporal, stepping its database through 1.25 on the way to the version it runs",
-      "source": "docker.io/temporalio/auto-setup:1.25.2",
+      "name": "temporalio/admin-tools",
+      "version": "1.32.2",
+      "sha256": "4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754",
+      "where": "root and every instance: sets up and updates Temporal's database schema before Temporal starts",
+      "source": "docker.io/temporalio/admin-tools:1.32.2",
       "github": "temporalio/temporal",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "go.temporal.io/server"
-      },
       "uses": [
         {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "image: temporalio/admin-tools:([0-9.]+)@sha256"
+        },
+        {
           "file": "charts/instance/values.yaml",
-          "pattern": "    - temporalio/auto-setup:(1\\.25\\.[0-9]+)"
+          "pattern": "adminToolsImage: temporalio/admin-tools:([0-9.]+)@sha256"
         }
       ],
-      "released": "2024-11-05T22:58:05Z"
+      "shaUses": [
+        {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "image: temporalio/admin-tools:[0-9.]+@sha256:([0-9a-f]{64})"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "adminToolsImage: temporalio/admin-tools:[0-9.]+@sha256:([0-9a-f]{64})"
+        }
+      ],
+      "released": "2026-11-02T18:38:48Z"
     },
     {
-      "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.26.3",
-      "where": "an instance's Temporal, stepping its database through 1.26 on the way to the version it runs",
-      "source": "docker.io/temporalio/auto-setup:1.26.3",
-      "github": "temporalio/temporal",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "go.temporal.io/server"
-      },
+      "kind": "binary",
+      "name": "temporal-cli",
+      "version": "1.10.1",
+      "where": "the tests' Temporal dev server, which carries server 1.32.2, the version root and instances run",
+      "source": "https://github.com/temporalio/cli/releases/tag/v1.10.1",
+      "github": "temporalio/cli",
       "uses": [
         {
-          "file": "charts/instance/values.yaml",
-          "pattern": "    - temporalio/auto-setup:(1\\.26\\.[0-9]+)"
+          "file": "packages/engine-core/testing/shared.ts",
+          "pattern": "version: 'v([0-9.]+)'"
         }
-      ],
-      "released": "2025-08-20T22:27:17Z"
-    },
-    {
-      "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.27.4",
-      "where": "an instance's Temporal, stepping its database through 1.27 on the way to the version it runs",
-      "source": "docker.io/temporalio/auto-setup:1.27.4",
-      "github": "temporalio/temporal",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "go.temporal.io/server"
-      },
-      "uses": [
-        {
-          "file": "charts/instance/values.yaml",
-          "pattern": "    - temporalio/auto-setup:(1\\.27\\.[0-9]+)"
-        }
-      ],
-      "released": "2025-12-30T19:00:56Z"
-    },
-    {
-      "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.28.4",
-      "where": "an instance's Temporal, stepping its database through 1.28 on the way to the version it runs",
-      "source": "docker.io/temporalio/auto-setup:1.28.4",
-      "github": "temporalio/temporal",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "go.temporal.io/server"
-      },
-      "uses": [
-        {
-          "file": "charts/instance/values.yaml",
-          "pattern": "    - temporalio/auto-setup:(1\\.28\\.[0-9]+)"
-        }
-      ],
-      "released": "2026-04-10T20:55:23Z"
+      ]
     },
     {
       "kind": "chart",

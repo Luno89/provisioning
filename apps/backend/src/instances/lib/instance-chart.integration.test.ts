@@ -148,6 +148,27 @@ describe('the instance chart', () => {
     expect(find(docs, 'ConfigMap', 'luno-env').data!.TEMPORAL_CONNECTION_ADDRESS).toBe('luno-temporal:7233');
   });
 
+  it('sets up and updates Temporal\'s database with the admin tools of the very server version it runs, before Temporal starts', () => {
+    const pod = podOf(find(render(), 'Deployment', 'luno-temporal'));
+    const temporal = pod.containers.find((container) => container.name === 'temporal')!;
+    const schema = pod.initContainers?.find((container) => container.name === 'temporal-schema');
+    expect(temporal.image).toMatch(/^temporalio\/server:/);
+    expect(schema?.image).toMatch(/^temporalio\/admin-tools:/);
+    const versionOf = (image: string) => /:([0-9.]+)@/.exec(image)?.[1];
+    expect(versionOf(schema!.image)).toBe(versionOf(temporal.image));
+    expect(pod.initContainers?.map((container) => container.name).filter((name) => name.startsWith('temporal-step') || name === 'temporal-plan')).toEqual([]);
+  });
+
+  it('gives Temporal the dynamic config file the plain server image needs to start, from the chart itself', () => {
+    const docs = render();
+    const pod = podOf(find(docs, 'Deployment', 'luno-temporal')) as unknown as { containers: Array<{ name: string; volumeMounts?: Array<{ name: string; mountPath: string; subPath?: string }> }>; volumes?: Array<{ name: string; configMap?: { name: string } }> };
+    const temporal = pod.containers.find((container) => container.name === 'temporal')!;
+    const mount = temporal.volumeMounts?.find((entry) => entry.mountPath === '/etc/temporal/config/dynamicconfig/docker.yaml');
+    expect(mount?.subPath).toBe('temporal-dynamic-config.yaml');
+    const volume = pod.volumes?.find((entry) => entry.name === mount?.name);
+    expect(find(docs, 'ConfigMap', volume!.configMap!.name).data).toHaveProperty('temporal-dynamic-config.yaml');
+  });
+
   it('keeps its Temporal inside the cluster, and offers the owner\'s machines only the gateway, on a node port they reach over the mesh', () => {
     const meshed = render(['mesh.address=100.64.0.7', 'mesh.loginServer=https://mesh.example.com']);
     expect(podOf(find(meshed, 'Deployment', 'luno-temporal')).containers[0]!.ports).toEqual([{ containerPort: 7233 }]);
@@ -199,7 +220,7 @@ describe('the instance chart', () => {
 
   it('serves Temporal\'s keys beside it as an ordinary container on a cluster too old for native sidecars', () => {
     const pod = podOf(find(render([], '1.28.8'), 'Deployment', 'luno-temporal'));
-    expect(pod.initContainers?.map((container) => container.name)).toEqual(['temporal-jwks', 'temporal-plan', 'temporal-step-1-25-2', 'temporal-step-1-26-3', 'temporal-step-1-27-4', 'temporal-step-1-28-4']);
+    expect(pod.initContainers?.map((container) => container.name)).toEqual(['temporal-jwks', 'temporal-schema']);
     expect(pod.containers.map((container) => container.name)).toEqual(['temporal-keys', 'temporal']);
     expect(pod.containers[0]!.restartPolicy).toBeUndefined();
   });

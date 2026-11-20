@@ -109,11 +109,13 @@ spec:
             periodSeconds: 1
             failureThreshold: 600
         {{- end }}
-        - name: temporal-plan
-          image: {{ .Values.temporal.postgresImage }}
-          command: [sh, /steps-script/temporal-steps.sh, plan]
+        - name: temporal-schema
+          image: {{ .Values.temporal.adminToolsImage }}
+          command: [sh, /schema-script/temporal-schema.sh]
           {{- include "instance.resources" (dict "root" . "component" "temporalJwks") | nindent 10 }}
           env:
+            - name: DB_PORT
+              value: "5432"
             - name: POSTGRES_USER
               value: temporal
             - name: POSTGRES_PWD
@@ -123,52 +125,15 @@ spec:
                   key: TEMPORAL_DB_PASSWORD
             - name: POSTGRES_SEEDS
               value: {{ include "instance.name" . }}-temporal-db
-            - name: DB_PORT
-              value: "5432"
-            - name: NEWEST_MAIN
-              value: {{ .Values.temporal.schema.main | quote }}
-            - name: NEWEST_VISIBILITY
-              value: {{ .Values.temporal.schema.visibility | quote }}
           volumeMounts:
-            - name: temporal-steps
-              mountPath: /steps
-            - name: temporal-steps-script
-              mountPath: /steps-script
-        {{- range .Values.temporal.steps }}
-        - name: temporal-step-{{ splitList ":" . | last | replace "." "-" }}
-          image: {{ . }}
-          command: [sh, /steps-script/temporal-steps.sh, step]
-          {{- include "instance.resources" (dict "root" $ "component" "temporal") | nindent 10 }}
-          env:
-            - name: DB
-              value: postgres12
-            - name: DB_PORT
-              value: "5432"
-            - name: POSTGRES_USER
-              value: temporal
-            - name: POSTGRES_PWD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "instance.name" $ }}-keys
-                  key: TEMPORAL_DB_PASSWORD
-            - name: POSTGRES_SEEDS
-              value: {{ include "instance.name" $ }}-temporal-db
-            - name: BIND_ON_IP
-              value: 127.0.0.1
-          volumeMounts:
-            - name: temporal-steps
-              mountPath: /steps
-            - name: temporal-steps-script
-              mountPath: /steps-script
-        {{- end }}
+            - name: temporal-schema-script
+              mountPath: /schema-script
       volumes:
         - name: temporal-keys
           emptyDir: {}
-        - name: temporal-steps
-          emptyDir: {}
-        - name: temporal-steps-script
+        - name: temporal-schema-script
           configMap:
-            name: {{ include "instance.name" . }}-temporal-steps
+            name: {{ include "instance.name" . }}-temporal-schema
             defaultMode: 0555
         - name: temporal-tls
           secret:
@@ -230,6 +195,10 @@ spec:
             - name: temporal-tls
               mountPath: /etc/temporal/tls
               readOnly: true
+            - name: temporal-schema-script
+              mountPath: /etc/temporal/config/dynamicconfig/docker.yaml
+              subPath: temporal-dynamic-config.yaml
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: 7233
@@ -239,8 +208,9 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "instance.name" . }}-temporal-steps
+  name: {{ include "instance.name" . }}-temporal-schema
   labels: {{- include "instance.labels" . | nindent 4 }}
 data:
-  temporal-steps.sh: |
-{{ .Files.Get "files/temporal-steps.sh" | indent 4 }}
+  temporal-schema.sh: |
+{{ .Files.Get "files/temporal-schema.sh" | indent 4 }}
+  temporal-dynamic-config.yaml: {{ .Files.Get "files/temporal-dynamic-config.yaml" | quote }}

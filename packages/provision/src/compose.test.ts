@@ -11,7 +11,7 @@ const PROJECT: ComposeProject = { program: ['docker', 'compose'], files: ['/repo
 const instant: WaitOptions = { pause: async () => undefined };
 const BASE = ['compose', '-p', 'koala-test', '-f', '/repo/docker-compose.mongo.yml'];
 
-interface Container { state: string; exitCode?: number; hash: string }
+interface Container { state: string; exitCode?: number; hash: string; oneShot?: boolean }
 
 interface Host {
   configured: Record<string, string>;
@@ -29,7 +29,7 @@ const docker = (host: Host) => fakeCommands((command): Answer | undefined => {
   const [verb, ...rest] = (command.args ?? []).slice(BASE.length);
   if (verb === 'config') return { stdout: Object.entries(host.configured).map(([service, hash]) => `${service} ${hash}\n`).join('') };
   if (verb === 'ps') host.onPs?.(host);
-  if (verb === 'ps') return { stdout: Object.entries(host.containers).map(([service, c]) => `${service}\t${c.state}\t${c.exitCode ?? 0}\t${c.hash}\n`).join('') };
+  if (verb === 'ps') return { stdout: Object.entries(host.containers).map(([service, c]) => `${service}\t${c.state}\t${c.exitCode ?? 0}\t${c.hash}\t${c.oneShot ? 'true' : ''}\n`).join('') };
   if (verb === 'up') {
     if (host.upFails) return { code: 1, stderr: 'Error response from daemon: port is already allocated\n' };
     host.afterUp?.(host, rest);
@@ -147,6 +147,31 @@ describe('a service started through its compose file', () => {
     expect(failure.why).toContain('Temporal to answer: temporal exited with 1');
     expect(failure.tail).toContain('temporal-1  | unable to start: sql schema version compatibility check failed');
     expect(verbs(commands.ran)).toContain('logs --no-color --tail 40 temporal');
+  });
+
+  it('counts a service its compose file marks one-shot as done once it ran to completion, while the services that waited on it run', async () => {
+    const host: Host = {
+      configured: { postgresql: 'p', 'temporal-schema': 's', temporal: 't' },
+      containers: { postgresql: { state: 'running', hash: 'p' }, 'temporal-schema': { state: 'exited', exitCode: 0, hash: 's', oneShot: true }, temporal: { state: 'running', hash: 't' } },
+    };
+    const commands = docker(host);
+    const reporter = memoryReporter();
+    await runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers: answering([]) })], { commands, wait: instant }, reporter);
+    expect(reporter.reported.at(-1)).toEqual({ kind: 'already-done', id: 'temporal' });
+    expect(verbs(commands.ran).some((verb) => verb.startsWith('up'))).toBe(false);
+  });
+
+  it('fails with the exit and the log tail of a one-shot service that did not complete', async () => {
+    const host: Host = {
+      configured: { postgresql: 'p', 'temporal-schema': 's', temporal: 't' },
+      containers: { postgresql: { state: 'running', hash: 'p' } },
+      logs: 'temporal-schema-1  | Temporal\'s database temporal is at schema 1.99, past what this Temporal knows (1.19)\n',
+      afterUp: (h) => { h.containers['temporal-schema'] = { state: 'exited', exitCode: 1, hash: 's', oneShot: true }; },
+    };
+    const commands = docker(host);
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers: answering([]) })], { commands, wait: instant }, memoryReporter()));
+    expect(failure.why).toContain('temporal-schema exited with 1');
+    expect(failure.tail).toContain('temporal-schema-1  | Temporal\'s database temporal is at schema 1.99, past what this Temporal knows (1.19)');
   });
 
   it('keeps waiting while a container is restarting, which Docker does on its own', async () => {

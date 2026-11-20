@@ -10,4 +10,4 @@ export function testDownloads(): string {
   return dir;
 }
 
-export const temporalServerExecutable = (): { type: 'cached-download'; downloadDir: string } => ({ type: 'cached-download', downloadDir: testDownloads() });
+export const temporalServerExecutable = (): { type: 'cached-download'; downloadDir: string; version: string } => ({ type: 'cached-download', downloadDir: testDownloads(), version: 'v1.10.1' });
