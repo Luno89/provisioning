@@ -149,12 +149,21 @@ export async function hookAnswer(input: HookInput): Promise<HookAnswer | undefin
   return undefined;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename) && process.argv[2] === 'refactor') {
-  const started = await startRefactor(process.cwd(), process.argv.slice(3));
-  process.stdout.write(started.ok ? `refactor of ${process.argv.slice(3).join(', ')} started: its tests are green, keep them green and commit\n` : `${started.why}\n`);
-  process.exitCode = started.ok ? 0 : 1;
-} else if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+async function asProgram(): Promise<void> {
+  if (process.argv[2] === 'refactor') {
+    const started = await startRefactor(process.cwd(), process.argv.slice(3));
+    process.stdout.write(started.ok ? `refactor of ${process.argv.slice(3).join(', ')} started: its tests are green, keep them green and commit\n` : `${started.why}\n`);
+    process.exitCode = started.ok ? 0 : 1;
+    return;
+  }
   const input = JSON.parse(readFileSync(0, 'utf8')) as HookInput;
   const answer = await hookAnswer(input);
   if (answer) process.stdout.write(JSON.stringify(answer));
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+  asProgram().catch((err: unknown) => {
+    process.stderr.write(`the red-green gate could not judge this: ${(err as Error).stack ?? String(err)}\n`);
+    process.exitCode = 2;
+  });
 }

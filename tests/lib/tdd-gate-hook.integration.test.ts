@@ -146,6 +146,14 @@ describe('the red-green gate on a real repository', () => {
     expect(await commit(dir)).toBeUndefined();
   });
 
+  it('runs as the hook Claude Code calls, reading the tool call on stdin and writing its refusal, so a gate that cannot start never lets a commit through in silence', () => {
+    const { dir, write, git } = aRepo();
+    write('scripts/untested.ts', 'export const unproven = 1;\n');
+    git('add', '-A');
+    const answer = execFileSync(join(REPO, 'node_modules', '.bin', 'tsx'), [join(REPO, 'tests', 'lib', 'tdd-gate-hook.ts')], { input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git commit -m change' }, cwd: dir }), encoding: 'utf8' });
+    expect(JSON.parse(answer).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
   it('refuses a commit whose source changed through the shell with no test seen failing', async () => {
     const { dir, git, write } = aRepo();
     write('scripts/other.ts', 'export const other = 1;\n');
