@@ -33,6 +33,19 @@ export interface Context {
 export const layerOf = (testFile: string): Layer =>
   /-live\.ts$/.test(testFile) ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
 
+const REAL_THINGS = /(^|\/)testing\/(real-[^/]+|private-cluster|cluster-wide|root-services-world|containers?|temporal-test-env)\.ts$/;
+const CONTRACTS = /(^|\/)testing\/[^/]*contract\.ts$/;
+
+const ranAny = (run: Ran, matching: RegExp): boolean =>
+  Object.entries(run.files).some(([file, ranges]) => matching.test(file) && ranges.some((range) => range.count > 0));
+
+export function layerOfRun(run: Ran): Layer {
+  const named = layerOf(run.testFile);
+  if (named !== 'component') return named;
+  if (ranAny(run, REAL_THINGS)) return 'container';
+  return ranAny(run, CONTRACTS) ? 'contract' : 'component';
+}
+
 const judged = (unit: Unit): boolean => !unit.inTest && !unit.noBehaviour && unit.name !== '(module)';
 
 function kindOf(edge: Edge, graph: Graph): Kind {
@@ -80,7 +93,7 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     const since = context.since?.(run.testFile);
     return {
     test: run.testFile,
-    layer: layerOf(run.testFile),
+    layer: layerOfRun(run),
     units: [...new Set(unitsBy.get(run.testFile) ?? [])].sort(),
     links: [...new Set([
       ...(provedBy.get(run.testFile) ?? []),

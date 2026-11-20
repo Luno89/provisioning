@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ran, RanRange } from './collect.js';
 import type { Graph, Unit } from './graph.js';
-import { codebaseOf, DEPENDENCIES, layerOf, SHARING, versionsIn } from './v2.js';
+import { codebaseOf, DEPENDENCIES, layerOf, layerOfRun, SHARING, versionsIn } from './v2.js';
 
 const unit = (id: string, file: string, name: string, extra: Partial<Unit> = {}): Unit => ({ id, file, name, line: 1, column: 1, start: 0, end: 0, inTest: false, ...extra });
 const site = (file: string, line: number) => ({ file, line, column: 5, start: 0, end: 0 });
@@ -35,6 +35,19 @@ describe('Koala\'s code as the coupler sees it', () => {
     expect(layerOf('apps/backend/src/projects/lib/help.test.ts')).toBe('unit');
     expect(layerOf('apps/backend/src/projects/services/save.integration.test.ts')).toBe('component');
     expect(layerOf('tests/v1-live.ts')).toBe('vm');
+  });
+
+  it('places an integration test by the real things it ran: a container when it started real k3s, MinIO, Gitea, compose or Temporal, a contract when it ran a shared contract suite, else component', () => {
+    const run = (testFile: string, ...helpers: string[]): Ran => ({ testFile, files: Object.fromEntries(helpers.map((file) => [file, [ran(1, 'helper')]])) });
+    const IT = 'apps/backend/src/x/y.integration.test.ts';
+
+    expect(layerOfRun(run(IT, 'apps/backend/src/infrastructure/testing/real-k3s.ts'))).toBe('container');
+    expect(layerOfRun(run(IT, 'apps/backend/src/platform/testing/root-services-world.ts'))).toBe('container');
+    expect(layerOfRun(run(IT, 'packages/engine-core/testing/temporal-test-env.ts'))).toBe('container');
+    expect(layerOfRun(run(IT, 'apps/backend/src/files/testing/object-store-contract.ts'))).toBe('contract');
+    expect(layerOfRun(run(IT, 'apps/backend/src/platform/lib/settings.ts'))).toBe('component');
+    expect(layerOfRun(run('apps/backend/src/x/y.test.ts', 'apps/backend/src/files/testing/object-store-contract.ts'))).toBe('unit');
+    expect(layerOfRun({ testFile: IT, files: { 'apps/backend/src/infrastructure/testing/real-k3s.ts': [ran(0, 'helper')] } })).toBe('component');
   });
 
   it('keeps only code with behaviour, sorts each call into logic or composition, and says which test proved which call for real', () => {
