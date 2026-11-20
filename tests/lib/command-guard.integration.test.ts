@@ -29,6 +29,9 @@ describe('the guard every Bash and file tool call passes through, holding the ow
   it('refuses stopping processes by a pattern, which can match the shell running it', () => {
     expect(bash('pkill -f vitest').refused).toBe(true);
     expect(bash('killall node').refused).toBe(true);
+    expect(bash('for p in $(pgrep -f "vitest run"); do kill $p; done').refused).toBe(true);
+    expect(bash('kill $(pgrep -f root-services)').refused).toBe(true);
+    expect(bash('pgrep -fa vitest').refused).toBe(false);
   });
 
   it('refuses reading or touching the backend\'s secrets file and data folder, by command or by file tool', () => {
