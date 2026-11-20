@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { sourceOf } from './artifacts.js';
 import { assemble, buildParts, hashText, isTest, type Graph, type GraphOptions, type ProjectPart } from './graph.js';
 import { MATCHES, outsideEnds, projectsOf, WORKSPACES, workspaceOf, type Workspace } from './workspaces.js';
+import { DEPENDENCIES } from './v2.js';
 
 type Detail = { withinFiles?: boolean; handOffs?: boolean };
 
@@ -45,7 +46,7 @@ export const builtGraph = (root: string, workspaces: readonly Workspace[] = WORK
   const kept = join(folder, `${graphKey(root, workspaces, detail)}.json`);
   if (existsSync(kept)) return { graph: JSON.parse(readFileSync(kept, 'utf8')) as Graph };
   mkdirSync(folder, { recursive: true });
-  const options: GraphOptions = { projects: projectsOf(root, workspaces), root, matches: MATCHES, extraEnds: outsideEnds(root), calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined, ...detail };
+  const options: GraphOptions = { projects: projectsOf(root, workspaces), root, matches: MATCHES, extraEnds: outsideEnds(root), calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined, dependencies: (module) => module in DEPENDENCIES, ...detail };
   const partsFile = join(folder, `parts-${partsKey(root, workspaces, detail)}.json`);
   const cached = existsSync(partsFile) ? JSON.parse(readFileSync(partsFile, 'utf8')) as ProjectPart[] : undefined;
   const hashes = new Map<string, string | undefined>();

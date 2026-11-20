@@ -32,7 +32,7 @@ function recordsOf(ranges: readonly RanRange[]): { records: FunctionRecord[]; lo
   return { records, loose };
 }
 
-function siteRan(ranges: readonly RanRange[] | undefined, at: Position): boolean {
+export function siteRan(ranges: readonly RanRange[] | undefined, at: Position): boolean {
   const { records, loose } = recordsOf(ranges ?? []);
   const around = records.filter((record) => contains(record.own, at));
   if (around.length === 0) return anyRan(loose.filter((range) => contains(range, at)), size);

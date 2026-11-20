@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ran, RanRange } from './collect.js';
 import type { Graph, Unit } from './graph.js';
-import { codebaseOf, layerOf } from './v2.js';
+import { codebaseOf, DEPENDENCIES, layerOf } from './v2.js';
 
 const unit = (id: string, file: string, name: string, extra: Partial<Unit> = {}): Unit => ({ id, file, name, line: 1, column: 1, start: 0, end: 0, inTest: false, ...extra });
 const site = (file: string, line: number) => ({ file, line, column: 5, start: 0, end: 0 });
@@ -25,6 +25,7 @@ const graph: Graph = {
     { from: 'save', site: site(SAVE, 2), to: ['help'], through: 'call' },
     { from: 'save', site: site(SAVE, 3), to: ['store', 'fake'], through: 'interface' },
     { from: 'save', site: site(SAVE, 4), to: ['help'], through: 'temporal' },
+    { from: 'store', site: site(STORE, 5), to: ['pkg:mongodb#Collection.insertOne'], through: 'dependency', path: ['mongodb', 'users', 'Collection.insertOne'] },
   ],
   unresolved: [], unmatched: [], records: [],
 };
@@ -49,11 +50,20 @@ describe('Koala\'s code as the coupler sees it', () => {
       [`${SAVE}:2`, 'logic'],
       [`${SAVE}:3`, 'composition'],
       [`${SAVE}:4`, 'composition'],
+      [`${STORE}:5`, 'dependency'],
     ]);
     expect(codebase.runs).toEqual([
       { test: 'apps/backend/src/projects/services/save.test.ts', layer: 'unit', units: ['help', 'save'], links: [`${SAVE}:2`, `${SAVE}:4`] },
-      { test: 'apps/backend/src/projects/services/save.integration.test.ts', layer: 'component', units: ['save', 'store'], links: [`${SAVE}:3`] },
+      { test: 'apps/backend/src/projects/services/save.integration.test.ts', layer: 'component', units: ['save', 'store'], links: [`${SAVE}:3`, `${STORE}:5`] },
     ]);
     expect(codebase.changed).toEqual(['help']);
+    expect(codebase.links.at(-1)).toEqual({ id: `${STORE}:5`, from: 'store', to: ['pkg:mongodb#Collection.insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'Collection.insertOne'], realFrom: 'component' });
+  });
+
+  it('names the outside services Koala depends on and the lowest layer each is real at, and leaves pure libraries out', () => {
+    expect(DEPENDENCIES.mongodb).toBe('component');
+    expect(DEPENDENCIES['@temporalio/client']).toBe('component');
+    expect(DEPENDENCIES.minio).toBe('container');
+    expect(DEPENDENCIES.yaml).toBeUndefined();
   });
 });

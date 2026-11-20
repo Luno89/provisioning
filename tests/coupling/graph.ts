@@ -23,8 +23,9 @@ export interface Edge {
   from: string;
   site: Site;
   to: string[];
-  through: 'call' | 'interface' | 'temporal' | 'render' | 'reference' | ChannelEnd['kind'];
+  through: 'call' | 'interface' | 'temporal' | 'render' | 'reference' | 'dependency' | ChannelEnd['kind'];
   device?: boolean;
+  path?: string[];
 }
 
 export interface Unresolved { from: string; site: Site; text: string; why: string }
@@ -64,6 +65,7 @@ export interface GraphOptions {
   extraEnds?: readonly ExtraEnd[];
   withinFiles?: boolean;
   handOffs?: boolean;
+  dependencies?: (module: string) => boolean;
 }
 
 const TEST_FOLDER = /(^|\/)(tests?|testing|__tests__)\//;
@@ -76,6 +78,22 @@ export const isTest = (file: string): boolean => isTestFile(file) || TEST_FOLDER
 const GENERATED = /\.generated\.ts$/;
 
 const ownCode = (file: string): boolean => !file.includes('/node_modules/') && !file.endsWith('.d.ts');
+
+export function moduleOf(file: string): string | undefined {
+  const at = file.lastIndexOf('/node_modules/');
+  if (at < 0) return undefined;
+  const parts = file.slice(at + '/node_modules/'.length).split('/');
+  if (parts[0] === '@types' && parts[1] === 'node') return `node:${parts.slice(2).join('/').replace(/\.d\.ts$/, '').replace(/\/index$/, '')}`;
+  if (parts[0] === '@types') return parts[1];
+  return parts[0]?.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+}
+
+function memberOf(declaration: ts.Declaration): string {
+  const name = ts.getNameOfDeclaration(declaration)?.getText() ?? '(call)';
+  const owner = declaration.parent;
+  const ownerName = owner && (ts.isClassDeclaration(owner) || ts.isInterfaceDeclaration(owner)) && owner.name ? `${owner.name.text}.` : '';
+  return `${ownerName}${name}`;
+}
 
 function functionName(node: ts.Node): string {
   if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isGetAccessor(node) || ts.isSetAccessor(node)) && node.name) {
@@ -493,7 +511,8 @@ export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: Proje
               const handler = end.handler ? functionOf(end.handler) : undefined;
               ends.push({ kind: end.kind, name: end.name, side: end.side, from: from.id, site, ...(handler ? { handler: unitOf(handler).id } : {}) });
             }
-            for (const touched of recordOf && ts.isCallExpression(node) ? recordOf(node) : []) records.push({ unit: from.id, collection: touched.collection, writes: touched.writes, site });
+            const touchedHere = recordOf && ts.isCallExpression(node) ? recordOf(node) : [];
+            for (const touched of touchedHere) records.push({ unit: from.id, collection: touched.collection, writes: touched.writes, site });
             const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
             if (crossed) {
               const to = crossed.to.flatMap((declared) => { if (isMember(declared)) return implementationsOf(declared); const body = functionOf(declared); return body ? [unitOf(body)] : []; }).filter((unit) => !unit.inTest);
@@ -503,6 +522,13 @@ export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: Proje
             if (!crossed && !declaration) {
               const type = checker.getTypeAtLocation(node.expression);
               if (type.flags & ts.TypeFlags.Any) unresolved.push({ from: from.id, site, text: node.expression.getText().slice(0, 80), why: 'called through any' });
+            } else if (declaration && options.dependencies && !ownCode(declaration.getSourceFile().fileName)) {
+              const module = moduleOf(declaration.getSourceFile().fileName);
+              if (module !== undefined && options.dependencies(module)) {
+                const member = memberOf(declaration);
+                const collections = [...new Set(touchedHere.map((touched) => touched.collection))];
+                edges.push({ from: from.id, site, to: [`pkg:${module}#${member}`], through: 'dependency', path: [module, ...collections, member] });
+              }
             } else if (declaration && ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {
               const target = at(declaration.getSourceFile().fileName);
               const counted = (file: string) => options.withinFiles || file !== from.file;

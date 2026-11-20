@@ -5,7 +5,7 @@ export type Kind = 'logic' | 'composition' | 'dependency';
 
 export interface CodeUnit { id: string; file: string; name: string; line: number }
 
-export interface Link { id: string; from: string; to: string[]; kind: Kind; path?: string[] }
+export interface Link { id: string; from: string; to: string[]; kind: Kind; path?: string[]; realFrom?: Layer }
 
 export interface Run { test: string; layer: Layer; units: string[]; links: string[] }
 
@@ -25,10 +25,10 @@ export interface JudgedLink extends Link {
 
 export interface Judgement { units: CodeUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[] }
 
-const AGAINST_THE_REAL_THING: ReadonlySet<Layer> = new Set(['contract', 'container', 'vm']);
+const REAL_FROM: Layer = 'contract';
 
 const proves = (link: Link, run: Run): boolean =>
-  run.links.includes(link.id) && (link.kind !== 'dependency' || AGAINST_THE_REAL_THING.has(run.layer));
+  run.links.includes(link.id) && (link.kind !== 'dependency' || LAYERS.indexOf(run.layer) >= LAYERS.indexOf(link.realFrom ?? REAL_FROM));
 
 const confidenceOf = (layers: readonly Layer[], weights: Weights): number =>
   1 - layers.reduce((left, layer) => left * (1 - weights[layer]), 1);

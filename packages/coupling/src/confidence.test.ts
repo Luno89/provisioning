@@ -48,6 +48,16 @@ describe('how proven a link is', () => {
     expect(judged.links[0]!.provenAt).toEqual([]);
   });
 
+  it('proves a dependency from the lowest layer that runs the real thing, so the test run\'s own real Mongo at component counts', () => {
+    const links = [{ id: 'store->mongo', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'insertOne'], realFrom: 'component' as const }];
+    const judged = judge(codebase({ links, runs: [
+      { test: 'u', layer: 'unit', units: ['store'], links: ['store->mongo'] },
+      { test: 'c', layer: 'component', units: ['store'], links: ['store->mongo'] },
+    ] }), WEIGHTS);
+
+    expect(judged.links[0]!.provenAt).toEqual(['component']);
+  });
+
   it('lends a dependency the proof of a proven sibling by how much of their path they share, so an e2e add lowers the risk of an unrun delete', () => {
     const links = [
       { id: 'add', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'insertOne'] },

@@ -1,9 +1,22 @@
 import type { Codebase, Kind, Layer, Link, Run } from '@koala/coupling';
 import type { Ran } from './collect.js';
 import type { Edge, Graph, Unit } from './graph.js';
-import { judge, unitsRanBy } from './join.js';
+import { judge, siteRan, unitsRanBy } from './join.js';
 import { crossesProcess } from './rules.js';
 import { areaOf } from './workspaces.js';
+
+export const DEPENDENCIES: Readonly<Record<string, Layer>> = {
+  mongodb: 'component',
+  '@temporalio/client': 'component',
+  '@temporalio/worker': 'component',
+  '@temporalio/activity': 'component',
+  'node:child_process': 'component',
+  minio: 'container',
+  nodemailer: 'container',
+  'web-push': 'container',
+  'openid-client': 'container',
+  'oidc-provider': 'container',
+};
 
 export const layerOf = (testFile: string): Layer =>
   /-live\.ts$/.test(testFile) ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
@@ -11,6 +24,7 @@ export const layerOf = (testFile: string): Layer =>
 const judged = (unit: Unit): boolean => !unit.inTest && !unit.noBehaviour && unit.name !== '(module)';
 
 function kindOf(edge: Edge, graph: Graph): Kind {
+  if (edge.through === 'dependency') return 'dependency';
   if (crossesProcess(edge)) return 'composition';
   const from = graph.units[edge.from];
   const crosses = from !== undefined && edge.to.some((id) => graph.units[id] !== undefined && areaOf(graph.units[id]!.file) !== areaOf(from.file));
@@ -28,7 +42,12 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], changedFiles: read
   const units = Object.values(graph.units).filter(judged);
   const kept = new Set(units.map((unit) => unit.id));
   const ids = linkIds(graph.edges);
-  const links: Link[] = graph.edges.map((edge, index) => ({ id: ids[index]!, from: edge.from, to: edge.to.filter((id) => kept.has(id)), kind: kindOf(edge, graph) }));
+  const links: Link[] = graph.edges.map((edge, index): Link => {
+    if (edge.through !== 'dependency') return { id: ids[index]!, from: edge.from, to: edge.to.filter((id) => kept.has(id)), kind: kindOf(edge, graph) };
+    const realFrom = DEPENDENCIES[edge.path?.[0] ?? ''];
+    return { id: ids[index]!, from: edge.from, to: edge.to, kind: 'dependency', ...(edge.path ? { path: edge.path } : {}), ...(realFrom ? { realFrom } : {}) };
+  });
+  const outward = graph.edges.map((edge, index) => ({ edge, id: ids[index]! })).filter(({ edge }) => edge.through === 'dependency');
   const provedBy = new Map<string, string[]>();
   judge(graph, ran, () => 'unit').forEach((entry, index) => {
     for (const covered of entry.covered) provedBy.set(covered.test, [...(provedBy.get(covered.test) ?? []), ids[index]!]);
@@ -42,7 +61,10 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], changedFiles: read
     test: run.testFile,
     layer: layerOf(run.testFile),
     units: [...new Set(unitsBy.get(run.testFile) ?? [])].sort(),
-    links: [...new Set(provedBy.get(run.testFile) ?? [])],
+    links: [...new Set([
+      ...(provedBy.get(run.testFile) ?? []),
+      ...outward.filter(({ edge }) => siteRan(run.files[edge.site.file], { line: edge.site.line, column: edge.site.column })).map(({ id }) => id),
+    ])],
   }));
   const changed = new Set(changedFiles);
   return {
