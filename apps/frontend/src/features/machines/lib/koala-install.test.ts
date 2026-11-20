@@ -20,16 +20,6 @@ describe('what a machine\'s row says of Koala being put on it', () => {
     expect(installShown(install({ state: 'failed', why: 'no room' }), desk)).toEqual({ kind: 'failed', said: 'Koala could not be put here at Putting Koala on this machine', why: 'no room', retry: 'Try again' })
   })
 
-  it('says a move is Koala moving here, where it stopped and why, and offers to move it here again', () => {
-    expect(installShown(install({ move: true, stage: 'keys', title: 'Bringing your keys over', line: 'fetching the keys' }), desk)).toEqual({ kind: 'working', title: 'Bringing your keys over', line: 'fetching the keys' })
-    const { stage: _stage, title: _title, ...asked } = install({ state: 'asked', move: true })
-    expect(installShown(asked, desk)).toEqual({ kind: 'working', title: 'Asking it to move Koala onto itself' })
-    expect(installShown(asked, { id: 'desk', online: false })).toEqual({ kind: 'working', title: 'Koala moves onto it once it connects' })
-    expect(installShown(install({ move: true, state: 'failed', stage: 'koala', title: 'Bringing Koala over', why: 'the pool copy\'s data could not be read' }), desk)).toEqual({ kind: 'failed', said: 'Moving Koala here stopped at Bringing Koala over', why: 'the pool copy\'s data could not be read', retry: 'Move here' })
-    const { title: _untitled, ...bare } = install({ move: true, state: 'installing' })
-    expect(installShown(bare, desk)).toEqual({ kind: 'working', title: 'Moving Koala here' })
-  })
-
   it('says nothing once Koala is up, nor of another machine\'s install', () => {
     expect(installShown(install({ state: 'ready' }), desk)).toBeUndefined()
     expect(installShown(install({ machineId: 'laptop' }), desk)).toBeUndefined()

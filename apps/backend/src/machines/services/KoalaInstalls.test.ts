@@ -48,33 +48,10 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
   it('records the install, stops the one it replaces, starts its workflow and tells the owner', async () => {
     places.placeOn.mockResolvedValue({ ok: true, value: { instanceId: 'inst-bo', replaces: 'install-1' } });
     expect(await installs.start('bo', desk, 'bobby')).toEqual({ ok: true, value: { installId: 'install-2' } });
-    expect(places.placeOn).toHaveBeenCalledWith('bo', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'bobby', 'install-2', false);
+    expect(places.placeOn).toHaveBeenCalledWith('bo', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'bobby', 'install-2');
     expect(workflows.cancel).toHaveBeenCalledWith('install-1');
     expect(workflows.start).toHaveBeenCalledWith('install-2', 'bo');
     expect(told).toEqual(['bo']);
-  });
-
-  it('asks for a move when the machine came with a code that brings Koala over', async () => {
-    places.placeOn.mockResolvedValue({ ok: true, value: { instanceId: 'inst-bo' } });
-    expect(await installs.start('bo', desk, 'bobby', true)).toEqual({ ok: true, value: { installId: 'install-2' } });
-    expect(places.placeOn).toHaveBeenCalledWith('bo', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'bobby', 'install-2', true);
-  });
-
-  it('reads a move\'s stages to the move\'s last stage, which says where Koala answers', async () => {
-    places.installOf.mockResolvedValue(installOf('installing', { move: true }));
-    places.installedUrl.mockResolvedValue({ ok: true, value: 'http://100.64.0.7:30320' });
-    expect(await installs.report('install-1', TOKEN, { stage: 'koala', title: 'Bringing Koala over', state: 'done' })).toEqual({ ok: true, value: { recorded: true } });
-    expect(await installs.report('install-1', TOKEN, { stage: 'koala-moved', title: 'Starting Koala', state: 'done' })).toMatchObject({ ok: false, status: 400 });
-    expect(await installs.report('install-1', TOKEN, { stage: 'koala-moved', title: 'Starting Koala', state: 'done', url: 'http://100.64.0.7:30320' })).toEqual({ ok: true, value: { recorded: true } });
-    expect(workflows.progress).toHaveBeenLastCalledWith('install-1', { stage: 'koala-moved', title: 'Starting Koala', state: 'done', url: 'http://100.64.0.7:30320' });
-  });
-
-  it('hands a line the moving Koala says itself to the install, and answers 503 while that workflow cannot be reached', async () => {
-    const line = { stage: 'koala', title: 'Bringing Koala over', state: 'started' as const, line: 'Copying its secrets' };
-    expect(await installs.progressHeard('install-1', line)).toEqual({ ok: true, value: { recorded: true } });
-    expect(workflows.progress).toHaveBeenCalledWith('install-1', line);
-    workflows.progress.mockRejectedValueOnce(new Error('Temporal is down'));
-    expect(await installs.progressHeard('install-1', line)).toMatchObject({ ok: false, status: 503 });
   });
 
   it('records why the machine was refused before the install shows failed, so nobody reads a failed install with no reason on its machine', async () => {
@@ -82,10 +59,10 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     places.placeOn.mockResolvedValue({ ok: true, value: { instanceId: 'inst-bo' } });
     places.installNotStarted.mockImplementation(async () => { order.push('install failed'); });
     workflows.start.mockRejectedValue(new Error('Temporal is down'));
-    await installs.start('bo', desk, 'bobby', false, async (refusal) => { order.push(`refused ${refusal.status}: ${refusal.error}`); });
+    await installs.start('bo', desk, 'bobby', async (refusal) => { order.push(`refused ${refusal.status}: ${refusal.error}`); });
     expect(order).toEqual(['refused 503: root could not start putting Koala on desk: Temporal is down', 'install failed']);
     places.placeOn.mockResolvedValue({ ok: false, status: 409, error: '"bobby" is taken' });
-    await installs.start('bo', desk, 'bobby', false, async (refusal) => { order.push(`refused ${refusal.status}: ${refusal.error}`); });
+    await installs.start('bo', desk, 'bobby', async (refusal) => { order.push(`refused ${refusal.status}: ${refusal.error}`); });
     expect(order.at(-1)).toBe('refused 409: "bobby" is taken');
   });
 
@@ -149,25 +126,23 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(told).toHaveLength(6);
   });
 
-  it('tells the machine once to stop an install that ended failed, and to remove what a move made, also when the move failed after its install was ready', async () => {
-    await installs.relay(installOf('failed', { move: true }));
-    await installs.relay(installOf('failed', { move: true }));
+  it('tells the machine once to stop an install that ended failed', async () => {
+    await installs.relay(installOf('failed'));
+    await installs.relay(installOf('failed'));
     await installs.relay({ ...installOf('failed'), install: { id: 'install-3', machineId: 'desk', state: 'failed', at: 't' } });
-    await installs.relay({ ...installOf('ready', { id: 'install-4', move: true }), move: { state: 'failed', startedAt: 't', wasPaused: false, detail: 'the switch failed' } });
-    await installs.relay(installOf('ready', { id: 'install-5', move: true }));
-    await installs.relay(installOf('installing', { id: 'install-6', move: true }));
+    await installs.relay(installOf('ready', { id: 'install-5' }));
+    await installs.relay(installOf('installing', { id: 'install-6' }));
     expect(stopped).toEqual([
-      ['desk', { installId: 'install-1', remove: true }],
-      ['desk', { installId: 'install-3', remove: false }],
-      ['desk', { installId: 'install-4', remove: true }],
+      ['desk', { installId: 'install-1' }],
+      ['desk', { installId: 'install-3' }],
     ]);
   });
 
   it('tells a machine that comes back again to stop each install on it that ended failed, since it may have missed it', async () => {
-    places.installsOn.mockResolvedValue([installOf('installing', { id: 'install-2' }), installOf('failed', { move: true }), installOf('ready', { id: 'install-5' })]);
+    places.installsOn.mockResolvedValue([installOf('installing', { id: 'install-2' }), installOf('failed'), installOf('ready', { id: 'install-5' })]);
     await installs.connected('desk');
     await installs.connected('desk');
-    expect(stopped).toEqual([['desk', { installId: 'install-1', remove: true }], ['desk', { installId: 'install-1', remove: true }]]);
+    expect(stopped).toEqual([['desk', { installId: 'install-1' }], ['desk', { installId: 'install-1' }]]);
   });
 
   it('asks the workflow again when the machine comes back, and stops it when the machine is removed, only for an install under way', async () => {
@@ -176,13 +151,6 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     await installs.machineRemoved('desk');
     expect(workflows.reconnected.mock.calls).toEqual([['install-1']]);
     expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
-  });
-
-  it('stops an install by cancelling its workflow, and answers 503 while that workflow cannot be reached', async () => {
-    expect(await installs.stop('install-1')).toEqual({ ok: true, value: { recorded: true } });
-    expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
-    workflows.cancel.mockRejectedValue(new Error('Temporal is down'));
-    expect(await installs.stop('install-1')).toEqual({ ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' });
   });
 
   it('judges the machine\'s token by the time it is now when given no clock, refusing one that lapsed', async () => {

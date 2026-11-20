@@ -8,7 +8,6 @@ export interface RoutedInstance {
   name: string;
   meshIp: string;
   nested: boolean;
-  ports?: { backend: number; edge: number } | undefined;
   groups?: readonly string[] | undefined;
 }
 
@@ -39,8 +38,8 @@ export const nestedSiteOf = (name: string, domain: string): string => `*.${name}
 export function instanceRouteFiles(instance: RoutedInstance, domain: string): InstanceRouteFiles {
   const problem = routeProblem(instance);
   if (problem) throw new Error(problem);
-  const backend = `${instance.meshIp}:${instance.ports?.backend ?? INSTANCE_BACKEND_PORT}`;
-  const edge = `${instance.meshIp}:${instance.ports?.edge ?? INSTANCE_EDGE_PORT}`;
+  const backend = `${instance.meshIp}:${INSTANCE_BACKEND_PORT}`;
+  const edge = `${instance.meshIp}:${INSTANCE_EDGE_PORT}`;
   const appsUnder = (name: string): string[] => [
     `@apps_${name} header_regexp Host ^[a-z0-9-]+-${escaped(name)}\\.${escaped(domain)}(:[0-9]+)?$`,
     `handle @apps_${name} {`,
@@ -69,7 +68,6 @@ export interface RoutableRecord {
   status?: string | undefined;
   servedAt?: string | undefined;
   addresses?: { nested: boolean } | undefined;
-  pool?: { ports: { backend: number; edge: number } } | undefined;
   groups?: readonly { projectId: string; name: string }[] | undefined;
 }
 
@@ -83,7 +81,7 @@ export function wantedRoutes(records: readonly RoutableRecord[], domain: string)
   const sites = new Map<string, string>();
   for (const record of records) {
     if (!record.name || !record.meshIp || record.status === undefined || !inService(record)) continue;
-    const instance = { name: record.name, meshIp: record.meshIp, nested: record.addresses?.nested ?? false, ...(record.pool ? { ports: record.pool.ports } : {}), ...(record.groups?.length ? { groups: record.groups.map((group) => group.name) } : {}) };
+    const instance = { name: record.name, meshIp: record.meshIp, nested: record.addresses?.nested ?? false, ...(record.groups?.length ? { groups: record.groups.map((group) => group.name) } : {}) };
     if (routeProblem(instance)) continue;
     const files = instanceRouteFiles(instance, domain);
     handles.set(`${record.name}.caddy`, files.handles);

@@ -63,7 +63,7 @@ export function graceLeftMs(reach: Reach | undefined, now: Date, afterMs: number
 export const isDown = (reach: Reach | undefined): boolean => reach?.toldDown === true && reach.reachable === false;
 
 export const watched = (instance: InstanceRecord, watch: Pick<InstanceWatchRecord, 'presence'> | undefined): boolean =>
-  inService(instance) && instance.status !== 'paused' && watch?.presence === true;
+  inService(instance) && watch?.presence === true;
 
 export function presenceAuth(raw: unknown): { instanceId: string; token: string } | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -71,10 +71,8 @@ export function presenceAuth(raw: unknown): { instanceId: string; token: string 
   return typeof instanceId === 'string' && instanceId && typeof token === 'string' && token ? { instanceId, token } : undefined;
 }
 
-export const tellsOwner = (instance: Pick<InstanceRecord, 'pool'>, watch: Pick<InstanceWatchRecord, 'notifyWhenUnreachable'> | undefined): boolean =>
-  Boolean(instance.pool) || watch?.notifyWhenUnreachable !== false;
-
-export const tellsOperator = (instance: Pick<InstanceRecord, 'pool'>): boolean => Boolean(instance.pool);
+export const tellsOwner = (watch: Pick<InstanceWatchRecord, 'notifyWhenUnreachable'> | undefined): boolean =>
+  watch?.notifyWhenUnreachable !== false;
 
 const minutesSince = (since: string | undefined, now: Date): number =>
   since ? Math.max(1, Math.round((now.getTime() - Date.parse(since)) / 60_000)) : 0;
@@ -83,26 +81,21 @@ const named = (instance: Pick<InstanceRecord, 'id' | 'name'>): string => instanc
 
 export function instanceReachMail(
   tell: Tell,
-  instance: Pick<InstanceRecord, 'id' | 'name' | 'pool' | 'url'>,
+  instance: Pick<InstanceRecord, 'id' | 'name' | 'url'>,
   reach: Reach,
   now: Date,
-  toOperator = false,
 ): { subject: string; text: string } {
   const who = named(instance);
-  const where = instance.pool ? 'on Koala\'s servers' : 'on its own machine';
   if (tell === 'down') {
     const minutes = minutesSince(reach.unreachableSince, now);
-    const cause = instance.pool
-      ? 'It runs on Koala\'s servers, so this is ours to look at.'
-      : 'It runs on its owner\'s own machine: that machine may be off, asleep or offline.';
     return {
-      subject: `${toOperator ? 'An instance' : 'Your instance'} ${who} has not answered for ${minutes} minutes`,
-      text: `${who} ${where} has not been in touch with root for ${minutes} minutes${reach.lastSeenAt ? `; it was last in touch at ${reach.lastSeenAt}` : ''}. ${cause} Root says so once when it is back.${toOperator || instance.pool ? '' : ' You can switch these emails off in your instance\'s Settings → Notifications.'}`,
+      subject: `Your instance ${who} has not answered for ${minutes} minutes`,
+      text: `${who} on its own machine has not been in touch with root for ${minutes} minutes${reach.lastSeenAt ? `; it was last in touch at ${reach.lastSeenAt}` : ''}. It runs on its owner's own machine: that machine may be off, asleep or offline. Root says so once when it is back. You can switch these emails off in your instance's Settings → Notifications.`,
     };
   }
   return {
-    subject: `${toOperator ? 'Instance' : 'Your instance'} ${who} answers again`,
-    text: `${who} ${where} is in touch with root again since ${now.toISOString()}.`,
+    subject: `Your instance ${who} answers again`,
+    text: `${who} on its own machine is in touch with root again since ${now.toISOString()}.`,
   };
 }
 

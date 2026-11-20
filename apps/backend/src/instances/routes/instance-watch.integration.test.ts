@@ -16,8 +16,8 @@ async function instanceOn(setting: InstanceWatchSetting | undefined, owner = TES
   return harness;
 }
 
-async function aRoot(options: { pool?: boolean } = {}): Promise<RootWithAnInstance> {
-  const root = await rootWithAnInstance(options);
+async function aRoot(): Promise<RootWithAnInstance> {
+  const root = await rootWithAnInstance();
   opened.push(root);
   return root;
 }
@@ -33,8 +33,8 @@ describe('whether root emails the instance\'s owner when it cannot be reached', 
     const asked: string[] = [];
     const setting = new InstanceWatchSetting(root.instance, recording(asked));
     const harness = await instanceOn(setting);
-    expect((await axios.get(harness.url(prefix))).data).toEqual({ notifyWhenUnreachable: true, alwaysTold: false });
-    expect((await axios.put(harness.url(prefix), { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect((await axios.get(harness.url(prefix))).data).toEqual({ notifyWhenUnreachable: true });
+    expect((await axios.put(harness.url(prefix), { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false });
     expect((await axios.put(harness.url(prefix), { notifyWhenUnreachable: 'no' }, { validateStatus: () => true })).status).toBe(400);
     const credential = await root.instance.token();
     expect(asked).toEqual([
@@ -50,10 +50,7 @@ describe('whether root emails the instance\'s owner when it cannot be reached', 
   });
 
   it('passes root\'s refusal on, and says so where nothing is watched', async () => {
-    const root = await aRoot({ pool: true });
-    const harness = await instanceOn(new InstanceWatchSetting(root.instance));
-    const refused = await axios.put<{ error?: string }>(harness.url(prefix), { notifyWhenUnreachable: false }, { validateStatus: () => true });
-    expect([refused.status, refused.data.error]).toEqual([409, 'an instance on Koala\'s servers always tells its owner when it cannot be reached']);
+    const root = await aRoot();
     const stranger = await instanceOn(new InstanceWatchSetting({ ...root.instance, token: async () => 'not-its-credential' }));
     const unknown = await axios.get<{ error?: string }>(stranger.url(prefix), { validateStatus: () => true });
     expect([unknown.status, unknown.data.error]).toEqual([401, 'unknown instance or credential']);

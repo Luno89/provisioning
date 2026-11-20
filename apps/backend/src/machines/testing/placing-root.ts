@@ -11,7 +11,7 @@ import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { generateIdentityKey } from '../../instances/lib/identity-token.js';
-import { InstanceService, type PoolWorkflows } from '../../instances/services/InstanceService.js';
+import { InstanceService } from '../../instances/services/InstanceService.js';
 import { NO_MESH, rootInstanceSettings } from '../../instances/testing/root-installs.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
@@ -62,7 +62,6 @@ export interface PlacingRoot {
   instances: InstanceService;
   sides: MachineSides;
   told: unknown[];
-  movesStarted: string[];
   close(): Promise<void>;
 }
 
@@ -82,19 +81,12 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const io = new SocketServer(server);
   io.on('connection', (socket) => { void socket.join(userRoom('bo')); });
-  const movesStarted: string[] = [];
-  const pool: PoolWorkflows = {
-    start: async () => undefined, trialChanged: async () => undefined, remove: async () => undefined,
-    move: async (instanceId) => { movesStarted.push(instanceId); },
-  };
   let sides: MachineSides | undefined;
   const settings = rootInstanceSettings(() => sides!.installs!);
   const instances = new InstanceService(db, {
     ...settings,
     ...(options.rootUrlIsServed ? { rootUrl: url } : {}),
-    pool: { slots: 1, trialDays: 14 },
-    moves: { joinCode: (ownerId, koalaName) => sides!.accounts!.createJoinCode(ownerId, koalaName, true), poolClusterId: (name) => `pool-${name}` },
-  }, NO_MESH, () => new Date(), () => undefined, pool);
+  }, NO_MESH, () => new Date(), () => undefined);
   sides = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() }),
     db, io, dataKey: 'koala-placement-key', publicUrl: 'http://root.test', meshLoginServer: 'https://mesh.test',
@@ -115,7 +107,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
   browser.on(KOALA_INSTALL_CHANGED, (said: unknown) => told.push(said));
   await until(async () => (browser.connected ? true : undefined));
   return {
-    url, accounts, installs, instances, sides, told, movesStarted,
+    url, accounts, installs, instances, sides, told,
     close: async () => {
       browser.close();
       await sides!.installsWatched!.close();

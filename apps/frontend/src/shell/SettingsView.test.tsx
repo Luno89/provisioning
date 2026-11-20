@@ -19,7 +19,6 @@ vi.mock('../features/accounts', () => ({
   OtherSessions: () => <div>Other sessions</div>,
 }));
 vi.mock('../features/instances', () => ({
-  InstanceMove: () => <div>Move</div>,
   InstanceUpdates: () => <div>Updates</div>,
   InstanceWatch: () => <div>Watch</div>,
 }));

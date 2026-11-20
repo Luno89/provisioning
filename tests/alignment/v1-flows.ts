@@ -17,7 +17,7 @@ export const V1_FLOWS: Flow[] = [
       },
       {
         id: 'A2',
-        does: 'Signed in with no Koala yet, root\'s page offers Add a machine (and a trial on Koala\'s servers, outside v1).',
+        does: 'Signed in with no Koala yet, root\'s page offers Add a machine.',
         screen: { on: 'root', component: `${UI}/instances/components/NoInstance.tsx#NoInstance` },
         code: ['apps/frontend/src/features/machines/api.ts#listMyMachines'],
         decisions: ['adding-a-machine-is-the-product', 'koala-on-a-machine', 'pool'],

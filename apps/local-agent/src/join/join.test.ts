@@ -462,13 +462,6 @@ describe('following root putting Koala on the machine it joined', () => {
     expect(lastLine(ran.said)).toBe(`Putting Koala on this machine stopped at ${CHART}: the image could not be pulled`);
   });
 
-  it('says a move is a move', async () => {
-    const world = linux(() => streamed(event({ install: { ...install('failed', { stage: 'keys', title: 'Bringing your keys', why: 'the pool copy is gone' }), move: true } })));
-    const ran = await join(world, ['--yes', 'the-code']);
-    expect(ran.code).toBe(1);
-    expect(lastLine(ran.said)).toBe('Moving your Koala to this machine stopped at Bringing your keys: the pool copy is gone');
-  });
-
   it('fails saying why when root would not put Koala on the machine', async () => {
     const world = linux(() => streamed(event({ why: 'your Koala is on laptop; moving it is a step of its own' }, 'stopped')));
     const ran = await join(world, ['--yes', 'the-code']);

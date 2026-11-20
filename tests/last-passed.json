@@ -49,10 +49,6 @@
   "machine-chat-live": {
     "passed": "2026-10-28T02:48:34.732Z"
   },
-  "pool-live": {
-    "failed": "2026-10-31T20:44:38.419Z",
-    "passed": "2026-11-02T05:52:08.680Z"
-  },
   "odoo-customizations-live": {
     "failed": "2026-10-29T15:22:26.872Z",
     "passed": "2026-11-02T06:53:00.707Z"

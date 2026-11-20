@@ -3,8 +3,7 @@ import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
 import { ROLLOUT_KINDS } from '@koala/provision';
 import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
-import { koalaClusterMonitoring } from '../monitoring/lib/cluster-monitoring.js';
-import { MONITORING_CHARTS } from '../monitoring/lib/pool-monitoring.js';
+import { koalaClusterMonitoring, MONITORING_CHARTS } from '../monitoring/lib/cluster-monitoring.js';
 import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';

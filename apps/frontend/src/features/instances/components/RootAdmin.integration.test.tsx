@@ -4,7 +4,6 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { PoolSection } from './PoolSection'
 import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
 import { getMailReputation, mailReputationKeys } from '../api/mail-reputation'
@@ -58,12 +57,6 @@ await backend.signIn()
 const opened = (section: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>{section}</QueryClientProvider>)
 
 describe('root\'s admin sections, as an operator reads them against root\'s own routes', () => {
-  it('says this root has no pool where Koala\'s servers would be listed', async () => {
-    const page = opened(<PoolSection />)
-    expect((await shown(() => screen.queryByRole('alert'))).textContent).toBe('this root has no pool')
-    page.unmount()
-  })
-
   it('says the check of Koala\'s dependencies could not finish while OSV is down', async () => {
     const page = opened(<DependenciesSection />)
     await shown(() => screen.queryByText('Not checked yet'))

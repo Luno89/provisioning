@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_UNREACHABLE_MINUTES, graceLeftMs, instanceReachMail, isDown, nextReach, presenceAuth, reachAtStart, rootReachPush, tellsOperator, tellsOwner, unreachableAfterMs, watched,
+  DEFAULT_UNREACHABLE_MINUTES, graceLeftMs, instanceReachMail, isDown, nextReach, presenceAuth, reachAtStart, rootReachPush, tellsOwner, unreachableAfterMs, watched,
 } from './instance-watch.js';
 import type { InstanceRecord } from './instances.js';
 
@@ -65,13 +65,12 @@ describe('one instance watched over time', () => {
 describe('which instances root watches and whom it tells', () => {
   const base: InstanceRecord = { id: 'inst-a', ownerId: 'o', url: 'https://a.example', createdAt: '', updatedAt: '', status: 'ready', meshIp: '100.64.0.9', name: 'a' };
 
-  it('watches an instance in service that has connected, mesh or not, never a stopped or waiting one', () => {
+  it('watches an instance in service that has connected, mesh or not, never a waiting one', () => {
     const present = { presence: true };
     expect(watched(base, present)).toBe(true);
     expect(watched({ ...base, meshIp: undefined }, present)).toBe(true);
     expect(watched(base, undefined)).toBe(false);
     expect(watched(base, { presence: false })).toBe(false);
-    expect(watched({ ...base, status: 'paused' }, present)).toBe(false);
     expect(watched({ ...base, status: 'waiting' }, present)).toBe(false);
   });
 
@@ -83,15 +82,10 @@ describe('which instances root watches and whom it tells', () => {
     expect(presenceAuth('inst-a')).toBeUndefined();
   });
 
-  it('always tells a pool instance\'s owner and the operator; an own machine\'s owner unless switched off', () => {
-    const pool = { ...base, pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: '', trialEndsAt: '' } } as InstanceRecord;
-    expect(tellsOwner(pool, undefined)).toBe(true);
-    expect(tellsOwner(pool, { notifyWhenUnreachable: false })).toBe(true);
-    expect(tellsOperator(pool)).toBe(true);
-    expect(tellsOwner(base, undefined)).toBe(true);
-    expect(tellsOwner(base, { notifyWhenUnreachable: true })).toBe(true);
-    expect(tellsOwner(base, { notifyWhenUnreachable: false })).toBe(false);
-    expect(tellsOperator(base)).toBe(false);
+  it('tells an own machine\'s owner unless switched off', () => {
+    expect(tellsOwner(undefined)).toBe(true);
+    expect(tellsOwner({ notifyWhenUnreachable: true })).toBe(true);
+    expect(tellsOwner({ notifyWhenUnreachable: false })).toBe(false);
   });
 
   it('writes the email from what root saw, never anything the person typed', () => {
@@ -100,7 +94,6 @@ describe('which instances root watches and whom it tells', () => {
     expect(down.text).toMatch(/own machine: that machine may be off, asleep or offline/);
     expect(down.text).toMatch(/Settings → Notifications/);
     expect(instanceReachMail('back', base, { reachable: true }, at(13)).subject).toBe('Your instance a (inst-a) answers again');
-    expect(instanceReachMail('down', base, { reachable: false, unreachableSince: at(0).toISOString() }, at(12), true).subject).toMatch(/^An instance/);
     expect(rootReachPush('down', 'https://app.example', { reachable: false, unreachableSince: at(0).toISOString() }, at(11)).body).toMatch(/for 11 minutes/);
     expect(rootReachPush('back', 'https://app.example', { reachable: true }, at(12)).title).toBe('Koala\'s root answers again');
   });

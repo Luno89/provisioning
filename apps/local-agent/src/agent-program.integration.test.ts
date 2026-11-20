@@ -244,7 +244,7 @@ describe('Koala placed on this machine by root and then stopped by root, as the 
     try {
       while (hanging.length === 0 && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
       expect(child.exitCode, here.said.join('')).toBeNull();
-      toRoot[0]!.emit(STOP_KOALA, { installId: 'program-stopped', remove: false });
+      toRoot[0]!.emit(STOP_KOALA, { installId: 'program-stopped' });
       while (!here.said.join('').includes('Putting Koala on this machine stopped: root stopped it before it finished') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
       expect(reports.map(({ progress }) => `${String(progress.stage)} ${String(progress.state)}`), here.said.join('')).toEqual(['cluster started', 'cluster already-done', 'chart started']);
       expect(child.exitCode, here.said.join('')).toBeNull();

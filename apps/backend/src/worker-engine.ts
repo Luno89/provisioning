@@ -20,7 +20,7 @@ import {
   publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
-import { rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
+import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
@@ -52,7 +52,7 @@ import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
-import { poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
+import { collectorSink } from './monitoring/index.js';
 import { checkServices } from './platform/wiring/dependencies.js';
 import { monitoringServiceFor } from './monitoring/wiring/monitoring.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
@@ -178,8 +178,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     `session=${engineRole.role === 'instance' && rootSignIn
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
-  const placeOnPool = poolMonitorFrom(settings.poolMonitor, rootTokenOf(rootSignIn));
-  const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
+  const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({
     store: db.engine,

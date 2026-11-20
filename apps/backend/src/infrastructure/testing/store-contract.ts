@@ -6,7 +6,7 @@ import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.j
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { InfrastructureStore } from '../store.js';
-import { broughtOver, MOVE_IN_ID, openedRecord, pieceHeard, runEnded, type MoveIn, type ProvisioningRecord } from '../lib/provisioning.js';
+import { openedRecord, pieceHeard, runEnded, type ProvisioningRecord } from '../lib/provisioning.js';
 
 const cluster = (id: string, extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: `cluster-${id}`, provider: 'machine', status: 'healthy', ownerId: 'owner-1', ...extra });
 
@@ -580,23 +580,6 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       await watching.close();
 
       expect(listening.heard).toEqual([`${opened.id} running -`, `${opened.id} running provision-machine-desk`, `${opened.id} up provision-machine-desk`]);
-    });
-  });
-
-  describe('what a move left to bring over', () => {
-    it('keeps the one move onto this Koala as it was saved, replaced by a later one, until it is brought over', async () => {
-      const store = await make();
-      expect(await store.getMoveIn()).toBeUndefined();
-      const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'owner-1', from: 'pool-shop', onto: 'machine-desk', at: '2026-11-18T10:00:00.000Z' };
-      await store.saveMoveIn(moveIn);
-      expect(await store.getMoveIn()).toEqual(moveIn);
-
-      const again = { ...moveIn, at: '2026-11-18T11:00:00.000Z' };
-      await store.saveMoveIn(again);
-      expect(await store.getMoveIn()).toEqual(again);
-
-      await store.saveMoveIn(broughtOver(again, '2026-11-18T11:30:00.000Z'));
-      expect(await store.getMoveIn()).toEqual({ ...again, broughtAt: '2026-11-18T11:30:00.000Z' });
     });
   });
 

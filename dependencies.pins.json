@@ -600,10 +600,6 @@
           "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
         },
         {
-          "file": "scripts/root-node/pool-node.sh",
-          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
-        },
-        {
           "file": "apps/local-agent/src/join/pins.ts",
           "pattern": "K3S_VERSION = '(v[0-9.]+\\+k3s[0-9]+)'"
         }
@@ -611,10 +607,6 @@
       "shaUses": [
         {
           "file": "scripts/cluster.sh",
-          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
-        },
-        {
-          "file": "scripts/root-node/pool-node.sh",
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
         },
         {
@@ -628,16 +620,6 @@
         },
         {
           "file": "scripts/cluster.sh",
-          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
-          "arch": "linux-arm64"
-        },
-        {
-          "file": "scripts/root-node/pool-node.sh",
-          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
-          "arch": "linux-amd64"
-        },
-        {
-          "file": "scripts/root-node/pool-node.sh",
           "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
@@ -657,27 +639,6 @@
         "linux-arm64": "c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb"
       },
       "released": "2026-08-21T15:27:13Z"
-    },
-    {
-      "kind": "binary",
-      "name": "gvisor",
-      "version": "20261005.0",
-      "source": "https://storage.googleapis.com/gvisor/releases/release/20261005.0/x86_64/gvisor.tar.zstd",
-      "sha512": "27fed731b432d6a39d908956623fd273979fda66b3ccf4b9c12413ea417c516e18a9dc3cced403fb28efe495d64dce4251f51cf8c4d9f4a72f9833bd96b6bb35",
-      "github": "google/gvisor",
-      "uses": [
-        {
-          "file": "scripts/root-node/gvisor.sh",
-          "pattern": "RELEASE=\"([0-9.]+)\""
-        }
-      ],
-      "shaUses": [
-        {
-          "file": "scripts/root-node/gvisor.sh",
-          "pattern": "SHA512=\"([0-9a-f]{128})\""
-        }
-      ],
-      "released": "2026-10-08T17:26:26Z"
     },
     {
       "kind": "binary",
@@ -776,10 +737,6 @@
         {
           "file": "docker-compose.caddy.yml",
           "pattern": "nowrinkles/caddy:([0-9.]+)"
-        },
-        {
-          "file": "apps/backend/src/instances/lib/pool.ts",
-          "pattern": "PROXY_IMAGE = 'caddy:([0-9.]+)-alpine'"
         }
       ],
       "released": "2025-08-23T01:46:14Z"
@@ -981,22 +938,6 @@
           "pattern": "keysImage: busybox:([0-9.]+)"
         },
         {
-          "file": "apps/backend/src/activities/pool-node.ts",
-          "pattern": "--image=busybox:([0-9.]+)"
-        },
-        {
-          "file": "apps/backend/src/instances/services/MoveExport.ts",
-          "pattern": "HELPER_IMAGE = 'busybox:([0-9.]+)'"
-        },
-        {
-          "file": "apps/backend/src/activities/move-over.ts",
-          "pattern": "BUSYBOX = 'busybox:([0-9.]+)'"
-        },
-        {
-          "file": "scripts/root-node/gvisor.sh",
-          "pattern": "--image=busybox:([0-9.]+)"
-        },
-        {
           "file": "apps/backend/src/releases/lib/client-import.ts",
           "pattern": "HOLDER_IMAGE = 'busybox:([0-9.]+)'"
         }
@@ -1085,12 +1026,12 @@
       "kind": "chart",
       "name": "kube-prometheus-stack",
       "version": "91.7.0",
-      "where": "every cluster that runs apps, a pool node, and a person's Prometheus app",
+      "where": "every cluster that runs apps, and a person's Prometheus app",
       "source": "https://prometheus-community.github.io/helm-charts",
       "github": "prometheus-community/helm-charts",
       "uses": [
         {
-          "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
+          "file": "apps/backend/src/monitoring/lib/cluster-monitoring.ts",
           "pattern": "chart: 'kube-prometheus-stack', version: '([0-9.]+)'"
         },
         {
@@ -1109,7 +1050,7 @@
       "released": "2026-09-26T10:18:11Z",
       "sourceUses": [
         {
-          "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
+          "file": "apps/backend/src/monitoring/lib/cluster-monitoring.ts",
           "pattern": "repo: '([^']+)'"
         },
         {
@@ -1134,12 +1075,12 @@
       "kind": "chart",
       "name": "prometheus-blackbox-exporter",
       "version": "11.19.1",
-      "where": "every cluster that runs apps, and a pool node",
+      "where": "every cluster that runs apps",
       "source": "https://prometheus-community.github.io/helm-charts",
       "github": "prometheus-community/helm-charts",
       "uses": [
         {
-          "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
+          "file": "apps/backend/src/monitoring/lib/cluster-monitoring.ts",
           "pattern": "chart: 'prometheus-blackbox-exporter', version: '([0-9.]+)'"
         },
         {
@@ -1300,13 +1241,13 @@
       },
       "uses": [
         {
-          "file": "apps/backend/src/instances/lib/pool.ts",
+          "file": "apps/backend/src/activities/vcluster.ts",
           "pattern": "VCLUSTER_CHART_VERSION = '([0-9.]+)'"
         }
       ],
       "shaUses": [
         {
-          "file": "apps/backend/src/instances/lib/pool.ts",
+          "file": "apps/backend/src/activities/vcluster.ts",
           "pattern": "VCLUSTER_CHART_SHA256 = '([0-9a-f]{64})'"
         }
       ],
@@ -1452,10 +1393,6 @@
           "pattern": "TAILSCALE_VERSION = '([0-9.]+)'"
         },
         {
-          "file": "scripts/root-node/pool-node.sh",
-          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
-        },
-        {
           "file": "scripts/root-node/bootstrap.sh",
           "pattern": "TAILSCALE_VERSION=([0-9.]+)"
         }
@@ -1469,16 +1406,6 @@
         {
           "file": "apps/local-agent/src/join/pins.ts",
           "pattern": "TAILSCALE_SHA256_ARM64 = '([0-9a-f]{64})'",
-          "arch": "linux-arm64"
-        },
-        {
-          "file": "scripts/root-node/pool-node.sh",
-          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
-          "arch": "linux-amd64"
-        },
-        {
-          "file": "scripts/root-node/pool-node.sh",
-          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         }
       ],

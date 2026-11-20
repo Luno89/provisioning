@@ -178,23 +178,23 @@ describe('checking a release before tagging it', () => {
 
   it('counts the steps passed for this commit, or for its parent when only the ledger moved', () => {
     expect(checkedThrough({ record: { commit: 'b', checked: [passed('test:mail-live')] }, onlyLedgerSinceParent: false }).map((step) => step.script)).toEqual(['test:mail-live']);
-    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:pool-live')] }, onlyLedgerSinceParent: true }).map((step) => step.script)).toEqual(['test:pool-live']);
-    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:pool-live')] }, onlyLedgerSinceParent: false })).toEqual([]);
+    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:restore-live')] }, onlyLedgerSinceParent: true }).map((step) => step.script)).toEqual(['test:restore-live']);
+    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:restore-live')] }, onlyLedgerSinceParent: false })).toEqual([]);
   });
 
   it('runs only the steps not yet passed', () => {
-    const left = stillToRun(RELEASE_STEPS, [passed('test:mail-live'), passed('test:pool-live')]).map((step) => step.script);
+    const left = stillToRun(RELEASE_STEPS, [passed('test:mail-live'), passed('test:restore-live')]).map((step) => step.script);
     expect(left).not.toContain('test:mail-live');
-    expect(left).not.toContain('test:pool-live');
+    expect(left).not.toContain('test:restore-live');
     expect(left).toHaveLength(RELEASE_STEPS.length - 2);
   });
 
   it('packs steps into rounds by memory, the biggest first, and runs a step marked alone by itself', () => {
     const rounds = roundsOf([
-      { id: 'pool', memoryMB: 28672 }, { id: 'mesh', memoryMB: 15360 }, { id: 'routing', memoryMB: 12288 },
+      { id: 'restore', memoryMB: 28672 }, { id: 'mesh', memoryMB: 15360 }, { id: 'routing', memoryMB: 12288 },
       { id: 'k3d', memoryMB: 4096, alone: true as const }, { id: 'mail', memoryMB: 512 },
     ], 30000).map((round) => round.map((item) => item.id));
-    expect(rounds).toEqual([['k3d'], ['pool', 'mail'], ['mesh', 'routing']]);
+    expect(rounds).toEqual([['k3d'], ['restore', 'mail'], ['mesh', 'routing']]);
   });
 
   it('gives every release step a memory size, so none is packed as free', () => {

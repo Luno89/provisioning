@@ -1,6 +1,12 @@
 import type { Reach } from '../../infrastructure/index.js';
 import { appServiceType, placedOnPool } from '../../infrastructure/lib/cluster-places.js';
-import { MONITORING_CHARTS } from './pool-monitoring.js';
+
+export const MONITORING_CHARTS = {
+  namespace: 'monitoring',
+  stack: { release: 'kube-prometheus-stack', chart: 'kube-prometheus-stack', version: '91.7.0' },
+  blackbox: { release: 'blackbox-exporter', chart: 'prometheus-blackbox-exporter', version: '11.19.1' },
+  repo: 'https://prometheus-community.github.io/helm-charts',
+} as const;
 
 export const PROBE_RESOURCE = 'probes.monitoring.coreos.com';
 

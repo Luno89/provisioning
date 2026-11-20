@@ -1,13 +1,12 @@
 import type { InstancesStore } from '../store.js';
 import type { InstanceRecord } from '../lib/instances.js';
 import {
-  graceLeftMs, instanceReachMail, nextReach, reachAtStart, tellsOperator, tellsOwner, watched, type InstanceWatchRecord, type Reach, type Tell,
+  graceLeftMs, instanceReachMail, nextReach, reachAtStart, tellsOwner, watched, type InstanceWatchRecord, type Reach, type Tell,
 } from '../lib/instance-watch.js';
 
 export interface InstancePresenceDeps {
   store: Pick<InstancesStore, 'getInstances' | 'getWatches' | 'getWatch' | 'saveReach' | 'savePresence'>;
   tellOwner: (ownerId: string, message: { subject: string; text: string }) => Promise<void>;
-  tellOperators: (message: { subject: string; text: string }) => Promise<void>;
   afterMs: number;
   now?: () => Date;
   log?: (message: string) => void;
@@ -114,13 +113,9 @@ export class InstancePresence {
 
   private async tell(instance: InstanceRecord, watch: InstanceWatchRecord | undefined, tell: Tell, reach: Reach): Promise<void> {
     const now = this.now();
-    if (tellsOwner(instance, watch)) {
+    if (tellsOwner(watch)) {
       await this.deps.tellOwner(instance.ownerId, instanceReachMail(tell, instance, reach, now))
         .catch((err: Error) => this.log(`[instance-presence] could not tell the owner of ${instance.id}: ${err.message}`));
-    }
-    if (tellsOperator(instance)) {
-      await this.deps.tellOperators(instanceReachMail(tell, instance, reach, now, true))
-        .catch((err: Error) => this.log(`[instance-presence] could not tell the operator about ${instance.id}: ${err.message}`));
     }
   }
 

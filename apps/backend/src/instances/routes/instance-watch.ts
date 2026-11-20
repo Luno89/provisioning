@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute, authorize, principalFrom } from '../../platform/index.js';
-import { RootRefused } from '../services/InstanceTrial.js';
+import { RootRefused } from '../services/InstanceWatchSetting.js';
 import type { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
 
 const refused = (res: Response, err: unknown) =>

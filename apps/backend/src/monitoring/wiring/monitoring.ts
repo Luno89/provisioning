@@ -10,7 +10,6 @@ import { MonitoringService, prometheusAt, type MonitoringDeps, type MonitoringSo
 import { alertNotice, alertWhere } from '../lib/alert-notices.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
-import { poolMonitor, poolMonitorFrom } from '../services/PoolMonitor.js';
 import type { Mounts } from '../../hub/index.js';
 
 export interface MonitoringWiringDeps {
@@ -20,7 +19,6 @@ export interface MonitoringWiringDeps {
   operatorOnly: RequestHandler;
   db: Database;
   role: RoleConfig;
-  poolMonitor: { rootUrl: string; instanceId: string } | { off: string };
   io: Pick<SocketServer, 'to'>;
   clusters: MonitoredClusters;
   proxy: PrometheusProxy;
@@ -29,7 +27,6 @@ export interface MonitoringWiringDeps {
   push: PushService;
   mail: MailService;
   people: ConstructorParameters<typeof AlertWatchService>[0]['people'];
-  rootToken?: (() => Promise<string>) | undefined;
 }
 
 export type MonitoredClusters = Pick<ClusterService, 'ownCluster' | 'ownClusterId' | 'access'>;
@@ -39,7 +36,6 @@ export interface MonitoringServiceParts {
   db: MonitoringSources;
   clusters: MonitoredClusters;
   proxy: PrometheusProxy;
-  pool?: ReturnType<typeof poolMonitor> | undefined;
   machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;
   rootAlerts?: boolean | undefined;
   instanceAlerts?: boolean | undefined;
@@ -52,7 +48,6 @@ export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps
     store: parts.db,
     ownCluster: () => clusters.ownCluster(),
     ownClusterId: () => clusters.ownClusterId(),
-    pool: (cluster) => (cluster.id === clusters.ownClusterId() ? parts.pool : undefined),
     ...(parts.machineStatus ? { machineStatus: parts.machineStatus } : {}),
     prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus')),
     ...runnersByRecord(access),
@@ -66,12 +61,10 @@ export const monitoringServiceFor = (parts: MonitoringServiceParts): MonitoringS
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
   const { tenant, db, role, notices, notifications } = deps;
   const watchesItself = role.role === 'root';
-  const placeOnPool = poolMonitorFrom(deps.poolMonitor, deps.rootToken);
   const monitoring = monitoringServiceFor({
     db,
     clusters: deps.clusters,
     proxy: deps.proxy,
-    pool: placeOnPool ? poolMonitor(placeOnPool) : undefined,
     machineStatus: deps.machineStatus,
     rootAlerts: watchesItself,
     instanceAlerts: servesTenants(role),

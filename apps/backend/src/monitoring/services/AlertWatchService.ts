@@ -14,7 +14,7 @@ export const HISTORY_RETRY_MS = 10 * 60_000;
 export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
-  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyReceiver' | 'applyRequestMetrics' | 'applyOwnRules' | 'syncPoolProbes'>;
+  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyReceiver' | 'applyRequestMetrics' | 'applyOwnRules'>;
   store: Pick<Database, 'infrastructure' | 'monitoring'>;
   people(): Promise<Principal[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
@@ -63,7 +63,6 @@ export class AlertWatchService {
     for (const cluster of clusters) {
       const reached = await this.deps.monitoring.reach(cluster);
       if (!reached.metrics) continue;
-      await this.deps.monitoring.syncPoolProbes(cluster).catch((err: Error) => this.deps.log?.(`[alerts] ${cluster.name}: its probes were not handed to Koala's servers (${err.message})`));
       await this.reconcileHistory(cluster);
       const alerts = await reached.metrics.alerts().catch((err: Error) => {
         this.deps.log?.(`[alerts] ${cluster.name}: its alerts could not be read, so none are opened or resolved this pass (${err.message})`);

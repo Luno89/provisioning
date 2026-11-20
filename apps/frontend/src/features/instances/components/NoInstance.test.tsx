@@ -25,7 +25,6 @@ describe('choosing a name before bringing a machine in', () => {
     vi.clearAllMocks()
     vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: unknown }) => {
       if (url === '/instances/mine') return { data: { instance: null } }
-      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
       if (url === '/my-machines') return { data: { koala: null, machines: [{ id: 'desk', name: 'desk', rootDir: '/x', createdAt: 't', online: true, meshIp: '100.64.0.7', koalaWanted: false, holdsKoala: false }] } }
       return { data: names[(config?.params as { name?: string } | undefined)?.name ?? ''] ?? { ok: false } }
     })
@@ -64,99 +63,14 @@ describe('choosing a name before bringing a machine in', () => {
   })
 })
 
-describe('trying Koala on its own servers', () => {
-  let mine: object | null
-  let offer: object
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mine = null
-    offer = { available: true, trialDays: 14 }
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: unknown }) => {
-      if (url === '/instances/mine') return { data: { instance: mine } }
-      if (url === '/instances/pool') return { data: offer }
-      return { data: names[(config?.params as { name?: string } | undefined)?.name ?? ''] ?? { ok: false } }
-    })
-    vi.mocked(api.post).mockImplementation(async () => {
-      mine = { id: 'inst-1', status: 'installing', url: '', name: 'luno', detail: 'Making your space on Koala\'s servers', trialEndsAt: '2026-11-03T00:00:00.000Z' }
-      return { data: { id: 'inst-1', name: 'luno', trialEndsAt: '2026-11-03T00:00:00.000Z' } }
-    })
-  })
-
-  it('offers the trial with how long it lasts, then shows its install under the name picked', async () => {
-    renderPage()
-    expect(await screen.findByText(/free for 14 days/)).toBeInTheDocument()
-    const start = await screen.findByRole('button', { name: /Try it on Koala's servers/ })
-    await waitFor(() => expect(start).toBeEnabled())
-    fireEvent.click(start)
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/pool', { name: 'luno' }))
-    expect(await screen.findByText('Setting up your instance on Koala\'s servers')).toBeInTheDocument()
-    expect(screen.getByText(/keeping all your work/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Use my own machine/ })).not.toBeInTheDocument()
-  })
-
-  it('says why when the servers are full, and still offers the person\'s own machine', async () => {
-    offer = { available: false, reason: 'Koala\'s servers are full right now; use your own machine, or try again later', trialDays: 14 }
-    renderPage()
-    expect(await screen.findByText(/servers are full right now/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Try it on Koala's servers/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Use my own machine/ })).toBeInTheDocument()
-  })
-
-  it('picks up an install already under way, and offers to try again once it failed', async () => {
-    mine = { id: 'inst-1', status: 'failed', url: '', name: 'luno', detail: 'the pool\'s node has no gVisor runtime yet', trialEndsAt: '2026-11-03T00:00:00.000Z' }
-    renderPage()
-    expect(await screen.findByRole('alert')).toHaveTextContent('no gVisor runtime yet')
-    fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/pool', { name: 'luno' }))
-  })
-
-  it('tells someone whose trial ended that it stopped, and until when its work is kept', async () => {
-    mine = { id: 'inst-1', status: 'paused', url: '', name: 'luno', detail: 'The trial has ended', trialEndsAt: '2026-11-03T12:00:00.000Z' }
-    renderPage()
-    expect(await screen.findByText(/ended on (3 November|November 3)/)).toBeInTheDocument()
-    expect(screen.getByText(/kept as it is until (3 December|December 3)/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Try it on Koala's servers/ })).not.toBeInTheDocument()
-    expect(screen.getByText('Your trial has ended')).toBeInTheDocument()
-  })
-})
-
-describe('moving a trial that ended onto the person\'s own machine', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(api.get).mockImplementation(async (url: string) => {
-      if (url === '/instances/mine') {
-        return { data: { instance: { id: 'inst-1', status: 'paused', url: '', name: 'luno', trialEndsAt: '2026-11-03T12:00:00.000Z', move: { state: 'failed', startedAt: '2026-11-18T10:00:00.000Z', machine: 'desk', detail: 'Moving Koala to desk stopped at Bringing Koala over: the pool copy\'s data could not be read' } } } }
-      }
-      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
-      if (url === '/my-machines') {
-        return { data: { joins: [], koala: { status: 'paused', install: { id: 'install-1', machineId: 'desk', state: 'failed', stage: 'koala', title: 'Bringing Koala over', why: 'the pool copy\'s data could not be read', at: '2026-11-18T10:05:00.000Z', move: true } }, machines: [{ id: 'desk', name: 'desk', rootDir: '/x', createdAt: 't', online: true, meshIp: '100.64.0.7', koalaWanted: false, holdsKoala: false }] } }
-      }
-      return { data: { ok: false } }
-    })
-    vi.mocked(api.post).mockResolvedValue({ data: { placing: true } })
-  })
-
-  it('keeps the machine a move stopped on, says where and why, and Move here tries again with no new command', async () => {
-    renderPage()
-    expect(await screen.findByText('Your trial has ended')).toBeInTheDocument()
-    expect(await screen.findByText(/Moving Koala to desk stopped at Bringing Koala over/)).toBeInTheDocument()
-    fireEvent.click(await screen.findByRole('button', { name: 'Move here' }))
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'luno' }))
-    expect(api.post).not.toHaveBeenCalledWith('/instances/move')
-    expect(screen.getByRole('button', { name: 'Move to my own machine' })).toBeInTheDocument()
-  })
-})
-
 describe('root\'s page when the owner\'s instance is not answering', () => {
   it('says so instead of sending them on, offers to try anyway, and switches the emails', async () => {
     vi.clearAllMocks()
     vi.mocked(api.get).mockImplementation(async (url: string) => {
-      if (url === '/instances/mine') return { data: { instance: { id: 'inst-1', status: 'ready', url: 'https://luno.koala.dev', name: 'luno', watch: { notifyWhenUnreachable: true, alwaysTold: false, reach: { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true } } } } }
-      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
+      if (url === '/instances/mine') return { data: { instance: { id: 'inst-1', status: 'ready', url: 'https://luno.koala.dev', name: 'luno', watch: { notifyWhenUnreachable: true, reach: { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true } } } } }
       return { data: { ok: false } }
     })
-    const put = vi.fn(async () => ({ data: { notifyWhenUnreachable: false, alwaysTold: false } }))
+    const put = vi.fn(async () => ({ data: { notifyWhenUnreachable: false } }))
     ;(api as unknown as { put: typeof put }).put = put
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><NoInstance hasInstance unreachableSince="2026-10-29T10:00:00.000Z" onLogout={() => {}} /></QueryClientProvider>)
@@ -173,7 +87,6 @@ describe('root\'s page when the owner\'s instance has not named its sign-in key'
     vi.clearAllMocks()
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === '/instances/mine') return { data: { instance: { id: 'inst-1', status: 'ready', url: 'https://luno.koala.dev', name: 'luno' } } }
-      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
       return { data: { ok: false } }
     })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

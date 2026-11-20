@@ -27,14 +27,13 @@ describe('the order routes are mounted in bootstrap', () => {
     expect(bootstrap.match(/app\.use\(express\.json\(/g)).toBeNull();
   });
 
-  it('puts the rate limits and the move gate before the guard, and the guard before every API router', () => {
+  it('puts the rate limits before the guard, and the guard before every API router', () => {
     const guard = at("app.use('/api', auth.requireAuth);");
     expect(at("app.use('/api', ...RATE_LIMITS.map(")).toBeLessThan(guard);
-    expect(at('await wireMoveExport({')).toBeLessThan(guard);
     const routers = [...bootstrap.matchAll(/^\s*(?:tenant|app)\.use\('\/api\/[a-z-]+'/gm)].map((match) => match.index!);
     expect(routers.length).toBeGreaterThan(0);
     expect(Math.min(...routers)).toBeGreaterThan(guard);
-    const wiring = [...bootstrap.matchAll(/^\s*(?:const \{[^}]*\} = |const \w+ = )?(?:await )?wire[A-Z]\w*\(/gm)].map((match) => match.index!).filter((index) => bootstrap.slice(index, index + 40).indexOf('wireMoveExport') < 0);
+    const wiring = [...bootstrap.matchAll(/^\s*(?:const \{[^}]*\} = |const \w+ = )?(?:await )?wire[A-Z]\w*\(/gm)].map((match) => match.index!);
     expect(Math.min(...wiring)).toBeGreaterThan(guard);
   });
 

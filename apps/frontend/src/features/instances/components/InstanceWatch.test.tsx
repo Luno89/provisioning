@@ -15,21 +15,14 @@ describe('an instance\'s Settings: when it cannot be reached', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('switches root\'s emails for an instance on its own machine', async () => {
-    vi.mocked(api.get).mockResolvedValue({ data: { notifyWhenUnreachable: true, alwaysTold: false } })
-    vi.mocked(api.put).mockResolvedValue({ data: { notifyWhenUnreachable: false, alwaysTold: false } })
+    vi.mocked(api.get).mockResolvedValue({ data: { notifyWhenUnreachable: true } })
+    vi.mocked(api.put).mockResolvedValue({ data: { notifyWhenUnreachable: false } })
     show()
     const box = await screen.findByRole('checkbox', { name: /Email me when my instance stops answering/ })
     expect(box).toBeChecked()
     fireEvent.click(box)
     await waitFor(() => expect(api.put).toHaveBeenCalledWith('/instance-watch', { notifyWhenUnreachable: false }))
     await waitFor(() => expect(screen.getByRole('checkbox')).not.toBeChecked())
-  })
-
-  it('says a trial on Koala\'s servers is always watched, and offers no switch', async () => {
-    vi.mocked(api.get).mockResolvedValue({ data: { notifyWhenUnreachable: true, alwaysTold: true } })
-    show()
-    expect(await screen.findByText(/always emails you, and Koala's operator/)).toBeInTheDocument()
-    expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
   it('shows nothing where root watches no instance', async () => {

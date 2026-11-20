@@ -5,8 +5,7 @@ import { join } from 'path';
 import { describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { CLUSTER_TOOL_PATHS, ClusterAccess } from '../infrastructure/index.js';
-import { VCLUSTER_CHART_SHA256 } from '../instances/index.js';
-import { vclusterChart, VCLUSTER_CHART_FILE } from './vcluster.js';
+import { vclusterChart, VCLUSTER_CHART_FILE, VCLUSTER_CHART_SHA256 } from './vcluster.js';
 
 describe('the vcluster chart, fetched from its repository', () => {
   it('is fetched once however many installs ask at once, checked against its pinned digest, and kept in its folder', async () => {

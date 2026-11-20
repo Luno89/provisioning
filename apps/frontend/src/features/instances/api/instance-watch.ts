@@ -16,7 +16,6 @@ export interface Reach {
 
 export interface WatchView {
   notifyWhenUnreachable: boolean
-  alwaysTold: boolean
   reach?: Reach
 }
 

@@ -13,7 +13,7 @@ const fresh = await emptiedEachTime();
 
 const GRACE = 300;
 const own: InstanceRecord = { id: 'inst-own', ownerId: 'person', url: 'https://own.example', createdAt: '', updatedAt: '', status: 'ready', name: 'own' };
-const pooled: InstanceRecord = { ...own, id: 'inst-pool', ownerId: 'trier', name: 'pooled', pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: '', trialEndsAt: '' } };
+const second: InstanceRecord = { ...own, id: 'inst-second', ownerId: 'trier', name: 'second' };
 
 const until = async <T>(look: () => T | undefined | Promise<T | undefined>): Promise<T> => {
   for (;;) {
@@ -29,7 +29,6 @@ let io: Server;
 let port: number;
 let presence: InstancePresence;
 let mailed: Array<{ to: string; subject: string }>;
-let operators: string[];
 let logged: string[];
 let mailFails: boolean;
 const clients: RootPresence[] = [];
@@ -46,7 +45,6 @@ async function startRoot(onPort = 0): Promise<void> {
       if (mailFails) throw new Error('mail is away');
       mailed.push({ to, subject: message.subject });
     },
-    tellOperators: async (message) => { operators.push(message.subject); },
     afterMs: GRACE,
     log: (message) => { logged.push(message); },
   });
@@ -86,12 +84,11 @@ const watchOf = async (id: string) => db.instances.getWatch(id);
 beforeEach(async () => {
   db = await fresh();
   mailed = [];
-  operators = [];
   logged = [];
   mailFails = false;
   arrivals = [];
   await db.instances.saveInstance(own);
-  await db.instances.saveInstance(pooled);
+  await db.instances.saveInstance(second);
   await startRoot();
 });
 
@@ -106,9 +103,9 @@ describe('root telling an instance over its connection', () => {
     const elsewhere: string[] = [];
     const heard = { connect: () => said.push('connected'), 'machines:changed': () => said.push('changed') };
     const { client } = instanceDialing(own, undefined, heard);
-    instanceDialing(pooled, undefined, { 'machines:changed': () => elsewhere.push('changed') });
+    instanceDialing(second, undefined, { 'machines:changed': () => elsewhere.push('changed') });
     await until(() => (client.connected() && arrivals.length === 2 ? true : undefined));
-    expect(arrivals.sort()).toEqual([own.id, pooled.id].sort());
+    expect(arrivals.sort()).toEqual([own.id, second.id].sort());
     tellInstance(own.id, 'machines:changed');
     await until(() => (said.includes('changed') ? true : undefined));
     expect(said).toEqual(['connected', 'changed']);
@@ -132,7 +129,6 @@ describe('an instance holding a connection to root', () => {
     expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(GRACE);
     expect(mailed[0]).toEqual({ to: 'person', subject: 'Your instance own (inst-own) has not answered for 1 minutes' });
     expect((await watchOf(own.id))?.reach?.toldDown).toBe(true);
-    expect(operators).toEqual([]);
 
     instanceDialing(own);
     await until(() => mailed.length === 2);
@@ -154,17 +150,16 @@ describe('an instance holding a connection to root', () => {
     expect(mailed).toEqual([]);
   });
 
-  it('tells a pool instance\'s operators too, and never an owner who switched it off', async () => {
+  it('never tells an owner who switched it off', async () => {
     await db.instances.saveNotifyWhenUnreachable(own, false);
     const a = instanceDialing(own);
-    const b = instanceDialing(pooled);
-    await until(() => presence.connected(own.id) && presence.connected(pooled.id));
+    const b = instanceDialing(second);
+    await until(() => presence.connected(own.id) && presence.connected(second.id));
     a.client.stop();
     b.client.stop();
-    await until(() => operators.length === 1);
+    await until(() => mailed.length === 1);
     await new Promise((resolve) => setTimeout(resolve, GRACE));
     expect(mailed.map((told) => told.to)).toEqual(['trier']);
-    expect(operators[0]).toMatch(/^An instance pooled \(inst-pool\) has not answered/);
   });
 
   it('refuses a connection with a wrong token, and the instance says root is down once the grace is over', async () => {

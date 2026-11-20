@@ -19,7 +19,6 @@ export const PROVISION_OPERATIONS: readonly HostOperation[] = [
     inputs: [],
     outputs: [
       { name: 'kind', type: 'text', describe: 'koala for the Koala\'s own cluster, machine for another of the person\'s machines.' },
-      { name: 'moved', type: 'text', describe: 'yes when this Koala moved here and what its move left is still to be brought over, otherwise no.' },
       REASON_OUT,
     ],
     exits: [DONE, FAILED],
@@ -53,18 +52,6 @@ export const PROVISION_OPERATIONS: readonly HostOperation[] = [
     exits: [DONE, FAILED],
     settings: NONE,
     summary: 'sets up monitoring',
-    idempotent: true,
-  },
-  {
-    name: 'provision.moved',
-    title: 'Bring Move Over',
-    group: 'Provision',
-    describe: 'On a Koala that moved here from Koala\'s servers, brings over what the move left once its services are up: Gitea\'s database and data, Infisical\'s database and the apps with their volumes, and records that the move is brought over. It waits on each until it is up or can never come up.',
-    inputs: [],
-    outputs: [REASON_OUT],
-    exits: [DONE, FAILED],
-    settings: NONE,
-    summary: 'brings over what the move left',
     idempotent: true,
   },
   {

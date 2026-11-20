@@ -1,8 +1,6 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
-import type { IncomingMessage } from 'node:http';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
@@ -10,9 +8,7 @@ import { MailError, type MailReputation, type MailService } from '../../platform
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { Router } from 'express';
 import { instancesRouter } from './instances.js';
-import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import type { Outcome } from '../services/InstanceService.js';
-import type { MoveRelay } from '../services/MoveRelay.js';
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 
@@ -38,73 +34,26 @@ describe('a person making their instance', () => {
     expect((await (await on(router)).get(`${prefix}/name-check?name=luno`)).data).toEqual({ ok: true });
   });
 
-  it('offers a trial on Koala\'s servers and starts one, saying 202 for it', async () => {
-    const { instances, router } = route();
-    instances.poolOffer.calledWith(PERSON.id).mockResolvedValue({ available: true, trialDays: 14 });
-    instances.createPoolInstance.calledWith(PERSON.id, 'alice').mockResolvedValue(ok({ name: 'alice' }) as never);
-    instances.createPoolInstance.calledWith(PERSON.id, 'no-dashes').mockResolvedValue(no(400, 'no dashes'));
-    expect((await (await on(router)).get(`${prefix}/pool`)).data).toEqual({ available: true, trialDays: 14 });
-    const made = await (await on(router)).post(`${prefix}/pool`, { name: 'alice' });
-    expect([made.status, made.data]).toEqual([202, { name: 'alice' }]);
-    expect((await (await on(router)).post(`${prefix}/pool`, { name: 'no-dashes' })).status).toBe(400);
-  });
-
   it('shows their instance and switches whether root emails them when it is unreachable', async () => {
     const { instances, router } = route();
     instances.mine.calledWith(PERSON.id).mockResolvedValue({ id: 'inst-1' } as never);
-    instances.setWatchOf.calledWith(PERSON.id, false).mockResolvedValue(ok({ notifyWhenUnreachable: false, alwaysTold: false }) as never);
+    instances.setWatchOf.calledWith(PERSON.id, false).mockResolvedValue(ok({ notifyWhenUnreachable: false }) as never);
     instances.setWatchOf.calledWith(PERSON.id, 'no').mockResolvedValue(no(400, 'send true or false'));
     expect((await (await on(router)).get(`${prefix}/mine`)).data).toEqual({ instance: { id: 'inst-1' } });
-    expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false });
     expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: 'no' })).status).toBe(400);
-  });
-});
-
-describe('the pool, for the operator only', () => {
-  it('turns anyone else away', async () => {
-    const { instances, router } = route();
-    for (const call of [{ path: '/pool/admin' }, { method: 'PUT' as const, path: '/pool/admin/trial-days', body: { days: 30 } }, { method: 'PUT' as const, path: '/pool/admin/instances/i1/trial', body: { trialEndsAt: 'x' } }, { method: 'DELETE' as const, path: '/pool/admin/instances/i1', body: { confirm: 'alice' } }]) {
-      const answer = await (await on(router)).request(call.method ?? 'GET', `${prefix}${call.path}`, { body: call.body });
-      expect([answer.status, answer.data]).toEqual([403, { error: 'Admin only' }]);
-    }
-    expect(instances.poolAdmin).not.toHaveBeenCalled();
-  });
-
-  it('shows the pool, sets the default trial, moves a trial\'s end and removes an instance', async () => {
-    const { instances, router } = route({ operatorOnly: allow });
-    instances.poolAdmin.mockResolvedValue(ok({ slots: 1, instances: [] }) as never);
-    instances.setTrialDays.calledWith(PERSON.id, 30).mockResolvedValue(ok({ trialDays: 30 }) as never);
-    instances.setTrialEnd.calledWith('i1', '2026-12-01T00:00:00.000Z').mockResolvedValue(ok({ trialEndsAt: '2026-12-01T00:00:00.000Z' }) as never);
-    instances.removePoolInstance.calledWith('i1', 'alice').mockResolvedValue(ok({ removing: true }) as never);
-    instances.removePoolInstance.calledWith('i1', undefined).mockResolvedValue(no(400, 'type the name'));
-    expect((await (await on(router)).get(`${prefix}/pool/admin`)).data).toEqual({ slots: 1, instances: [] });
-    expect((await (await on(router)).put(`${prefix}/pool/admin/trial-days`, { days: 30 })).data).toEqual({ trialDays: 30 });
-    expect((await (await on(router)).put(`${prefix}/pool/admin/instances/i1/trial`, { trialEndsAt: '2026-12-01T00:00:00.000Z' })).data).toEqual({ trialEndsAt: '2026-12-01T00:00:00.000Z' });
-    const removed = await (await on(router)).delete(`${prefix}/pool/admin/instances/i1`, { body: { confirm: 'alice' } });
-    expect([removed.status, removed.data]).toEqual([202, { removing: true }]);
-    expect((await (await on(router)).delete(`${prefix}/pool/admin/instances/i1`)).status).toBe(400);
-  });
-
-  it('says why when a pool change is refused', async () => {
-    const { instances, router } = route({ operatorOnly: allow });
-    instances.poolAdmin.mockResolvedValue(no(503, 'this root runs no pool'));
-    instances.setTrialDays.mockResolvedValue(no(400, 'days are 1 to 365'));
-    instances.setTrialEnd.mockResolvedValue(no(404, 'no such trial'));
-    expect((await (await on(router)).get(`${prefix}/pool/admin`)).status).toBe(503);
-    expect((await (await on(router)).put(`${prefix}/pool/admin/trial-days`, { days: 0 })).status).toBe(400);
-    expect((await (await on(router)).put(`${prefix}/pool/admin/instances/x/trial`, {})).status).toBe(404);
   });
 });
 
 describe('an instance talking to root as itself', () => {
   it('reads and sets whether root tells its owner when it cannot be reached', async () => {
     const { instances, router } = route();
-    instances.watchAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ notifyWhenUnreachable: true, alwaysTold: false }) as never);
+    instances.watchAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ notifyWhenUnreachable: true }) as never);
     instances.watchAs.calledWith('inst-1', 'wrong').mockResolvedValue(no(401, 'unknown instance or credential'));
-    instances.setWatchAs.calledWith('inst-1', 'secret', false).mockResolvedValue(ok({ notifyWhenUnreachable: false, alwaysTold: false }) as never);
-    expect((await (await on(router)).get(`${prefix}/watch`, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: true, alwaysTold: false });
+    instances.setWatchAs.calledWith('inst-1', 'secret', false).mockResolvedValue(ok({ notifyWhenUnreachable: false }) as never);
+    expect((await (await on(router)).get(`${prefix}/watch`, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: true });
     expect((await (await on(router)).get(`${prefix}/watch`, { headers: { ...asInstance, authorization: 'bearer wrong' } })).status).toBe(401);
-    expect((await (await on(router)).put(`${prefix}/watch`, { notifyWhenUnreachable: false }, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect((await (await on(router)).put(`${prefix}/watch`, { notifyWhenUnreachable: false }, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: false });
   });
 
   it('reads no credential from a request that sends none', async () => {
@@ -139,21 +88,18 @@ describe('an instance talking to root as itself', () => {
     expect((await (await on(router)).post(`${prefix}/status`, undefined, { headers: asInstance })).status).toBe(401);
   });
 
-  it('asks about its trial, its addresses, and names its sign-in key', async () => {
+  it('asks about its addresses, and names its sign-in key', async () => {
     const { instances, router } = route();
-    instances.trialOf.mockResolvedValue(ok({ trialEndsAt: 'x' }) as never);
     instances.addresses.mockResolvedValue(ok({ nested: false }) as never);
     instances.setAddresses.calledWith('inst-1', 'secret', true).mockResolvedValue(ok({ nested: true }) as never);
     instances.announceSignIn.calledWith('inst-1', 'secret', matches<{ kid?: string }>((jwk) => jwk.kid === 'k')).mockResolvedValue(ok({ announced: true }) as never);
-    expect((await (await on(router)).get(`${prefix}/trial`, { headers: asInstance })).data).toEqual({ trialEndsAt: 'x' });
     expect((await (await on(router)).get(`${prefix}/addresses`, { headers: asInstance })).data).toEqual({ nested: false });
     expect((await (await on(router)).put(`${prefix}/addresses`, { nested: true }, { headers: asInstance })).data).toEqual({ nested: true });
     expect((await (await on(router)).put(`${prefix}/sign-in-key`, { jwk: { kid: 'k' } }, { headers: asInstance })).data).toEqual({ announced: true });
-    instances.trialOf.mockResolvedValue(no(401, 'x'));
     instances.addresses.mockResolvedValue(no(401, 'x'));
     instances.setAddresses.mockResolvedValue(no(401, 'x'));
     instances.announceSignIn.mockResolvedValue(no(401, 'x'));
-    for (const call of [{ path: '/trial' }, { path: '/addresses' }, { method: 'PUT' as const, path: '/addresses', body: {} }, { method: 'PUT' as const, path: '/sign-in-key', body: {} }]) {
+    for (const call of [{ path: '/addresses' }, { method: 'PUT' as const, path: '/addresses', body: {} }, { method: 'PUT' as const, path: '/sign-in-key', body: {} }]) {
       expect((await (await on(router)).request(call.method ?? 'GET', `${prefix}${call.path}`, { body: call.body, headers: asInstance })).status).toBe(401);
     }
   });
@@ -215,7 +161,7 @@ describe('Koala\'s dependencies on root', () => {
     expect((await (await on(router)).post(`${prefix}/dependencies/check`)).data).toEqual({ findings: [] });
   });
 
-  it('falls back to the pool\'s operator check when nobody is named to administer', async () => {
+  it('falls back to the operator check when nobody is named to administer', async () => {
     const { router } = route({ dependencies: watch() });
     expect((await (await on(router)).get(`${prefix}/dependencies`)).status).toBe(403);
   });
@@ -386,31 +332,6 @@ describe('a hub asking root for access on an instance\'s behalf', () => {
   });
 });
 
-describe('moving a pool instance to its owner\'s machine', () => {
-  it('starts, reads and stops the move for the person', async () => {
-    const { instances, router } = route();
-    instances.startMove.calledWith(PERSON.id).mockResolvedValue(ok({ command: 'curl ...' }) as never);
-    instances.moveOf.calledWith(PERSON.id).mockResolvedValue({ state: 'copying' } as never);
-    instances.stopMove.calledWith(PERSON.id).mockResolvedValue(no(409, 'nothing is moving'));
-    expect((await (await on(router)).post(`${prefix}/move`)).data).toEqual({ command: 'curl ...' });
-    expect((await (await on(router)).get(`${prefix}/move`)).data).toEqual({ move: { state: 'copying' } });
-    const stopped = await (await on(router)).delete(`${prefix}/move`);
-    expect([stopped.status, stopped.data]).toEqual([409, { error: 'nothing is moving' }]);
-  });
-
-  it('starts, reads and stops it for an instance asking as itself', async () => {
-    const { instances, router } = route();
-    instances.startMoveAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ command: 'curl ...' }) as never);
-    instances.moveOfAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ state: 'joined' }) as never);
-    instances.stopMoveAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ stopping: true }) as never);
-    expect((await (await on(router)).post(`${prefix}/move/self`, undefined, { headers: asInstance })).data).toEqual({ command: 'curl ...' });
-    expect((await (await on(router)).get(`${prefix}/move/self`, { headers: asInstance })).data).toEqual({ move: { state: 'joined' } });
-    expect((await (await on(router)).delete(`${prefix}/move/self`, { headers: asInstance })).data).toEqual({ stopping: true });
-    instances.moveOfAs.mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await (await on(router)).get(`${prefix}/move/self`, { headers: asInstance })).status).toBe(401);
-  });
-});
-
 describe('the install.sh join root no longer serves', () => {
   it('answers 404 to a join command asked for, a join made with one and its shell form, from a person or a machine', async () => {
     const { router } = route();
@@ -422,139 +343,3 @@ describe('the install.sh join root no longer serves', () => {
     }
   });
 });
-
-describe('the new machine reading a moving instance through root', () => {
-  const upstream = (status: number | undefined, body: string, headers: Record<string, string> = {}) =>
-    Object.assign(Readable.from([body]), { statusCode: status, headers }) as unknown as IncomingMessage;
-
-  it('streams each part from the pool instance to the move\'s own credential', async () => {
-    const moveRelay = mock<MoveRelay>();
-    const { instances, router } = route({ moveRelay });
-    instances.moveSource.calledWith('inst-1', 'secret').mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    moveRelay.open.calledWith(matches<{ name: string }>((source) => source.name === 'alice'), 'mongo').mockResolvedValue(upstream(200, 'the mongo of alice', { 'content-type': 'application/gzip' }));
-    const answer = await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
-    expect([answer.status, answer.text, answer.headers['content-type'], answer.headers['cache-control']]).toEqual([200, 'the mongo of alice', 'application/gzip', 'no-store']);
-  });
-
-  it('streams a volume, and answers what the pool instance answered', async () => {
-    const moveRelay = mock<MoveRelay>();
-    const { instances, router } = route({ moveRelay });
-    instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    moveRelay.open.mockResolvedValue(upstream(409, '{"error":"work is running"}'));
-    const answer = await (await on(router)).get(`${prefix}/move/parts/volume:books:data-web-0`, { headers: asInstance });
-    expect([answer.status, answer.text]).toEqual([409, '{"error":"work is running"}']);
-    expect(moveRelay.open).toHaveBeenCalledWith(expect.anything(), 'volume:books:data-web-0');
-  });
-
-  it('calls it a bad gateway when the pool instance said no status', async () => {
-    const moveRelay = mock<MoveRelay>();
-    const { instances, router } = route({ moveRelay });
-    instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    moveRelay.open.mockResolvedValue(upstream(undefined, ''));
-    expect((await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance })).status).toBe(502);
-  });
-
-  it('says so when it is not a part, when the credential is wrong, when root moves nothing, and when the pool cannot be reached', async () => {
-    const moveRelay = mock<MoveRelay>();
-    const { instances, router } = route({ moveRelay });
-    expect((await (await on(router)).get(`${prefix}/move/parts/everything`, { headers: asInstance })).status).toBe(404);
-    instances.moveSource.mockResolvedValueOnce(no(401, 'unknown instance or credential'));
-    expect((await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance })).status).toBe(401);
-    instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    moveRelay.open.mockRejectedValue(new Error('connect ECONNREFUSED'));
-    const down = await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
-    expect([down.status, down.data]).toEqual([502, { error: 'Koala\'s servers could not be reached: connect ECONNREFUSED' }]);
-    const bare = route();
-    bare.instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    const nothing = await (await on(bare.router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
-    expect([nothing.status, nothing.data]).toEqual([503, { error: 'this root moves no instances' }]);
-  });
-});
-
-describe('a pool instance asking root about its own apps', () => {
-  const place = { name: 'alice', hostNamespace: 'pool-alice' };
-  const watching = () => {
-    const poolMonitoring = mock<PoolMonitoringService>();
-    const { instances, router } = route({ poolMonitoring });
-    instances.poolPlaceOf.calledWith('inst-1', 'secret').mockResolvedValue(ok(place) as never);
-    return { poolMonitoring, instances, router };
-  };
-
-  it('answers only a named question about the instance\'s own place', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.ask.mockResolvedValue([{ metric: {}, value: 1 }]);
-    const answer = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'app', question: 'up', subject: { namespace: 'shop' } } }, { headers: asInstance });
-    expect(answer.data).toEqual({ samples: [{ metric: {}, value: 1 }] });
-    expect(poolMonitoring.ask).toHaveBeenCalledWith(expect.objectContaining({ hostNamespace: 'pool-alice' }), { kind: 'app', question: 'up', subject: { namespace: 'shop' } });
-    const raw = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'query', query: 'up' } }, { headers: asInstance });
-    expect([raw.status, raw.data]).toEqual([400, { error: 'that is not a question Koala answers' }]);
-  });
-
-  it('answers a question over a time range, and refuses a range it does not answer', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.askRange.mockResolvedValue([[1, 2]]);
-    const ask = { kind: 'app', question: 'up', subject: { namespace: 'shop' } };
-    const answer = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask, range: { start: 0, end: 600, step: 60 } }, { headers: asInstance });
-    expect(answer.data).toEqual({ points: [[1, 2]] });
-    const bad = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask, range: { start: 10, end: 5, step: 60 } }, { headers: asInstance });
-    expect([bad.status, bad.data]).toEqual([400, { error: 'that is not a time range Koala answers for' }]);
-  });
-
-  it('turns away an instance it does not know, and says when root watches no pool', async () => {
-    const { instances, router } = watching();
-    instances.poolPlaceOf.calledWith('inst-1', 'wrong').mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await (await on(router)).get(`${prefix}/monitoring`, { headers: { ...asInstance, authorization: 'Bearer wrong' } })).status).toBe(401);
-    const bare = route();
-    bare.instances.poolPlaceOf.mockResolvedValue(ok(place) as never);
-    const none = await (await on(bare.router)).get(`${prefix}/monitoring`, { headers: asInstance });
-    expect([none.status, none.data]).toEqual([503, { error: 'this root watches no pool' }]);
-  });
-
-  it('shows how long history is kept, and its alerts', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.history.mockReturnValue({ days: 10, kept: 10 });
-    poolMonitoring.alerts.mockResolvedValue([{ labels: { alertname: 'x' } }] as never);
-    expect((await (await on(router)).get(`${prefix}/monitoring`, { headers: asInstance })).data).toEqual({ days: 10, kept: 10 });
-    expect((await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance })).data).toEqual({ alerts: [{ labels: { alertname: 'x' } }] });
-  });
-
-  it('sets the probes the instance wants, and refuses ones that are not probes', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.setProbes.mockResolvedValue({ probed: 1, missing: [] });
-    const probes = [{ namespace: 'shop', service: 'web', port: 80, path: '', module: 'http_2xx' }];
-    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes }, { headers: asInstance })).data).toEqual({ probed: 1, missing: [] });
-    expect(poolMonitoring.setProbes).toHaveBeenCalledWith('alice', expect.objectContaining({ hostNamespace: 'pool-alice' }), probes);
-    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes: 'all' }, { headers: asInstance })).status).toBe(400);
-  });
-
-  it('sets and removes an alert, and refuses one it cannot set', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.setRule.mockResolvedValue(undefined);
-    poolMonitoring.removeRule.mockResolvedValue(undefined);
-    const set = await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'down' }, summary: 'Shop is down' }, { headers: asInstance });
-    expect(set.data).toEqual({ set: 'r1' });
-    const bad = await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'nonsense' }, summary: 's' }, { headers: asInstance });
-    expect(bad.status).toBe(400);
-    expect((await (await on(router)).delete(`${prefix}/monitoring/rules/r1`, { headers: asInstance })).data).toEqual({ removed: true });
-    expect(poolMonitoring.removeRule).toHaveBeenCalledWith(expect.objectContaining({ hostNamespace: 'pool-alice' }), 'r1');
-  });
-
-  it('says what the pool node refused, and calls anything else a bad gateway with its first line', async () => {
-    const { poolMonitoring, router } = watching();
-    poolMonitoring.alerts.mockRejectedValueOnce(new PoolMonitoringError(400, 'that alert cannot be measured here'));
-    poolMonitoring.alerts.mockRejectedValueOnce(new Error('Prometheus is down\nsecond line'));
-    poolMonitoring.setRule.mockRejectedValueOnce(new PoolMonitoringError(400, 'errors are not measured'));
-    poolMonitoring.removeRule.mockRejectedValueOnce(new Error('kubectl failed'));
-    poolMonitoring.setProbes.mockRejectedValueOnce(new Error('kubectl failed'));
-    poolMonitoring.ask.mockRejectedValueOnce(new Error('kubectl failed'));
-    const refused = await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance });
-    expect([refused.status, refused.data]).toEqual([400, { error: 'that alert cannot be measured here' }]);
-    const down = await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance });
-    expect([down.status, down.data]).toEqual([502, { error: 'Koala\'s servers could not answer: Prometheus is down' }]);
-    expect((await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'down' }, summary: 'x' }, { headers: asInstance })).status).toBe(400);
-    expect((await (await on(router)).delete(`${prefix}/monitoring/rules/r1`, { headers: asInstance })).status).toBe(502);
-    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes: [] }, { headers: asInstance })).status).toBe(502);
-    expect((await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'cluster', question: 'nodes' } }, { headers: asInstance })).status).toBe(502);
-  });
-});
-

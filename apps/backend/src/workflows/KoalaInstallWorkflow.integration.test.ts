@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { WorkflowFailedError } from '@temporalio/client';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId } from '../instances/lib/koala-installs.js';
-import { poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
 import { temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import type { KoalaInstallWorkflow } from './KoalaInstallWorkflow.js';
-import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 
 const temporal = environmentForFile(temporalTestEnvironment);
 
@@ -99,50 +97,6 @@ describe('root driving Koala onto a machine', () => {
     const { seen, result } = await run(installing, async () => undefined, () => 'replaced');
     expect(seen).toEqual(['ask']);
     expect(result).toBe('replaced');
-  });
-
-  it('ends a move the way the install ended, telling the move of the instance it names', async () => {
-    const moves: string[] = [];
-    const moved = async (ending: InstallAnswer, signal: { name: string; args: unknown[] } | 'cancel') => {
-      const taskQueue = uniqueName('koala-move-test');
-      const instanceId = uniqueName('inst');
-      const installId = uniqueName('install');
-      const worker = await testWorker(temporal.env, {
-        taskQueue,
-        workflows: 'index.ts',
-        activities: {
-          KoalaInstallAskActivity: async () => 'asked',
-          KoalaInstallStageActivity: async () => (typeof ending === 'object' ? { ...ending, instanceId } : ending),
-          KoalaInstallStoppedActivity: async () => ({ instanceId, ended: 'failed', why: 'Moving Koala to desk stopped: it was stopped before it finished' }),
-          PoolMoveStartActivity: async () => { moves.push('start'); },
-          PoolMoveSwitchActivity: async () => { moves.push('switch'); return { name: 'bo' }; },
-          PoolMoveStopActivity: async ({ reason }: { reason: string }) => { moves.push(`stop: ${reason}`); },
-        },
-      });
-      return worker.runUntil(async () => {
-        const move = await temporal.env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', { workflowId: poolMoveWorkflowId(instanceId), taskQueue, args: [{ instanceId }], searchAttributes: { KoalaOwner: ['bo'] } });
-        while (!moves.includes('start')) await new Promise((done) => setTimeout(done, 20));
-        const install = await temporal.env.client.workflow.start<typeof KoalaInstallWorkflow>('KoalaInstallWorkflow', { workflowId: koalaInstallWorkflowId(installId), taskQueue, args: [{ installId }], searchAttributes: { KoalaOwner: ['bo'] } });
-        if (signal === 'cancel') await install.cancel();
-        else await install.signal(signal.name, ...signal.args);
-        return { install: await install.result().then((ended) => ended, (err: unknown) => (err instanceof WorkflowFailedError ? err.cause?.name : err)), move: await move.result() };
-      });
-    };
-    expect(await moved({ instanceId: '', ended: 'ready' }, { name: KOALA_INSTALL_SIGNALS.setup, args: [{ revision: 1, progress: stage('set-up', 'done') }] })).toEqual({ install: 'ready', move: 'moved' });
-    expect(moves).toEqual(['start', 'switch']);
-    moves.length = 0;
-    expect(await moved({ instanceId: '', ended: 'failed', why: 'Moving Koala to desk stopped at Bringing Koala\'s keys: no answer' }, { name: KOALA_INSTALL_SIGNALS.progress, args: [stage('keys', 'failed', { why: 'no answer' })] })).toEqual({ install: 'failed', move: 'stopped' });
-    expect(moves).toEqual(['start', 'stop: Moving Koala to desk stopped at Bringing Koala\'s keys: no answer']);
-    moves.length = 0;
-    expect(await moved('installing', 'cancel')).toEqual({ install: 'CancelledFailure', move: 'stopped' });
-    expect(moves).toEqual(['start', 'stop: Moving Koala to desk stopped: it was stopped before it finished']);
-  });
-
-  it('ends a move whose move has already ended without failing itself', async () => {
-    const { result } = await run(() => ({ instanceId: 'inst-gone', ended: 'ready' }), async (handle) => {
-      await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala-moved', 'done', { url: 'https://bo.koala.app' }));
-    });
-    expect(result).toBe('ready');
   });
 
   it('waits on the machine however long it takes, and stops only when cancelled', async () => {

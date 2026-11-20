@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
-import { MOVE_IN_ID, openedRecord, type MoveIn, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
+import { openedRecord, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
 import { INSTALLED_EXTENSIONS } from '../installed.js';
 import { runOnHost } from '../testing/host-op-runs.js';
@@ -20,9 +20,9 @@ function world(answers: Partial<Record<string, ProvisionPieceResult>> = {}) {
     pieces: { run: async (piece) => { started.push(piece); return answers[piece.piece] ?? { ok: true }; } },
     now: () => AT,
   });
-  const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId, moveIn?: MoveIn) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT, moveIn }));
-  const run = async (inputs: ProvisionRunInput, opened: boolean | MoveIn = true) => {
-    if (opened) await open(inputs, inputs.ownerId, opened === true ? undefined : opened);
+  const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT }));
+  const run = async (inputs: ProvisionRunInput, opened = true) => {
+    if (opened) await open(inputs, inputs.ownerId);
     return runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: inputs.ownerId, inputs });
   };
   const record = async (inputs: ProvisionRunInput) => (await store.getProvisioningRun(inputs.recordId))!;
@@ -64,21 +64,6 @@ describe('the provision procedure', () => {
     const result = await run(OWN);
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the CRDs never came up' });
     expect(await record(OWN)).toMatchObject({ state: 'failed', why: 'Monitoring: the CRDs never came up' });
-  });
-
-  it('on a Koala that moved, brings over what the move left once every other piece is up, then marks the setup up', async () => {
-    const { run, started, record } = world();
-    const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'bo', from: 'pool-shop', onto: 'machine-desk', at: AT };
-    expect((await run(OWN, moveIn)).outcome).toBe('ok');
-    expect(started.map((piece) => piece.piece)).toEqual([...PROVISION_PIECES.map((piece) => piece.key), 'moved']);
-    expect(await record(OWN)).toMatchObject({ state: 'up' });
-  });
-
-  it('ends failed with why when what the move left cannot be brought over', async () => {
-    const { run, record } = world({ moved: { ok: false, why: 'Koala\'s servers would not give gitea-db (409): the instance is no longer on Koala\'s servers' } });
-    const moveIn: MoveIn = { id: MOVE_IN_ID, ownerId: 'bo', from: 'pool-shop', onto: 'machine-desk', at: AT };
-    expect(await run(OWN, moveIn)).toMatchObject({ outcome: 'failed', reason: 'Koala\'s servers would not give gitea-db (409): the instance is no longer on Koala\'s servers' });
-    expect(await record(OWN)).toMatchObject({ state: 'failed', why: 'Bringing over your repositories, vault and apps: Koala\'s servers would not give gitea-db (409): the instance is no longer on Koala\'s servers' });
   });
 
   it('sets up only the collector on another of the person\'s machines', async () => {

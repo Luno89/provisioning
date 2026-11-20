@@ -23,8 +23,6 @@ export const roleRuns = (role: PlatformRole, place: Place): boolean => PLACES[ro
 
 export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
   root: [
-    'PoolHostActivity', 'PoolVclusterActivity', 'PoolProxyActivity', 'PoolChartActivity', 'PoolReadyActivity', 'PoolSetupActivity', 'PoolFailedActivity',
-    'PoolTrialNextActivity', 'PoolTrialStepActivity', 'PoolRemoveActivity', 'PoolMoveStartActivity', 'PoolMoveSwitchActivity', 'PoolMoveStopActivity',
     'DependencyWatchActivity',
     'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
     'KoalaInstallAskActivity', 'KoalaInstallStageActivity', 'KoalaInstallStoppedActivity',
@@ -43,10 +41,6 @@ const onInstance = (place: Place): Started => ({ place, roles: ['instance'] });
 
 export const WORKFLOWS: Record<string, Started> = {
   DependencyWatchWorkflow: onRoot('host'),
-  PoolInstanceWorkflow: onRoot('host'),
-  PoolTrialWorkflow: onRoot('host'),
-  PoolRemoveWorkflow: onRoot('host'),
-  PoolMoveWorkflow: onRoot('host'),
   RootAccountRemovalWorkflow: onRoot('host'),
   KoalaInstallWorkflow: onRoot('host'),
   executeIngestWorkflow: onInstance('host'),

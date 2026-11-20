@@ -7,18 +7,16 @@ import { InstancePresence, type InstancePresenceDeps } from './InstancePresence.
 const GRACE = 300_000;
 const START = new Date('2026-11-02T12:00:00.000Z');
 const own: InstanceRecord = { id: 'inst-own', ownerId: 'person', url: 'https://own.example', createdAt: '', updatedAt: '', status: 'ready', name: 'own' };
-const pooled: InstanceRecord = { ...own, id: 'inst-pool', ownerId: 'trier', name: 'pooled', pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: '', trialEndsAt: '' } };
+const second: InstanceRecord = { ...own, id: 'inst-second', ownerId: 'trier', name: 'second' };
 
 let db: Database;
 let mailed: Array<{ to: string; subject: string }>;
-let operators: string[];
 let logged: string[];
 let presence: InstancePresence;
 
 const make = (over: Partial<InstancePresenceDeps> = {}): InstancePresence => new InstancePresence({
   store: db.instances,
   tellOwner: async (to, message) => { mailed.push({ to, subject: message.subject }); },
-  tellOperators: async (message) => { operators.push(message.subject); },
   afterMs: GRACE,
   log: (message) => logged.push(message),
   ...over,
@@ -31,10 +29,9 @@ beforeEach(async () => {
   vi.setSystemTime(START);
   db = memoryDatabase();
   mailed = [];
-  operators = [];
   logged = [];
   await db.instances.saveInstance(own);
-  await db.instances.saveInstance(pooled);
+  await db.instances.saveInstance(second);
   presence = make();
 });
 
@@ -57,7 +54,6 @@ describe('an instance holding a connection to root', () => {
     await pass(2000);
     expect(mailed).toEqual([{ to: 'person', subject: 'Your instance own (inst-own) has not answered for 5 minutes' }]);
     expect((await db.instances.getWatch(own.id))?.reach?.toldDown).toBe(true);
-    expect(operators).toEqual([]);
 
     await pass(GRACE * 3);
     expect(mailed).toHaveLength(1);
@@ -95,32 +91,28 @@ describe('an instance holding a connection to root', () => {
     expect((await db.instances.getWatch(own.id))?.reach?.reachable).toBe(true);
   });
 
-  it('tells a pool instance\'s operators too, and never an owner who switched it off', async () => {
+  it('never tells an owner who switched it off', async () => {
     await db.instances.saveNotifyWhenUnreachable(own, false);
     await presence.arrived(own, 'a');
-    await presence.arrived(pooled, 'b');
+    await presence.arrived(second, 'b');
     await presence.left(own.id, 'a');
-    await presence.left(pooled.id, 'b');
+    await presence.left(second.id, 'b');
     await pass(GRACE + 1000);
     expect(mailed.map((told) => told.to)).toEqual(['trier']);
-    expect(operators).toHaveLength(1);
-    expect(operators[0]).toMatch(/^An instance pooled \(inst-pool\) has not answered/);
   });
 
-  it('says so, and goes on, when it cannot tell the owner or the operators', async () => {
+  it('says so, and goes on, when it cannot tell the owner', async () => {
     presence.stop();
     presence = make({
       tellOwner: async () => { throw new Error('mail is off'); },
-      tellOperators: async () => { throw new Error('no operators'); },
     });
-    await presence.arrived(pooled, 'a');
-    await presence.left(pooled.id, 'a');
+    await presence.arrived(second, 'a');
+    await presence.left(second.id, 'a');
     await pass(GRACE + 1000);
     expect(logged).toEqual([
-      '[instance-presence] could not tell the owner of inst-pool: mail is off',
-      '[instance-presence] could not tell the operator about inst-pool: no operators',
+      '[instance-presence] could not tell the owner of inst-second: mail is off',
     ]);
-    expect((await db.instances.getWatch(pooled.id))?.reach?.toldDown).toBe(true);
+    expect((await db.instances.getWatch(second.id))?.reach?.toldDown).toBe(true);
   });
 
   it('stops watching an instance that is gone or no longer in service when the grace is up', async () => {
@@ -130,11 +122,11 @@ describe('an instance holding a connection to root', () => {
     await pass(GRACE + 1000);
     expect(mailed).toEqual([]);
 
-    await presence.arrived(pooled, 'a');
-    await presence.left(pooled.id, 'a');
-    await db.instances.saveInstance({ ...pooled, status: 'paused' });
+    await presence.arrived(second, 'a');
+    await presence.left(second.id, 'a');
+    await db.instances.saveInstance({ ...second, status: 'failed' });
     await pass(GRACE + 1000);
-    expect(operators).toEqual([]);
+    expect(mailed).toEqual([]);
   });
 
   it('tells nobody and sets no timers after it is stopped', async () => {
@@ -174,7 +166,6 @@ describe('an instance holding a connection to root', () => {
       const quiet = new InstancePresence({
         store: { ...db.instances, getWatch: async () => { throw new Error('boom'); } },
         tellOwner: async () => undefined,
-        tellOperators: async () => undefined,
         afterMs: GRACE,
       });
       await quiet.arrived(own, 'a');
@@ -208,12 +199,12 @@ describe('root starting up', () => {
 
   it('leaves an instance that is already connected, or already told about, as it is', async () => {
     await db.instances.savePresence(own, true);
-    await db.instances.savePresence(pooled, true);
-    await db.instances.saveReach(pooled, { reachable: false, toldDown: true, unreachableSince: '2026-11-01T00:00:00.000Z' });
+    await db.instances.savePresence(second, true);
+    await db.instances.saveReach(second, { reachable: false, toldDown: true, unreachableSince: '2026-11-01T00:00:00.000Z' });
     await presence.arrived(own, 'a');
     await presence.start();
     expect((await db.instances.getWatch(own.id))?.reach?.reachable).toBe(true);
-    expect((await db.instances.getWatch(pooled.id))?.reach).toEqual({ reachable: false, toldDown: true, unreachableSince: '2026-11-01T00:00:00.000Z' });
+    expect((await db.instances.getWatch(second.id))?.reach).toEqual({ reachable: false, toldDown: true, unreachableSince: '2026-11-01T00:00:00.000Z' });
     await pass(GRACE * 2);
     expect(mailed).toEqual([]);
   });

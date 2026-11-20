@@ -1,4 +1,4 @@
-{{- $steps := ternary (list "move-data" "move-mongo" "seed") (list "seed") .Values.move.enabled }}
+{{- $steps := list "seed" }}
 {{- $name := include "instance.name" . }}
 {{- range $index, $step := $steps }}
 {{- $after := list }}

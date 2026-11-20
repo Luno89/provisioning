@@ -4,8 +4,7 @@ import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess } from '../infrastructure/index.js';
-import { VCLUSTER_CHART_SHA256 } from '../instances/index.js';
-import { installVcluster, VCLUSTER_CHART_FILE } from './vcluster.js';
+import { installVcluster, VCLUSTER_CHART_FILE, VCLUSTER_CHART_SHA256 } from './vcluster.js';
 
 const NODE = 'root';
 const PLACE = { name: 'ann', namespace: 'pool-ann', values: {} };

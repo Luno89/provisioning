@@ -2,7 +2,6 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import { ClusterAccess, InfrastructureService, openedRecord, terraformPlacesFor, type ProvisionPieceInput } from '../infrastructure/index.js';
@@ -11,7 +10,6 @@ import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { CannotRollOut } from './watched-apply.js';
 import type { ClusterSteps } from './cluster-steps.js';
-import type { MoveOverDeps } from './move-over.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionPlace } from './ProvisionPieceActivity.js';
 
 const ALL_BUT_JOBS = ['', 'apps', 'networking.k8s.io', 'rbac.authorization.k8s.io', 'policy', 'admissionregistration.k8s.io', 'apiextensions.k8s.io', 'coordination.k8s.io', 'autoscaling', 'discovery.k8s.io', 'storage.k8s.io', 'scheduling.k8s.io', 'events.k8s.io'];
@@ -84,7 +82,7 @@ describe('one piece of a Koala\'s setup, applied on a real cluster and kept on i
       },
     };
 
-    await ProvisionPieceActivity(input('egress'), { steps: { ...steps, access }, place, lines: heard, moveOver: mock<MoveOverDeps>() }, quickly);
+    await ProvisionPieceActivity(input('egress'), { steps: { ...steps, access }, place, lines: heard }, quickly);
     await granted;
 
     const unread = said.filter((line) => line.startsWith('what the egress proxy made could not be read while it applies: '));
@@ -96,7 +94,7 @@ describe('one piece of a Koala\'s setup, applied on a real cluster and kept on i
   it('brings the egress proxy up, its record saying what the apply said while it worked', async () => {
     const { store, input } = await opened('provision-machine-desk~egress');
 
-    await ProvisionPieceActivity(input('egress'), { steps, place, lines: recordedLines(store), moveOver: mock<MoveOverDeps>() }, quickly);
+    await ProvisionPieceActivity(input('egress'), { steps, place, lines: recordedLines(store) }, quickly);
 
     const egress = (await store.getProvisioningRun('provision-machine-desk~egress'))?.pieces.find((piece) => piece.key === 'egress');
     expect(egress).toMatchObject({ state: 'working', line: 'the egress proxy: ready' });
@@ -108,7 +106,7 @@ describe('one piece of a Koala\'s setup, applied on a real cluster and kept on i
     await steps.access.kubectl(steps.access.own(), ['create', 'namespace', 'searxng']);
     await steps.access.kubectl(steps.access.own(), ['create', 'quota', 'none', '-n', 'searxng', '--hard=pods=0']);
 
-    const failed = await ProvisionPieceActivity(input('searxng'), { steps, place, lines: recordedLines(store), moveOver: mock<MoveOverDeps>() }, quickly).then(() => undefined, (err: unknown) => err);
+    const failed = await ProvisionPieceActivity(input('searxng'), { steps, place, lines: recordedLines(store) }, quickly).then(() => undefined, (err: unknown) => err);
 
     expect(failed, `the piece ended otherwise: ${String((failed as Error | undefined)?.message ?? failed)}`).toBeInstanceOf(CannotRollOut);
     expect((failed as CannotRollOut).why).toMatch(/^searxng cannot make its pods: .*exceeded quota/);

@@ -33,7 +33,6 @@ vi.mock('../features/instances/api/identity', async (importOriginal) => ({
 vi.mock('../features/instances/api/instances', async (importOriginal) => ({
   ...(await importOriginal<typeof instancesApi>()),
   useMySetup: vi.fn(() => ({ data: null, isPending: false })),
-  usePoolOffer: vi.fn(() => ({ data: { offered: false }, isPending: false })),
 }));
 
 const show = () => {

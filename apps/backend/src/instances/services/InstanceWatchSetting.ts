@@ -1,10 +1,14 @@
 import type { Reach } from '../lib/instance-watch.js';
 import { rootAnswer } from '../lib/root-answer.js';
-import { RootRefused } from './InstanceTrial.js';
+
+export class RootRefused extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 export interface InstanceWatchView {
   notifyWhenUnreachable: boolean;
-  alwaysTold: boolean;
   reach?: Reach | undefined;
 }
 
@@ -23,7 +27,7 @@ export class InstanceWatchSetting {
     const answer = rootAnswer(response.ok, response.status, await response.text());
     if (!response.ok) throw new RootRefused(response.status, answer.error ?? `root answered ${response.status}`);
     const view = answer.body as InstanceWatchView;
-    return { notifyWhenUnreachable: view.notifyWhenUnreachable, alwaysTold: view.alwaysTold, ...(view.reach ? { reach: view.reach } : {}) };
+    return { notifyWhenUnreachable: view.notifyWhenUnreachable, ...(view.reach ? { reach: view.reach } : {}) };
   }
 
   read(): Promise<InstanceWatchView> {

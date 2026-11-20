@@ -22,9 +22,7 @@ import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instan
 import { NoInstance } from '../features/instances';
 import { RootAdmin } from '../features/instances';
 import { RemoveAccountPage } from '../features/accounts';
-import { TrialBanner } from '../features/instances';
 import { FirstModel } from '../features/models';
-import { MovingPage } from '../features/instances';
 import { listClusters, clusterKeys } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
 import { listProviders, credentialKeys } from '../features/infrastructure';
@@ -112,7 +110,7 @@ export function RootLayout() {
     const pending = user && !joinPage ? pendingJoin() : undefined;
     if (pending) void navigate({ to: '/join', search: pending });
   }, [user, joinPage, navigate]);
-  const adminPage = ((location.pathname === '/pool' || location.pathname === '/admin') && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
+  const adminPage = (location.pathname === '/admin' && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !placement.data.instance.signInWaiting && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
@@ -259,7 +257,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants && adminPage) {
-    return <RootAdmin section={location.pathname === '/pool' ? 'pool' : location.pathname === '/dependencies' ? 'dependencies' : location.pathname === '/mail' ? 'mail' : location.pathname === '/monitoring' ? 'monitoring' : undefined} onLogout={handleLogout} />;
+    return <RootAdmin section={location.pathname === '/dependencies' ? 'dependencies' : location.pathname === '/mail' ? 'mail' : location.pathname === '/monitoring' ? 'monitoring' : undefined} onLogout={handleLogout} />;
   }
 
   if (placement.data && !placement.data.servesTenants) {
@@ -301,8 +299,6 @@ export function RootLayout() {
           })}
         </div>
 
-        <TrialBanner />
-        <MovingPage />
         <FirstModel />
         <ShellContextInstance.Provider value={shellContext}>
           <Outlet />

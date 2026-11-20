@@ -6,7 +6,7 @@ import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
-import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
+import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec } from '../lib/monitoring-alerts.js';
 import { inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
 import { MonitoringService, prometheusAt, type MonitoringDeps } from './MonitoringService.js';
 import { prometheusStandIn, type PrometheusStandIn } from '../testing/prometheus-stand-in.js';
@@ -345,101 +345,6 @@ describe('counting each app\'s requests', () => {
     helmChartConfig = JSON.stringify({ metadata: { labels: {} }, spec: { valuesContent: 'ports: {}' } });
     expect(await monitoring.applyRequestMetrics(koalas)).toEqual({ problem: 'k3s\'s Traefik has settings of its own here, so request counting was not switched on' });
     expect(applied).toHaveLength(1);
-  });
-});
-
-describe('a cluster on Koala\'s servers', () => {
-  class FakePool {
-    asked: unknown[] = [];
-    rules: unknown[] = [];
-    removed: string[] = [];
-    probes: unknown[][] = [];
-    firing: PromAlert[] = [];
-    async ask(ask: unknown) {
-      this.asked.push(ask);
-      const kind = (ask as { kind: string; question?: string }).kind;
-      const question = (ask as { question?: string }).question;
-      if (kind === 'app' && (question === 'up' || question === 'probed' || question === 'podsRunning')) return [{ metric: {}, value: 1 }];
-      if (kind === 'cluster' && question === 'nodes') return [{ metric: {}, value: 1 }];
-      return [];
-    }
-    async askRange() { return [[1, 1]] as Array<[number, number]>; }
-    async alerts() { return this.firing; }
-    async history() { return { days: 10, kept: 10 }; }
-    async setRule(rule: unknown) { this.rules.push(rule); }
-    async removeRule(id: string) { this.removed.push(id); }
-    async setProbes(probes: unknown[]) { this.probes.push(probes); }
-  }
-
-  let pool: FakePool;
-  let probesJson: string;
-
-  beforeEach(() => {
-    pool = new FakePool();
-    probesJson = JSON.stringify({ items: [{ metadata: { namespace: 'shop' }, spec: { module: 'http_2xx', targets: { staticConfig: { static: ['web.shop.svc.cluster.local:80/health'] } } } }] });
-    const base = deps();
-    monitoring = new MonitoringService({
-      ...base,
-      pool: (cluster) => (cluster.id === koalas.id ? pool : undefined),
-      prometheus: async () => { throw new Error('a pool instance has no Prometheus of its own'); },
-      kubectl: async (cluster, args) => {
-        kubectl.push([cluster.id, ...args]);
-        return args[1] === 'probes.monitoring.coreos.com' ? probesJson : '';
-      },
-    });
-  });
-
-  it('asks root its named questions, never a query, and reads the app as healthy', async () => {
-    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
-    const view = await monitoring.appHealth(ME, 'shop', '1h');
-    expect(view.app.state).toBe('ok');
-    expect(pool.asked).toContainEqual({ kind: 'app', question: 'up', subject: { namespace: 'shop', services: [] } });
-    expect(pool.asked.every((ask) => typeof ask === 'object' && !('query' in (ask as object)))).toBe(true);
-    expect(view.series.map((entry) => entry.chart)).toContain('up');
-  });
-
-  it('keeps the history Koala\'s servers keep, which the person cannot change', async () => {
-    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, can: [], byKoala: true });
-    await expect(monitoring.setHistory(ME, koalas.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
-    expect(await monitoring.applyHistory(koalas)).toBe(false);
-  });
-
-  it('hands an alert to root to set, and refuses one on requests, which are not counted there', async () => {
-    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
-    const rule = await monitoring.addRule(ME, 'shop', alertSpec('down') as AlertSpec);
-    expect(pool.rules).toEqual([{ id: rule.id, namespace: 'shop', spec: rule.spec, summary: rule.summary }]);
-    expect(applied).toEqual([]);
-    await expect(monitoring.addRule(ME, 'shop', alertSpec('errors') as AlertSpec)).rejects.toThrow('requests are not counted on Koala\'s servers');
-    await monitoring.removeRule(ME, rule.id);
-    expect(pool.removed).toEqual([rule.id]);
-  });
-
-  it('hands its apps\' probes to root, and only again when they change', async () => {
-    await monitoring.syncPoolProbes(koalas);
-    await monitoring.syncPoolProbes(koalas);
-    expect(pool.probes).toEqual([[{ namespace: 'shop', service: 'web', port: 80, path: '/health', module: 'http_2xx' }]]);
-    probesJson = JSON.stringify({ items: [] });
-    await monitoring.syncPoolProbes(koalas);
-    expect(pool.probes).toHaveLength(2);
-    await monitoring.syncPoolProbes(remote);
-    expect(pool.probes).toHaveLength(2);
-  });
-
-  it('says how much of its place it uses', async () => {
-    pool.ask = async (ask: unknown) => {
-      const question = (ask as { question?: string }).question;
-      return question === 'nodes' ? [{ metric: {}, value: 1 }] : question === 'memoryShare' ? [{ metric: {}, value: 0.5 }] : [];
-    };
-    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(view.lines).toContain('In use of its place on Koala\'s servers: memory 50%.');
-    pool.ask = async (ask: unknown) => {
-      const question = (ask as { question?: string }).question;
-      return question === 'nodes' ? [{ metric: {}, value: 1 }] : question === 'diskShare' ? [{ metric: {}, value: 0.95 }] : [];
-    };
-    const full = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(full.cluster.reasons).toContain('95% of its place\'s storage is claimed');
-    expect(full.lines).toContain('In use of its place on Koala\'s servers: storage claimed 95%.');
   });
 });
 

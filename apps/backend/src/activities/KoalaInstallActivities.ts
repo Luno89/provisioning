@@ -4,13 +4,7 @@ import { createDatabase, type Database } from '../platform/index.js';
 import { askedAgain, installFields, installSetupHeard, installStopped, installUnfinished, stageHeard, type InstallPatch, type InstanceRecord } from '../instances/index.js';
 import { hostSettings } from './host-settings.js';
 
-export interface MoveEnded {
-  instanceId: string;
-  ended: 'ready' | 'failed';
-  why?: string;
-}
-
-export type InstallAnswer = KoalaInstallState | 'replaced' | MoveEnded;
+export type InstallAnswer = KoalaInstallState | 'replaced';
 
 export type InstallHeard = { progress: MachineProgress } | { setup: ProvisionReport };
 
@@ -28,16 +22,7 @@ const hostDb: KoalaInstallDeps['db'] = async () => {
   return { db, close: () => db.close() };
 };
 
-const machineOf = (instance: Installing): string =>
-  (instance.install.move ? instance.move?.target?.machine : instance.machine) ?? 'your machine';
-
-const setupOf = (instance: Installing) => (instance.install.move ? instance.move?.setup : instance.setup);
-
-function answerOf(instance: Installing, patch: InstallPatch): InstallAnswer {
-  const { state } = patch.install;
-  if (!instance.install.move || (state !== 'ready' && state !== 'failed')) return state;
-  return state === 'failed' ? { instanceId: instance.id, ended: 'failed', why: patch.detail } : { instanceId: instance.id, ended: 'ready' };
-}
+const machineOf = (instance: Installing): string => instance.machine ?? 'your machine';
 
 async function withInstall(deps: KoalaInstallDeps, installId: string, change: (instance: Installing, at: string) => InstallPatch | undefined): Promise<InstallAnswer> {
   const opened = await deps.db();
@@ -50,7 +35,7 @@ async function withInstall(deps: KoalaInstallDeps, installId: string, change: (i
     const patch = change(installing, at);
     if (!patch) return instance.install.state;
     const written = await opened.db.instances.updateInstall(instance.id, installId, installFields(patch, at));
-    return written ? answerOf(installing, patch) : 'replaced';
+    return written ? patch.install.state : 'replaced';
   } finally {
     await opened.close();
   }
@@ -62,7 +47,7 @@ export function koalaInstallActivities(deps: KoalaInstallDeps) {
       withInstall(deps, installId, (instance, at) => askedAgain(instance.install, machineOf(instance), at)),
     KoalaInstallStageActivity: ({ installId, ...heard }: { installId: string } & InstallHeard): Promise<InstallAnswer> =>
       withInstall(deps, installId, (instance, at) => ('setup' in heard
-        ? installSetupHeard({ install: instance.install, setup: setupOf(instance), machine: machineOf(instance) }, heard.setup, at)
+        ? installSetupHeard({ install: instance.install, setup: instance.setup, machine: machineOf(instance) }, heard.setup, at)
         : stageHeard(instance.install, heard.progress, machineOf(instance), at))),
     KoalaInstallStoppedActivity: ({ installId }: { installId: string }): Promise<InstallAnswer> =>
       withInstall(deps, installId, (instance, at) => installStopped(instance.install, machineOf(instance), at)),

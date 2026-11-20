@@ -9,9 +9,8 @@ import { privateCluster, type PrivateCluster } from '../../infrastructure/testin
 import { CLUSTER_TOOL_PATHS } from '../../infrastructure/index.js';
 import { chartFolder, chartSourcesStandIn, type ChartSourcesStandIn } from '../../infrastructure/testing/chart-sources-stand-in.js';
 import { PROMETHEUS_CHART, PROMETHEUS_CHART_REPO } from '../lib/monitoring-history.js';
-import type { PoolProbe } from '../lib/pool-monitoring.js';
 import { INSTANCE_ALERTS } from '../lib/root-alerts.js';
-import { MonitoringService, prometheusAt, type PoolMonitor } from './MonitoringService.js';
+import { MonitoringService, prometheusAt } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
 import { prometheusStandIn, type PrometheusStandIn } from '../testing/prometheus-stand-in.js';
 
@@ -52,7 +51,7 @@ afterAll(async () => {
 
 interface Watched { access: ClusterAccess; home: ClusterMetadata; watch: AlertWatchService; said: string[]; prom: PrometheusStandIn }
 
-async function watched(id: string, given: { instanceAlerts?: boolean; pool?: PoolMonitor } = {}): Promise<Watched> {
+async function watched(id: string, given: { instanceAlerts?: boolean } = {}): Promise<Watched> {
   const db = await testDatabase();
   const home = { id, name: id, provider: 'machine', machineId: id, status: 'healthy', ownerId: 'bo', createdAt: 't', kubeconfigEnc: encryptValue(k3s.admin, KEY) } as ClusterMetadata;
   await db.infrastructure.saveCluster(home);
@@ -64,7 +63,6 @@ async function watched(id: string, given: { instanceAlerts?: boolean; pool?: Poo
     ownCluster: async () => home,
     ownClusterId: () => home.id,
     prometheus: async () => prom.client,
-    pool: () => given.pool,
     ...runnersByRecord(access),
     instanceAlerts: given.instanceAlerts,
   });
@@ -132,30 +130,5 @@ describe('the alert watcher\'s pass over the cluster Koala runs in', () => {
     const counting = JSON.parse(await access.kubectl(home.id, ['get', 'helmchartconfig', 'traefik', '-n', 'kube-system', '-o', 'json'])) as { spec: { valuesContent: string } };
     expect(counting.spec.valuesContent).toBe(K3S_TRAEFIK_CONFIG.spec.valuesContent);
     expect(said).toContain('[alerts] machine-home now counts each app\'s requests');
-  });
-});
-
-describe('the alert watcher\'s pass over Koala\'s servers', () => {
-  it('hands the probes the apps there declare to the pool\'s monitoring', async () => {
-    const handed: PoolProbe[][] = [];
-    const pool: PoolMonitor = {
-      ask: async () => [],
-      askRange: async () => [],
-      alerts: async () => [],
-      history: async () => ({ days: 15 }),
-      setRule: async () => undefined,
-      removeRule: async () => undefined,
-      setProbes: async (probes) => { handed.push(probes); },
-    };
-    const { access, home, watch, prom } = await watched('machine-pool', { pool });
-    await access.apply(home.id, crdOf('probes', 'Probe'));
-    await access.kubectl(home.id, ['wait', '--for=condition=Established', 'crd/probes.monitoring.coreos.com', '--timeout=720h']);
-    await access.kubectl(home.id, ['create', 'namespace', 'shop']);
-    await access.apply(home.id, JSON.stringify({ apiVersion: 'monitoring.coreos.com/v1', kind: 'Probe', metadata: { name: 'web', namespace: 'shop' }, spec: { module: 'http_2xx', targets: { staticConfig: { static: ['web.shop.svc.cluster.local:80/health'] } } } }));
-
-    await watch.tick();
-    await prom.close();
-
-    expect(handed).toEqual([[{ namespace: 'shop', service: 'web', port: 80, path: '/health', module: 'http_2xx' }]]);
   });
 });

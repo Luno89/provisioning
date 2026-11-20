@@ -69,10 +69,6 @@ pool:
   enabled: false
   registryPullHost: ""
 
-move:
-  enabled: false
-  fromClusterId: ""
-
 resources: {}
 
 hostAliases: []

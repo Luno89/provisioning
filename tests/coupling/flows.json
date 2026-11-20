@@ -81,40 +81,6 @@
     ]
   },
   {
-    "name": "move-to-own-machine",
-    "title": "Move a trial instance from the pool to the person's own machine",
-    "entries": [
-      "apps/frontend/src/features/instances/api/instances.ts#startMyMove",
-      "apps/frontend/src/features/instances/api/instances.ts#startInstanceMove",
-      "scripts/machine/machine.sh#(script)",
-      "apps/local-agent/src/join/join.ts#runJoin",
-      "apps/local-agent/src/koala-install.ts#installKoala"
-    ],
-    "concepts": [
-      "work",
-      "calls-out",
-      "config",
-      "kubeconfig",
-      "cluster-command",
-      "store",
-      "dependencies"
-    ],
-    "endings": [
-      {
-        "title": "Root's page shows the move's state, or why it failed",
-        "entries": [
-          "apps/frontend/src/features/instances/api/instances.ts#getMySetup"
-        ]
-      },
-      {
-        "title": "The instance's Settings shows the move's state",
-        "entries": [
-          "apps/frontend/src/features/instances/api/instances.ts#getInstanceMove"
-        ]
-      }
-    ]
-  },
-  {
     "name": "sign-in",
     "title": "Sign in through root",
     "entries": [

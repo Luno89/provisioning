@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Cloud, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
-import { moveUnderWay, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
-import { errorMessage } from '../../../api/client'
+import { HardDrive, Loader2, LogOut } from 'lucide-react'
+import { useInstanceReady, useMySetup, useNameCheck, type InstanceStatus } from '../api/instances'
 import { useCan } from '../../platform'
-import { MovePanel } from './MovePanel'
 import { UnreachableSwitch } from './InstanceWatch'
 import { useSetMyWatch } from '../api/instance-watch'
 import { INSTANCE_GO_URL } from '../api/identity'
@@ -22,71 +20,6 @@ const STEPS: { status: InstanceStatus; label: string }[] = [
   { status: 'installing', label: 'Installing Koala' },
   { status: 'ready', label: 'Ready' },
 ]
-
-const POOL_STEPS: { status: InstanceStatus; label: string }[] = [
-  { status: 'installing', label: 'Setting up your instance on Koala\'s servers' },
-  { status: 'ready', label: 'Ready' },
-]
-
-const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })
-
-const KEEP_DAYS = 30
-
-function PausedMove({ setup }: { setup: MySetup }) {
-  const start = useStartMyMove()
-  const stop = useStopMyMove()
-  return (
-    <MovePanel
-      move={setup.move}
-      command={start.data}
-      starting={start.isPending}
-      stopping={stop.isPending}
-      error={start.error ?? stop.error}
-      onStart={() => start.mutate()}
-      onStop={() => stop.mutate()}
-    >
-      {setup.name && <AccountMachines name={setup.name} nameOk hasKoala={moveUnderWay(setup.move)} moving onPlacing={() => undefined} />}
-    </MovePanel>
-  )
-}
-
-function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: boolean; onRetry: () => void }) {
-  if (setup.status === 'paused' && setup.trialEndsAt) {
-    const deleted = new Date(Date.parse(setup.trialEndsAt) + KEEP_DAYS * 86_400_000).toISOString()
-    return (
-      <div className="space-y-2">
-        <p className="text-xs text-slate-200">Your trial on Koala's servers ended on {day(setup.trialEndsAt)}, and your instance {setup.name} has stopped.</p>
-        <p className="text-xs text-slate-400">Its work is kept as it is until {day(deleted)}, and deleted then.</p>
-        <PausedMove setup={setup} />
-      </div>
-    )
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-300">Your instance runs on Koala's servers until {setup.trialEndsAt ? day(setup.trialEndsAt) : 'the trial ends'}. Before then you can move it to your own machine, keeping all your work.</p>
-      <ol className="space-y-1">
-        {POOL_STEPS.map((step) => {
-          const reached = setup.status === 'ready' || step.status === 'installing'
-          const current = step.status === setup.status
-          return (
-            <li key={step.status} className={`flex items-center gap-2 text-xs ${reached ? 'text-slate-200' : 'text-slate-500'}`}>
-              {current && setup.status !== 'ready' ? <Loader2 size={12} className="animate-spin" /> : <span className={`h-2 w-2 rounded-full ${reached ? 'bg-emerald-400' : 'bg-slate-600'}`} />}
-              {step.label}
-            </li>
-          )
-        })}
-      </ol>
-      {setup.status === 'failed' ? (
-        <div className="space-y-2">
-          <p role="alert" className="text-xs text-rose-300">{setup.detail ?? 'Setting it up stopped.'}</p>
-          <button type="button" onClick={onRetry} disabled={retrying} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--bark-700)] px-2 py-1 text-xs text-slate-200 disabled:opacity-50">
-            {retrying ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />} Try again
-          </button>
-        </div>
-      ) : setup.detail ? <p className="text-[11px] text-slate-400">{setup.detail}</p> : null}
-    </div>
-  )
-}
 
 function InstanceDown({ since }: { since: string }) {
   const setup = useMySetup(true)
@@ -114,8 +47,6 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
   const operator = useCan()('manage-accounts')
   const [ownMachine, setOwnMachine] = useState(false)
   const [placing, setPlacing] = useState(false)
-  const offer = usePoolOffer()
-  const startPool = useStartPoolInstance()
   const setup = useMySetup(false)
   const ready = useInstanceReady()
   const status = setup.data?.status
@@ -125,7 +56,6 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
   const name = fixedName ?? typed ?? suggestion.data?.suggestion ?? ''
   const check = useNameCheck(name)
   const nameOk = Boolean(name) && (check.data?.ok ?? false)
-  const inPool = Boolean(setup.data?.trialEndsAt) && !placing
 
   useEffect(() => {
     if (status === 'ready') ready()
@@ -145,18 +75,9 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
           <p className="flex items-center justify-center gap-2 text-sm text-slate-300"><Loader2 size={16} className="animate-spin" /> Taking you to your instance…</p>
         ) : (
           <>
-            {setup.data?.status === 'paused' ? (
-              <p className="text-sm font-semibold">Your trial has ended</p>
-            ) : (
-              <>
-                <p className="text-sm font-semibold">You don't have an instance yet</p>
-                <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
-              </>
-            )}
-            {inPool && setup.data ? (
-              <PoolProgress setup={setup.data} retrying={startPool.isPending} onRetry={() => startPool.mutate(setup.data!.name ?? name)} />
-            ) : null}
-            {!placing && !inPool && (
+            <p className="text-sm font-semibold">You don't have an instance yet</p>
+            <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
+            {!placing && (
               <div className="space-y-1">
                 <label className="block text-xs text-slate-300" htmlFor="instance-name">Your name, in your instance's address</label>
                 {fixedName ? (
@@ -177,33 +98,18 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
                 ) : null}
               </div>
             )}
-            {inPool ? null : !ownMachine && !placing ? (
+            {!ownMachine && !placing ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
-                  {offer.data?.available && (
-                    <button
-                      type="button"
-                      onClick={() => startPool.mutate(name)}
-                      disabled={startPool.isPending || !nameOk}
-                      className="inline-flex items-center gap-2 rounded-md bg-[var(--leaf-stem)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                    >
-                      {startPool.isPending ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />} Try it on Koala's servers
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => setOwnMachine(true)}
                     disabled={!nameOk}
-                    className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${offer.data?.available ? 'border border-[var(--bark-700)] text-slate-200' : 'bg-[var(--leaf-stem)] text-white'}`}
+                    className="inline-flex items-center gap-2 rounded-md bg-[var(--leaf-stem)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                   >
                     <HardDrive size={14} /> Use my own machine
                   </button>
                 </div>
-                {offer.data?.available && offer.data.trialDays ? (
-                  <p className="text-[11px] text-slate-400">Koala's servers are free for {offer.data.trialDays} days, then your instance moves to a machine of your own, keeping all your work.</p>
-                ) : offer.data?.reason && offer.data.trialDays ? (
-                  <p className="text-[11px] text-slate-400">{offer.data.reason}.</p>
-                ) : null}
               </div>
             ) : (
               <div className="space-y-3">
@@ -228,7 +134,6 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
                 )}
               </div>
             )}
-            {startPool.isError && <p role="alert" className="text-xs text-rose-300">{errorMessage(startPool.error)}</p>}
           </>
         )}
         <div className="flex items-center gap-4">

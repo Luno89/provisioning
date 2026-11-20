@@ -146,7 +146,7 @@ describe('what is a test and which area a file is in', () => {
 
   it('names backend and frontend areas, apps and packages', () => {
     expect([
-      'apps/backend/src/instances/lib/pool.ts', 'apps/backend/src/index.ts', 'apps/frontend/src/features/hub/api.ts',
+      'apps/backend/src/instances/lib/instances.ts', 'apps/backend/src/index.ts', 'apps/frontend/src/features/hub/api.ts',
       'apps/frontend/src/shell/router.tsx', 'apps/local-agent/src/agent.ts', 'packages/engine-core/src/payloads.ts', 'tests/coupling/graph.ts',
     ].map(areaOf)).toEqual(['backend/instances', 'backend', 'frontend/hub', 'frontend/shell', 'apps/local-agent', 'packages/engine-core', 'tests']);
   });

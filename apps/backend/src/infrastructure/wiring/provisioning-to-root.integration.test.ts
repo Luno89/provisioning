@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { WORKER_DEFAULTS, activityInterceptors } from '@koala/engine-core';
@@ -26,7 +25,6 @@ import { createProvisionOperations } from '../../extensions/provision/operations
 import { provisionPiecesOn } from '../../extensions/provision/pieces.js';
 import { PROVISION_AGENT } from '../../extensions/provision/names.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionPieceRun, type ProvisionPlace } from '../../activities/ProvisionPieceActivity.js';
-import type { MoveOverDeps } from '../../activities/move-over.js';
 import type { ClusterSteps } from '../../activities/cluster-steps.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { temporalInstallWorkflows } from '../../machines/wiring/sides.js';
@@ -138,7 +136,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
         activities: {
           ProvisionPieceActivity: async (run: ProvisionPieceRun) => {
             applied.push(run.piece);
-            if (run.piece === 'egress') return ProvisionPieceActivity(run, { steps, place, lines, moveOver: mock<MoveOverDeps>() });
+            if (run.piece === 'egress') return ProvisionPieceActivity(run, { steps, place, lines });
             await lines.heard(run, { state: 'started', line: `${run.piece} is left to its own suite in this test` });
           },
         },

@@ -1,5 +1,5 @@
 import { ApplicationFailure } from '@temporalio/common';
-import { PROVISION_MOVED_PIECE, PROVISION_PIECES } from '@koala/engine-core/koala-install';
+import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import {
   pieceHeard, pieceProgress, PLATFORM_PLAN, recordedOn, startedMachine,
   type PieceChange, type ProvisioningRecords, type ProvisionPieceInput,
@@ -7,7 +7,6 @@ import {
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { installClusterMonitoring, machineMonitoringOf } from './cluster-monitoring.js';
-import { bringMoveOver, type MoveOverDeps } from './move-over.js';
 import { provisionPlatformService, type PlatformPlace } from './platform-provision.js';
 import type { Pause } from './watched-apply.js';
 
@@ -25,7 +24,6 @@ export interface ProvisionPieceDeps {
   steps: Pick<ClusterSteps, 'access' | 'infra' | 'database' | 'machineMetricsUrl'>;
   place: ProvisionPlace;
   lines: ProvisionLines;
-  moveOver: MoveOverDeps;
 }
 
 type Report = (line: string) => void;
@@ -38,9 +36,9 @@ export const recordedLines = (records: ProvisioningRecords, now: () => string = 
   },
 });
 
-const titleOf = (piece: ProvisionPieceInput['piece']): string => [...PROVISION_PIECES, PROVISION_MOVED_PIECE].find((entry) => entry.key === piece)?.title ?? piece;
+const titleOf = (piece: ProvisionPieceInput['piece']): string => PROVISION_PIECES.find((entry) => entry.key === piece)?.title ?? piece;
 
-function workFor(run: ProvisionPieceRun, { steps, place, moveOver }: ProvisionPieceDeps, wait: Pause | undefined): (report: Report) => Promise<void> {
+function workFor(run: ProvisionPieceRun, { steps, place }: ProvisionPieceDeps, wait: Pause | undefined): (report: Report) => Promise<void> {
   const { target, piece } = run;
   if (target.kind === 'machine') {
     if (piece !== 'monitoring') throw ApplicationFailure.nonRetryable(`${target.machine} gets only its collector set up, not ${titleOf(piece)}`, 'NotAMachinePiece');
@@ -49,7 +47,6 @@ function workFor(run: ProvisionPieceRun, { steps, place, moveOver }: ProvisionPi
     return (report) => installClusterMonitoring(steps, cluster, { report }, wait);
   }
   const reach = steps.access.own();
-  if (piece === PROVISION_MOVED_PIECE.key) return (report) => bringMoveOver(moveOver, report);
   if (piece === 'monitoring') return (report) => installClusterMonitoring(steps, koalaClusterMonitoring(place.pool, reach), { report }, wait);
   const service = PLATFORM_PLAN.find((entry) => entry.key === piece);
   if (!service) throw ApplicationFailure.nonRetryable(`Koala has no platform service ${piece} to set up`, 'UnknownPiece');

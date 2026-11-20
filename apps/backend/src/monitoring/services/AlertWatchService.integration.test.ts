@@ -24,7 +24,6 @@ const watcher = (tell: AlertWatchDeps['tell'], logged: string[]) => {
   const monitoring = mock<AlertWatchDeps['monitoring']>();
   monitoring.allClusters.mockResolvedValue([koalas]);
   monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'ok', metrics });
-  monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
   monitoring.applyReceiver.mockResolvedValue(false);

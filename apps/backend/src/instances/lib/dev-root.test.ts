@@ -6,7 +6,6 @@ import { generateKeyPairSync } from 'node:crypto';
 import { backendSettingsFrom, hostWorkerSettingsFrom } from '../../platform/lib/settings.js';
 
 const saying = (text: string): unknown => expect.stringContaining(text);
-const ANY_TEXT: unknown = expect.any(String);
 
 const input = { mongoUri: 'mongodb://localhost:27017/provisioning?replicaSet=rs0', setupCode: 'setup', hubCredential: 'hub-secret', hubCredentialHash: 'hash', rootPublicKeys: 'PEM', temporalCa: '/repo/apps/backend/data/temporal-tls/ca.crt', dataDir: '/repo/apps/backend/data' };
 
@@ -46,7 +45,7 @@ describe('dev, run as production runs on this computer', () => {
     const keys = { ...testKeyEnv('dev-root'), ROOT_IDENTITY_KEY: testIdentityKey() };
     const root = backendSettingsFrom({ ...keys, ...plan.rootEnv });
     expect(root).toMatchObject({ port: 3002, publicUrl: 'http://koala.localhost:5175', trustProxy: 'loopback', temporal: { address: '127.0.0.1:7233', namespace: 'default', caPath: '/repo/apps/backend/data/temporal-tls/ca.crt' }, terraform: { kind: 'local' }, mesh: { loginServer: 'http://127.0.0.1:8080', headscaleUrl: 'http://127.0.0.1:8080' } });
-    expect(root.root).toMatchObject({ imageTag: 'dev', registry: '127.0.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') }, pool: { off: ANY_TEXT } });
+    expect(root.root).toMatchObject({ imageTag: 'dev', registry: '127.0.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') } });
     expect(hostWorkerSettingsFrom({ ...keys, ...plan.rootEnv })).toMatchObject({ healthPort: 0, temporalMetricsPort: 9465, publicUrl: 'http://koala.localhost:5175' });
     expect(backendSettingsFrom({ ...keys, ...plan.hubEnv })).toMatchObject({ port: 3003, trustProxy: 'loopback', hubDatabase: 'koala_dev_hub', hubGitea: { url: 'http://127.0.0.1:31737' } });
   });
