@@ -14,6 +14,7 @@ import type { PlatformInputs, PlatformServiceName } from "../lib/platform-settin
 
 
 export const GITEA_CHART_VERSION = "12.7.0";
+export const GITEA_VERSION = "1.27.0";
 export const GITEA_CHART_REPO = "https://dl.gitea.com/charts/";
 export const INFISICAL_CHART_VERSION = "1.11.1";
 export const INFISICAL_OPERATOR_CHART_VERSION = "v0.11.15";
@@ -80,6 +81,7 @@ export class GiteaPlatform extends Construct {
       dependsOn: place.namespaces,
       set: [
         ...plain({
+          "image.tag": GITEA_VERSION,
           "gitea.admin.existingSecret": "gitea-admin",
           "gitea.admin.email": "bot@provisioning.local",
           "gitea.admin.passwordMode": "keepUpdated",

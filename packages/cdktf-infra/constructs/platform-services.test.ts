@@ -125,6 +125,10 @@ describe("Gitea", () => {
     expect(gitea(false)).toMatchObject({ name: "gitea", namespace: "gitea", version: pinned("chart", "gitea")!.version, repository: pinned("chart", "gitea")!.source, wait: false });
   });
 
+  it("runs the very Gitea version the tests run, from the one pin, rather than whatever the chart defaults to", () => {
+    expect(setOf(gitea(false))["image.tag"]).toBe(pinned("binary", "gitea-server")!.version);
+  });
+
   it("signs its admin in from the Secret Koala made, and holds no password of its own", () => {
     const release = gitea(false);
     expect(setOf(release)).toMatchObject({ "gitea.admin.existingSecret": "gitea-admin", "gitea.admin.email": "bot@provisioning.local", "gitea.admin.passwordMode": "keepUpdated" });

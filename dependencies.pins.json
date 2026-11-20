@@ -30,7 +30,14 @@
         "ecosystem": "Go",
         "name": "code.gitea.io/gitea"
       },
-      "released": "2026-07-13T16:28:27Z"
+      "released": "2026-07-13T16:28:27Z",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "export const GITEA_VERSION = \"([0-9.]+)\""
+        }
+      ],
+      "where": "the tests' real Gitea, and the Gitea image every instance runs through the Gitea chart"
     },
     {
       "kind": "binary",
