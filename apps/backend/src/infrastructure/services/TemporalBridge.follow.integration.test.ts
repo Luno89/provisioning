@@ -139,6 +139,8 @@ describe('settling the work the bridge itself starts', () => {
       const started = [await bridge.destroyApp('gone'), await bridge.resizeDisk('grown', { data: '20Gi' }), await bridge.syncConfig('synced'), await bridge.syncConfig('model')];
       const build = await bridge.runPipeline(project, 'b'.repeat(40), 'refs/heads/main');
       expect(build).toMatchObject({ event: 'pipeline-run' });
+      if (!('id' in build)) throw new Error('the build had nothing to build');
+      await settled(build.id);
       const { workflowId } = await bridge.startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
       await bridge.client!.workflow.getHandle(workflowId).result();
       expect(await bridge.ingestStatus(workflowId)).toEqual({ state: 'completed', receipt: { pages: 1 } });

@@ -870,7 +870,6 @@ export class TemporalBridge {
       ...startedFor(project.ownerId ?? PLATFORM_OWNER),
     }))
 
-    void this.follow(wfId, 'pipeline-run', runId, project.giteaRepo)
     await this.db.releases.savePipelineRunInfo({ id: runId, temporalWorkflowId: wfId })
     if (this.io) this.io.emit('pipeline-run-updated')
 
