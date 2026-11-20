@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judge, reportOf, type Codebase, type Weights } from './confidence.js';
+import { EVEN_SHARING, judge, reportOf, type Codebase, type Weights } from './confidence.js';
 
 const WEIGHTS: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
 
@@ -79,7 +79,7 @@ describe('how proven a link is', () => {
       { id: 'delete', from: 'store', to: ['pkg:mongodb#deleteOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'deleteOne'] },
       { id: 'elsewhere', from: 'store', to: ['pkg:mongodb#find'], kind: 'dependency' as const, path: ['mongodb', 'notes', 'find'] },
     ];
-    const judged = judge(codebase({ links, runs: [{ test: 'vm', layer: 'vm', units: ['store'], links: ['add'] }] }), WEIGHTS, { service: 0.6, resource: 0.2, operation: 0.2 });
+    const judged = judge(codebase({ links, runs: [{ test: 'vm', layer: 'vm', units: ['store'], links: ['add'] }] }), WEIGHTS, { dependency: { service: 0.6, resource: 0.2, operation: 0.2 } });
     const of = (id: string) => judged.links.find((link) => link.id === id)!;
 
     expect(of('delete').confidence).toBeCloseTo(0.9 * 0.8);
@@ -133,6 +133,20 @@ describe('how proven a link is', () => {
 
     expect(judged.functions.map((one) => [one.id, one.runAt])).toEqual([['orphan', []], ['store', ['unit']], ['save', ['unit', 'component']]]);
     expect(judged.functions[2]!.confidence).toBeCloseTo(1 - 0.5 * 0.4);
+  });
+
+  it('lends a link between Koala\'s own pieces part of the proof of a proven link into the same target, leaving the new caller\'s side unproven', () => {
+    const links = [
+      { id: 'save->store', from: 'save', to: ['store'], kind: 'composition' as const },
+      { id: 'orphan->store', from: 'orphan', to: ['store'], kind: 'composition' as const },
+      { id: 'orphan->save', from: 'orphan', to: ['save'], kind: 'composition' as const },
+    ];
+    const judged = judge(codebase({ links, runs: [{ test: 'c', layer: 'component', units: ['save', 'store'], links: ['save->store'] }] }), WEIGHTS, { dependency: EVEN_SHARING, composition: { target: 0.5 } });
+    const of = (id: string) => judged.links.find((link) => link.id === id)!;
+
+    expect(of('orphan->store').confidence).toBeCloseTo(0.6 * 0.5);
+    expect(of('orphan->store').sharedFrom).toBe('save->store');
+    expect(of('orphan->save').confidence).toBe(0);
   });
 
   it('ranks links riskiest first, weighing what is left by how often the code changed and failed', () => {

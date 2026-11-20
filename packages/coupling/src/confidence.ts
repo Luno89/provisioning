@@ -19,6 +19,8 @@ export interface Sharing { service: number; resource: number; operation: number 
 
 export const EVEN_SHARING: Sharing = { service: 1 / 3, resource: 1 / 3, operation: 1 / 3 };
 
+export interface SharingByKind { dependency?: Sharing; composition?: { target: number } }
+
 export interface JudgedLink extends Link {
   provenAt: Layer[];
   provenBy: string[];
@@ -64,12 +66,19 @@ function shareOf(a: readonly string[], b: readonly string[], sharing: Sharing): 
   return sharing.service + sharing.resource + sharing.operation;
 }
 
-function lent(link: Link, proven: readonly JudgedLink[], sharing: Sharing): { confidence: number; from: string } | undefined {
-  if (link.kind !== 'dependency' || !link.path || link.path.length === 0) return undefined;
+const sameTargets = (a: readonly string[], b: readonly string[]): boolean => a.length > 0 && sameParts([...a].sort(), [...b].sort());
+
+function shared(link: Link, sibling: JudgedLink, sharing: SharingByKind): number {
+  if (sibling.id === link.id || sibling.kind !== link.kind) return 0;
+  if (link.kind === 'dependency') return link.path && sibling.path && sharing.dependency ? shareOf(link.path, sibling.path, sharing.dependency) : 0;
+  if (link.kind === 'composition') return sharing.composition && sameTargets(link.to, sibling.to) ? sharing.composition.target : 0;
+  return 0;
+}
+
+function lent(link: Link, proven: readonly JudgedLink[], sharing: SharingByKind): { confidence: number; from: string } | undefined {
   let best: { confidence: number; from: string } | undefined;
   for (const sibling of proven) {
-    if (sibling.kind !== 'dependency' || !sibling.path || sibling.id === link.id) continue;
-    const confidence = sibling.confidence * shareOf(link.path, sibling.path, sharing);
+    const confidence = sibling.confidence * shared(link, sibling, sharing);
     if (confidence > 0 && (!best || confidence > best.confidence)) best = { confidence, from: sibling.id };
   }
   return best;
@@ -78,7 +87,7 @@ function lent(link: Link, proven: readonly JudgedLink[], sharing: Sharing): { co
 const riskiestFirst = <T extends { risk: number }>(list: readonly T[]): T[] =>
   list.map((item, index) => ({ item, index })).sort((a, b) => b.item.risk - a.item.risk || a.index - b.index).map(({ item }) => item);
 
-export function judge(codebase: Codebase, weights: Weights, sharing: Sharing = EVEN_SHARING): Judgement {
+export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKind = { dependency: EVEN_SHARING }): Judgement {
   const changes = codebase.history?.changes ?? {};
   const failures = codebase.history?.failures ?? {};
   const weight = (unit: string): number => (1 + Math.log2(1 + (changes[unit] ?? 0))) * (1 + (failures[unit] ?? 0));

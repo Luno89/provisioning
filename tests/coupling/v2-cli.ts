@@ -41,6 +41,6 @@ const codebase = codebaseOf(builtGraph(ROOT).graph, runs, {
   churn,
   failures,
 });
-const judged = judge(codebase, WEIGHTS, SHARING);
+const judged = judge(codebase, WEIGHTS, { dependency: SHARING, composition: { target: 0.5 } });
 console.log(reportOf(judged, Number(process.argv[2] ?? 25)));
 if (judged.blocking.length > 0) process.exitCode = 1;
