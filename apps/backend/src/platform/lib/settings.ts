@@ -658,11 +658,6 @@ function podStep(read: Reading, serviceAccountDir = SERVICE_ACCOUNT_DIR): PodSte
   return role ? { role, clusters: { here, serviceAccount: serviceAccountFrom(read.env, serviceAccountDir), rootKubeconfig: { off: 'only root reaches root\'s own cluster' }, chartSources: chartSourcesFrom(read) } } : undefined;
 }
 
-export function podStepSettingsFrom(env: Env): PodStepSettings {
-  const read = new Reading(env);
-  return finish(read, 'this step', podStep(read));
-}
-
 export interface SelfUpgradeSettings extends PodStepSettings {
   root: { url: string; instanceId: string; credential: string };
   release: { name: string; namespace: string; current: string; dataVersion: number };
@@ -768,5 +763,3 @@ export function databaseSettingsFrom(env: Env): { mongo: MongoTarget; dataKey: P
   const mongo = read.take(() => mongoTarget(env));
   return finish(read, 'this program', dataKey && mongo ? { mongo, dataKey } : undefined);
 }
-
-export const settingProblem = (err: unknown): string | undefined => (err instanceof SettingsError ? err.message : undefined);
