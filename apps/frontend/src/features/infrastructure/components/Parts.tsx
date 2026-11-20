@@ -25,7 +25,3 @@ export function QuietButton({ children, onClick, danger = false, disabled = fals
     </button>
   )
 }
-
-export function Card({ children, testId }: { children: ReactNode; testId?: string }) {
-  return <div className="space-y-2 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 p-3" data-testid={testId}>{children}</div>
-}

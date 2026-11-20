@@ -28,7 +28,7 @@ import {
 import { canvasContextFor } from '../../lib/procedure-drafts'
 import type { CanvasContext } from '../../lib/procedure-canvas'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
-import { addMcpServer, captureMcpServer, getMcpCatalogue, listMcpServers, mcpKeys, removeMcpServer, saveMcpServer, type McpServer, type McpServerChange } from '../../api/mcp'
+import { addMcpServer, captureMcpServer, getMcpCatalogue, mcpKeys, removeMcpServer, saveMcpServer, type McpServer, type McpServerChange } from '../../api/mcp'
 import { egressKeys, listEgressGrants, revokeEgress } from '../../../infrastructure'
 import {
   deleteEngineTool,
@@ -155,10 +155,6 @@ export function useEgressGrants(agent: string) {
   const grants = useQuery({ queryKey: egressKeys.grants(agent), queryFn: () => listEgressGrants(agent), enabled: Boolean(agent) })
   const revoke = useMutation({ mutationFn: (id: string) => revokeEgress(id), onSuccess: () => { void qc.invalidateQueries({ queryKey: egressKeys.all }) } })
   return { grants: grants.data ?? [], revoke: (id: string) => revoke.mutate(id), busy: revoke.isPending }
-}
-
-export function useMcpServerList() {
-  return useQuery({ queryKey: mcpKeys.servers(), queryFn: listMcpServers })
 }
 
 export function useMcpCatalogue(options: { polling?: boolean } = {}) {

@@ -10,14 +10,6 @@ export const field =
 
 export const label = 'text-[10px] uppercase tracking-widest text-slate-500 mb-1 block';
 
-let nextId = 0;
-/** A short, unique-enough id for a new step or file row — not persisted identity, just a React key
- * and a value a `runIf` can reference until the row is renamed. */
-export function draftId(prefix: string): string {
-  nextId += 1;
-  return `${prefix}-${Date.now().toString(36)}-${nextId}`;
-}
-
 /** Matches `SLUG` in `apps/backend/src/projects/lib/tree-types.ts` — a valid tree-type id. */
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
