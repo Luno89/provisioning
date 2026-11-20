@@ -77,6 +77,20 @@ describe('the red-green gate on a real repository', () => {
     expect(!refused.ok && refused.why).toMatch(/green first/);
   });
 
+  it('lets a merge commit through, since each side was held to red-green where it was made', () => {
+    const { dir, git, write } = aRepo();
+    git('checkout', '-q', '-b', 'side');
+    write('scripts/other.ts', 'export const other = 1;\n');
+    git('add', '-A');
+    git('commit', '-q', '--no-verify', '-m', 'side work');
+    git('checkout', '-q', '-');
+    write('scripts/third.ts', 'export const third = 1;\n');
+    git('add', '-A');
+    git('commit', '-q', '--no-verify', '-m', 'main work');
+    git('merge', '--no-commit', '--no-ff', 'side');
+    expect(commit(dir)).toBeUndefined();
+  });
+
   it('refuses a commit whose source changed through the shell with no test seen failing', () => {
     const { dir, git, write } = aRepo();
     write('scripts/other.ts', 'export const other = 1;\n');
