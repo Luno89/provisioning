@@ -487,4 +487,13 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'Every wait in Koala and its tests is told by an event: a Kubernetes watch, a Temporal result or signal, a Mongo change stream, a socket event, a child process exiting or saying a line, a file event, a push to the browser. Each kind has one implementation used the same way in production and tests, and every wait also ends, saying why, the moment what it waits for can never come. The only asking left is one prober for outside services that cannot push (a provider order, an SSH port, public DNS, a registry, a model endpoint, a dependency coming back), paced by the one backoff and shown live under Needs attention. The only clock left is a child process\'s grace between SIGTERM and SIGKILL; a workflow stop waits on the workflow closing.',
   },
+  {
+    id: 'mocked-temporal-in-tests',
+    subject: 'Most tests reach Temporal through a mocked client and host held to the real one, not a real Temporal server',
+    terms: ['temporal', 'mock', 'mocked', 'test server', 'worker'],
+    words: [
+      { at: '2026-11-19T23:59', text: 'we shouldn\'t be using a real temporal most of the time, this should be a mocked client and host' },
+    ],
+    reading: 'A test of a service, route or wiring that starts, signals or follows a workflow uses a mocked Temporal client and host that run the real workflow and activity code in process, held to the real Temporal by one contract suite run against both. An activity\'s own logic is tested in Temporal\'s mock activity environment with no server. Only a workflow\'s own logic keeps the clock-skipping test server, and only Temporal itself (the payload codec, TLS, the machine gateway, replay) runs against a real Temporal.',
+  },
 ];
