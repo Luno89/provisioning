@@ -87,6 +87,7 @@ function onCommit(input: HookInput): HookAnswer | undefined {
   if (!COMMIT.test(command)) return undefined;
   const root = git(input.cwd, 'rev-parse', '--show-toplevel');
   if (!root) return undefined;
+  if (git(root, 'rev-parse', '-q', '--verify', 'MERGE_HEAD') !== undefined) return undefined;
   const all = /\s(-a|--all|-am|-a\s)/.test(` ${command}`);
   const numstat = [...lines(git(root, 'diff', '--cached', '--numstat')), ...(all ? lines(git(root, 'diff', '--numstat')) : [])];
   const changes = numstat.map((line) => { const [added, , path] = line.split('\t'); return { added: Number(added), path: path ?? '' }; });
