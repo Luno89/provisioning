@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EVEN_SHARING, heldTo, judge, reportOf, untestedList, type Codebase, type Weights } from './confidence.js';
+import { EVEN_SHARING, heldTo, judge, learnedWeights, reportOf, untestedList, type Codebase, type Weights } from './confidence.js';
 
 const WEIGHTS: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
 
@@ -219,5 +219,39 @@ describe('the untested list, which only shrinks', () => {
 
   it('writes the list from today\'s untested functions, counting a name that occurs twice in a file', () => {
     expect(untestedList([unit('a.ts', 'save'), unit('a.ts', '(anonymous)'), unit('a.ts', '(anonymous)')])).toEqual({ 'a.ts#(anonymous)': 2, 'a.ts#save': 1 });
+  });
+});
+
+describe('weights learned from evidence', () => {
+  const PRIOR: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
+
+  it('keeps the starting weight while there is no evidence', () => {
+    expect(learnedWeights(PRIOR, [], { strength: 10 }).weights).toEqual(PRIOR);
+  });
+
+  it('moves a layer\'s weight toward how often its tests caught a planted fault, more as evidence piles up', () => {
+    const missed = (count: number) => Array.from({ length: count }, () => ({ layer: 'unit' as const, caught: false }));
+    const caught = (count: number) => Array.from({ length: count }, () => ({ layer: 'unit' as const, caught: true }));
+
+    const few = learnedWeights(PRIOR, [...caught(1), ...missed(9)], { strength: 10 }).weights.unit;
+    const many = learnedWeights(PRIOR, [...caught(10), ...missed(90)], { strength: 10 }).weights.unit;
+
+    expect(few).toBeCloseTo((5 + 1) / 20);
+    expect(many).toBeCloseTo((5 + 10) / 110);
+    expect(many).toBeLessThan(few);
+    expect(learnedWeights(PRIOR, missed(5), { strength: 10 }).weights.vm).toBe(0.9);
+  });
+
+  it('counts older evidence for less, so the weight follows the tests as they change', () => {
+    const old = Array.from({ length: 20 }, () => ({ layer: 'unit' as const, caught: false, age: 4 }));
+    const recent = Array.from({ length: 20 }, () => ({ layer: 'unit' as const, caught: true, age: 0 }));
+
+    expect(learnedWeights(PRIOR, [...old, ...recent], { strength: 10, halfLife: 1 }).weights.unit).toBeCloseTo(25 / 31.25);
+  });
+
+  it('says how much evidence each weight rests on', () => {
+    const learned = learnedWeights(PRIOR, [{ layer: 'unit', caught: true }, { layer: 'unit', caught: false }], { strength: 10 });
+    expect(learned.evidence.unit).toEqual({ caught: 1, missed: 1 });
+    expect(learned.evidence.vm).toEqual({ caught: 0, missed: 0 });
   });
 });

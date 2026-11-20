@@ -174,3 +174,25 @@ export function heldTo(untested: readonly CodeUnit[], list: UntestedList): Held 
   const fixed = Object.entries(list).filter(([key, was]) => (now[key] ?? 0) < was).map(([key, was]) => ({ key, was, now: now[key] ?? 0 }));
   return { added, fixed };
 }
+
+export interface Evidence { layer: Layer; caught: boolean; age?: number }
+
+export interface Learning { strength: number; halfLife?: number }
+
+export interface Learned { weights: Weights; evidence: Record<Layer, { caught: number; missed: number }> }
+
+export function learnedWeights(prior: Weights, evidence: readonly Evidence[], learning: Learning): Learned {
+  const weights = { ...prior };
+  const counted = Object.fromEntries(LAYERS.map((layer) => [layer, { caught: 0, missed: 0 }])) as Learned['evidence'];
+  for (const layer of LAYERS) {
+    let caught = 0;
+    let missed = 0;
+    for (const seen of evidence) {
+      if (seen.layer !== layer) continue;
+      const counts = learning.halfLife ? 0.5 ** ((seen.age ?? 0) / learning.halfLife) : 1;
+      if (seen.caught) { caught += counts; counted[layer].caught += 1; } else { missed += counts; counted[layer].missed += 1; }
+    }
+    weights[layer] = (prior[layer] * learning.strength + caught) / (learning.strength + caught + missed);
+  }
+  return { weights, evidence: counted };
+}
