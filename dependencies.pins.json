@@ -1078,7 +1078,8 @@
           "file": "packages/engine-core/testing/shared.ts",
           "pattern": "version: 'v([0-9.]+)'"
         }
-      ]
+      ],
+      "released": "2026-11-13T19:40:30Z"
     },
     {
       "kind": "chart",
