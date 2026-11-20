@@ -91,6 +91,8 @@ Owner, 2026-11-20: "at least one pass to clear out any dead code, we should matc
 
 Removed later the same day: `Records.all`, `one`, `byId`, `put`, `patch` and `count` and `WorkspaceImageService.isLanguage` (436e193f5), with `Level2Service` and the engine host now importing the eval area through its index; and the agent-engine copy of ownership (`ownsProject`, `ownedBy`, `OwnershipUser`, `OwnedRecord`, superseded by the permissions table, 4f163f829) in 4bc7142c8, where the backend now takes `withBuiltIns` from the package (owner, 2026-11-20: "Backend imports from the package"). They had been held because the commit gate ran the main checkout's vitest against the worktree, which made neighbouring tests report no assertions.
 
+Also unused after these removals: `OVH_ACCESS_RULES` (`infrastructure/lib/ovh-api.ts`), the API key rules for the OVHcloud keys page the VPS purchase would link to (plan `project-to-vps.md`, the buy-root branch), and the frontend's `evalKeys.level2Run`, whose one reader went with `useLevel2Run`. Removed in the commit after 436e193f5.
+
 ## Answers recorded, to build after coupler v2
 
 - `refusedOn` (`apps/frontend/src/features/projects/components/Board/hub-waiting.ts`) gets wired, so a hub member sees at the item that the owner's instance refused their request, and why (owner, 2026-11-20: "Wire it up"). Left as it is until then.

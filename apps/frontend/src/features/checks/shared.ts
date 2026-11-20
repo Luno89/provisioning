@@ -36,7 +36,6 @@ export const evalKeys = {
   checkProcedure: (id: string) => ['evals', 'level2', 'procedure', id] as const,
   scenarios: ['evals', 'level2', 'scenarios'] as const,
   level2Runs: ['evals', 'level2', 'runs'] as const,
-  level2Run: (id: string) => ['evals', 'level2', 'run', id] as const,
   bench: ['evals', 'level2', 'bench'] as const,
   proposals: ['evals', 'level2', 'proposals'] as const,
   practices: ['evals', 'level2', 'practices'] as const,
