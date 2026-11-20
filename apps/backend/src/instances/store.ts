@@ -1,7 +1,7 @@
 import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
-import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
@@ -91,6 +91,7 @@ export class MongoInstancesStore implements InstancesStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await keepWrittenDocuments(this.db(), ['instances']);
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });

@@ -1,4 +1,4 @@
-import type { ChangeStream, ChangeStreamDocument, ChangeStreamOptions, Collection, Document } from 'mongodb';
+import type { ChangeStream, ChangeStreamDocument, ChangeStreamOptions, Collection, Db, Document } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
 import { REOPEN_FIRST_MS, reopening } from '@koala/engine-core/reopening';
 
@@ -19,14 +19,47 @@ const onWritten = (matching: Document): Document => Object.fromEntries(Object.en
   ? [field, (condition as Document[]).map(onWritten)]
   : [`fullDocument.${field}`, condition])));
 
+const kept = new Set<string>();
+const NAMESPACE_EXISTS = 48;
+const keptName = (dbName: string, name: string): string => `${dbName}.${name}`;
+
+export async function keepWrittenDocuments(db: Db, names: readonly string[]): Promise<void> {
+  const existing = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((found) => found.name));
+  for (const name of names) {
+    if (!existing.has(name)) {
+      await db.createCollection(name).catch((err: unknown) => {
+        if ((err as { code?: number }).code !== NAMESPACE_EXISTS) throw err;
+      });
+    }
+    await db.command({ collMod: name, changeStreamPreAndPostImages: { enabled: true } });
+    kept.add(keptName(db.databaseName, name));
+  }
+}
+
+const WRITES: Document = { operationType: { $in: ['insert', 'update', 'replace'] } };
+
 export function watchWrites<T extends Document>(
   collection: () => Collection<T>,
   matching: Document,
   on: (doc: T) => void,
   reopenMs = REOPEN_FIRST_MS,
 ): Watching {
-  return watchChanges(collection, [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, ...onWritten(matching) } }], { fullDocument: 'updateLookup' }, (change) => {
+  const watched = collection();
+  if (!kept.has(keptName(watched.dbName, watched.collectionName))) {
+    throw new Error(`${watched.collectionName} is not set up to keep the documents its writes leave, so following them would miss states: its store's setup has to keep them before it is followed`);
+  }
+  return watchChanges(collection, [{ $match: { ...WRITES, ...onWritten(matching) } }], { fullDocument: 'required' }, (change) => {
     if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
+  }, reopenMs);
+}
+
+export function watchNudges<T extends Document>(
+  collection: () => Collection<T>,
+  on: (key: Document) => void,
+  reopenMs = REOPEN_FIRST_MS,
+): Watching {
+  return watchChanges(collection, [{ $match: WRITES }], {}, (change) => {
+    if ('documentKey' in change) on(change.documentKey as Document);
   }, reopenMs);
 }
 

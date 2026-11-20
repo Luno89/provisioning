@@ -4,7 +4,7 @@ import type { OdooRelease } from './lib/odoo-release.js';
 import type { PartialInfo, PipelineRunMetadata } from '../platform/index.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
-import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchingAll, watchNudges, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_RUN_STATUSES, workflowMatch } from '../infrastructure/lib/followed-work.js';
 
 export interface ReleasesStore extends AreaStore {
@@ -40,6 +40,7 @@ export class MongoReleasesStore implements ReleasesStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await keepWrittenDocuments(this.db(), ['pipelineRuns', 'odooReleases']);
     await this.pipelineRuns.createIndex({ projectId: 1 });
     await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
   }
@@ -53,7 +54,7 @@ export class MongoReleasesStore implements ReleasesStore {
   }
 
   watchReleaseWork(on: () => void): Watching {
-    return watchingAll([watchWrites(() => this.pipelineRuns, {}, () => on()), watchWrites(() => this.odooReleases, {}, () => on())]);
+    return watchingAll([watchNudges(() => this.pipelineRuns, () => on()), watchNudges(() => this.odooReleases, () => on())]);
   }
 
   async getPipelineRuns(): Promise<PipelineRunMetadata[]> {

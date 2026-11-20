@@ -12,7 +12,7 @@ import { SERVER_ORDER_LOG_LINES, type ServerOrder } from './lib/server-orders.js
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
-import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
 import type { ProvisioningRecord } from './lib/provisioning.js';
 
@@ -131,6 +131,7 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await keepWrittenDocuments(this.db(), ['deployments', 'provisioning']);
     await this.clusters.createIndex({ name: 1 }, { unique: true });
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.dropIndex('name_1').catch(ignore('the old name-only index is gone once it has been dropped, and an install made after it never had one'));

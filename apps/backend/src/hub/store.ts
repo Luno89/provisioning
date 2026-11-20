@@ -1,6 +1,6 @@
 import type { Collection, Db } from 'mongodb';
 import { fromDoc, Records, type AreaStore } from '../platform/lib/collection.js';
-import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { watchNudges, type Watching } from '../platform/lib/change-streams.js';
 import { fieldUpdate, messageUpdates, type HubDirty, type HubLink, type HubSyncStore, type RecordPatch, type SyncedDoc, type SyncedKind } from './lib/hub-sync.js';
 
 export interface HubStore extends HubSyncStore, AreaStore {}
@@ -61,7 +61,7 @@ export class MongoHubStore implements HubStore {
   }
 
   watchHubDirty(on: () => void): Watching {
-    return watchWrites(() => this.dirty.raw, {}, () => on());
+    return watchNudges(() => this.dirty.raw, () => on());
   }
 
   async syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined> {

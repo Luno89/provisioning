@@ -230,16 +230,16 @@ export class MemoryEngineStore implements EngineStore {
     return this.runReads.keyed().filter(([, reads]) => reads.runs.some((run) => runIds.includes(run))).map(([key, reads]) => readsOut(key, reads));
   }
 
-  private readonly signalWatchers = new Set<(signal: PoisoningSignal) => void>();
+  private readonly signalWatchers = new Set<() => void>();
 
   async savePoisoningSignal(signal: PoisoningSignal): Promise<boolean> {
     if (this.poisoningSignals.has(signal.id)) return false;
     this.poisoningSignals.put(signal.id, signal);
-    for (const watcher of this.signalWatchers) queueMicrotask(() => watcher(copied(signal)));
+    for (const watcher of this.signalWatchers) queueMicrotask(() => watcher());
     return true;
   }
 
-  watchPoisoningSignals(on: (signal: PoisoningSignal) => void): Watching {
+  watchPoisoningSignals(on: () => void): Watching {
     this.signalWatchers.add(on);
     return { ready: Promise.resolve(), close: async () => { this.signalWatchers.delete(on); } };
   }

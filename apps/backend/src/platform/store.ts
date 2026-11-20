@@ -2,7 +2,7 @@ import type { AreaStore } from './lib/collection.js';
 import type { Db } from 'mongodb';
 import type { MigrationRecord } from './lib/migrations.js';
 import type { EndedSession } from './lib/ended-sessions.js';
-import { watchWrites, type Watching } from './lib/change-streams.js';
+import { keepWrittenDocuments, watchNudges, watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
 import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
 import { closingOf, fenceIdOf, type Closing, type KoalaProcess, type RaisedFence } from './lib/fence.js';
@@ -84,6 +84,7 @@ export class MongoPlatformStore implements PlatformStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await keepWrittenDocuments(this.db(), ['fences', 'endedSessions']);
     await this.endedSessions.createIndex({ until: 1 }, { expireAfterSeconds: 0 });
     await this.endedSessions.createIndex({ at: 1 });
     await this.signInAttempts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -112,9 +113,10 @@ export class MongoPlatformStore implements PlatformStore {
   }
 
   watchFenceAcks(on: (ack: { closing: Closing; process: string }) => void): Watching {
-    return watchWrites(() => this.fenceAckRows, {}, (doc) => {
-      const closing = closingOf(String(doc.fence));
-      if (closing) on({ closing, process: String(doc.process) });
+    return watchNudges(() => this.fenceAckRows, (key) => {
+      const [fence = '', process = ''] = String(key._id).split('|');
+      const closing = closingOf(fence);
+      if (closing && process) on({ closing, process });
     });
   }
 
@@ -145,7 +147,7 @@ export class MongoPlatformStore implements PlatformStore {
   }
 
   watchProcesses(on: () => void): Watching {
-    return watchWrites(() => this.processes, {}, () => on());
+    return watchNudges(() => this.processes, () => on());
   }
 
   async hasMigration(name: string): Promise<boolean> {
