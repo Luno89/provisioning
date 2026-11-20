@@ -1,6 +1,4 @@
 import type { ModelKind } from '../model/model-registry.js';
-import { samplingFor } from '../model/pack-sampling.js';
-import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
 import type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType } from '@koala/harness-types';
 
 export type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType };
@@ -388,9 +386,6 @@ const BY_KEY = new Map(TUNABLES.map((t) => [t.key, t]));
 
 export const tunable = (key: string): Tunable | undefined => BY_KEY.get(key);
 
-export const loopKeys = (): string[] =>
-  TUNABLES.filter((t) => t.placement === 'loop').map((t) => t.key);
-
 export function applyOverrides(
   body: Record<string, unknown>,
   overrides: Overrides,
@@ -422,99 +417,4 @@ export function applyOverrides(
   }
 
   return { body: next, unsupported };
-}
-
-export interface OverrideContext {
-  layer?: 'profile' | 'persona' | 'pack' | 'request';
-  models?: string[];
-}
-
-const orList = (items: readonly string[]): string =>
-  items.length <= 1
-    ? (items[0] ?? '')
-    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
-
-export function validateOverrides(overrides: Overrides, context: OverrideContext = {}): string | null {
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) continue;
-    const spec = BY_KEY.get(key);
-    if (!spec) return `Unknown setting "${key}".`;
-    if (value === null) continue;
-
-    if (context.layer && spec.settableAt && !spec.settableAt.includes(context.layer)) {
-      return `${spec.label} cannot be set on the ${context.layer}. `
-        + `Set it on ${orList(spec.settableAt)} instead — `
-        + 'a profile-wide value would repoint every persona in every project at once.';
-    }
-
-    if (spec.choicesFrom === 'models' && context.models && !context.models.includes(String(value))) {
-      return context.models.length
-        ? `${spec.label} must be one of your models: ${context.models.join(', ')}.`
-        : `${spec.label} cannot be set — you have no models deployed or registered.`;
-    }
-
-    if (spec.type === 'number') {
-      if (typeof value !== 'number' || Number.isNaN(value)) return `${spec.label} must be a number.`;
-      if (spec.min !== undefined && value < spec.min) return `${spec.label} must be at least ${spec.min}.`;
-      if (spec.max !== undefined && value > spec.max) return `${spec.label} must be at most ${spec.max}.`;
-    }
-    if (spec.type === 'boolean' && typeof value !== 'boolean') return `${spec.label} must be true or false.`;
-    if (spec.type === 'string' && typeof value !== 'string') return `${spec.label} must be text.`;
-    if (spec.type === 'enum' && spec.options && !spec.options.includes(value)) {
-      return `${spec.label} must be one of ${spec.options.join(', ')}.`;
-    }
-  }
-  return null;
-}
-
-/**
- * A knob's value when nothing has adopted it comes from the pack's sampler, not from this table.
- * The table describes the knob — range, label, why it exists; the pack says what it is set to.
- */
-export function effectiveConfig(
-  profileOverrides: Overrides = {},
-  kind?: ModelKind,
-  sampling?: SamplingConfig,
-  budget?: BudgetConfig,
-): EffectiveKnob[] {
-  const fromPack: Record<string, unknown> = {
-    ...samplingFor(sampling, 'tool-turn', kind),
-    ...(budget ? { max_tokens: budget.replyTokens.tool } : {}),
-    ...samplingFor(sampling, 'conversation', kind),
-    ...(budget
-      ? {
-          maxTokens: budget.run.tokens,
-          maxSteps: budget.run.steps,
-          maxToolResultChars: budget.toolResultChars,
-          conversationGrowth: budget.conversationGrowth,
-        }
-      : {}),
-  };
-  return TUNABLES
-    .filter((t) => !t.engine || t.engine === kind)
-    .map((t) => {
-      const adopted = profileOverrides[t.key] !== undefined && profileOverrides[t.key] !== null;
-      return {
-        key: t.key,
-        label: t.label,
-        group: t.group,
-        value: adopted ? profileOverrides[t.key] : fromPack[t.key] ?? t.default,
-        source: adopted ? 'adopted' as const : 'harness' as const,
-        ...(t.note ? { note: t.note } : {}),
-        sourceFile: t.source,
-      };
-    });
-}
-
-export function harnessDefaults(kind?: ModelKind, sampling?: SamplingConfig): Overrides {
-  const out: Overrides = {
-    ...samplingFor(sampling, 'tool-turn', kind),
-    ...(kind ? {} : {}),
-  } as Overrides;
-  for (const spec of TUNABLES) {
-    if (spec.default === undefined) continue;
-    if (spec.engine && spec.engine !== kind) continue;
-    out[spec.key] = spec.default;
-  }
-  return out;
 }

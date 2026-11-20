@@ -10,11 +10,6 @@ export const numberOf = (settings: Settings, name: string, fallback: number): nu
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 };
 
-export const flagOf = (settings: Settings, name: string, fallback: boolean): boolean => {
-  const value = settings[name];
-  return typeof value === 'boolean' ? value : fallback;
-};
-
 export const textsOf = (settings: Settings, name: string): string[] => {
   const value = settings[name];
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
