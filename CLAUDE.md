@@ -331,22 +331,46 @@ Owner, 2026-10-23: "all those checks need to run before it gets to main". Plan: 
 
 ## Tests
 
-- **Three tiers, run in order** (owner, 2026-11-02): unit (one process, every dependency mocked through a library), integration (the
-  real dependencies on this machine), e2e (real Koala processes on the dev stack or a VM). Each concept is tested at each tier.
-  Plan: `~/.claude/plans/testing-pyramid.md`.
-- A unit test cannot reach outside its process. An integration test never touches the dev stack.
-- **Each integration file works in a clean world of its own** (owner, 2026-11-11), touching nothing another file can see, and
-  waits on the condition it needs. A failure only in a full run is the setup's fault.
-- **A mock is held to the real thing** by one contract suite run against both.
-- Every test asserts something, and no tier passes on no files.
-- **A test that fails twice** (owner, 2026-11-02: "tests should be the signal something is wrong, if we have flaky tests we have flaky
-  code, if a test suite fails twice that should trigger an audit and research around how to implement the code better"): failures are
-  recorded for gates and live suites always (owner, 2026-11-06: "Gates always, live suites always"), and twice since its last audit
-  blocks ship and release until the audit and its code fix are committed. Never a rerun, a longer limit or fewer workers.
-- **Coupling coverage**: the coupling rules judge which calls a test runs for real, from the unit and integration tiers only (owner,
-  2026-11-10: "lets go with A"), never mapping test code (owner, 2026-11-09: "I don't think we need to map the test code, just the
-  implementation"). The baseline only shrinks. A breach that comes and goes is a fault in the code.
+Plan: `~/.claude/plans/i-had-qwen-max-steady-whistle.md` (2026-11-20), carrying on `testing-pyramid.md` (2026-10-31).
+
+- **Five layers, each with its own command, cheapest first; each runs only once the one below passed** (owner, 2026-10-31;
+  2026-11-20: "each layer of testing should have its own command and fast lower level tests should run first"):
+  - **unit:** one module's logic, everything it talks to faked in the same process;
+  - **component:** one module with its cheap real neighbours (the test run's own Mongo, child processes, sockets, git);
+  - **contract:** two pieces built apart, both real, agreeing on what passes between them;
+  - **container:** real programs (k3s, real images, Temporal, Caddy, MinIO, terraform);
+  - **VM:** the daily run, root in a VM with this computer joining it as a person's machine.
+- **A fault is caught at the cheapest layer that can catch it**, and its test lives there, nowhere higher.
+- **The real thing, once, with a simulated workload** (owner, 2026-11-20: "it should do the real thing but it should only be like
+  once and with a simulated workload"). No stand-in images. How long a real thing lives is decided per layer, not by a rule.
+- **Each test's part of the world is its own**, touching nothing another test can see, though a layer may share one real thing
+  (owner, 2026-11-11). A failure only in a full run is the setup's fault.
+- **A fake is held to the real thing by one contract suite** run against both. A mock only says what was called, never how
+  something behaves.
+- **One implementation per dependency, used by production and tests alike** (owner, 2026-11-18: "it should be the same code with
+  injected dependencies for test vs production … everwhere should be using a common implementation"). A test reaches Mongo,
+  Temporal, a cluster, a process or git through Koala's own adapter, with only what lies under it injected; it never keeps a copy
+  of its own. When a test needs something the adapter can't do yet, the adapter is extended, never written again beside it.
+- **A workflow's decisions are pure functions tested at unit; its Temporal calls are proven on the real Temporal dev server**,
+  in few, balanced scenarios (owner, 2026-11-20: "we should go with the real one and just try to keep the scope of the tests
+  blanced").
+- **No test waits on a clock.** A test that waits ends the moment what it waits for can never come, and says why.
+- **Tests and production run one version of each dependency**, read from the pins file.
+- Every test asserts something, and no layer passes on no files.
 - A test never re-declares the logic it tests, and tests what people notice, never a log line.
+- **A test that fails twice** (owner, 2026-11-02: "if we have flaky tests we have flaky code"): failures are recorded for gates and
+  live suites always (owner, 2026-11-06: "Gates always, live suites always"), and twice since its last audit blocks ship and release
+  until the audit and its code fix are committed. Never a rerun, a longer limit or fewer workers.
+- **Coupling** judges three kinds of call, each by its own proof (owner, 2026-11-20), and maps only the implementation, never test
+  code (owner, 2026-11-09):
+  - *logic* inside a piece: run at unit;
+  - *composition* across Koala's own pieces: both sides run as Koala's real code;
+  - *dependency* into an outside service: every operation and failure mode it relies on, run against the real thing at the pinned
+    version.
+  Confidence adds up across layers, the VM run included, and a proven sibling's shared path counts. A proof lasts until code on
+  either side or the version changes; one that comes and goes is a fault in the code. **No code is completely untested** (owner:
+  "there shouldn't be any completely un-tested code"): new or changed code no test runs is refused, and the rest is ranked by
+  risk. Baselines only shrink.
 
 ## Structure rules
 

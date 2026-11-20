@@ -333,7 +333,7 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-07T19:22', text: 'hummm I would probably label unit as file level tests, testing parts of a function / procedure work as expected with dependencies mocked, one step up would be two or more files integrating together, if you want numbers 5 being the lowest up to 1 as a manual / expensive e2e test, we need to populate 5 as the most numerous covering every part of a function you can look up how to exaustively unit test a file, and then move up levels with progressively more expensive tests adding in real dependencies one at a time,' },
       { at: '2026-11-07T19:23', text: 'yes, download both, sweep rule is fine, next' },
     ],
-    reading: 'Tests come in five levels, each adding real dependencies one at a time. 5, the most numerous: one file, every function, branch, condition, boundary and error path in it, everything outside the file mocked, held to full branch coverage and a mutation score (Stryker), with properties checked over generated inputs (fast-check) where a property exists. 4: two or more of Koala\'s files together, the outside world through twins. 3: one real dependency at a time (Mongo, MinIO, Temporal), with the contract suites that hold the twins to it. 2: a concept on all its real dependencies together. 1: real Koala processes, a person\'s flow, costly, few. Each test tests one concept, at the level it needs: in memory for business logic, the real dependency when the connection is what is tested. A stand-in is used only when the real thing is too slow, and then it has a contract suite. A few light live end-to-end suites in the end; the deleted ones come back and stay until the unit and integration tiers are trusted to cover what they do. Coupling rules strict; failures in gates and live suites always count.',
+    reading: 'Replaced on 2026-11-20 by test-layers, which decides the layers, when each runs, real versus faked dependencies and how coupling is judged. What these words still settle: no hard and fast rule for how a part is tested; a real dependency when it is cheap enough, otherwise a contract test; every concept tested where it needs; failures in gates and live suites always count. The earlier reading (five levels numbered 5 to 1, full branch coverage, a Stryker mutation score, fast-check properties, the deleted live suites coming back) is not in force: the hand-run live suites are archived instead (owner, 2026-11-20).',
   },
   {
     id: 'references-not-questions',
@@ -486,5 +486,19 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-19T19:05', asked: 'Stopping something is a different case from waiting for it to be ready.', text: 'Process kill grace only (Recommended)' },
     ],
     reading: 'Every wait in Koala and its tests is told by an event: a Kubernetes watch, a Temporal result or signal, a Mongo change stream, a socket event, a child process exiting or saying a line, a file event, a push to the browser. Each kind has one implementation used the same way in production and tests, and every wait also ends, saying why, the moment what it waits for can never come. The only asking left is one prober for outside services that cannot push (a provider order, an SSH port, public DNS, a registry, a model endpoint, a dependency coming back), paced by the one backoff and shown live under Needs attention. The only clock left is a child process\'s grace between SIGTERM and SIGKILL; a workflow stop waits on the workflow closing.',
+  },
+  {
+    id: 'test-layers',
+    subject: 'Five test layers, cheapest first, one implementation per dependency, and coupling judged by confidence',
+    terms: ['layer', 'layers', 'unit', 'component', 'contract', 'container', 'coupling', 'cheapest'],
+    words: [
+      { at: '2026-11-19T05:54', text: 'it should be the same code with injected dependencies for test vs production' },
+      { at: '2026-11-20T01:03', text: 'Yep lets change that' },
+      { at: '2026-11-20T01:16', text: 'it should do the real thing but it should only be like once and with a simulated workload' },
+      { at: '2026-11-20T01:17', text: 'each layer of testing should have its own command and fast lower level tests should run first' },
+      { at: '2026-11-20T01:28', text: 'we should go with the real one and just try to keep the scope of the tests blanced' },
+      { at: '2026-11-20T01:36', text: 'Risk should also take into account the layers that already test it not just one layer, there shouldn\'t be any completely un-tested code' },
+    ],
+    reading: 'Tests run in five layers (unit, component, contract, container, VM), each with its own command, cheapest first, each only once the one below passed. A fault is caught at the cheapest layer that can catch it. Real things are used once, with a simulated workload. Each dependency has one implementation, used by production and tests alike with only what lies under it injected, and extended rather than copied. A workflow\'s decisions are pure functions tested at unit, and its Temporal calls are proven on the real Temporal dev server in few, balanced scenarios. Coupling judges logic, composition and dependency calls each by its own proof; confidence adds up across layers, the daily VM run\'s coverage included, and a proven sibling\'s shared path counts; no code is completely untested.',
   },
 ];
