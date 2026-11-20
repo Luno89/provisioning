@@ -26,7 +26,7 @@ beforeEach(() => {
     const ended = new Promise<ProcessResult>((done, failed) => { end = done; fail = failed; });
     const stop = vi.fn();
     forwards.push({ cluster, args, print: onOutput, end, fail, stop });
-    return { stop, ended } satisfies Followed;
+    return { pid: undefined, stop, exited: ended, ended } satisfies Followed;
   });
 });
 

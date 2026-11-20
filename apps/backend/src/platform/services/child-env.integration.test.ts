@@ -6,7 +6,7 @@ import { mainHeads } from '../../hub/services/HubRepoSync.js';
 import { ClusterAccess } from '../../infrastructure/services/ClusterAccess.js';
 import { InfrastructureService, terraformPlacesFor } from '../../infrastructure/services/InfrastructureService.js';
 import { KEY_NAMES } from '../lib/keys.js';
-import { nodeProcesses, nodeStreams } from './processes.js';
+import { nodeProcesses, nodeStreams } from '@koala/engine-core/node-processes';
 
 const KEYS = Object.values(KEY_NAMES);
 

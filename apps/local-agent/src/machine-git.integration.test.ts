@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { ProcessRun } from '@koala/engine-core/processes';
+import { recordingProcesses } from '@koala/engine-core/testing/processes';
 import { QUIET_REPOSITORY, createMachineGit, remoteFor } from './machine-git.js';
 
 let root: string;
@@ -136,13 +138,23 @@ describe('a machine\'s checkout of a project\'s work', () => {
 
   it('runs git with its background maintenance off, so nothing writes into a folder while it is removed', async () => {
     root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
-    const envs: NodeJS.ProcessEnv[] = [];
+    const envs: Array<ProcessRun['env']> = [];
     const machine = createMachineGit({
       rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', remote: () => 'unused',
-      git: async (_args, _cwd, env) => { envs.push(env); return { code: 1, stdout: '', stderr: 'refused' }; },
+      processes: recordingProcesses((run) => { envs.push(run.env); return { code: 1, stderr: 'refused' }; }),
     });
     await machine({ kind: 'checkout', repo: 'tree-t1', branch: 'machine/desk/run-1', folder: 'tree-t1/trees/l1' });
     expect(envs.length).toBeGreaterThan(0);
     for (const env of envs) expect(env).toMatchObject(QUIET_REPOSITORY);
+  });
+
+  it('fails a checkout with what git said, and never shows the device token', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
+    const processes = recordingProcesses(() => ({ code: 128, stderr: 'fatal: could not read from http.extraHeader=Authorization: Bearer device-token\n' }));
+    const git = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: 'device-token', processes });
+    const result = await git({ kind: 'checkout', repo: 'tree-t1', branch: 'main', folder: 'tree-t1' });
+    expect(result.ok).toBe(false);
+    expect(result.ok ? '' : result.error).not.toContain('device-token');
+    expect(processes.ran[0]).toMatchObject({ command: 'git', env: { GIT_TERMINAL_PROMPT: '0' } });
   });
 });

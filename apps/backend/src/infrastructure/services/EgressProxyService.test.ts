@@ -2,28 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { EgressGrantRecord } from '@koala/harness-types';
 import { proxyPassword, proxyUser } from '../lib/egress-proxy.js';
-import type { StartProcess } from '../lib/shell.js';
-import { fakeChild } from '../testing/fake-child.js';
+import type { Processes } from '@koala/engine-core/processes';
+import { recordingProcesses, type RecordingProcesses } from '@koala/engine-core/testing/processes';
 import { EgressProxyService, PROXY_NAMESPACE, sha512Crypt, type ProxyKube } from './EgressProxyService.js';
 
-function openssl(outcome: { stdout?: string; stderr?: string; code?: number; error?: Error }): { start: StartProcess; asked: { command: string; args: string[]; input: string }[] } {
-  const asked: { command: string; args: string[]; input: string }[] = [];
-  const start: StartProcess = (command, args) => {
-    const { child, events, stdin, stdout, stderr } = fakeChild();
-    let input = '';
-    stdin.on('data', (chunk: Buffer) => { input += chunk.toString(); });
-    stdin.on('finish', () => {
-      asked.push({ command, args, input });
-      setImmediate(() => {
-        if (outcome.error) { events.emit('error', outcome.error); return; }
-        if (outcome.stdout) stdout.emit('data', Buffer.from(outcome.stdout));
-        if (outcome.stderr) stderr.emit('data', Buffer.from(outcome.stderr));
-        events.emit('close', outcome.code ?? 0);
-      });
-    });
-    return child;
-  };
-  return { start, asked };
+function openssl(outcome: { stdout?: string; stderr?: string; code?: number; missing?: boolean }): { start: RecordingProcesses; asked: () => { command: string; args: readonly string[]; input: string }[] } {
+  const start = recordingProcesses(() => (outcome.missing ? undefined : { stdout: outcome.stdout ?? '', stderr: outcome.stderr ?? '', code: outcome.code ?? 0 }));
+  return { start, asked: () => start.ran.map((run) => ({ command: run.command, args: run.args, input: String(run.input ?? '') })) };
 }
 
 const grant = (over: Partial<EgressGrantRecord> = {}): EgressGrantRecord => ({ id: 'g1', ownerId: 'o1', agentSlug: 'executor', host: 'api.example.com', reason: 'r', approvedBy: 'o1', approvedAt: 'x', ...over });
@@ -32,7 +17,7 @@ describe('sha512Crypt', () => {
   it('hashes a password with openssl, reading it from stdin and salting it as asked', async () => {
     const { start, asked } = openssl({ stdout: '$6$salt$hashed\n' });
     expect(await sha512Crypt('hunter2', 'salt', start)).toBe('$6$salt$hashed');
-    expect(asked).toEqual([{ command: 'openssl', args: ['passwd', '-6', '-salt', 'salt', '-stdin'], input: 'hunter2' }]);
+    expect(asked()).toEqual([{ command: 'openssl', args: ['passwd', '-6', '-salt', 'salt', '-stdin'], input: 'hunter2' }]);
   });
 
   it('fails with what openssl said when it cannot hash', async () => {
@@ -41,13 +26,13 @@ describe('sha512Crypt', () => {
   });
 
   it('fails when openssl cannot be started', async () => {
-    const { start } = openssl({ error: new Error('spawn openssl ENOENT') });
+    const { start } = openssl({ missing: true });
     await expect(sha512Crypt('x', 'y', start)).rejects.toThrow('spawn openssl ENOENT');
   });
 });
 
 describe('EgressProxyService', () => {
-  const service = (start: StartProcess, kube: MockProxy<ProxyKube> = mock<ProxyKube>()) => ({ kube, egress: new EgressProxyService({ kube, secret: 'egress-secret', start }) });
+  const service = (start: Processes, kube: MockProxy<ProxyKube> = mock<ProxyKube>()) => ({ kube, egress: new EgressProxyService({ kube, secret: 'egress-secret', processes: start }) });
 
   it('writes a password line for each agent holding a grant, hashed, and the rules that let it through', async () => {
     const { start, asked } = openssl({ stdout: '$6$hashed\n' });
@@ -56,7 +41,7 @@ describe('EgressProxyService', () => {
     const executor = proxyUser('o1', 'executor');
     const research = proxyUser('o1', 'research');
     expect(files.passwd.split('\n').filter(Boolean).sort()).toEqual([`${executor}:$6$hashed`, `${research}:$6$hashed`].sort());
-    expect(asked.map((run) => run.input).sort()).toEqual([proxyPassword('egress-secret', executor), proxyPassword('egress-secret', research)].sort());
+    expect(asked().map((run) => run.input).sort()).toEqual([proxyPassword('egress-secret', executor), proxyPassword('egress-secret', research)].sort());
     expect(files.acls).toContain(`acl hosts_${executor} dstdomain api.example.com other.example.com`);
     expect(files.acls).toContain(`http_access allow CONNECT user_${research} hosts_${research} ports_${research}`);
   });
@@ -65,7 +50,7 @@ describe('EgressProxyService', () => {
     const { start, asked } = openssl({ stdout: 'x' });
     const files = await service(start).egress.files([grant({ revokedAt: 'y' })]);
     expect(files).toEqual({ passwd: '', acls: '' });
-    expect(asked).toEqual([]);
+    expect(asked()).toEqual([]);
   });
 
   it('asks for Koala\'s own cluster when it syncs, and changes nothing where this process has none', async () => {

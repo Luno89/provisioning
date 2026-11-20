@@ -1,9 +1,9 @@
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { devPortForward, type DevPortForward } from './dev-stack.js';
+import { here } from './processes.js';
 import { until, waiting } from './until.js';
 import { callerLines, failuresUnder, flowsThrough, spansOf, whereLines, type CodeSite, type FlowSnapshot } from './failure-trace.js';
 
@@ -35,28 +35,29 @@ async function traceFrom(base: string, traceId: string, spanId: string, forward:
   });
 }
 
-function toolsOn(sites: readonly CodeSite[]): string[] {
+async function toolsOn(sites: readonly CodeSite[]): Promise<string[]> {
   if (sites.length === 0) return [];
   const out = mkdtempSync(join(tmpdir(), 'where-it-failed-'));
   try {
-    const flows = spawnSync('npm', ['run', 'flows', '--silent', '--', '--out', out], { cwd: REPO, encoding: 'utf8' });
-    const snapshot = flows.status === 0 ? JSON.parse(readFileSync(join(out, 'snapshot.json'), 'utf8')) as FlowSnapshot : undefined;
+    const flows = await here.run({ command: 'npm', args: ['run', 'flows', '--silent', '--', '--out', out], cwd: REPO });
+    const snapshot = flows.code === 0 ? JSON.parse(readFileSync(join(out, 'snapshot.json'), 'utf8')) as FlowSnapshot : undefined;
     const seen = new Set<string>();
-    return sites.flatMap((site) => {
+    const lines: string[] = [];
+    for (const site of sites) {
       const key = `${site.filepath}#${site.function ?? site.lineno}`;
-      if (seen.has(key)) return [];
+      if (seen.has(key)) continue;
       seen.add(key);
       const name = site.function ? `${site.function} (${site.filepath}:${site.lineno ?? ''})` : `${site.filepath}:${site.lineno ?? ''}`;
       const on = snapshot ? flowsThrough(snapshot, site.filepath) : undefined;
-      const lines = [`  ${name}`, `    on the flows: ${on === undefined ? `npm run flows failed: ${flows.stderr.trim().split('\n').at(-1) ?? ''}` : on.length > 0 ? on.join(', ') : 'none mapped'}`];
+      lines.push(`  ${name}`, `    on the flows: ${on === undefined ? `npm run flows failed: ${flows.stderr.trim().split('\n').at(-1) ?? ''}` : on.length > 0 ? on.join(', ') : 'none mapped'}`);
       if (site.function) {
-        const refs = spawnSync('npm', ['run', 'refs', '--silent', '--', site.filepath, site.function], { cwd: REPO, encoding: 'utf8' });
-        const callers = refs.status === 0 ? callerLines(refs.stdout) : [];
-        lines.push(refs.status === 0 ? `    called from ${callers.length} place${callers.length === 1 ? '' : 's'}${callers.length ? ':' : ''}` : `    npm run refs failed: ${refs.stderr.trim().split('\n').at(-1) ?? ''}`);
+        const refs = await here.run({ command: 'npm', args: ['run', 'refs', '--silent', '--', site.filepath, site.function], cwd: REPO });
+        const callers = refs.code === 0 ? callerLines(refs.stdout) : [];
+        lines.push(refs.code === 0 ? `    called from ${callers.length} place${callers.length === 1 ? '' : 's'}${callers.length ? ':' : ''}` : `    npm run refs failed: ${refs.stderr.trim().split('\n').at(-1) ?? ''}`);
         lines.push(...callers.slice(0, 10).map((caller) => `      ${caller.slice(0, 180)}`));
       }
-      return lines;
-    });
+    }
+    return lines;
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
@@ -83,7 +84,7 @@ export async function whereItFailed(failed: readonly Failed[]): Promise<string[]
         sites.push(...found.sites);
       }
     }
-    const tools = toolsOn(sites);
+    const tools = await toolsOn(sites);
     if (tools.length > 0) lines.push('\n    the code it failed in:', ...tools);
     return lines;
   } finally {

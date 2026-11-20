@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { access, constants, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { recordingProcesses } from '@koala/engine-core/testing/processes';
 import { ACP_REGISTRY, installAgent, registryTarget, systemInstallDeps, type InstallDeps } from './agent-install.js';
 
 let dir: string;
@@ -89,8 +90,8 @@ describe('installing an agent a machine lacks', () => {
   });
 
   it('says the adapter needs a newer Node.js when npm refuses it for its engine', async () => {
-    const refused = Object.assign(new Error('Command failed: npm install --global --engine-strict'), { stderr: 'npm error code EBADENGINE\nnpm error engine Not compatible with your version of node/npm' });
-    const outcome = await installAgent({ registry: 'claude-acp' }, { ...deps(registryFetch(claudeEntry, undefined, [], 'claude-acp')), npm: async () => { throw refused; } });
+    const refusing = recordingProcesses(() => ({ code: 1, stderr: 'npm error code EBADENGINE\nnpm error engine Not compatible with your version of node/npm' }));
+    const outcome = await installAgent({ registry: 'claude-acp' }, { ...deps(registryFetch(claudeEntry, undefined, [], 'claude-acp')), npm: systemInstallDeps(refusing).npm });
     expect(outcome.ok).toBe(false);
     expect(outcome.output.split('\n')[0]).toBe("Claude Agent needs a newer Node.js than this machine's v20.11.0");
   });

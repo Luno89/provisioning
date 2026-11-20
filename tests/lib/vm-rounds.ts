@@ -1,10 +1,11 @@
-import { spawn, execFileSync } from 'node:child_process';
+import { succeeded } from '@koala/engine-core/processes';
 import { hostContainers } from './dead-states.js';
 import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAppImage } from './gate-runs.js';
 import { RELEASE_STEPS, roundsOf } from './gates.js';
+import { here } from './processes.js';
 
 export interface VmSuite {
   script: string;
@@ -32,21 +33,14 @@ const LOGS = join(REPO, 'tests/.vm-logs');
 
 const stamp = () => new Date().toISOString().slice(11, 19);
 
-function runSuite(suite: VmSuite, logFile: string): Promise<{ suite: VmSuite; code: number; minutes: number }> {
-  return new Promise((done) => {
-    const started = Date.now();
-    const log = createWriteStream(logFile);
-    const child = spawn('npm', ['run', `test:${suite.script}`], { cwd: REPO, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    const write = (chunk: Buffer) => {
-      for (const line of chunk.toString().split('\n')) if (line) log.write(`${stamp()} ${line}\n`);
-    };
-    child.stdout.on('data', write);
-    child.stderr.on('data', write);
-    child.on('close', (code) => {
-      log.end();
-      done({ suite, code: code ?? 1, minutes: Math.round((Date.now() - started) / 6000) / 10 });
-    });
-  });
+async function runSuite(suite: VmSuite, logFile: string): Promise<{ suite: VmSuite; code: number; minutes: number }> {
+  const started = Date.now();
+  const log = createWriteStream(logFile);
+  const write = (chunk: string) => {
+    for (const line of chunk.split('\n')) if (line) log.write(`${stamp()} ${line}\n`);
+  };
+  const ran = await here.run({ command: 'npm', args: ['run', `test:${suite.script}`], cwd: REPO }, { stdout: write, stderr: write }).finally(() => log.end());
+  return { suite, code: ran.code, minutes: Math.round((Date.now() - started) / 6000) / 10 };
 }
 
 async function main(): Promise<void> {
@@ -56,7 +50,7 @@ async function main(): Promise<void> {
   if (unknown.length) throw new Error(`not VM suites: ${unknown.join(', ')} (known: ${VM_SUITES.map((suite) => suite.script).join(', ')})`);
   mkdirSync(LOGS, { recursive: true });
 
-  const commit = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const commit = (await succeeded(here, { command: 'git', args: ['-C', REPO, 'rev-parse', 'HEAD'] })).trim();
   const image = await buildAppImage(REPO, commit, (line) => console.log(`  ${line}`));
   await hostContainers.tag(image, 'nowrinkles/app:dev');
   console.log(`  ${image} is nowrinkles/app:dev`);

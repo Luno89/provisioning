@@ -1,14 +1,10 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { ApplicationFailure } from '@temporalio/common';
-import { childEnv, claimSettingsFrom, createDatabase, unpromptedGit, type Database } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, nodeProcesses, succeeded, unpromptedGit, type Database } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import {
   bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, READY_MARK, readOverSsh, redacted,
   runScriptOverSsh, ServerOrderProblem, ServerOrderService, setupCodeFrom, signInSecretsOf, sshAnswers,
 } from '../infrastructure/index.js';
-
-const execFileAsync = promisify(execFile);
 
 async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): Promise<T> {
   const settings = hostSettings();
@@ -21,7 +17,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
       store: db.infrastructure,
       dataKey: keys.data,
       credentials,
-      lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024, env: childEnv(unpromptedGit({})) })).stdout,
+      lsRemote: () => succeeded(nodeProcesses, { command: 'git', args: ['ls-remote', '--tags', KOALA_REPOSITORY], env: unpromptedGit({}) }),
     });
     return await work(orders);
   } finally {

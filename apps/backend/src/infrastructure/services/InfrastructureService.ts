@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
@@ -6,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { childEnv, CommandFailedError, DOCKER_CLIENT, passedOn } from '../../platform/index.js';
+import { CommandFailedError, DOCKER_CLIENT, nodeRunner, passedOn, type Processes, type Streams } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { cdktfStateEnv, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, type TerraformStateHome, type TerraformStateKind } from '../lib/terraform-state.js';
 
@@ -66,23 +65,19 @@ const dropSharedOutput = (stateDir: string): Promise<void> => {
 };
 
 function commandEnv(extra: Record<string, string> | undefined): Record<string, string> {
-  return childEnv({
+  return {
     ...extra,
     PATH: [passedOn(['PATH']).PATH, BIN_DIR].filter(Boolean).join(':'),
     CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
-  });
+  };
 }
 
-function terraformQuietly(args: string[], cwd: string, extra: Record<string, string>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('terraform', args, { cwd, env: { ...commandEnv(extra), TF_IN_AUTOMATION: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let said = '';
-    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { said = `${said}${chunk.toString()}`.slice(-4000); });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`terraform ${args.slice(0, 2).join(' ')} ended with ${code}: ${said.trim()}`))));
-  });
+const SAID_KEPT = 4000;
+
+async function terraformQuietly(processes: Processes, args: string[], cwd: string, extra: Record<string, string>): Promise<string> {
+  const ran = await processes.run({ command: 'terraform', args, cwd, env: { ...commandEnv(extra), TF_IN_AUTOMATION: 'true' } });
+  if (ran.code !== 0) throw new Error(`terraform ${args.slice(0, 2).join(' ')} ended with ${ran.signal ?? ran.code}: ${ran.stderr.slice(-SAID_KEPT).trim()}`);
+  return ran.stdout;
 }
 
 export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, dataDir: string, chartSources?: string): TerraformPlaces => {
@@ -92,7 +87,7 @@ export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, 
 
 export class InfrastructureService {
 
-  constructor(private readonly terraform: TerraformPlaces) {}
+  constructor(private readonly terraform: TerraformPlaces, private readonly processes: Processes & Streams = nodeRunner) {}
 
   getLogPath(logId: string) {
     return path.join(this.terraform.logDir, `${logId}-${Date.now()}.log`);
@@ -140,12 +135,12 @@ export class InfrastructureService {
   private async moveStateIntoCluster(stackName: string, kept: string, stackDir: string, env: Record<string, string>, logFile: string | undefined): Promise<void> {
     if (logFile) await fs.appendFile(logFile, `[terraform] moving the state of ${stackName} from the data folder into the cluster\n`).catch(ignore('the log only shows progress, and the move goes on without it'));
     const local = await fs.readFile(kept, 'utf8');
-    await terraformQuietly(['init', '-input=false', '-no-color'], stackDir, env);
-    const move = stateMove(stackName, local, await terraformQuietly(['state', 'pull'], stackDir, env));
+    await terraformQuietly(this.processes, ['init', '-input=false', '-no-color'], stackDir, env);
+    const move = stateMove(stackName, local, await terraformQuietly(this.processes, ['state', 'pull'], stackDir, env));
     if (move.step === 'refuse') throw new Error(move.reason);
     if (move.step === 'push') {
-      await terraformQuietly(['state', 'push', '-force', kept], stackDir, env);
-      const landed = stateMove(stackName, local, await terraformQuietly(['state', 'pull'], stackDir, env));
+      await terraformQuietly(this.processes, ['state', 'push', '-force', kept], stackDir, env);
+      const landed = stateMove(stackName, local, await terraformQuietly(this.processes, ['state', 'pull'], stackDir, env));
       if (landed.step !== 'forget') throw new Error(`the state of ${stackName} was pushed into the cluster but is not there; it stays in the data folder`);
     }
     for (const file of stateFilesOf(stackName)) await fs.rm(path.join(this.terraform.stateDir, file), { force: true });
@@ -165,60 +160,40 @@ export class InfrastructureService {
 
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)}`);
 
-    return new Promise<{ stdout: string; logFile: string }>((resolve, reject) => {
-      let stdout = '', stderr = '';
-      const broadcast = (data: string) => {
-        if (options.io && options.resourceId) {
-            options.io.to(options.resourceId).emit('log', data);
-        }
-      };
-
-      if (options.signal?.aborted) {
-        reject(stoppedBy(options.signal));
-        return;
-      }
-      const child = spawn(cmd, args, { cwd, env, detached: Boolean(options.signal) });
-      const interrupt = () => {
-        const said = `\n--- STOPPED: ${reasonOf(options.signal?.reason)} ---\n`;
-        broadcast(said);
-        fs.appendFile(logFile, said).catch(console.error);
-        if (child.pid) process.kill(-child.pid, 'SIGINT');
-      };
-      options.signal?.addEventListener('abort', interrupt, { once: true });
-      child.stdout.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        broadcast(chunk);
-        fs.appendFile(logFile, chunk).catch(console.error);
+    if (options.signal?.aborted) throw stoppedBy(options.signal);
+    const broadcast = (data: string) => {
+      if (options.io && options.resourceId) options.io.to(options.resourceId).emit('log', data);
+    };
+    let logged = Promise.resolve();
+    const log = (text: string): void => {
+      logged = logged.then(() => fs.appendFile(logFile, text)).catch(console.error);
+    };
+    const said = (chunk: string): void => {
+      broadcast(chunk);
+      log(chunk);
+    };
+    const running = this.processes.start({ command: cmd, args, cwd, env }, { group: Boolean(options.signal), heard: { stdout: said, stderr: said } });
+    const interrupt = () => {
+      const stopping = `\n--- STOPPED: ${reasonOf(options.signal?.reason)} ---\n`;
+      broadcast(stopping);
+      log(stopping);
+      running.stop('SIGINT');
+    };
+    options.signal?.addEventListener('abort', interrupt, { once: true });
+    try {
+      const ended = await running.ended.catch((err: Error) => {
+        broadcast(`\n--- SPAWN ERROR: ${err.message} ---\n`);
+        throw err;
       });
-
-      child.stderr.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stderr += chunk;
-        broadcast(chunk);
-        fs.appendFile(logFile, chunk).catch(console.error);
-      });
-
-      child.on('close', (code) => {
-        options.signal?.removeEventListener('abort', interrupt);
-        if (options.signal?.aborted) {
-            reject(stoppedBy(options.signal));
-            return;
-        }
-        if (code === 0) {
-            resolve({ stdout, logFile });
-        } else {
-            const errorMsg = `\n--- EXECUTION FAILED (Exit Code ${code}) ---\n`;
-            broadcast(errorMsg);
-            fs.appendFile(logFile, errorMsg).catch(console.error);
-            reject(new CommandFailedError(cmd, code, stdout, stderr, logFile));
-        }
-      });
-      child.on('error', (err) => {
-          const errorMsg = `\n--- SPAWN ERROR: ${err.message} ---\n`;
-          broadcast(errorMsg);
-          reject(err);
-      });
-    });
+      if (options.signal?.aborted) throw stoppedBy(options.signal);
+      if (ended.code === 0) return { stdout: ended.stdout, logFile };
+      const failed = `\n--- EXECUTION FAILED (Exit Code ${ended.signal ?? ended.code}) ---\n`;
+      broadcast(failed);
+      log(failed);
+      throw new CommandFailedError(cmd, ended.signal !== undefined ? null : ended.code, ended.stdout, ended.stderr, logFile);
+    } finally {
+      options.signal?.removeEventListener('abort', interrupt);
+      await logged;
+    }
   }
 }

@@ -17,7 +17,7 @@ const held = (): Held => {
   let end: (result: ProcessResult) => void = () => undefined;
   let fail: (err: Error) => void = () => undefined;
   const ended = new Promise<ProcessResult>((done, failed) => { end = done; fail = failed; });
-  return { stop: vi.fn<() => void>(), ended, end: (result) => end({ code: 0, stdout: '', stderr: '', ...result }), fail: (err) => fail(err) };
+  return { pid: undefined, stop: vi.fn<() => void>(), exited: ended, ended, end: (result) => end({ code: 0, stdout: '', stderr: '', ...result }), fail: (err) => fail(err) };
 };
 
 const answering = (followed: Held): MockProxy<KoalasCluster> => {

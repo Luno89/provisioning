@@ -1,35 +1,28 @@
-import { spawn } from 'node:child_process';
-import { ignore } from '@koala/engine-core/failures';
+import { spawnedProcesses, withEnvironment } from '@koala/engine-core/node-processes';
+import { ProcessNotStarted, type Processes } from '@koala/engine-core/processes';
 import { argvOf, commandOutput, type CommandRunner, type Ending } from './commands.js';
 
-export function localCommands(environment: Readonly<Record<string, string | undefined>>): CommandRunner {
+export function commandsOver(processes: Processes): CommandRunner {
   return {
-    run: (command, progress) => new Promise((resolve, reject) => {
+    run: async (command, progress) => {
       const [program, ...args] = argvOf(command);
       const output = commandOutput(command, progress);
-      let settled = false;
-      const settle = (ending: Ending): void => {
-        if (settled) return;
-        settled = true;
-        try {
-          resolve(output.ended(ending));
-        } catch (err) {
-          reject(err as Error);
-        }
-      };
-      const child = spawn(program!, args, {
-        env: { ...environment, ...(command.sudo ? {} : command.env) },
-        ...(command.cwd !== undefined ? { cwd: command.cwd } : {}),
-      });
-      child.stdout.setEncoding('utf8').on('data', (chunk: string) => { output.stdout(chunk); });
-      child.stderr.setEncoding('utf8').on('data', (chunk: string) => { output.stderr(chunk); });
-      child.on('error', (err) => { settle({ notStarted: err.message }); });
-      child.on('close', (code, signal) => {
-        if (code !== null) settle({ code });
-        else if (signal !== null) settle({ signal });
-      });
-      child.stdin.on('error', ignore('a command that stops before reading all its stdin ends on its own exit, which settles the run'));
-      child.stdin.end(command.stdin ?? '');
-    }),
+      const env = command.sudo ? undefined : command.env;
+      const ending: Ending = await processes.run(
+        { command: program!, args, input: command.stdin ?? '', ...(env !== undefined ? { env } : {}), ...(command.cwd !== undefined ? { cwd: command.cwd } : {}) },
+        { stdout: (chunk) => { output.stdout(chunk); }, stderr: (chunk) => { output.stderr(chunk); } },
+      ).then(
+        (result) => (result.signal !== undefined ? { signal: result.signal } : { code: result.code }),
+        (err: unknown) => {
+          if (err instanceof ProcessNotStarted) return { notStarted: err.reason };
+          throw err;
+        },
+      );
+      return output.ended(ending);
+    },
   };
+}
+
+export function localCommands(environment: Readonly<Record<string, string | undefined>>): CommandRunner {
+  return commandsOver(spawnedProcesses(withEnvironment(environment)));
 }

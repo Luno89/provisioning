@@ -1,6 +1,6 @@
-import { childEnv } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
-import { execFile } from 'node:child_process';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
+import type { Processes } from '@koala/engine-core/processes';
 import { createHash } from 'node:crypto';
 import { createWriteStream, readFileSync, renameSync, rmSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -8,10 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
 import { BUNDLE_FILE, bundleIn } from './self-update.js';
-
-const exec = promisify(execFile);
 
 export interface BundlePlace {
   dir: string;
@@ -40,15 +37,13 @@ export function ownVersion(dir: string): string | undefined {
 
 export type Run = (file: string, args: string[], cwd: string) => Promise<string>;
 
-const realRun: Run = async (file, args, cwd) => {
-  try {
-    return (await exec(file, args, { cwd, env: childEnv(), maxBuffer: 16 * 1024 * 1024 })).stdout;
-  } catch (err) {
-    const failed = err as Error & { stderr?: string; stdout?: string };
-    const lines = (failed.stderr || failed.stdout || failed.message).split('\n').map((line) => line.trim()).filter(Boolean);
-    const said = lines.find((line) => /^(\w*Error\b|npm (ERR|error)\b|tar: )/.test(line)) ?? lines.slice(-3).join(' ');
-    throw new Error(`${[path.basename(file), ...args.slice(0, 1).map((arg) => path.basename(arg))].join(' ')} failed: ${said}`);
-  }
+export const runOver = (processes: Processes): Run => async (file, args, cwd) => {
+  const ran = await processes.run({ command: file, args, cwd }).catch((err: Error) => err);
+  if (!(ran instanceof Error) && ran.code === 0) return ran.stdout;
+  const told = ran instanceof Error ? ran.message : ran.stderr || ran.stdout || `it exited ${ran.code}`;
+  const lines = told.split('\n').map((line) => line.trim()).filter(Boolean);
+  const said = lines.find((line) => /^(\w*Error\b|npm (ERR|error)\b|tar: )/.test(line)) ?? lines.slice(-3).join(' ');
+  throw new Error(`${[path.basename(file), ...args.slice(0, 1).map((arg) => path.basename(arg))].join(' ')} failed: ${said}`);
 };
 
 export async function downloadBundle(url: string, to: string, fetcher: typeof fetch = fetch): Promise<string> {
@@ -76,13 +71,13 @@ export interface PrepareOptions {
   url: string;
   node: string;
   npm?: string | undefined;
-  run?: Run | undefined;
+  processes?: Processes | undefined;
   fetcher?: typeof fetch | undefined;
 }
 
 export async function prepareBundle(options: PrepareOptions): Promise<void> {
   const { place, bundle } = options;
-  const run = options.run ?? realRun;
+  const run = runOver(options.processes ?? nodeProcesses);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'koala-agent-'));
   try {
     const tarball = path.join(scratch, 'agent.tgz');

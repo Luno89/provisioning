@@ -1,9 +1,10 @@
-import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
+import { passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
 import { ignore } from '@koala/engine-core/failures';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { nodeStreams } from '@koala/engine-core/node-processes';
+import { ProcessNotStarted, type Followed, type Streams } from '@koala/engine-core/processes';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { Readable, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import {
   ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError,
   type McpServer, type PermissionOptionKind, type RequestPermissionResponse, type SessionConfigOption, type StopReason,
@@ -61,6 +62,7 @@ export interface AcpSessionOptions {
   resume?: string | undefined;
   onEvent: (event: AgentEvent) => void;
   onPermission: (ask: PermissionAsk) => Promise<PermissionAnswer>;
+  streams?: Streams | undefined;
 }
 
 export interface AcpSession {
@@ -83,7 +85,7 @@ export const AGENT_SIGN_IN = [
   'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION', 'GOOGLE_GENAI_USE_VERTEXAI', 'GOOGLE_APPLICATION_CREDENTIALS',
 ] as const;
 
-const agentEnv = (launch: AcpLaunch): Record<string, string> => childEnv({ ...passedOn([...PERSON_SESSION, ...AGENT_SIGN_IN]), ...launch.env });
+const agentEnv = (launch: AcpLaunch): Record<string, string> => ({ ...passedOn([...PERSON_SESSION, ...AGENT_SIGN_IN]), ...launch.env });
 
 export class AcpSessionError extends Error {
   constructor(message: string, readonly stderr: string) {
@@ -104,31 +106,57 @@ const sliceLines = (text: string, line: number | null | undefined, limit: number
   return lines.slice(start, limit ? start + limit : undefined).join('\n');
 };
 
-const stopChild = async (child: ChildProcess, exited: Promise<unknown>): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child.kill('SIGKILL'), CLOSE_GRACE_MS);
-  await exited;
-  clearTimeout(timer);
-};
+type Exit = { code: number | null; signal: NodeJS.Signals | null };
+
+interface AgentChild {
+  running: Followed;
+  stderr: string[];
+  exited: Promise<Exit>;
+  spawnFailed: Promise<never>;
+  stream: ReturnType<typeof ndJsonStream>;
+  stop(): Promise<void>;
+}
+
+function startAgent(streams: Streams, launch: AcpLaunch, cwd: string): AgentChild {
+  const toAgent = new PassThrough();
+  const fromAgent = new Readable({ read: () => undefined });
+  const stderr: string[] = [];
+  const running = streams.start({ command: launch.command, args: launch.args, cwd, env: agentEnv(launch) }, {
+    input: toAgent,
+    heard: {
+      stdout: (chunk) => { fromAgent.push(Buffer.from(chunk, 'utf8')); },
+      stderr: (chunk) => {
+        stderr.push(...chunk.split('\n').filter(Boolean));
+        if (stderr.length > STDERR_LINES) stderr.splice(0, stderr.length - STDERR_LINES);
+      },
+    },
+  });
+  const spawnFailed = running.ended.then(
+    (): Promise<never> => new Promise<never>(() => undefined),
+    (err: unknown): never => {
+      throw new AcpSessionError(err instanceof ProcessNotStarted ? `could not start ${launch.command}: ${err.reason}` : (err as Error).message, '');
+    },
+  );
+  void running.ended.finally(() => { fromAgent.push(null); }).catch(ignore('a failed start reaches the session through spawnFailed'));
+  const exited = running.exited.then(
+    (end): Exit => ({ code: end.signal !== undefined ? null : end.code, signal: (end.signal ?? null) as NodeJS.Signals | null }),
+    (): Promise<Exit> => new Promise<Exit>(() => undefined),
+  );
+  const stream = ndJsonStream(
+    Writable.toWeb(toAgent) as WritableStream<Uint8Array>,
+    Readable.toWeb(fromAgent) as ReadableStream<Uint8Array>,
+  );
+  const stop = async (): Promise<void> => {
+    running.stop('SIGTERM');
+    const timer = setTimeout(() => running.stop('SIGKILL'), CLOSE_GRACE_MS);
+    await Promise.race([exited, spawnFailed.catch(ignore('a program that never started has nothing to stop'))]);
+    clearTimeout(timer);
+  };
+  return { running, stderr, exited, spawnFailed, stream, stop };
+}
 
 export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSession> {
-  const child = spawn(options.launch.command, options.launch.args, {
-    cwd: options.cwd,
-    env: agentEnv(options.launch),
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  const stderr: string[] = [];
-  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => {
-    stderr.push(...chunk.split('\n').filter(Boolean));
-    if (stderr.length > STDERR_LINES) stderr.splice(0, stderr.length - STDERR_LINES);
-  });
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once('exit', (code, signal) => resolve({ code, signal }));
-  });
-  const spawnFailed = new Promise<never>((_, reject) => {
-    child.once('error', (err) => reject(new AcpSessionError(`could not start ${options.launch.command}: ${err.message}`, '')));
-  });
+  const { stderr, exited, spawnFailed, stream, stop } = startAgent(options.streams ?? nodeStreams, options.launch, options.cwd);
   const endedEarly = exited.then(({ code, signal }) => {
     throw new AcpSessionError(`${options.launch.command} exited (${signal ?? code}) before the session opened`, stderr.join('\n'));
   });
@@ -138,10 +166,6 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
   let replaying = false;
   let sessionId = '';
 
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
-  );
   const connection = new ClientSideConnection(() => ({
     async sessionUpdate(notification) {
       if (replaying || notification.sessionId !== sessionId) return;
@@ -200,7 +224,7 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
   try {
     opened = await Promise.race([open(), spawnFailed, endedEarly]);
   } catch (err) {
-    await stopChild(child, exited);
+    await stop();
     if (err instanceof AcpSessionError) throw err;
     throw new AcpSessionError((err as Error).message, stderr.join('\n'));
   }
@@ -251,7 +275,7 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
     },
     async close() {
       releasePending();
-      await stopChild(child, exited);
+      await stop();
     },
     exited,
   };
@@ -263,29 +287,15 @@ export interface AcpProbe {
   models?: AgentModels | undefined;
 }
 
-export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe> {
-  const child = spawn(launch.command, launch.args, { cwd, env: agentEnv(launch), stdio: ['pipe', 'pipe', 'pipe'] });
-  const stderr: string[] = [];
-  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => {
-    stderr.push(...chunk.split('\n').filter(Boolean));
-    if (stderr.length > STDERR_LINES) stderr.splice(0, stderr.length - STDERR_LINES);
-  });
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once('exit', (code, signal) => resolve({ code, signal }));
-  });
-  const spawnFailed = new Promise<never>((_, reject) => {
-    child.once('error', (err) => reject(new AcpSessionError(`could not start ${launch.command}: ${err.message}`, '')));
-  });
+export async function probeAcp(launch: AcpLaunch, cwd: string, streams: Streams = nodeStreams): Promise<AcpProbe> {
+  const { stderr, exited, spawnFailed, stream, stop } = startAgent(streams, launch, cwd);
   const endedEarly = exited.then(({ code, signal }) => {
     throw new AcpSessionError(`${launch.command} exited (${signal ?? code}) without answering as an ACP agent`, stderr.join('\n'));
   });
   const connection = new ClientSideConnection(() => ({
     async sessionUpdate() {},
     async requestPermission() { return { outcome: { outcome: 'cancelled' } }; },
-  }), ndJsonStream(
-    Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
-  ));
+  }), stream);
   try {
     const init = await Promise.race([
       connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false }, clientInfo: { name: 'koala-local-agent', version: '1.0.0' } }),
@@ -311,6 +321,6 @@ export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe
   } finally {
     void spawnFailed.catch(ignore('the probe has its answer or its failure already, and the child is stopped next'));
     void endedEarly.catch(ignore('the probe has its answer or its failure already, and the child is stopped next'));
-    await stopChild(child, exited);
+    await stop();
   }
 }

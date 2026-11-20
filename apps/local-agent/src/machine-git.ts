@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { childEnv } from '@koala/engine-core/child-env';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
+import { ProcessNotStarted, type Named, type ProcessResult, type Processes } from '@koala/engine-core/processes';
 import { MACHINE_TREES, type MachineGitOp, type MachineGitResult } from '@koala/engine-core';
 import { insideRoot } from './acp-session.js';
 import { present } from './file-present.js';
@@ -16,22 +16,17 @@ async function textUnlessGone(file: string): Promise<string> {
   }
 }
 
-export interface GitRun {
-  (args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string; stderr: string }>;
-}
-
-const runGit: GitRun = (args, cwd, env) => new Promise((resolve) => {
-  execFile('git', args, { cwd, env, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
-    const code = error ? (typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 1) : 0;
-    resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+const gitOver = (processes: Processes) => (args: string[], cwd: string, env: Named): Promise<ProcessResult> =>
+  processes.run({ command: 'git', args, cwd, env }).catch((err: unknown) => {
+    if (err instanceof ProcessNotStarted) return { code: 1, stdout: '', stderr: err.message };
+    throw err;
   });
-});
 
 export interface MachineGitOptions {
   rootDir: string;
   backendUrl: string;
   token: string | (() => string);
-  git?: GitRun | undefined;
+  processes?: Processes | undefined;
   remote?: ((repo: string) => string) | undefined;
 }
 
@@ -40,7 +35,7 @@ const WORKSPACE_NOW = 'refs/remotes/koala/workspace';
 const CONFLICT_MARKER = /^(<{7}|>{7})( |$)/m;
 const AS_MACHINE = ['-c', 'user.name=koala-machine', '-c', 'user.email=machine@koala.local'];
 
-export const QUIET_REPOSITORY: NodeJS.ProcessEnv = {
+export const QUIET_REPOSITORY: Named = {
   GIT_CONFIG_COUNT: '2',
   GIT_CONFIG_KEY_0: 'maintenance.auto',
   GIT_CONFIG_VALUE_0: 'false',
@@ -52,8 +47,8 @@ export const remoteFor =(backendUrl: string, repo: string): string =>
   `${backendUrl.replace(/\/$/, '')}/api/machines/git/${encodeURIComponent(repo)}.git`;
 
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
-  const git = options.git ?? runGit;
-  const env: NodeJS.ProcessEnv = childEnv({ GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY });
+  const git = gitOver(options.processes ?? nodeProcesses);
+  const env: Named = { GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY };
   const tokenNow = (): string => (typeof options.token === 'function' ? options.token() : options.token);
   const signedIn = () => ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${tokenNow()}`];
   const hidden = (text: string): string => text.replaceAll(tokenNow(), '***').trim();

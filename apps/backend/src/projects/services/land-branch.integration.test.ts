@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { unpromptedGit } from '../../platform/lib/git-env.js';
-import type { Processes } from '../../platform/lib/processes.js';
-import { nodeProcesses } from '../../platform/services/processes.js';
+import type { Processes } from '@koala/engine-core/processes';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
 import { landBranch, type LandRequest } from './land-branch.js';
 
 let root: string;

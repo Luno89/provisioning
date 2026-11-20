@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { commandRunnerContract } from '../testing/command-runner-contract.js';
 import { memoryReporter } from '../testing/memory-reporter.js';
 import { localCommands } from './local-commands.js';
 import { runSteps, StepFailed, type Step } from './steps.js';
@@ -7,12 +6,17 @@ import { terminalReporter } from './terminal-reporter.js';
 
 const commands = () => localCommands(process.env);
 
-commandRunnerContract('localCommands', commands);
-
 describe('localCommands', () => {
   it('reports a signal that stopped the command', async () => {
     const err: unknown = await commands().run({ command: 'sh', args: ['-c', 'kill -KILL $$'] }, { line: () => undefined }).then(() => undefined, (thrown: unknown) => thrown);
     expect(err).toMatchObject({ ending: { signal: 'SIGKILL' } });
+  });
+
+  it('gives a real command its stdin and environment, and says a program that is not there could not start', async () => {
+    const said = await commands().run({ command: 'sh', args: ['-c', 'cat; echo " $KOALA_PROVISION_SAID"'], stdin: 'piped', env: { KOALA_PROVISION_SAID: 'hello' } }, { line: () => undefined });
+    expect(said).toEqual({ code: 0, stdout: 'piped hello\n' });
+    const err: unknown = await commands().run({ command: 'koala-provision-no-such-program' }, { line: () => undefined }).then(() => undefined, (thrown: unknown) => thrown);
+    expect(err).toMatchObject({ message: 'koala-provision-no-such-program could not start: spawn koala-provision-no-such-program ENOENT' });
   });
 
   it('runs in the folder it is given', async () => {

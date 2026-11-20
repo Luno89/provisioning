@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { childEnv } from '../../platform/index.js';
+import { nodeProcesses, type Processes } from '../../platform/index.js';
 
 export interface SshTarget {
   host: string;
@@ -33,34 +32,39 @@ const sshArgs = (target: SshTarget, keyPath: string): string[] => [
   `${target.user ?? 'root'}@${target.host}`,
 ];
 
-export function runScriptOverSsh(target: SshTarget, script: string, onLine: (line: string) => void): Promise<number> {
-  return withKey(target.privateKey, (keyPath) => new Promise<number>((resolve, reject) => {
-    const child = spawn('ssh', [...sshArgs(target, keyPath), 'bash -s'], { stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
-    let pending = '';
-    const take = (chunk: Buffer) => {
-      pending += chunk.toString();
-      const lines = pending.split('\n');
-      pending = lines.pop() ?? '';
-      for (const line of lines) onLine(line.replace(/\r$/, ''));
+export function runScriptOverSsh(target: SshTarget, script: string, onLine: (line: string) => void, processes: Processes = nodeProcesses): Promise<number> {
+  return withKey(target.privateKey, async (keyPath) => {
+    const lines = (): { push(chunk: string): void; end(): void } => {
+      let pending = '';
+      return {
+        push(chunk) {
+          pending += chunk;
+          const complete = pending.split('\n');
+          pending = complete.pop() ?? '';
+          for (const line of complete) onLine(line.replace(/\r$/, ''));
+        },
+        end() {
+          if (pending) onLine(pending);
+          pending = '';
+        },
+      };
     };
-    child.stdout.on('data', take);
-    child.stderr.on('data', take);
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (pending) onLine(pending);
-      resolve(code ?? 1);
-    });
-    child.stdin.end(script);
-  }));
+    const out = lines();
+    const err = lines();
+    const ran = await processes.run({ command: 'ssh', args: [...sshArgs(target, keyPath), 'bash -s'], input: script }, { stdout: (chunk) => out.push(chunk), stderr: (chunk) => err.push(chunk) });
+    out.end();
+    err.end();
+    return ran.signal !== undefined ? 1 : ran.code;
+  });
 }
 
-export async function sshAnswers(target: SshTarget): Promise<boolean> {
-  return (await runScriptOverSsh(target, 'true', () => undefined)) === 0;
+export async function sshAnswers(target: SshTarget, processes: Processes = nodeProcesses): Promise<boolean> {
+  return (await runScriptOverSsh(target, 'true', () => undefined, processes)) === 0;
 }
 
-export async function readOverSsh(target: SshTarget, command: string): Promise<string> {
+export async function readOverSsh(target: SshTarget, command: string, processes: Processes = nodeProcesses): Promise<string> {
   const lines: string[] = [];
-  const code = await runScriptOverSsh(target, command, (line) => lines.push(line));
+  const code = await runScriptOverSsh(target, command, (line) => lines.push(line), processes);
   if (code !== 0) throw new Error(`${command.split(' ')[0]} on ${target.host} ended with ${code}`);
   return lines.join('\n');
 }

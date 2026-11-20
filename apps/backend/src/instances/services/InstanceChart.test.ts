@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import type { Processes } from '../../platform/lib/processes.js';
+import type { Processes } from '@koala/engine-core/processes';
 import { InstanceChart, releaseInventory } from './InstanceChart.js';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 

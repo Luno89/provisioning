@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
-import type { ProcessRun, Processes } from '../../platform/lib/processes.js';
+import type { ProcessRun, Processes } from '@koala/engine-core/processes';
 import { chartDataVersion, ReleaseCatalogue } from './ReleaseCatalogue.js';
 
 let db: Database;

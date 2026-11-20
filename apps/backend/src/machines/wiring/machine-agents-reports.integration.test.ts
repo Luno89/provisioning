@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
-import { io as connect } from 'socket.io-client';
 import { describe, expect, it } from 'vitest';
 import { runSteps } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
@@ -25,7 +24,7 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 import type { MachineService } from '../services/MachineService.js';
-import { closedAfterEach, until, quietAccountSides, onlineMachines } from '../testing/wiring-world.js';
+import { closedAfterEach, connectedSocket, until, quietAccountSides, onlineMachines } from '../testing/wiring-world.js';
 
 const closers = closedAfterEach();
 
@@ -60,10 +59,7 @@ async function wired(db: MongoDB, machines: SocketsWiringDeps['machines']): Prom
 
 async function connected(koalaUrl: string, deviceId: string) {
   const token = issueWorkToken(signing, { machineId: deviceId, ownerId: 'bo', audience: 'inst-1' });
-  const socket = connect(`${koalaUrl}/agent`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
-  closers.push(async () => { socket.close(); });
-  await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
-  return socket;
+  return connectedSocket(`${koalaUrl}/agent`, closers, { token });
 }
 
 async function koala() {

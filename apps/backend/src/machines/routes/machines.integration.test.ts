@@ -5,7 +5,7 @@ import path from 'node:path';
 import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
-import { nodeProcesses } from '../../platform/services/processes.js';
+import { nodeProcesses } from '@koala/engine-core/node-processes';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { gitHttpRemote, type GitHttpRemote } from '../testing/git-http-remote.js';

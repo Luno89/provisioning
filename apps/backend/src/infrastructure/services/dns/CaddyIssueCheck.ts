@@ -1,16 +1,14 @@
-import { execFile, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline';
-import { promisify } from 'node:util';
 import { X509Certificate } from 'node:crypto';
 import {
   caddyEvent, certificatePathIn, namesFromSubjectAltName, stagingOnlyProblem, withoutSecrets, type IssuedCertificate,
 } from '../../lib/dns-issue-check.js';
-import { childEnv, DOCKER_CLIENT, passedOn } from '../../../platform/index.js';
+import { ProcessNotStarted, type Processes, type Streams } from '@koala/engine-core/processes';
+import { lineSplitter } from '@koala/provision';
+import { nodeProcesses, nodeRunner, DOCKER_CLIENT, passedOn, succeeded } from '../../../platform/index.js';
 
-const run = promisify(execFile);
 
 export interface CaddyIssueRequest {
   image: string;
@@ -30,24 +28,32 @@ export interface CaddyIssueResult {
   logNamedSecret: boolean;
 }
 
-const dockerEnv = (): Record<string, string> => childEnv(passedOn(DOCKER_CLIENT));
+const dockerEnv = (): Record<string, string> => passedOn(DOCKER_CLIENT);
+
+const NO_SUCH_CONTAINER = /No such container/i;
 
 const READ_ENV_THEN_RUN = 'while IFS= read -r line && [ -n "$line" ]; do export "$line"; done; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile';
 
-export async function buildCaddyImage(image: string, context: string): Promise<void> {
-  await run('docker', ['build', '-q', '-t', image, context], { maxBuffer: 64 * 1024 * 1024, env: dockerEnv() });
+export async function buildCaddyImage(image: string, context: string, processes: Processes = nodeProcesses): Promise<void> {
+  await succeeded(processes, { command: 'docker', args: ['build', '-q', '-t', image, context], env: dockerEnv() });
 }
 
-export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyIssueResult> {
+export async function issueWithCaddy(request: CaddyIssueRequest, docker: Processes & Streams = nodeRunner): Promise<CaddyIssueResult> {
   const folder = mkdtempSync(join(tmpdir(), 'koala-dns-issue-check-'));
   const container = `koala-dns-issue-check-${request.zone.replace(/[^a-z0-9]/gi, '-')}-${process.pid}`;
-  const removeAll = (): void => {
-    spawnSync('docker', ['rm', '-f', container], { stdio: 'ignore', env: dockerEnv() });
+  let caddy: { stop(): void } | undefined;
+  const removeAll = async (): Promise<void> => {
+    const removed = await docker.run({ command: 'docker', args: ['rm', '-f', container], env: dockerEnv() });
+    caddy?.stop();
     rmSync(folder, { recursive: true, force: true });
+    if (removed.code !== 0 && !NO_SUCH_CONTAINER.test(removed.stderr)) throw new Error(`the check's container ${container} could not be removed: ${removed.stderr.trim()}`);
   };
   const onSignal = (signal: NodeJS.Signals): void => {
-    removeAll();
-    process.exit(signal === 'SIGINT' ? 130 : 143);
+    const exit = (): never => process.exit(signal === 'SIGINT' ? 130 : 143);
+    removeAll().then(exit, (err: unknown) => {
+      console.error((err as Error).message);
+      exit();
+    });
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
@@ -63,16 +69,11 @@ export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyI
       '-v', `${join(folder, 'config')}:/config`,
     ];
 
-    const adapted = await run('docker', ['run', '--rm', '--user', user, ...mounts, request.image, 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile'], { maxBuffer: 16 * 1024 * 1024, env: dockerEnv() });
-    const problem = stagingOnlyProblem(JSON.parse(adapted.stdout) as Parameters<typeof stagingOnlyProblem>[0], request.zone);
+    const adapted = await succeeded(docker, { command: 'docker', args: ['run', '--rm', '--user', user, ...mounts, request.image, 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile'], env: dockerEnv() });
+    const problem = stagingOnlyProblem(JSON.parse(adapted) as Parameters<typeof stagingOnlyProblem>[0], request.zone);
     if (problem) return { obtained: false, why: `refused before asking anyone: ${problem}`, cleanupErrors: [], logNamedSecret: false };
 
     const outcome = await new Promise<{ obtained: boolean; why?: string; issuer?: string; cleanupErrors: string[]; logNamedSecret: boolean }>((resolve) => {
-      const child = spawn('docker', [
-        'run', '-i', '--rm', '--name', container, '--user', user,
-        '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
-        ...mounts, '--entrypoint', 'sh', request.image, '-c', READ_ENV_THEN_RUN,
-      ], { stdio: ['pipe', 'pipe', 'pipe'], env: dockerEnv() });
       const cleanupErrors: string[] = [];
       const tail: string[] = [];
       let logNamedSecret = false;
@@ -93,11 +94,26 @@ export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyI
         else if (event.kind === 'attempt-failed') settle({ obtained: false, why: event.error });
         else if (event.kind === 'cleanup-failed') cleanupErrors.push(event.error);
       };
-      createInterface({ input: child.stdout }).on('line', hear);
-      createInterface({ input: child.stderr }).on('line', hear);
-      child.on('error', (error) => settle({ obtained: false, why: `docker could not start Caddy: ${error.message}` }));
-      child.on('exit', (code) => settle({ obtained: false, why: `Caddy stopped (exit ${code ?? 'signal'}) before it had a certificate; its last lines:\n${tail.join('\n')}` }));
-      child.stdin.end(`${request.envLines.join('\n')}\n\n`);
+      const out = lineSplitter(hear);
+      const err = lineSplitter(hear);
+      const running = docker.start({
+        command: 'docker',
+        args: [
+          'run', '-i', '--rm', '--name', container, '--user', user,
+          '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
+          ...mounts, '--entrypoint', 'sh', request.image, '-c', READ_ENV_THEN_RUN,
+        ],
+        env: dockerEnv(),
+      }, { input: `${request.envLines.join('\n')}\n\n`, heard: { stdout: (chunk) => out.push(chunk), stderr: (chunk) => err.push(chunk) } });
+      caddy = running;
+      running.ended.then(
+        (ended) => {
+          out.end();
+          err.end();
+          settle({ obtained: false, why: `Caddy stopped (exit ${ended.signal ?? ended.code}) before it had a certificate; its last lines:\n${tail.join('\n')}` });
+        },
+        (error: unknown) => settle({ obtained: false, why: `docker could not start Caddy: ${error instanceof ProcessNotStarted ? error.reason : (error as Error).message}` }),
+      );
     });
 
     if (!outcome.obtained) return outcome;
@@ -113,6 +129,6 @@ export async function issueWithCaddy(request: CaddyIssueRequest): Promise<CaddyI
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
-    removeAll();
+    await removeAll();
   }
 }

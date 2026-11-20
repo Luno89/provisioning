@@ -9,7 +9,7 @@ import type { HubLink, RecordChange } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import { CHANGES_PAGE, HubService, type SyncOrigin } from './HubService.js';
 import { HubRelay, type RelayCall } from './HubRelay.js';
-import type { Processes } from '../../platform/lib/processes.js';
+import type { Processes } from '@koala/engine-core/processes';
 import type { GitEnd } from './HubRepoSync.js';
 import { localHubSync } from '../testing/in-process-hub.js';
 import { reopening } from '@koala/engine-core/reopening';
