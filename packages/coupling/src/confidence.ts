@@ -27,7 +27,7 @@ export interface JudgedLink extends Link {
   risk: number;
 }
 
-export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; risk: number }
+export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; lentBy?: string; risk: number }
 
 export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[] }
 
@@ -98,10 +98,19 @@ export function judge(codebase: Codebase, weights: Weights, sharing: Sharing = E
     const expired = new Set(run.expired ?? []);
     for (const unit of run.units) if (!expired.has(unit)) ranAt.set(unit, (ranAt.get(unit) ?? new Set<Layer>()).add(run.layer));
   }
+  const outward = new Map<string, JudgedLink[]>();
+  for (const link of links) if (link.kind === 'dependency') outward.set(link.from, [...(outward.get(link.from) ?? []), link]);
+  const borrowedBy = (unit: string): { confidence: number; from: string } | undefined => {
+    const calls = outward.get(unit) ?? [];
+    if (calls.length === 0 || calls.some((call) => call.sharedFrom === undefined)) return undefined;
+    const weakest = calls.reduce((low, call) => (call.confidence < low.confidence ? call : low));
+    return { confidence: weakest.confidence, from: weakest.sharedFrom! };
+  };
   const functions = codebase.units.map((unit): JudgedUnit => {
     const runAt = LAYERS.filter((layer) => ranAt.get(unit.id)?.has(layer));
-    const confidence = confidenceOf(runAt, weights);
-    return { ...unit, runAt, confidence, risk: (1 - confidence) * weight(unit.id) };
+    const borrowed = runAt.length === 0 ? borrowedBy(unit.id) : undefined;
+    const confidence = borrowed?.confidence ?? confidenceOf(runAt, weights);
+    return { ...unit, runAt, confidence, risk: (1 - confidence) * weight(unit.id), ...(borrowed ? { lentBy: borrowed.from } : {}) };
   });
   const changed = new Set(codebase.changed);
   const untested = codebase.units.filter((unit) => !ranAt.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id));
@@ -130,7 +139,7 @@ export function reportOf(judged: Judgement, riskiest: number): string {
   lines.push('riskiest links:');
   for (const link of judged.links.slice(0, riskiest)) lines.push(`  ${link.risk.toFixed(2)}  ${link.id} ${link.kind}, ${provenLine(link)}`);
   lines.push('riskiest functions:');
-  for (const unit of judged.functions.slice(0, riskiest)) lines.push(`  ${unit.risk.toFixed(2)}  ${unit.file}:${unit.line} ${unit.name}, ${unit.runAt.length > 0 ? `run at ${unit.runAt.join(', ')}` : 'run nowhere'}`);
+  for (const unit of judged.functions.slice(0, riskiest)) lines.push(`  ${unit.risk.toFixed(2)}  ${unit.file}:${unit.line} ${unit.name}, ${unit.runAt.length > 0 ? `run at ${unit.runAt.join(', ')}` : unit.lentBy ? `run nowhere, lent proof by ${unit.lentBy}` : 'run nowhere'}`);
   if (judged.blocking.length > 0) {
     lines.push('changed code no test runs (blocks):');
     for (const unit of judged.blocking) lines.push(`  ${unit.file}:${unit.line} ${unit.name}`);

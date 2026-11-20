@@ -104,6 +104,27 @@ describe('how proven a link is', () => {
     expect(judged.untested.map((unit) => unit.id)).toEqual(['orphan', 'store']);
   });
 
+  it('lowers the risk of a function no test runs by the proof its calls into a dependency borrow, so an e2e add makes the unrun delete less risky', () => {
+    const judged = judge(codebase({
+      units: [
+        { id: 'add', file: 'store.ts', name: 'add', line: 1 },
+        { id: 'remove', file: 'store.ts', name: 'remove', line: 5 },
+        { id: 'orphan', file: 'c.ts', name: 'orphan', line: 1 },
+      ],
+      links: [
+        { id: 'store.ts:2', from: 'add', to: ['pkg:mongodb#insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'insertOne'] },
+        { id: 'store.ts:6', from: 'remove', to: ['pkg:mongodb#deleteOne'], kind: 'dependency', path: ['mongodb', 'users', 'deleteOne'] },
+      ],
+      runs: [{ test: 'daily', layer: 'vm', units: ['add'], links: ['store.ts:2'] }],
+    }), WEIGHTS);
+    const of = (id: string) => judged.functions.find((one) => one.id === id)!;
+
+    expect(of('remove').confidence).toBeCloseTo(0.9 * (2 / 3));
+    expect(of('remove').lentBy).toBe('store.ts:2');
+    expect(of('remove').risk).toBeLessThan(of('orphan').risk);
+    expect(judged.untested.map((unit) => unit.id)).toEqual(['orphan', 'remove']);
+  });
+
   it('ranks functions by what every layer that runs them leaves, untested ones first', () => {
     const judged = judge(codebase({ runs: [
       { test: 'u', layer: 'unit', units: ['save', 'store'], links: [] },
