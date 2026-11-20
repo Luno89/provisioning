@@ -475,4 +475,18 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'The aim is no copied code. A copy found is removed when one side is dead, or merged into one home when both are live; repetition is kept only with a stated reason the owner can challenge, never because it looks harmless. On 2026-11-18 jscpd measured 309 copies (3,134 lines, 1.69%) over the workspaces\' source, 20 of them between workspaces, none marked as a known copy. On 2026-11-19 the owner agreed the plan from the libraries and resources audits: one implementation per job in a package, its production and test pieces injected (a process runner, one Temporal setup with the converter required, one fetch client for backend and frontend with axios gone, files and scratch folders, one wait and pacing, one logger, OpenTelemetry for metrics, ports for Mongo, containers, git, tokens, clocks and ids); child processes get only the environment they need, the machine reaches Temporal over TLS, and nothing listens on a machine\'s network address.',
   },
+  {
+    id: 'test-layers',
+    subject: 'Five test layers, cheapest first, one implementation per dependency, and coupling judged by confidence',
+    terms: ['layer', 'layers', 'unit', 'component', 'contract', 'container', 'coupling', 'cheapest'],
+    words: [
+      { at: '2026-11-19T05:54', text: 'it should be the same code with injected dependencies for test vs production' },
+      { at: '2026-11-20T01:03', text: 'Yep lets change that' },
+      { at: '2026-11-20T01:16', text: 'it should do the real thing but it should only be like once and with a simulated workload' },
+      { at: '2026-11-20T01:17', text: 'each layer of testing should have its own command and fast lower level tests should run first' },
+      { at: '2026-11-20T01:28', text: 'we should go with the real one and just try to keep the scope of the tests blanced' },
+      { at: '2026-11-20T01:36', text: 'Risk should also take into account the layers that already test it not just one layer, there shouldn\'t be any completely un-tested code' },
+    ],
+    reading: 'Tests run in five layers (unit, component, contract, container, VM), each with its own command, cheapest first, each only once the one below passed. A fault is caught at the cheapest layer that can catch it. Real things are used once, with a simulated workload. Each dependency has one implementation, used by production and tests alike with only what lies under it injected, and extended rather than copied. A workflow\'s decisions are pure functions tested at unit, and its Temporal calls are proven on the real Temporal dev server in few, balanced scenarios. Coupling judges logic, composition and dependency calls each by its own proof; confidence adds up across layers, the daily VM run\'s coverage included, and a proven sibling\'s shared path counts; no code is completely untested.',
+  },
 ];
