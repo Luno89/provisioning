@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
-import type { Collection } from 'mongodb';
+import type { Collection, Db } from 'mongodb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { watchingAll, watchWrites } from './change-streams.js';
+import { keepWrittenDocuments, watchingAll, watchWrites } from './change-streams.js';
 
 interface FakeStream extends EventEmitter { closed: number; close(): Promise<void> }
 
@@ -13,6 +13,7 @@ function watched() {
   const opened: unknown[] = [];
   const collection = {
     collectionName: 'deployments',
+    dbName: 'fake',
     watch: (pipeline: unknown, options: unknown) => {
       opened.push({ pipeline, options });
       const stream = Object.assign(new EventEmitter(), { closed: 0, async close() { stream.closed += 1; } }) as FakeStream;
@@ -23,13 +24,17 @@ function watched() {
   return { collection, streams, opened };
 }
 
+const FAKE_DB = { databaseName: 'fake', listCollections: () => ({ toArray: async () => [{ name: 'deployments' }] }), command: async () => ({ ok: 1 }) } as unknown as Db;
+
+beforeEach(async () => { await keepWrittenDocuments(FAKE_DB, ['deployments']); });
+
 describe('following writes to a collection', () => {
   it('is ready once the stream answers, hands over each written record, and opens again after the last token when the stream fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { collection, streams, opened } = watched();
     const heard: string[] = [];
     const watching = watchWrites(() => collection, { status: 'deploying' }, (doc) => heard.push(doc.id), 1_000);
-    expect(opened).toEqual([{ pipeline: [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, 'fullDocument.status': 'deploying' } }], options: { fullDocument: 'updateLookup' } }]);
+    expect(opened).toEqual([{ pipeline: [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, 'fullDocument.status': 'deploying' } }], options: { fullDocument: 'required' } }]);
     streams[0]!.emit('resumeTokenChanged', { _data: 't1' });
     await watching.ready;
     streams[0]!.emit('change', { operationType: 'insert', fullDocument: { id: 'shop' } });
@@ -42,7 +47,7 @@ describe('following writes to a collection', () => {
     await vi.advanceTimersByTimeAsync(999);
     expect(opened).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(opened[1]).toMatchObject({ options: { fullDocument: 'updateLookup', startAfter: { _data: 't1' } } });
+    expect(opened[1]).toMatchObject({ options: { fullDocument: 'required', startAfter: { _data: 't1' } } });
 
     await watching.close();
     expect(streams[1]!.closed).toBe(1);
@@ -54,7 +59,7 @@ describe('following writes to a collection', () => {
   it('follows records matching any of several conditions on the written record', () => {
     const { collection, opened } = watched();
     void watchWrites(() => collection, { $or: [{ install: { $exists: true } }, { move: { $exists: true } }] }, () => undefined);
-    expect(opened).toEqual([{ pipeline: [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, $or: [{ 'fullDocument.install': { $exists: true } }, { 'fullDocument.move': { $exists: true } }] } }], options: { fullDocument: 'updateLookup' } }]);
+    expect(opened).toEqual([{ pipeline: [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] }, $or: [{ 'fullDocument.install': { $exists: true } }, { 'fullDocument.move': { $exists: true } }] } }], options: { fullDocument: 'required' } }]);
   });
 
   it('is ready when every one of several is', async () => {
