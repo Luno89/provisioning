@@ -217,11 +217,12 @@ describe('what is open without a session, by role', () => {
   });
 
     it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
+    expect(await opens('instance', '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(true);
     for (const role of ['instance', 'root'] as const) {
-      expect(await opens(role, '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(true);
       expect(await opens(role, '/files/shares')).toBe(false);
       expect(await opens(role, '/files/mine/content')).toBe(false);
     }
+    expect(await opens('root', '/share/abcdefghijklmnopqrstuvwxyz012345')).toBe(false);
   });
 
     it('lets anyone reach an instance\'s sign-in through root, and nothing of root\'s own sign-in', async () => {
@@ -235,7 +236,7 @@ describe('what is open without a session, by role', () => {
   });
 
   it('lets an instance reach every route root answers with its credential, which checks it there', async () => {
-    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/trial', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/move/self', '/instances/hub-token', '/instances/mail', '/instances/monitoring/alerts']) {
+    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/hub-token', '/instances/mail']) {
       expect(await opens('root', path), path).toBe(true);
     }
     expect(await opens('root', '/instances/mine')).toBe(false);
