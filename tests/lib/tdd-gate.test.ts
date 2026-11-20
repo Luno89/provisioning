@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commitVerdict, editVerdict, kindOf, siblingTests, vitestOf, type GateState } from './tdd-gate.js';
+import { commitVerdict, editVerdict, kindOf, siblingTests, vitestOf, type CommitFacts, type GateState } from './tdd-gate.js';
 
 const HEAD = 'abc123';
 
@@ -54,43 +54,46 @@ describe('editing source before a test has been seen failing', () => {
 
 describe('committing source', () => {
   const red: GateState = { head: HEAD, red: { tests: ['x.test.ts'], at: 't' } };
+  const PASSED = { passed: true, output: '' };
+  const FAILED = { passed: false, output: 'FAIL x.test.ts > it' };
+  const verdictOf = (over: Partial<CommitFacts>) => commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: ['x.test.ts'], siblings: [], run: PASSED, ...over });
+  const refusal = (over: Partial<CommitFacts>): string => {
+    const verdict = verdictOf(over);
+    if (verdict.allow) throw new Error('the gate let it through');
+    return verdict.why;
+  };
+  const REMOVAL: Partial<CommitFacts> = { shrinks: true, newTests: [] };
 
   it('lets a commit with no source through untouched', () => {
-    expect(commitVerdict({ state: undefined, head: HEAD, source: [], removalsOnly: false, changedTests: [], siblings: [], run: undefined })).toEqual({ allow: true });
+    expect(verdictOf({ source: [], changedTests: [], run: undefined })).toEqual({ allow: true });
   });
 
   it('lets a commit that only removes code through', () => {
-    expect(commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: true, changedTests: [], siblings: [], run: undefined })).toEqual({ allow: true });
+    expect(verdictOf({ removalsOnly: true, changedTests: [], run: undefined })).toEqual({ allow: true });
   });
 
   it('refuses a new test that was never seen failing', () => {
-    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: ['x.test.ts'], siblings: [], run: { passed: true, output: '' } });
-    expect(verdict.allow).toBe(false);
-    expect(verdict.allow === false && verdict.why).toMatch(/never seen failing/);
+    expect(refusal({})).toMatch(/never seen failing/);
   });
 
   it('refuses until the change\'s tests pass', () => {
-    const verdict = commitVerdict({ state: red, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output: 'FAIL x.test.ts > it' } });
-    expect(verdict.allow).toBe(false);
-    expect(verdict.allow === false && verdict.why).toMatch(/FAIL x\.test\.ts/);
+    expect(refusal({ state: red, run: FAILED })).toMatch(/FAIL x\.test\.ts/);
   });
 
   it('lets red then green through', () => {
-    expect(commitVerdict({ state: red, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: ['x.test.ts'], siblings: [], run: { passed: true, output: '' } })).toEqual({ allow: true });
+    expect(verdictOf({ state: red })).toEqual({ allow: true });
   });
 
   it('lets a refactor through when the touched code\'s own tests pass', () => {
-    expect(commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: [], siblings: ['a.test.ts'], run: { passed: true, output: '' } })).toEqual({ allow: true });
+    expect(verdictOf({ changedTests: [], siblings: ['a.test.ts'] })).toEqual({ allow: true });
   });
 
   it('lets a removal through once the tests it trimmed pass, since a test that only lost cases has nothing to fail on first', () => {
-    expect(commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: true, output: '' } })).toEqual({ allow: true });
+    expect(verdictOf(REMOVAL)).toEqual({ allow: true });
   });
 
   it('refuses a removal whose trimmed tests do not pass', () => {
-    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output: 'FAIL x.test.ts > it' } });
-    expect(verdict.allow).toBe(false);
-    expect(verdict.allow === false && verdict.why).toMatch(/FAIL x\.test\.ts/);
+    expect(refusal({ ...REMOVAL, run: FAILED })).toMatch(/FAIL x\.test\.ts/);
   });
 
   it('runs a checkout\'s tests with that checkout\'s own vitest, so a worktree never loads a second copy of its libraries, and the gate\'s own only where the checkout has none', () => {
@@ -101,20 +104,15 @@ describe('committing source', () => {
 
   it('names the failing tests when other workspaces\' passing runs come after them', () => {
     const output = ['FAIL |integration| src/a.integration.test.ts > keeps it', '× keeps it 12ms', ...Array.from({ length: 40 }, (_, at) => `passing line ${at}`)].join('\n');
-    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output } });
-    expect(verdict.allow === false && verdict.why).toMatch(/FAIL \|integration\| src\/a\.integration\.test\.ts > keeps it/);
+    expect(refusal({ ...REMOVAL, run: { passed: false, output } })).toMatch(/FAIL \|integration\| src\/a\.integration\.test\.ts > keeps it/);
   });
 
   it('still holds a removal that brings a new test file to red first', () => {
-    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: ['y.test.ts'], changedTests: ['x.test.ts', 'y.test.ts'], siblings: [], run: { passed: true, output: '' } });
-    expect(verdict.allow).toBe(false);
-    expect(verdict.allow === false && verdict.why).toMatch(/never seen failing/);
+    expect(refusal({ shrinks: true, newTests: ['y.test.ts'], changedTests: ['x.test.ts', 'y.test.ts'] })).toMatch(/never seen failing/);
   });
 
   it('refuses a change to code that no test is next to and no test was written for', () => {
-    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, changedTests: [], siblings: [], run: undefined });
-    expect(verdict.allow).toBe(false);
-    expect(verdict.allow === false && verdict.why).toMatch(/no test/);
+    expect(refusal({ changedTests: [], run: undefined })).toMatch(/no test/);
   });
 });
 
