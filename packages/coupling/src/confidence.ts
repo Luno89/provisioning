@@ -155,3 +155,22 @@ export function reportOf(judged: Judgement, riskiest: number): string {
   }
   return lines.join('\n');
 }
+
+export type UntestedList = Record<string, number>;
+
+const keyOf = (unit: CodeUnit): string => `${unit.file}#${unit.name}`;
+
+export function untestedList(untested: readonly CodeUnit[]): UntestedList {
+  const list: UntestedList = {};
+  for (const unit of untested) list[keyOf(unit)] = (list[keyOf(unit)] ?? 0) + 1;
+  return Object.fromEntries(Object.entries(list).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export interface Held { added: string[]; fixed: Array<{ key: string; was: number; now: number }> }
+
+export function heldTo(untested: readonly CodeUnit[], list: UntestedList): Held {
+  const now = untestedList(untested);
+  const added = Object.entries(now).filter(([key, count]) => count > (list[key] ?? 0)).map(([key]) => key);
+  const fixed = Object.entries(list).filter(([key, was]) => (now[key] ?? 0) < was).map(([key, was]) => ({ key, was, now: now[key] ?? 0 }));
+  return { added, fixed };
+}

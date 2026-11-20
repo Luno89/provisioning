@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { judge, reportOf, type Weights } from '@koala/coupling';
+import { heldTo, judge, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
 import { ARTIFACTS, OUT, ROOT, runsOf, type Gathered } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { runsIn } from './report.js';
@@ -42,5 +42,23 @@ const codebase = codebaseOf(builtGraph(ROOT).graph, runs, {
   failures,
 });
 const judged = judge(codebase, WEIGHTS, { dependency: SHARING, composition: { target: 0.5 } });
-console.log(reportOf(judged, Number(process.argv[2] ?? 25)));
+const args = process.argv.slice(2);
+const shown = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 25);
+console.log(reportOf(judged, shown));
 if (judged.blocking.length > 0) process.exitCode = 1;
+
+const LIST = join(ROOT, 'tests', 'coupling', 'untested.json');
+const writeList = (list: UntestedList) => writeFileSync(LIST, `${JSON.stringify(list, null, 1)}\n`);
+if (!existsSync(LIST)) {
+  if (!args.includes('--seed')) throw new Error(`${LIST} does not exist: run once with --seed to record today's untested functions`);
+  writeList(untestedList(judged.untested));
+  console.log(`untested list written: ${judged.untested.length} functions`);
+} else {
+  if (args.includes('--seed')) throw new Error(`${LIST} exists: the untested list only shrinks, so it is never seeded again; use --prune`);
+  const list = JSON.parse(readFileSync(LIST, 'utf8')) as UntestedList;
+  const held = heldTo(judged.untested, list);
+  for (const key of held.added) console.log(`new untested function: ${key}`);
+  for (const fixed of held.fixed) console.log(`now tested or gone, prune it: ${fixed.key} (${fixed.was} -> ${fixed.now})`);
+  if (args.includes('--prune') && held.added.length === 0) writeList(Object.fromEntries(Object.entries(list).flatMap(([key, was]) => { const now = held.fixed.find((fixed) => fixed.key === key)?.now ?? was; return now > 0 ? [[key, now]] : []; })));
+  else if (held.added.length > 0 || held.fixed.length > 0) process.exitCode = 1;
+}

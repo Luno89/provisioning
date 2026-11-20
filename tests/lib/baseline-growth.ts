@@ -3,7 +3,17 @@ import { resolve } from 'node:path';
 
 export type Baseline = Record<string, number>;
 
-const BASELINES = ['tests/coupling/baseline.json', 'tests/copies/baseline.json'];
+export const STAGED: ReadonlyArray<{ path: string; by: 'rule' | 'total' }> = [
+  { path: 'tests/coupling/baseline.json', by: 'rule' },
+  { path: 'tests/copies/baseline.json', by: 'rule' },
+  { path: 'tests/coupling/untested.json', by: 'total' },
+];
+
+const sum = (baseline: Baseline): number => Object.values(baseline).reduce((total, count) => total + count, 0);
+
+export function grownTotal(before: Baseline, after: Baseline): string[] {
+  return sum(after) > sum(before) ? [`grew from ${sum(before)} to ${sum(after)}`] : [];
+}
 
 const totals = (baseline: Baseline): Map<string, number> => {
   const by = new Map<string, number>();
@@ -25,11 +35,11 @@ function shown(root: string, spec: string): Baseline | undefined {
 }
 
 export function stagedGrowth(root: string): string[] {
-  return BASELINES.flatMap((path) => {
+  return STAGED.flatMap(({ path, by }) => {
     const before = shown(root, `HEAD:${path}`);
     const after = shown(root, `:${path}`);
     if (!before || !after) return [];
-    return grown(before, after).map((line) => `${path}: ${line}`);
+    return (by === 'total' ? grownTotal(before, after) : grown(before, after)).map((line) => `${path}: ${line}`);
   });
 }
 

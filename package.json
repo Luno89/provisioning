@@ -43,7 +43,7 @@
     "test:integration:coupled": "tsx tests/coupling/gather.ts",
     "test:status": "tsx tests/lib/test-status.ts",
     "test:e2e": "tsx tests/e2e.ts",
-    "test:coupling": "tsx tests/coupling/audit.ts --require in-process --prune",
+    "test:coupling": "tsx tests/coupling/v2-cli.ts --prune",
     "coupling": "tsx tests/coupling/v2-cli.ts",
     "test:copies": "tsx tests/copies/audit.ts --prune",
     "coverage:gaps": "tsx tests/coupling/refresh.ts",
