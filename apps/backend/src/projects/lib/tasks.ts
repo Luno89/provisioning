@@ -60,8 +60,6 @@ export function describeProblem(input: Partial<ProposedTask>): string | undefine
   return undefined;
 }
 
-export const isSettled = (task: Pick<Task, 'status'>): boolean => SETTLED.includes(task.status);
-
 export function blockedBy(task: Pick<Task, 'dependsOn'>, all: readonly Task[]): Task[] {
   const byId = new Map(all.map((candidate) => [candidate.id, candidate]));
   return task.dependsOn

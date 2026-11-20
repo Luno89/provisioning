@@ -76,7 +76,7 @@ export type { ComponentKind, InventoryComponent } from './lib/sbom.js';
 export { sameSeededRow } from './lib/seed-diff.js';
 export { missingSettings, notSetProblem, settingHostPort, settingUrl } from './lib/setting-urls.js';
 export type { Settings } from './lib/setting-urls.js';
-export { backendSettingsFrom, clusterSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, isOff, moveImportSettingsFrom, operatorCredentialsFrom, podStepSettingsFrom, selfUpgradeSettingsFrom, SettingsError, setupWaitsSettingsFrom, type SetupWaitsSettings } from './lib/settings.js';
+export { backendSettingsFrom, clusterSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, isOff, moveImportSettingsFrom, operatorCredentialsFrom, selfUpgradeSettingsFrom, SettingsError, setupWaitsSettingsFrom, type SetupWaitsSettings } from './lib/settings.js';
 export type { BackendSettings, ClusterSettings, ClusterWorkerSettings, CommonSettings, ConnectionSettings, EngineWorkerSettings, HostWorkerSettings, InstanceSettings, MeshSettings, MoveImportSettings, Off, OperatorCredentials, PodStepSettings, RootSettings, SelfUpgradeSettings, TemporalSettings, TenantServices, WebToolSettings } from './lib/settings.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
 export { carryingTrace, telemetrySettings } from './lib/telemetry.js';

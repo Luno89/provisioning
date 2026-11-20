@@ -137,8 +137,6 @@ export const captureRunId = (serverId: string, fingerprint: string, at: number):
 
 export type WorkspaceRuns = Extract<ServerRuns, { where: 'workspace' }>;
 
-export const isWorkspaceServer = (server: Pick<McpServerRecord, 'runs'>): server is McpServerRecord & { runs: WorkspaceRuns } => server.runs.where === 'workspace';
-
 export const serverSource = (name: string): string => `server:${name}`;
 
 export function serverNeeds(server: Pick<McpServerRecord, 'name' | 'runs'>): Need[] {

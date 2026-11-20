@@ -82,10 +82,6 @@ export class ExtensionService {
     });
   }
 
-  async enabled(ownerId: string): Promise<EngineExtension[]> {
-    return enabledExtensions(this.deps.installed, await this.deps.store.getExtensionSettings(ownerId));
-  }
-
   async hidden(ownerId: string): Promise<HiddenVocabulary> {
     const { all } = await this.everything(ownerId);
     return hiddenBy(all, await this.deps.store.getExtensionSettings(ownerId));

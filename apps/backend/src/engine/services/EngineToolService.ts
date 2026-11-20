@@ -1,4 +1,3 @@
-import { placeholdersIn } from '@koala/engine-core';
 import {
   checkDefinition,
   planFor,
@@ -106,10 +105,6 @@ export class EngineToolService {
 
   async get(ownerId: string, name: string): Promise<EditableTool | undefined> {
     return (await this.list(ownerId)).find((tool) => tool.name === name);
-  }
-
-  blanks(tool: Pick<ToolDefinition, 'command'>): string[] {
-    return tool.command ? placeholdersIn(tool.command) : [];
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveToolOutcome> {

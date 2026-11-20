@@ -88,9 +88,5 @@ export function hasScript(dependency: Pick<WorkspaceDependency, 'install' | 'onD
   return [...dependency.install, ...(dependency.onDebian ?? [])].some((install) => install.via === 'script');
 }
 
-export function dependencyFromInstall(name: string, summary: string, install: readonly Install[], provides: readonly string[]): WorkspaceDependency {
-  return { name, summary, provides: [...provides], install: install.map((step) => ({ ...step })) };
-}
-
 export const dependencyNameFor = (raw: string): string =>
   raw.toLowerCase().replace(/^@/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/^([^a-z])/, 'x-$1').slice(0, 40).replace(/-+$/, '') || 'dependency';

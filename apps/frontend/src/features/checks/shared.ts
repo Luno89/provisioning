@@ -9,7 +9,6 @@ import {
   acceptProposal,
   dismissProposal,
   getBench,
-  getLevel2Run,
   listLevel2Runs,
   listProposals,
   listPractices,
@@ -23,10 +22,8 @@ import {
   makeToolNoteLive,
   retireToolNote,
   listScenarios,
-  saveBench,
   saveScenario,
   startLevel2Run,
-  type BenchSettings,
   type Level2Run,
   type Scenario,
   type StartLevel2Input,
@@ -46,8 +43,6 @@ export const evalKeys = {
   toolNotes: ['evals', 'level2', 'tool-notes'] as const,
   changes: ['evals', 'level2', 'changes'] as const,
 }
-
-const whileRunning = (state: string | undefined, every: number) => (state === 'running' ? every : false)
 
 export function useModels() {
   return useQuery({ queryKey: providerKeys.list(), queryFn: listModels })
@@ -78,15 +73,6 @@ export function useLevel2Runs() {
     queryKey: evalKeys.level2Runs,
     queryFn: listLevel2Runs,
     refetchInterval: (query) => ((query.state.data ?? []).some((run) => run.state === 'running') ? 2000 : false),
-  })
-}
-
-export function useLevel2Run(id: string | undefined) {
-  return useQuery({
-    queryKey: evalKeys.level2Run(id ?? ''),
-    queryFn: () => getLevel2Run(id!),
-    enabled: Boolean(id),
-    refetchInterval: (query) => whileRunning(query.state.data?.state, 1200),
   })
 }
 
@@ -179,14 +165,6 @@ export const quietButton = 'rounded-md border border-[var(--bark-600)] px-3 py-1
 
 export function useBench() {
   return useQuery({ queryKey: evalKeys.bench, queryFn: getBench })
-}
-
-export function useSaveBench() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (settings: BenchSettings) => saveBench(settings),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: evalKeys.bench }) },
-  })
 }
 
 export function triggerLabel(trigger: Level2Run['trigger']): string {

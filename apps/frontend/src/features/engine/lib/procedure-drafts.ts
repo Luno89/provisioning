@@ -5,7 +5,6 @@ import {
   checkProcedure,
   defaultSettings,
   groupLibrary,
-  type NodeTrace,
   type Procedure,
   type EffortMeasure,
   type ProcedureProblem,
@@ -139,6 +138,3 @@ export function groupPathIn(procedure: Procedure, nodeId: string, context: Canva
     return group
   })
 }
-
-export const traceLabel = (trace: NodeTrace): string =>
-  trace.exit ? `${trace.node} → ${trace.exit}` : trace.node

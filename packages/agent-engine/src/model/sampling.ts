@@ -2,17 +2,6 @@ import type { BudgetConfig } from '@koala/harness-types';
 
 export const NO_THINKING = { template_vars: { enable_thinking: false } } as const;
 
-/** What one turn may reply with, given what that turn is for. The caps are the pack's. */
-export function turnMaxTokens(
-  replyTokens: BudgetConfig['replyTokens'],
-  opts: { think?: boolean; canWriteFiles?: boolean },
-): number {
-  if (opts.canWriteFiles) {
-    return Math.max(replyTokens.writingFiles, opts.think ? replyTokens.thinking : 0);
-  }
-  return opts.think ? replyTokens.thinking : replyTokens.tool;
-}
-
 /**
  * The ceiling, cut down to what is actually left in the window. `contextTokens` is what the endpoint
  * reports; the pack's value is the fallback for an endpoint that reports nothing.

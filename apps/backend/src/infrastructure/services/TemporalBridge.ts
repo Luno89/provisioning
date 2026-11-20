@@ -273,9 +273,6 @@ export class TemporalBridge {
     return this
   }
 
-  async flush(): Promise<void> {
-  }
-
   async stop(): Promise<void> {
     await Promise.all(this.watching.splice(0).map((watching) => watching.close()))
     try {

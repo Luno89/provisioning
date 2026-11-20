@@ -86,10 +86,6 @@ export class ThoughtFeatureExtractor {
       maxNgramRepeatCount: stats.maxRepeat,
     };
   }
-
-  getText(): string {
-    return this.reasoningText;
-  }
 }
 
 export function predictFailure(
@@ -154,44 +150,4 @@ export function predictFailure(
   }
 
   return { pFailure: 0.1, shouldInterrupt: false };
-}
-
-export function updateModelProfile(
-  existing: ModelThinkingProfile | undefined,
-  modelId: string,
-  features: ThoughtFeatureVector,
-  outcome: 'success' | 'failure'
-): ModelThinkingProfile {
-  const current: ModelThinkingProfile = existing ?? {
-    modelId,
-    successSamples: 0,
-    failureSamples: 0,
-    avgSuccessEntropy: 0.85,
-    avgFailureEntropy: 0.30,
-    avgSuccessRepetition: 0.15,
-    avgFailureRepetition: 0.60,
-    avgSuccessThoughtLength: 300,
-    avgFailureThoughtLength: 1200,
-    updatedAt: new Date().toISOString(),
-  };
-
-  const isSuccess = outcome === 'success';
-  const count = isSuccess ? current.successSamples : current.failureSamples;
-  const newCount = count + 1;
-
-  const updateAvg = (oldVal: number, newVal: number) => (oldVal * count + newVal) / newCount;
-
-  return {
-    ...current,
-    modelId,
-    successSamples: isSuccess ? newCount : current.successSamples,
-    failureSamples: !isSuccess ? newCount : current.failureSamples,
-    avgSuccessEntropy: isSuccess ? updateAvg(current.avgSuccessEntropy, features.ngramEntropy) : current.avgSuccessEntropy,
-    avgFailureEntropy: !isSuccess ? updateAvg(current.avgFailureEntropy, features.ngramEntropy) : current.avgFailureEntropy,
-    avgSuccessRepetition: isSuccess ? updateAvg(current.avgSuccessRepetition, features.repetitionDensity) : current.avgSuccessRepetition,
-    avgFailureRepetition: !isSuccess ? updateAvg(current.avgFailureRepetition, features.repetitionDensity) : current.avgFailureRepetition,
-    avgSuccessThoughtLength: isSuccess ? updateAvg(current.avgSuccessThoughtLength, features.reasoningTokens) : current.avgSuccessThoughtLength,
-    avgFailureThoughtLength: !isSuccess ? updateAvg(current.avgFailureThoughtLength, features.reasoningTokens) : current.avgFailureThoughtLength,
-    updatedAt: new Date().toISOString(),
-  };
 }

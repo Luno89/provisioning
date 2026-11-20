@@ -77,20 +77,6 @@ export class ChatParser {
     return { thoughts, isThinking, cleanContent };
   }
 
-  static normalizeAlerts(text: string): string {
-    return text.replace(
-      /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*\n((?:^>.*(?:\n|$))*)/gim,
-      (_match: string, type: string, body: string) => {
-        const cleanBody = body
-          .split('\n')
-          .map((line: string) => line.replace(/^>\s?/, ''))
-          .join('\n')
-          .trim();
-        return `\n:::alert{type="${type.toLowerCase()}"}\n${cleanBody}\n:::\n`;
-      },
-    );
-  }
-
   static extractToolCalls(text: string): { toolCalls: { name: string; args: string }[]; cleanContent: string } {
     const toolCalls: { name: string; args: string }[] = [];
     const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi;

@@ -100,7 +100,6 @@ export {
 } from './model/model-call.js';
 export {
   fittedMaxTokens,
-  turnMaxTokens,
   contextPressure,
   NO_THINKING,
 } from './model/sampling.js';

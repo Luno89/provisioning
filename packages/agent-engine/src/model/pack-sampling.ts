@@ -51,11 +51,3 @@ export function resolveSampling(
   if (Object.keys(templateVars).length) out.template_vars = templateVars;
   return { body: out, unsupported };
 }
-
-/** The body alone, for callers that only build a request. */
-export const samplingFor = (
-  sampling: SamplingConfig | undefined,
-  turn: TurnKind,
-  kind: string | undefined,
-): Record<string, unknown> => resolveSampling(sampling, turn, kind).body;
-
