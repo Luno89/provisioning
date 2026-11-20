@@ -1,5 +1,6 @@
 import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
 import protos from '@temporalio/proto'
+import Long from 'long'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { WORK_HEADER, workFor, workHeader, workIsUnnamed } from '@koala/engine-core/work-for'
 import type { Payload } from '@temporalio/common'
@@ -99,6 +100,26 @@ export async function registerOwnerAttribute(connection: Connection, namespace: 
   }
 }
 
+const NAMESPACE_RETENTION_SECONDS = 86_400
+
+export interface NamespaceKeys {
+  system: string
+  namespace: string
+}
+
+export async function readyNamespace(connection: Connection, namespace: string, keys?: NamespaceKeys): Promise<void> {
+  const register = () => connection.workflowService.registerNamespace({
+    namespace,
+    workflowExecutionRetentionPeriod: { seconds: Long.fromNumber(NAMESPACE_RETENTION_SECONDS) },
+  })
+  try {
+    await (keys ? connection.withApiKey(keys.system, register) : register())
+  } catch (err) {
+    if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
+  }
+  await registerOwnerAttribute(connection, namespace, keys?.namespace)
+}
+
 export async function getTemporalClient(): Promise<Client> {
   if (shared) return shared
   if (!given) throw new Error('this process was not given Temporal\'s settings: its entry point calls connectTemporalAs with them first')
@@ -111,7 +132,10 @@ export async function getTemporalClient(): Promise<Client> {
     throw thrownFor(reporter, 'temporal', err)
   })
   reporter?.answered('temporal')
-  await registerOwnerAttribute(connection, temporal.namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }))
+  await readyNamespace(connection, temporal.namespace, {
+    system: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: 'temporal-system', role: 'admin' }),
+    namespace: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }),
+  })
   const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs())
   shared = new Client({
     connection,

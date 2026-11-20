@@ -3,10 +3,9 @@ import { temporalServerExecutable } from '@koala/engine-core/testing/shared';
 import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
 import { Client, Connection } from '@temporalio/client';
-import Long from 'long';
 import { inject } from 'vitest';
 import { OWNER_ATTRIBUTE } from '../../platform/lib/workflow-owner.js';
-import { registerOwnerAttribute } from '../../platform/lib/temporal-client.js';
+import { readyNamespace, registerOwnerAttribute } from '../../platform/lib/temporal-client.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -24,8 +23,7 @@ export interface FreshNamespace {
 export async function freshNamespace(address: string = inject('temporalAddress')): Promise<FreshNamespace> {
   const connection = await Connection.connect({ address });
   const namespace = `koala-test-${randomUUID()}`;
-  await connection.workflowService.registerNamespace({ namespace, workflowExecutionRetentionPeriod: { seconds: Long.fromNumber(86_400) } });
-  await registerOwnerAttribute(connection, namespace);
+  await readyNamespace(connection, namespace);
   return {
     namespace,
     drop: async () => {
