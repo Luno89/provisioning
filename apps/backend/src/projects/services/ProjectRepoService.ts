@@ -243,25 +243,6 @@ export class ProjectRepoService {
     return { path, type: 'dir', entries };
   }
 
-  async listForOwner(ownerId: string): Promise<ProjectMetadata[]> {
-    return (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
-  }
-
-  async checkoutCredential(
-    ownerId: string,
-    project: ProjectMetadata,
-  ): Promise<{ cloneUrl: string; tokenName: string; username: string }> {
-    if (!allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: project.ownerId })) {
-      throw new Error('That project belongs to someone else.');
-    }
-
-    const { username, password } = await this.ensureAccount(ownerId);
-    const { name: tokenName, token } = await this.gitea.createPushToken(username, password);
-
-    const base = this.gitea.internalBaseUrl.replace('http://', `http://${encodeURIComponent(username)}:${token}@`);
-    return { cloneUrl: `${base}/${project.giteaOwner}/${project.giteaRepo}.git`, tokenName, username };
-  }
-
   /** A scoped, read-only Gitea token for the owner's own account — for auto-provisioning GITEA_TOKEN. */
   async mintReadToken(ownerId: string): Promise<{ token: string; tokenName: string; username: string }> {
     const { username, password } = await this.ensureAccount(ownerId);

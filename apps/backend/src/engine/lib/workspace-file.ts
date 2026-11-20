@@ -102,10 +102,6 @@ export function contributionsOf(file: WorkspaceFile): Contribution[] {
   return contributions;
 }
 
-export function scriptOf(file: WorkspaceFile): string | undefined {
-  return file.script?.trim() || undefined;
-}
-
 export interface WorkspaceChange {
   packages?: Partial<Record<PackageManager, string[]>> | undefined;
   languages?: string[] | undefined;

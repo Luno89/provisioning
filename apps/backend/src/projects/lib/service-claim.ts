@@ -34,15 +34,3 @@ export function claimService(
   if (theirs && !already) claim.adoptProjectId = theirs;
   return claim;
 }
-
-export function claimNotice(name: string, claim: ServiceClaim): string {
-  if (!claim.ownedBy) return '';
-  const where = claim.ownedBy.treeName;
-  return claim.adoptProjectId
-    ? `"${name}" already belongs to **${where}**, so this work will go into that service's existing `
-      + 'repository rather than starting a second one. Changes here rebuild and redeploy the '
-      + 'service that is already running.'
-    : `"${name}" is also the service name of **${where}**. Two services sharing a name share the `
-      + 'prefix on every tool they expose, so an agent granted one may reach either. Rename one of '
-      + 'them unless they are meant to be the same service.';
-}

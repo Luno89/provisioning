@@ -145,6 +145,3 @@ export async function getTemporalClient(): Promise<Client> {
   })
   return shared
 }
-
-export async function ensureTemporalClient(): Promise<void> {
-}

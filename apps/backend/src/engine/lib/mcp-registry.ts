@@ -81,13 +81,3 @@ export function describeServers(servers: McpServer[]): string {
       + ' what it already does.',
   ].join('\n');
 }
-
-export function preferUsable(servers: readonly McpServer[]): McpServer[] {
-  const out = new Map<string, McpServer>();
-  for (const s of servers) {
-    const held = out.get(s.name);
-    const better = !held || (!s.unreachable && s.tools.length && (held.unreachable || !held.tools.length));
-    if (better) out.set(s.name, s);
-  }
-  return [...out.values()];
-}

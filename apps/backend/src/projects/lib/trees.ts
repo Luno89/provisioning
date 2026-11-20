@@ -70,8 +70,3 @@ export function normaliseTreeInput(raw: Record<string, unknown>): TreeInput | un
     ...(openQuestions ? { openQuestions } : {}),
   };
 }
-
-export function withProject(tree: Tree, projectId: string, now = new Date().toISOString()): Tree {
-  if (tree.projectIds?.includes(projectId)) return tree;
-  return { ...tree, projectIds: [...(tree.projectIds ?? []), projectId], updatedAt: now };
-}
