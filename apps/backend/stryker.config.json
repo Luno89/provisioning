@@ -1,0 +1,11 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.stryker.config.ts" },
+  "mutate": ["src/infrastructure/lib/**/*.ts", "!src/infrastructure/lib/**/*.test.ts"],
+  "inPlace": true,
+  "coverageAnalysis": "perTest",
+  "reporters": ["json", "clear-text"],
+  "jsonReporter": { "fileName": "../../tests/.coupling/mutation/infrastructure-lib.json" },
+  "concurrency": 6
+}

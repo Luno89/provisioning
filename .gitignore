@@ -115,3 +115,5 @@ packages/cdktf-infra/lib/*.js
 /tests/.coupling/
 tests/.gate-checks.json
 /tests/.dev-stack.log
+
+.stryker-tmp/

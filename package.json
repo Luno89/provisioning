@@ -45,6 +45,7 @@
     "test:e2e": "tsx tests/e2e.ts",
     "test:coupling": "tsx tests/coupling/v2-cli.ts --prune",
     "coupling": "tsx tests/coupling/v2-cli.ts",
+    "coupling:evidence": "tsx tests/coupling/mutation-cli.ts",
     "test:copies": "tsx tests/copies/audit.ts --prune",
     "coverage:gaps": "tsx tests/coupling/refresh.ts",
     "flows": "tsx tests/coupling/flows-cli.ts",

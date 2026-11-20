@@ -1,12 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { heldTo, judge, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
+import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
 import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { codebaseOf, DEPENDENCIES, SHARING, versionsIn, type Since } from './v2.js';
+import { evidenceFrom, type KeptRun } from './mutation.js';
 
-const WEIGHTS: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
+const STARTING: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
+const EVIDENCE = join(ROOT, 'tests', 'coupling', 'evidence.json');
+const kept = existsSync(EVIDENCE) ? JSON.parse(readFileSync(EVIDENCE, 'utf8')) as KeptRun[] : [];
+const learned = learnedWeights(STARTING, evidenceFrom(kept, Date.now()), { strength: 10, halfLife: 30 });
+const WEIGHTS = learned.weights;
 const CHURN_SINCE = '90 days ago';
 
 const git = (args: readonly string[]): string => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
@@ -43,6 +48,7 @@ const codebase = codebaseOf(builtGraph(ROOT).graph, runs, {
 const judged = judge(codebase, WEIGHTS, { dependency: SHARING, composition: { target: 0.5 } });
 const args = process.argv.slice(2);
 const shown = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 25);
+console.log(`layer weights, from ${kept.length} mutation runs: ${Object.entries(WEIGHTS).map(([layer, weight]) => `${layer} ${weight.toFixed(2)} (${learned.evidence[layer as keyof Weights].caught} caught, ${learned.evidence[layer as keyof Weights].missed} missed)`).join(', ')}`);
 console.log(reportOf(judged, shown));
 if (judged.blocking.length > 0) process.exitCode = 1;
 
