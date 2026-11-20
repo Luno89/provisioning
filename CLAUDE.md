@@ -101,7 +101,7 @@ npm run test         # the three tiers in order, each only once the one below pa
 npm run test:unit    # typecheck and every workspace's unit tier (*.test.ts)
 npm run test:integration  # every workspace's integration tier (*.integration.test.ts)
 npm run test:integration:coupled  # the same, gathering what each test file runs for the coupling rules
-npm run test:coupling   # the coupling rules over the unit and integration tiers, against their baseline
+npm run test:coupling   # coupler v2 over what the tiers gathered, against the list of untested functions, which only shrinks
 npm run test:e2e     # the live suites ship runs, against the running dev stack
 npm run test:<name>-live  # one live suite (tests/<name>-live.ts); every run records its pass or failure
 npm run test:vm-live [suite…]  # the VM suites, packed into rounds by free memory
