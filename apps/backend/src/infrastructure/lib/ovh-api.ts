@@ -40,8 +40,6 @@ export function ovhHeaders(keys: OvhKeys, method: string, url: string, body: str
 
 export const OVH_ACCESS_RULES: readonly string[] = ['GET /*', 'POST /order/*', 'DELETE /order/*', 'POST /vps/*', 'POST /me/order/*', 'POST /ip/*'];
 
-export const ovhCreateTokenUrl = (apiHost: string): string => `${apiHost.replace(/\/1\.0$/, '')}/createToken/`;
-
 export function ovhErrorMessage(status: number, body: unknown): string {
   const message = body && typeof body === 'object' && typeof (body as { message?: unknown }).message === 'string'
     ? (body as { message: string }).message
