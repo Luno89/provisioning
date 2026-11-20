@@ -42,14 +42,10 @@ const bootstrapWrote = (identity: string): string => [
   'MAIL_FROM=alerts@koala.dev',
   'HEADSCALE_API_KEY=headscale-key',
   'INSTANCE_REGISTRY=100.64.0.1:5001',
-  'POOL_SLOTS=2',
-  'POOL_SLOT_MEMORY_MIB=10240',
-  'POOL_ADDRESS=100.64.0.1',
-  'POOL_IMAGE=127.0.0.1:5000/nowrinkles/app',
   '',
 ].join('\n');
 
-const UNIT = { CADDY_ADMIN_SOCKET: '/run/koala-caddy/admin.sock', CADDY_LOG: '/var/log/koala-caddy/caddy.log', CADDY_CONFIG: '/opt/nowrinkles/Caddyfile', CADDY_TLS_ADDRESS: '127.0.0.1:443', POOL_KUBECONFIG: '/etc/koala/pool-backend-kubeconfig' };
+const UNIT = { CADDY_ADMIN_SOCKET: '/run/koala-caddy/admin.sock', CADDY_LOG: '/var/log/koala-caddy/caddy.log', CADDY_CONFIG: '/opt/nowrinkles/Caddyfile', CADDY_TLS_ADDRESS: '127.0.0.1:443', POOL_KUBECONFIG: '/etc/koala/backend-kubeconfig' };
 
 describe('the settings root keeps in its env file', () => {
   it('are completed by bootstrap and update to everything root\'s backend and host worker require, without changing one already there', () => {
@@ -72,7 +68,7 @@ describe('the settings root keeps in its env file', () => {
     const backend = backendSettingsFrom(env);
     expect(env.TRUST_PROXY).toBe('1');
     expect(backend).toMatchObject({ port: 4000, production: true, trustProxy: 1, terraform: { kind: 'local' }, mesh: { loginServer: 'https://mesh.koala.dev', headscaleUrl: 'http://127.0.0.1:8080', headscaleApiKey: 'headscale-key' } });
-    expect(backend.root).toMatchObject({ imageTag: commit, routing: { domain: 'nowrinkles.app' }, pool: { slots: 2, slot: { cpu: 4, storageGiB: 100, memoryMiB: 10240 }, trialDays: 14 }, mailReputation: { domain: 'koala.dev', relayhost: '[smtp.relay.example]:587' } });
+    expect(backend.root).toMatchObject({ imageTag: commit, routing: { domain: 'nowrinkles.app' }, mailReputation: { domain: 'koala.dev', relayhost: '[smtp.relay.example]:587' } });
     expect(hostWorkerSettingsFrom(env)).toMatchObject({ healthPort: 0, temporalMetricsPort: 9465, publicUrl: 'https://app.koala.dev', root: { imageTag: commit } });
 
     const before = readFileSync(file, 'utf8');

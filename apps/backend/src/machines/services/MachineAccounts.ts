@@ -155,11 +155,11 @@ export class MachineAccounts {
       .map(machineJoinView);
   }
 
-  async createJoinCode(ownerId: string, koalaName?: string, move = false): Promise<{ code: string; command: string; expiresAt: string }> {
+  async createJoinCode(ownerId: string, koalaName?: string): Promise<{ code: string; command: string; expiresAt: string }> {
     if (!meshUsable(this.deps.settings.meshLoginServer)) throw Object.assign(new Error(NO_MESH), { status: 409 });
     const code = newMachineCode();
     const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
-    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), id: uuidv4(), ownerId, expiresAt, keptUntil: expiresAt, ...(koalaName ? { koalaName } : {}), ...(move ? { move: true as const } : {}) });
+    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), id: uuidv4(), ownerId, expiresAt, keptUntil: expiresAt, ...(koalaName ? { koalaName } : {}) });
     return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
   }
 
@@ -227,7 +227,7 @@ export class MachineAccounts {
       ...tokenLifetime(this.now()),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
-      ...(found.koalaName || found.move ? { koalaWanted: { name: found.koalaName ?? '', ...(found.move ? { move: true as const } : {}) } } : {}),
+      ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
     };
     await this.deps.store.saveLocalAgentDevice(device);
     await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id, deviceTokenHash: device.tokenHash }, unset: ['keptUntil'] });
@@ -292,7 +292,7 @@ export class MachineAccounts {
         this.deps.toOwner.machinesChanged(device.ownerId);
       }
     };
-    const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined, device.koalaWanted.move === true, refused);
+    const placed = await this.deps.installs.start(device.ownerId, device, device.koalaWanted.name || undefined, refused);
     if (!placed.ok) return placed;
     await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted', 'koalaRefused'] });
     return { ok: true, value: { placing: true } };

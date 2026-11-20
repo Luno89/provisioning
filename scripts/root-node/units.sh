@@ -59,23 +59,9 @@ CONF
   )
   chown koala:koala "$BACKEND_KUBECONFIG"
   chmod 600 "$BACKEND_KUBECONFIG"
-  ok "the backend reaches the cluster as koala-backend: the pool's Prometheus, and pool namespaces only"
+  ok "the backend reaches the cluster as koala-backend: root's Prometheus only"
 else
   warn "there is no cluster yet, so the backend has no cluster account until this runs again"
-fi
-
-POOL_BACKEND_KUBECONFIG=/etc/koala/pool-backend-kubeconfig
-BACKEND_POOL="$BACKEND_KUBECONFIG"
-POOL_ELSEWHERE="$(grep '^POOL_KUBECONFIG=' "${REPO_DIR}/apps/backend/.env" 2>/dev/null | cut -d= -f2- || true)"
-if [ -n "$POOL_ELSEWHERE" ] && [ "$POOL_ELSEWHERE" != "/tmp/kubeconfig-provisioning-lunorica" ]; then
-  if [ -s "$POOL_BACKEND_KUBECONFIG" ]; then
-    chown koala:koala "$POOL_BACKEND_KUBECONFIG"
-    chmod 600 "$POOL_BACKEND_KUBECONFIG"
-    BACKEND_POOL="$POOL_BACKEND_KUBECONFIG"
-    ok "the pool is a server of its own; the backend reaches it as koala-backend (${POOL_BACKEND_KUBECONFIG}), the workers with ${POOL_ELSEWHERE}"
-  else
-    warn "the pool is a server of its own (${POOL_ELSEWHERE}); copy the /root/pool-backend-kubeconfig.yaml pool-node.sh wrote there to ${POOL_BACKEND_KUBECONFIG} and run units.sh again, or trial monitoring and moves cannot reach it"
-  fi
 fi
 
 LAB_TRUST=""
@@ -101,7 +87,7 @@ Environment=CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock
 Environment=CADDY_LOG=/var/log/koala-caddy/caddy.log
 Environment=CADDY_CONFIG=${REPO_DIR}/Caddyfile
 Environment=CADDY_TLS_ADDRESS=127.0.0.1:443
-Environment=POOL_KUBECONFIG=${BACKEND_POOL}
+Environment=POOL_KUBECONFIG=${BACKEND_KUBECONFIG}
 Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=${REPO_DIR}

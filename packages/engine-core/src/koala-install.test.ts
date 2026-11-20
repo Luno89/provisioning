@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KOALA_INSTALL_FOLLOW_PATH, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_LAST_STAGE, KOALA_INSTALL_PROGRESS, KOALA_INSTALL_STAGES,
-  KOALA_MOVE_KEYS_PATH, KOALA_MOVE_LAST_STAGE, KOALA_MOVE_PROGRESS, KOALA_MOVE_STAGES,
-  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaInstallLastStage, koalaInstallProgress, koalaInstallStages, koalaStopOf,
-  KOALA_PLATFORM_NAMESPACES, MOVED_FOR_LABEL, STOP_KOALA,
-  PROVISION_DONE_STAGE, PROVISION_MOVED_PIECE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
+  KOALA_INSTALL_STAGES,
+  koalaInstallEnded, koalaInstallFollowedOf, koalaInstallStoppedOf, koalaStopOf,
+  KOALA_PLATFORM_NAMESPACES, STOP_KOALA,
+  PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, PROVISIONING_CHANGED,
   provisionEnding, provisionReportOf,
 } from './koala-install.js';
 import { progressCases, progressOf } from './machine-progress.js';
@@ -23,14 +22,8 @@ describe('the pieces a Koala sets up after its chart, as its card and root name 
     }
   });
 
-  it('bring over what a move left, after every other piece, only on a Koala that moved', () => {
-    expect(PROVISION_MOVED_PIECE).toEqual({ key: 'moved', title: 'Bringing over your repositories, vault and apps' });
-    expect(PROVISION_PIECES.map((piece) => piece.key)).not.toContain(PROVISION_MOVED_PIECE.key);
-    expect(provisionReportOf({ revision: 3, progress: { stage: 'moved', title: PROVISION_MOVED_PIECE.title, state: 'started', line: 'Copying its secrets' } })).toMatchObject({ ok: true });
-  });
-
   it('end on a stage of their own that no piece and no stage of the machine\'s install uses', () => {
-    const named: string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_MOVED_PIECE.key, ...new Set([...KOALA_INSTALL_STAGES, ...KOALA_MOVE_STAGES])];
+    const named: string[] = [...PROVISION_PIECES.map((piece) => piece.key), ...KOALA_INSTALL_STAGES];
     expect(named).not.toContain(PROVISION_DONE_STAGE);
     expect(new Set(named).size).toBe(named.length);
   });
@@ -60,7 +53,7 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
       expect(provisionReportOf({ revision, progress: working })).toEqual({ ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' });
     }
     expect(provisionReportOf({ revision: 3, progress: { ...working, url: 'https://bo.koala.app' } })).toEqual({ ok: false, problem: 'only "stage", "title", "state", "why" and "line" are taken, not "url"' });
-    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring, moved or set-up' });
+    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring or set-up' });
     for (const state of ['started', 'failed'] as const) {
       expect(provisionReportOf({ revision: 3, progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state, ...(state === 'failed' ? { why: 'x' } : {}) } }))
         .toEqual({ ok: false, problem: 'the "set-up" stage is only ever done: a piece that fails says so itself' });
@@ -76,39 +69,11 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
   });
 });
 
-describe('putting Koala on a machine, and moving it there from Koala\'s servers', () => {
-  it('runs the cluster, the chart and Koala, and a move first clears what an earlier move left, brings the keys before Koala and applies it again once moved', () => {
-    expect(koalaInstallStages(false)).toEqual(['cluster', 'chart', 'koala']);
-    expect(koalaInstallStages(true)).toEqual(['cluster', 'clear', 'chart', 'keys', 'koala', 'koala-moved']);
-    expect(KOALA_INSTALL_STAGES).toEqual(koalaInstallStages(false));
-    expect(KOALA_MOVE_STAGES).toEqual(koalaInstallStages(true));
-  });
-
-  it('ends an install on Koala and a move on Koala moved, the only stage that says where Koala answers', () => {
-    expect(koalaInstallLastStage(false)).toBe(KOALA_INSTALL_LAST_STAGE);
-    expect(koalaInstallLastStage(true)).toBe(KOALA_MOVE_LAST_STAGE);
-    expect(koalaInstallProgress(false)).toBe(KOALA_INSTALL_PROGRESS);
-    expect(koalaInstallProgress(true)).toBe(KOALA_MOVE_PROGRESS);
-    const url = 'https://bo.koala.app';
-    expect(progressOf({ stage: 'koala-moved', title: 'Koala moved', state: 'done', url }, KOALA_MOVE_PROGRESS)).toMatchObject({ ok: true });
-    expect(progressOf({ stage: 'koala', title: 'Koala', state: 'done' }, KOALA_MOVE_PROGRESS)).toMatchObject({ ok: true });
-    expect(progressOf({ stage: 'koala', title: 'Koala', state: 'done', url }, KOALA_MOVE_PROGRESS)).toEqual({ ok: false, problem: 'only the last stage, done, has "url"' });
-    expect(progressOf({ stage: 'koala-moved', title: 'Koala moved', state: 'done' }, KOALA_MOVE_PROGRESS)).toMatchObject({ ok: false });
-  });
-
-  it('takes a move\'s keys from root\'s move parts, and follows an install on root\'s machines routes', () => {
-    expect(KOALA_MOVE_KEYS_PATH).toBe('/api/instances/move/parts/keys');
-    expect(KOALA_INSTALL_FOLLOW_PATH).toBe(`/api/machines${KOALA_INSTALL_FOLLOW_ROUTE}`);
-  });
-});
-
 describe('an install as the join follows it from root', () => {
   const install = { id: 'install-1', machineId: 'desk', state: 'installing', stage: 'koala', title: 'Putting Koala on this machine', line: 'deployment/instance-backend has 0 of 1 available', at: '2026-11-18T10:00:00.000Z' } as const;
 
-  it('takes each change of the install, a move marked so, and the address once ready', () => {
+  it('takes each change of the install, and the address once ready', () => {
     expect(koalaInstallFollowedOf({ install })).toEqual({ ok: true, value: { install } });
-    const moving = { ...install, move: true } as const;
-    expect(koalaInstallFollowedOf({ install: moving })).toEqual({ ok: true, value: { install: moving } });
     const ready = { install: { id: 'install-1', machineId: 'desk', state: 'ready', at: install.at }, url: 'https://bo.koala.app' } as const;
     expect(koalaInstallFollowedOf(ready)).toEqual({ ok: true, value: ready });
     const failed = { install: { id: 'install-1', machineId: 'desk', state: 'failed', stage: 'koala', title: 'Putting Koala on this machine', why: 'the chart never came up', at: install.at } } as const;
@@ -122,8 +87,7 @@ describe('an install as the join follows it from root', () => {
     expect(koalaInstallFollowedOf({ install: { ...install, state: 'done' } })).toEqual({ ok: false, problem: '"state" is one of asked, installing, ready, failed' });
     expect(koalaInstallFollowedOf({ install: { ...install, id: '' } })).toEqual({ ok: false, problem: '"id" is a non-empty string' });
     expect(koalaInstallFollowedOf({ install: { ...install, line: 3 } })).toEqual({ ok: false, problem: '"line" is a non-empty string' });
-    expect(koalaInstallFollowedOf({ install: { ...install, move: false } })).toEqual({ ok: false, problem: '"move" is only ever true' });
-    expect(koalaInstallFollowedOf({ install: { ...install, secret: 'x' } })).toEqual({ ok: false, problem: 'an install has only "id", "machineId", "state", "stage", "title", "line", "why", "at" and "move", not "secret"' });
+    expect(koalaInstallFollowedOf({ install: { ...install, secret: 'x' } })).toEqual({ ok: false, problem: 'an install has only "id", "machineId", "state", "stage", "title", "line", "why" and "at", not "secret"' });
     expect(koalaInstallFollowedOf({ install, url: '' })).toEqual({ ok: false, problem: '"url" is a non-empty string' });
     expect(koalaInstallFollowedOf({ install, url: 'https://bo.koala.app' })).toEqual({ ok: false, problem: 'only a ready install says where Koala answers' });
   });
@@ -144,18 +108,16 @@ describe('an install as the join follows it from root', () => {
 });
 
 describe('root stopping an install on the machine', () => {
-  it('names the install and whether what it made is removed, and is told by one event', () => {
+  it('names the install, and is told by one event', () => {
     expect(STOP_KOALA).toBe('machine:stop-koala');
-    expect(koalaStopOf({ installId: 'install-7', remove: true })).toEqual({ installId: 'install-7', remove: true });
-    expect(koalaStopOf({ installId: 'install-7', remove: false })).toEqual({ installId: 'install-7', remove: false });
-    for (const raw of [null, 'install-7', {}, { installId: '', remove: true }, { installId: 'install-7' }, { installId: 'install-7', remove: 'yes' }]) expect(koalaStopOf(raw)).toBeUndefined();
+    expect(koalaStopOf({ installId: 'install-7' })).toEqual({ installId: 'install-7' });
+    for (const raw of [null, 'install-7', {}, { installId: '' }]) expect(koalaStopOf(raw)).toBeUndefined();
   });
 });
 
 describe('what a Koala makes on its own cluster outside its namespace', () => {
-  it('is each platform service\'s namespaces, one list per piece but monitoring, and the namespaces a move restores carry who they were moved for', () => {
+  it('is each platform service\'s namespaces, one list per piece but monitoring', () => {
     expect(Object.keys(KOALA_PLATFORM_NAMESPACES)).toEqual(PROVISION_PIECES.map((piece) => piece.key).filter((key) => key !== 'monitoring'));
     expect(Object.values(KOALA_PLATFORM_NAMESPACES).flat()).toEqual(['koala-egress', 'searxng', 'crawl4ai', 'gitea', 'pipeline-builds', 'koala-registry', 'infisical']);
-    expect(MOVED_FOR_LABEL).toBe('koala.dev/moved-for');
   });
 });

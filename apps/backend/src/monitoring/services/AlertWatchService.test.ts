@@ -46,7 +46,6 @@ beforeEach(async () => {
   monitoring = mock<AlertWatchDeps['monitoring']>();
   monitoring.allClusters.mockResolvedValue([koalas]);
   monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'ok', metrics });
-  monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
   monitoring.applyReceiver.mockResolvedValue(false);
@@ -136,7 +135,7 @@ describe('watching alerts', () => {
   it('skips a cluster with no metrics', async () => {
     monitoring.reach.mockResolvedValue({ cluster: koalas, state: 'unreachable', reason: 'it is down' });
     await watcher().tick();
-    expect(monitoring.syncPoolProbes).not.toHaveBeenCalled();
+    expect(monitoring.applyHistory).not.toHaveBeenCalled();
     expect(told).toEqual([]);
   });
 
@@ -176,14 +175,6 @@ describe('watching alerts', () => {
     expect(watch.tick()).toBe(first);
     await first;
     expect(monitoring.allClusters).toHaveBeenCalledTimes(1);
-  });
-
-  it('says when it could not hand the probes to Koala\'s servers and carries on', async () => {
-    monitoring.syncPoolProbes.mockRejectedValue(new Error('root is away'));
-    metrics.alerts.mockResolvedValue([{ labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing' }]);
-    await watcher().tick();
-    expect(logged).toContain('[alerts] koala: its probes were not handed to Koala\'s servers (root is away)');
-    expect(told).toEqual(['me fired Books is not answering']);
   });
 
   it('watches every cluster it is given', async () => {

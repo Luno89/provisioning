@@ -20,7 +20,7 @@ export interface ProvisionRoot {
 }
 
 export interface ProvisioningDeps {
-  store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'patchProvisioning' | 'watchProvisioning' | 'getMoveIn'>;
+  store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'patchProvisioning' | 'watchProvisioning'>;
   runs: ProvisionRuns;
   root: ProvisionRoot;
   koala: { ownerId: string; clusterId: string; revision: number };
@@ -33,7 +33,7 @@ export interface ProvisioningDeps {
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export interface ProvisionAsksDeps {
-  store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'watchProvisioning' | 'getMoveIn'>;
+  store: Pick<InfrastructureStore, 'getProvisioning' | 'getProvisioningRun' | 'openProvisioning' | 'watchProvisioning'>;
   koala: { ownerId: string; revision: number };
   now?: () => Date;
 }
@@ -44,8 +44,7 @@ async function openRun(deps: ProvisionAsksDeps, target: ProvisionTarget, reason:
   const { ownerId, revision } = deps.koala;
   const decision = startDecision(await deps.store.getProvisioning(target.clusterId), target, revision, reason);
   if (!decision.start) return { joined: 'running' in decision ? decision.running : decision.already };
-  const moveIn = target.kind === 'koala' ? await deps.store.getMoveIn() : undefined;
-  const opened = openedRecord({ ownerId, target, revision, reason, runId, at: at.toISOString(), moveIn });
+  const opened = openedRecord({ ownerId, target, revision, reason, runId, at: at.toISOString() });
   const open = await deps.store.openProvisioning(opened);
   return open.opened ? { opened } : { joined: open.running };
 }

@@ -18,7 +18,6 @@ export interface InstallFollow {
 const QUIET_BEATS = 4;
 
 const PUTTING = 'Putting Koala on this machine';
-const MOVING = 'Moving your Koala to this machine';
 
 class Dropped extends Error {}
 
@@ -60,9 +59,8 @@ export async function followInstall(follow: InstallFollow): Promise<FollowEnd> {
   let connected = false;
   const show = (followed: KoalaInstallFollowed): FollowEnd | undefined => {
     const { install } = followed;
-    const doing = install.move ? MOVING : PUTTING;
     if (!said.section) {
-      follow.section(doing);
+      follow.section(PUTTING);
       said.section = true;
     }
     if (install.state === 'ready') {
@@ -70,7 +68,7 @@ export async function followInstall(follow: InstallFollow): Promise<FollowEnd> {
       return 'ready';
     }
     if (install.state === 'failed') {
-      follow.say(`${doing} stopped${install.title ? ` at ${install.title}` : ''}: ${install.why ?? 'root gave no reason'}`);
+      follow.say(`${PUTTING} stopped${install.title ? ` at ${install.title}` : ''}: ${install.why ?? 'root gave no reason'}`);
       return 'failed';
     }
     if (install.title && install.title !== said.title) {

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MONITORING_CHARTS } from './pool-monitoring.js';
-import { koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, metricsTokenManifests, MONITORING_CHARTS, monitoringPlan, monitoringStackEnv, monitoringStackName, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };

@@ -1,5 +1,5 @@
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
-import { PROVISION_MOVED_PIECE, PROVISION_REASONS, type ProvisionPieceKey, type ProvisionTarget } from '@koala/engine-core/koala-install';
+import { PROVISION_REASONS, type ProvisionPieceKey, type ProvisionTarget } from '@koala/engine-core/koala-install';
 import {
   pieceHeard, pieceProgress, recordedOn, runEnded, setUpProgress,
   type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput,
@@ -82,7 +82,7 @@ export function createProvisionOperations(deps: ProvisionOperationDeps): Record<
       if (record.target.clusterId !== run.target.clusterId) return failed(`the setup ${run.recordId} is for ${record.target.clusterId}, not ${run.target.clusterId}`);
       if (record.revision !== run.revision) return failed(`the setup ${run.recordId} is for revision ${record.revision}, not ${run.revision}`);
       if (record.state !== 'running') return endedAlready(record);
-      return done({ kind: record.target.kind, moved: record.pieces.some((piece) => piece.key === PROVISION_MOVED_PIECE.key) ? 'yes' : 'no' });
+      return done({ kind: record.target.kind });
     },
 
     async 'provision.service'(request) {
@@ -96,10 +96,6 @@ export function createProvisionOperations(deps: ProvisionOperationDeps): Record<
 
     async 'provision.monitoring'(request) {
       return piece(request, 'monitoring');
-    },
-
-    async 'provision.moved'(request) {
-      return piece(request, PROVISION_MOVED_PIECE.key);
     },
 
     async 'provision.mark'(request) {

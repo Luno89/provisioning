@@ -3,8 +3,10 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import type { ClusterAccess, Target } from '../infrastructure/index.js';
-import { VCLUSTER_CHART_SHA256, VCLUSTER_CHART_VERSION } from '../instances/index.js';
 import { waitingOn } from './failure-reasons.js';
+
+export const VCLUSTER_CHART_VERSION = '0.37.2';
+export const VCLUSTER_CHART_SHA256 = '0e3e1df3802a1199653930cfadcf52ba309ea7d5282a1a8541452bea8a9cf707';
 
 export interface VclusterPlace {
   name: string;

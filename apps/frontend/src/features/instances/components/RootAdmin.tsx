@@ -4,12 +4,11 @@ import { People } from '../../accounts'
 import { Invites } from '../../accounts'
 import { ProjectInvites } from '../../accounts'
 import { Notifications } from '../../accounts'
-import { PoolSection } from './PoolSection'
 import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
 import { RootMonitoring } from './RootMonitoring'
 
-export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'dependencies' | 'mail' | 'monitoring' | undefined; onLogout: () => void }) {
+export default function RootAdmin({ section, onLogout }: { section?: 'dependencies' | 'mail' | 'monitoring' | undefined; onLogout: () => void }) {
   useEffect(() => {
     if (section) document.getElementById(section)?.scrollIntoView()
   }, [section])
@@ -21,7 +20,6 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'd
           <h1 className="text-sm font-semibold">Koala admin</h1>
           <nav className="flex items-center gap-4 text-xs text-slate-400" aria-label="Sections">
             <a href="#/admin" className="hover:text-slate-200">People</a>
-            <a href="#/pool" className="hover:text-slate-200">Koala's servers</a>
             <a href="#/dependencies" className="hover:text-slate-200">Dependencies</a>
             <a href="#/mail" className="hover:text-slate-200">Mail</a>
             <a href="#/monitoring" className="hover:text-slate-200">Health</a>
@@ -32,7 +30,6 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'd
         <People />
         <Invites />
         <ProjectInvites />
-        <PoolSection />
         <DependenciesSection />
         <MailSection />
         <Notifications reach="Root's own alerts (its processes, its services, its disk and memory, its backups) reach every operator." />

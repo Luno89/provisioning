@@ -31,7 +31,7 @@ import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
-import { InstanceSide, wireInstances, wireMoveExport } from './instances/wiring/instances.js';
+import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
 import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
@@ -51,7 +51,7 @@ import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
-  savedHuggingFaceTokenOf, poolClusterId,
+  savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import { GiteaService, pushToBuild } from './projects/index.js';
@@ -297,13 +297,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
-  let runningNow: ((ownerId: string) => Promise<string[] | 'unknown'>) | undefined;
-  await wireMoveExport({
-    role, pool: Boolean(settings.clusters.here.poolName), moved: settings.instance?.move, app, dataDir: settings.dataDir, mongo: settings.mongo, access: clusterService.access,
-    running: async (ownerId) => (runningNow ? runningNow(ownerId) : 'unknown'),
-    claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
-  });
-
   app.use('/api', auth.requireAuth);
   const jsonParsers = { signedIn: express.json({ limit: JSON_LIMITS.signedIn }), signedOut: express.json({ limit: JSON_LIMITS.signedOut }) };
   app.use((req, res, next) => jsonParsers[jsonLimitFor(req.path, Boolean((req as { user?: unknown }).user))](req, res, next));
@@ -352,11 +345,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
     instanceArrived, installs: koalaInstalls,
-    moves: machineAccounts ? { joinCode: (ownerId, koalaName) => machineAccounts.createJoinCode(ownerId, koalaName, true), poolClusterId } : undefined,
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
-  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, poolMonitor: settings.instance?.poolMonitor ?? { off: `${role.role} is not an instance` }, io, clusters: clusterService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
+  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, io, clusters: clusterService, proxy: clusterProxyService, notices, notifications, push, mail, people });
   const workerService = new WorkerService();
   wireInfrastructure({
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: settings.tests.openRouterUrl, googleDrive: settings.operator.googleDrive, repoRoot: path.join(__dirname, '../../..'),
@@ -441,7 +433,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
   });
-  const { running } = wireRunning({
+  wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
     bench, keeper: memoryKeeper, access: clusterAccess, koala: koalaPlace(settings.clusters.here, isOff(settings.terraform) ? undefined : settings.terraform),
     dependencies: { own: () => dependencies.down(), workers: () => db.platform.dependencyStates() },
@@ -459,11 +451,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },
     });
   }
-  runningNow = async (ownerId) => {
-    const view = await running.view(ownerId);
-    if (!view.ok) return 'unknown';
-    return view.value.items.map((item) => item.title);
-  };
   if (hub.reaches) {
     if (!files) throw new Error('the hub reaches this backend for its projects\' files, and this backend serves none');
     hub.setWork(hubInstanceWork({

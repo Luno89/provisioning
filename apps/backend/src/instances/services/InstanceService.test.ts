@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { InstanceService, hashCredential, instanceIdFor } from './InstanceService.js';
-import type { InstanceRecord } from '../lib/instances.js';
 import { koalaPlacedAndUp } from '../testing/placed-koala.js';
 import { instanceServiceBehaviour, settings, mesh, matching, containing } from '../testing/instance-service-behaviour.js';
 
@@ -24,25 +23,12 @@ describe('bringing a user\'s own machine in as their instance', () => {
 });
 
 describe('an instance asking root about itself', () => {
-  const pooled = { id: 'inst-p', ownerId: 'p1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'abc123', pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' } } as const;
+  const running = { id: 'inst-p', ownerId: 'p1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'abc123' } as const;
 
   it('says which release it runs, to its own credential only', async () => {
-    await world.db.instances.saveInstance({ ...pooled });
+    await world.db.instances.saveInstance({ ...running });
     expect(await world.service.runningOf('inst-p', 'secret')).toEqual({ ok: true, value: { running: 'abc123' } });
     expect(await world.service.runningOf('inst-p', 'wrong')).toEqual({ ok: false, status: 401, error: 'unknown instance or credential' });
-  });
-
-  it('names its place on Koala\'s servers, to its own credential only', async () => {
-    await world.db.instances.saveInstance({ ...pooled });
-    expect(await world.service.poolPlaceOf('inst-p', 'secret')).toEqual({ ok: true, value: { name: 'alice', hostNamespace: 'pool-alice' } });
-    expect(await world.service.poolPlaceOf('inst-p', 'wrong')).toMatchObject({ ok: false, status: 401 });
-  });
-
-  it('has no place there when it runs on its owner\'s machine, or is stopped', async () => {
-    await world.db.instances.saveInstance({ ...pooled, id: 'inst-own', ownerId: 'o1', name: 'own', pool: undefined });
-    expect(await world.service.poolPlaceOf('inst-own', 'secret')).toEqual({ ok: false, status: 404, error: 'this instance does not run on Koala\'s servers' });
-    await world.db.instances.saveInstance({ ...pooled, status: 'paused' });
-    expect(await world.service.poolPlaceOf('inst-p', 'secret')).toEqual({ ok: false, status: 409, error: 'this instance is stopped' });
   });
 });
 
@@ -103,7 +89,7 @@ describe('an instance telling root how its setup after the chart goes', () => {
       if (down) return { ok: false, status: 503, error: 'root could not hand this to the install it follows: Temporal is down' };
       handed.push([installId, report]);
       return { ok: true, value: { recorded: true } };
-    }, progressHeard: async () => ({ ok: true, value: { recorded: true } }), stop: async () => ({ ok: true, value: { recorded: true } }) } }, mesh, () => world.now);
+    } } }, mesh, () => world.now);
     const placed = await world.service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-1');
     if (!placed.ok) throw new Error(placed.error);
     const koala = await world.service.placedKoala('install-1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' });
@@ -121,59 +107,5 @@ describe('an instance telling root how its setup after the chart goes', () => {
     await world.service.report(instanceId, credential, { provision: { revision: 4, progress: setUp } });
     await world.service.placeOn('u1', { id: 'desk', name: 'desk', meshIp: '100.64.0.7' }, 'luno', 'install-2');
     expect((await world.db.instances.getInstances('u1'))[0]!.setup).toBeUndefined();
-  });
-});
-
-describe('a pool instance setting itself up', () => {
-  const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-10-01T00:00:00.000Z', trialEndsAt: '2026-10-15T00:00:00.000Z' };
-  const line = { revision: 1, progress: { stage: 'searxng', title: 'SearXNG, web search', state: 'started' } };
-  let handed: unknown[];
-
-  beforeEach(async () => {
-    handed = [];
-    world.service = new InstanceService(world.db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => world.now, () => undefined, {
-      start: async () => {}, trialChanged: async () => {}, remove: async () => {},
-      setupHeard: async (instanceId, report) => { handed.push([instanceId, report]); },
-    });
-  });
-
-  const saved = async (more: Partial<InstanceRecord>) => {
-    await world.db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', name: 'bo', url: '', status: 'installing', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'), pool: { ...pool, settingUp: true }, ...more });
-  };
-
-  it('is made waiting for its setup, which its own workflow hears while it is being placed', async () => {
-    expect(await world.service.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true });
-    expect((await world.db.instances.getInstances('u1'))[0]!.pool).toMatchObject({ settingUp: true });
-    await saved({});
-    expect(await world.service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'installing' } });
-    expect(handed).toEqual([['inst-bo', line]]);
-  });
-
-  it('records the setup of a placement that failed without undoing why it failed, and records it as its status once the placement has ended', async () => {
-    await saved({ status: 'failed', detail: 'no gVisor' });
-    expect(await world.service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'failed', detail: 'no gVisor', setup: { revision: 1, stage: 'searxng', state: 'running' } } });
-    await saved({ status: 'ready', url: 'https://bo.koala.dev', pool });
-    expect(await world.service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'installing', detail: 'Koala is setting itself up: SearXNG, web search' } });
-    expect(handed).toEqual([]);
-  });
-
-  it('records the pool copy\'s setup while it moves, leaving the instance serving where it is', async () => {
-    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now' } });
-    expect(await world.service.report('inst-bo', 'pool-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready', setup: { revision: 1, stage: 'searxng', state: 'running' } } });
-    expect(handed).toEqual([]);
-  });
-
-  it('hands the setup of the Koala it moves to to the move\'s install, leaving the instance serving where it is', async () => {
-    const setups: unknown[] = [];
-    world.service = new InstanceService(world.db, { ...settings, pool: { slots: 2, trialDays: 14 }, installs: {
-      setupHeard: async (installId, report) => { setups.push([installId, report]); return { ok: true, value: { recorded: true } }; },
-      progressHeard: async () => ({ ok: true, value: { recorded: true } }),
-      stop: async () => ({ ok: true, value: { recorded: true } }),
-    } }, mesh, () => world.now, () => undefined, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} });
-    await saved({ status: 'ready', pool, move: { state: 'copying', startedAt: 'now', detail: 'Copying its data', credentialHash: hashCredential('move-secret'), target: { machine: 'bo-desktop' } }, install: { id: 'install-1', machineId: 'desk', state: 'installing', at: 'now', move: true } });
-    expect(await world.service.report('inst-bo', 'move-secret', { provision: line })).toMatchObject({ ok: true, value: { status: 'ready' } });
-    expect(setups).toEqual([['install-1', line]]);
-    expect(await world.service.report('inst-bo', 'move-secret', { provision: { revision: 0, progress: line.progress } })).toMatchObject({ ok: false, status: 400 });
-    expect(handed).toEqual([]);
   });
 });

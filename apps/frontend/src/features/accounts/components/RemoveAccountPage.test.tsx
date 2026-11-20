@@ -23,12 +23,12 @@ describe('deleting your account on root', () => {
     useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', confirmWith: 'password' } as never)
   })
 
-  it('says a pool instance is deleted with it, and removes only once the email and the password are typed', async () => {
-    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], instance: { name: 'bo', where: 'pool', status: 'ready', url: 'https://bo.koala.dev' } })
+  it('says what happens to the instance, and removes only once the email and the password are typed', async () => {
+    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], instance: { name: 'bo', status: 'ready', url: 'https://bo.koala.dev' } })
     vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
     const onRemoved = renderPage()
 
-    expect(await screen.findByText(/Your instance bo on Koala's servers is deleted, with everything in it/)).toBeInTheDocument()
+    expect(await screen.findByText(/Your instance bo is let go of/)).toBeInTheDocument()
     const remove = screen.getByRole('button', { name: 'Delete my account' })
     expect(remove).toBeDisabled()
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bo@example.com' } })
@@ -42,7 +42,7 @@ describe('deleting your account on root', () => {
   })
 
   it('says an instance on your own machine keeps running there until you uninstall it', async () => {
-    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], instance: { name: 'bo', where: 'own', status: 'ready', url: 'https://bo.koala.dev' } })
+    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], instance: { name: 'bo', status: 'ready', url: 'https://bo.koala.dev' } })
     renderPage()
 
     expect(await screen.findByText(/nobody can sign in to it any more/)).toBeInTheDocument()

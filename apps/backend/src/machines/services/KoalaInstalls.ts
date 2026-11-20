@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { koalaInstallProgress, type KoalaStop, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_PROGRESS, type KoalaStop, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { installToStop, installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
@@ -12,7 +12,7 @@ export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401
 export type Refusal = Extract<Outcome<never>, { ok: false }>;
 
 export interface InstallPlaces {
-  placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string, move: boolean): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>>;
+  placeOn(ownerId: string, machine: PlacingMachine, requestedName: unknown, installId: string): Promise<Outcome<{ instanceId: string; replaces?: string | undefined }>>;
   placedKoala(installId: string, machine: PlacingMachine): Promise<Outcome<PlacedKoala>>;
   installOf(installId: string): Promise<InstanceRecord | undefined>;
   installedUrl(instance: InstanceRecord, raw: unknown): Promise<Outcome<string>>;
@@ -76,11 +76,11 @@ export class KoalaInstalls {
     return (await places.installsOn(machineId)).filter((instance) => installUnfinished(instance.install));
   };
 
-  async start(ownerId: string, device: LocalAgentDeviceMetadata, requestedName: unknown, move = false, refused: (refusal: Refusal) => Promise<void> = async () => undefined): Promise<Outcome<{ installId: string }>> {
+  async start(ownerId: string, device: LocalAgentDeviceMetadata, requestedName: unknown, refused: (refusal: Refusal) => Promise<void> = async () => undefined): Promise<Outcome<{ installId: string }>> {
     const places = this.deps.places();
     if (!places) return { ok: false, status: 503, error: NO_PLACES };
     const installId = (this.deps.newId ?? uuidv4)();
-    const placed = await places.placeOn(ownerId, placing(device), requestedName, installId, move);
+    const placed = await places.placeOn(ownerId, placing(device), requestedName, installId);
     if (!placed.ok) {
       await refused(placed);
       return placed;
@@ -167,7 +167,7 @@ export class KoalaInstalls {
     const instance = await places.installOf(installId);
     if (!instance?.install || instance.install.machineId !== device.value.id) return { ok: false, status: 404, error: NO_SUCH_INSTALL };
     if (!installUnfinished(instance.install)) return { ok: false, status: 409, error: `that install has ended ${instance.install.state}` };
-    const read = progressOf(body, koalaInstallProgress(Boolean(instance.install.move)));
+    const read = progressOf(body, KOALA_INSTALL_PROGRESS);
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
     let progress = read.value;
     if (progress.url !== undefined) {
@@ -180,14 +180,6 @@ export class KoalaInstalls {
 
   async setupHeard(installId: string, report: ProvisionReport): Promise<Outcome<{ recorded: true }>> {
     return this.handed(() => this.deps.workflows.setup(installId, report));
-  }
-
-  async progressHeard(installId: string, progress: MachineProgress): Promise<Outcome<{ recorded: true }>> {
-    return this.handed(() => this.deps.workflows.progress(installId, progress));
-  }
-
-  async stop(installId: string): Promise<Outcome<{ recorded: true }>> {
-    return this.handed(() => this.deps.workflows.cancel(installId));
   }
 
   private async handed(hand: () => Promise<void>): Promise<Outcome<{ recorded: true }>> {

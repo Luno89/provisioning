@@ -1,12 +1,9 @@
-import type { PoolPorts } from './pool.js';
 import type { UpdateSetting } from './instance-updates.js';
-import type { TrialStep } from './pool-trial.js';
-import type { InstanceMove } from './instance-move.js';
 import type { SignInKey } from './oidc.js';
 import type { KoalaInstallRecord } from './koala-installs.js';
 import type { InstanceSetup } from './instance-setup.js';
 
-export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
+export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed';
 
 export const INSTANCE_STATUSES: readonly InstanceStatus[] = ['waiting', 'joined', 'installing', 'ready', 'failed'];
 
@@ -38,8 +35,6 @@ export interface InstanceRecord {
   name?: string | undefined;
   meshIp?: string | undefined;
   addresses?: InstanceAddresses | undefined;
-  pool?: InstancePool | undefined;
-  move?: InstanceMove | undefined;
   groups?: InstanceGroup[] | undefined;
   updates?: UpdateSetting | undefined;
   running?: string | undefined;
@@ -53,15 +48,6 @@ export interface InstanceRecord {
 export interface InstanceGroup {
   projectId: string;
   name: string;
-}
-
-export interface InstancePool {
-  ports: PoolPorts;
-  startedAt: string;
-  trialEndsAt: string;
-  told?: TrialStep[] | undefined;
-  pausedAt?: string | undefined;
-  settingUp?: boolean | undefined;
 }
 
 export type NestedState = 'issuing' | 'ready';

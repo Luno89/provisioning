@@ -38,7 +38,6 @@ const ROUTERS: Probe[] = [
   { path: '/api/infrastructure', on: TENANT },
   { path: '/api/instance-addresses', on: TENANT },
   { path: '/api/instances/name-check?name=routeslive', on: ACCOUNTS },
-  { path: '/api/instance-trial', on: TENANT },
   { method: 'post', path: '/api/items/story/no-such-story/chat', body: {}, on: TENANT },
   { path: '/api/leaves', on: TENANT },
   { path: '/api/logs/cluster/no-such-cluster', on: TENANT },

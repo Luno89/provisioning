@@ -1,13 +1,11 @@
-import { CancellationScope, condition, defineSignal, getExternalWorkflowHandle, isCancellation, proxyActivities, setHandler } from '@temporalio/workflow';
+import { CancellationScope, condition, defineSignal, isCancellation, proxyActivities, setHandler } from '@temporalio/workflow';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import type { ProvisionReport } from '@koala/engine-core/koala-install';
-import { ignore } from '@koala/engine-core/failures';
 import type * as installs from '../activities/KoalaInstallActivities.js';
 import type { InstallAnswer, InstallHeard } from '../activities/KoalaInstallActivities.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { KOALA_INSTALL_SIGNALS } from '../instances/lib/koala-installs.js';
-import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 
 const steps = proxyActivities<Pick<typeof installs, 'KoalaInstallAskActivity' | 'KoalaInstallStageActivity' | 'KoalaInstallStoppedActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 
@@ -17,22 +15,15 @@ export const machineReconnected = defineSignal(KOALA_INSTALL_SIGNALS.reconnected
 
 type Ended = 'ready' | 'failed' | 'replaced';
 
-async function endingOf(answer: InstallAnswer): Promise<Ended | undefined> {
-  if (typeof answer === 'object') {
-    const move = getExternalWorkflowHandle(poolMoveWorkflowId(answer.instanceId));
-    const told = answer.ended === 'ready' ? move.signal(MOVE_FINISHED) : move.signal(MOVE_STOPPED, answer.why ?? 'the move stopped on your machine');
-    await told.catch(ignore('a move that has already ended has nothing left to switch or stop'));
-    return answer.ended;
-  }
-  return answer === 'ready' || answer === 'failed' || answer === 'replaced' ? answer : undefined;
-}
+const endingOf = (answer: InstallAnswer): Ended | undefined =>
+  (answer === 'ready' || answer === 'failed' || answer === 'replaced' ? answer : undefined);
 
 export async function KoalaInstallWorkflow(input: { installId: string }): Promise<Ended> {
   try {
     return await following(input);
   } catch (error) {
     if (!isCancellation(error)) throw error;
-    await CancellationScope.nonCancellable(async () => { await endingOf(await steps.KoalaInstallStoppedActivity(input)); });
+    await CancellationScope.nonCancellable(async () => { endingOf(await steps.KoalaInstallStoppedActivity(input)); });
     throw error;
   }
 }

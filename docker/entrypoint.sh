@@ -15,8 +15,6 @@ case "${1:-backend}" in
   worker-host) exec node --import tsx src/worker-host.ts ;;
   seed) exec node --import tsx src/scripts/seed-all.ts ;;
   setup-waits) exec node --import tsx src/scripts/setup-waits.ts ;;
-  move-data) exec node --import tsx src/scripts/move-import.ts data ;;
-  move-mongo) exec node --import tsx src/scripts/move-import.ts mongo ;;
   self-upgrade) exec node --import tsx src/scripts/self-upgrade.ts ;;
   install-koala) shift; exec node --import tsx src/scripts/install-koala.ts "$@" ;;
   temporal-keys) exec node --import tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;

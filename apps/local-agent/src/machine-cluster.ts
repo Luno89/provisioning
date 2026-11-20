@@ -38,7 +38,6 @@ export function koalaHeldOf(text: string): KoalaHeld | undefined {
   return instanceId ? { instanceId, ...(installId ? { installId } : {}), ...(installId && readyAt ? { readyAt } : {}) } : undefined;
 }
 
-export const koalaEverRan = (held: KoalaHeld): boolean => held.installId === undefined || held.readyAt !== undefined;
 
 const execute = promisify(execFile);
 

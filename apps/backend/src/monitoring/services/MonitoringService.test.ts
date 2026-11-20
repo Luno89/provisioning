@@ -9,7 +9,7 @@ import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/typ
 import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
-import { MonitoringService, type MonitoringDeps, type PoolMonitor, type PrometheusClient, type Sample } from './MonitoringService.js';
+import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
@@ -292,84 +292,6 @@ describe('counting each app\'s requests', () => {
   });
 });
 
-describe('a cluster on Koala\'s servers', () => {
-  let pool: MockProxy<PoolMonitor>;
-  let probesJson: string;
-  const answerWith = (answers: Record<string, number>) => {
-    pool.ask.mockImplementation(async (ask) => {
-      const question = 'question' in ask ? ask.question : undefined;
-      const value = question === undefined ? undefined : answers[question];
-      return value === undefined ? [] : [{ metric: {}, value }];
-    });
-  };
-
-  beforeEach(() => {
-    pool = mock<PoolMonitor>();
-    answerWith({ up: 1, probed: 1, podsRunning: 1, nodes: 1 });
-    pool.askRange.mockResolvedValue([[1, 1]]);
-    pool.alerts.mockResolvedValue([]);
-    pool.history.mockResolvedValue({ days: 10, kept: 10 });
-    probesJson = JSON.stringify({ items: [{ metadata: { namespace: 'shop' }, spec: { module: 'http_2xx', targets: { staticConfig: { static: ['web.shop.svc.cluster.local:80/health'] } } } }] });
-    const base = deps();
-    monitoring = new MonitoringService({
-      ...base,
-      pool: (cluster) => (cluster.id === koalas.id ? pool : undefined),
-      prometheus: async () => { throw new Error('a pool instance has no Prometheus of its own'); },
-      kubectl: async (cluster, args) => {
-        kubectl.push([cluster.id, ...args]);
-        return args[1] === 'probes.monitoring.coreos.com' ? probesJson : '';
-      },
-    });
-  });
-
-  it('asks root its named questions, never a query, and reads the app as healthy', async () => {
-    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
-    const view = await monitoring.appHealth(ME, 'shop', '1h');
-    expect(view.app.state).toBe('ok');
-    expect(pool.ask).toHaveBeenCalledWith({ kind: 'app', question: 'up', subject: { namespace: 'shop', services: [] } });
-    expect(pool.ask.mock.calls.every(([ask]) => !('query' in ask))).toBe(true);
-    expect(view.series.map((entry) => entry.chart)).toContain('up');
-  });
-
-  it('keeps the history Koala\'s servers keep, which the person cannot change', async () => {
-    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, can: [], byKoala: true });
-    await expect(monitoring.setHistory(ME, koalas.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
-    expect(await monitoring.applyHistory(koalas)).toBe(false);
-  });
-
-  it('hands an alert to root to set, and refuses one on requests, which are not counted there', async () => {
-    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
-    const rule = await monitoring.addRule(ME, 'shop', alertSpec('down') as AlertSpec);
-    expect(pool.setRule.mock.calls).toEqual([[{ id: rule.id, namespace: 'shop', spec: rule.spec, summary: rule.summary }]]);
-    expect(applied).toEqual([]);
-    await expect(monitoring.addRule(ME, 'shop', alertSpec('errors') as AlertSpec)).rejects.toThrow('requests are not counted on Koala\'s servers');
-    await monitoring.removeRule(ME, rule.id);
-    expect(pool.removeRule.mock.calls).toEqual([[rule.id]]);
-  });
-
-  it('hands its apps\' probes to root, and only again when they change', async () => {
-    await monitoring.syncPoolProbes(koalas);
-    await monitoring.syncPoolProbes(koalas);
-    expect(pool.setProbes.mock.calls).toEqual([[[{ namespace: 'shop', service: 'web', port: 80, path: '/health', module: 'http_2xx' }]]]);
-    probesJson = JSON.stringify({ items: [] });
-    await monitoring.syncPoolProbes(koalas);
-    expect(pool.setProbes).toHaveBeenCalledTimes(2);
-    await monitoring.syncPoolProbes(remote);
-    expect(pool.setProbes).toHaveBeenCalledTimes(2);
-  });
-
-  it('says how much of its place it uses', async () => {
-    answerWith({ nodes: 1, memoryShare: 0.5 });
-    const view = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(view.lines).toContain('In use of its place on Koala\'s servers: memory 50%.');
-    answerWith({ nodes: 1, diskShare: 0.95 });
-    const full = await monitoring.clusterHealth(ME, koalas.id, '1h');
-    expect(full.cluster.reasons).toContain('95% of its place\'s storage is claimed');
-    expect(full.lines).toContain('In use of its place on Koala\'s servers: storage claimed 95%.');
-  });
-});
-
 describe('Koala itself', () => {
   const reporting = () => {
     prom.answers.set(prom.scoped(koalaServicesQuery()), [{ metric: { service_name: 'koala-worker-engine' }, value: 1 }, { metric: { service_name: 'koala-backend' }, value: 1 }]);
@@ -551,7 +473,7 @@ describe('root\'s own alerts', () => {
     const written = applied.map((manifest) => JSON.parse(manifest) as { kind: string; metadata: { name: string } });
     expect(written.map((manifest) => [manifest.kind, manifest.metadata.name])).toEqual([['PrometheusRule', 'koala-root-alerts']]);
   });
-  it('on an instance are its workers\' rules, written into the cluster it runs in and not onto the pool', async () => {
+  it('on an instance are its workers\' rules, written into the cluster it runs in', async () => {
     monitoring = new MonitoringService({ ...deps(), instanceAlerts: true });
     await monitoring.applyOwnRules({ ...koalas, id: 'machine-other' } as ClusterMetadata);
     expect(applied).toEqual([]);

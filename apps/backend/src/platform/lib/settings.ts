@@ -16,11 +16,8 @@ import { giteaSettingsFrom, type GiteaSettings } from '../../projects/lib/gitea-
 import { infisicalSettingsFrom, type InfisicalSettings } from '../../infrastructure/lib/infisical-settings.js';
 import { registrySettingsFrom } from '../../instances/lib/registry-settings.js';
 import type { RegistryHosts } from '../../instances/index.js';
-import { poolSettingsFrom, type PoolSettings } from '../../instances/lib/pool.js';
 import { edgeSettingsFrom, type EdgeSettings } from '../../instances/lib/edge-settings.js';
-import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 import { reachSettingsFrom, type ReachSettings } from '../../instances/lib/instance-reach.js';
-import { movedSettingsFrom, type MovedSettings } from '../../instances/lib/instance-move.js';
 import { unreachableAfterMs } from '../../instances/lib/instance-watch.js';
 import { signInProvidersFrom, signInReturnUrlFrom, type ConfiguredSignIn } from '../../accounts/lib/sign-in-providers.js';
 import { hereFrom, serviceAccountFrom, type Here, type ServiceAccount } from '../../infrastructure/lib/cluster-places.js';
@@ -121,7 +118,6 @@ export interface RootSettings {
   imageDigest?: string | undefined;
   registry: string;
   routing: RootRouting | Off;
-  pool: PoolSettings | Off;
   setupCode?: string | undefined;
   signIn: ConfiguredSignIn;
   signInReturn: { url?: string; problem?: string };
@@ -137,8 +133,6 @@ export interface InstanceSettings {
   gatewayTls: { certPath: string; keyPath: string } | Off;
   gatewayPort: number;
   revision: number;
-  move: MovedSettings;
-  poolMonitor: { rootUrl: string; instanceId: string } | Off;
 }
 
 export interface TenantServices {
@@ -194,7 +188,7 @@ export interface HostWorkerSettings extends CommonSettings, WorkerHealth {
   mesh: MeshSettings | Off;
   operator: OperatorCredentials;
   webTools: WebToolSettings;
-  root: { imageTag: string; ingressDomain: string | Off; pool: PoolSettings | Off } | undefined;
+  root: { imageTag: string; ingressDomain: string | Off } | undefined;
 }
 
 export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
@@ -207,7 +201,6 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   podNamespace: string;
   crawl4aiToken: string;
   koala: { ownerId: string; revision: number };
-  root: { url: string; instanceId: string; credential: string };
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -215,7 +208,6 @@ export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
   publicUrl: string;
   instanceCredential: string;
   tenant: TenantServices;
-  poolMonitor: { rootUrl: string; instanceId: string } | Off;
   mesh: MeshSettings | Off;
 }
 
@@ -427,18 +419,16 @@ function rootSettings(read: Reading, role: RoleConfig): RootSettings | undefined
     const siteDomains = [settingIn(read.env, 'APP_DOMAIN'), settingIn(read.env, 'MESH_DOMAIN')].filter((site): site is string => Boolean(site));
     if (adminSocket && config && log && tlsAddress) routing = { domain, caddy: { adminSocket, config, log, tlsAddress }, siteDomains };
   }
-  const pool = read.take(() => poolSettingsFrom(env));
   const mailDomain = mailDomainFrom(env);
   const smtp = Boolean(settingIn(read.env, 'MAIL_SMTP_URL'));
   const relayhost = settingIn(read.env, 'MAIL_RELAYHOST');
   const setupCode = settingIn(read.env, 'ADMIN_SETUP_CODE');
-  if (!imageTag || !registry || !pool) return undefined;
+  if (!imageTag || !registry) return undefined;
   return {
     imageTag,
     imageDigest: settingIn(read.env, 'INSTANCE_IMAGE_DIGEST'),
     registry,
     routing,
-    pool,
     ...(setupCode ? { setupCode } : {}),
     signIn: signInProvidersFrom(env),
     signInReturn: signInReturnUrlFrom(env),
@@ -449,7 +439,7 @@ function rootSettings(read: Reading, role: RoleConfig): RootSettings | undefined
   };
 }
 
-function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | undefined {
+function instanceSettings(read: Reading): InstanceSettings | undefined {
   const { env } = read;
   const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is this instance\'s credential at root, without which nobody signs in to it; the instance chart sets it');
   const edge = read.take(() => edgeSettingsFrom(env));
@@ -463,7 +453,6 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
   if (gatewayParts > 0 && gatewayParts < 3) read.problems.push('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which Koala sets itself up for once; the instance chart sets it');
-  const pool = env.POOL?.trim() === 'true';
   if (!credential || !edge || gatewayPort === undefined || revision === undefined) return undefined;
   return {
     credential,
@@ -477,10 +466,6 @@ function instanceSettings(read: Reading, role: RoleConfig): InstanceSettings | u
       : { off: 'MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY are not set (the instance chart sets them beside mesh.address), so the machine gateway does not listen' },
     gatewayPort,
     revision,
-    move: movedSettingsFrom(env),
-    poolMonitor: pool && role.instance
-      ? { rootUrl: role.instance.rootUrl, instanceId: role.instance.id }
-      : { off: 'this instance is not on Koala\'s servers, so it monitors its own apps' },
   };
 }
 
@@ -495,7 +480,7 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   if ('problem' in trustProxy) read.problems.push(trustProxy.problem);
   const terraform = role?.role === 'hub' ? { off: 'the hub runs no Terraform' } : terraformFrom(read);
   const tenant = role?.role === 'instance' ? tenantServices(read) : undefined;
-  const instance = role?.role === 'instance' ? instanceSettings(read, role) : undefined;
+  const instance = role?.role === 'instance' ? instanceSettings(read) : undefined;
   const root = role?.role === 'root' ? rootSettings(read, role) : undefined;
   const hubDatabase = role?.role === 'hub' ? required(read, 'HUB_DATABASE', 'it is the database the hub keeps its registry of shared projects in') : undefined;
   const hubGitea = role?.role === 'hub' ? read.take(() => giteaSettingsFrom(env)) : undefined;
@@ -553,15 +538,14 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   if (role && !roleRuns(role.role, 'host')) read.problems.push(`the host worker runs only on root and in an instance, and ROLE is ${role.role}`);
   const health = workerHealth(read, 'TEMPORAL_METRICS_PORT');
   const onRoot = role?.role === 'root';
-  const publicUrl = onRoot ? urlSetting(read, 'PUBLIC_URL', 'it is root\'s own address, which its pool and dependency watch hand on') : undefined;
+  const publicUrl = onRoot ? urlSetting(read, 'PUBLIC_URL', 'it is root\'s own address, which its dependency watch hands on') : undefined;
   const imageTag = onRoot ? required(read, 'INSTANCE_IMAGE_TAG', 'it is the release root runs') : undefined;
-  const pool = onRoot ? read.take(() => poolSettingsFrom(env)) : undefined;
   const ingressDomain = settingIn(read.env, 'INGRESS_DOMAIN');
   const mail = role ? read.take(() => emailWayFrom(env, role)) : undefined;
   const mesh = onRoot ? meshFrom(read) : NO_MESH_HERE(role?.role ?? 'this process');
   const operator = operatorCredentials(read);
   const webTools = role?.role === 'instance' ? webToolsFrom(read) : {};
-  if (!base || !health || !mail || (onRoot && (!publicUrl || !imageTag || !pool))) return finish<HostWorkerSettings>(read, 'the host worker');
+  if (!base || !health || !mail || (onRoot && (!publicUrl || !imageTag))) return finish<HostWorkerSettings>(read, 'the host worker');
   return finish(read, 'the host worker', {
     ...base,
     ...health,
@@ -571,7 +555,7 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
     mesh,
     operator,
     webTools,
-    root: onRoot ? { imageTag: imageTag!, ingressDomain: ingressDomain ?? { off: 'INGRESS_DOMAIN is not set' }, pool: pool! } : undefined,
+    root: onRoot ? { imageTag: imageTag!, ingressDomain: ingressDomain ?? { off: 'INGRESS_DOMAIN is not set' } } : undefined,
   });
 }
 
@@ -600,9 +584,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
   const ownerId = role?.instance?.ownerId;
   if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
-  const credential = role?.instance ? required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which a moved Koala\'s setup fetches what its move left with') : undefined;
-  const root = role?.instance && credential ? { url: role.instance.rootUrl, instanceId: role.instance.id, credential } : undefined;
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId || !root) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -614,7 +596,6 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     podNamespace,
     crawl4aiToken,
     koala: { ownerId, revision },
-    root,
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
@@ -638,9 +619,6 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
     publicUrl,
     instanceCredential,
     tenant,
-    poolMonitor: env.POOL?.trim() === 'true' && base.role.instance
-      ? { rootUrl: base.role.instance.rootUrl, instanceId: base.role.instance.id }
-      : { off: 'this instance is not on Koala\'s servers, so it monitors its own apps' },
     mesh: NO_MESH_HERE('an instance'),
   });
 }
@@ -677,36 +655,6 @@ export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_AC
   const instance = step?.role.instance;
   return finish(read, 'the self-upgrade', step && instance && credential && name && namespace && current && dataVersion !== undefined
     ? { ...step, root: { url: instance.rootUrl, instanceId: instance.id, credential }, release: { name, namespace, current, dataVersion } }
-    : undefined);
-}
-
-export interface MoveImportSettings extends PodStepSettings {
-  rootUrl: string;
-  instanceId: string;
-  ownerId: string;
-  credential: string;
-  mongo: MongoTarget;
-  dataKey: PlatformKeys['data'];
-  podNamespace: string;
-  dataDir: string;
-  from: string;
-  onto: string;
-}
-
-export function moveImportSettingsFrom(env: Env): MoveImportSettings {
-  const read = new Reading(env);
-  const step = podStep(read);
-  const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance fetches its moved parts from root with');
-  const mongo = read.take(() => mongoTarget(env));
-  const dataKey = read.take(() => loadKey(env, 'data'));
-  const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where Terraform keeps its state');
-  const dataDir = dataDirFrom(read);
-  const from = required(read, 'KOALA_MOVED_FROM', 'it is the cluster on Koala\'s servers the move brings this Koala from, whose records and Terraform state are renamed for this machine; the instance chart sets it from move.fromClusterId');
-  const machineId = step?.clusters.here.koalaMachineId;
-  if (step && !machineId) read.problems.push('INSTANCE_MACHINE_ID is not set: a move brings Koala onto a machine of its own, whose cluster its records are renamed for');
-  const instance = step?.role.instance;
-  return finish(read, 'the move', step && instance && credential && mongo && dataKey && podNamespace && dataDir && from && machineId
-    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, ownerId: instance.ownerId, credential, mongo, dataKey, podNamespace, dataDir, from, onto: machineClusterId(machineId) }
     : undefined);
 }
 

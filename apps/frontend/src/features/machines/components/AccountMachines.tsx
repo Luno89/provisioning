@@ -78,11 +78,10 @@ export interface AccountMachinesProps {
   name: string
   nameOk: boolean
   hasKoala: boolean
-  moving?: boolean
   onPlacing: () => void
 }
 
-export default function AccountMachines({ name, nameOk, hasKoala, moving = false, onPlacing }: AccountMachinesProps) {
+export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: AccountMachinesProps) {
   const [adding, setAdding] = useState(false)
   const [putHere, setPutHere] = useState(!hasKoala)
   const [copied, setCopied] = useState(false)
@@ -133,7 +132,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, moving = false
                   title={machine.meshIp ? undefined : 'It is not on your private network yet'}
                   className="rounded-md bg-[var(--leaf-stem)] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50"
                 >
-                  {place.isPending ? <Loader2 size={12} className="animate-spin" /> : moving ? 'Move here' : 'Put Koala here'}
+                  {place.isPending ? <Loader2 size={12} className="animate-spin" /> : 'Put Koala here'}
                 </button>
               )}
               </div>
@@ -165,7 +164,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, moving = false
           })}
         </ul>
       )}
-      {moving ? null : !createCode.data ? (
+      {!createCode.data ? (
         <div className="space-y-2">
           {!hasKoala && (
             <label className="flex items-center gap-2 text-xs text-slate-300">

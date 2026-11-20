@@ -66,7 +66,7 @@ describe('what removing an account would take', () => {
   it('shows the person\'s instance, where there is one', async () => {
     const instance = { id: 'inst-1', ownerId: 'bob', name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then' } as InstanceRecord;
     const { service } = await set({ instances: [instance] });
-    expect(await service.preview('bob')).toEqual({ email: 'bob@example.com', blockers: [], instance: { name: 'bob', where: 'own', status: 'ready', url: 'https://bob.koala.dev', autoUpdates: true } });
+    expect(await service.preview('bob')).toEqual({ email: 'bob@example.com', blockers: [], instance: { name: 'bob', status: 'ready', url: 'https://bob.koala.dev', autoUpdates: true } });
     expect((await service.preview('ana'))?.instance).toBeUndefined();
   });
 });
@@ -184,17 +184,17 @@ describe('the people on root', () => {
     expect((await service.people()).find((person) => person.id === 'ana')?.removal).toBeUndefined();
   });
 
-  it('shows a pool instance with its trial, the release it runs and whether root withdrew it', async () => {
+  it('shows an instance with the release it runs and whether root withdrew it', async () => {
     const releases = [
       { imageTag: 'b2', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z' },
       { imageTag: 'c3', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z', withdrawn: { at: '2026-10-27T00:00:00.000Z', by: 'root rolled back to v2026.10.25' } },
     ] as InstanceRelease[];
     const { service } = await set({
       releases,
-      instances: [instance({ running: 'c3', updates: { auto: false, picked: 'c3' }, pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' } as never })],
+      instances: [instance({ running: 'c3', updates: { auto: false, picked: 'c3' } })],
     });
     expect((await service.people()).find((person) => person.id === 'bob')?.instance).toEqual({
-      name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z', version: 'v2026.10.26', versionWithdrawn: true, autoUpdates: false,
+      name: 'bob', status: 'ready', url: 'https://bob.koala.dev', version: 'v2026.10.26', versionWithdrawn: true, autoUpdates: false,
     });
   });
 

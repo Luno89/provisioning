@@ -1,33 +1,26 @@
 import path from 'path';
 import fs from 'fs/promises';
-import type express from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import {
-  type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
-  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, keepTrying,
+  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
+  getTemporalClient, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, keepTrying,
   MailReputation, isOff, type BackendSettings, type Off, type DependencyStates,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
-import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
-import { MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
-import { POOL_SETUP_HEARD, poolInstanceWorkflowId, poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
+import { issueMoveToken } from '../lib/identity-token.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
-import { InstanceService, type MoveMachines, type SetupInstalls } from '../services/InstanceService.js';
+import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
 import { InstanceRoutes, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
-import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
 import { InstanceChart, releaseInventory } from '../services/InstanceChart.js';
 import { chartDataVersion, ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { DependencyWatch } from '../services/DependencyWatch.js';
 import { DEPENDENCY_WATCH_ID } from '../lib/dependency-findings.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
-import { MoveExport, moveClusterOn, type ClusterStarts } from '../services/MoveExport.js';
-import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
-import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
@@ -35,8 +28,7 @@ import { RootPresence } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
 import { PRESENCE_NAMESPACE, presenceAuth } from '../lib/instance-watch.js';
 import type { EdgeSettings } from '../lib/edge-settings.js';
-import type { MovedSettings } from '../lib/instance-move.js';
-import { ROOT_CLUSTER_ID, type ClusterAccess, type InstanceEdge, type HeadscaleService } from '../../infrastructure/index.js';
+import type { ClusterAccess, InstanceEdge, HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
@@ -44,15 +36,10 @@ import type { RootProvider } from '../services/RootProvider.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
 import { OIDC_PATH } from '../lib/oidc.js';
 import { instancesRouter } from '../routes/instances.js';
-import { instanceTrialRouter } from '../routes/instance-trial.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
 import { instanceUpdatesRouter } from '../routes/instance-updates.js';
-import { moveRouter } from '../routes/move.js';
 import type { Routes } from '../../machines/index.js';
 import { DependencyWatchWorkflow } from '../../workflows/DependencyWatchWorkflow.js';
-import { PoolInstanceWorkflow } from '../../workflows/PoolInstanceWorkflow.js';
-import { PoolRemoveWorkflow } from '../../workflows/PoolRemoveWorkflow.js';
-import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
 import { QUEUES } from '../../platform/index.js';
 
 
@@ -115,41 +102,6 @@ export class InstanceSide {
   }
 }
 
-export interface MoveExportDeps {
-  role: RoleConfig;
-  access: Pick<ClusterStarts, 'kubectl' | 'own' | 'start'>;
-  pool: boolean;
-  moved: MovedSettings | undefined;
-  app: Routes;
-  dataDir: string;
-  mongo: ReturnType<typeof mongoTarget>;
-  running: (ownerId: string) => Promise<string[] | 'unknown'>;
-  claim: UsedTokenClaim;
-}
-
-export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport | undefined> {
-  const { role, moved } = deps;
-  if (!(role.role === 'instance' && deps.pool && moved && role.trusted && role.instance)) return undefined;
-  const moveExport = new MoveExport({
-    instanceId: role.instance.id,
-    ownerId: role.instance.ownerId,
-    cluster: moveClusterOn(deps.access),
-    trusted: role.trusted,
-    dataDir: deps.dataDir,
-    mongo: deps.mongo,
-    moved,
-    running: deps.running,
-    claim: deps.claim,
-  });
-  await moveExport.load();
-  const frozen: express.RequestHandler = (req, res, next) => (moveExport.isFrozen() && !answersWhileMoving(req.path)
-    ? res.status(503).json({ error: 'This instance is moving to your own machine; it opens there once the move is done' })
-    : next());
-  deps.app.use('/api', frozen);
-  deps.app.use('/api/move', moveRouter({ move: moveExport, log: (message) => console.warn(message) }));
-  return moveExport;
-}
-
 export interface InstancesWiringDeps {
   role: RoleConfig;
   settings: BackendSettings;
@@ -173,7 +125,6 @@ export interface InstancesWiringDeps {
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
   installs?: SetupInstalls | undefined;
-  moves?: MoveMachines | undefined;
 }
 
 export interface InstancesWiring {
@@ -208,11 +159,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   tenant.use('/api/instance-watch', instanceWatchRouter({
     setting: role.instance && deps.rootToken
       ? new InstanceWatchSetting({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken })
-      : undefined,
-  }));
-  tenant.use('/api/instance-trial', instanceTrialRouter({
-    trial: role.instance && deps.rootToken
-      ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken })
       : undefined,
   }));
 
@@ -250,7 +196,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const siteNames = routing
     ? routing.siteDomains.filter((site) => site.endsWith(`.${routing.domain}`)).map((site) => site.slice(0, -(routing.domain.length + 1)))
     : [];
-  const poolTaskQueue = QUEUES.host;
   const dependencyWatch = new DependencyWatch({
     store: db.instances,
     inventoryOf: async (tag) => {
@@ -276,7 +221,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     try {
       await (await getTemporalClient()).workflow.start(DependencyWatchWorkflow, {
         workflowId: DEPENDENCY_WATCH_ID,
-        taskQueue: poolTaskQueue,
+        taskQueue: QUEUES.host,
         args: [],
         ...startedFor(PLATFORM_OWNER),
       });
@@ -286,7 +231,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
     }
   }, (message) => console.warn(message));
-  const { pool } = root;
   let presenceOf: ((instanceId: string) => boolean) | undefined;
   const instanceService = new InstanceService(db, {
     connected: (instanceId) => presenceOf?.(instanceId) ?? false,
@@ -300,59 +244,16 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     notices: withdrawalNotices,
     domain: routingDomain,
     siteNames,
-    pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
     reach: new InstanceReach(settings.reach),
     installs: deps.installs,
-    moves: deps.moves,
-  }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
-    start: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {
-        workflowId: poolInstanceWorkflowId(instanceId),
-        taskQueue: poolTaskQueue,
-        args: [{ instanceId }],
-        ...startedFor(ownerId),
-      });
-    },
-    trialChanged: async (instanceId) => {
-      await (await getTemporalClient()).workflow.getHandle(poolTrialWorkflowId(instanceId)).signal(TRIAL_CHANGED).catch((error: Error) => {
-        if (!/not found|already completed/i.test(error.message)) throw error;
-      });
-    },
-    remove: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start(PoolRemoveWorkflow, {
-        workflowId: poolRemoveWorkflowId(instanceId),
-        taskQueue: poolTaskQueue,
-        args: [{ instanceId }],
-        ...startedFor(ownerId),
-      });
-    },
-    move: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start(PoolMoveWorkflow, {
-        workflowId: poolMoveWorkflowId(instanceId),
-        taskQueue: poolTaskQueue,
-        args: [{ instanceId }],
-        workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-        ...startedFor(ownerId),
-      });
-    },
-    moveStopped: async (instanceId, reason) => {
-      await (await getTemporalClient()).workflow.getHandle(poolMoveWorkflowId(instanceId)).signal(MOVE_STOPPED, reason);
-    },
-    setupHeard: async (instanceId, report) => {
-      await (await getTemporalClient()).workflow.getHandle(poolInstanceWorkflowId(instanceId)).signal(POOL_SETUP_HEARD, report);
-    },
-  });
+  }, deps.headscale, () => new Date(), () => instanceRoutes?.changed());
   instanceRoutes?.start();
   let tellInstance: InstancesWiring['tellInstance'];
   if (role.role === 'root') {
     const presence = new InstancePresence({
       store: db.instances,
       tellOwner: (ownerId, message) => deps.mail.toOwner(ownerId, message),
-      tellOperators: async (message) => {
-        const operators = (await db.accounts.getUsers()).filter((user) => !user.space && allowed(deps.auth.principalFor(user), 'administer', { kind: 'install' }));
-        for (const operator of operators) await deps.mail.toOwner(operator.id, message);
-      },
       afterMs: settings.tests.unreachableAfterMs,
     });
     presenceOf = (instanceId) => presence.connected(instanceId);
@@ -360,14 +261,6 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     presence.start().catch((err: Error) => console.warn(`[instance-presence] ${err.message}`));
   }
 
-  const poolMonitoring = 'off' in pool ? undefined : new PoolMonitoringService({
-    kubectl: (args) => deps.access.kubectl(ROOT_CLUSTER_ID, args),
-    apply: async (manifest) => { await deps.access.apply(ROOT_CLUSTER_ID, manifest); },
-  });
-  const moveRelay = 'off' in pool || !role.signing ? undefined : new MoveRelay({
-    kubeconfig: async () => kubeconfigFile(await deps.access.kubeconfigOf(ROOT_CLUSTER_ID))(),
-    sign: (instanceId, part) => issueMoveToken(role.signing!, instanceId, part),
-  });
   const hubAccess = role.signing && role.hubLink
     ? async (instanceId: string, ownerId: string) => {
       const owner = await db.accounts.getUserById(ownerId);
@@ -377,7 +270,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     : undefined;
   const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, poolMonitoring, moveRelay, hubAccess }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, hubAccess }));
   return { instanceService, tellInstance };
 }
 

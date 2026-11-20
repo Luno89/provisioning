@@ -12,7 +12,6 @@ import dotenv from 'dotenv';
 import { createDatabase, leaseMongo, roleFromEnv } from '../apps/backend/src/platform/index.js';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { instanceRouteFiles } from '../apps/backend/src/instances/lib/instance-routes.js';
-import { PROXY_IMAGE, proxyCaddyfile } from '../apps/backend/src/instances/lib/pool.js';
 import { hashCredential, publicKeyPem } from '../apps/backend/src/instances/index.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { devFile, devTemporalCa } from './lib/dev-temporal.js';
@@ -29,8 +28,7 @@ const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource
 const ROOT_CADDY_IMAGE = 'nowrinkles/caddy:2.10.2';
 const SUBNET = '100.127.250';
 const DOMAIN = 'people.localhost';
-const NAMES = { network: `nw-hardening-${STAMP}`, echo: `nw-hardening-echo-${STAMP}`, pool: `nw-hardening-pool-${STAMP}`, oldPool: `nw-hardening-oldpool-${STAMP}`, caddy: `nw-hardening-caddy-${STAMP}`, root: `nw-hardening-root-${STAMP}`, refused: `nw-hardening-refused-${STAMP}` };
-const POOL_PORTS = { backend: 35000, edge: 35001, registry: 35002 };
+const NAMES = { network: `nw-hardening-${STAMP}`, echo: `nw-hardening-echo-${STAMP}`, caddy: `nw-hardening-caddy-${STAMP}`, root: `nw-hardening-root-${STAMP}`, refused: `nw-hardening-refused-${STAMP}` };
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -66,36 +64,18 @@ function askThroughRoot(port: number, host: string, forged: string): Promise<See
   });
 }
 
-async function askDirectly(url: string, forged: string): Promise<Seen> {
-  const response = await fetch(url, { headers: { 'x-forwarded-for': forged } });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
-  return await response.json() as Seen;
-}
-
 async function clientAddresses(image: string): Promise<void> {
-  step('root\'s Caddy, the pool\'s proxy and an instance backend run on a network of mesh-shaped addresses, each as Koala configures it');
+  step('root\'s Caddy and an instance backend run on a network of mesh-shaped addresses, each as Koala configures it');
   const work = mkdtempSync(join(tmpdir(), 'hardening-live-'));
   try {
     docker(['network', 'create', '--subnet', `${SUBNET}.0/24`, '--gateway', `${SUBNET}.1`, NAMES.network]);
-    const pool = proxyCaddyfile([{ name: 'hardpool', ports: POOL_PORTS }], `${SUBNET}.3`, [`${SUBNET}.2`]);
-    const oldPool = proxyCaddyfile([{ name: 'oldpool', ports: POOL_PORTS }], `${SUBNET}.5`, []).replace(/\n\t\theader_up X-Forwarded-For \{client_ip\}/g, '');
-    const upstreams = [...new Set([...pool.matchAll(/reverse_proxy (\S+):\d+/g), ...oldPool.matchAll(/reverse_proxy (\S+):\d+/g)].map((match) => match[1]!))];
-    run(NAMES.echo, ['--network', NAMES.network, '--ip', `${SUBNET}.4`, ...upstreams.flatMap((alias) => ['--network-alias', alias]), '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
+    run(NAMES.echo, ['--network', NAMES.network, '--ip', `${SUBNET}.4`, '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
       '-v', `${join(REPO, 'tests/lib/client-address-echo.ts')}:/app/tests/lib/client-address-echo.ts:ro`, image, 'npx', 'tsx', '/app/tests/lib/client-address-echo.ts', '80', '3000', '30320']);
-
-    for (const [name, at, config] of [[NAMES.pool, '3', pool], [NAMES.oldPool, '5', oldPool]] as const) {
-      const dir = join(work, name);
-      mkdirSync(dir);
-      writeFileSync(join(dir, 'Caddyfile'), config);
-      run(name, ['--network', NAMES.network, '--ip', `${SUBNET}.${at}`, '-v', `${dir}:/etc/caddy:ro`, PROXY_IMAGE, 'caddy', 'run', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']);
-    }
 
     const caddyDir = join(work, 'root-caddy');
     for (const folder of ['apps', 'instances', 'instance-sites', 'tls', 'admin', 'log']) mkdirSync(join(caddyDir, folder), { recursive: true });
     writeFileSync(join(caddyDir, 'tls', 'koala.caddy'), caddyTlsSnippet('internal'));
     const routed = [
-      { name: 'hardpool', meshIp: `${SUBNET}.3`, nested: false, ports: { backend: POOL_PORTS.backend, edge: POOL_PORTS.edge } },
-      { name: 'oldpool', meshIp: `${SUBNET}.5`, nested: false, ports: { backend: POOL_PORTS.backend, edge: POOL_PORTS.edge } },
       { name: 'ownbox', meshIp: `${SUBNET}.4`, nested: false },
     ];
     for (const instance of routed) writeFileSync(join(caddyDir, 'instances', `${instance.name}.caddy`), instanceRouteFiles(instance, DOMAIN).handles);
@@ -107,25 +87,13 @@ async function clientAddresses(image: string): Promise<void> {
       '-v', `${join(caddyDir, 'apps')}:/etc/caddy/apps:ro`, '-v', `${join(caddyDir, 'instances')}:/etc/caddy/instances:ro`, '-v', `${join(caddyDir, 'instance-sites')}:/etc/caddy/instance-sites:ro`,
       '-v', `${join(caddyDir, 'admin')}:/run/caddy-admin`, '-v', `${join(caddyDir, 'log')}:/var/log/caddy`, ROOT_CADDY_IMAGE]);
 
-    const own = await until('an own-machine instance answering through root\'s Caddy', () => askThroughRoot(tlsPort, `ownbox.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.pool, NAMES.echo));
+    const own = await until('an own-machine instance answering through root\'s Caddy', () => askThroughRoot(tlsPort, `ownbox.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.echo));
     const visitor = own.ip;
     assert.notEqual(visitor, '6.6.6.6', 'root\'s Caddy passed on an address the visitor made up');
     assert.notEqual(visitor, `${SUBNET}.2`, 'an own-machine instance saw root\'s Caddy instead of the visitor');
     console.log(`  an instance on its owner's machine sees the visitor (${visitor}), not root's Caddy (${SUBNET}.2) nor the made-up 6.6.6.6`);
-
-    step('a pool instance, two hops behind root\'s Caddy, sees the same visitor');
-    const pooled = await until('a pool instance answering through root\'s Caddy and the pool\'s proxy', () => askThroughRoot(tlsPort, `hardpool.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.pool, NAMES.echo));
-    assert.equal(pooled.ip, visitor, `a pool instance saw ${pooled.ip} (forwarded for ${pooled.forwardedFor}) instead of the visitor ${visitor}`);
-    const before = await until('the proxy as it was before answering', () => askThroughRoot(tlsPort, `oldpool.${DOMAIN}`, '6.6.6.6'), () => anyDown(NAMES.caddy, NAMES.oldPool, NAMES.echo));
-    assert.equal(before.ip, `${SUBNET}.2`, `the proxy as it was before showed ${before.ip}`);
-    console.log(`  it sees ${pooled.ip}; the proxy as it was before made every visitor ${before.ip}, root's own address`);
-
-    step('anyone reaching the pool\'s proxy around root\'s Caddy is taken for who they are, whatever they claim');
-    const around = await askDirectly(`http://${SUBNET}.3:${POOL_PORTS.backend}/`, '6.6.6.6');
-    assert.equal(around.ip, `${SUBNET}.1`, `a caller around root's Caddy was taken for ${around.ip}`);
-    console.log(`  a caller at ${SUBNET}.1 claiming 6.6.6.6 is taken for ${around.ip}`);
   } finally {
-    for (const name of [NAMES.caddy, NAMES.pool, NAMES.oldPool, NAMES.echo]) quietly(['rm', '-f', name]);
+    for (const name of [NAMES.caddy, NAMES.echo]) quietly(['rm', '-f', name]);
     quietly(['network', 'rm', NAMES.network]);
     rmSync(work, { recursive: true, force: true });
   }

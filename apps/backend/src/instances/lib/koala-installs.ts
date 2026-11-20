@@ -1,7 +1,6 @@
-import { koalaInstallLastStage, type KoalaInstallState, type KoalaStop, type KoalaInstallView, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_LAST_STAGE, type KoalaInstallState, type KoalaStop, type KoalaInstallView, type ProvisionReport } from '@koala/engine-core/koala-install';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import type { InstanceStatus } from './instances.js';
-import type { MoveStateName } from './instance-move.js';
 import { setupHeard, setupSaid, type InstanceSetup } from './instance-setup.js';
 
 export interface KoalaInstallRecord {
@@ -16,7 +15,6 @@ export interface KoalaInstallRecord {
   askedAt?: string | undefined;
   koalaUp?: boolean | undefined;
   setUp?: boolean | undefined;
-  move?: true | undefined;
   at: string;
 }
 
@@ -35,43 +33,38 @@ export const KOALA_INSTALL_SIGNALS = { progress: 'koalaInstallProgress', setup: 
 export const installUnfinished = (install: Pick<KoalaInstallRecord, 'state'> | undefined): boolean =>
   install?.state === 'asked' || install?.state === 'installing';
 
-export function installToStop(instance: { install?: KoalaInstallRecord | undefined; move?: { state: MoveStateName } | undefined }): KoalaStop | undefined {
+export function installToStop(instance: { install?: KoalaInstallRecord | undefined }): KoalaStop | undefined {
   const { install } = instance;
-  if (!install) return undefined;
-  const moveFailed = Boolean(install.move && instance.move?.state === 'failed');
-  if (install.state !== 'failed' && !moveFailed) return undefined;
-  return { installId: install.id, remove: Boolean(install.move) };
+  if (!install || install.state !== 'failed') return undefined;
+  return { installId: install.id };
 }
 
-export const askedInstall = (id: string, machineId: string, at: string, move = false): KoalaInstallRecord =>
-  ({ id, machineId, state: 'asked', at, ...(move ? { move: true as const } : {}) });
+export const askedInstall = (id: string, machineId: string, at: string): KoalaInstallRecord =>
+  ({ id, machineId, state: 'asked', at });
 
-const putting = (install: KoalaInstallRecord, machine: string): string =>
-  (install.move ? `Moving Koala to ${machine}` : `${machine} is putting Koala on itself`);
+const putting = (machine: string): string => `${machine} is putting Koala on itself`;
 
 export function askedAgain(install: KoalaInstallRecord, machine: string, at: string): InstallPatch {
-  const asking = install.move ? `Asking ${machine} to move Koala onto itself` : `Asking ${machine} to put Koala on itself`;
   return {
     install: { ...install, askedAt: at, at },
     status: 'installing',
-    detail: install.title ? `${putting(install, machine)}: ${install.title}` : asking,
+    detail: install.title ? `${putting(machine)}: ${install.title}` : `Asking ${machine} to put Koala on itself`,
   };
 }
 
-const lastDone = (install: KoalaInstallRecord, progress: MachineProgress): boolean =>
-  progress.stage === koalaInstallLastStage(Boolean(install.move)) && (progress.state === 'done' || progress.state === 'already-done');
+const lastDone = (progress: MachineProgress): boolean =>
+  progress.stage === KOALA_INSTALL_LAST_STAGE && (progress.state === 'done' || progress.state === 'already-done');
 
 const READY = (install: KoalaInstallRecord, at: string): Pick<InstallPatch, 'install' | 'status' | 'detail'> =>
-  ({ install: { ...install, state: 'ready', line: undefined, why: undefined, at }, status: 'ready', detail: install.move ? 'Switching your address to your machine' : 'Ready' });
+  ({ install: { ...install, state: 'ready', line: undefined, why: undefined, at }, status: 'ready', detail: 'Ready' });
 
 export function stageHeard(install: KoalaInstallRecord, progress: MachineProgress, machine: string, at: string): InstallPatch {
   const stage = { stage: progress.stage, title: progress.title };
   if (progress.state === 'failed') {
     const why = progress.why ?? 'it said no more';
-    const stopped = install.move ? `Moving Koala to ${machine} stopped` : `Putting Koala on ${machine} stopped`;
-    return { install: { ...install, ...stage, state: 'failed', line: undefined, why, at }, status: 'failed', detail: `${stopped} at ${progress.title}: ${why}` };
+    return { install: { ...install, ...stage, state: 'failed', line: undefined, why, at }, status: 'failed', detail: `Putting Koala on ${machine} stopped at ${progress.title}: ${why}` };
   }
-  if (lastDone(install, progress)) {
+  if (lastDone(progress)) {
     const up = { ...install, ...stage, koalaUp: true };
     if (install.setUp) return { ...READY(up, at), url: progress.url };
     return { install: { ...up, state: 'installing', line: undefined, why: undefined, at }, status: 'installing', detail: `Koala on ${machine} is setting itself up`, url: progress.url };
@@ -80,15 +73,14 @@ export function stageHeard(install: KoalaInstallRecord, progress: MachineProgres
   return {
     install: { ...install, ...stage, state: 'installing', line, why: undefined, at },
     status: 'installing',
-    detail: `${putting(install, machine)}: ${progress.title}${line ? `, ${line}` : ''}`,
+    detail: `${putting(machine)}: ${progress.title}${line ? `, ${line}` : ''}`,
   };
 }
 
 export const INSTALL_STOPPED_SAID = 'it was stopped before it finished';
 
 export function installStopped(install: KoalaInstallRecord, machine: string, at: string): InstallPatch {
-  const stopped = install.move ? `Moving Koala to ${machine} stopped` : `Putting Koala on ${machine} stopped`;
-  return { install: { ...install, state: 'failed', line: undefined, why: INSTALL_STOPPED_SAID, at }, status: 'failed', detail: `${stopped}: ${INSTALL_STOPPED_SAID}` };
+  return { install: { ...install, state: 'failed', line: undefined, why: INSTALL_STOPPED_SAID, at }, status: 'failed', detail: `Putting Koala on ${machine} stopped: ${INSTALL_STOPPED_SAID}` };
 }
 
 export function installSetupHeard(instance: { install: KoalaInstallRecord; setup?: InstanceSetup | undefined; machine?: string | undefined }, report: ProvisionReport, at: string): InstallPatch | undefined {
@@ -108,23 +100,11 @@ export function installSetupHeard(instance: { install: KoalaInstallRecord; setup
 
 const HEARD = ['state', 'stage', 'title', 'line', 'why', 'at', 'koalaUp', 'setUp'] as const;
 
-const MOVE_STATE: Record<KoalaInstallState, MoveStateName> = { asked: 'joined', installing: 'copying', ready: 'switching', failed: 'failed' };
-
 export function installFields(patch: InstallPatch, at: string): Record<string, unknown> {
   const heard = {
     ...Object.fromEntries(HEARD.map((field) => [`install.${field}`, patch.install[field]])),
     ...(patch.install.askedAt !== undefined ? { 'install.askedAt': patch.install.askedAt } : {}),
   };
-  if (patch.install.move) {
-    return {
-      ...heard,
-      'move.state': MOVE_STATE[patch.install.state],
-      'move.detail': patch.detail,
-      updatedAt: at,
-      ...(patch.url !== undefined ? { 'move.target.url': patch.url } : {}),
-      ...(patch.setup ? { 'move.setup': patch.setup } : {}),
-    };
-  }
   return {
     ...heard,
     status: patch.status,
@@ -145,5 +125,4 @@ export const installView =(install: KoalaInstallRecord): KoalaInstallView => ({
   ...(install.line ? { line: install.line } : {}),
   ...(install.why ? { why: install.why } : {}),
   at: install.at,
-  ...(install.move ? { move: true } : {}),
 });

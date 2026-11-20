@@ -23,9 +23,6 @@ ensure_root_settings() {
   ensure_root_setting "$file" HEALTH_PORT 0
   ensure_root_setting "$file" TEMPORAL_METRICS_PORT 9465
   ensure_root_setting "$file" INSTANCE_IMAGE_TAG "$(git -C "$repo" rev-parse --short=12 HEAD)"
-  ensure_root_setting "$file" POOL_SLOT_CPU 4
-  ensure_root_setting "$file" POOL_SLOT_STORAGE_GIB 100
-  ensure_root_setting "$file" POOL_TRIAL_DAYS 14
   relay="$(grep -E '^MAIL_RELAYHOST=' "$compose" 2>/dev/null | cut -d= -f2- || true)"
   [ -n "$relay" ] && ensure_root_setting "$file" MAIL_RELAYHOST "$relay"
   return 0

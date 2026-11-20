@@ -11,7 +11,7 @@ describe('what counts as source, a test, or neither', () => {
   });
 
   it('knows a test file and the helpers tests are built from', () => {
-    for (const path of ['apps/backend/src/machines/services/KoalaInstalls.test.ts', 'apps/backend/src/machines/wiring/sides.integration.test.ts', 'apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts', 'apps/frontend/src/features/machines/components/MyMachines.test.tsx', 'apps/backend/src/machines/testing/wiring-world.ts', 'apps/frontend/src/test/backend/machines.ts', 'tests/coupling/fixture-temporal/workflows.ts', 'tests/pool-live.ts']) {
+    for (const path of ['apps/backend/src/machines/services/KoalaInstalls.test.ts', 'apps/backend/src/machines/wiring/sides.integration.test.ts', 'apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts', 'apps/frontend/src/features/machines/components/MyMachines.test.tsx', 'apps/backend/src/machines/testing/wiring-world.ts', 'apps/frontend/src/test/backend/machines.ts', 'tests/coupling/fixture-temporal/workflows.ts', 'tests/restore-live.ts']) {
       expect(kindOf(path), path).toBe('test');
     }
   });

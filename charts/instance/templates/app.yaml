@@ -9,7 +9,7 @@ metadata:
   name: {{ include "instance.name" $ }}-{{ $process }}
   labels: {{- include "instance.labels" $ | nindent 4 }}
 spec:
-  replicas: {{ if $.Values.move.enabled }}0{{ else }}1{{ end }}
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -266,7 +266,7 @@ metadata:
   name: {{ include "instance.name" . }}-local-apps
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
-  replicas: {{ if .Values.move.enabled }}0{{ else }}1{{ end }}
+  replicas: 1
   strategy:
     type: Recreate
   selector:

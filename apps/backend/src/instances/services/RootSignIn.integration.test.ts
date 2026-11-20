@@ -8,7 +8,6 @@ import { hashCredential } from './InstanceService.js';
 import { instancesRouter } from '../routes/instances.js';
 import { rootTokenOf } from '../wiring/sign-in.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
-import { InstanceTrial } from './InstanceTrial.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
 import { hubLinkRouter } from '../../hub/routes/hub-link.js';
 import { ProjectInviteService } from '../../hub/services/ProjectInviteService.js';
@@ -69,13 +68,12 @@ describe('what an instance and the hub ask root for with what root signed', () =
     expect(Date.parse((await world.instanceDb.instances.getClientSession(atInstance!.sid))!.accessExpiresAt!)).toBeGreaterThan(Date.now() + 60_000);
   });
 
-  it('lets the instance\'s own clients ask root about its watch, its move and its updates with its service token', async () => {
+  it('lets the instance\'s own clients ask root about its watch and its updates with its service token', async () => {
     world.root.app.use('/api/instances', express.json(), instancesRouter({ instances: world.rootService, chart: async () => '' }));
     world.signIn.keepAnnouncing(() => undefined);
     const asInstance = { rootUrl: world.root.url, instanceId: 'inst-u1', token: rootTokenOf(world.signIn)! };
     expect(await new InstanceWatchSetting(asInstance).read()).toMatchObject({ notifyWhenUnreachable: true });
     expect(await new InstanceWatchSetting(asInstance).set(false)).toMatchObject({ notifyWhenUnreachable: false });
-    expect(await new InstanceTrial(asInstance).moveState()).toBeNull();
     const updates = new InstanceUpdates(asInstance, async () => { throw new Error('this instance was installed without a check-in, so nothing reads its jobs'); });
     expect(await updates.view()).toMatchObject({ auto: true });
     expect(await updates.findings()).toEqual({ findings: [] });

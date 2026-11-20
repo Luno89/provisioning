@@ -2,7 +2,7 @@ import { testIdentityKey, testKeyEnv } from '../testing/keys.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, moveImportSettingsFrom, operatorCredentialsFrom,
+  backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, operatorCredentialsFrom,
   selfUpgradeSettingsFrom, SettingsError,
 } from './settings.js';
 
@@ -57,7 +57,7 @@ describe('the settings a backend reads once, at start', () => {
   it('takes root\'s, with every feature it was not given off and saying why', () => {
     const settings = backendSettingsFrom(ROOT);
     expect(settings).toMatchObject({ koalaProcess: 'backend', port: 3001, publicUrl: 'https://luno.koala.app', production: false, temporal: { address: '127.0.0.1:7233', namespace: 'default', caPath: '/etc/koala/temporal-tls/ca.crt' }, terraform: { kind: 'local' }, dataDir: '/app/apps/backend/data' });
-    expect(settings.root).toMatchObject({ imageTag: 'a1b2c3d4e5f6', registry: '100.64.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') }, pool: { off: ANY_TEXT } });
+    expect(settings.root).toMatchObject({ imageTag: 'a1b2c3d4e5f6', registry: '100.64.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') } });
     expect(settings.mesh).toEqual({ off: 'MESH_LOGIN_SERVER is not set, so machines and instances join no mesh' });
     expect(settings.metricsToken).toEqual({ off: 'METRICS_TOKEN is not set, so /api/metrics serves nothing' });
     expect(settings.twilio).toMatchObject({ off: saying('Twilio') });
@@ -101,21 +101,17 @@ describe('the settings a backend reads once, at start', () => {
     expect(backendSettingsFrom({ ...ROOT, MAIL_SMTP_URL: 'smtp://127.0.0.1:2525', DOMAIN: 'koala.dev' }).mail).toEqual({ kind: 'smtp', url: 'smtp://127.0.0.1:2525', from: 'Koala <alerts@koala.dev>' });
   });
 
-  it('refuses half of a feature: a pool without its slot\'s size, half of Twilio, half of Google Drive, OVHcloud keys without their subsidiary', () => {
-    const pool = { INGRESS_DOMAIN: 'nowrinkles.app', CADDY_ADMIN_SOCKET: '/s', CADDY_CONFIG: '/c', CADDY_LOG: '/l', CADDY_TLS_ADDRESS: '127.0.0.1:443', POOL_ADDRESS: '100.64.0.1', POOL_KUBECONFIG: '/k', POOL_SLOTS: '2', POOL_SLOT_MEMORY_MIB: '10240' };
-    const problems = problemsOf(() => backendSettingsFrom({ ...ROOT, ...pool, TWILIO_ACCOUNT_SID: 'sid', GOOGLE_CLIENT_ID: 'id', OVH_APPLICATION_KEY: 'k', OVH_APPLICATION_SECRET: 's', OVH_CONSUMER_KEY: 'c' }));
-    expect(problems).toContain('POOL_SLOT_CPU is not set, and a pool slot needs it');
+  it('refuses half of a feature: half of Twilio, half of Google Drive, OVHcloud keys without their subsidiary', () => {
+    const problems = problemsOf(() => backendSettingsFrom({ ...ROOT, TWILIO_ACCOUNT_SID: 'sid', GOOGLE_CLIENT_ID: 'id', OVH_APPLICATION_KEY: 'k', OVH_APPLICATION_SECRET: 's', OVH_CONSUMER_KEY: 'c' }));
     expect(problems.some((problem) => problem.startsWith('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER go together'))).toBe(true);
     expect(problems.some((problem) => problem.startsWith('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET go together'))).toBe(true);
     expect(problems.some((problem) => problem.startsWith('OVH_SUBSIDIARY is not set beside the operator\'s OVHcloud keys'))).toBe(true);
-    const full = backendSettingsFrom({ ...ROOT, ...pool, POOL_SLOT_CPU: '4', POOL_SLOT_STORAGE_GIB: '100', POOL_TRIAL_DAYS: '14' });
-    expect(full.root?.pool).toMatchObject({ slots: 2, slot: { memoryMiB: 10240, cpu: 4, storageGiB: 100 }, image: { repository: '100.64.0.1:5001/nowrinkles/app', tag: 'a1b2c3d4e5f6' }, trialDays: 14 });
   });
 
   it('takes an instance\'s, with the services the chart names and nothing guessed for the ones it does not', () => {
     const settings = backendSettingsFrom(INSTANCE);
     expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL, crawl4aiToken: 'crawl-token' } });
-    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, gatewayTls: { off: saying('MACHINE_GATEWAY_TLS_CERT') }, poolMonitor: { off: ANY_TEXT } });
+    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, gatewayTls: { off: saying('MACHINE_GATEWAY_TLS_CERT') } });
     const gateway = { MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:30322', MACHINE_GATEWAY_TLS_CERT: '/etc/koala/temporal-tls/tls.crt', MACHINE_GATEWAY_TLS_KEY: '/etc/koala/temporal-tls/tls.key' };
     expect(backendSettingsFrom({ ...INSTANCE, ...gateway }).instance).toMatchObject({ machineTemporalAddress: '100.64.0.7:30322', gatewayTls: { certPath: '/etc/koala/temporal-tls/tls.crt', keyPath: '/etc/koala/temporal-tls/tls.key' } });
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, MACHINE_TEMPORAL_ADDRESS: gateway.MACHINE_TEMPORAL_ADDRESS }))).toContain('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
@@ -137,7 +133,6 @@ describe('the settings a backend reads once, at start', () => {
     expect(backendSettingsFrom({ ...INSTANCE, INSTANCE_MACHINE_ID: '' }).clusters.here).toEqual({ koalaMachineId: undefined, poolName: undefined, root: false });
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, POOL: 'true' }))).toContain('INSTANCE_NAME is not set: a trial instance on Koala\'s servers is named by it');
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, POOL: 'yes' }))).toContain('POOL is "yes"; it is "true" on a trial instance on Koala\'s servers and unset anywhere else');
-    expect(backendSettingsFrom({ ...INSTANCE, POOL: 'true', INSTANCE_NAME: 'bob' }).instance?.poolMonitor).toEqual({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1' });
   });
 
   it('takes the hub\'s, its registry database named rather than guessed', () => {
@@ -201,12 +196,6 @@ describe('the settings each worker reads once, at start', () => {
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, KOALA_RELEASE_REVISION: 'seven' }))).toContain('KOALA_RELEASE_REVISION is not a chart revision, a whole number from 1: seven');
   });
 
-  it('gives the cluster worker root and the instance\'s credential there, which the last piece of a moved Koala\'s setup fetches what the move left with', () => {
-    const env = { ...INSTANCE, ...WORKER, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40' };
-    expect(clusterWorkerSettingsFrom(env).root).toEqual({ url: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' });
-    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, INSTANCE_CREDENTIAL: '' }))).toContain('INSTANCE_CREDENTIAL is not set: it is the instance\'s credential at root, which a moved Koala\'s setup fetches what its move left with');
-  });
-
   it('runs the engine worker only in an instance, with everything its runs reach', () => {
     const env = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
     expect(engineWorkerSettingsFrom(env)).toMatchObject({ temporalMetricsPort: 9467, instanceCredential: 'cred', tenant: { checksApi: TENANT.CHECKS_API_URL } });
@@ -223,13 +212,6 @@ describe('the settings of a step run in an instance\'s pod', () => {
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, RELEASE_NAME: '' }))).toContain('RELEASE_NAME is not set: the self-upgrade CronJob names the release it upgrades');
   });
 
-  it('gives the move its root, Mongo, namespace and the cluster it moves from onto this machine\'s, and refuses one without them', () => {
-    const moving = { ...INSTANCE, POD_NAMESPACE: 'nowrinkles', KOALA_MOVED_FROM: 'pool-shop' };
-    expect(moveImportSettingsFrom(moving)).toMatchObject({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', ownerId: 'owner-1', credential: 'cred', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', from: 'pool-shop', onto: 'machine-desk' });
-    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, where Terraform keeps its state');
-    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, KOALA_MOVED_FROM: '' }))).toContain('KOALA_MOVED_FROM is not set: it is the cluster on Koala\'s servers the move brings this Koala from, whose records and Terraform state are renamed for this machine; the instance chart sets it from move.fromClusterId');
-    expect(problemsOf(() => moveImportSettingsFrom({ ...moving, INSTANCE_MACHINE_ID: '' }))).toContain('INSTANCE_MACHINE_ID is not set: a move brings Koala onto a machine of its own, whose cluster its records are renamed for');
-  });
 });
 
 describe('the operator\'s own credentials', () => {

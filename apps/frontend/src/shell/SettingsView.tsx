@@ -3,7 +3,7 @@ import { ChangePassword, DeleteAccount, TwoFactorSettings } from '../features/ac
 import { People } from '../features/accounts';
 import { Invites } from '../features/accounts';
 import { InstanceAddresses } from '../features/accounts';
-import { InstanceMove, InstanceUpdates, InstanceWatch } from '../features/instances';
+import { InstanceUpdates, InstanceWatch } from '../features/instances';
 import { Notifications } from '../features/accounts';
 import { OtherSessions } from '../features/accounts';
 import { OwnFiles } from '../features/files'
@@ -38,7 +38,6 @@ export default function SettingsView() {
       <OtherSessions />
       {can('change-instance-settings') && <InstanceAddresses />}
       {can('change-instance-settings') && <InstanceUpdates />}
-      {can('change-instance-settings') && <InstanceMove />}
       <Notifications />
       <InstanceWatch />
       <OwnFiles />

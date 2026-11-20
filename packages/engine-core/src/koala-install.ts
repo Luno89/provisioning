@@ -2,23 +2,11 @@ import { progressOf, type MachineProgress, type ProgressContract } from './machi
 
 export const KOALA_INSTALL_STAGES = ['cluster', 'chart', 'koala'] as const;
 
-export const KOALA_MOVE_STAGES = ['cluster', 'clear', 'chart', 'keys', 'koala', 'koala-moved'] as const;
-
-export type KoalaInstallStage = (typeof KOALA_MOVE_STAGES)[number];
+export type KoalaInstallStage = (typeof KOALA_INSTALL_STAGES)[number];
 
 export const KOALA_INSTALL_LAST_STAGE: KoalaInstallStage = 'koala';
 
-export const KOALA_MOVE_LAST_STAGE: KoalaInstallStage = 'koala-moved';
-
 export const KOALA_INSTALL_PROGRESS: ProgressContract = { lines: true, lastStage: KOALA_INSTALL_LAST_STAGE };
-
-export const KOALA_MOVE_PROGRESS: ProgressContract = { lines: true, lastStage: KOALA_MOVE_LAST_STAGE };
-
-export const koalaInstallStages = (move: boolean): readonly KoalaInstallStage[] => (move ? KOALA_MOVE_STAGES : KOALA_INSTALL_STAGES);
-
-export const koalaInstallLastStage = (move: boolean): KoalaInstallStage => (move ? KOALA_MOVE_LAST_STAGE : KOALA_INSTALL_LAST_STAGE);
-
-export const koalaInstallProgress = (move: boolean): ProgressContract => (move ? KOALA_MOVE_PROGRESS : KOALA_INSTALL_PROGRESS);
 
 export const KOALA_INSTALL_ROUTE = '/koala-installs/:installId/progress';
 
@@ -32,15 +20,12 @@ export const KOALA_INSTALL_FOLLOW_STOPPED = 'stopped';
 
 export const KOALA_INSTALL_FOLLOW_BEAT_MS = 15_000;
 
-export const KOALA_MOVE_KEYS_PATH = '/api/instances/move/parts/keys';
-
 export const PLACE_KOALA = 'machine:place-koala';
 
 export const STOP_KOALA = 'machine:stop-koala';
 
 export interface KoalaStop {
   installId: string;
-  remove: boolean;
 }
 
 export const KOALA_INSTALL_CHANGED = 'koala-install-changed';
@@ -66,11 +51,6 @@ export interface PlacedKoala {
   credential: string;
   name: string;
   domain: string;
-  move?: KoalaMove | undefined;
-}
-
-export interface KoalaMove {
-  fromClusterId: string;
 }
 
 export interface KoalaInstallView {
@@ -82,7 +62,6 @@ export interface KoalaInstallView {
   line?: string;
   why?: string;
   at: string;
-  move?: true;
 }
 
 export interface KoalaInstallFollowed {
@@ -96,7 +75,7 @@ export const koalaInstallEnded = (install: Pick<KoalaInstallView, 'state'>): boo
 
 const VIEW_TEXT = ['id', 'machineId', 'at'] as const;
 const VIEW_OPTIONAL_TEXT = ['stage', 'title', 'line', 'why'] as const;
-const VIEW_KEYS: readonly string[] = ['id', 'machineId', 'state', ...VIEW_OPTIONAL_TEXT, 'at', 'move'];
+const VIEW_KEYS: readonly string[] = ['id', 'machineId', 'state', ...VIEW_OPTIONAL_TEXT, 'at'];
 const FOLLOWED_KEYS = ['install', 'url'];
 const isObject = (raw: unknown): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null && !Array.isArray(raw);
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
@@ -110,7 +89,6 @@ function installViewProblem(raw: Record<string, unknown>): string | undefined {
   if (!KOALA_INSTALL_STATES.includes(raw.state as KoalaInstallState)) return `"state" is one of ${KOALA_INSTALL_STATES.join(', ')}`;
   const wrong = VIEW_OPTIONAL_TEXT.find((key) => raw[key] !== undefined && !nonEmpty(raw[key]));
   if (wrong) return `"${wrong}" is a non-empty string`;
-  if (raw.move !== undefined && raw.move !== true) return '"move" is only ever true';
   return undefined;
 }
 
@@ -130,8 +108,8 @@ export function koalaInstallFollowedOf(raw: unknown): KoalaInstallFollowedRead {
 }
 
 export function koalaStopOf(raw: unknown): KoalaStop | undefined {
-  if (!isObject(raw) || !nonEmpty(raw.installId) || typeof raw.remove !== 'boolean') return undefined;
-  return { installId: raw.installId, remove: raw.remove };
+  if (!isObject(raw) || !nonEmpty(raw.installId)) return undefined;
+  return { installId: raw.installId };
 }
 
 export function koalaInstallStoppedOf(raw: unknown): { ok: true; why: string } | { ok: false; problem: string } {
@@ -149,9 +127,7 @@ export const PROVISION_PIECES = [
   { key: 'monitoring', title: 'Monitoring' },
 ] as const;
 
-export const PROVISION_MOVED_PIECE = { key: 'moved', title: 'Bringing over your repositories, vault and apps' } as const;
-
-export type ProvisionPieceKey = (typeof PROVISION_PIECES)[number]['key'] | (typeof PROVISION_MOVED_PIECE)['key'];
+export type ProvisionPieceKey = (typeof PROVISION_PIECES)[number]['key'];
 
 export const KOALA_PLATFORM_NAMESPACES = {
   egress: ['koala-egress'],
@@ -160,9 +136,7 @@ export const KOALA_PLATFORM_NAMESPACES = {
   gitea: ['gitea', 'pipeline-builds'],
   verdaccio: ['koala-registry'],
   infisical: ['infisical'],
-} as const satisfies Record<Exclude<ProvisionPieceKey, 'monitoring' | 'moved'>, readonly string[]>;
-
-export const MOVED_FOR_LABEL = 'koala.dev/moved-for';
+} as const satisfies Record<Exclude<ProvisionPieceKey, 'monitoring'>, readonly string[]>;
 
 export const PROVISION_DONE_STAGE = 'set-up';
 
@@ -223,7 +197,7 @@ export interface ProvisionReport {
 export type ProvisionReportRead = { ok: true; value: ProvisionReport } | { ok: false; problem: string };
 
 const REPORT_KEYS = ['revision', 'progress'];
-const STAGES: readonly string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_MOVED_PIECE.key, PROVISION_DONE_STAGE];
+const STAGES: readonly string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_DONE_STAGE];
 const finished = (progress: MachineProgress): boolean => progress.state === 'done' || progress.state === 'already-done';
 
 export function provisionReportOf(raw: unknown): ProvisionReportRead {

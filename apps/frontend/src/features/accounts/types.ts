@@ -14,11 +14,9 @@ export type RemovalState =
 
 export interface PersonInstance {
   name?: string
-  where: 'pool' | 'own'
-  status: 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
+  status: 'waiting' | 'joined' | 'installing' | 'ready' | 'failed'
   detail?: string
   url: string
-  trialEndsAt?: string
   version?: string
   versionWithdrawn?: boolean
   heldByData?: { version: string; needs: number }

@@ -1,12 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { pipeline } from 'stream';
 import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute } from '../../platform/index.js';
 import type { InstanceService, StatusReport } from '../services/InstanceService.js';
-import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
-import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitoring/index.js';
-import { isMovePart } from '../lib/instance-move.js';
-import { volumeOfPart } from '../lib/app-move.js';
-import type { MoveRelay } from '../services/MoveRelay.js';
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { heldBackMail } from '../lib/instance-mail-limit.js';
@@ -25,13 +19,11 @@ const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false
 const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
+  instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'announceSignIn'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
   mail?: Pick<MailService, 'toOwner'> | undefined;
-  poolMonitoring?: PoolMonitoringService | undefined;
-  moveRelay?: MoveRelay | undefined;
   operatorOnly?: RequestHandler | undefined;
   administers?: RequestHandler | undefined;
   dependencies?: Pick<DependencyWatch, 'view' | 'check' | 'forRelease'> | undefined;
@@ -44,35 +36,7 @@ export function instancesRouter(deps: {
     res.json(await deps.instances.nameCheck(userOf(req).id, req.query.name));
   }));
 
-  router.get('/pool', asyncRoute(async (req: Request, res: Response) => {
-    res.json(await deps.instances.poolOffer(userOf(req).id));
-  }));
-
-  router.post('/pool', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.createPoolInstance(userOf(req).id, ((req.body ?? {}) as { name?: unknown }).name);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.status(202).json(outcome.value);
-  }));
-
   const admin: RequestHandler = deps.operatorOnly ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
-
-  router.get('/pool/admin', admin, asyncRoute(async (_req: Request, res: Response) => {
-    return answer(res, await deps.instances.poolAdmin());
-  }));
-
-  router.put('/pool/admin/trial-days', admin, asyncRoute(async (req: Request, res: Response) => {
-    return answer(res, await deps.instances.setTrialDays(userOf(req).id, ((req.body ?? {}) as { days?: unknown }).days));
-  }));
-
-  router.put('/pool/admin/instances/:id/trial', admin, asyncRoute(async (req: Request, res: Response) => {
-    return answer(res, await deps.instances.setTrialEnd(String(req.params.id), ((req.body ?? {}) as { trialEndsAt?: unknown }).trialEndsAt));
-  }));
-
-  router.delete('/pool/admin/instances/:id', admin, asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.instances.removePoolInstance(String(req.params.id), ((req.body ?? {}) as { confirm?: unknown }).confirm);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.status(202).json(outcome.value);
-  }));
 
   router.get('/mine', asyncRoute(async (req: Request, res: Response) => {
     res.json({ instance: await deps.instances.mine(userOf(req).id) });
@@ -156,11 +120,6 @@ export function instancesRouter(deps: {
   }));
 
 
-  router.get('/trial', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    return answer(res, await deps.instances.trialOf(instanceId, credential));
-  }));
-
   router.get('/addresses', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
     return answer(res, await deps.instances.addresses(instanceId, credential));
@@ -190,129 +149,6 @@ export function instancesRouter(deps: {
   router.delete('/groups/:projectId', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
     answer(res, await deps.instances.releaseGroup(instanceId, credential, String(req.params.projectId ?? '')));
-  }));
-
-  router.post('/move', asyncRoute(async (req: Request, res: Response) => answer(res, await deps.instances.startMove(userOf(req).id))));
-  router.get('/move', asyncRoute(async (req: Request, res: Response) => res.json({ move: await deps.instances.moveOf(userOf(req).id) })));
-  router.delete('/move', asyncRoute(async (req: Request, res: Response) => answer(res, await deps.instances.stopMove(userOf(req).id))));
-
-  router.post('/move/self', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    return answer(res, await deps.instances.startMoveAs(instanceId, credential));
-  }));
-  router.get('/move/self', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.moveOfAs(instanceId, credential);
-    return outcome.ok ? res.json({ move: outcome.value }) : res.status(outcome.status).json({ error: outcome.error });
-  }));
-  router.delete('/move/self', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    return answer(res, await deps.instances.stopMoveAs(instanceId, credential));
-  }));
-
-  router.get('/move/parts/:part', asyncRoute(async (req: Request, res: Response) => {
-    const part = String(req.params.part ?? '');
-    if (!isMovePart(part) && !volumeOfPart(part)) return res.status(404).json({ error: 'that is not a part of an instance' });
-    const { instanceId, credential } = credentialOf(req);
-    const source = await deps.instances.moveSource(instanceId, credential);
-    if (!source.ok) return res.status(source.status).json({ error: source.error });
-    if (!deps.moveRelay) return res.status(503).json({ error: 'this root moves no instances' });
-    const upstream = await deps.moveRelay.open(source.value, part).catch((err: Error) => err);
-    if (upstream instanceof Error) return res.status(502).json({ error: `Koala's servers could not be reached: ${upstream.message}` });
-    res.status(upstream.statusCode ?? 502);
-    const type = upstream.headers['content-type'];
-    if (type) res.setHeader('content-type', type);
-    res.setHeader('cache-control', 'no-store');
-    pipeline(upstream, res, () => undefined);
-    req.on('close', () => upstream.destroy());
-    return undefined;
-  }));
-
-  const poolPlace = async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    const place = await deps.instances.poolPlaceOf(instanceId, credential);
-    if (!place.ok) {
-      res.status(place.status).json({ error: place.error });
-      return undefined;
-    }
-    if (!deps.poolMonitoring) {
-      res.status(503).json({ error: 'this root watches no pool' });
-      return undefined;
-    }
-    return { ...place.value, monitoring: deps.poolMonitoring };
-  };
-
-  const answered = (res: Response, err: unknown) => {
-    if (err instanceof PoolMonitoringError) return res.status(err.status).json({ error: err.message });
-    return res.status(502).json({ error: `Koala's servers could not answer: ${(err as Error).message.split('\n')[0]}` });
-  };
-
-  router.get('/monitoring', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    return res.json(place.monitoring.history());
-  }));
-
-  router.post('/monitoring/ask', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    const body = (req.body ?? {}) as { ask?: unknown; range?: unknown };
-    const ask = parseAsk(body.ask);
-    if (!ask) return res.status(400).json({ error: 'that is not a question Koala answers' });
-    const range = body.range === undefined ? undefined : parseRange(body.range);
-    if (body.range !== undefined && !range) return res.status(400).json({ error: 'that is not a time range Koala answers for' });
-    try {
-      if (range) return res.json({ points: await place.monitoring.askRange(place, ask, range) });
-      return res.json({ samples: await place.monitoring.ask(place, ask) });
-    } catch (err) {
-      return answered(res, err);
-    }
-  }));
-
-  router.get('/monitoring/alerts', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    try {
-      return res.json({ alerts: await place.monitoring.alerts(place) });
-    } catch (err) {
-      return answered(res, err);
-    }
-  }));
-
-  router.put('/monitoring/probes', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    const probes = parseProbes(((req.body ?? {}) as { probes?: unknown }).probes);
-    if (!probes) return res.status(400).json({ error: 'probes are a list of an app\'s namespace, service, port, path and module' });
-    try {
-      return res.json(await place.monitoring.setProbes(place.name, place, probes));
-    } catch (err) {
-      return answered(res, err);
-    }
-  }));
-
-  router.put('/monitoring/rules/:id', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    const rule = parsePoolRule(String(req.params.id ?? ''), req.body);
-    if ('error' in rule) return res.status(400).json({ error: rule.error });
-    try {
-      await place.monitoring.setRule(place, rule);
-      return res.json({ set: rule.id });
-    } catch (err) {
-      return answered(res, err);
-    }
-  }));
-
-  router.delete('/monitoring/rules/:id', asyncRoute(async (req: Request, res: Response) => {
-    const place = await poolPlace(req, res);
-    if (!place) return undefined;
-    try {
-      await place.monitoring.removeRule(place, String(req.params.id ?? ''));
-      return res.json({ removed: true });
-    } catch (err) {
-      return answered(res, err);
-    }
   }));
 
   router.post('/hub-token', asyncRoute(async (req: Request, res: Response) => {

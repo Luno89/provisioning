@@ -34,16 +34,16 @@ A person's own Koala on their own machines. It deploys apps (vLLM and TabbyAPI f
 Audiobookshelf, Open WebUI and others) and runs agents that work on the person's projects.
 
 - **Root** holds accounts and signs people in (it is the OpenID provider for everything else), routes addresses through its Caddy,
-  runs the mesh (Headscale), sends mail, keeps the release catalogue and offers trials on the pool. It keeps one k3s cluster of its
+  runs the mesh (Headscale), sends mail and keeps the release catalogue. It keeps one k3s cluster of its
   own.
 - **A machine** is one of a person's computers, added to their account at root, and is exactly one cluster: native k3s (needed for
   GPU passthrough) or k3d in Docker without it. It starts its cluster when something runs on it and stops it when idle. Its agent
   also runs coding agents (Claude Code, Codex, Gemini, Antigravity, Goose) over ACP.
-- **An instance** is a person's Koala: the instance chart's pods on one of their machines, or on the pool. It serves one owner and
+- **An instance** is a person's Koala: the instance chart's pods on one of their machines. It serves one owner and
   signs people in only through root.
 - **The hub** holds projects shared between people; the owner's instance keeps the working copy.
-- **The pool** is Koala's servers, where someone without a machine tries Koala in a sandboxed vcluster and can move to their own
-  machine later.
+- **The pool** (trials on Koala's servers, and the move from there to one's own machine) is tabled until the hosted version is out
+  (owner, 2026-11-20: "lets table the pool trial until the hosted version is out"); `docs/archive-ledger.md` says where its code is.
 
 Koala makes no clusters (owner, 2026-11-08): a cluster comes with a machine and goes with it. There is no other kind of cluster. The
 `combined` role, mock cloud, Hetzner, DigitalOcean and "Provision a cluster" are gone (owner, 2026-11-08: "Ok I think those are all
@@ -183,9 +183,7 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
   person's own.
 - The join asks for sudo once, for k3s (installed stopped) and, with an NVIDIA GPU, NVIDIA's container toolkit for CDI (owner,
   2026-11-13: "C sounds good"). A k3s of the person's own is left alone.
-- Koala is put on a machine only through the machine join and root's install; a move from the pool is that install carrying the
-  pool's data, and it renames the moved records onto the machine's cluster. While it moves only what needs no service is restored;
-  the rest comes over as the last piece of the provision procedure.
+- Koala is put on a machine only through the machine join and root's install.
 - The machine's own report is the only source of its GPUs, cores and memory. A machine that has not reported is shown so, never
   guessed.
 - A device token lives 90 days and rotates over the authenticated socket; Koala keeps only its hash.
@@ -225,7 +223,7 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - Terraform's state on an instance lives in Kubernetes, a Secret per stack, locked; root keeps it in its data folder.
 - **Terraform waits on nothing it makes** (owner, 2026-11-09: "1 for helm"). Koala watches the rollout itself and stops Terraform the
   moment a workload can never recover.
-- Koala's own chart is applied by one install step (machine, pool, self-upgrade and dev alike) with helm waiting on nothing; its setup
+- Koala's own chart is applied by one install step (machine, self-upgrade and dev alike) with helm waiting on nothing; its setup
   steps are ordinary Jobs per revision that wait on what they need, and putting Koala on a machine is a workflow on root that the
   machine's agent carries out (owner, 2026-11-18: "The agent, driven by root").
 - A Koala's platform services and monitoring are set up only by the provision procedure: on every new chart revision, when a piece

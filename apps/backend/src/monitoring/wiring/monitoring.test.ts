@@ -8,7 +8,6 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
 import { ClusterProxyService } from '../../infrastructure/services/ClusterProxyService.js';
-import type { PoolMonitor } from '../services/MonitoringService.js';
 import { monitoringDepsFor, monitoringServiceFor, type MonitoredClusters, type PrometheusProxy } from './monitoring.js';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { http, HttpResponse, interceptHttp } from '../../platform/testing/http.js';
@@ -85,14 +84,11 @@ describe('the monitoring both the backend and the engine worker build', () => {
     expect(access.apply).toHaveBeenCalledWith('machine-desk', 'kind: PrometheusRule');
   });
 
-  it('asks the pool only about the cluster Koala runs in, and finds that cluster and its id through the cluster service', async () => {
+  it('finds the cluster Koala runs in and its id through the cluster service', async () => {
     const { clusters, proxy, db } = parts();
-    const pool = mock<PoolMonitor>();
     clusters.ownCluster.mockResolvedValue(koalas);
     clusters.ownClusterId.mockReturnValue(koalas.id);
-    const deps = monitoringDepsFor({ db, clusters, proxy, pool });
-    expect(deps.pool?.(koalas)).toBe(pool);
-    expect(deps.pool?.(desk)).toBeUndefined();
+    const deps = monitoringDepsFor({ db, clusters, proxy });
     expect(await deps.ownCluster()).toBe(koalas);
     expect(deps.ownClusterId()).toBe('machine-koala');
   });

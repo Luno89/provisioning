@@ -6,7 +6,7 @@ import { MachineAccounts } from '../../../../backend/src/machines/services/Machi
 import { KoalaInstalls } from '../../../../backend/src/machines/services/KoalaInstalls'
 import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice } from '../../../../backend/src/machines/lib/local-agent-registry'
 import { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
-import { InstanceService, type PoolWorkflows } from '../../../../backend/src/instances/services/InstanceService'
+import { InstanceService } from '../../../../backend/src/instances/services/InstanceService'
 import { generateIdentityKey, identityKeysFrom } from '../../../../backend/src/instances/lib/identity-token'
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
 import type { LocalAgentDeviceMetadata } from '../../../../backend/src/platform/lib/types'
@@ -33,34 +33,11 @@ export interface RootSides {
   places: InstanceService
 }
 
-export interface RootSidesOptions {
-  pool?: PoolWorkflows
-}
-
-export async function rootSidesOf(site: Site, options: RootSidesOptions = {}): Promise<RootSides> {
+export async function rootSidesOf(site: Site): Promise<RootSides> {
   const { db, io, origin, api } = site
   const role = roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() })
-  const made: { sides?: MachineSides } = {}
-  const sidesMade = (): MachineSides => {
-    if (!made.sides) throw new Error('root\'s machine sides are asked for before they are made')
-    return made.sides
-  }
-  const installs = () => {
-    const found = sidesMade().installs
-    if (!found) throw new Error('root\'s machine sides came up without installs, which root always follows')
-    return found
-  }
-  const moving = options.pool ? {
-    pool: { slots: 1, trialDays: 30 },
-    moves: { joinCode: (ownerId: string, koalaName: string) => sidesMade().accounts!.createJoinCode(ownerId, koalaName, true), poolClusterId: (name: string) => `pool-${name}` },
-    installs: {
-      setupHeard: (installId: string, report: Parameters<NonNullable<MachineSides['installs']>['setupHeard']>[1]) => installs().setupHeard(installId, report),
-      progressHeard: (installId: string, progress: Parameters<NonNullable<MachineSides['installs']>['progressHeard']>[1]) => installs().progressHeard(installId, progress),
-      stop: (installId: string) => installs().stop(installId),
-    },
-  } : {}
-  const places = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '', ...moving },
-    { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined }, () => new Date(), () => undefined, options.pool)
+  const places = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
+    { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined }, () => new Date(), () => undefined)
   const started: string[] = []
   const workflows: InstallWorkflows = {
     start: async (installId) => { started.push(installId) },
@@ -77,7 +54,6 @@ export async function rootSidesOf(site: Site, options: RootSidesOptions = {}): P
     instances: () => ({ places }),
     installWorkflows: workflows,
   })
-  made.sides = sides
   if (!sides.accounts || !sides.installsWatched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
   afterAll(() => sides.installsWatched?.close())
   await sides.installsWatched.ready

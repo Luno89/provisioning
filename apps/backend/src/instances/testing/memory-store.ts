@@ -1,7 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import { stampServed, type InstanceRecord } from '../lib/instances.js';
-import type { PoolPolicy } from '../lib/pool.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
 import type { SignInKey } from '../lib/oidc.js';
 import type { ClientSession, LogoutDelivery, SessionRevocation } from '../lib/sign-in-state.js';
@@ -33,7 +32,6 @@ export class MemoryInstancesStore implements InstancesStore {
   private readonly handoffs = new Map<string, Date>();
   private readonly instances: Map<string, InstanceRecord>;
   private readonly watches: Map<string, StoredWatch>;
-  private poolPolicy: PoolPolicy | undefined;
   private readonly releases = new Map<string, Fields>();
   private hubKey: SignInKey | undefined;
   private readonly artifacts: Map<string, Artifact>;
@@ -76,7 +74,7 @@ export class MemoryInstancesStore implements InstancesStore {
     }
     const stored = asStored(copied(stampServed(instance)));
     this.instances.set(instance.id, stored);
-    if (stored.install || stored.move || stored.pool) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    if (stored.install) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
   }
 
   async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {
@@ -137,14 +135,6 @@ export class MemoryInstancesStore implements InstancesStore {
 
   async deleteWatch(instanceId: string): Promise<void> {
     this.watches.delete(instanceId);
-  }
-
-  async getPoolPolicy(): Promise<PoolPolicy | undefined> {
-    return this.poolPolicy ? copied(this.poolPolicy) : undefined;
-  }
-
-  async savePoolPolicy(policy: PoolPolicy): Promise<void> {
-    this.poolPolicy = asStored(copied({ ...policy }));
   }
 
   async getReleases(): Promise<InstanceRelease[]> {

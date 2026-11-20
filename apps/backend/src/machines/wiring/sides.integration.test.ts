@@ -70,7 +70,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   const { instanceId, credential } = joined.value;
   const reported = await instances.report(instanceId, credential, { status: 'ready', url: instance.url });
   if (!reported.ok) throw new Error(reported.error);
-  const presence = new InstancePresence({ store: rootDb.instances, tellOwner: async () => undefined, tellOperators: async () => undefined, afterMs: 60_000 });
+  const presence = new InstancePresence({ store: rootDb.instances, tellOwner: async () => undefined, afterMs: 60_000 });
   closers.push(async () => { presence.stop(); });
   const tellInstance = wireInstancePresence(root.io, presence, (id, token) => instances.caller(id, token), (arrived) => rootSide?.instanceArrived(arrived));
   rootSide = machineSides({

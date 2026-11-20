@@ -62,7 +62,7 @@ describe('opening a setup', () => {
     records.set(input.recordId, opened(input));
     const records_ = kept();
     const result = await createProvisionOperations({ records: records_, pieces: { run: async () => ({ ok: true }) } })['provision.open']!(request(input));
-    expect(result).toEqual({ exit: 'done', outputs: { kind: 'koala', moved: 'no' } });
+    expect(result).toEqual({ exit: 'done', outputs: { kind: 'koala' } });
     expect(records_.patches).toEqual([]);
   });
 
@@ -74,7 +74,7 @@ describe('opening a setup', () => {
   it('keeps the record the run was started with, and opens another machine\'s setup with its collector alone', async () => {
     records.set(collector.recordId, opened(collector));
     const result = await ops()['provision.open']!(request(collector));
-    expect(result).toEqual({ exit: 'done', outputs: { kind: 'machine', moved: 'no' } });
+    expect(result).toEqual({ exit: 'done', outputs: { kind: 'machine' } });
     expect(records.get(collector.recordId)!.pieces).toEqual([{ key: 'monitoring', title: "desk-2's collector", state: 'waiting' }]);
   });
 

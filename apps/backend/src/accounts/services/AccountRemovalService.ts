@@ -102,11 +102,9 @@ function signOutsUndelivered(instanceId: string, logouts: readonly UndeliveredLo
 
 export interface PersonInstance {
   name?: string | undefined;
-  where: 'pool' | 'own';
   status: InstanceStatus;
   detail?: string | undefined;
   url: string;
-  trialEndsAt?: string | undefined;
   version?: string | undefined;
   versionWithdrawn?: boolean | undefined;
   heldByData?: { version: string; needs: number } | undefined;
@@ -129,11 +127,9 @@ function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease
   const [held] = current ? dataHolds([instance], releases, current) : [];
   return {
     ...(instance.name ? { name: instance.name } : {}),
-    where: instance.pool ? 'pool' : 'own',
     status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
     ...(instance.detail ? { detail: instance.detail } : {}),
     url: instance.url,
-    ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
     ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
     ...(releases.some((release) => release.imageTag === instance.running && release.withdrawn) ? { versionWithdrawn: true } : {}),
     ...(held ? { heldByData: { version: held.release.version, needs: held.needs } } : {}),

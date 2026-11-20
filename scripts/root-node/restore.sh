@@ -54,7 +54,6 @@ ok "snapshot ${SNAPSHOT} read from ${RESTIC_REPOSITORY}"
 FRESH_MONGO_PASSWORD="$(setting MONGO_ROOT_PASSWORD "$COMPOSE_ENV")"
 FRESH_MONGO_URI="$(setting MONGO_URI "$ENV_FILE")"
 FRESH_OTEL="$(setting OTEL_CLUSTER_COLLECTOR "$COMPOSE_ENV")"
-FRESH_SLOTS="$(setting POOL_SLOTS "$ENV_FILE")"
 FRESH_MESH_IP="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
 OURS=(BACKUP_REPOSITORY BACKUP_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
 declare -A KEEP
@@ -68,14 +67,13 @@ cp "$RESTORED$ENV_FILE" "$ENV_FILE"
 put MONGO_ROOT_PASSWORD "$FRESH_MONGO_PASSWORD" "$COMPOSE_ENV"
 put MONGO_URI "$FRESH_MONGO_URI" "$ENV_FILE"
 [ -n "$FRESH_OTEL" ] && put OTEL_CLUSTER_COLLECTOR "$FRESH_OTEL" "$COMPOSE_ENV"
-[ -n "$FRESH_SLOTS" ] && put POOL_SLOTS "$FRESH_SLOTS" "$ENV_FILE"
 for key in "${OURS[@]}"; do [ -n "${KEEP[$key]}" ] && put "$key" "${KEEP[$key]}" "$ENV_FILE"; done
 find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name logs -exec rm -rf {} +
 cp -a "$RESTORED$DATA_DIR/." "$DATA_DIR/"
 REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
 (cd "$REPO_DIR" && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" temporal-keys) \
   || die "Temporal's certificate and key could not be made from the restored env; the step that failed says why above"
-ok "env and data restored, keeping this host's own Mongo password, collector address and trial slots"
+ok "env and data restored, keeping this host's own Mongo password and collector address"
 (cd "$REPO_DIR" && COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup >/dev/null && npx tsx apps/backend/src/scripts/root-services.ts --compose "docker compose" caddy) \
   || die "Caddy's certificate and DNS settings could not be made from the restored env; run: COMPOSE_ENV=$COMPOSE_ENV npx tsx scripts/root-node/dns.ts setup"
 

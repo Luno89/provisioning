@@ -13,21 +13,6 @@ metadata:
     kubernetes.io/service-account.name: koala-backend
 type: kubernetes.io/service-account-token
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: koala-backend-pool
-rules:
-  - apiGroups: [""]
-    resources: [services]
-    verbs: [get, list]
-  - apiGroups: [""]
-    resources: [services/proxy]
-    verbs: [get, create]
-  - apiGroups: [monitoring.coreos.com]
-    resources: [probes, prometheusrules]
-    verbs: [get, list, create, update, patch, delete]
----
 apiVersion: v1
 kind: Namespace
 metadata:

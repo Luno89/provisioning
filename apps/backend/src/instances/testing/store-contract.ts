@@ -39,10 +39,10 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
   describe('the instance registry', () => {
     it('keeps an instance as saved, replaces it whole when saved again and forgets it when deleted', async () => {
       const store = await make();
-      await store.saveInstance(instance('alpha', 'owner-1', { name: 'alpha', detail: 'installing', meshIp: '100.64.0.2', pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: 's', trialEndsAt: 't' } }));
+      await store.saveInstance(instance('alpha', 'owner-1', { name: 'alpha', detail: 'installing', meshIp: '100.64.0.2', addresses: { nested: true, state: 'issuing' } }));
       await store.saveInstance(instance('beta', 'owner-2'));
       expect(await store.getInstances()).toEqual(expect.arrayContaining([
-        instance('alpha', 'owner-1', { name: 'alpha', detail: 'installing', meshIp: '100.64.0.2', pool: { ports: { backend: 1, edge: 2, registry: 3 }, startedAt: 's', trialEndsAt: 't' } }),
+        instance('alpha', 'owner-1', { name: 'alpha', detail: 'installing', meshIp: '100.64.0.2', addresses: { nested: true, state: 'issuing' } }),
         instance('beta', 'owner-2'),
       ]));
       await store.saveInstance(instance('alpha', 'owner-1', { url: 'https://moved.example' }));
@@ -133,21 +133,21 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(heard).toEqual(['inst-installed asked', 'inst-installed ready']);
     });
 
-    it('hears each write of an instance on Koala\'s servers or moving from them, which its owner\'s page follows', async () => {
+    it('hears each write of an instance being put on a machine, which its owner\'s page follows', async () => {
       const store = await make();
       const heard: string[] = [];
       let finish!: () => void;
       const done = new Promise<void>((resolve) => { finish = resolve; });
-      const watching = store.watchInstalls((written) => { heard.push(`${written.id} ${written.move?.state ?? written.status}`); if (written.move?.state === 'failed') finish(); });
+      const watching = store.watchInstalls((written) => { heard.push(`${written.id} ${written.install?.state}`); if (written.install?.state === 'failed') finish(); });
       await watching.ready;
-      const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-11-18T10:00:00.000Z', trialEndsAt: '2026-12-02T10:00:00.000Z' };
+      const install = { id: 'install-1', machineId: 'desk', at: '2026-11-18T10:00:00.000Z' };
       await store.saveInstance(instance('inst-plain', 'o1'));
-      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'installing' }));
-      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'waiting', startedAt: '2026-11-18T10:01:00.000Z' } }));
-      await store.saveInstance(instance('inst-pool', 'o2', { pool, status: 'paused', move: { state: 'failed', startedAt: '2026-11-18T10:01:00.000Z', detail: 'you stopped the move' } }));
+      await store.saveInstance(instance('inst-put', 'o2', { install: { ...install, state: 'asked' }, status: 'joined' }));
+      await store.saveInstance(instance('inst-put', 'o2', { install: { ...install, state: 'installing' }, status: 'installing' }));
+      await store.saveInstance(instance('inst-put', 'o2', { install: { ...install, state: 'failed' }, status: 'failed' }));
       await done;
       await watching.close();
-      expect(heard).toEqual(['inst-pool installing', 'inst-pool waiting', 'inst-pool failed']);
+      expect(heard).toEqual(['inst-put asked', 'inst-put installing', 'inst-put failed']);
     });
 
     it('changes only the fields named, only while the install named is the instance\'s, and stamps when it first served once ready', async () => {
@@ -160,18 +160,6 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'ready', status: 'ready', url: 'https://bo.koala.app', updatedAt: '2026-11-18T10:02:00.000Z' })).toBe(true);
       expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z', credentialHash: 'h1' });
       expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
-    });
-
-    it('changes a field however deep it lies in a move, keeping the rest of the move', async () => {
-      const store = await make();
-      const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, move: true as const, at: '2026-11-18T10:00:00.000Z' };
-      const move = { state: 'joined' as const, startedAt: '2026-11-18T09:00:00.000Z', credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7' } };
-      await store.saveInstance(instance('inst-a', 'o1', { install, move, credentialHash: 'h1' }));
-      expect(await store.updateInstall('inst-a', 'install-1', { 'move.state': 'copying', 'move.target.url': 'http://100.64.0.7:30320', updatedAt: '2026-11-18T10:01:00.000Z' })).toBe(true);
-      expect((await store.getInstances('o1'))[0]).toMatchObject({
-        credentialHash: 'h1',
-        move: { state: 'copying', startedAt: move.startedAt, credentialHash: 'm1', target: { machine: 'desk', meshIp: '100.64.0.7', url: 'http://100.64.0.7:30320' } },
-      });
     });
   });
 
@@ -223,16 +211,6 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       const read = await store.getWatch('a');
       read!.reach!.reachable = false;
       expect((await store.getWatch('a'))?.reach?.reachable).toBe(true);
-    });
-  });
-
-  describe('the pool policy', () => {
-    it('has none until saved, then keeps the latest', async () => {
-      const store = await make();
-      expect(await store.getPoolPolicy()).toBeUndefined();
-      await store.savePoolPolicy({ trialDays: 7, updatedAt: '2026-10-01T00:00:00.000Z', updatedBy: 'op' });
-      await store.savePoolPolicy({ trialDays: 14, updatedAt: '2026-10-02T00:00:00.000Z', updatedBy: 'op-2' });
-      expect(await store.getPoolPolicy()).toEqual({ trialDays: 14, updatedAt: '2026-10-02T00:00:00.000Z', updatedBy: 'op-2' });
     });
   });
 

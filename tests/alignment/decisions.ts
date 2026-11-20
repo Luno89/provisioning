@@ -201,7 +201,7 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-06T00:13', text: 'for 4 we can have admins be able to add their machines as root node watchers and be able to failover alerts' },
       { at: '2026-11-06T00:16', asked: 'When root is down, how should a watcher machine alert the admins?', text: 'Push from the watcher (Recommended)' },
     ],
-    reading: 'Root keeps one k3s cluster of its own, for its monitoring and the pool. Admins can add machines as watchers of root, which push alerts when root is down.',
+    reading: 'Root keeps one k3s cluster of its own, for its monitoring. Admins can add machines as watchers of root, which push alerts when root is down.',
   },
   {
     id: 'monitoring-per-person',
@@ -285,10 +285,16 @@ export const DECISIONS: Decision[] = [
     terms: ['pool', 'trial'],
     words: [
       { at: '2026-11-05T17:41', text: 'pool is a different concept' },
-      { at: '2026-11-06T05:33', asked: 'Decision 6, the pool.', text: 'Keep both, as today' },
-      { at: '2026-11-04T03:59', asked: 'Correction: a trial Koala on the pool can\'t use a machine at all today.', text: 'Adding it moves Koala there (Recommended)' },
+      { at: '2026-11-20T02:32', text: 'lets table the pool trial until the hosted version is out' },
+      { at: '2026-11-20T02:33', text: 'go ahead an archive it too so that we don\'t have the coverage baggage right now' },
+      { at: '2026-11-20T09:59', asked: 'The move to your own machine only exists as a move from the pool', text: 'Archive it with the pool (Recommended)' },
+      { at: '2026-11-20T09:59', asked: 'Root\'s page for someone with no Koala yet offers', text: 'Straight to adding a machine (Recommended)' },
     ],
-    reading: 'The pool stays as it is (root\'s k3s or a separate pool server) and is outside v1. A trial user adding a machine moves Koala onto it.',
+    reading: 'The pool trial is tabled until the hosted version is out, and archived on 2026-11-20 with the move from it to one\'s own machine. Root\'s page for someone with no Koala yet goes straight to adding a machine.',
+    replaced: [
+      { words: { at: '2026-11-06T05:33', asked: 'Decision 6, the pool.', text: 'Keep both, as today' }, by: 'tabled on 2026-11-20: "lets table the pool trial until the hosted version is out"' },
+      { words: { at: '2026-11-04T03:59', asked: 'Correction: a trial Koala on the pool can\'t use a machine at all today.', text: 'Adding it moves Koala there (Recommended)' }, by: 'archived with the pool on 2026-11-20: "Archive it with the pool (Recommended)"' },
+    ],
   },
   {
     id: 'dev-runs-like-prod',

@@ -98,8 +98,8 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     });
     closers.push(() => link.close());
     await until(() => (sockets.online('desk') ? true : undefined));
-    expect(sockets.stopKoala('desk', { installId: 'install-1', remove: true })).toBe(true);
-    expect(sockets.stopKoala('elsewhere', { installId: 'install-2', remove: false })).toBe(false);
-    expect(await until(() => stops[0])).toEqual({ installId: 'install-1', remove: true });
+    expect(sockets.stopKoala('desk', { installId: 'install-1' })).toBe(true);
+    expect(sockets.stopKoala('elsewhere', { installId: 'install-2' })).toBe(false);
+    expect(await until(() => stops[0])).toEqual({ installId: 'install-1' });
   });
 });
