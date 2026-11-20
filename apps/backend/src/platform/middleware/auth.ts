@@ -93,7 +93,47 @@ export interface Auth {
   claimHeldInvite: (codeHash: string, newUserId: string, email: string) => Promise<string | null>;
 }
 
-export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
+export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: string[] } {
+  const paths = [
+    ...(signsInThroughRoot(role) ? [] : [
+      '/hub-link/invite',
+      '/hub-link/invitation',
+      '/auth/login',
+      '/auth/register',
+      '/auth/register/verify',
+      '/auth/register/resend',
+      '/auth/2fa/verify',
+      '/auth/password/forgot',
+      '/auth/password/forgot/resend',
+      '/auth/password/reset',
+      '/auth/sign-in',
+      '/identity/keys',
+      '/identity/go',
+      '/instances/sign-in-key',
+      '/hub-link/sign-in-key',
+      '/instances/chart.tgz',
+      '/instances/release',
+      '/instances/status',
+      '/instances/machines',
+      '/instances/machines/join-code',
+      '/instances/addresses',
+      '/instances/updates',
+      '/instances/release-findings',
+      '/instances/groups',
+      '/instances/watch',
+      '/instances/mail',
+      '/instances/hub-token',
+    ]),
+    ...(signsInThroughRoot(role) ? ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout'] : []),
+    '/machines/join',
+    '/machines/agent.tgz',
+    '/machines/agent.tgz.sha256',
+    '/machines/metrics',
+    '/metrics',
+  ];
+  const prefixes = role === 'instance' ? ['/checks/scripted/', '/machines/git/', '/share/'] : role === 'hub' ? ['/hub-root/', '/hub-instance/'] : ['/auth/provider/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
+  return { paths, prefixes };
+}
 
 const userOfSession = (session: ClientSession): UserMetadata => ({
   id: session.userId,
@@ -156,47 +196,7 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
-    const publicPaths = [
-      ...(signsInThroughRoot(role) ? [] : [
-        '/hub-link/invite',
-        '/hub-link/invitation',
-        '/auth/login',
-        '/auth/register',
-        '/auth/register/verify',
-        '/auth/register/resend',
-        '/auth/2fa/verify',
-        '/auth/password/forgot',
-        '/auth/password/forgot/resend',
-        '/auth/password/reset',
-        '/auth/sign-in',
-        '/identity/keys',
-        '/identity/go',
-        '/instances/sign-in-key',
-        '/hub-link/sign-in-key',
-        '/instances/chart.tgz',
-        '/instances/release',
-        '/instances/status',
-        '/instances/machines',
-        '/instances/machines/join-code',
-        '/instances/addresses',
-        '/instances/updates',
-        '/instances/release-findings',
-        '/instances/groups',
-        '/instances/trial',
-        '/instances/watch',
-        '/instances/mail',
-        '/instances/hub-token',
-        '/instances/monitoring',
-        '/instances/move/self',
-      ]),
-      ...(signsInThroughRoot(role) ? ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout'] : []),
-      '/machines/join',
-      '/machines/agent.tgz',
-      '/machines/agent.tgz.sha256',
-      '/machines/metrics',
-      '/metrics',
-    ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/auth/provider/', '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
+    const { paths: publicPaths, prefixes: publicPrefixes } = publicPathsOf(role);
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
