@@ -10,7 +10,7 @@ import { parseAllDocuments } from 'yaml';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { adminEdge } from '../../instances/services/InstanceAddresses.js';
-import { startK3s } from '../testing/real-k3s.js';
+import { privateCluster } from '../testing/private-cluster.js';
 import { AppExposureService } from './AppExposureService.js';
 import { CLUSTER_TOOL_PATHS, ClusterAccess } from './ClusterAccess.js';
 import { localCommands, removeSteps, runSteps } from '@koala/provision';
@@ -18,7 +18,7 @@ import { memoryReporter, type ContainerContext } from '@koala/provision/testing'
 import { edgeCaddy, type EdgeCaddy } from '../../platform/testing/edge-caddy.js';
 
 const KEY = 'test-key' as never;
-const k3s = await startK3s();
+const k3s = await privateCluster(import.meta.filename);
 const REPO = resolve(import.meta.dirname, '../../../../..');
 const NAMESPACE = `shop-${randomUUID().slice(0, 6)}`;
 
@@ -98,7 +98,7 @@ async function deskWithShop(db: Awaited<ReturnType<typeof testDatabase>>): Promi
     await access.kubectl('machine-desk', ['create', 'namespace', 'traefik']);
     await access.apply('machine-desk', POD);
     await access.kubectl('machine-desk', ['wait', '--for=condition=Ready', 'pod/web', '-n', 'traefik', '--timeout=720h']);
-    const nodeAddress = (await access.kubectl('machine-desk', ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'])).trim();
+    const nodeAddress = k3s.address;
     const nodePort = (await access.kubectl('machine-desk', ['get', 'service', 'traefik', '-n', 'traefik', '-o', 'jsonpath={.spec.ports[0].nodePort}'])).trim();
     while ((await nodeProcesses.run({ command: 'docker', args: ['exec', edgeName, 'wget', '-q', '-T', '5', '-O', '-', `http://${nodeAddress}:${nodePort}/`] })).stdout !== 'from-the-app\n') {
       const edgeState = (await nodeProcesses.run({ command: 'docker', args: ['inspect', '-f', '{{.State.Status}}', edgeName] })).stdout.trim();

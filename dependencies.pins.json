@@ -1290,6 +1290,7 @@
       "kind": "chart",
       "name": "vcluster",
       "version": "0.37.2",
+      "sha256": "0e3e1df3802a1199653930cfadcf52ba309ea7d5282a1a8541452bea8a9cf707",
       "source": "https://charts.loft.sh",
       "github": "loft-sh/vcluster",
       "osv": {
@@ -1302,10 +1303,16 @@
           "pattern": "VCLUSTER_CHART_VERSION = '([0-9.]+)'"
         }
       ],
+      "shaUses": [
+        {
+          "file": "apps/backend/src/instances/lib/pool.ts",
+          "pattern": "VCLUSTER_CHART_SHA256 = '([0-9a-f]{64})'"
+        }
+      ],
       "released": "2026-09-23T10:32:45Z",
       "sourceUses": [
         {
-          "file": "apps/backend/src/activities/pool-node.ts",
+          "file": "apps/backend/src/activities/vcluster.ts",
           "pattern": "'vcluster', '--repo', '([^']+)'"
         }
       ]

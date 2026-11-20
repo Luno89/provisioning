@@ -6,7 +6,7 @@ import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { startedMachine, type Reach } from '../lib/cluster-places.js';
 import { ClusterAccess } from '../services/ClusterAccess.js';
 import { chartFolder, chartSourcesStandIn, type ChartSourcesStandIn } from './chart-sources-stand-in.js';
-import { startK3s } from './real-k3s.js';
+import { privateCluster } from './private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 
 export interface WidgetCluster {
@@ -19,7 +19,7 @@ export interface WidgetCluster {
   stop(): Promise<void>;
 }
 
-export async function widgetCluster(machine: string, helm: { readsSources: boolean }): Promise<WidgetCluster> {
+export async function widgetCluster(file: string, machine: string, helm: { readsSources: boolean }): Promise<WidgetCluster> {
   const group = `koala${randomBytes(4).toString('hex')}.test`;
   const crd = `widgets.${group}`;
   const definition = (fields: readonly string[]) => `apiVersion: apiextensions.k8s.io/v1
@@ -44,7 +44,7 @@ spec:
 ${fields.map((field) => `                ${field}: { type: string }`).join('\n')}
 `;
   const sources = await chartSourcesStandIn();
-  const k3s = await startK3s();
+  const k3s = await privateCluster(file);
   const access = new ClusterAccess({
     here: { koalaMachineId: 'dev1', root: false },
     folder: mkdtempSync(join(tmpdir(), `koala-${machine}-`)),

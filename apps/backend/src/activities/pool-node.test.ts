@@ -1,8 +1,11 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess } from '../infrastructure/index.js';
 import { ADMISSION_CHECK_NAMESPACE, installJob, PoolNode, yaml } from './pool-node.js';
+import { VCLUSTER_CHART_FILE } from './vcluster.js';
 
 const NODE = 'root';
 const IMAGE = { repository: 'reg.test/nowrinkles/app', tag: 'v1' };
@@ -14,9 +17,11 @@ function node() {
   access.helm.mockResolvedValue('[]');
   access.kubectl.mockResolvedValue('');
   const slept: number[] = [];
-  const pool = new PoolNode({ access, node: NODE, sleep: async (ms) => { slept.push(ms); } });
+  const charts = mkdtempSync(join(tmpdir(), 'koala-pool-charts-'));
+  writeFileSync(join(charts, VCLUSTER_CHART_FILE), 'kept');
+  const pool = new PoolNode({ access, node: NODE, charts, sleep: async (ms) => { slept.push(ms); } });
   const kinds = () => access.apply.mock.calls.filter(([, , options]) => !options?.serverSide).map(([where, docs]) => [where, docs.split('\n---\n').map((doc) => (JSON.parse(doc) as { kind: string }).kind)]);
-  return { access, pool, slept, kinds };
+  return { access, pool, slept, kinds, charts };
 }
 
 const kubectlAsked = (access: ReturnType<typeof node>['access']) => access.kubectl.mock.calls.map(([where, args]) => [where, args.join(' ')]);
@@ -123,7 +128,7 @@ describe('the pool\'s proxy', () => {
 
 describe('a trial\'s vcluster', () => {
   it('gets its namespace, its probe policy and its vcluster on root\'s cluster, then waits for its sign-in', async () => {
-    const { access, pool, slept, kinds } = node();
+    const { access, pool, slept, kinds, charts } = node();
     let asked = 0;
     access.kubectl.mockImplementation(async () => {
       asked += 1;
@@ -135,7 +140,7 @@ describe('a trial\'s vcluster', () => {
     access.helm.mockImplementation(async (_at, args) => { written = readFileSync(args[args.indexOf('-f') + 1]!, 'utf8'); return ''; });
     await pool.vcluster({ name: 'ann', ownerId: 'o1', registryPort: 30100 }, SLOT);
     expect(kinds().map(([where, docs]) => [where, docs])).toEqual([[NODE, ['Namespace', 'RoleBinding']], [NODE, ['NetworkPolicy']]]);
-    expect(access.helm.mock.calls[0]).toEqual([NODE, expect.arrayContaining(['upgrade', '--install', 'ann', 'vcluster', '-n', 'pool-ann'])]);
+    expect(access.helm.mock.calls[0]).toEqual([NODE, expect.arrayContaining(['upgrade', '--install', 'ann', join(charts, VCLUSTER_CHART_FILE), '-n', 'pool-ann'])]);
     expect(JSON.parse(written)).toBeTruthy();
     expect(slept).toEqual([2000, 2000]);
     expect(kubectlAsked(access).at(-1)).toEqual([NODE, 'get secret vc-ann -n pool-ann -o name']);

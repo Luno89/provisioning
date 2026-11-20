@@ -5,11 +5,12 @@ import { ApplicationFailure } from '@temporalio/common';
 import type { ClusterAccess, Target } from '../infrastructure/index.js';
 import {
   admissionManifests, backendAccessManifest, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolNamespace, PROXY, proxyCaddyfile,
-  proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
+  proxyManifests, RUNTIME_CLASS, vclusterAddress, vclusterValues, type PoolSettings,
 } from '../instances/index.js';
 import { applyChartCrds } from './chart-crds.js';
 import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
 import { messageOf, waitingOn } from './failure-reasons.js';
+import { installVcluster, vclusterSecret } from './vcluster.js';
 
 export const ADMISSION_CHECK_NAMESPACE = 'pool-admission-check';
 
@@ -18,6 +19,7 @@ export type PoolNodeAccess = Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>;
 export interface PoolNodeDeps {
   access: PoolNodeAccess;
   node: Target;
+  charts: string;
   sleep?: ((ms: number) => Promise<void>) | undefined;
 }
 
@@ -50,7 +52,7 @@ export function installJob(job: string, namespace: string, vcluster: string, ima
             volumeMounts: [{ name: 'vc', mountPath: '/vc', readOnly: true }, { name: 'values', mountPath: '/values', readOnly: true }],
           }],
           volumes: [
-            { name: 'vc', secret: { secretName: `vc-${vcluster}` } },
+            { name: 'vc', secret: { secretName: vclusterSecret(vcluster) } },
             { name: 'values', secret: { secretName: 'instance-values' } },
           ],
         },
@@ -136,21 +138,7 @@ export class PoolNode {
     const namespace = poolNamespace(name);
     await this.apply([namespaceManifest(name, instance.ownerId, instance.registryPort), backendAccessManifest(name)]);
     await this.apply([probeIngressPolicy(name, { hostNamespace: namespace })]);
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
-    try {
-      const values = path.join(dir, 'vcluster.json');
-      await fs.writeFile(values, JSON.stringify(vclusterValues(name, slot)));
-      await this.helm(['upgrade', '--install', name, 'vcluster', '--repo', 'https://charts.loft.sh', '--version', VCLUSTER_CHART_VERSION,
-        '-n', namespace, '--wait', '--timeout', '720h', '-f', values]);
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-    const waiting = waitingOn(`the vcluster ${name}'s sign-in`);
-    for (;;) {
-      const secret = await this.kubectl(['get', 'secret', `vc-${name}`, '-n', namespace, '-o', 'name']).catch((err: unknown) => { waiting(err); return ''; });
-      if (secret.trim()) break;
-      await this.sleep(2000);
-    }
+    await installVcluster(this.deps.access, this.deps.node, this.deps.charts, { name, namespace, values: vclusterValues(name, slot) }, this.sleep);
   }
 
   async install(name: string, job: string, values: unknown, image: PoolSettings['image']): Promise<void> {

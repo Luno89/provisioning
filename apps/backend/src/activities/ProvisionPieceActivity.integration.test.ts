@@ -6,7 +6,7 @@ import { mock } from 'vitest-mock-extended';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import { ClusterAccess, InfrastructureService, openedRecord, terraformPlacesFor, type ProvisionPieceInput } from '../infrastructure/index.js';
-import { startK3s, type RealK3s } from '../infrastructure/testing/real-k3s.js';
+import { privateCluster, type PrivateCluster } from '../infrastructure/testing/private-cluster.js';
 import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
 import { CannotRollOut } from './watched-apply.js';
@@ -18,12 +18,12 @@ const ALL_BUT_JOBS = ['', 'apps', 'networking.k8s.io', 'rbac.authorization.k8s.i
 const fresh = await emptiedEachTime();
 const quickly = (ms: number): Promise<void> => new Promise((done) => { setTimeout(done, Math.min(ms, 500)); });
 
-let k3s: RealK3s;
+let k3s: PrivateCluster;
 let steps: Pick<ClusterSteps, 'access' | 'infra' | 'database' | 'machineMetricsUrl'>;
 let place: ProvisionPlace;
 
 beforeAll(async () => {
-  k3s = await startK3s();
+  k3s = await privateCluster(import.meta.filename);
   const access = new ClusterAccess({
     here: { koalaMachineId: 'desk', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-provision-piece-')),

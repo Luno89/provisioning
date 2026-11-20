@@ -25,6 +25,6 @@ afterAll(async () => {
   mkdirSync(seen, { recursive: true });
   const added = (await clusterWide(adminFile)).filter((entry) => !baseline.includes(entry)).filter((entry) => firstToSee(seen, entry));
   if (added.length) {
-    throw new Error(`the shared k3s holds what no test may leave or make there: ${added.join(', ')}. A test that needs cluster-wide or node state starts a k3s of its own (startK3s).`);
+    throw new Error(`the shared k3s holds what no test may leave or make there: ${added.join(', ')}. A test that needs cluster-wide state makes a cluster of its own (privateCluster).`);
   }
 }, 0);
