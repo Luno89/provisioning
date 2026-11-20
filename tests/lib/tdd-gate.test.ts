@@ -93,6 +93,12 @@ describe('committing source', () => {
     expect(verdict.allow === false && verdict.why).toMatch(/FAIL x\.test\.ts/);
   });
 
+  it('names the failing tests when other workspaces\' passing runs come after them', () => {
+    const output = ['FAIL |integration| src/a.integration.test.ts > keeps it', '× keeps it 12ms', ...Array.from({ length: 40 }, (_, at) => `passing line ${at}`)].join('\n');
+    const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: [], changedTests: ['x.test.ts'], siblings: [], run: { passed: false, output } });
+    expect(verdict.allow === false && verdict.why).toMatch(/FAIL \|integration\| src\/a\.integration\.test\.ts > keeps it/);
+  });
+
   it('still holds a removal that brings a new test file to red first', () => {
     const verdict = commitVerdict({ state: undefined, head: HEAD, source: ['a.ts'], removalsOnly: false, shrinks: true, newTests: ['y.test.ts'], changedTests: ['x.test.ts', 'y.test.ts'], siblings: [], run: { passed: true, output: '' } });
     expect(verdict.allow).toBe(false);

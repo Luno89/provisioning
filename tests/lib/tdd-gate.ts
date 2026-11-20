@@ -48,7 +48,13 @@ export interface CommitFacts {
   run: TestRun | undefined;
 }
 
-const tail = (output: string) => output.split('\n').filter((line) => line.trim()).slice(-25).join('\n');
+const FAILED = /(^|\s)(FAIL|×|AssertionError|Error:)\s/;
+
+const tail = (output: string) => {
+  const kept = output.split('\n').filter((line) => line.trim());
+  const failed = kept.filter((line) => FAILED.test(line)).slice(0, 40);
+  return [...failed, ...(failed.length > 0 ? ['…'] : []), ...kept.slice(-25)].join('\n');
+};
 
 export function commitVerdict(facts: CommitFacts): Verdict {
   if (facts.source.length === 0 || facts.removalsOnly) return { allow: true };
