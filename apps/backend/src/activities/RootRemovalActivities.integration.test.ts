@@ -23,12 +23,10 @@ beforeAll(async () => {
 const instance = (ownerId: string, over: Record<string, unknown>) => ({ id: `inst-${ownerId}`, ownerId, url: '', createdAt: 't', updatedAt: 't', credentialHash: 'h', ...over }) as never;
 
 describe('removing an account on root, as root\'s host worker runs it on root\'s Mongo', () => {
-  it('names the person\'s instance on the pool and the install of Koala on their machine still under way, which the removal stops first', async () => {
-    await db.instances.saveInstance(instance('al', { pool: { slot: 1 } }));
+  it('names the install of Koala on the person\'s machine still under way, which the removal stops first', async () => {
     await db.instances.saveInstance(instance('bo', { machineId: 'desk', install: { id: 'install-bo', machineId: 'desk', state: 'installing', at: 't' } }));
     await db.instances.saveInstance(instance('cy', { machineId: 'desk', install: { id: 'install-cy', machineId: 'desk', state: 'ready', at: 't' } }));
 
-    expect(await RootRemovalInstanceActivity({ ownerId: 'al' })).toEqual({ poolInstanceId: 'inst-al' });
     expect(await RootRemovalInstanceActivity({ ownerId: 'bo' })).toEqual({ installId: 'install-bo' });
     expect(await RootRemovalInstanceActivity({ ownerId: 'cy' })).toEqual({});
     expect(await RootRemovalInstanceActivity({ ownerId: 'nobody' })).toEqual({});
