@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judge, type Codebase, type Weights } from './confidence.js';
+import { judge, reportOf, type Codebase, type Weights } from './confidence.js';
 
 const WEIGHTS: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
 
@@ -91,5 +91,24 @@ describe('code no test runs', () => {
 
     expect(judged.blocking).toEqual([]);
     expect(judged.untested).toEqual([]);
+  });
+});
+
+describe('the report', () => {
+  it('counts links by kind and how proven they are, lists the riskiest, and names the changed code no test runs', () => {
+    const links = [
+      { id: 'a.ts:2', from: 'save', to: ['store'], kind: 'composition' as const },
+      { id: 'a.ts:3', from: 'save', to: ['store'], kind: 'logic' as const },
+    ];
+    const judged = judge(codebase({ links, runs: [{ test: 'u', layer: 'unit', units: ['save'], links: ['a.ts:3'] }], changed: ['store'] }), WEIGHTS);
+
+    expect(reportOf(judged, 1).split('\n')).toEqual([
+      '2 links: logic 1 (1 proven), composition 1 (0 proven), dependency 0 (0 proven)',
+      '2 of 3 functions no test runs',
+      'riskiest:',
+      '  1.00  a.ts:2 composition, proven nowhere',
+      'changed code no test runs (blocks):',
+      '  b.ts:1 store',
+    ]);
   });
 });
