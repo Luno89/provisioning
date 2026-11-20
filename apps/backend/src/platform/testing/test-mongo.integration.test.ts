@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,19 @@ describe('the test Mongo, a mongod of this run started by the step root\'s Mongo
     const status = await client.db('admin').command({ serverStatus: 1 }) as { wiredTiger: { cache: Record<string, number> } };
     await release();
     expect(status.wiredTiger.cache['maximum bytes configured']).toBe(TEST_MONGO_CACHE_GB * 1024 ** 3);
+  });
+
+  it('runs the very Mongo version production pins, so a proof against it holds for production', async () => {
+    const pins = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', '..', '..', '..', 'dependencies.pins.json'), 'utf8')) as { components: { kind: string; name: string; version: string; floating?: boolean }[] };
+    const mongo = pins.components.find((component) => component.kind === 'image' && component.name === 'mongo');
+    expect(mongo?.floating).not.toBe(true);
+    const started = stepFor(join(await folder(), 'mongo'));
+    await runSteps([started.step], ctx, memoryReporter());
+    await madePrimary(started.mongo);
+    const { client, release } = await leaseMongo(started.mongo.uri());
+    const info = await client.db('admin').command({ buildInfo: 1 }) as { version: string };
+    await release();
+    expect(info.version).toBe(mongo?.version);
   });
 
   it('fails at once when mongod cannot start, saying why and how much room the disk it writes to has', async () => {

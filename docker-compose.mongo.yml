@@ -3,7 +3,7 @@ version: "3.9"
 
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:8.0.38@sha256:bdc216e9d5a6ec2cfdac789b5832fdab64cd32055f59885cae918a92de63c361
     restart: unless-stopped
     entrypoint:
       - sh

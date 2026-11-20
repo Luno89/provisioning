@@ -814,17 +814,39 @@
     {
       "kind": "image",
       "name": "mongo",
-      "version": "7",
-      "floating": true,
-      "source": "docker.io/library/mongo:7",
+      "version": "8.0.38",
+      "sha256": "bdc216e9d5a6ec2cfdac789b5832fdab64cd32055f59885cae918a92de63c361",
+      "source": "docker.io/library/mongo:8.0.38",
       "uses": [
         {
           "file": "docker-compose.mongo.yml",
-          "pattern": "image: mongo:([0-9.]+)"
+          "pattern": "image: mongo:([0-9.]+)@sha256"
         },
         {
           "file": "charts/instance/values.yaml",
-          "pattern": "image: mongo:([0-9.]+)"
+          "pattern": "image: mongo:([0-9.]+)@sha256"
+        },
+        {
+          "file": "apps/backend/src/platform/testing/test-mongo.ts",
+          "pattern": "const MONGO_VERSION = '([0-9.]+)'"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "MONGOMS_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "tests/tiers/home.ts",
+          "pattern": "process.env.MONGOMS_VERSION = '([0-9.]+)'"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "docker-compose.mongo.yml",
+          "pattern": "image: mongo:[0-9.]+@sha256:([0-9a-f]{64})"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "image: mongo:[0-9.]+@sha256:([0-9a-f]{64})"
         }
       ]
     },

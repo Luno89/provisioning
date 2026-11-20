@@ -6,6 +6,7 @@ import { afterAll } from 'vitest';
 const home = mkdtempSync(join(tmpdir(), 'koala-test-home-'));
 process.env.MONGOMS_DOWNLOAD_DIR ??= join(homedir(), '.cache', 'mongodb-binaries');
 process.env.MONGOMS_RUNTIME_DOWNLOAD = 'false';
+process.env.MONGOMS_VERSION = '8.0.38';
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 delete process.env.KUBECONFIG;

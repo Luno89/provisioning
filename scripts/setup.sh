@@ -188,6 +188,9 @@ echo "✅ Binaries ready."
 echo "Installing the workspaces' packages"
 npm ci
 
+echo "Fetching the Mongo the tests run, the version production pins"
+MONGOMS_DOWNLOAD_DIR="$HOME/.cache/mongodb-binaries" MONGOMS_VERSION=8.0.38 node node_modules/mongodb-memory-server/postinstall.js
+
 echo "Generating CDKTF's provider bindings"
 (cd packages/cdktf-infra && npx cdktf get)
 
