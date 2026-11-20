@@ -1,4 +1,4 @@
-import type { Codebase, Kind, Layer, Link, Run } from '@koala/coupling';
+import type { Codebase, Kind, Layer, Link, Run, Sharing } from '@koala/coupling';
 import type { Ran } from './collect.js';
 import type { Edge, Graph, Unit } from './graph.js';
 import { judge, siteRan, unitsRanBy } from './join.js';
@@ -18,6 +18,18 @@ export const DEPENDENCIES: Readonly<Record<string, Layer>> = {
   'oidc-provider': 'container',
 };
 
+export const SHARING: Sharing = { service: 0.6, resource: 0.2, operation: 0.2 };
+
+export interface Since { files: string[]; versions: Record<string, string> }
+
+export interface Context {
+  changed: readonly string[];
+  since?: (testFile: string) => Since | undefined;
+  versions?: Record<string, string>;
+  churn?: Record<string, number>;
+  failures?: Record<string, number>;
+}
+
 export const layerOf = (testFile: string): Layer =>
   /-live\.ts$/.test(testFile) ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
 
@@ -35,10 +47,16 @@ function linkIds(edges: readonly Edge[]): string[] {
   const short = edges.map((edge) => `${edge.site.file}:${edge.site.line}`);
   const seen = new Map<string, number>();
   for (const id of short) seen.set(id, (seen.get(id) ?? 0) + 1);
-  return edges.map((edge, index) => (seen.get(short[index]!)! > 1 ? `${short[index]}:${edge.site.column}` : short[index]!));
+  const given = new Map<string, number>();
+  return edges.map((edge, index) => {
+    const id = seen.get(short[index]!)! > 1 ? `${short[index]}:${edge.site.column}` : short[index]!;
+    const count = (given.get(id) ?? 0) + 1;
+    given.set(id, count);
+    return count === 1 ? id : `${id}#${count}`;
+  });
 }
 
-export function codebaseOf(graph: Graph, ran: readonly Ran[], changedFiles: readonly string[]): Codebase {
+export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context): Codebase {
   const units = Object.values(graph.units).filter(judged);
   const kept = new Set(units.map((unit) => unit.id));
   const ids = linkIds(graph.edges);
@@ -57,7 +75,10 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], changedFiles: read
     if (!kept.has(unit)) continue;
     for (const test of new Set(tests)) unitsBy.set(test, [...(unitsBy.get(test) ?? []), unit]);
   }
-  const runs: Run[] = ran.map((run) => ({
+  const unitsIn = (files: readonly string[]): string[] => { const set = new Set(files); return units.filter((unit) => set.has(unit.file)).map((unit) => unit.id).sort(); };
+  const runs: Run[] = ran.map((run): Run => {
+    const since = context.since?.(run.testFile);
+    return {
     test: run.testFile,
     layer: layerOf(run.testFile),
     units: [...new Set(unitsBy.get(run.testFile) ?? [])].sort(),
@@ -65,12 +86,32 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], changedFiles: read
       ...(provedBy.get(run.testFile) ?? []),
       ...outward.filter(({ edge }) => siteRan(run.files[edge.site.file], { line: edge.site.line, column: edge.site.column })).map(({ id }) => id),
     ])],
-  }));
-  const changed = new Set(changedFiles);
+    ...(since ? { expired: unitsIn(since.files), versions: since.versions } : {}),
+    };
+  });
+  const changes: Record<string, number> = {};
+  for (const unit of units) if (context.churn?.[unit.file]) changes[unit.id] = context.churn[unit.file]!;
+  const failures: Record<string, number> = {};
+  for (const run of runs) {
+    const failed = context.failures?.[run.test] ?? 0;
+    if (failed > 0) for (const unit of run.units) failures[unit] = (failures[unit] ?? 0) + failed;
+  }
   return {
     units: units.map((unit) => ({ id: unit.id, file: unit.file, name: unit.name, line: unit.line })),
     links,
     runs,
-    changed: units.filter((unit) => changed.has(unit.file)).map((unit) => unit.id).sort(),
+    changed: unitsIn(context.changed),
+    ...(context.versions ? { versions: context.versions } : {}),
+    ...(context.churn || context.failures ? { history: { changes, failures } } : {}),
   };
+}
+
+export function versionsIn(lock: string, modules: readonly string[]): Record<string, string> {
+  const packages = (JSON.parse(lock) as { packages?: Record<string, { version?: string }> }).packages ?? {};
+  const found: Record<string, string> = {};
+  for (const module of modules) {
+    const version = packages[`node_modules/${module}`]?.version;
+    if (version !== undefined) found[module] = version;
+  }
+  return found;
 }

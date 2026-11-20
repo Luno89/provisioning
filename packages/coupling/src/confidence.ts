@@ -7,13 +7,17 @@ export interface CodeUnit { id: string; file: string; name: string; line: number
 
 export interface Link { id: string; from: string; to: string[]; kind: Kind; path?: string[]; realFrom?: Layer }
 
-export interface Run { test: string; layer: Layer; units: string[]; links: string[] }
+export interface Run { test: string; layer: Layer; units: string[]; links: string[]; versions?: Record<string, string>; expired?: string[] }
 
 export interface History { changes?: Record<string, number>; failures?: Record<string, number> }
 
-export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; history?: History }
+export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; versions?: Record<string, string>; history?: History }
 
 export type Weights = Record<Layer, number>;
+
+export interface Sharing { service: number; resource: number; operation: number }
+
+export const EVEN_SHARING: Sharing = { service: 1 / 3, resource: 1 / 3, operation: 1 / 3 };
 
 export interface JudgedLink extends Link {
   provenAt: Layer[];
@@ -23,56 +27,88 @@ export interface JudgedLink extends Link {
   risk: number;
 }
 
-export interface Judgement { units: CodeUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[] }
+export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; risk: number }
+
+export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[] }
 
 const REAL_FROM: Layer = 'contract';
 
-const proves = (link: Link, run: Run): boolean =>
-  run.links.includes(link.id) && (link.kind !== 'dependency' || LAYERS.indexOf(run.layer) >= LAYERS.indexOf(link.realFrom ?? REAL_FROM));
+const atOrAbove = (layer: Layer, floor: Layer): boolean => LAYERS.indexOf(layer) >= LAYERS.indexOf(floor);
+
+const sameVersion = (link: Link, run: Run, versions: Record<string, string> | undefined): boolean => {
+  const service = link.path?.[0];
+  if (service === undefined) return true;
+  const today = versions?.[service];
+  return today === undefined || run.versions?.[service] === today;
+};
+
+const stillTrue = (link: Link, run: Run): boolean => {
+  const expired = new Set(run.expired ?? []);
+  return !expired.has(link.from) && !link.to.some((id) => expired.has(id));
+};
+
+const proves = (link: Link, run: Run, versions: Record<string, string> | undefined): boolean =>
+  run.links.includes(link.id)
+  && stillTrue(link, run)
+  && (link.kind !== 'dependency' || (atOrAbove(run.layer, link.realFrom ?? REAL_FROM) && sameVersion(link, run, versions)));
 
 const confidenceOf = (layers: readonly Layer[], weights: Weights): number =>
   1 - layers.reduce((left, layer) => left * (1 - weights[layer]), 1);
 
-const sharedLength = (a: readonly string[], b: readonly string[]): number => {
-  let at = 0;
-  while (at < a.length && at < b.length && a[at] === b[at]) at += 1;
-  return at;
-};
+const sameParts = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((part, at) => part === b[at]);
 
-function lent(link: Link, proven: readonly JudgedLink[]): { confidence: number; from: string } | undefined {
+function shareOf(a: readonly string[], b: readonly string[], sharing: Sharing): number {
+  if (a.length === 0 || b.length === 0 || a[0] !== b[0]) return 0;
+  if (!sameParts(a.slice(1, -1), b.slice(1, -1))) return sharing.service;
+  if (a.at(-1) !== b.at(-1)) return sharing.service + sharing.resource;
+  return sharing.service + sharing.resource + sharing.operation;
+}
+
+function lent(link: Link, proven: readonly JudgedLink[], sharing: Sharing): { confidence: number; from: string } | undefined {
   if (link.kind !== 'dependency' || !link.path || link.path.length === 0) return undefined;
   let best: { confidence: number; from: string } | undefined;
   for (const sibling of proven) {
     if (sibling.kind !== 'dependency' || !sibling.path || sibling.id === link.id) continue;
-    const share = sharedLength(link.path, sibling.path) / Math.max(link.path.length, sibling.path.length);
-    const confidence = sibling.confidence * share;
+    const confidence = sibling.confidence * shareOf(link.path, sibling.path, sharing);
     if (confidence > 0 && (!best || confidence > best.confidence)) best = { confidence, from: sibling.id };
   }
   return best;
 }
 
-export function judge(codebase: Codebase, weights: Weights): Judgement {
+const riskiestFirst = <T extends { risk: number }>(list: readonly T[]): T[] =>
+  list.map((item, index) => ({ item, index })).sort((a, b) => b.item.risk - a.item.risk || a.index - b.index).map(({ item }) => item);
+
+export function judge(codebase: Codebase, weights: Weights, sharing: Sharing = EVEN_SHARING): Judgement {
   const changes = codebase.history?.changes ?? {};
   const failures = codebase.history?.failures ?? {};
+  const weight = (unit: string): number => (1 + Math.log2(1 + (changes[unit] ?? 0))) * (1 + (failures[unit] ?? 0));
   const direct: JudgedLink[] = codebase.links.map((link) => {
-    const proving = codebase.runs.filter((run) => proves(link, run));
+    const proving = codebase.runs.filter((run) => proves(link, run, codebase.versions));
     const provenAt = LAYERS.filter((layer) => proving.some((run) => run.layer === layer));
     return { ...link, provenAt, provenBy: [...new Set(proving.map((run) => run.test))].sort(), confidence: confidenceOf(provenAt, weights), risk: 0 };
   });
   const proven = direct.filter((link) => link.confidence > 0);
   const links = direct.map((link): JudgedLink => {
-    const borrowed = link.confidence === 0 ? lent(link, proven) : undefined;
+    const borrowed = link.confidence === 0 ? lent(link, proven, sharing) : undefined;
     const confidence = borrowed?.confidence ?? link.confidence;
-    const risk = (1 - confidence) * (1 + (changes[link.from] ?? 0)) * (1 + (failures[link.from] ?? 0));
-    return { ...link, confidence, risk, ...(borrowed ? { sharedFrom: borrowed.from } : {}) };
+    return { ...link, confidence, risk: (1 - confidence) * weight(link.from), ...(borrowed ? { sharedFrom: borrowed.from } : {}) };
   });
-  const ran = new Set(codebase.runs.flatMap((run) => run.units));
+  const ranAt = new Map<string, Set<Layer>>();
+  for (const run of codebase.runs) {
+    const expired = new Set(run.expired ?? []);
+    for (const unit of run.units) if (!expired.has(unit)) ranAt.set(unit, (ranAt.get(unit) ?? new Set<Layer>()).add(run.layer));
+  }
+  const functions = codebase.units.map((unit): JudgedUnit => {
+    const runAt = LAYERS.filter((layer) => ranAt.get(unit.id)?.has(layer));
+    const confidence = confidenceOf(runAt, weights);
+    return { ...unit, runAt, confidence, risk: (1 - confidence) * weight(unit.id) };
+  });
   const changed = new Set(codebase.changed);
-  const byId = (a: CodeUnit, b: CodeUnit) => a.id.localeCompare(b.id);
-  const untested = codebase.units.filter((unit) => !ran.has(unit.id)).sort(byId);
+  const untested = codebase.units.filter((unit) => !ranAt.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id));
   return {
     units: codebase.units,
-    links: links.map((link, index) => ({ link, index })).sort((a, b) => b.link.risk - a.link.risk || a.index - b.index).map(({ link }) => link),
+    functions: riskiestFirst(functions),
+    links: riskiestFirst(links),
     untested,
     blocking: untested.filter((unit) => changed.has(unit.id)),
   };
@@ -86,11 +122,15 @@ const provenLine = (link: JudgedLink): string =>
 export function reportOf(judged: Judgement, riskiest: number): string {
   const lines = [`${judged.links.length} links: ${KINDS.map((kind) => {
     const of = judged.links.filter((link) => link.kind === kind);
-    return `${kind} ${of.length} (${of.filter((link) => link.confidence > 0).length} proven)`;
+    const proven = of.filter((link) => link.provenAt.length > 0).length;
+    const lentProof = of.filter((link) => link.sharedFrom !== undefined).length;
+    return `${kind} ${of.length} (${proven} proven${lentProof > 0 ? `, ${lentProof} lent` : ''})`;
   }).join(', ')}`];
   lines.push(`${judged.untested.length} of ${judged.units.length} functions no test runs`);
-  lines.push('riskiest:');
+  lines.push('riskiest links:');
   for (const link of judged.links.slice(0, riskiest)) lines.push(`  ${link.risk.toFixed(2)}  ${link.id} ${link.kind}, ${provenLine(link)}`);
+  lines.push('riskiest functions:');
+  for (const unit of judged.functions.slice(0, riskiest)) lines.push(`  ${unit.risk.toFixed(2)}  ${unit.file}:${unit.line} ${unit.name}, ${unit.runAt.length > 0 ? `run at ${unit.runAt.join(', ')}` : 'run nowhere'}`);
   if (judged.blocking.length > 0) {
     lines.push('changed code no test runs (blocks):');
     for (const unit of judged.blocking) lines.push(`  ${unit.file}:${unit.line} ${unit.name}`);

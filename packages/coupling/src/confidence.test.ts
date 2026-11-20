@@ -73,15 +73,56 @@ describe('how proven a link is', () => {
     expect(of('other').confidence).toBe(0);
   });
 
+  it('weighs what a sibling shares by the parts of its path, so one proven call through a client and its connection lends most of its proof to the client\'s other commands', () => {
+    const links = [
+      { id: 'add', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'insertOne'] },
+      { id: 'delete', from: 'store', to: ['pkg:mongodb#deleteOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'deleteOne'] },
+      { id: 'elsewhere', from: 'store', to: ['pkg:mongodb#find'], kind: 'dependency' as const, path: ['mongodb', 'notes', 'find'] },
+    ];
+    const judged = judge(codebase({ links, runs: [{ test: 'vm', layer: 'vm', units: ['store'], links: ['add'] }] }), WEIGHTS, { service: 0.6, resource: 0.2, operation: 0.2 });
+    const of = (id: string) => judged.links.find((link) => link.id === id)!;
+
+    expect(of('delete').confidence).toBeCloseTo(0.9 * 0.8);
+    expect(of('elsewhere').confidence).toBeCloseTo(0.9 * 0.6);
+  });
+
+  it('counts a dependency\'s proof only at the version it runs today, so neither the link nor its siblings keep a proof made against another version', () => {
+    const links = [
+      { id: 'add', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'insertOne'] },
+      { id: 'delete', from: 'store', to: ['pkg:mongodb#deleteOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'deleteOne'] },
+    ];
+    const judged = judge(codebase({ links, versions: { mongodb: '6.12.0' }, runs: [{ test: 'vm', layer: 'vm', units: ['store'], links: ['add'], versions: { mongodb: '6.10.0' } }] }), WEIGHTS);
+
+    expect(judged.links.map((link) => link.confidence)).toEqual([0, 0]);
+  });
+
+  it('drops a run\'s proof of code that changed since it ran, on either side of a link', () => {
+    const links = [{ id: 'save->store', from: 'save', to: ['store'], kind: 'composition' as const }];
+    const judged = judge(codebase({ links, runs: [{ test: 'c', layer: 'component', units: ['save', 'store'], links: ['save->store'], expired: ['store'] }] }), WEIGHTS);
+
+    expect(judged.links[0]!.confidence).toBe(0);
+    expect(judged.untested.map((unit) => unit.id)).toEqual(['orphan', 'store']);
+  });
+
+  it('ranks functions by what every layer that runs them leaves, untested ones first', () => {
+    const judged = judge(codebase({ runs: [
+      { test: 'u', layer: 'unit', units: ['save', 'store'], links: [] },
+      { test: 'c', layer: 'component', units: ['save'], links: [] },
+    ] }), WEIGHTS);
+
+    expect(judged.functions.map((one) => [one.id, one.runAt])).toEqual([['orphan', []], ['store', ['unit']], ['save', ['unit', 'component']]]);
+    expect(judged.functions[2]!.confidence).toBeCloseTo(1 - 0.5 * 0.4);
+  });
+
   it('ranks links riskiest first, weighing what is left by how often the code changed and failed', () => {
     const links = [
       { id: 'calm', from: 'save', to: ['store'], kind: 'logic' as const },
       { id: 'busy', from: 'store', to: ['save'], kind: 'logic' as const },
     ];
-    const judged = judge(codebase({ links, history: { changes: { store: 9 }, failures: { store: 1 } } }), WEIGHTS);
+    const judged = judge(codebase({ links, history: { changes: { store: 255 }, failures: { store: 1 } } }), WEIGHTS);
 
     expect(judged.links.map((link) => link.id)).toEqual(['busy', 'calm']);
-    expect(judged.links[0]!.risk).toBeGreaterThan(judged.links[1]!.risk);
+    expect(judged.links[0]!.risk).toBeCloseTo((1 + Math.log2(256)) * 2);
   });
 });
 
@@ -105,18 +146,22 @@ describe('code no test runs', () => {
 });
 
 describe('the report', () => {
-  it('counts links by kind and how proven they are, lists the riskiest, and names the changed code no test runs', () => {
+  it('counts links by kind, proven and lent apart, lists the riskiest links and functions, and names the changed code no test runs', () => {
     const links = [
       { id: 'a.ts:2', from: 'save', to: ['store'], kind: 'composition' as const },
       { id: 'a.ts:3', from: 'save', to: ['store'], kind: 'logic' as const },
+      { id: 'b.ts:4', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'insertOne'] },
+      { id: 'b.ts:5', from: 'store', to: ['pkg:mongodb#deleteOne'], kind: 'dependency' as const, path: ['mongodb', 'users', 'deleteOne'] },
     ];
-    const judged = judge(codebase({ links, runs: [{ test: 'u', layer: 'unit', units: ['save'], links: ['a.ts:3'] }], changed: ['store'] }), WEIGHTS);
+    const judged = judge(codebase({ links, runs: [{ test: 'u', layer: 'unit', units: ['save'], links: ['a.ts:3'] }, { test: 'v', layer: 'vm', units: [], links: ['b.ts:4'] }], changed: ['store'] }), WEIGHTS);
 
     expect(reportOf(judged, 1).split('\n')).toEqual([
-      '2 links: logic 1 (1 proven), composition 1 (0 proven), dependency 0 (0 proven)',
+      '4 links: logic 1 (1 proven), composition 1 (0 proven), dependency 2 (1 proven, 1 lent)',
       '2 of 3 functions no test runs',
-      'riskiest:',
+      'riskiest links:',
       '  1.00  a.ts:2 composition, proven nowhere',
+      'riskiest functions:',
+      '  1.00  b.ts:1 store, run nowhere',
       'changed code no test runs (blocks):',
       '  b.ts:1 store',
     ]);
