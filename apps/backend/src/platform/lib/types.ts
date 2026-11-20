@@ -135,6 +135,7 @@ export interface DeploymentMetadata extends AppSettings {
   vpnConfig?: string;
   vpnDedicatedIp?: string;
   temporalWorkflowId?: string;
+  followedFor?: { workflowId: string; action: 'app-resize' | 'app-sync-config'; newStorage?: Record<string, string> | undefined } | undefined;
   lastSyncedAt?: string;
   llmApi?: { port: number; serviceSuffix?: string; apiPath?: string; model?: string };
   openWebuiTargetId?: string;

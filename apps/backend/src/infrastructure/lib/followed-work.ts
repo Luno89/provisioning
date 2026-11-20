@@ -21,5 +21,6 @@ export function followedAction(followed: FollowedRecord): FollowedAction | undef
   const { record } = followed;
   if (followed.kind === 'pipeline-run') return namesWorkflow(record, FOLLOWED_RUN_STATUSES) ? 'pipeline-run' : undefined;
   if (!namesWorkflow(record, FOLLOWED_DEPLOYMENT_STATUSES)) return undefined;
-  return record.status === 'deploying' ? 'app-deploy' : 'app-destroy';
+  if (record.status !== 'deploying') return 'app-destroy';
+  return record.followedFor && record.followedFor.workflowId === record.temporalWorkflowId ? record.followedFor.action : 'app-deploy';
 }

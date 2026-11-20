@@ -16,6 +16,25 @@ import { testDataDir } from '../../platform/testing/data-dir.js';
 
 let env: TestWorkflowEnvironment;
 
+function followedThrough(bridge: TemporalBridge): { followings: Promise<void>[]; settled: (workflowId: string) => Promise<void> } {
+  const followings: Promise<void>[] = [];
+  const followed = new Map<string, Promise<void>>();
+  const waiting = new Map<string, () => void>();
+  const follow = bridge.follow.bind(bridge);
+  vi.spyOn(bridge, 'follow').mockImplementation((...args) => {
+    const following = follow(...args);
+    followings.push(following);
+    followed.set(args[0], following);
+    waiting.get(args[0])?.();
+    return following;
+  });
+  const settled = async (workflowId: string): Promise<void> => {
+    if (!followed.has(workflowId)) await new Promise<void>((done) => { waiting.set(workflowId, done); });
+    await followed.get(workflowId);
+  };
+  return { followings, settled };
+}
+
 beforeAll(async () => { env = await realTemporalEnvironment(); });
 afterAll(async () => { await env?.teardown(); });
 
@@ -92,7 +111,7 @@ describe('cancelling and reading work in Temporal', () => {
 });
 
 describe('settling the work the bridge itself starts', () => {
-  it('destroys an app, resizes and syncs an app, records a build and crawls, each settled from its workflow\'s end', async () => {
+  it('destroys an app, resizes and syncs an app, records a build and crawls, each settled from its workflow\'s end through the record its start wrote', async () => {
     const db = await testDatabase();
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
@@ -101,9 +120,7 @@ describe('settling the work the bridge itself starts', () => {
     bridge.client = new Client({ connection, namespace });
     const decided: string[] = [];
     bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };
-    const followings: Promise<void>[] = [];
-    const follow = bridge.follow.bind(bridge);
-    vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
+    const { followings, settled } = followedThrough(bridge);
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'u1', temporalWorkflowId: 'done', appType: 'wordpress', deploymentId: `${id}-stack`, ...extra });
 
     await db.infrastructure.saveCluster({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
@@ -118,15 +135,14 @@ describe('settling the work the bridge itself starts', () => {
     const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
     const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, interceptors: { activity: activityInterceptors() }, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
-      await bridge.destroyApp('gone');
-      await bridge.resizeDisk('grown', { data: '20Gi' });
-      await bridge.syncConfig('synced');
-      await bridge.syncConfig('model');
+      await bridge.followWork();
+      const started = [await bridge.destroyApp('gone'), await bridge.resizeDisk('grown', { data: '20Gi' }), await bridge.syncConfig('synced'), await bridge.syncConfig('model')];
       const build = await bridge.runPipeline(project, 'b'.repeat(40), 'refs/heads/main');
       expect(build).toMatchObject({ event: 'pipeline-run' });
       const { workflowId } = await bridge.startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
       await bridge.client!.workflow.getHandle(workflowId).result();
       expect(await bridge.ingestStatus(workflowId)).toEqual({ state: 'completed', receipt: { pages: 1 } });
+      for (const { id } of started) await settled(id);
       await Promise.all(followings);
     }));
     await bridge.stop();
@@ -152,9 +168,7 @@ describe('settling the work the bridge itself starts', () => {
     const KEY = 'bridge-stop-key' as never;
     const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
     bridge.client = new Client({ connection, namespace });
-    const followings: Promise<void>[] = [];
-    const follow = bridge.follow.bind(bridge);
-    vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
+    const { followings, settled } = followedThrough(bridge);
     await db.infrastructure.saveCluster({ id: 'c2', name: 'desk', provider: 'machine', machineId: 'desk', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     const deployQueue = `deploying-${Math.random().toString(36).slice(2, 8)}`;
     const workers = await Promise.all([
@@ -166,7 +180,9 @@ describe('settling the work the bridge itself starts', () => {
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
       deploy = await env.client.workflow.start('waitsToBeCancelled', { taskQueue: deployQueue, workflowId: `deploy-halfway-${deployQueue}` });
       await db.infrastructure.saveDeployment({ id: 'halfway', name: 'halfway', clusterId: 'c2', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: deploy.workflowId, appType: 'wordpress', deploymentId: 'halfway-stack' });
-      await bridge.destroyApp('halfway');
+      await bridge.followWork();
+      const destroying = await bridge.destroyApp('halfway');
+      await settled(destroying.id);
       await Promise.all(followings);
     }));
     await bridge.stop();

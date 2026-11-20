@@ -62,7 +62,6 @@ const CONSOLIDATE_INTERVAL = 1_800_000
 
 const DEEP_MERGE_FIELDS = ['storage', 'appSettings'] as const
 
-type TrackedDeployment = DeploymentMetadata & { newStorage?: Record<string, string> | undefined }
 
 export type WorkflowSummary = {
   workflowId: string
@@ -300,8 +299,8 @@ export class TemporalBridge {
 
   private async appliedOutcome(
     wfId: string,
-    meta: TrackedDeployment,
-  ): Promise<{ status: 'running' | 'unhealthy'; meta: TrackedDeployment }> {
+    meta: DeploymentMetadata,
+  ): Promise<{ status: 'running' | 'unhealthy'; meta: DeploymentMetadata }> {
     const verdict = await this.resultOf<unknown>(wfId, 'its verdict on the workload')
     const unhealthy = textAt(verdict, 'workload') === 'unhealthy'
     return {
@@ -315,7 +314,7 @@ export class TemporalBridge {
     action: FollowedAction,
     resourceId: string,
     resourceName: string,
-    meta?: TrackedDeployment
+    meta?: DeploymentMetadata
   ): Promise<void> {
     if (!wfId) return Promise.resolve()
     const already = this.following.get(wfId)
@@ -341,7 +340,7 @@ export class TemporalBridge {
     action: FollowedAction,
     resourceId: string,
     resourceName: string,
-    meta?: TrackedDeployment
+    meta?: DeploymentMetadata
   ): Promise<void> {
     const again = reopening()
     for (;;) {
@@ -367,12 +366,12 @@ export class TemporalBridge {
     action: FollowedAction,
     resourceId: string,
     resourceName: string,
-    meta: TrackedDeployment | undefined,
+    meta: DeploymentMetadata | undefined,
     name: 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED',
     why?: string,
   ): Promise<void> {
     const failure = name === 'FAILED' ? (why ?? 'its workflow failed without saying why') : name === 'COMPLETED' ? undefined : `its workflow was ${name.toLowerCase()}`
-    const deployment = (): TrackedDeployment => {
+    const deployment = (): DeploymentMetadata => {
       if (!meta) throw new Error(`${action} ${wfId} of ${resourceId} is followed without its deployment`)
       return meta
     }
@@ -386,7 +385,7 @@ export class TemporalBridge {
     if (action === 'app-deploy' || action === 'app-resize' || action === 'app-sync-config') {
       if (name === 'COMPLETED') {
         const done = await applied()
-        const storage = action === 'app-resize' ? { ...meta?.storage, ...meta?.newStorage } : meta?.storage
+        const storage = action === 'app-resize' ? { ...meta?.storage, ...meta?.followedFor?.newStorage } : meta?.storage
         await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, storage)
         if (action === 'app-deploy' && done.status === 'running') {
           await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
@@ -607,7 +606,6 @@ export class TemporalBridge {
 
   async deployApp(config: Record<string, unknown>, userId?: string): Promise<ResourceDeal> {
     const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), deployRequestOf(config), userId)
-    void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, deployment)
     return {
       id: workflowId,
       resourceId: deployment.id,
@@ -646,7 +644,6 @@ export class TemporalBridge {
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
     })
-    void this.follow(wfId, 'app-destroy', dep.id, dep.name, dep)
 
     return {
       id: wfId,
@@ -659,7 +656,8 @@ export class TemporalBridge {
     await this.client!.workflow.getHandle(wfId).cancel().catch((err: unknown) => {
       if (!(err instanceof WorkflowNotFoundError)) throw err
     })
-    await this.follow(wfId, 'app-deploy', dep.id, dep.name, dep)
+    this.followRecord({ kind: 'deployment', record: dep })
+    await this.following.get(wfId)
   }
 
   async resizeDisk(deploymentId: string, storage: Record<string, string>): Promise<WorkflowDeal> {
@@ -686,7 +684,6 @@ export class TemporalBridge {
 
     await this.db.infrastructure.saveDeploymentInfo({
       ...dep,
-      storage: { ...dep.storage, ...storage },
       status: 'deploying',
       healthReason: '',
       deployNotes: [],
@@ -701,8 +698,7 @@ export class TemporalBridge {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     }))
 
-    void this.follow(wfId, 'app-resize', dep.id, dep.name, { ...dep, newStorage: storage })
-    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId, followedFor: { workflowId: wfId, action: 'app-resize', newStorage: storage } })
 
     return {
       id: wfId,
@@ -765,8 +761,7 @@ export class TemporalBridge {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     }))
 
-    void this.follow(wfId, 'app-sync-config', dep.id, dep.name, dep)
-    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId, followedFor: { workflowId: wfId, action: 'app-sync-config' } })
 
     return {
       id: wfId,
@@ -920,7 +915,6 @@ export class TemporalBridge {
     const secrets = await this.ensureSecrets?.(project)
     if (secrets?.waiting.length) throw new Error(`waiting for the person to enter ${secrets.waiting.join(', ')}`)
     const { workflowId, deployment } = await deployProjectBuild(this.appDeployDeps(), project, run, userId)
-    void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, deployment)
     return { id: workflowId, resourceId: deployment.id, event: 'app-deploy' }
   }
 }

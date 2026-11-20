@@ -28,6 +28,7 @@ let env: TestWorkflowEnvironment;
 let db: Database;
 let h: Harness;
 const workflows: string[] = [];
+let stopBridge: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
@@ -37,6 +38,8 @@ beforeAll(async () => {
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: KEY }));
   const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, clusters);
   Object.assign(bridge, { client: env.client });
+  await bridge.followWork();
+  stopBridge = () => bridge.stop();
   h = await mountRouter({
     prefix: '/api/deployments',
     db,
@@ -50,6 +53,7 @@ afterAll(async () => {
     const notYet = (await db.infrastructure.getDeployments()).filter((dep) => dep.status !== 'failed');
     return notYet.length === 0 ? true : waiting(notYet.map((dep) => `${dep.name}: ${dep.status}`).join(', '));
   });
+  await stopBridge?.();
   await h?.close();
   await env?.teardown();
 });
