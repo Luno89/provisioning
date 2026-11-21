@@ -471,6 +471,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, settings.mesh, settings.dataDir)),
       secrets: infisical,
       files: instanceFiles.storedFiles,
+      memoryIndex: indexingFrom(memoryIndex),
     }),
     ...projectRemoval,
     ...createProjectDeletionActivities({ work: projectWork, removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine), told: deletionToldThrough(async () => temporal) }),

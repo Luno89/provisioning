@@ -1,11 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { Readable } from 'node:stream';
 import { storedFilesOn } from '../files/testing/stored-files-twin.js';
+import { indexingFrom, indexMemories } from '../memory/lib/memory-index.js';
+import { MEMORY_COLLECTION, MEMORY_INDEX } from '../memory/lib/memory-rank.js';
+import { startCorpusStandIn } from '../engine/testing/corpus-stand-in.js';
 import { createAccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
 
 const fresh = await emptiedEachTime();
+const standIn = await startCorpusStandIn();
+afterAll(async () => { await standIn.stop(); });
 
 let db: MongoDB;
 let kubectl: string[][];
@@ -21,6 +26,7 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
   secrets: { removeProject: async () => ({ workspace: true, readers: 1 }) },
   files: storedFilesOn(db.files).files,
   apps: { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
+  memoryIndex: indexingFrom(standIn.reach),
   ...over,
 });
 
@@ -90,6 +96,16 @@ describe('the steps that remove an account', () => {
     expect((await db.projects.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
     expect(await db.projects.getGiteaAccount('ana')).not.toBeNull();
     expect(await db.memory.getMemoryWatermark('conversation:ana-c1')).toBe('4');
+  });
+
+  it('takes the account\'s memories out of the index with their records, and leaves everyone else\'s', async () => {
+    const [bo, ana] = [...await db.memory.getMemories('bo'), ...await db.memory.getMemories('ana')];
+    await indexMemories(standIn.reach, [bo!, ana!]);
+
+    await createAccountRemovalActivities(deps()).RemoveAccountRecordsActivity({ ownerId: 'bo' });
+
+    expect(standIn.documents(MEMORY_INDEX).map((doc) => doc.memory_id)).toEqual(['ana-m1']);
+    expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id)).toEqual(['ana-m1']);
   });
 
   it('removes every file the account keeps, in every place, and leaves everyone else\'s', async () => {

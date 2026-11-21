@@ -584,7 +584,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge, indexing: memoryIndexing }));
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: unindexMemories },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), ...memoryIndexing },
     unseal: (sealed) => decryptValue(sealed, deps.dataKey),
     ...(deps.push ? { push: (ownerId: string, message: PushMessage) => deps.push!.toPerson(ownerId, message) } : {}),
     ...(deps.mail ? { mail: (ownerId: string, message: { subject: string; text: string }) => deps.mail!.toOwner(ownerId, message) } : {}),

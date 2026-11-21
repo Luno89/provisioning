@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { Database } from '../../platform/index.js';
-import type { MemoryItem } from '../../memory/index.js';
+import type { MemoryIndexing, MemoryItem } from '../../memory/index.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 
@@ -15,12 +15,12 @@ export const poisoningMemory = (id: string, over: Partial<MemoryItem>): MemoryIt
   id, ownerId: 'owner', category: 'lessons_learned', scope: 'global', status: 'active', title: id, text: id, createdAt: POISONING_AT, updatedAt: POISONING_AT, ...over,
 });
 
-export async function poisoningServiceOn(db: Pick<Database, 'engine' | 'memory'>, unindex: (ownerId: string, ids: string[]) => Promise<void>) {
+export async function poisoningServiceOn(db: Pick<Database, 'engine' | 'memory'>, indexing: MemoryIndexing) {
   const push = vi.fn(async () => 1);
   const mail = vi.fn(async () => undefined);
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), ...indexing },
     unseal: (sealed) => sealed.replace(/^sealed:/, ''),
     push, mail, now: () => '2026-10-29T11:00:00.000Z', log: () => undefined,
   });
