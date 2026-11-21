@@ -3,7 +3,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { PoisoningService, PoisoningError } from './PoisoningService.js';
-import { indexMemories, unindexerFrom } from '../../memory/lib/memory-index.js';
+import { indexingFrom, indexMemories } from '../../memory/lib/memory-index.js';
 import { MEMORY_INDEX } from '../../memory/lib/memory-rank.js';
 import { startCorpusStandIn, type CorpusStandIn } from '../testing/corpus-stand-in.js';
 import { poisoningMemory as memory, poisoningServiceOn, poisoningSignal as signal } from '../testing/poisoning-service.js';
@@ -12,7 +12,7 @@ let standIn: CorpusStandIn;
 beforeAll(async () => { standIn = await startCorpusStandIn(); });
 afterAll(async () => { await standIn.stop(); });
 
-const service = async () => poisoningServiceOn(await testDatabase(), unindexerFrom(standIn.reach));
+const service = async () => poisoningServiceOn(await testDatabase(), indexingFrom(standIn.reach));
 
 describe('the findings a person sees and acts on', () => {
   it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
@@ -20,7 +20,7 @@ describe('the findings a person sees and acts on', () => {
     const now = testKeys('now').data;
     const poisoning = new PoisoningService({
       store: db.engine,
-      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, index: async () => undefined, unindex: async () => undefined },
       unseal: (sealed) => decryptValue(sealed, now),
       log: () => undefined,
     });

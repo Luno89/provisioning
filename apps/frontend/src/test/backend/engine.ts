@@ -61,7 +61,6 @@ export interface EngineSite {
 export function mountEngine({ api, db }: Site): EngineSite {
   const started: StartedEngineWorkflow[] = []
   const indexing = standInMemoryIndex()
-  const { unindex } = indexing
   const extensions = extensionServiceFor(db)
   const agentDirectory = directoryFromDatabase(db.engine, { hidden: (ownerId) => extensions.hidden(ownerId) })
   const registry = createStoredAgentRegistry({
@@ -169,7 +168,7 @@ export function mountEngine({ api, db }: Site): EngineSite {
   api.use('/poisoning', poisoningRouter({
     poisoning: new PoisoningService({
       store: db.engine,
-      memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex },
+      memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), ...indexing },
       unseal: (sealed) => decryptValue(sealed, DATA_KEY),
     }),
   }))
