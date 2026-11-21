@@ -1,0 +1,18 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.stryker.component.config.ts" },
+  "mutate": [
+    "src/engine/services/ApprovalService.ts",
+    "src/engine/services/RunGrantService.ts",
+    "src/engine/services/ConversationTurnService.ts",
+    "src/engine/services/ConversationNoticeService.ts",
+    "src/engine/services/TurnLogWriter.ts",
+    "src/engine/services/AgentChangeService.ts"
+  ],
+  "inPlace": true,
+  "coverageAnalysis": "perTest",
+  "reporters": ["json", "clear-text"],
+  "jsonReporter": { "fileName": "../../tests/.coupling/mutation/engine-services.json" },
+  "concurrency": 4
+}

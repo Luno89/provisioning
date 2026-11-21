@@ -1,5 +1,8 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { evidenceFrom, evidenceOf, recordOf, survivorsIn, type MutationReport } from './mutation.js';
+import { ROOT } from './artifacts.js';
+import { AREAS, evidenceFrom, evidenceOf, recordOf, survivorsIn, type MutationReport } from './mutation.js';
 import type { Unit } from './graph.js';
 
 const report: MutationReport = {
@@ -83,6 +86,18 @@ describe('the faults a function\'s tests missed', () => {
       inner: { survived: 1, examples: ['line 3: EqualityOperator → a !== b'] },
       outer: { survived: 1, examples: ['line 12: BooleanLiteral → false'] },
     });
+  });
+});
+
+describe('the areas a mutation run can be recorded for', () => {
+  it('names each report a Stryker config writes, so every run can be kept as evidence and no area waits on a report nothing writes', () => {
+    const workspaces = [...new Set(Object.values(AREAS).map(({ workspace }) => workspace))];
+    const written = workspaces.flatMap((workspace) => readdirSync(join(ROOT, workspace))
+      .filter((name) => /^stryker(\.[a-z-]+)?\.config\.json$/.test(name))
+      .map((name) => (JSON.parse(readFileSync(join(ROOT, workspace, name), 'utf8')) as { jsonReporter: { fileName: string } }).jsonReporter.fileName)
+      .map((fileName) => relative(ROOT, resolve(ROOT, workspace, fileName))));
+
+    expect(written.sort()).toEqual(Object.values(AREAS).map(({ report }) => report).sort());
   });
 });
 
