@@ -4,8 +4,7 @@ import http from 'http';
 import { authRouter } from './auth.js';
 import { passwordRouter } from './password.js';
 import { devicesFor } from './device.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
+import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import { PasswordService } from '../services/PasswordService.js';
 import { breachedFrom } from '../lib/passwords.js';
 import type { CodeMail } from '../services/AuthService.js';
@@ -14,18 +13,20 @@ import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
-import { deviceToken, hashPassword, sessionToken } from '../../platform/lib/auth.js';
+import { deviceToken, hashPassword } from '../../platform/lib/auth.js';
 import { openRoutesOf } from '../../open-routes.js';
 
 const fresh = await emptiedEachTime();
+
+const sessionFrom = (answer: globalThis.Response): string => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('koala_sid=')) ?? '';
 
 const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
 
 async function serve(db: Database, options: { mail?: CodeMail; production?: boolean } = {}) {
   const revoked: AccessRevoked[] = [];
-  const revocations = { revoked: async (event: AccessRevoked) => { revoked.push(event); return []; } };
-  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+  const { auth, revocations } = rootAuthOver(db, { open: openRoutesOf('root'), setupCode: SETUP_CODE });
+  revocations.listen(async (event: AccessRevoked) => { revoked.push(event); });
   const authService = new AuthService(db, options);
   const passwords = new PasswordService({ db, auth: authService, breached: breachedFrom('password1234\n'), revocations });
   const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });
@@ -41,7 +42,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     revocations,
     passwords,
   }));
-  app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: JWT_SECRET }));
+  app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
   const server = http.createServer(app);
   await new Promise<void>((r) => server.listen(0, r));
   const port = (server.address() as { port: number }).port;
@@ -74,8 +75,7 @@ describe('auth router', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const cookie = login.headers.get('set-cookie') ?? '';
-    return { login, session: cookie.split(';')[0] ?? '' };
+    return { login, session: sessionFrom(login) };
   }
 
   it('locks an account after ten wrong passwords in a row, and the right one after that is refused too', async () => {
@@ -107,7 +107,7 @@ describe('auth router', () => {
   it('registers, logs in and returns the caller from the minted cookie', async () => {
     const { login, session } = await registerAndLogin('first@example.com', 'hunter2hunter2');
     expect(login.status).toBe(200);
-    expect(session).toMatch(/^session=/);
+    expect(session).toMatch(/^koala_sid=/);
 
     const me = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } });
     expect(me.status).toBe(200);
@@ -125,8 +125,9 @@ describe('auth router', () => {
     expect(signedIn.permissions).toEqual(me.permissions);
     expect('isAdmin' in me || 'holdsAccounts' in me || 'isAdmin' in signedIn).toBe(false);
 
-    await db.accounts.saveUser({ id: 'plain', email: 'plain@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01' });
-    const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `session=${sessionToken({ id: 'plain', email: 'plain@example.com' }, JWT_SECRET)}` } });
+    await db.accounts.saveUser({ id: 'plain', email: 'plain@example.com', passwordHash: await hashPassword('plain-password-1'), twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01' });
+    const plainIn = await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'plain@example.com', password: 'plain-password-1' }) });
+    const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: sessionFrom(plainIn) } });
     expect((await plain.json() as { permissions: Record<string, boolean> }).permissions).toEqual({
       administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': false,
     });
@@ -182,7 +183,7 @@ describe('auth router', () => {
 
     const done = await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode });
     expect(done.status).toBe(200);
-    const session = done.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('session='))!;
+    const session = sessionFrom(done);
     expect(done.headers.getSetCookie().some((line) => line.startsWith('device='))).toBe(true);
     expect((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { email: string }).email).toBe('pending@example.com');
     const user = await db.accounts.getUserByEmail('pending@example.com');
@@ -299,7 +300,7 @@ describe('auth router', () => {
     const first = await signIn();
     expect(first.twoFactorRequired).toBe(true);
     expect(first.userId).toBeUndefined();
-    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `session=${first.challenge}` } })).status).toBe(401);
+    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `koala_sid=${first.challenge}` } })).status).toBe(401);
     expect((await verify('not-a-challenge', first.code)).status).toBe(400);
     for (let n = 0; n < 3; n += 1) expect((await verify(first.challenge, wrongFor(first.code))).status).toBe(400);
     const second = await signIn();
@@ -322,23 +323,23 @@ describe('auth router', () => {
     expect((await post('/api/auth/2fa/verify', { challenge: answer.challenge, code: codes[0] === '000000' ? '111111' : '000000' })).status).toBe(400);
     const passed = await post('/api/auth/2fa/verify', { challenge: answer.challenge, code: codes[0] });
     expect(passed.status).toBe(200);
-    expect(passed.headers.get('set-cookie')).toMatch(/^session=/);
+    expect(sessionFrom(passed)).toMatch(/^koala_sid=/);
   });
 
   it('ends every other session on request and when two-factor settings change, keeping the one that asked', async () => {
     await registerAndLogin('many@example.com', 'hunter2hunter2');
-    const signIn = async () => ((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'many@example.com', password: 'hunter2hunter2' }) })).headers.get('set-cookie') ?? '').split(';')[0]!;
+    const signIn = async () => sessionFrom(await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'many@example.com', password: 'hunter2hunter2' }) }));
     const me = async (cookie: string) => (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).status;
     const laptop = await signIn();
     const phone = await signIn();
 
     const ended = await fetch(ctx.url('/api/auth/sessions/end-others'), { method: 'POST', headers: { cookie: laptop } });
-    const kept = (ended.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const kept = sessionFrom(ended);
     expect([await me(phone), await me(laptop), await me(kept)]).toEqual([401, 401, 200]);
 
     const tablet = await signIn();
     const changed = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: kept }, body: JSON.stringify({ enabled: false, password: 'hunter2hunter2' }) });
-    const after = (changed.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const after = sessionFrom(changed);
     expect([await me(tablet), await me(after)]).toEqual([401, 200]);
   });
 
@@ -395,14 +396,15 @@ describe('auth router', () => {
     });
     expect(out.status).toBe(200);
     const cleared = out.headers.getSetCookie();
-    expect(cleared.map((cookie) => cookie.split('=')[0])).toEqual(['__Host-session', 'session']);
+    expect(cleared.map((cookie) => cookie.split('=')[0])).toEqual(['__Host-koala_sid', 'koala_sid']);
     for (const cookie of cleared) {
       expect(cookie).toMatch(/HttpOnly/i);
       expect(cookie).toMatch(/SameSite=Lax/i);
     }
     expect(cleared[0]).toMatch(/Secure/);
     expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).status).toBe(401);
-    expect(await db.platform.sessionsEndedSince(0)).toHaveLength(1);
+    const held = await new Promise<Record<string, unknown>>((resolve, reject) => { db.platform.browserSessions().all!((err, found) => (err ? reject(err as Error) : resolve((found ?? {}) as Record<string, unknown>))); });
+    expect(Object.keys(held)).toEqual([]);
   });
 
   it('rejects a session signed with the wrong secret', async () => {
@@ -509,21 +511,21 @@ describe('auth router', () => {
 
   it('changes a password only with the current one, and a code too with two-factor on, ending every other session', async () => {
     const { session } = await registerAndLogin('change@example.com', 'hunter2hunter2');
-    const other = ((await post('/api/auth/login', { email: 'change@example.com', password: 'hunter2hunter2' })).headers.get('set-cookie') ?? '').split(';')[0]!;
+    const other = sessionFrom(await post('/api/auth/login', { email: 'change@example.com', password: 'hunter2hunter2' }));
     expect((await post('/api/auth/password', { password: 'a-brand-new-password' }, session)).status).toBe(403);
     expect((await post('/api/auth/password', { password: 'a-brand-new-password', current: 'not-my-password' }, session)).status).toBe(403);
     expect((await post('/api/auth/password', { password: 'password1234', current: 'hunter2hunter2' }, session)).status).toBe(400);
     expect((await post('/api/auth/password', { password: 'a-brand-new-password' })).status).toBe(401);
     const changed = await post('/api/auth/password', { password: 'a-brand-new-password', current: 'hunter2hunter2' }, session);
     expect(changed.status).toBe(200);
-    const kept = (changed.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const kept = sessionFrom(changed);
     const me = async (cookie: string) => (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).status;
     expect([await me(other), await me(session), await me(kept)]).toEqual([401, 401, 200]);
 
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'a-brand-new-password' }, kept);
-    const twoFactor = (on.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const twoFactor = sessionFrom(on);
     expect((await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password' }, twoFactor)).status).toBe(403);
     expect((await post('/api/auth/confirm/code', {}, twoFactor)).status).toBe(200);
     const again = await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password', code: codes.at(-1) }, twoFactor);
@@ -536,7 +538,7 @@ describe('auth router', () => {
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
-    const cookie = (on.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const cookie = sessionFrom(on);
     expect(((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).json()) as { confirmWith: string }).confirmWith).toBe('two-factor');
     expect((await post('/api/auth/2fa/settings', { enabled: false, password: 'hunter2hunter2' }, cookie)).status).toBe(403);
     await post('/api/auth/confirm/code', {}, cookie);
@@ -549,7 +551,7 @@ describe('auth router', () => {
     const { session } = await registerAndLogin('limit@example.com', 'hunter2hunter2');
     vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
-    const cookie = (on.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const cookie = sessionFrom(on);
     for (let n = 0; n < 5; n += 1) expect((await post('/api/auth/confirm/code', {}, cookie)).status).toBe(200);
     const sixth = await post('/api/auth/confirm/code', {}, cookie);
     expect(sixth.status).toBe(429);

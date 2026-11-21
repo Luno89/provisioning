@@ -36,7 +36,7 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
   }, outsideThisTier<HeadscaleService>('Headscale'), () => new Date(), () => undefined)
   api.use('/identity', identityRouter({
     servesTenants: true,
-    accounts: { identity, signedIn: (req) => auth.userFromSessionCookie(req.headers.cookie, auth.securedFor(req)), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach },
+    accounts: { identity, signedIn: (req) => auth.userOf(req), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach },
   }))
   api.use('/instances', instancesRouter({
     instances,

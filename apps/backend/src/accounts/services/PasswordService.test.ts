@@ -157,7 +157,6 @@ describe('resetting a password with the emailed code', () => {
     expect(await s.service.reset({ id, code: ` ${code} `, password: GOOD })).toEqual({ ok: true, email: 'ann@example.com' });
     const saved = await s.db.accounts.getUserById('ann');
     expect(await passwordMatches(GOOD, saved?.passwordHash)).toBe(true);
-    expect(saved?.sessionsEndedAt).toBe(NOW.toISOString());
     expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString() }]);
     expect(s.auth.forgetPasswordFailures).toHaveBeenCalledWith('ann@example.com');
     expect(await s.db.accounts.getPasswordReset(id)).toBeUndefined();
@@ -232,7 +231,8 @@ describe('changing a password while signed in', () => {
     const device = { account: 'ann@example.com', id: 'phone' };
     s.auth.passwordChangeProblem.mockResolvedValue(undefined);
     const answer = await s.service.change(ann(), { password: NEW, current: 'the-old-one', code: ' 123456 ' }, device, '198.51.100.4');
-    expect(answer).toMatchObject({ ok: true, user: { id: 'ann', sessionsEndedAt: NOW.toISOString() } });
+    expect(answer).toMatchObject({ ok: true, user: { id: 'ann' } });
+    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString() }]);
     expect(s.auth.passwordChangeProblem).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), { current: 'the-old-one', code: '123456' }, device, '198.51.100.4');
     expect(await passwordMatches(NEW, (await s.db.accounts.getUserById('ann'))?.passwordHash)).toBe(true);
     expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString() }]);

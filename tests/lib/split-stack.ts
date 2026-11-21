@@ -241,7 +241,7 @@ export async function call(url: string, init: RequestInit & { cookie?: string | 
     headers: { ...(headers as Record<string, string> | undefined), ...(cookie ? { Cookie: cookie } : {}), ...(rest.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   const cookies = response.headers.getSetCookie();
-  const set = cookies.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair));
+  const set = cookies.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=/.test(pair));
   const text = await response.text();
   let body: unknown = text;
   try { body = JSON.parse(text); } catch { body = text; }

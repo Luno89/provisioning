@@ -4,6 +4,7 @@ export { accountsMadeBy, DEFAULT_INVITE_LIMITS, limitsProblem, projectInviteRefu
 export type { InviteLimits } from './lib/project-invite-limits.js';
 export { readiedForProviderLink } from './lib/provider-sign-in.js';
 export { signInProvidersFrom, signInReturnUrlFrom } from './lib/sign-in-providers.js';
+export { breachedFrom } from './lib/passwords.js';
 export { emailProblem, normalEmail } from './lib/sign-up.js';
 export { AUTH_OPEN, authRouter } from './routes/auth.js';
 export { devicesFor } from './routes/device.js';

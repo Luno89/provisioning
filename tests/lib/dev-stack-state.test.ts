@@ -12,13 +12,14 @@ let instance: unknown = { status: 'ready', detail: 'serving' };
 let login: { status: number; body: string } = { status: 200, body: '{}' };
 let rootUp = true;
 let sentCookie: string | null = null;
+let setCookie = '__Host-koala_sid=s%3Athe-session.signed; Path=/; HttpOnly';
 
 interceptHttp(
   http.post(`${ROOT}/api/auth/login`, async ({ request }) => {
     if (!rootUp) return HttpResponse.error();
     expect(await request.json()).toEqual(OWNER);
     if (login.status !== 200) return new HttpResponse(login.body, { status: login.status });
-    return new HttpResponse('{}', { status: 200, headers: { 'set-cookie': '__Host-session=the-session; Path=/; HttpOnly' } });
+    return new HttpResponse('{}', { status: 200, headers: { 'set-cookie': setCookie } });
   }),
   http.get(`${ROOT}/api/instances/mine`, ({ request }) => {
     sentCookie = request.headers.get('cookie');
@@ -39,13 +40,21 @@ const fresh = () => {
   login = { status: 200, body: '{}' };
   rootUp = true;
   sentCookie = null;
+  setCookie = '__Host-koala_sid=s%3Athe-session.signed; Path=/; HttpOnly';
 };
 
 describe('whether the dev stack is up, as root records it', () => {
   it('is up when root reports dev\'s owner\'s Koala ready and root and the Koala both run this checkout', async () => {
     fresh();
     expect(await devStackState(REPO, looks())).toEqual({ kind: 'ready' });
-    expect(sentCookie).toBe('__Host-session=the-session');
+    expect(sentCookie).toBe('__Host-koala_sid=s%3Athe-session.signed');
+  });
+
+  it('takes no signed cookie of root\'s old kind as dev\'s owner\'s session', async () => {
+    fresh();
+    setCookie = '__Host-session=an-old-signed-token; Path=/; HttpOnly';
+    expect(await devStackState(REPO, looks())).toEqual({ kind: 'failed', stage: 'root signed dev\'s owner in without a session cookie' });
+    expect(sentCookie).toBeNull();
   });
 
   it('is still being provisioned while root does not answer, has no owner yet, or reports the Koala installing', async () => {

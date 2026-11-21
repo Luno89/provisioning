@@ -15,9 +15,8 @@ import { outsideThisTier } from '../../../test/backend/outside'
 import type { Wire } from '../../../test/backend/wire'
 import { anyOf, arrayWith, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
 import { testDatabase } from '../../../../../backend/src/platform/lib/test-database'
-import { createAuth } from '../../../../../backend/src/platform/middleware/auth'
 import { errorResponder } from '../../../../../backend/src/platform/middleware/async-route'
-import { SessionEnds } from '../../../../../backend/src/platform/services/SessionEnds'
+import { rootAuthOver } from '../../../../../backend/src/platform/testing/root-auth'
 import { instancesRouter } from '../../../../../backend/src/instances/routes/instances'
 import { instanceUpdatesRouter } from '../../../../../backend/src/instances/routes/instance-updates'
 import { instanceAddressesRouter } from '../../../../../backend/src/instances/routes/instance-addresses'
@@ -45,7 +44,7 @@ const rootServer = http.createServer(root)
 await new Promise<void>((resolve) => rootServer.listen(0, '127.0.0.1', () => resolve()))
 afterAll(() => new Promise<void>((resolve) => rootServer.close(() => resolve())))
 const rootUrl = `http://127.0.0.1:${(rootServer.address() as AddressInfo).port}`
-const rootAuth = createAuth({ db: rootDb, sessionKey: 'root-session-key', publicUrl: rootUrl, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) })
+const rootAuth = rootAuthOver(rootDb, { publicUrl: rootUrl, open: openRoutesOf('root') }).auth
 root.use('/api', rootAuth.requireAuth)
 root.use(express.json())
 root.use('/api/instances', instancesRouter({

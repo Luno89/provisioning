@@ -14,7 +14,7 @@ async function call(url: string, init: { method?: string; body?: unknown; cookie
     headers: { ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(init.cookie ? { Cookie: init.cookie } : {}) },
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
-  const cookie = response.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair));
+  const cookie = response.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=/.test(pair));
   const text = await response.text();
   let body: unknown = text;
   try { body = JSON.parse(text) as unknown; } catch { body = text; }

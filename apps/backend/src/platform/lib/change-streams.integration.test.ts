@@ -87,7 +87,7 @@ describe('following writes to a collection on Mongo', () => {
     const { client, release } = await leaseMongo(uri);
     try {
       const options = async (name: string) => (((await client.db(dbName).listCollections({ name }).toArray())[0] as { options?: unknown } | undefined)?.options ?? {}) as { changeStreamPreAndPostImages?: { enabled: boolean } };
-      for (const name of ['deployments', 'provisioning', 'instances', 'fences', 'endedSessions', 'pipelineRuns', 'odooReleases']) {
+      for (const name of ['deployments', 'provisioning', 'instances', 'fences', 'pipelineRuns', 'odooReleases']) {
         expect((await options(name)).changeStreamPreAndPostImages, name).toEqual({ enabled: true });
       }
     } finally {

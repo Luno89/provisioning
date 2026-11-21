@@ -325,7 +325,6 @@ export interface SignInLink {
 }
 
 export interface UserMetadata {
-  sessionsEndedAt?: string | undefined;
   id: string;
   email: string;
   passwordHash?: string;

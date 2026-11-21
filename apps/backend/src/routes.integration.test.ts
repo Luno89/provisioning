@@ -95,9 +95,9 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(loginRes.data.success).toBe(true);
     expect(loginRes.headers['set-cookie']).toBeDefined();
     
-    const sessionCookie = loginRes.headers['set-cookie']![0]!.split(';')[0]!;
+    const sessionCookie = loginRes.headers['set-cookie']!.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=./.test(pair)) ?? '';
     session = sessionCookie;
-    expect(sessionCookie).toContain('session=');
+    expect(sessionCookie).toMatch(/^(__Host-)?koala_sid=s%3A/);
 
     const profileRes = await axios.get<{ email: string; twoFactorEnabled: boolean }>(getUrl('/api/auth/me'), {
       headers: { Cookie: sessionCookie },

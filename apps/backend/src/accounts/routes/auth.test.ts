@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { deviceToken, sessionToken, verifyJWT } from '../../platform/lib/auth.js';
+import { deviceToken, verifyJWT } from '../../platform/lib/auth.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { accountHeldFor, rootAuthOver } from '../../platform/testing/root-auth.js';
 import { signUpCodeHash, SIGN_UP_WRONG_CODES } from '../lib/sign-up.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
@@ -23,16 +22,17 @@ const PREFIX = '/api/auth';
 
 function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
   const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
+  const { auth, revocations } = rootAuthOver(db, { open: openRoutesOf('root'), setupCode: SETUP });
   const authService = mock<AuthService>();
   const passwords = mock<Pick<PasswordService, 'newPasswordProblem'>>();
   const providers = mock<Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'>>();
   providers.callbackUrl.mockImplementation((path) => new URL(path, 'https://koala.example'));
   const revoked: AccessRevoked[] = [];
+  revocations.listen(async (event) => { revoked.push(event); });
   const router = authRouter({
     db, authService, auth, sessionKey: KEY, appUrl: APP, passwords,
     accounts: options.accounts,
-    revocations: { revoked: async (event) => { revoked.push(event); return []; } },
+    revocations,
     providers: options.withProviders === false ? undefined : providers,
   });
   const routes = routesInProcess({ prefix: PREFIX, router: () => router, user: null, open: true, db });
@@ -40,7 +40,8 @@ function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
     (await routes).post(`${PREFIX}${path}`, body, extra);
   const get = async (path: string, extra: { user?: HarnessUser | null; headers?: Record<string, string> } = {}) =>
     (await routes).get(`${PREFIX}${path}`, extra);
-  return { db, auth, authService, passwords, providers, revoked, post, get };
+  const holds = (cookie: string | undefined) => accountHeldFor(auth, cookie);
+  return { db, auth, authService, passwords, providers, revoked, post, get, holds };
 }
 
 type Set = ReturnType<typeof set>;
@@ -193,7 +194,7 @@ describe('confirming a sign-up', () => {
     expect(user?.roles).toBeUndefined();
     expect((await s.db.accounts.getInviteByCode('CODE'))?.usedBy).toBe(user?.id);
     expect(await s.db.accounts.getPendingSignUp(id)).toBeUndefined();
-    expect(verifyJWT(cookieOf(done, 'session')!.split('=')[1]!, 'session', KEY)).toMatchObject({ userId: user?.id });
+    expect(await s.holds(cookieOf(done, 'koala_sid'))).toBe(user?.id);
     expect(cookieOf(done, 'device')).toBeDefined();
   });
 
@@ -332,7 +333,7 @@ describe('signing in', () => {
     const answer = await s.post('/login', { email: ' ANN@example.com ', password: 'the-password' });
     expect(answer.status).toBe(200);
     expect(answer.data).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: false } });
-    expect(verifyJWT(cookieOf(answer, 'session')!.split('=')[1]!, 'session', KEY)).toMatchObject({ userId: 'ann' });
+    expect(await s.holds(cookieOf(answer, 'koala_sid'))).toBe('ann');
     expect(cookieOf(answer, 'device')).toBeDefined();
     expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.objectContaining({ id: 'ann' }), 'the-password', undefined, '127.0.0.1');
   });
@@ -365,7 +366,7 @@ describe('signing in', () => {
     const locked = await s.post('/login', { email: 'ann@example.com', password: 'p' });
     expect(locked.status).toBe(429);
     expect(locked.data).toEqual({ error: 'Too many wrong passwords; try again in 15 minutes' });
-    expect(cookieOf(locked, 'session')).toBeUndefined();
+    expect(cookieOf(locked, 'koala_sid')).toBeUndefined();
   });
 
   it('refuses an account being removed', async () => {
@@ -386,8 +387,8 @@ describe('signing in', () => {
     const body = answer.data as { twoFactorRequired: boolean; challenge: string };
     expect(body.twoFactorRequired).toBe(true);
     expect(verifyJWT(body.challenge, 'two-factor', KEY)).toMatchObject({ twoFactorFor: 'ann' });
-    expect(verifyJWT(body.challenge, 'session', KEY)).toBeNull();
-    expect(cookieOf(answer, 'session')).toBeUndefined();
+    expect(await s.holds(`koala_sid=${body.challenge}`)).toBeUndefined();
+    expect(cookieOf(answer, 'koala_sid')).toBeUndefined();
     expect(s.authService.sendCode).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), 'sign-in');
   });
 
@@ -423,7 +424,7 @@ describe('the second step of signing in', () => {
     const answer = await s.post('/2fa/verify', { challenge: token, code: '123456' });
     expect(answer.status).toBe(200);
     expect(answer.data).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: true } });
-    expect(cookieOf(answer, 'session')).toBeDefined();
+    expect(await s.holds(cookieOf(answer, 'koala_sid'))).toBe('ann');
     expect(cookieOf(answer, 'device')).toBeDefined();
     expect(s.authService.checkCode).toHaveBeenCalledWith('ann', 'sign-in', '123456');
   });
@@ -441,8 +442,11 @@ describe('the second step of signing in', () => {
     const forged = await s.post('/2fa/verify', { challenge: 'not-a-challenge', code: '123456' });
     expect(forged.status).toBe(400);
     expect(forged.data).toEqual({ error: expired });
-    const asSession = sessionToken({ id: 'ann', email: 'ann@example.com' }, KEY);
+    await s.db.accounts.saveUser(member());
+    s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
+    const asSession = cookieOf(await s.post('/login', { email: 'ann@example.com', password: 'p' }), 'koala_sid')!.split('=')[1]!;
     expect((await s.post('/2fa/verify', { challenge: asSession, code: '123456' })).status).toBe(400);
+    expect((await s.post('/2fa/verify', { challenge: decodeURIComponent(asSession), code: '123456' })).status).toBe(400);
     const gone = set();
     await gone.db.accounts.saveUser(member({ twoFactorEnabled: true }));
     gone.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
@@ -467,7 +471,7 @@ describe('the second step of signing in', () => {
     const locked = await s.post('/2fa/verify', { challenge: token, code: '000000' });
     expect(locked.status).toBe(429);
     expect(locked.data).toEqual({ error: 'Too many wrong codes' });
-    expect(cookieOf(locked, 'session')).toBeUndefined();
+    expect(cookieOf(locked, 'koala_sid')).toBeUndefined();
   });
 });
 
@@ -508,11 +512,13 @@ describe('signing out', () => {
   it('ends the session that asked and clears its cookie', async () => {
     const s = set();
     await s.db.accounts.saveUser(member());
-    const token = sessionToken(member(), KEY);
-    const answer = await s.post('/logout', {}, { headers: { cookie: `session=${token}` } });
+    s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
+    const session = cookieOf(await s.post('/login', { email: 'ann@example.com', password: 'p' }), 'koala_sid');
+    expect(await s.holds(session)).toBe('ann');
+    const answer = await s.post('/logout', {}, { headers: { cookie: session! } });
     expect(answer.data).toEqual({ success: true });
-    expect(cookiesOf(answer).some((line) => line.startsWith('session=;'))).toBe(true);
-    expect(await s.auth.userFromSessionCookie(`session=${token}`, false)).toBeUndefined();
+    expect(cookiesOf(answer).some((line) => line.startsWith('koala_sid=;'))).toBe(true);
+    expect(await s.holds(session)).toBeUndefined();
   });
 
   it('signs out a browser with no session without complaint', async () => {
@@ -525,12 +531,14 @@ describe('signing out everywhere else', () => {
     const s = set();
     const user = member();
     await s.db.accounts.saveUser(user);
+    s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
+    const other = cookieOf(await s.post('/login', { email: 'ann@example.com', password: 'p' }), 'koala_sid');
+    expect(await s.holds(other)).toBe('ann');
     const answer = await s.post('/sessions/end-others', {}, { user });
     expect(answer.data).toEqual({ ended: true });
-    const saved = await s.db.accounts.getUserById('ann');
-    expect(saved?.sessionsEndedAt).toEqual(expect.any(String));
-    expect(s.revoked).toEqual([{ personId: 'ann', because: 'signed-out-everywhere', at: saved?.sessionsEndedAt }]);
-    expect(cookieOf(answer, 'session')).toBeDefined();
+    expect(s.revoked).toEqual([{ personId: 'ann', because: 'signed-out-everywhere', at: expect.any(String) as string }]);
+    expect(await s.holds(other)).toBeUndefined();
+    expect(await s.holds(cookieOf(answer, 'koala_sid'))).toBe('ann');
   });
 
   it('asks for a session', async () => {
@@ -585,13 +593,16 @@ describe('two-factor settings', () => {
     asks(s);
     const user = member({ passwordHash: 'h' });
     await s.db.accounts.saveUser(user);
+    s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
+    const other = cookieOf(await s.post('/login', { email: 'ann@example.com', password: 'p' }), 'koala_sid');
     const answer = await s.post('/2fa/settings', { enabled: true, phone: '+15550100', preferredMethod: 'sms', password: 'p' }, { user });
     expect(answer.status).toBe(200);
     expect(answer.data).toEqual({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: true, twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms', confirmWith: 'two-factor' });
     const saved = await s.db.accounts.getUserById('ann');
     expect(saved).toMatchObject({ twoFactorEnabled: true, twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms' });
-    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: saved?.sessionsEndedAt }]);
-    expect(cookieOf(answer, 'session')).toBeDefined();
+    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: expect.any(String) as string }]);
+    expect(await s.holds(other)).toBeUndefined();
+    expect(await s.holds(cookieOf(answer, 'koala_sid'))).toBe('ann');
     expect(s.authService.sendingProblem).toHaveBeenCalledWith('sms');
     expect(s.authService.confirmProblem).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), { password: 'p' }, undefined, '127.0.0.1');
   });
@@ -696,11 +707,12 @@ describe('signing in with a provider', () => {
 
   it('signs in on the way back and sends the browser to the app', async () => {
     const s = set();
+    await s.db.accounts.saveUser(member());
     s.providers.finish.mockResolvedValue({ kind: 'signed-in', user: member() });
     const answer = await s.get('/provider/google/callback?code=c&state=s', { headers: { cookie: 'oauth_state=sealed' } });
     expect(answer.status).toBe(302);
     expect(answer.headers.location).toBe(`${APP}/`);
-    expect(verifyJWT(cookieOf(answer, 'session')!.split('=')[1]!, 'session', KEY)).toMatchObject({ userId: 'ann' });
+    expect(await s.holds(cookieOf(answer, 'koala_sid'))).toBe('ann');
     expect(cookiesOf(answer).some((line) => line.startsWith('oauth_state=;'))).toBe(true);
     const [id, url, state] = s.providers.finish.mock.calls[0] as unknown as [string, URL, string];
     expect(id).toBe('google');
@@ -715,7 +727,7 @@ describe('signing in with a provider', () => {
     expect(answer.status).toBe(302);
     expect(answer.headers.location).toBe('http://koala.localhost:5175/api/auth/provider/google/callback?code=c&state=s');
     expect(s.providers.finish).not.toHaveBeenCalled();
-    expect(cookieOf(answer, 'session')).toBeUndefined();
+    expect(cookieOf(answer, 'koala_sid')).toBeUndefined();
   });
 
   it('sends the browser to the app with a signed challenge when the account asks for its second factor', async () => {
@@ -725,7 +737,7 @@ describe('signing in with a provider', () => {
     const location = new URL(String(answer.headers.location));
     expect(location.origin + location.pathname).toBe(`${APP}/`);
     expect(verifyJWT(location.searchParams.get('twoFactor')!, 'two-factor', KEY)).toMatchObject({ twoFactorFor: 'ann' });
-    expect(cookieOf(answer, 'session')).toBeUndefined();
+    expect(cookieOf(answer, 'koala_sid')).toBeUndefined();
   });
 
   it('sends the browser to the app with why when the sign-in is refused', async () => {
@@ -733,7 +745,7 @@ describe('signing in with a provider', () => {
     s.providers.finish.mockResolvedValue({ kind: 'refused', why: 'This account is being removed' });
     const answer = await s.get('/provider/google/callback');
     expect(answer.headers.location).toBe(`${APP}/?authError=This%20account%20is%20being%20removed`);
-    expect(cookieOf(answer, 'session')).toBeUndefined();
+    expect(cookieOf(answer, 'koala_sid')).toBeUndefined();
   });
 
   it('says a provider it does not offer is not there at the callback too', async () => {

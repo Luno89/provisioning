@@ -62,11 +62,10 @@ import { releasesRouter } from '../../releases/routes/releases.js';
 import { clientImportRouter } from '../../releases/routes/client-import.js';
 import { authRouter } from '../../accounts/routes/auth.js';
 import { AuthService } from '../../accounts/services/AuthService.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
+import { rootAuthOver } from '../../platform/testing/root-auth.js';
+import { sessionCookieOf, signedInWithPassword } from '../../accounts/testing/password-sign-in.js';
 import { errorResponder } from '../../platform/middleware/async-route.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
-import { sessionToken } from '../../platform/lib/auth.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { PlanAdopter } from '../../projects/services/PlanService.js';
@@ -115,7 +114,6 @@ export interface CheckApi {
   db: MongoDB;
   ports: CheckApiPorts;
   baseURL: string;
-  cookieFor: (user: { id: string; email: string }) => string;
   clientFor: (user: { id: string; email: string }) => AxiosInstance;
   close: () => Promise<void>;
 }
@@ -177,7 +175,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
     pullRequests: [],
   };
 
-  const auth = createAuth({ db, sessionKey: SESSION_KEY as never, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) });
+  const { auth } = rootAuthOver(db, { open: openRoutesOf('root') });
   const authService = new AuthService(db, {});
   const getOwnedProject = async (id: string, principal: Principal) => {
     const project = (await db.projects.getProjects()).find((candidate) => candidate.id === id);
@@ -264,14 +262,27 @@ export async function mountCheckApi(): Promise<CheckApi> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   const { port } = server.address() as { port: number };
   const baseURL = `http://127.0.0.1:${port}/api`;
-  const cookieFor = (user: { id: string; email: string }) => `session=${sessionToken(user, SESSION_KEY as never)}`;
+  const origin = `http://127.0.0.1:${port}`;
+  const sessions = new Map<string, Promise<string>>();
+  const sessionOf = (user: { id: string }): Promise<string> => {
+    const held = sessions.get(user.id) ?? signedInWithPassword(origin, db.accounts, user.id).then(sessionCookieOf);
+    sessions.set(user.id, held);
+    return held;
+  };
+  const clientFor = (user: { id: string; email: string }) => {
+    const client = axios.create({ baseURL, proxy: false });
+    client.interceptors.request.use((config) => sessionOf(user).then((cookie) => {
+      config.headers.set('Cookie', cookie);
+      return config;
+    }));
+    return client;
+  };
 
   return {
     db,
     ports,
     baseURL,
-    cookieFor,
-    clientFor: (user) => axios.create({ baseURL, proxy: false, headers: { Cookie: cookieFor(user) } }),
+    clientFor,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

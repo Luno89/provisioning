@@ -105,9 +105,9 @@ export class PasswordService {
   }
 
   private async replace(user: UserMetadata, password: string): Promise<UserMetadata> {
-    const changed: UserMetadata = { ...user, passwordHash: await hashPassword(password), sessionsEndedAt: this.now().toISOString() };
+    const changed: UserMetadata = { ...user, passwordHash: await hashPassword(password) };
     await this.deps.db.accounts.saveUser(changed);
-    await this.deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: changed.sessionsEndedAt! });
+    await this.deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: this.now().toISOString() });
     return changed;
   }
 }

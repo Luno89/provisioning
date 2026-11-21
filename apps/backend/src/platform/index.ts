@@ -1,6 +1,6 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, generateOTP, hashPassword, passwordMatches, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signedSession, signJWT, verifyJWT, verifyPassword } from './lib/auth.js';
-export type { SignedSession, TokenPurpose } from './lib/auth.js';
+export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, generateOTP, hashPassword, passwordMatches, signJWT, verifyJWT, verifyPassword } from './lib/auth.js';
+export type { TokenPurpose } from './lib/auth.js';
 export { watchingAll, watchWrites } from './lib/change-streams.js';
 export { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening, type Reopening } from '@koala/engine-core/reopening';
 export type { Watching } from './lib/change-streams.js';
@@ -105,7 +105,7 @@ export { asyncRoute, errorResponder } from './middleware/async-route.js';
 export { projectWork } from './middleware/project-work.js';
 export type { DeletingRequests, ProjectOf } from './middleware/project-work.js';
 export { createAuth, parseCookie, principalFrom, requireAllowed } from './middleware/auth.js';
-export type { Auth, OpenMount, OpenRoute } from './middleware/auth.js';
+export type { Auth, OpenMount, OpenRoute, OwnSessions } from './middleware/auth.js';
 export { BrowserSessions } from './services/BrowserSessions.js';
 export { BROWSER_SESSION_COOKIE } from './lib/browser-session.js';
 export type { BrowserPerson, PersonThroughRoot, SignInStarted } from './lib/browser-session.js';
@@ -128,7 +128,6 @@ export { answerOf, MailReputation, reachPort25 } from './services/MailReputation
 export type { MailReputationView } from './services/MailReputation.js';
 export { MetricsService } from './services/MetricsService.js';
 export { PayloadStorageService } from './services/PayloadStorageService.js';
-export { SessionEnds } from './services/SessionEnds.js';
 export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
 export { childEnv, passedOn, DOCKER_CLIENT, PERSON_SESSION } from './services/child-env.js';

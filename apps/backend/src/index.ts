@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, arrivedOverHttps, BrowserSessions, SessionEnds, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
+  AccessRevocations, arrivedOverHttps, BrowserSessions, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, memoryIndexReachOf, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -126,10 +126,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const instanceReach = new InstanceReach(settings.reach);
   const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
-  const browserSessions = signsInThroughRoot(role.role)
-    ? new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) })
-    : undefined;
-  const rootSignIn = browserSessions ? rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
+  const browserSessions = new BrowserSessions({
+    store: db.platform,
+    secret: keys.session,
+    securedFor: signsInThroughRoot(role.role) ? (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) : () => PUBLIC_URL.startsWith('https://'),
+  });
+  const rootSignIn = signsInThroughRoot(role.role) ? rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
   const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
@@ -225,9 +227,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const authService = new AuthService(db, { mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionSockets = new SessionSockets();
-  const sessionEnds = browserSessions ? undefined : new SessionEnds(db.platform);
-  if (sessionEnds) await sessionEnds.follow();
-  (browserSessions ?? sessionEnds)?.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
+  browserSessions.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   app.set('trust proxy', settings.trustProxy);
   app.use(inFlightLimit());
@@ -296,7 +296,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, ...(browserSessions && rootSignIn ? { throughRoot: { sessions: browserSessions, signIn: rootSignIn } } : { sessionEnds }), bearer: runBearersFor(rootSignIn, db, claimSettings) });
+  const auth = createAuth({ db, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, ...(rootSignIn ? { throughRoot: { sessions: browserSessions, signIn: rootSignIn } } : { own: { sessions: browserSessions, revocations } }), bearer: runBearersFor(rootSignIn, db, claimSettings) });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
@@ -318,7 +318,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     db, authService, auth, sessionKey: keys.session, appUrl: APP_URL, accounts: holdsAccounts(role), revocations,
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, sessionKey: keys.session, accounts: authService }), passwords,
   }));
-  if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
+  if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
   tenant.get('/ingress/verify', asyncRoute(async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');

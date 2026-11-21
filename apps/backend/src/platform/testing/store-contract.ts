@@ -4,7 +4,6 @@ import type { PlatformStore } from '../store.js';
 
 const T = Date.now();
 const RULE: LockoutRule = { after: 3, windowMs: 60_000, forMs: 120_000 };
-const byId = <Row extends { id: string }>(list: Row[]): Row[] => [...list].sort((a, b) => a.id.localeCompare(b.id));
 
 export function platformStoreContract(make: () => Promise<PlatformStore>): void {
   describe('the state of the dependencies each process uses', () => {
@@ -123,57 +122,6 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
       await store.recordMigration({ name: 'tidy-things', at: '2026-10-01T00:00:00.000Z', result: { moved: 3 } });
       await store.recordMigration({ name: 'tidy-things', at: '2026-10-02T00:00:00.000Z', result: { moved: 0 } });
       expect(await store.hasMigration('tidy-things')).toBe(true);
-    });
-  });
-
-  describe('sessions that were signed out', () => {
-    it('tells whoever listens of each session signed out of, from any write, once it is listening', async () => {
-      const store = await make();
-      const now = Date.now();
-      const heard: string[] = [];
-      let both!: () => void;
-      const done = new Promise<void>((resolve) => { both = resolve; });
-      const watching = store.watchSessionEnds((ended) => { heard.push(`${ended.id} ${ended.until - now}`); if (heard.length === 2) both(); });
-      await watching.ready;
-
-      await store.endSession({ id: 's1', until: now + 60_000, at: now });
-      await store.endSession({ id: 's2', until: now + 90_000, at: now });
-      await done;
-      await watching.close();
-
-      expect(heard).toEqual(['s1 60000', 's2 90000']);
-    });
-
-    it('lists the sessions ended at or after a moment that have not yet expired', async () => {
-      const store = await make();
-      const now = Date.now();
-      await store.endSession({ id: 'old', until: now + 60_000, at: now - 10_000 });
-      await store.endSession({ id: 'edge', until: now + 60_000, at: now - 5_000 });
-      await store.endSession({ id: 'recent', until: now + 60_000, at: now - 1_000 });
-      expect(byId(await store.sessionsEndedSince(now - 5_000))).toEqual([
-        { id: 'edge', until: now + 60_000, at: now - 5_000 },
-        { id: 'recent', until: now + 60_000, at: now - 1_000 },
-      ]);
-      expect(byId(await store.sessionsEndedSince(0)).map((ended) => ended.id)).toEqual(['edge', 'old', 'recent']);
-      expect(await store.sessionsEndedSince(now)).toEqual([]);
-    });
-
-    it('leaves out a session whose time to live has passed', async () => {
-      const store = await make();
-      const now = Date.now();
-      await store.endSession({ id: 'lapsed', until: now - 1_000, at: now - 2_000 });
-      await store.endSession({ id: 'live', until: now + 60_000, at: now - 2_000 });
-      expect((await store.sessionsEndedSince(0)).map((ended) => ended.id)).toEqual(['live']);
-    });
-
-    it('ending a session again keeps the later expiry and takes the new moment it was ended', async () => {
-      const store = await make();
-      const now = Date.now();
-      await store.endSession({ id: 's1', until: now + 120_000, at: now - 3_000 });
-      await store.endSession({ id: 's1', until: now + 30_000, at: now - 1_000 });
-      expect(await store.sessionsEndedSince(0)).toEqual([{ id: 's1', until: now + 120_000, at: now - 1_000 }]);
-      await store.endSession({ id: 's1', until: now + 300_000, at: now - 500 });
-      expect(await store.sessionsEndedSince(0)).toEqual([{ id: 's1', until: now + 300_000, at: now - 500 }]);
     });
   });
 

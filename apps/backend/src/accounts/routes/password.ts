@@ -1,13 +1,12 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, sessionToken, type Auth, type SecretKey, type UserMetadata, type OpenRoute } from '../../platform/index.js';
+import { asyncRoute, type Auth, type UserMetadata, type OpenRoute } from '../../platform/index.js';
 import type { Answered, PasswordService } from '../services/PasswordService.js';
 import type { Devices } from './device.js';
 
 export interface PasswordRouterDeps {
   passwords: Pick<PasswordService, 'forgot' | 'resend' | 'reset' | 'change'>;
-  auth: Pick<Auth, 'setSessionCookie'>;
+  auth: Pick<Auth, 'holdAccount'>;
   devices: Pick<Devices, 'known'>;
-  sessionKey: SecretKey;
 }
 
 const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
@@ -38,7 +37,7 @@ export function passwordRouter(deps: PasswordRouterDeps): Router {
     if (!user) return res.status(401).json({ error: 'Sign in first' });
     const { password, current, code } = bodyOf(req);
     const changed = await deps.passwords.change(user, { password, current, code }, deps.devices.known(req), req.ip);
-    if (changed.ok) deps.auth.setSessionCookie(res, sessionToken(changed.user, deps.sessionKey), req);
+    if (changed.ok) await deps.auth.holdAccount(req, changed.user);
     return answer(res, changed, () => ({ changed: true }));
   }));
 

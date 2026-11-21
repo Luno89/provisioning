@@ -8,8 +8,6 @@ import dotenv from 'dotenv';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js';
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
@@ -169,8 +167,8 @@ async function main(): Promise<void> {
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
-  const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 3600 });
-  const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
+  const session = owner.cookie;
+  const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: session, ...(init.headers ?? {}) } });
 
   step(`the owner picks a name: a dashed one and one the platform keeps are refused, "${NAME}" is taken`);
   const dashed = await (await asOwner(`/api/instances/name-check?name=${NAME}-x`)).json() as { ok: boolean; problem?: string };
@@ -209,16 +207,16 @@ async function main(): Promise<void> {
   console.log(`  ${signInPage.status} from the instance`);
 
   step('signing in at root lands on the instance at its own address');
-  const { exchange, location, startCookie } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
+  const { exchange, location, startCookie } = await handOff(fetchSide(ROOT_FOR_HOST, session), httpsSide(`${NAME}.${DOMAIN}`));
   assert.equal(location, `https://${NAME}.${DOMAIN}/api/auth/oidc/start`, `root sent the owner to ${location}`);
-  assert.ok(startCookie?.startsWith('__Host-koala_sign_in='), `the sign-in was not bound to this browser with a __Host- cookie: ${startCookie}`);
+  assert.ok(startCookie?.startsWith('__Host-koala_sid='), `the sign-in was not bound to this browser with a __Host- cookie: ${startCookie}`);
   assert.ok(signedInLanding(exchange), `the instance did not sign its owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
-  const sessionLine = exchange.setCookies.find((line) => /^__Host-session=/.test(line)) ?? '';
+  const sessionLine = exchange.setCookies.find((line) => /^__Host-koala_sid=/.test(line)) ?? '';
   const cookie = sessionLine.split(';')[0]!;
   const attributes = sessionLine.split(';').map((part) => part.trim().toLowerCase());
-  assert.ok(cookie.startsWith('__Host-session='), `over https the instance sets a __Host- cookie: ${exchange.setCookies.join(' | ')}`);
+  assert.ok(cookie.startsWith('__Host-koala_sid='), `over https the instance sets a __Host- cookie: ${exchange.setCookies.join(' | ')}`);
   assert.ok(attributes.includes('secure') && attributes.includes('path=/') && !attributes.some((part) => part.startsWith('domain=')), `the session cookie is Secure, for / and no Domain: ${attributes.join('; ')}`);
-  assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie: cookie.replace('__Host-session=', 'session=') }).status, 401, 'a plain session cookie, which a site next door could plant, is not read over https');
+  assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie: cookie.replace('__Host-koala_sid=', 'koala_sid=') }).status, 401, 'a plain session cookie, which a site next door could plant, is not read over https');
   console.log('  the session is a __Host- cookie, and the plain name is not read');
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie });
 

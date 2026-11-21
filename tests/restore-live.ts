@@ -68,7 +68,7 @@ function https(tlsPort: number, ca: string, path: string, init: { method?: strin
   const blocks = out.split(/\r?\n\r?\n/);
   const head = blocks.shift() ?? '';
   const [statusLine, ...lines] = head.split(/\r?\n/);
-  const cookie = lines.find((line) => /^set-cookie:\s*(__Host-)?session=/i.test(line))?.replace(/^set-cookie:\s*/i, '').split(';')[0] ?? '';
+  const cookie = lines.find((line) => /^set-cookie:\s*(__Host-)?koala_sid=/i.test(line))?.replace(/^set-cookie:\s*/i, '').split(';')[0] ?? '';
   const location = lines.find((line) => /^location:/i.test(line))?.replace(/^location:\s*/i, '').trim() ?? '';
   return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), cookie, location };
 }

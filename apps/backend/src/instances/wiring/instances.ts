@@ -109,7 +109,7 @@ export interface InstancesWiringDeps {
   db: Database;
   mail: MailService;
   identity: IdentityService;
-  auth: Pick<ReturnType<typeof createAuth>, 'requireOperator' | 'principalFor' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie' | 'getCookie' | 'sessionCookieOptions'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'requireOperator' | 'userOf'>;
   sessionKey: SecretKey;
   publicUrl: string;
   repoRoot: string;
@@ -140,13 +140,13 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     servesTenants: servesTenants(role),
     accounts: holdsAccounts(role) ? {
       identity,
-      signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)),
+      signedIn: (req) => deps.auth.userOf(req),
       reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach,
     } : undefined,
   }));
   if (deps.provider) {
     const provider = deps.provider;
-    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userOf(req) }));
     provider.keepDelivering();
   }
   if (signsInThroughRoot(role.role) && deps.signIn && deps.browserSessions) {

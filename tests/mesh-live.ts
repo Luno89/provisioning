@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { k3sMirror } from './lib/k3s-mirror.js';
@@ -136,8 +134,8 @@ async function main(): Promise<void> {
     ...devDataMounts(), ...rootIdentity(ROOT_FOR_GUEST, { tag: TAG, registry: '10.0.2.2:5001' }), '-e', `MESH_LOGIN_SERVER=${MESH}`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
-  const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 4 * 3600 });
-  const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
+  const session = owner.cookie;
+  const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: session, ...(init.headers ?? {}) } });
 
   step('the owner adds a machine at root that puts their Koala on itself; it joins the mesh, installs k3s and helm, and the agent installs Koala there');
   const instanceVm = await boot(`mesh-inst-${STAMP}`, { memoryMB: 12288, cpus: 4, diskGB: 60, loopback: [{ host: INSTANCE_PORT, guest: 30320 }] });
@@ -190,7 +188,7 @@ async function main(): Promise<void> {
   }
 
   step('the owner signs in to the instance');
-  const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
+  const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, session), fetchSide(INSTANCE_URL));
   assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
   const cookie = (sessionFrom(exchange.setCookies) ?? '');
   const onInstance = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });

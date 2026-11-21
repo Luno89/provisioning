@@ -15,7 +15,7 @@ import type { RootSignIn } from '../services/RootSignIn.js';
 import { grantsOver } from '../../engine/testing/run-grants.js';
 import type { InstanceService } from '../services/InstanceService.js';
 import {
-  SESSION_ID_COOKIE, cookieOf, remember, rootSessionOf, rootSigning, servedThroughRoot, sessionIdOf, signInThroughRoot, type Jar, type Served,
+  SESSION_ID_COOKIE, cookieOf, remember, rootSigning, servedThroughRoot, sessionIdOf, signInThroughRoot, type Jar, type Served, type ThroughRoot,
 } from './through-root.js';
 
 const whoCalls = (caller: { clientId: string; kind: string; until: number } | undefined): { clientId: string; kind: string } | undefined => {
@@ -78,6 +78,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let rootService: InstanceService;
   let clientKeys: IdentityKeyPair;
   let registrationCode: string;
+  let signInAtRoot: ThroughRoot['signInAtRoot'];
   let offset = 0;
   const heard: AccessRevoked[] = [];
   const rootDown: Array<{ dependency: DependencyId; reason: string }> = [];
@@ -100,7 +101,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     revocations.listen(async () => { if (broken) throw new Error(broken); });
     const runGrants = grantsOver(instanceDb.engine);
     revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
-    ({ provider, rootService, signIn, instanceAuth, clientKeys, registrationCode } = await servedThroughRoot({
+    ({ provider, rootService, signIn, instanceAuth, clientKeys, registrationCode, signInAtRoot } = await servedThroughRoot({
       rootDb, instanceDb, root, instance, reach: options.reach(), instanceId: 'inst-u1', ownerId: 'u1', revocations,
       dependency: { failed: (dependency, err) => { rootDown.push({ dependency, reason: (err as Error).message }); return err; } },
       now: () => Date.now() + offset,
@@ -117,7 +118,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
   });
 
-  async function signInAs(userId: string, at: S = instance, rootJar: Jar = rootSessionOf({ id: userId, email: `${userId}@example.com` })): Promise<{ instanceJar: Jar; rootJar: Jar; landed: Response }> {
+  async function signInAs(userId: string, at: S = instance, given?: Jar): Promise<{ instanceJar: Jar; rootJar: Jar; landed: Response }> {
+    const rootJar = given ?? await signInAtRoot({ id: userId, email: `${userId}@example.com` });
     const { instanceJar, landed } = await signInThroughRoot(root.url, at.url, rootJar);
     return { instanceJar, rootJar, landed };
   }

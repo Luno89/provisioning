@@ -2,9 +2,8 @@ import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { deviceOf, deviceToken } from '../../platform/lib/auth.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import type { AuthService } from '../services/AuthService.js';
 import { devicesFor } from './device.js';
 import { openRoutesOf } from '../../open-routes.js';
@@ -12,8 +11,7 @@ import { openRoutesOf } from '../../open-routes.js';
 const KEY = 'test-secret';
 
 function devices(authService = mock<AuthService>()) {
-  const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) });
+  const { auth } = rootAuthOver(memoryDatabase(), { open: openRoutesOf('root') });
   return { devices: devicesFor({ auth, sessionKey: KEY, authService }), authService };
 }
 

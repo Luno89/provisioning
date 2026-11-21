@@ -44,7 +44,7 @@ function base64urlDecode(str: string): Record<string, unknown> | null {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
 }
 
-export type TokenPurpose = 'session' | 'client-session' | 'two-factor' | 'device' | 'oauth-state' | 'root-sign-in';
+export type TokenPurpose = 'two-factor' | 'device' | 'oauth-state';
 
 export function signJWT(purpose: TokenPurpose, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {
   const secret = ringOf(key).current;
@@ -98,10 +98,6 @@ export function generateOTP(): string {
   return val.toString();
 }
 
-export const SESSION_SECONDS = 24 * 60 * 60;
-
-export const SESSION_COOKIE = 'session';
-
 export const cookieNamed = (name: string, secure: boolean): string => (secure ? `__Host-${name}` : name);
 
 export const DEVICE_COOKIE = 'device';
@@ -126,24 +122,3 @@ export function deviceOf(token: string | undefined, key: SecretKey): SignedInDev
 
 export const arrivedOverHttps = (forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
   encrypted || String(forwardedProto ?? '').split(',')[0]?.trim() === 'https';
-
-export const sessionToken = (user: { id: string; email: string }, key: SecretKey, options: { now?: number; seconds?: number } = {}): string =>
-  signJWT('session', { userId: user.id, email: user.email, sessionAt: options.now ?? Date.now(), jti: crypto.randomUUID() }, key, options.seconds ?? SESSION_SECONDS);
-
-export interface SignedSession {
-  userId: string;
-  jti: string;
-  sessionAt: number;
-  until: number;
-}
-
-export function signedSession(decoded: Record<string, unknown> | null | undefined): SignedSession | undefined {
-  if (!decoded) return undefined;
-  const { userId, jti, sessionAt, exp } = decoded;
-  if (typeof userId !== 'string' || !userId || typeof jti !== 'string' || !jti) return undefined;
-  if (typeof sessionAt !== 'number' || !Number.isFinite(sessionAt) || typeof exp !== 'number') return undefined;
-  return { userId, jti, sessionAt, until: exp * 1000 };
-}
-
-export const sessionEnded = (session: Pick<SignedSession, 'sessionAt'>, user: { sessionsEndedAt?: string | undefined }): boolean =>
-  user.sessionsEndedAt !== undefined && session.sessionAt < Date.parse(user.sessionsEndedAt);
