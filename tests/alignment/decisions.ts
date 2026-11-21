@@ -351,6 +351,16 @@ export const DECISIONS: Decision[] = [
     reading: 'A version is an image: a sealed snapshot of everything a procedure touches (its graph and node code, the operations it calls at their versions, its agents with their prompts and grants, tool contracts and captured MCP servers, the model and its settings, the workspace image, and the Koala build it runs on), named by its contents and never changed. Changing any part makes a new version; a run uses the image it started with from first step to last, and old images stay while a run uses them. Koala itself is versioned the same way: a run is pinned to the Koala build it started on and the old build\'s workers stay until their runs finish, so no workflow\'s code changes underneath it and the patched() guards go. What cannot be locked (the person\'s data, outside services, root, the machine agent, secrets) carries a version key that is checked, and a mismatch is handled or refused with why, never run silently.',
   },
   {
+    id: 'engine-review',
+    subject: 'The engine review\'s decisions (D1 to D10, 2026-11-20)',
+    terms: ['engine review', 'step cap', 'limits', 'caps', 'D2'],
+    words: [
+      { at: '2026-10-01T17:27', asked: 'There\'s an older limit in the work loop', text: 'We still need it configurable, jesus, look at the other examples there should be a ton of configurable limits that are currently set open' },
+      { at: '2026-11-21T09:18', text: 'Yes sounds alright' },
+    ],
+    reading: 'D1 is replaced by versions-are-images. D2: the procedure step cap and the cleanup step cap go; a step limit, if a person wants one, is one more field of the run budget they already set, off by default; a loop that never waits on anything (no model, tool or person) is refused when the procedure is saved, saying why. The 30-day activity ceiling is Temporal\'s required start-to-close field, not a rule: it becomes the largest value Temporal accepts, named as that, and the heartbeat alone ends a live activity. kubectl waits with a long --timeout become watching for the thing itself.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
