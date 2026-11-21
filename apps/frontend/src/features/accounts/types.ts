@@ -6,7 +6,7 @@
  */
 import type { DeletionProgress } from '../projects'
 
-export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala'
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala' | 'machines'
 
 export type RemovalState =
   | { state: 'running'; done: RemovalStep[] }
@@ -40,6 +40,7 @@ export interface PersonEntry {
     steps?: RemovalStep[]
     koala?: DeletionProgress
     koalaAway?: { machine?: string; since?: string }
+    machinesAway?: { machine: string; since: string }[]
   }
 }
 

@@ -54,6 +54,33 @@ export function machinesStoreContract(make: () => Promise<MachinesStore>): void 
       expect(await store.getLocalAgentDevices()).toEqual([device]);
     });
 
+    it('marks every machine of a person being removed once, keeping when the first mark was made, and names each one', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      await store.saveLocalAgentDevice({ ...device, id: 'tower', name: 'Tower' });
+      await store.saveLocalAgentDevice({ ...device, id: 'other', ownerId: 'owner-2', name: 'Other' });
+      const marked = await store.markDevicesRemoving('owner-1', '2026-11-21T10:00:00.000Z');
+      expect([...marked].sort((a, b) => a.id.localeCompare(b.id))).toEqual([{ id: 'desk', name: 'desk' }, { id: 'tower', name: 'Tower' }]);
+      expect(await store.markDevicesRemoving('owner-1', '2026-11-21T11:00:00.000Z')).toHaveLength(2);
+      const stored = await store.getLocalAgentDevices();
+      expect(stored.filter((entry) => entry.removal).map((entry) => [entry.id, entry.removal!.startedAt]).sort()).toEqual([['desk', '2026-11-21T10:00:00.000Z'], ['tower', '2026-11-21T10:00:00.000Z']]);
+    });
+
+    it('hears a machine marked for removal, and no other write of a machine', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const watching = store.watchDeviceRemovals((written) => { heard.push(written.id); finish(); });
+      await watching.ready;
+      await store.updateLocalAgentDevice('desk', { set: { lastSeenAt: '2026-11-21T09:00:00.000Z' } });
+      await store.markDevicesRemoving('owner-1', '2026-11-21T10:00:00.000Z');
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['desk']);
+    });
+
     it('hands a join code out once, keeping the join\'s record with when it was used', async () => {
       const store = await make();
       const code = { hash: 'h1', id: 'join-1', ownerId: 'owner-1', expiresAt: '2030-01-01T00:00:00.000Z', keptUntil: '2030-01-01T00:00:00.000Z' };

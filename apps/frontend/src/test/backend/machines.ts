@@ -55,9 +55,9 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
     instances: () => ({ places }),
     installWorkflows: workflows,
   })
-  if (!sides.accounts || !sides.installsWatched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
-  afterAll(() => sides.installsWatched?.close())
-  await sides.installsWatched.ready
+  if (!sides.accounts || !sides.watched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
+  afterAll(() => sides.watched?.close())
+  await sides.watched.ready
   api.use('/my-machines', myMachinesRouter({ accounts: sides.accounts, koalaOf: koalaOfOwner(db) }))
   return { role, sides, started, places }
 }

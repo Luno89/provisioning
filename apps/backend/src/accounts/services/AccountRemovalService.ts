@@ -8,7 +8,9 @@ import type { DeletionProgress } from '../../projects/index.js';
 import {
   KOALA_REMOVAL_QUERY,
   KOALA_REMOVAL_SIGNAL,
+  MACHINE_REMOVALS_QUERY,
   REMOVAL_PROGRESS_QUERY,
+  type MachineRemoval,
   DELETE_ACCOUNT_WORKFLOW,
   refuseRemoval,
   removalBlockers,
@@ -83,15 +85,22 @@ export interface AccountRemovalDeps {
   logouts?: (() => Promise<UndeliveredLogout[]>) | undefined;
   principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
-  machines?: (() => Promise<readonly { id: string; name: string }[]>) | undefined;
+  machines?: (() => Promise<readonly RemovedMachine[]>) | undefined;
   koalas?: KoalaRemovals | undefined;
   now?: () => string;
+}
+
+export interface RemovedMachine {
+  id: string;
+  name: string;
+  offSince?: string | undefined;
 }
 
 export interface KoalaRemovals {
   tell(instanceId: string): void;
   told(workflowId: string, progress: DeletionProgress): Promise<boolean>;
   progress(workflowId: string): Promise<DeletionProgress | undefined>;
+  machines(workflowId: string): Promise<MachineRemoval[]>;
 }
 
 export function temporalKoalaRemovals(client: () => Client | Promise<Client>, tell: (instanceId: string) => void): KoalaRemovals {
@@ -108,6 +117,9 @@ export function temporalKoalaRemovals(client: () => Client | Promise<Client>, te
     },
     async progress(workflowId) {
       return (await client()).workflow.getHandle(workflowId).query<DeletionProgress | undefined>(KOALA_REMOVAL_QUERY);
+    },
+    async machines(workflowId) {
+      return (await client()).workflow.getHandle(workflowId).query<MachineRemoval[]>(MACHINE_REMOVALS_QUERY);
     },
   };
 }
@@ -154,6 +166,7 @@ export interface PersonEntry {
     steps?: readonly RemovalStep[] | undefined;
     koala?: DeletionProgress | undefined;
     koalaAway?: { machine?: string | undefined; since?: string | undefined } | undefined;
+    machinesAway?: { machine: string; since: string }[] | undefined;
   } | undefined;
 }
 
@@ -238,14 +251,18 @@ export class AccountRemovalService {
     return { ok: true, value: {} };
   }
 
-  private async koalaOf(ownerId: string, state: RemovalWorkflowState, instances: readonly InstanceRecord[], watches: readonly InstanceWatchRecord[], machines: readonly { id: string; name: string }[]) {
+  private async koalaOf(ownerId: string, state: RemovalWorkflowState, instances: readonly InstanceRecord[], watches: readonly InstanceWatchRecord[], machines: readonly RemovedMachine[]) {
     if (state.state !== 'running' || !this.deps.koalas) return {};
     const koala = await this.deps.koalas.progress(removeAccountWorkflowId(ownerId));
     const instance = instances.find((entry) => entry.ownerId === ownerId);
     const reach = instance ? watches.find((watch) => watch.instanceId === instance.id)?.reach : undefined;
     const machine = instance?.machineId ? machines.find((entry) => entry.id === instance.machineId)?.name : undefined;
     const away = koala?.phase !== 'deleted' && reach && !reach.reachable ? { koalaAway: { ...(machine ? { machine } : {}), ...(reach.unreachableSince ? { since: reach.unreachableSince } : {}) } } : {};
-    return { ...(koala ? { koala } : {}), ...away };
+    const machinesAway = (await this.deps.koalas.machines(removeAccountWorkflowId(ownerId))).flatMap((removal) => {
+      const offSince = removal.state === 'uninstalling' ? machines.find((entry) => entry.id === removal.id)?.offSince : undefined;
+      return offSince ? [{ machine: removal.name, since: offSince }] : [];
+    });
+    return { ...(koala ? { koala } : {}), ...away, ...(machinesAway.length ? { machinesAway } : {}) };
   }
 
   async people(): Promise<PersonEntry[]> {

@@ -23,7 +23,7 @@ export const roleRuns = (role: PlatformRole, place: Place): boolean => PLACES[ro
 export const HOST_ACTIVITIES: Record<'root' | 'instance', readonly string[]> = {
   root: [
     'DependencyWatchActivity',
-    'RootRemovalInstanceActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
+    'RootRemovalInstanceActivity', 'RootRemovalMachinesActivity', 'RootRemovalMeshActivity', 'RootRemovalRecordsActivity',
     'KoalaInstallAskActivity', 'KoalaInstallStageActivity', 'KoalaInstallStoppedActivity',
   ],
   instance: [

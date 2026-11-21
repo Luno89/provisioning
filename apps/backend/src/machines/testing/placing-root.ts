@@ -98,7 +98,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const chart = options.chart ?? '/nowhere';
   app.use('/api/instances', instancesRouter({ instances, chart: async () => chart, operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
-  await sides.installsWatched!.ready;
+  await sides.watched!.ready;
   const told: unknown[] = [];
   const browser: ClientSocket = connect(url, { transports: ['websocket'], reconnection: false, forceNew: true });
   browser.on(KOALA_INSTALL_CHANGED, (said: unknown) => told.push(said));
@@ -107,7 +107,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     url, accounts, installs, instances, sides, told,
     close: async () => {
       browser.close();
-      await sides!.installsWatched!.close();
+      await sides!.watched!.close();
       await io.close();
       await new Promise<void>((done) => { server.close(() => done()); });
     },

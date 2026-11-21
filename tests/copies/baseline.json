@@ -430,7 +430,6 @@
  "tests apps/backend/src/machines/wiring/agent-updates.integration.test.ts <-> apps/backend/src/machines/wiring/machine-cluster-reports.integration.test.ts #2e33a2f8fa7f": 1,
  "tests apps/backend/src/machines/wiring/agent-updates.integration.test.ts <-> apps/backend/src/machines/wiring/machine-cluster-reports.integration.test.ts #576835ff95a4": 1,
  "tests apps/backend/src/machines/wiring/machine-cluster-reports.integration.test.ts <-> apps/backend/src/machines/wiring/machine-tokens.integration.test.ts #4364619b4044": 1,
- "tests apps/backend/src/machines/wiring/machine-cluster-reports.integration.test.ts <-> apps/backend/src/machines/wiring/machine-tokens.integration.test.ts #48b12b792e6a": 1,
  "tests apps/backend/src/machines/wiring/machine-tokens.integration.test.ts <-> apps/backend/src/machines/wiring/machine-tokens.integration.test.ts #d6bbcffef768": 1,
  "tests apps/backend/src/machines/wiring/sides.integration.test.ts <-> apps/backend/src/machines/wiring/sides.integration.test.ts #79940c982b7f": 1,
  "tests apps/backend/src/machines/wiring/sides.integration.test.ts <-> apps/backend/src/machines/wiring/sides.integration.test.ts #ea81aa86882d": 1,

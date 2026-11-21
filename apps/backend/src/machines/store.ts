@@ -1,5 +1,6 @@
 import { type AreaStore, fieldChanges, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db, Document } from 'mongodb';
+import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
@@ -31,6 +32,8 @@ export interface MachinesStore extends AreaStore {
   saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void>;
   updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean>;
   deleteLocalAgentDevice(id: string): Promise<void>;
+  markDevicesRemoving(ownerId: string, startedAt: string): Promise<{ id: string; name: string }[]>;
+  watchDeviceRemovals(on: (device: LocalAgentDeviceMetadata) => void): Watching;
   saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
   takeMachineJoinCode(hash: string, usedAt: string): Promise<MachineJoinCode | undefined>;
   getMachineJoin(hash: string): Promise<MachineJoinCode | undefined>;
@@ -53,6 +56,7 @@ export class MongoMachinesStore implements MachinesStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await keepWrittenDocuments(this.db(), ['localAgentDevices']);
     await this.machineJoinCodes.updateMany(
       { keptUntil: { $exists: false }, progress: { $exists: false } },
       [{ $set: { keptUntil: '$expiresAt', id: { $ifNull: ['$id', { $toString: '$_id' }] } } }],
@@ -85,6 +89,15 @@ export class MongoMachinesStore implements MachinesStore {
 
   async deleteLocalAgentDevice(id: string): Promise<void> {
     await this.localAgentDevices.deleteOne({ _id: id });
+  }
+
+  async markDevicesRemoving(ownerId: string, startedAt: string): Promise<{ id: string; name: string }[]> {
+    await this.localAgentDevices.updateMany({ ownerId, removal: { $exists: false } }, { $set: { removal: { startedAt } } });
+    return (await this.localAgentDevices.find({ ownerId }, { projection: { name: 1 } }).toArray()).map((doc) => ({ id: doc._id, name: String(doc.name) }));
+  }
+
+  watchDeviceRemovals(on: (device: LocalAgentDeviceMetadata) => void): Watching {
+    return watchWrites(() => this.localAgentDevices, { removal: { $exists: true } }, (doc) => on(fromDoc<LocalAgentDeviceMetadata>(doc)));
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {

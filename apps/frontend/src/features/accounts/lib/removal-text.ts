@@ -12,6 +12,7 @@ const STEP_NAMES: Record<RemovalStep, string> = {
   records: 'deleting its records',
   instance: 'removing its instance',
   koala: 'their own Koala deleting everything of theirs',
+  machines: 'uninstalling Koala from their machines',
 }
 
 export function koalaAwayText(away: { machine?: string; since?: string }): string {

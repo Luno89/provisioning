@@ -11,6 +11,7 @@ export interface RootRemovalInstance {
 
 export interface RootRemovalActivities {
   RootRemovalInstanceActivity(args: { ownerId: string }): Promise<RootRemovalInstance>;
+  RootRemovalMachinesActivity(args: { ownerId: string }): Promise<{ id: string; name: string }[]>;
   RootRemovalMeshActivity(args: { ownerId: string }): Promise<{ devices: number; user: boolean }>;
   RootRemovalRecordsActivity(args: { ownerId: string }): Promise<Record<string, number>>;
 }
@@ -33,6 +34,10 @@ export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string
     if (instance.install && installUnfinished(instance.install)) return { installId: instance.install.id };
     return inService(instance) ? { koala: instance.id } : {};
   });
+}
+
+export async function RootRemovalMachinesActivity({ ownerId }: { ownerId: string }): Promise<{ id: string; name: string }[]> {
+  return withDb((db) => db.machines.markDevicesRemoving(ownerId, new Date().toISOString()));
 }
 
 export async function RootRemovalMeshActivity({ ownerId }: { ownerId: string }): Promise<{ devices: number; user: boolean }> {

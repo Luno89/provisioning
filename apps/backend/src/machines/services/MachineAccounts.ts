@@ -48,6 +48,10 @@ export interface MachineFollowers {
   changed(ownerId: string): Promise<void>;
 }
 
+export interface MachineRemovals {
+  uninstalled(ownerId: string, word: { id: string; problem?: string | undefined }): Promise<void>;
+}
+
 export interface OwnerBrowsers {
   machinesChanged(ownerId: string): void;
 }
@@ -61,6 +65,7 @@ export interface MachineAccountsDeps {
   toMachines: MachineMessages;
   toOwner: OwnerBrowsers;
   installs?: Pick<KoalaInstalls, 'start' | 'machineRemoved'> | undefined;
+  removals?: MachineRemovals | undefined;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -310,13 +315,27 @@ export class MachineAccounts {
     if (!device || device.ownerId !== ownerId) return false;
     await this.deps.installs?.machineRemoved(device.id);
     this.deps.toMachines.removed(device.id);
+    await this.forget(device);
+    return true;
+  }
+
+  async uninstalled(deviceId: string, problem?: string): Promise<void> {
+    const device = await this.byId(deviceId);
+    if (!device?.removal) return;
+    if (!this.deps.removals) throw new Error('this server removes no accounts, so a machine has no removal to tell');
+    await this.deps.installs?.machineRemoved(device.id);
+    await this.deps.removals.uninstalled(device.ownerId, { id: device.id, ...(problem ? { problem } : {}) });
+    await this.forget(device);
+  }
+
+  private async forget(device: LocalAgentDeviceMetadata): Promise<void> {
+    const ownerId = device.ownerId;
     await this.deps.store.deleteLocalAgentDevice(device.id);
     if (await this.deps.store.deleteMachineJoinsOf(device.id)) this.deps.toOwner.machinesChanged(device.ownerId);
     if (device.meshIp && this.deps.mesh?.removeNode) {
       await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
     }
     await this.deps.followers.removed(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its Koala could not be told: ${err.message}`));
-    return true;
   }
 
   async rotationFor(deviceId: string, via: TokenVia): Promise<string | undefined> {
@@ -358,7 +377,12 @@ export class MachineAccounts {
   }
 
   async seen(deviceId: string): Promise<void> {
-    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: this.now().toISOString() } });
+    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: this.now().toISOString() }, unset: ['offSince'] });
+  }
+
+  async wentOff(deviceId: string): Promise<void> {
+    const at = this.now().toISOString();
+    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: at, offSince: at } });
   }
 
   async recordMeshIp(deviceId: string, raw: unknown): Promise<void> {

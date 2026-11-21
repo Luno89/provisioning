@@ -83,6 +83,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
     instances: () => ({ service: instances, tellInstance }),
   });
+  closers.push(async () => { await rootSide?.watched?.close(); });
   rootApp.use('/api/instances/machines', accountMachinesRouter({
     accounts: rootSide.accounts!,
     callerOf: async (req) => rootSide!.instanceCaller(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),

@@ -1,5 +1,5 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
-import type { Database } from '../../platform/index.js';
+import type { Database, Watching } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
@@ -10,6 +10,7 @@ import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 export const ACCOUNT_NAMESPACE = '/machine-account';
 
 export interface AccountSockets {
+  watched: Watching;
   removed(deviceId: string): boolean;
   koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
   placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean>;
@@ -20,7 +21,7 @@ export interface AccountSockets {
 export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
-  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed'>;
+  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed' | 'uninstalled' | 'wentOff'>;
   installs: () => Pick<KoalaInstalls, 'connected'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
@@ -71,8 +72,32 @@ export function wireMachineAccounts(deps: {
     });
     socket.on('disconnect', () => {
       sockets.delete(socket);
-      if (!sockets.size) connected.delete(deviceId);
+      if (sockets.size) return;
+      connected.delete(deviceId);
+      accounts.wentOff(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it went off could not be recorded: ${err.message}`));
     });
+    void deps.db.machines.getLocalAgentDevices().then(
+      (devices) => { if (devices.some((device) => device.id === deviceId && device.removal)) askUninstall(socket, deviceId); },
+      (err: Error) => console.warn(`[machines] ${deviceId}: whether its account is being removed could not be read: ${err.message}`),
+    );
+  });
+
+  const askingToUninstall = new WeakSet<Socket>();
+  const askUninstall = (socket: Socket, deviceId: string): void => {
+    if (askingToUninstall.has(socket) || !socket.connected) return;
+    askingToUninstall.add(socket);
+    socket.emit('machine:removed', (answer: { uninstalled?: unknown; problem?: unknown } | undefined) => {
+      const problem = answer?.uninstalled === true ? undefined : typeof answer?.problem === 'string' && answer.problem ? answer.problem.slice(0, 500) : 'the machine did not say whether its uninstall finished';
+      deps.accounts().uninstalled(deviceId, problem)
+        .then(() => { socket.disconnect(true); })
+        .catch((err: Error) => {
+          askingToUninstall.delete(socket);
+          console.warn(`[machines] ${deviceId}: it uninstalled, but root could not forget it: ${err.message}`);
+        });
+    });
+  };
+  const watched = deps.db.machines.watchDeviceRemovals((device) => {
+    for (const socket of connected.get(device.id) ?? []) askUninstall(socket, device.id);
   });
 
   const each = (deviceId: string, send: (socket: Socket) => void): boolean => {
@@ -95,6 +120,7 @@ export function wireMachineAccounts(deps: {
     });
   };
   return {
+    watched,
     removed: (deviceId) => each(deviceId, (socket) => socket.emit('machine:removed')),
     koala: (deviceId, koala) => each(deviceId, (socket) => socket.emit('machine:koala', koala)),
     placeKoala,

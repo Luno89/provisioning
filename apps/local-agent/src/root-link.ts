@@ -13,7 +13,8 @@ export interface RootLinkOptions {
   configFile: string;
   meshIp: () => Promise<string | undefined>;
   onKoala: (koala: Koala) => void;
-  onRemoved: () => void;
+  onRemoved: () => Promise<void> | void;
+  onRemovedEnd?: (() => void) | undefined;
   onPlaceKoala?: ((raw: unknown) => boolean) | undefined;
   onStopKoala?: ((raw: unknown) => void) | undefined;
   say: (line: string) => void;
@@ -68,10 +69,26 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
     say(`connected to root at ${options.rootUrl}`);
     void options.meshIp().then((ip) => { if (ip) socket.emit('machine:mesh', { ip }); });
   });
-  socket.on('machine:removed', () => {
+  let removal: Promise<{ uninstalled: true } | { uninstalled: false; problem: string }> | undefined;
+  socket.on('machine:removed', (ack?: (answer: { uninstalled: boolean; problem?: string }) => void) => {
     socket.io.opts.reconnection = false;
-    options.onRemoved();
+    removal ??= Promise.resolve().then(() => options.onRemoved()).then(
+      () => ({ uninstalled: true as const }),
+      (err: Error) => ({ uninstalled: false as const, problem: err.message }),
+    );
+    void removal.then((answer) => {
+      if (typeof ack !== 'function' || !socket.connected) return endRemoval();
+      socket.once('disconnect', endRemoval);
+      ack(answer);
+      return undefined;
+    });
   });
+  let removalEnded = false;
+  const endRemoval = () => {
+    if (removalEnded) return;
+    removalEnded = true;
+    options.onRemovedEnd?.();
+  };
   socket.on(PLACE_KOALA, (raw: unknown, ack?: (answer: { taken: boolean }) => void) => {
     const taken = options.onPlaceKoala?.(raw) ?? false;
     if (typeof ack === 'function') ack({ taken });
