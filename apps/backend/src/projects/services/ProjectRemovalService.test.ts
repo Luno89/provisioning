@@ -4,7 +4,7 @@ import { mock } from 'vitest-mock-extended';
 import type { AccountRemovalWorkflows } from '../../accounts/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { ProjectRemovalStep } from '../lib/project-removal.js';
-import { loadProjectScope, ProjectRemovalService, type ProjectPurges } from './ProjectRemovalService.js';
+import { loadProjectScope, ProjectRemovalService, type ProjectPurges, type RestoredNeeds } from './ProjectRemovalService.js';
 
 const at = '2026-10-21T00:00:00Z';
 type Workflows = AccountRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>;
@@ -14,7 +14,8 @@ async function setUp() {
   const workflows = mock<Workflows>();
   workflows.state.mockResolvedValue({ state: 'none' });
   const purges = mock<ProjectPurges>();
-  const service = new ProjectRemovalService({ store: db, workflows, purges, now: () => at });
+  const needs = mock<RestoredNeeds>();
+  const service = new ProjectRemovalService({ store: db, workflows, purges, needs, now: () => at });
   await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', giteaOwner: 'koala-ann', giteaRepo: 'shop', appType: 'gitapp', createdAt: at });
   await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop tree', type: 'odoo-addons', projectIds: ['p1'], createdAt: at, updatedAt: at });
   await db.projects.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: at, updatedAt: at });
@@ -22,7 +23,7 @@ async function setUp() {
   await db.engine.saveConversation({ id: 'about-tree', ownerId: 'ann', title: 't', treeId: 't1', messages: [], createdAt: at, updatedAt: at });
   await db.engine.saveConversation({ id: 'side', ownerId: 'ann', title: 's', projectId: 'p1', messages: [], createdAt: at, updatedAt: at });
   await db.releases.savePipelineRunInfo({ id: 'run-1', projectId: 'p1', commitSha: 'abc', ref: 'main', status: 'running', temporalWorkflowId: 'build-1', startedAt: at });
-  return { db, workflows, purges, service };
+  return { db, workflows, purges, needs, service };
 }
 
 describe('what deleting a project takes', () => {
@@ -101,7 +102,7 @@ describe('deleting a project', () => {
   it('marks the project once: pressed again after it stopped, the deletion starts again under the first mark', async () => {
     const { db, workflows, purges } = await setUp();
     let now = at;
-    const service = new ProjectRemovalService({ store: db, workflows, purges, now: () => now });
+    const service = new ProjectRemovalService({ store: db, workflows, purges, needs: mock<RestoredNeeds>(), now: () => now });
     await service.remove('ann', 'p1', 'Shop', 'permanent');
     now = '2026-10-22T00:00:00Z';
     workflows.state.mockResolvedValue({ state: 'failed', reason: 'Gitea answered 403' });
@@ -154,6 +155,21 @@ describe('a deleted project kept for its 90 days', () => {
     expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop', renamed: false, secrets: [] });
     expect(purges.restore).toHaveBeenCalledWith('p1', 'ann');
     expect(await db.projects.deletion('p1')).toBeUndefined();
+  });
+
+  it('builds on its pushes and takes its secrets again once restored: its webhook is made again and an empty secrets workspace is made for it', async () => {
+    const { db, needs, service } = await archived();
+    needs.webhook.mockImplementation(async () => { expect(await db.projects.deletion('p1'), 'the webhook is made once the project is open again').toBeUndefined(); });
+    expect(await service.restore('ann', 'p1')).toMatchObject({ ok: true });
+    expect(needs.webhook).toHaveBeenCalledWith('p1');
+    expect(needs.secrets).toHaveBeenCalledWith('p1');
+  });
+
+  it('makes nothing again when it cannot be restored', async () => {
+    const { needs, service } = await setUp();
+    expect(await service.restore('ann', 'p1')).toMatchObject({ ok: false });
+    expect(needs.webhook).not.toHaveBeenCalled();
+    expect(needs.secrets).not.toHaveBeenCalled();
   });
 
   it('names the secrets it needs entered again, since its secrets were deleted with it', async () => {

@@ -10,7 +10,7 @@ import { ItemChatService } from '../services/ItemChatService.js';
 import { ConversationNoticeService, type WorkspaceBuildService, type extensionServiceFor } from '../../engine/index.js';
 import { projectSecretsFor } from '../services/ProjectSecretsService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
-import { ProjectRemovalService, temporalPurges } from '../services/ProjectRemovalService.js';
+import { ProjectRemovalService, temporalPurges, type RestoredNeeds } from '../services/ProjectRemovalService.js';
 import type { ProjectDeletionMode } from '../../platform/index.js';
 import { temporalRemovalWorkflows } from '../../accounts/index.js';
 import { TreeModelsService, treeAgentsFrom, type ModelService } from '../../models/index.js';
@@ -63,6 +63,7 @@ export interface ProjectsCore {
   postNotice: (what: string, posting: Promise<unknown>) => void;
   projectSecrets: ReturnType<typeof projectSecretsFor>;
   treeHome: TreeHomeService;
+  restoredNeeds: RestoredNeeds;
 }
 
 const webhooksAt = (backend: string | undefined): ((projectId: string) => Promise<string>) | undefined =>
@@ -115,7 +116,11 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
     channel: (project) => channels.ensure(project),
     saveNeeds: (project, needs) => db.projects.saveProjectInfo({ id: project.id, needs }),
   });
-  return { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets, treeHome };
+  const restoredNeeds: RestoredNeeds = {
+    webhook: (projectId) => projectRepoService.rehook(projectId),
+    secrets: async (projectId) => { await deps.infisical.workspaceIdFor(projectId); },
+  };
+  return { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets, treeHome, restoredNeeds };
 }
 
 type EngineHost = Awaited<ReturnType<typeof createEngineHost>>;
@@ -167,6 +172,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     store: db,
     workflows: temporalRemovalWorkflows<{ projectId: string; mode: ProjectDeletionMode }, ProjectRemovalStep>(() => temporalBridge.client, engineQueue, PROJECT_REMOVAL_PROGRESS_QUERY),
     purges: temporalPurges(async () => temporalBridge.client, engineQueue),
+    needs: core.restoredNeeds,
   });
   tenant.use('/api/projects', projectsRouter({
     db, projectRepoService, temporalBridge, getOwnedProject: deps.getOwnedProject,

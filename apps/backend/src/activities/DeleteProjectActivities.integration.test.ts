@@ -9,9 +9,11 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { ARCHIVE_DAYS, purgeProjectWorkflowId } from '../projects/lib/project-archive.js';
 import { realTemporalEnvironment } from '../workflows/testing/temporal-test-env.js';
 import { environmentForFile, testWorker, uniqueName } from '../workflows/testing/test-worker.js';
-import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectWork, temporalProjectArchive, type ProjectArchive, type ProjectRemovalSteps } from './DeleteProjectActivities.js';
+import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectWork, temporalProjectArchive, type DeletionTold, type ProjectArchive, type ProjectRemovalSteps } from './DeleteProjectActivities.js';
 
 const file = environmentForFile(() => realTemporalEnvironment());
+
+const firstTry: DeletionTold = { down: async () => undefined, back: async () => undefined, attempt: () => 1 };
 
 describe('stopping a project\'s work, found in Temporal by the project it names', () => {
   it('cancels every open run of the project and its child, leaves another project\'s alone, and waits until Temporal closes them', async () => {
@@ -22,7 +24,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
     const other = uniqueName('staying');
     const worker = await testWorker(env, { taskQueue, workflows: 'testing/project-probe-workflow.ts', workflowInterceptors: ['telemetry-interceptors.ts'], activities: {} });
     const restarts: string[] = [];
-    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: mock<ProjectArchive>() });
+    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: mock<ProjectArchive>(), told: firstTry });
     const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } } });
     const going = uniqueName('run');
     const staying = uniqueName('run');
@@ -37,7 +39,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
       const stopped = await deletion.StopProjectWorkActivity({ projectId: project });
       expect(stopped.map((work) => work.workflowId).sort()).toEqual([going, `${going}-child`].sort());
       expect(new Set(stopped.map((work) => work.type)), 'each is listed with its type, which names it for the person').toEqual(new Set(['projectProbeWorkflow', 'projectProbeChildWorkflow']));
-      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [] });
+      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [], killed: [] });
       expect((await client.workflow.getHandle(going).describe()).status.name).toBe('CANCELLED');
       expect((await client.workflow.getHandle(staying).describe()).status.name).toBe('RUNNING');
       await client.workflow.getHandle(staying).cancel();
@@ -54,7 +56,7 @@ describe('keeping a deleted project for its 90 days', () => {
     const project = uniqueName('kept');
     await db.projects.saveProject({ id: project, name: 'kept', ownerId: 'owner-1', appType: 'gitapp', createdAt: '2026-11-21T00:00:00.000Z' });
     await db.projects.markDeleting(project, { startedAt: '2026-11-21T00:00:00.000Z', requestedBy: 'owner-1', mode: 'archive' });
-    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: temporalProjectArchive(async () => client, db.projects, uniqueName('purges')) });
+    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: temporalProjectArchive(async () => client, db.projects, uniqueName('purges')), told: firstTry });
     const first = await deletion.ArchiveProjectActivity({ projectId: project });
     const again = await deletion.ArchiveProjectActivity({ projectId: project });
     expect(await db.projects.deletion(project)).toMatchObject({ phase: 'archived' });

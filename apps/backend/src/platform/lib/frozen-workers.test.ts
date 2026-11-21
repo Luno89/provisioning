@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { frozenWorkersIn, type HistoryEvent } from './frozen-workers.js';
+import { cancelledDetailsIn, frozenWorkersIn, killedIn, type HistoryEvent } from './frozen-workers.js';
 
 const scheduled = (id: number): HistoryEvent => ({ eventId: id, activityTaskScheduledEventAttributes: {} });
 const started = (id: number, of: number, identity: string): HistoryEvent => ({ eventId: id, activityTaskStartedEventAttributes: { scheduledEventId: of, identity } });
@@ -16,6 +16,19 @@ describe('a worker that stopped answering while its work was being cancelled, re
     expect(frozenWorkersIn([scheduled(5), cancelAsked(9, 5), started(10, 5, 'w1'), { eventId: 11, activityTaskCanceledEventAttributes: { scheduledEventId: 5 } }])).toEqual([]);
     expect(frozenWorkersIn([scheduled(5), started(10, 5, 'w1'), timedOut(11, 5, 'TIMEOUT_TYPE_HEARTBEAT')])).toEqual([]);
     expect(frozenWorkersIn([scheduled(5), cancelAsked(9, 5), started(10, 5, 'w1'), timedOut(11, 5, 'TIMEOUT_TYPE_START_TO_CLOSE')])).toEqual([]);
+  });
+
+  it('takes the details each cancelled activity reported, and none from activities that ended otherwise', () => {
+    const payload = { metadata: {}, data: new Uint8Array([1]) };
+    expect(cancelledDetailsIn([
+      scheduled(5), cancelAsked(9, 5), { eventId: 11, activityTaskCanceledEventAttributes: { scheduledEventId: 5, details: { payloads: [payload] } } },
+      { eventId: 12, activityTaskCanceledEventAttributes: { scheduledEventId: 6 } },
+      timedOut(13, 7, 'TIMEOUT_TYPE_HEARTBEAT'),
+    ])).toEqual([[payload]]);
+  });
+
+  it('names each program a cancelled activity killed once, in the order they were killed, ignoring details of another shape', () => {
+    expect(killedIn([{ killed: ['terraform', 'kubectl'] }, { killed: ['kubectl', 'git'] }, 'cancelled', { killed: 'helm' }, { killed: [3] }])).toEqual(['terraform', 'kubectl', 'git']);
   });
 
   it('names each worker once', () => {

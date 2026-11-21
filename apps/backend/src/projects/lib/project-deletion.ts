@@ -11,6 +11,7 @@ export interface StoppingWork extends OpenWork {
   state: WorkStopState;
   what?: string | undefined;
   worker?: string | undefined;
+  killed?: string[] | undefined;
 }
 
 export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';
@@ -30,6 +31,26 @@ export interface DeletionProgress {
   parts: Partial<Record<DeletionPart, PartProgress>>;
   problem?: string | undefined;
   keptUntil?: string | undefined;
+  down?: ServiceDown[] | undefined;
+}
+
+export interface ServiceDown {
+  step: string;
+  dependency: string;
+  name: string;
+  since: string;
+  reason: string;
+}
+
+export const SERVICE_DOWN_SIGNAL = 'service-down';
+export const SERVICE_BACK_SIGNAL = 'service-back';
+
+export function serviceDown(progress: DeletionProgress, down: ServiceDown): DeletionProgress {
+  return next(progress, { down: [...(progress.down ?? []).filter((item) => item.step !== down.step), down] });
+}
+
+export function serviceBack(progress: DeletionProgress, step: string): DeletionProgress {
+  return next(progress, { down: (progress.down ?? []).filter((item) => item.step !== step) });
 }
 
 const next = (progress: DeletionProgress, change: Partial<DeletionProgress>): DeletionProgress => {
@@ -45,10 +66,11 @@ export function workStopping(progress: DeletionProgress, open: readonly OpenWork
   return next(progress, { work: [...progress.work, ...added] });
 }
 
-export function workClosed(progress: DeletionProgress, workflowId: string, frozen: readonly string[]): DeletionProgress {
+export function workClosed(progress: DeletionProgress, workflowId: string, frozen: readonly string[], killed: readonly string[] = []): DeletionProgress {
   const worker = frozen[0];
+  const programs = killed.length > 0 ? { killed: [...killed] } : {};
   return next(progress, {
-    work: progress.work.map((item) => (item.workflowId !== workflowId ? item : worker ? { ...item, state: 'restarting', worker } : { ...item, state: 'stopped' })),
+    work: progress.work.map((item) => (item.workflowId !== workflowId ? item : worker ? { ...item, ...programs, state: 'restarting', worker } : { ...item, ...programs, state: 'stopped' })),
   });
 }
 

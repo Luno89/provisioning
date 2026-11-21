@@ -54,6 +54,30 @@ describe('where a deletion stands, in plain words', () => {
     ])
   })
 
+  it('names each program a running thing started that was killed as it stopped', () => {
+    expect(deletionLines(deletion({
+      work: [
+        { workflowId: 'a', type: 'AgentRunWorkflow', startedAt: at, state: 'stopped', what: 'Deploying shop-web', killed: ['terraform', 'kubectl'] },
+        { workflowId: 'b', type: 'AgentRunWorkflow', startedAt: at, state: 'stopped', what: 'Building a project', killed: [] },
+      ],
+    }))).toEqual([
+      'Deploying shop-web: stopped',
+      'terraform: killed',
+      'kubectl: killed',
+      'Building a project: stopped',
+    ])
+  })
+
+  it('shows a service it needs that is down, since when and why, and that it carries on when the service is back', () => {
+    expect(deletionLines(deletion({
+      parts: { secrets: { state: 'deleting', deleted: 0 } },
+      down: [{ step: 'RemoveProjectSecretsActivity', dependency: 'infisical', name: 'Infisical', since: '2026-11-21T10:05:00.000Z', reason: 'it cannot be reached: ECONNREFUSED' }],
+    }))).toEqual([
+      'Secrets: deleting',
+      'Infisical is down since 21 November 2026, 10:05 UTC: it cannot be reached: ECONNREFUSED. The deletion carries on when it is back.',
+    ])
+  })
+
   it('counts what it deletes going down', () => {
     expect(deletionLines(deletion({
       parts: {

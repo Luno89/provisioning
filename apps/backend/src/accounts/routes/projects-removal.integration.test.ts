@@ -3,7 +3,7 @@ import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { projectsRouter } from '../../projects/routes/projects.js';
 import { mock } from 'vitest-mock-extended';
-import { ProjectRemovalService, type ProjectPurges, type ProjectRemovalState } from '../../projects/services/ProjectRemovalService.js';
+import { ProjectRemovalService, type ProjectPurges, type RestoredNeeds, type ProjectRemovalState } from '../../projects/services/ProjectRemovalService.js';
 
 let harness: Harness;
 let started: string[];
@@ -21,6 +21,7 @@ beforeEach(async () => {
       const removal = new ProjectRemovalService({
         store: db,
         purges: mock<ProjectPurges>(),
+        needs: mock<RestoredNeeds>(),
         now: () => 'now',
         workflows: {
           start: async (_type, workflowId) => { started.push(workflowId); states.set(workflowId, { state: 'running', done: [] }); },

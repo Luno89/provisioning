@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { mock } from 'vitest-mock-extended';
-import { ProjectRemovalService, type ProjectPurges } from './ProjectRemovalService.js';
+import { ProjectRemovalService, type ProjectPurges, type RestoredNeeds } from './ProjectRemovalService.js';
 
 const now = '2026-10-21T00:00:00Z';
 
@@ -13,6 +13,7 @@ async function setUp() {
     store: db,
     workflows: { state: async () => ({ state: 'none' as const }), start: async (_workflow: string, id: string) => { started.push(id); } } as never,
     purges: mock<ProjectPurges>(),
+    needs: mock<RestoredNeeds>(),
     now: () => now,
   });
   return { db, service, started };
