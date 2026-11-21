@@ -237,6 +237,14 @@ describe('a folder of stored files', () => {
       expect(store.beginStoredFile.mock.invocationCallOrder[0]!).toBeLessThan(objects.put.mock.invocationCallOrder[0]!);
     });
 
+    it('keeps nothing of an upload whose final save is refused, as one into a project being deleted is', async () => {
+      const { folder: place, objects, commits } = setUp();
+      storing(objects, 5);
+      commits.commit.mockResolvedValue({ ok: false, status: 409, why: 'this project is being deleted' });
+      expect(await place.upload('a.txt', Readable.from([Buffer.from('hello')]), 5, 'text/plain', { replace: false })).toEqual({ ok: false, status: 409, why: 'this project is being deleted' });
+      expect(removing(commits)).toEqual([['id-1', 'id-1']]);
+    });
+
     it('commits the size the bytes really have, not the size it was told', async () => {
       const { folder: place, objects, commits } = setUp();
       storing(objects, 9);

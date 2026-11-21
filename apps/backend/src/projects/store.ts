@@ -10,6 +10,7 @@ import type { Task } from './lib/tasks.js';
 import type { Tree } from './lib/trees.js';
 import type { TreeTypeSpec } from './lib/tree-types.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
+import { sessionOf, type Tx } from '../platform/lib/transaction.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ProjectsStore extends AreaStore {
@@ -21,6 +22,7 @@ export interface ProjectsStore extends AreaStore {
   markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean>;
   deletion(projectId: string): Promise<ProjectRemoval | undefined>;
   archive(projectId: string): Promise<boolean>;
+  holdOpenIn(tx: Tx, projectId: string): Promise<boolean>;
   restore(projectId: string, name: string): Promise<boolean>;
   deletedProjects(ownerId: string): Promise<ProjectMetadata[]>;
   forgetClientFiles(): Promise<number>;
@@ -147,6 +149,10 @@ export class MongoProjectsStore implements ProjectsStore {
   async markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean> {
     const removal: ProjectRemoval = { ...mark, phase: 'deleting' };
     return (await this.projects.updateOne({ _id: projectId, removal: { $exists: false } }, { $set: { removal } })).modifiedCount === 1;
+  }
+
+  async holdOpenIn(tx: Tx, projectId: string): Promise<boolean> {
+    return (await this.projects.updateOne({ _id: projectId, removal: { $exists: false } }, { $set: { lastUploadKeptAt: new Date().toISOString() } }, sessionOf(tx))).matchedCount === 1;
   }
 
   async archive(projectId: string): Promise<boolean> {

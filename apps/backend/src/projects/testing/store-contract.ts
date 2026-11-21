@@ -7,6 +7,7 @@ import type { Task } from '../lib/tasks.js';
 import type { Tree } from '../lib/trees.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
 import type { ProjectsStore } from '../store.js';
+import { NO_TX } from '../../platform/lib/transaction.js';
 
 const at = (minute: number): string => `2026-10-10T00:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -114,6 +115,15 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
       expect(await store.deletion('a')).toBeUndefined();
       expect((await store.getProjects()).find((stored) => stored.id === 'a')).toMatchObject({ name: 'a again' });
       expect(await store.deletedProjects('owner-1')).toEqual([]);
+    });
+
+    it('holds a project open for an upload being kept, and not once it is being deleted or is not there', async () => {
+      const store = await make();
+      await store.saveProject(project('a'));
+      expect(await store.holdOpenIn(NO_TX, 'a')).toBe(true);
+      await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      expect(await store.holdOpenIn(NO_TX, 'a')).toBe(false);
+      expect(await store.holdOpenIn(NO_TX, 'missing')).toBe(false);
     });
 
     it('writes no deletion mark through saving a project', async () => {

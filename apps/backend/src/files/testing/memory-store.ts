@@ -1,3 +1,5 @@
+import { DELETING_SAID, projectsOf, type HoldOpen } from '../store.js';
+import { NO_TX } from '../../platform/lib/transaction.js';
 import { collectionIn, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { FileShare } from '../lib/file-shares.js';
 import { commitPlan, folderPlan, movePlan, sameScope, scopeMovePlan, type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope } from '../lib/stored-files.js';
@@ -65,8 +67,11 @@ export class MemoryFilesStore implements FilesStore {
     if (record?.state === 'uploading') this.stored.put({ ...record, touchedAt: at });
   }
 
-  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
+  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean; holdOpen: HoldOpen }, at: string): Promise<CommitPlan> {
     const uploading = commits.map((commit) => this.stored.get(commit.id) ?? this.byObject(commit.id));
+    for (const projectId of projectsOf(uploading)) {
+      if (!(await options.holdOpen(NO_TX, projectId))) return { ok: false, status: 409, why: DELETING_SAID };
+    }
     const plan = commitPlan(uploading, commits, (record) => this.scopeRecords(record.ownerId, record.scope), options, at);
     if (!plan.ok) return plan;
     for (const id of plan.absorbed) this.stored.delete(id);

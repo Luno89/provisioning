@@ -1,3 +1,4 @@
+import { EVERY_PROJECT_OPEN } from '../testing/stored-files-twin.js';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -25,7 +26,7 @@ beforeAll(async () => {
   const db = await testDatabase();
   const objects = minioObjectStore({ ...inject('minio'), bucket: testBucket() });
   const clock = { now: Date.now() };
-  const activities = createStoredFilesActivities({ records: db.files, objects, now: () => clock.now });
+  const activities = createStoredFilesActivities({ records: db.files, objects, holdOpen: EVERY_PROJECT_OPEN, now: () => clock.now });
   const queue = `stored-files-${randomUUID().slice(0, 8)}`;
   const namespace = env.namespace ?? 'default';
   const workflows = await testWorker(env, { namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '../../workflows/StoredFilesWorkflow.ts')) });

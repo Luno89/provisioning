@@ -2,6 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
 import type { PartialInfo, ProjectDeletionAsked, ProjectMetadata, ProjectRemoval } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
+import type { Tx } from '../../platform/lib/transaction.js';
 import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
@@ -92,6 +93,11 @@ export class MemoryProjectsStore implements ProjectsStore {
     if (!project || project.removal) return false;
     this.projects.put(stored({ ...project, removal: { ...mark, phase: 'deleting' } }));
     return true;
+  }
+
+  async holdOpenIn(_tx: Tx, projectId: string): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    return project !== undefined && project.removal === undefined;
   }
 
   async archive(projectId: string): Promise<boolean> {

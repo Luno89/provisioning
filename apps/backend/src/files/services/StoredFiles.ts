@@ -236,7 +236,10 @@ export class UploadBatch {
     if (this.commits.length === 0) return refused(400, 'nothing was uploaded');
     if (this.commits.length < this.begun.length) throw new Error('a file of this upload is still arriving, so the upload cannot be kept yet');
     const committed: CommitPlan = await this.deps.commits.commit(this.ownerId, this.commits, { replace: this.options.replace, scope: this.scope });
-    if (!committed.ok) return committed;
+    if (!committed.ok) {
+      await this.abandon();
+      return committed;
+    }
     return { ok: true, value: committed.stored };
   }
 

@@ -108,7 +108,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: settings.dataDir, dependencies });
+  const instanceFiles = storedFilesFor({ db, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId), minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: settings.dataDir, dependencies });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },

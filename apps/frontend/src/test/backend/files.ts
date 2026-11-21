@@ -10,6 +10,6 @@ export async function storedFilesOnMinio(db: Database, room: () => Promise<numbe
   const minio = await startMinio()
   afterAll(() => minio.stop())
   const objects = minioObjectStore({ ...minio.settings, bucket: testBucket() })
-  const activities = createStoredFilesActivities({ records: db.files, objects })
+  const activities = createStoredFilesActivities({ records: db.files, objects, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId) })
   return new StoredFiles({ records: db.files, objects, commits: inProcessCommits(activities), room })
 }

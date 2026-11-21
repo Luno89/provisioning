@@ -134,7 +134,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const tenants = servesTenants(role);
   const engineTaskQueue = QUEUES.engine;
   const tenantServices = settings.tenant;
-  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
+  const instanceFiles = tenantServices ? storedFilesFor({ db, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId), minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
