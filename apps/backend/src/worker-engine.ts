@@ -515,7 +515,7 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
   const telemetryProxy = sharedClusterProxy(telemetryAccess);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId }));
   const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId });
-  checkServices(dependencies, { gitea: settings.tenant.gitea.url, infisical: settings.tenant.infisical.url, minio: settings.tenant.minio, registryPush: settings.tenant.registry.push, webTools: settings.tenant.webTools });
+  checkServices(dependencies, { gitea: settings.tenant.gitea.url, infisical: settings.tenant.infisical.url, minio: settings.tenant.minio, registryPush: settings.tenant.registry.push, webTools: settings.tenant.webTools, memoryIndex: settings.tenant.memoryIndex });
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);

@@ -1,11 +1,11 @@
 import { temporaryStatus } from '@koala/engine-core/failures';
 export { failureOf, GONE_STATUSES, NAME_NOT_FOUND, refusedByServer, statusFailure, stillDown, temporaryStatus, type Failure } from '@koala/engine-core/failures';
-import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, KoalaProcess, WebToolSettings } from './settings.js';
+import { isOff, type BackendSettings, type ClusterWorkerSettings, type EngineWorkerSettings, type HostWorkerSettings, type KoalaProcess, type WebToolSettings } from './settings.js';
 import { ownReach } from '../../infrastructure/lib/cluster-places.js';
 
 export type DependencyId =
   | 'mongo' | 'temporal' | 'minio' | 'gitea' | 'infisical' | 'registry'
-  | 'searxng' | 'crawl4ai' | 'root' | 'collector';
+  | 'searxng' | 'crawl4ai' | 'quickwit' | 'qdrant' | 'tei' | 'root' | 'collector';
 
 export interface DependencyDescription {
   name: string;
@@ -21,6 +21,9 @@ export const DEPENDENCIES: { readonly [D in DependencyId]: DependencyDescription
   registry: { name: 'the image registry', checkedBy: 'GET /v2/, which answers whoever asks, signed in or not' },
   searxng: { name: 'web search (SearXNG)', checkedBy: 'GET /healthz' },
   crawl4ai: { name: 'page reading (Crawl4AI)', checkedBy: 'GET /health' },
+  quickwit: { name: 'the memory index\'s words (Quickwit)', checkedBy: 'GET /health/readyz' },
+  qdrant: { name: 'the memory index\'s meanings (Qdrant)', checkedBy: 'GET /readyz' },
+  tei: { name: 'the memory index\'s embeddings (TEI)', checkedBy: 'GET /health' },
   root: { name: 'Koala\'s root', checkedBy: 'whether this instance\'s connection to root is open' },
   collector: { name: 'the telemetry collector', checkedBy: 'whether its OTLP receiver answers' },
 };
@@ -106,19 +109,21 @@ const sendsTelemetry = (settings: AnyProcessSettings): boolean =>
 const webDependencies = (web: WebToolSettings): DependencyId[] =>
   [...(web.searxngUrl ? ['searxng' as const] : []), ...(web.crawl4aiUrl ? ['crawl4ai' as const] : [])];
 
+export const MEMORY_INDEX_DEPENDENCIES = ['quickwit', 'qdrant', 'tei'] as const satisfies readonly DependencyId[];
+
 export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
   const always: DependencyId[] = ['mongo', 'temporal', ...(sendsTelemetry(settings) ? ['collector' as const] : [])];
   switch (settings.koalaProcess) {
     case 'backend': {
-      if (settings.tenant) return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools), 'root'];
+      if (settings.tenant) return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools), ...MEMORY_INDEX_DEPENDENCIES, 'root'];
       return always;
     }
     case 'worker-engine':
-      return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools)];
+      return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools), ...MEMORY_INDEX_DEPENDENCIES];
     case 'worker-cluster':
       return [...always, 'gitea', 'infisical'];
     case 'worker-host':
-      return [...always, ...webDependencies(settings.webTools)];
+      return [...always, ...webDependencies(settings.webTools), ...(isOff(settings.memoryIndex) ? [] : MEMORY_INDEX_DEPENDENCIES)];
   }
 }
 

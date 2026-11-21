@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { dependenciesOf, downAcross, failureOf, reportingFetch, statusFailure, stillDown, type DependencyReporter } from './dependencies.js';
+import { DEPENDENCIES, dependenciesOf, downAcross, failureOf, reportingFetch, statusFailure, stillDown, type DependencyReporter } from './dependencies.js';
 import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings } from './settings.js';
 
 const coded = (code: string, message = code): Error => Object.assign(new Error(message), { code });
@@ -103,24 +103,33 @@ describe('dependenciesOf', () => {
       koalaProcess: 'backend', telemetry, clusters: { here: { root: false, koalaMachineId: 'desk' } },
       tenant: { webTools: { searxngUrl: 'http://searxng:8080', crawl4aiUrl: 'http://crawl4ai:11235' } },
     } as unknown as BackendSettings;
-    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'collector', 'minio', 'gitea', 'infisical', 'registry', 'searxng', 'crawl4ai', 'root']);
+    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'collector', 'minio', 'gitea', 'infisical', 'registry', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'root']);
   });
 
   it('describes nothing a process has no setting for: no collector without a cluster or an endpoint, no web tools not given', () => {
     const backend = { koalaProcess: 'backend', telemetry, clusters: noCluster, tenant: { webTools: {} } } as unknown as BackendSettings;
-    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'root']);
+    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'quickwit', 'qdrant', 'tei', 'root']);
+  });
+
+  it('describes the memory index for every process that keeps or recalls memories, and for no process of root', () => {
+    const index = { index: { base: 'http://quickwit:7280' }, vectors: { base: 'http://qdrant:6333', apiKey: 'k' }, embeddings: { base: 'http://tei:80' } };
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: {}, memoryIndex: index } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal', 'quickwit', 'qdrant', 'tei']);
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: {}, memoryIndex: { off: 'root keeps no memories' } } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal']);
+    expect(DEPENDENCIES.quickwit).toEqual({ name: 'the memory index\'s words (Quickwit)', checkedBy: 'GET /health/readyz' });
+    expect(DEPENDENCIES.qdrant).toEqual({ name: 'the memory index\'s meanings (Qdrant)', checkedBy: 'GET /readyz' });
+    expect(DEPENDENCIES.tei).toEqual({ name: 'the memory index\'s embeddings (TEI)', checkedBy: 'GET /health' });
   });
 
   it('describes root\'s own and each worker\'s', () => {
     expect(dependenciesOf({ koalaProcess: 'backend', telemetry: { otlpEndpoint: 'http://127.0.0.1:4318' }, clusters: { here: { root: true } } } as unknown as BackendSettings)).toEqual(['mongo', 'temporal', 'collector']);
     expect(dependenciesOf({ koalaProcess: 'worker-engine', telemetry, clusters: noCluster, tenant: { webTools: { searxngUrl: 'http://searxng:8080' } } } as unknown as EngineWorkerSettings))
-      .toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'searxng']);
+      .toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'searxng', 'quickwit', 'qdrant', 'tei']);
     expect(dependenciesOf({ koalaProcess: 'worker-cluster', telemetry, clusters: noCluster } as unknown as ClusterWorkerSettings)).toEqual(['mongo', 'temporal', 'gitea', 'infisical']);
-    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: {} } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal']);
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: {}, memoryIndex: { off: 'root keeps no memories' } } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal']);
   });
 
   it('describes the instance\'s own Crawl4AI for its host worker, which crawls sites into a person\'s corpus with it', () => {
-    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: { crawl4aiUrl: 'http://crawl4ai:11235', crawl4aiToken: 't' } } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal', 'crawl4ai']);
+    expect(dependenciesOf({ koalaProcess: 'worker-host', telemetry, clusters: noCluster, webTools: { crawl4aiUrl: 'http://crawl4ai:11235', crawl4aiToken: 't' }, memoryIndex: { off: 'not here' } } as unknown as HostWorkerSettings)).toEqual(['mongo', 'temporal', 'crawl4ai']);
   });
 });
 

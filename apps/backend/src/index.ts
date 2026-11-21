@@ -179,6 +179,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     minio: tenantServices?.minio,
     registryPush: tenantServices?.registry.push,
     webTools: tenantServices?.webTools,
+    memoryIndex: tenantServices?.memoryIndex,
   });
   const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
   const { projectRepoService, channels, notices, postNotice, projectSecrets } = core;
