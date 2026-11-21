@@ -9,11 +9,11 @@ import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/en
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
-import { RunGrantService } from '../../engine/index.js';
+import { grantsOver } from '../../engine/testing/run-grants.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 
-const GRANTS = new RunGrantService({ store: memoryDatabase().engine });
+const GRANTS = grantsOver(memoryDatabase().engine);
 const GRANT = await GRANTS.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
@@ -147,7 +147,7 @@ describe('tool runtime', () => {
   it('asks the run\'s grant before every call, and runs nothing it refuses', async () => {
     const { backend, driver } = sandbox();
     const asked: [string | undefined, string, string | undefined][] = [];
-    const grants = new RunGrantService({ store: memoryDatabase().engine });
+    const grants = grantsOver(memoryDatabase().engine);
     const live = await grants.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
     const gone = await grants.issue({ ownerId: 'user-1', runId: 'run-2', principal: asPerson('user-2'), startedBy: 'person' });
     await grants.revokeGrantsOf({ personId: 'user-2', because: 'signed-out-everywhere' });

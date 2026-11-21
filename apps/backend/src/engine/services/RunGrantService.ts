@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { EngineStore, RunEnding } from '../store.js';
+import type { RunTokens } from './RunTokens.js';
 import {
   ended, endedOf, newRunGrant, outsideScopeProblem, revoked, revokes, runGrantProblem,
   type GrantCheck, type GrantRequest, type Handover, type Revocation, type RevokedBecause, type RunGrant,
@@ -10,6 +11,7 @@ export type RunGrantStore = Pick<EngineStore, 'saveRunGrant' | 'getRunGrant' | '
 export interface RunGrantDeps {
   store: RunGrantStore;
   signalRevoked?: ((runId: string, revocation: { because: RevokedBecause; at: string }) => Promise<void>) | undefined;
+  tokens: Pick<RunTokens, 'ended'>;
   now?: (() => Date) | undefined;
   newId?: (() => string) | undefined;
 }
@@ -52,6 +54,7 @@ export class RunGrantService {
     const gone = ended(held, this.now());
     await this.deps.store.saveRunGrant(gone);
     this.settled.set(gone.id, gone);
+    void this.deps.tokens.ended(gone.id);
   }
 
   async withdraw(id: string): Promise<void> {
@@ -83,6 +86,7 @@ export class RunGrantService {
       await this.deps.store.saveRunGrant(gone);
       this.settled.set(gone.id, gone);
       done.push(gone);
+      void this.deps.tokens.ended(gone.id);
       await this.deps.signalRevoked?.(grant.runId, { because: revocation.because, at: now.toISOString() })
         .catch((err: Error) => console.warn(`[run-grants] ${grant.runId} was revoked but not told: ${err.message}`));
     }
@@ -96,6 +100,7 @@ export class RunGrantService {
     if (closed && closed !== grant) {
       await this.deps.store.saveRunGrant(closed);
       this.settled.set(closed.id, closed);
+      void this.deps.tokens.ended(closed.id);
     }
     const [known] = await this.deps.store.getRunEndings(event.ownerId, [event.runId]);
     if (known?.ended) return { ...(closed ? { grant: closed } : {}), ending: known };

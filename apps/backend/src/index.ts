@@ -35,6 +35,7 @@ import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { refuseWebhookOfDeletingProjects, refuseWorkOfDeletingProjects } from './projects/wiring/deleting-refusals.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
+import { RunTokens } from './engine/index.js';
 import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireProvisioning } from './infrastructure/wiring/provisioning.js';
@@ -198,7 +199,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }, (message) => console.warn(message));
   }
 
-  const engine = engineCore({ db, role, temporalBridge, machines: machineService, checks: () => level2Service, revocations });
+  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${role.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => console.warn(`[run-tokens] ${message}`) });
+  if (tenants) void runTokens.endLeftovers().catch((err: Error) => console.warn(`[run-tokens] the tokens of runs that ended while this backend was down could not be read, so they are handed back at its next start: ${err.message}`));
+  const engine = engineCore({ db, role, temporalBridge, machines: machineService, checks: () => level2Service, revocations, runTokens });
   const {
     extensions, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, workspaceRepos, workspaceConclusions,
     memoryKeeper, concluded, runningRecords, bench, agentsHolder, workspaceDependencies,

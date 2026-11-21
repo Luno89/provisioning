@@ -30,6 +30,7 @@ import { EngineToolService } from '../services/EngineToolService.js';
 import { McpServerService } from '../services/McpServerService.js';
 import { McpService } from '../services/McpService.js';
 import { RunGrantService } from '../services/RunGrantService.js';
+import type { RunTokens } from '../services/RunTokens.js';
 import { revokedNotice, REVOKED_SAID } from '../lib/run-grants.js';
 import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
@@ -84,6 +85,7 @@ export interface EngineCoreDeps {
   machines: Pick<MachineService, 'choiceProblem'>;
   checks: () => Pick<Level2Service, 'list'> | undefined;
   revocations?: AccessRevocations | undefined;
+  runTokens: RunTokens;
 }
 
 export interface EngineCore {
@@ -166,6 +168,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   });
   const runGrants = new RunGrantService({
     store: db.engine,
+    tokens: deps.runTokens,
     signalRevoked: async (runId, revocation) => {
       if (!temporalBridge.isReady()) throw new Error('Temporal is not connected');
       try {

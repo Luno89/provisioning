@@ -308,6 +308,15 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
     expect(await runTokenOf(renewed.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'run-1', koala_claims: atStart });
   });
 
+  it('names the check space a run token was asked for, through every renewal, and names none when none was asked for', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    const inSpace = await world.signIn.runToken('check-1', 'space-a');
+    expect(await runTokenOf(inSpace.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'check-1', koala_space: 'space-a' });
+    expect(await runTokenOf((await world.signIn.renewRunToken(inSpace.refreshToken)).accessToken)).toMatchObject({ koala_run: 'check-1', koala_space: 'space-a' });
+    expect(await runTokenOf((await world.signIn.runToken('run-1')).accessToken)).not.toHaveProperty('koala_space');
+  });
+
   it('gives no run token for a person not signed in to this instance, none once they sign out everywhere, and none for a run that ended', async () => {
     await world.signIn.announce();
     await expect(world.signIn.runToken('run-1')).rejects.toThrow(/not signed in to this Koala/);

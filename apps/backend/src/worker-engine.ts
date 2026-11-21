@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { QUEUES, liveSince } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
-import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE } from './engine/index.js';
+import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
@@ -156,7 +156,8 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
-  const runGrants = new RunGrantService({ store: db.engine });
+  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });
+  const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens });
   const poisoning = new PoisoningWatch({
     store: db.engine,
     personText: async (ownerId, conversationId) => (conversationId

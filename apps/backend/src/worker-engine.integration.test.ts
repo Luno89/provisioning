@@ -10,7 +10,7 @@ import { runThenLetGo } from './platform/wiring/fences.js';
 import type { ToolCallArgs, ToolCallOutcome } from './engine-host/temporal/contracts.js';
 import { seedEngineTools } from './engine/index.js';
 import { anyOf } from './platform/lib/test-matchers.js';
-import { RunGrantService } from './engine/index.js';
+import { grantsOver } from './engine/testing/run-grants.js';
 import { asPerson } from './platform/lib/permissions.js';
 
 const { env, rootKey, live, placed, db } = await workerWorld();
@@ -61,7 +61,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     const { worker, activities } = await createEngineWorker(settings, dependencies);
     const running = runThenLetGo(worker, fences);
     const tools = activities as unknown as { EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> };
-    const grantId = (await new RunGrantService({ store: db.engine }).issue({ ownerId: 'owner-tools', runId: 'run-tools', principal: asPerson('owner-tools'), startedBy: 'person' })).id;
+    const grantId = (await grantsOver(db.engine).issue({ ownerId: 'owner-tools', runId: 'run-tools', principal: asPerson('owner-tools'), startedBy: 'person' })).id;
     const call = (agentSlug: string, name: string, args: Record<string, unknown>) => new MockActivityEnvironment().run(tools.EngineToolActivity, {
       ticket: { runId: `run-${name}`, depth: 0, ownerId: 'owner-tools', grantId, agentSlug, trigger: 'user' as const }, nodeId: 'tools', name, arguments: JSON.stringify(args),
     });

@@ -6,6 +6,7 @@ import {
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
+import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
   CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
@@ -38,12 +39,6 @@ export type SignedIn =
 
 export type Renewed = { token: string; session: SignedInSession } | 'kept' | 'ended';
 
-export interface RunToken {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-}
-
 export const SIGN_IN_COOKIE = 'koala_sign_in';
 
 const reasonOf = (err: unknown): string => {
@@ -54,7 +49,7 @@ const reasonOf = (err: unknown): string => {
 };
 const SIGN_IN_COOKIE_SECONDS = 10 * 60;
 
-export class RootSignIn {
+export class RootSignIn implements RunTokenRoot {
   private configured: Promise<client.Configuration> | undefined;
   private readonly refreshing = new Map<string, Promise<Renewed>>();
   private markAnnounced: () => void = () => undefined;
@@ -277,13 +272,14 @@ export class RootSignIn {
     return { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresAt: this.now() + (tokens.expires_in ?? 0) * 1000 };
   }
 
-  async runToken(runId: string): Promise<RunToken> {
+  async runToken(runId: string, space?: string): Promise<RunToken> {
     if (!this.settings.owner) throw new Error(`this ${this.settings.kind} serves no owner to act for`);
     const tokens = await client.genericGrantRequest(await this.config(), TOKEN_EXCHANGE, {
       subject_token: this.settings.owner,
       subject_token_type: OWNER_TOKEN_TYPE,
       resource: runResourceOf(this.settings.clientId),
       koala_run: runId,
+      ...(space ? { koala_space: space } : {}),
     }).catch((err: unknown) => { throw new Error(`root gave run ${runId} no token: ${reasonOf(err)}`); });
     return this.runTokenOf(tokens);
   }
