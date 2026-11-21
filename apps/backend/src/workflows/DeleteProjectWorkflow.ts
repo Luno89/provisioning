@@ -76,8 +76,8 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
     stopped.push(...open.map((work) => work.workflowId));
     await tell((current) => workStopping(current, open));
     await Promise.all(open.map(async (work) => {
-      const { frozen } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
-      await tell((current) => workClosed(current, work.workflowId, frozen));
+      const { frozen, killed } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
+      await tell((current) => workClosed(current, work.workflowId, frozen, killed));
       for (const worker of frozen) {
         if ((await cluster.RestartWorkerActivity({ worker })) === 'restarted') restarted.push(worker);
         await tell((current) => workerRestarted(current, worker));

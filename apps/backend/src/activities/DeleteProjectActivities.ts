@@ -1,7 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
 import type { Client } from '@temporalio/client';
 import { withWorkFor } from '@koala/engine-core/work-for';
-import { cancelIfRunning, frozenWorkersIn, projectQuery, startedFor, type CancellableWorkflow, type HistoryEvent } from '../platform/index.js';
+import { cancelIfRunning, cancelledDetailsIn, frozenWorkersIn, killedIn, projectQuery, startedFor, type CancellableWorkflow, type CancelPayload, type HistoryEvent } from '../platform/index.js';
 import { PURGE_PROJECT_WORKFLOW, keptUntil, purgeStart, type OpenWork, type ProjectsStore } from '../projects/index.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from './RemoveProjectActivities.js';
 import type { ProjectDeletionMode } from '../platform/index.js';
@@ -10,9 +10,12 @@ export interface DeleteProjectArgs extends RemoveProjectArgs {
   mode: ProjectDeletionMode;
 }
 
+type Decodable = Parameters<Client['options']['loadedDataConverter']['payloadCodecs'][number]['decode']>[0];
+
 export interface ProjectWork {
   open(query: string): Promise<OpenWork[]>;
   handle(workflowId: string): CancellableWorkflow & { history(): Promise<readonly HistoryEvent[]> };
+  decode(payloads: readonly CancelPayload[]): Promise<unknown[]>;
 }
 
 export type ProjectRemovalSteps = Pick<ProjectRemovalActivities, 'RemoveProjectAppsActivity' | 'RemoveProjectAppStartedActivity' | 'RemoveProjectWorkspacesActivity' | 'RemoveProjectSecretsActivity' | 'RemoveProjectRepositoriesActivity' | 'RemoveProjectFilesActivity' | 'RemoveProjectRecordsActivity'>;
@@ -41,7 +44,7 @@ export interface SweepPass {
 }
 
 export interface FrozenWorkActivities {
-  AwaitProjectWorkActivity(args: { workflowId: string }): Promise<{ frozen: string[] }>;
+  AwaitProjectWorkActivity(args: { workflowId: string }): Promise<{ frozen: string[]; killed: string[] }>;
   RestartWorkerActivity(args: { worker: string }): Promise<'restarted' | 'not-here'>;
 }
 
@@ -64,7 +67,9 @@ export function createFrozenWorkActivities(deps: FrozenWorkDeps): FrozenWorkActi
     async AwaitProjectWorkActivity({ workflowId }) {
       const handle = deps.work.handle(workflowId);
       await handle.result().catch(ignore('a workflow that ends cancelled or failed rejects its result, which is it closing all the same'));
-      return { frozen: frozenWorkersIn(await handle.history()) };
+      const events = await handle.history();
+      const details = await Promise.all(cancelledDetailsIn(events).map((payloads) => deps.work.decode(payloads)));
+      return { frozen: frozenWorkersIn(events), killed: killedIn(details.flat()) };
     },
     RestartWorkerActivity: ({ worker }) => deps.workers.restart(worker),
   };
@@ -89,6 +94,12 @@ export const temporalProjectWork = (client: () => Promise<Client>): ProjectWork 
       },
       history: async () => ((await (await handle()).fetchHistory()).events ?? []) as readonly HistoryEvent[],
     };
+  },
+  async decode(payloads) {
+    const { payloadCodecs, payloadConverter } = (await client()).options.loadedDataConverter;
+    let decoded = [...payloads] as Decodable;
+    for (const codec of [...payloadCodecs].reverse()) decoded = await codec.decode(decoded);
+    return decoded.map((payload) => payloadConverter.fromPayload(payload));
   },
 });
 

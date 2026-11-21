@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { CancelledFailure } from '@temporalio/common';
 import { describe, expect, it } from 'vitest';
 import { nodeRunner, nodeStreams } from './node-processes.js';
 import { killOnCancel, stopsWith } from './stops-with.js';
@@ -50,6 +51,21 @@ describe('a program started for a piece of work that is cancelled', () => {
       return running.exited;
     });
     expect(await ran).toMatchObject({ signal: 'SIGKILL' });
+  });
+
+  it('names the programs it killed in the cancellation it reports to Temporal', async () => {
+    const stop = new AbortController();
+    const { inbound } = killOnCancel()({ cancellationSignal: stop.signal, cancellationDetails: { cancelRequested: true } } as never);
+    const ran = inbound.execute({}, async () => {
+      const terraform = nodeStreams.start({ command: '/bin/sleep', args: ['600'] });
+      const helm = nodeStreams.start({ command: 'sh', args: ['-c', 'sleep 600'] });
+      stop.abort('cancelled');
+      await Promise.all([terraform.exited, helm.exited]);
+      throw new Error('the program was killed');
+    });
+    const reported = await ran.catch((err: unknown) => err);
+    expect(reported).toBeInstanceOf(CancelledFailure);
+    expect((reported as CancelledFailure).details).toEqual([{ killed: ['sleep', 'sh'] }]);
   });
 
   it('leaves alone a program whose work goes on', async () => {

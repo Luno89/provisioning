@@ -7,7 +7,6 @@ import {
   startChild,
   getExternalWorkflowHandle,
   CancellationScope,
-  ActivityCancellationType,
   continueAsNew,
   workflowInfo,
   patched,
@@ -99,17 +98,16 @@ interface StreamRemote {
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
 }
 
-const UNTIL_STOPPED = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED;
-const toolCalls = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const heardNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const heardNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const heardStream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
-const heardStreamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: UNTIL_STOPPED });
+const toolCalls = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
+const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
+const heardNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const heardNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
+const heardStream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+const heardStreamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
 const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity, EngineAutoModeActivity } = proxyActivities<{
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
@@ -311,7 +309,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const sent: ToolCallArgs = hearsStops ? { ...args, hearsStops: true, ...(signal.aborted ? { stoppedBecause: signal.reason as string } : {}) } : args;
       if (environment?.kind === 'machine') {
         const onDevice = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({
-          cancellationType: UNTIL_STOPPED,
           taskQueue: deviceQueue(environment.deviceId),
           retry: ACTIVITY_RETRY,
           ...LIVE_ACTIVITY,
@@ -333,7 +330,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         taskQueue: deviceQueue(environment.deviceId),
         retry: { maximumAttempts: 1 },
         ...LIVE_ACTIVITY,
-        cancellationType: UNTIL_STOPPED,
       });
       const machineName = environment.deviceName === UNNAMED_MACHINE && patched(MACHINE_NAMES)
         ? (await engine.EngineMachineNameActivity({ ownerId: ticket.ownerId, deviceId: environment.deviceId })) ?? environment.deviceName

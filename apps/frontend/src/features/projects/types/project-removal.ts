@@ -20,6 +20,7 @@ export interface StoppingWork {
   state: WorkStopState
   what?: string
   worker?: string
+  killed?: string[]
 }
 
 export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'

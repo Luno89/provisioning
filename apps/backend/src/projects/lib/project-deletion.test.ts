@@ -30,6 +30,13 @@ describe('what a project being deleted shows as it goes', () => {
     expect(workerRestarted(closed, 'worker-engine-7d9f').work[0]).toMatchObject({ state: 'restarted', worker: 'worker-engine-7d9f' });
   });
 
+  it('names the programs that were killed when a running thing stopped', () => {
+    const closed = workClosed(workStopping(deletionBegun(), [run, build]), 'run-1', [], ['terraform', 'kubectl']);
+    expect(closed.work.map((item) => [item.workflowId, item.state, item.killed])).toEqual([['run-1', 'stopped', ['terraform', 'kubectl']], ['build-1', 'stopping', undefined]]);
+    expect(workClosed(workStopping(deletionBegun(), [run]), 'run-1', ['worker-engine-7d9f'], ['git']).work[0]).toMatchObject({ state: 'restarting', killed: ['git'] });
+    expect(workClosed(workStopping(deletionBegun(), [run]), 'run-1', [], []).work[0]).not.toHaveProperty('killed');
+  });
+
   it('adds work a later pass found without listing what it already shows twice', () => {
     const again = workStopping(workClosed(workStopping(deletionBegun(), [run]), 'run-1', []), [run, build]);
     expect(again.work.map((item) => [item.workflowId, item.state])).toEqual([['run-1', 'stopped'], ['build-1', 'stopping']]);

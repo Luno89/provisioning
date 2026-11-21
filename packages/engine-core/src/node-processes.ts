@@ -102,7 +102,7 @@ function started(envOf: EnvOf, run: ProcessRun, io: Io): Followed {
   feed(begun, io.input ?? run.input);
   const ended = Promise.all([begun.closed, written]).then(([end]) => ({ ...end, stdout: stdout(), stderr: stderr() }));
   const stop = stopper(begun, group);
-  killedWhenStopped(stop, begun.exited);
+  killedWhenStopped(stop, begun.exited, run.command);
   return { pid: child.pid, stop, exited: begun.exited, ended };
 }
 

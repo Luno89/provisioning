@@ -54,6 +54,20 @@ describe('where a deletion stands, in plain words', () => {
     ])
   })
 
+  it('names each program a running thing started that was killed as it stopped', () => {
+    expect(deletionLines(deletion({
+      work: [
+        { workflowId: 'a', type: 'AgentRunWorkflow', startedAt: at, state: 'stopped', what: 'Deploying shop-web', killed: ['terraform', 'kubectl'] },
+        { workflowId: 'b', type: 'AgentRunWorkflow', startedAt: at, state: 'stopped', what: 'Building a project', killed: [] },
+      ],
+    }))).toEqual([
+      'Deploying shop-web: stopped',
+      'terraform: killed',
+      'kubectl: killed',
+      'Building a project: stopped',
+    ])
+  })
+
   it('counts what it deletes going down', () => {
     expect(deletionLines(deletion({
       parts: {

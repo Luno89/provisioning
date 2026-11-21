@@ -37,7 +37,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
       const stopped = await deletion.StopProjectWorkActivity({ projectId: project });
       expect(stopped.map((work) => work.workflowId).sort()).toEqual([going, `${going}-child`].sort());
       expect(new Set(stopped.map((work) => work.type)), 'each is listed with its type, which names it for the person').toEqual(new Set(['projectProbeWorkflow', 'projectProbeChildWorkflow']));
-      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [] });
+      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [], killed: [] });
       expect((await client.workflow.getHandle(going).describe()).status.name).toBe('CANCELLED');
       expect((await client.workflow.getHandle(staying).describe()).status.name).toBe('RUNNING');
       await client.workflow.getHandle(staying).cancel();

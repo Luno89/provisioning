@@ -2,6 +2,6 @@ const LARGEST_DURATION_SECONDS = 315_576_000_000;
 export const TEMPORAL_REQUIRED_START_TO_CLOSE = LARGEST_DURATION_SECONDS * 1000;
 export const ACTIVITY_LIVENESS = '1 minute';
 
-export const LIVE_ACTIVITY = { startToCloseTimeout: TEMPORAL_REQUIRED_START_TO_CLOSE, heartbeatTimeout: ACTIVITY_LIVENESS } as const;
+export const LIVE_ACTIVITY = { startToCloseTimeout: TEMPORAL_REQUIRED_START_TO_CLOSE, heartbeatTimeout: ACTIVITY_LIVENESS, cancellationType: 'WAIT_CANCELLATION_COMPLETED' } as const;
 
 export const CLI_CEILING = '720h';

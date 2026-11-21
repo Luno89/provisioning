@@ -57,7 +57,8 @@ export function deletionLines(progress: DeletionProgress | undefined): string[] 
     if (at.left !== undefined) return [`${name}: ${at.left} left, ${done(at.deleted)}`]
     return [`${name}: deleting`]
   })
-  return [...progress.work.map(workLine), ...parts]
+  const work = progress.work.flatMap((item) => [workLine(item), ...(item.killed ?? []).map((program) => `${program}: killed`)])
+  return [...work, ...parts]
 }
 
 export function deletionHeadline(progress: DeletionProgress | undefined): string {
