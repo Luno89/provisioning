@@ -80,7 +80,13 @@ export interface ProjectRemovalDeps {
   store: ProjectRemovalStore & { projects: Pick<ProjectsStore, 'deletedProjects' | 'restore' | 'deletion'> };
   workflows: AccountRemovalWorkflows<{ projectId: string; mode: ProjectDeletionMode }, ProjectRemovalStep>;
   purges: ProjectPurges;
+  needs: RestoredNeeds;
   now?: () => string;
+}
+
+export interface RestoredNeeds {
+  webhook(projectId: string): Promise<void>;
+  secrets(projectId: string): Promise<void>;
 }
 
 export class ProjectRemovalService {
@@ -139,6 +145,8 @@ export class ProjectRemovalService {
     const name = taken ? `${project.name} (restored)` : project.name;
     await this.deps.purges.restore(projectId, project.ownerId ?? ownerId);
     await this.deps.store.projects.restore(projectId, name);
+    await this.deps.needs.webhook(projectId);
+    await this.deps.needs.secrets(projectId);
     return { ok: true, name, renamed: taken, secrets: (project.requiredSecrets ?? []).map((secret) => secret.key) };
   }
 

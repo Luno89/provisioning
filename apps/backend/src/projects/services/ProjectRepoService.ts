@@ -183,6 +183,15 @@ export class ProjectRepoService {
     return project;
   }
 
+  async rehook(projectId: string): Promise<void> {
+    const project = (await this.db.projects.getProjects()).find((entry) => entry.id === projectId);
+    if (!project?.giteaOwner || !project.giteaRepo) return;
+    if (!this.webhookUrl) throw new Error('a restored project\'s webhook cannot be made here: nothing says where its pushes are sent');
+    const secret = crypto.randomBytes(32).toString('hex');
+    await this.gitea.replaceWebhook(project.giteaOwner, project.giteaRepo, await this.webhookUrl(project.id), secret);
+    await this.db.projects.saveProjectInfo({ ...project, webhookSecretEnc: encryptValue(secret, this.masterKey) });
+  }
+
   async repointWebhooks(): Promise<{ repointed: number }> {
     if (!this.webhookUrl) return { repointed: 0 };
     let repointed = 0;

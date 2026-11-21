@@ -17,7 +17,7 @@ import { treeTypesRouter } from '../../../../backend/src/projects/routes/tree-ty
 import { secretRequestsRouter } from '../../../../backend/src/projects/routes/secret-requests'
 import { ProjectChannelService } from '../../../../backend/src/projects/services/ProjectChannelService'
 import { ItemChatService } from '../../../../backend/src/projects/services/ItemChatService'
-import { ProjectRemovalService, temporalPurges } from '../../../../backend/src/projects/services/ProjectRemovalService'
+import { ProjectRemovalService, temporalPurges, type RestoredNeeds } from '../../../../backend/src/projects/services/ProjectRemovalService'
 import { GroveRunService } from '../../../../backend/src/projects/services/GroveRunService'
 import { GroveDeletionService } from '../../../../backend/src/projects/services/GroveDeletionService'
 import { GroveOrderService } from '../../../../backend/src/projects/services/GroveOrderService'
@@ -210,6 +210,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
     store: db,
     workflows: temporalRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>(() => temporal.client, 'engine-ops-queue', PROJECT_REMOVAL_PROGRESS_QUERY),
     purges: temporalPurges(async () => temporal.client, 'engine-ops-queue'),
+    needs: outsideThisTier<RestoredNeeds>('Gitea and Infisical'),
   })
   const projectRepos = outsideThisTier<ProjectRepoService>('Gitea')
   api.use('/projects', projectsRouter({ db, projectRepoService: projectRepos, temporalBridge: bridge, getOwnedProject, giteaService: gitea, clusterService: clusters, removal, channels }))
