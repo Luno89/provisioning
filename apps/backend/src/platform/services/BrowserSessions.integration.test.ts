@@ -8,9 +8,9 @@ import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { localCommands, removeSteps, runSteps } from '@koala/provision';
 import { memoryReporter, type ContainerContext } from '@koala/provision/testing';
-import { nodeProcesses } from '@koala/engine-core/node-processes';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { instanceRouteFiles } from '../../instances/lib/instance-routes.js';
-import { trustProxyFrom } from '../lib/client-address.js';
+import { ROOT_TRUST_PROXY, trustProxyFrom, type TrustProxy } from '../lib/client-address.js';
 import type { PlatformRole } from '../lib/platform-role.js';
 import { memoryDatabase } from '../testing/memory-database.js';
 import { rootCaddy, type RootCaddy } from '../testing/edge-caddy.js';
@@ -29,17 +29,19 @@ const servers: Server[] = [];
 let caddy: RootCaddy | undefined;
 let rootCa = '';
 
-async function gatewayAddress(): Promise<string> {
-  const run = await nodeProcesses.run({ command: 'docker', args: ['network', 'inspect', 'bridge', '-f', '{{(index .IPAM.Config 0).Gateway}}'] });
-  if (run.code !== 0 || !run.stdout.trim()) throw new Error(`docker named no bridge gateway: ${run.stderr}`);
-  return run.stdout.trim();
+const LOOPBACK = '127.0.0.1';
+
+function trustOf(role: PlatformRole): TrustProxy {
+  if (role === 'root') return ROOT_TRUST_PROXY;
+  const written = /^\s+TRUST_PROXY: "([^"]+)"$/m.exec(readFileSync(join(REPO, 'charts/instance/templates/configmap-env.yaml'), 'utf8'));
+  const trust = trustProxyFrom(written?.[1]);
+  if (!('trust' in trust)) throw new Error(trust.problem);
+  return trust.trust;
 }
 
-async function backendOf(role: PlatformRole, publicUrl: string, at: string): Promise<number> {
+async function backendOf(role: PlatformRole, publicUrl: string): Promise<number> {
   const app = express();
-  const trust = trustProxyFrom('1');
-  if (!('trust' in trust)) throw new Error(trust.problem);
-  app.set('trust proxy', trust.trust);
+  app.set('trust proxy', trustOf(role));
   const sessions = browserSessionsFor(role, publicUrl, { store: memoryDatabase().platform, secret: `behind-caddy-${role}` });
   app.use(sessions.handle);
   app.post('/hold', (req, res, next) => {
@@ -51,13 +53,13 @@ async function backendOf(role: PlatformRole, publicUrl: string, at: string): Pro
   app.get('/me', (req, res) => { res.json({ sub: req.session.account?.sub ?? req.session.person?.sub ?? null }); });
   const server = createServer(app);
   servers.push(server);
-  await new Promise<void>((done) => server.listen(0, at, done));
+  await new Promise<void>((done) => server.listen(0, LOOPBACK, done));
   return (server.address() as AddressInfo).port;
 }
 
 function throughCaddy(host: string, method: string, path: string, headers: Record<string, string>): Promise<{ status: number; set: string[]; body: Record<string, unknown> }> {
   return new Promise((done, failed) => {
-    const asked = request({ host: '127.0.0.1', port: caddy!.container.published(443), servername: host, ca: rootCa, method, path, headers: { host, ...headers } }, (answer) => {
+    const asked = request({ host: LOOPBACK, port: caddy!.https, servername: host, ca: rootCa, method, path, headers: { host, ...headers } }, (answer) => {
       let body = '';
       answer.setEncoding('utf8');
       answer.on('data', (chunk: string) => { body += chunk; });
@@ -69,9 +71,8 @@ function throughCaddy(host: string, method: string, path: string, headers: Recor
 }
 
 beforeAll(async () => {
-  const at = await gatewayAddress();
-  const rootPort = await backendOf('root', `https://${APP_DOMAIN}`, at);
-  const instancePort = await backendOf('instance', `https://${INSTANCE_HOST}`, at);
+  const rootPort = await backendOf('root', `https://${APP_DOMAIN}`);
+  const instancePort = await backendOf('instance', `https://${INSTANCE_HOST}`);
   const caddyfile = readFileSync(join(REPO, 'Caddyfile'), 'utf8');
   if (!caddyfile.includes(ROOT_UPSTREAM)) throw new Error(`root's Caddyfile no longer proxies the app with "${ROOT_UPSTREAM}"`);
   const instanceHandles = instanceRouteFiles({ name: 'luno', meshIp: MESH_IP, nested: false }, INGRESS_DOMAIN).handles;
@@ -82,8 +83,9 @@ beforeAll(async () => {
   }
   chmodSync(folder, 0o755);
   writeFileSync(join(folder, 'tls', 'koala.caddy'), 'tls internal\n');
-  writeFileSync(join(folder, 'instances', 'luno.caddy'), instanceHandles.replace(`${MESH_IP}:30320`, `host.docker.internal:${instancePort}`));
-  caddy = rootCaddy(caddyfile.replace(ROOT_UPSTREAM, `reverse_proxy host.docker.internal:${rootPort} {`), folder, { APP_DOMAIN, MESH_DOMAIN: 'mesh.localhost', INGRESS_DOMAIN, ACME_EMAIL: 'admin@example.com' });
+  writeFileSync(join(folder, 'instances', 'luno.caddy'), instanceHandles.replace(`${MESH_IP}:30320`, `${LOOPBACK}:${instancePort}`));
+  caddy = rootCaddy(caddyfile.replace(ROOT_UPSTREAM, `reverse_proxy ${LOOPBACK}:${rootPort} {`), folder, { APP_DOMAIN, MESH_DOMAIN: 'mesh.localhost', INGRESS_DOMAIN, ACME_EMAIL: 'admin@example.com' },
+    { https: await portToHandOn(), http: await portToHandOn(), metrics: await portToHandOn() });
   await runSteps([caddy.step], ctx, memoryReporter());
   rootCa = await caddy.rootCertificate();
 });
@@ -104,7 +106,7 @@ describe.each([
     expect(signedIn.set[0]).toMatch(/^__Host-koala_sid=s%3A[^;]+; Path=\/; Expires=[^;]+; HttpOnly; Secure; SameSite=Lax$/);
     expect(signedIn.body.secure).toBe(true);
     expect(signedIn.body.ip).not.toBe(SPOOFED);
-    expect(signedIn.body.ip).toBe(await gatewayAddress());
+    expect(signedIn.body.ip).toBe(LOOPBACK);
     const cookie = signedIn.set[0]!.split(';')[0]!;
     expect((await throughCaddy(host, 'GET', '/me', { cookie })).body).toEqual({ sub: 'ann' });
   });

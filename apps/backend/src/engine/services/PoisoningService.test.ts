@@ -3,14 +3,14 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { PoisoningService, PoisoningError } from './PoisoningService.js';
 import { poisoningMemory as memory, poisoningServiceOn, poisoningSignal as signal } from '../testing/poisoning-service.js';
 
-const service = (unindex: (ownerId: string, ids: string[]) => Promise<void> = async () => undefined) => poisoningServiceOn(memoryDatabase(), unindex);
+const service = (unindex: (ownerId: string, ids: string[]) => Promise<void> = async () => undefined) => poisoningServiceOn(memoryDatabase(), { index: async () => undefined, unindex });
 
 describe('the findings a person sees and acts on', () => {
   it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
     const db = memoryDatabase();
     const poisoning = new PoisoningService({
       store: db.engine,
-      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, index: async () => undefined, unindex: async () => undefined },
       unseal: () => { throw new Error('no key v2:old in the keyring'); },
       log: () => undefined,
     });
@@ -60,6 +60,16 @@ describe('the findings a person sees and acts on', () => {
     await db.memory.saveMemory(memory('from-host', { provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } }));
     await poisoning.retire('owner', 's1', 'source');
     expect(unindexed).toEqual([['from-host']]);
+  });
+
+  it('a memory written while the index was down and then retired is no longer waiting to be indexed', async () => {
+    const { db, poisoning } = await service();
+    await db.engine.savePoisoningSignal(signal({}));
+    await db.memory.saveMemory(memory('from-host', { indexPending: true, provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } }));
+    await poisoning.retire('owner', 's1', 'source');
+    const [retired] = await db.memory.getMemories('owner');
+    expect(retired!.invalidAt).toBe('2026-10-29T11:00:00.000Z');
+    expect(retired!.indexPending).toBeUndefined();
   });
 
   it('retires nothing and leaves the finding open when the index will not let go, saying why', async () => {

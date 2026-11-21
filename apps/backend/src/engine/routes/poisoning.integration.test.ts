@@ -5,9 +5,9 @@ import type { MemoryItem } from '../../memory/index.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from './poisoning.js';
-import { standInUnindexer } from '../../memory/testing/memory-index.js';
+import { standInIndexing } from '../../memory/testing/memory-index.js';
 
-const unindex = await standInUnindexer();
+const indexing = await standInIndexing();
 
 const quiet = { validateStatus: () => true };
 const at = '2026-10-29T10:00:00.000Z';
@@ -30,7 +30,7 @@ beforeAll(async () => {
     router: (db) => poisoningRouter({
       poisoning: new PoisoningService({
         store: db.engine,
-        memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex },
+        memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), ...indexing },
         unseal: (sealed) => sealed.replace(/^sealed:/, ''),
         push: async () => 1,
         mail: async () => undefined,

@@ -6,6 +6,8 @@ export const JOIN_PROGRESS: ProgressContract = { lines: false };
 
 export const MACHINE_JOINS_CHANGED = 'machine-joins-changed';
 
+export const WORK_TOKEN_ENDED = 'machine:work-token-ended';
+
 export interface MachineJoinView {
   id: string;
   stage: string;

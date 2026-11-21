@@ -25,7 +25,8 @@ let files: ReturnType<typeof mock<Files>>;
 const done = (over: Partial<KubeResult> = {}): KubeResult => ({ stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0, ...over });
 
 const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities => createAccountRemovalActivities({
-  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure },
+  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, memory: db.memory, infrastructure: db.infrastructure },
+  memoryIndex: { unindex: async () => undefined },
   now: () => Date.parse('2026-11-13T10:00:00.000Z'),
   work: mock<AccountRemovalDeps['work']>(),
   projects: { purge: async () => undefined },

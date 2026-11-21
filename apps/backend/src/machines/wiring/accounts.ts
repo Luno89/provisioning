@@ -121,7 +121,7 @@ export function wireMachineAccounts(deps: {
   };
   return {
     watched,
-    removed: (deviceId) => each(deviceId, (socket) => socket.emit('machine:removed')),
+    removed: (deviceId) => each(deviceId, (socket) => { socket.emit('machine:removed'); socket.disconnect(true); }),
     koala: (deviceId, koala) => each(deviceId, (socket) => socket.emit('machine:koala', koala)),
     placeKoala,
     stopKoala: (deviceId, stop) => each(deviceId, (socket) => socket.emit(STOP_KOALA, stop)),

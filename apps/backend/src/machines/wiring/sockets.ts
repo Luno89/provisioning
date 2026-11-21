@@ -8,6 +8,7 @@ import {
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
+import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import { machinePayloads, type GetAnswer, type MachineTemporal, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -21,6 +22,7 @@ const LOG_TAIL_LINES = 200;
 
 interface MachineSocketData {
   device: LocalAgentDeviceMetadata;
+  until: number;
 }
 
 export interface WorkTokenTrust {
@@ -83,7 +85,7 @@ export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
     db.machines.getLocalAgentDevices().then((devices) => {
       const device = devices.find((candidate) => candidate.id === check.claims.sub && candidate.ownerId === check.claims.owner);
       if (!device) return next(new Error('this machine is not one of this Koala\'s: run the command from My Machines again'));
-      admitted.set(socket, { device });
+      admitted.set(socket, { device, until: check.claims.exp });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -94,7 +96,12 @@ export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
       socket.disconnect(true);
       return;
     }
-    const { device } = machine;
+    const { device, until } = machine;
+    socket.use((_packet, next) => {
+      if (Math.floor((deps.now ?? (() => new Date()))().getTime() / 1000) < until) return next();
+      socket.emit(WORK_TOKEN_ENDED, { said: WORK_TOKEN_REFUSED.expired });
+      socket.disconnect(true);
+    });
     const tellRunEnded = (runId: string) => { if (socket.connected) socket.emit('machine:run-ended', { runId }); };
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     registerDevice(device.id, device.ownerId, device.rootDir, socket);

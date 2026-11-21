@@ -1,6 +1,6 @@
 import type { EngineStore } from '../store.js';
 import type { Watching } from '../../platform/index.js';
-import type { MemoryItem } from '../../memory/index.js';
+import { createMemoryWriter, type MemoryWriter, type MemoryWriterStore } from '../../memory/index.js';
 import {
   memoryFromHost, memoryFromRun, serious, tellingOf, worstFirst,
   type PoisoningSignal, type RetireScope, type SignalView,
@@ -8,7 +8,7 @@ import {
 
 export interface PoisoningServiceDeps {
   store: Pick<EngineStore, 'getPoisoningSignals' | 'getPoisoningSignal' | 'setPoisoningSignalState' | 'getUntoldPoisoningSignals' | 'markPoisoningSignalTold' | 'watchPoisoningSignals' | 'getRunReadsOfRuns'>;
-  memories: { list(ownerId: string): Promise<MemoryItem[]>; save(item: MemoryItem): Promise<void>; unindex(ownerId: string, ids: string[]): Promise<void> };
+  memories: MemoryWriterStore;
   unseal(sealed: string): string;
   push?: ((ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>) | undefined;
   mail?: ((ownerId: string, message: { subject: string; text: string }) => Promise<unknown>) | undefined;
@@ -23,7 +23,11 @@ export class PoisoningError extends Error {
 }
 
 export class PoisoningService {
-  constructor(private readonly deps: PoisoningServiceDeps) {}
+  private readonly writer: MemoryWriter;
+
+  constructor(private readonly deps: PoisoningServiceDeps) {
+    this.writer = createMemoryWriter({ store: deps.memories });
+  }
 
   private now(): string {
     return (this.deps.now ?? (() => new Date().toISOString()))();
@@ -87,8 +91,7 @@ export class PoisoningService {
     const why = scope === 'run' ? `retired with what run ${signal.runId} left, after Koala noticed: ${signal.said}` : `retired with everything learned from ${signal.host}, after Koala noticed: ${signal.said}`;
     const current = (await this.deps.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId && !memory.invalidAt);
     const retiring = current.filter((memory) => (scope === 'run' ? memoryFromRun(memory, runs) : memoryFromHost(memory, signal.host!)));
-    await this.deps.memories.unindex(ownerId, retiring.map((memory) => memory.id));
-    for (const memory of retiring) await this.deps.memories.save({ ...memory, invalidAt: at, updatedAt: at, text: `${memory.text}\n(${why})` });
+    await this.writer.retire(ownerId, retiring.map((memory) => ({ ...memory, invalidAt: at, updatedAt: at, text: `${memory.text}\n(${why})` })));
     await this.deps.store.setPoisoningSignalState(ownerId, id, 'resolved');
     return { retired: retiring.length, signal: this.view({ ...signal, state: 'resolved' }) };
   }

@@ -37,27 +37,41 @@ export function edgeCaddy(caddyfile: string, options: { folder?: string; publish
 export interface RootCaddy {
   container: ContainerProvider;
   step: Step<ContainerContext>;
+  https: number;
   rootCertificate(): Promise<string>;
+}
+
+export interface RootCaddyPorts {
+  https: number;
+  http: number;
+  metrics: number;
 }
 
 const ROOT_CADDY_FOLDERS = { tls: '/etc/caddy/tls', apps: '/etc/caddy/apps', instances: '/etc/caddy/instances', 'instance-sites': '/etc/caddy/instance-sites', admin: '/run/caddy-admin', log: '/var/log/caddy' };
 
-export function rootCaddy(caddyfile: string, folder: string, env: Record<string, string>): RootCaddy {
-  writeFileSync(join(folder, 'Caddyfile'), caddyfile);
+const ROOT_GLOBAL_OPTIONS = '\n{\n';
+
+const ROOT_METRICS_SITE = 'http://127.0.0.1:2019 {';
+
+export function rootCaddy(caddyfile: string, folder: string, env: Record<string, string>, ports: RootCaddyPorts): RootCaddy {
+  if (!caddyfile.includes(ROOT_GLOBAL_OPTIONS)) throw new Error('root\'s Caddyfile has no global options block to name this Caddy\'s ports in');
+  if (!caddyfile.includes(ROOT_METRICS_SITE)) throw new Error(`root's Caddyfile no longer serves its metrics at "${ROOT_METRICS_SITE}"`);
+  writeFileSync(join(folder, 'Caddyfile'), caddyfile
+    .replace(ROOT_GLOBAL_OPTIONS, `${ROOT_GLOBAL_OPTIONS}\thttps_port ${ports.https}\n\thttp_port ${ports.http}\n`)
+    .replace(ROOT_METRICS_SITE, `http://127.0.0.1:${ports.metrics} {`));
   const container = containerProvider({
     name: `koala-root-caddy-test-${randomUUID().slice(0, 8)}`,
     image: EDGE_TEST_IMAGE,
-    run: [...throwawayLabel(), '--add-host', 'host.docker.internal:host-gateway', '-p', '127.0.0.1::443',
+    run: [...throwawayLabel(), '--network', 'host',
       '-v', `${join(folder, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
       ...Object.entries(ROOT_CADDY_FOLDERS).flatMap(([sub, inside]) => ['-v', `${join(folder, sub)}:${inside}`]),
       ...Object.entries(env).flatMap(([name, value]) => ['-e', `${name}=${value}`])],
     command: ['caddy', 'run', '--config', '/etc/caddy/Caddyfile'],
-    publish: [443],
   });
   const rootCertificate = async (): Promise<string> => {
     const read = await nodeProcesses.run({ command: 'docker', args: ['exec', container.name, 'cat', '/data/caddy/pki/authorities/local/root.crt'] });
     if (read.code !== 0) throw new Error(`Caddy's own certificate authority could not be read from ${container.name}: ${read.stderr}`);
     return read.stdout;
   };
-  return { container, step: caddyStep(container, () => ({ socket: join(folder, 'admin', 'admin.sock') })), rootCertificate };
+  return { container, step: caddyStep(container, () => ({ socket: join(folder, 'admin', 'admin.sock') })), https: ports.https, rootCertificate };
 }
