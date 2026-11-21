@@ -6,6 +6,16 @@ import { groveAgentOf } from '../../projects/lib/tree-types.js';
 export const PROCEDURE_CHANGE_AGENT = 'agent-builder';
 export const CONVERSATION_PROCEDURE = 'interactive-chat';
 
+export const procedureChangeRun = (ownerId: string, message: string, conversationId: string) => ({
+  startedBy: 'person' as const,
+  ownerId,
+  agentSlug: PROCEDURE_CHANGE_AGENT,
+  procedureId: CONVERSATION_PROCEDURE,
+  message,
+  conversationId,
+  inputs: { conversationId },
+});
+
 export type UsageKind = 'chat' | 'platform' | 'tree-type' | 'procedure' | 'hand-off';
 
 export interface AgentUsage {

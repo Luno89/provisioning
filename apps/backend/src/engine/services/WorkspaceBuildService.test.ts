@@ -24,7 +24,7 @@ describe('starting a workspace build', () => {
     const outcome = await builds.pushed({ id: 'p1', ownerId: 'u1' }, 'abcdef1234567890', [{ modified: ['addons/x.py'] }, { added: ['.koala/workspace.json'] }]);
 
     expect(outcome).toEqual([{ started: true, runId: 'workspace-build-t1-abcdef123456' }]);
-    expect(started).toEqual([{ startedBy: 'platform', ownerId: 'u1', agentSlug: 'workspace', message: 'Build the workspace.', inputs: { treeId: 't1', commit: 'abcdef1234567890' }, runId: 'workspace-build-t1-abcdef123456', bound: { treeId: 't1' } }]);
+    expect(started).toEqual([{ startedBy: 'person', ownerId: 'u1', agentSlug: 'workspace', message: 'Build the workspace.', inputs: { treeId: 't1', commit: 'abcdef1234567890' }, runId: 'workspace-build-t1-abcdef123456', bound: { treeId: 't1' } }]);
   });
 
   it('starts nothing for a push that did not touch the file, or a project with no owner', async () => {

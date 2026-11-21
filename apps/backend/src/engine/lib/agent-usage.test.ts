@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentUsage, agentsNamedIn } from './agent-usage.js';
+import { agentUsage, agentsNamedIn, CONVERSATION_PROCEDURE, PROCEDURE_CHANGE_AGENT, procedureChangeRun } from './agent-usage.js';
 
 const node = (id: string, kind: string, settings: Record<string, unknown> = {}, group?: string) => ({ id, kind, settings, position: { x: 0, y: 0 }, ...(group ? { group } : {}) });
 const procedure = (id: string, nodes: ReturnType<typeof node>[], groups: unknown[] = []) => ({ id, nodes, groups }) as never;
@@ -34,5 +34,14 @@ describe('how each agent is used', () => {
     expect(usage.get('research')).toEqual([{ kind: 'hand-off', by: 'koala' }]);
     expect(usage.get('mine')).toEqual([]);
     expect(usage.has('grove-paper')).toBe(false);
+  });
+});
+
+describe('the run a procedure change is handed to', () => {
+  it('works in its own conversation for the person who asked, and stops when their access is taken away', () => {
+    expect(procedureChangeRun('ann', 'Let the agent read the logs.', 'conv-9')).toEqual({
+      startedBy: 'person', ownerId: 'ann', agentSlug: PROCEDURE_CHANGE_AGENT, procedureId: CONVERSATION_PROCEDURE,
+      message: 'Let the agent read the logs.', conversationId: 'conv-9', inputs: { conversationId: 'conv-9' },
+    });
   });
 });

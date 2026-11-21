@@ -31,7 +31,7 @@ export function imageReleasesBehaviour(make: () => Promise<Database>): void {
     it('starts the replace agent on the build, bound to the project, as its owner', async () => {
       const { releases, started } = await setup(await make());
       expect(await releases.release(project, run)).toBe('started');
-      expect(started).toEqual([{ startedBy: 'platform', ownerId: 'bo', agentSlug: 'release-replace', message: 'Deploy the build.', runId: 'release-p1-b2~s1', inputs: { ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2' }, bound: { projectId: 'p1' } }]);
+      expect(started).toEqual([{ startedBy: 'person', ownerId: 'bo', agentSlug: 'release-replace', message: 'Deploy the build.', runId: 'release-p1-b2~s1', inputs: { ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2' }, bound: { projectId: 'p1' } }]);
     });
 
     it('deploys nothing for a project that does not deploy its builds', async () => {

@@ -10,7 +10,7 @@ import {
   publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
-import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
+import { PROCEDURE_CHANGE_AGENT, procedureChangeRun } from '../lib/agent-usage.js';
 import {
   fingerprintOf, scenarioSubjects, BenchService, Level2Service, temporalCheckRunner, ScriptedModelService,
   httpCheckAccess, checksRouter, evalsLevel2Router,
@@ -199,7 +199,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
-    start: async (request) => { await engineRuns.start({ ...request, startedBy: 'platform' }); },
+    start: async (request) => { await engineRuns.start(request); },
     timer: async ({ ownerId, conversationId, signal, quietMs }) => {
       const workflows = (await getTemporalClient()).workflow;
       const where = {
@@ -370,7 +370,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       const at = new Date().toISOString();
       const conversationId = randomUUID();
       await db.engine.saveConversation({ id: conversationId, ownerId, title: 'Procedure change request', messages: [], agentSlug: PROCEDURE_CHANGE_AGENT, createdAt: at, updatedAt: at });
-      const started = await engineRuns.start({ startedBy: 'platform', ownerId, agentSlug: PROCEDURE_CHANGE_AGENT, procedureId: 'interactive-chat', message, conversationId, inputs: { conversationId } });
+      const started = await engineRuns.start(procedureChangeRun(ownerId, message, conversationId));
       return { conversationId, runId: started.runId };
     },
   });

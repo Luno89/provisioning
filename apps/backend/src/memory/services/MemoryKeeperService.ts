@@ -35,6 +35,7 @@ export interface MemoryKeeperStore {
 }
 
 export type StartMemoryRun = (request: {
+  startedBy: 'person';
   ownerId: string;
   agentSlug: string;
   message: string;
@@ -154,6 +155,7 @@ export class MemoryKeeperService {
   private async startNow(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
     try {
       await this.deps.start({
+        startedBy: 'person',
         ownerId: conclusion.ownerId,
         agentSlug: MEMORY_KEEPER,
         message: conclusion.message,
