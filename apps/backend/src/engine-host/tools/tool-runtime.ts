@@ -7,6 +7,7 @@ import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js
 import { accessOf, accessProblem, projectRefsIn, sourceOf, type ProjectResolution } from '../../engine/lib/tool-access.js';
 import type { PoisoningWatch } from './poisoning-watch.js';
 import { HANDOVER_TOOL, noGrantProblem, type GrantCheck, type ProjectResolver } from '../../engine/index.js';
+import { callNeedsAsking } from '@koala/agent-engine/procedure';
 import { withoutHidden } from '../../engine/lib/hidden-text.js';
 
 export type { ToolHandler } from '@koala/engine-core';
@@ -83,7 +84,12 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       if ('problem' in checked) return placed(refuse(checked.problem), args);
       const problem = accessProblem(args.name, access, checked.principal, args.ticket.ownerId, parsed, resolved);
       if (problem) return placed(refuse(problem), args);
-      if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
+      const contract = catalogue.find((tool) => tool.name === args.name);
+      const where = args.environment ? { kind: args.environment.spec.kind } as Parameters<typeof callNeedsAsking>[1]['environment'] : undefined;
+      if (!args.approved && callNeedsAsking(args.name, { offered: contract ? [contract] : [], environment: where })) {
+        return { ok: false, digest: `${args.name} waits for a person to allow it`, asks: true };
+      }
+      if (attempt > 1 && contract?.idempotent !== true) {
         return placed(refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`), args);
       }
 

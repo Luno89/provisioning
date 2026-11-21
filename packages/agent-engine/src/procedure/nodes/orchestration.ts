@@ -26,12 +26,14 @@ export interface ToolRunRequest {
   persona: AgentDefinition;
   environment?: EnvironmentValue | undefined;
   run: RunContext;
+  approved?: boolean | undefined;
 }
 
 export interface ToolRunOutcome {
   ok: boolean;
   digest: string;
   content?: string | undefined;
+  asks?: boolean | undefined;
   /** The call ran, but the peer refused it — a site that blocks fetches replying 401/403, for example. */
   declined?: boolean | undefined;
   artifacts?: Artifact[] | undefined;
@@ -214,7 +216,13 @@ const childText = (agent: string, child: ChildOutcomeValue): string =>
   child.outcome === 'ok' ? JSON.stringify(child.outputs) : `${agent} did not finish: ${child.reason ?? child.outcome}`;
 
 export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImplementation[] {
-  const putToThePerson = new Set<string>();
+  const allowedByThePerson = new Set<string>();
+  const refusedResult = (): ToolRunOutcome => ({ ok: false, digest: REFUSED_CALL, content: REFUSED_CALL });
+  const askedAndAllowed = async (request: NodeRequest, call: ToolCallRequest, environment: EnvironmentValue | undefined): Promise<boolean> => {
+    if (!(await ports.approve({ nodeId: request.node.id, call, environment, run: request.run }))) return false;
+    allowedByThePerson.add(call.id);
+    return true;
+  };
 
   const runOne = (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined, offered: OfferedShape) => {
     const delegated = (persona.agents ?? []).includes(call.name);
@@ -237,13 +245,11 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
     const { node, run } = request;
     run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
 
-    if (!putToThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment })) {
-      putToThePerson.add(call.id);
-      if (!(await ports.approve({ nodeId: node.id, call, environment, run }))) {
-        run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
-        return { outcome: { ok: false, digest: REFUSED_CALL, content: REFUSED_CALL } as ToolRunOutcome, delegated: false };
-      }
-    }
+    const refused = () => {
+      run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
+      return { outcome: refusedResult(), delegated: false };
+    };
+    if (!allowedByThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment }) && !(await askedAndAllowed(request, call, environment))) return refused();
 
     let outcome: ToolRunOutcome;
     let delegated = false;
@@ -274,7 +280,12 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         };
       }
     } else {
-      outcome = await ports.runTool({ nodeId: node.id, call, persona, environment, run });
+      const runIt = () => ports.runTool({ nodeId: node.id, call, persona, environment, run, ...(allowedByThePerson.has(call.id) ? { approved: true } : {}) });
+      outcome = await runIt();
+      if (outcome.asks) {
+        if (allowedByThePerson.has(call.id) || !(await askedAndAllowed(request, call, environment))) return refused();
+        outcome = await runIt();
+      }
     }
 
     run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: outcome.ok, digest: outcome.digest, ...(outcome.artifacts?.length ? { artifacts: outcome.artifacts } : {}), ...(outcome.child ? { child: outcome.child } : {}) } as never);
@@ -287,7 +298,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const reply = inputs.reply as ModelReply;
       const environment = inputs.environment as EnvironmentValue | undefined;
       const offered = (inputs.offered as ToolSet | undefined) ?? [];
-      const needsAsking = (call: ToolCallRequest): boolean => !putToThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment });
+      const needsAsking = (call: ToolCallRequest): boolean => !allowedByThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment });
 
       if (!reply.toolCalls.some(needsAsking)) {
         return { exit: 'approved', outputs: { approved: reply, refused: [] } };
@@ -298,8 +309,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       for (const call of reply.toolCalls) {
         if (!needsAsking(call)) { approved.push(call); continue; }
         run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
-        putToThePerson.add(call.id);
-        if (await ports.approve({ nodeId: node.id, call, environment, run })) {
+        if (await askedAndAllowed(request, call, environment)) {
           approved.push(call);
         } else {
           refused.push({ forReply: reply.id, callId: call.id, name: call.name, ok: false, digest: REFUSED_CALL, content: REFUSED_CALL });

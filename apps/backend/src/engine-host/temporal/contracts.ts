@@ -20,6 +20,7 @@ import type {
   RunContext,
   RunLaunch,
   StepResult,
+  ToolRunRequest,
   ValueResult,
 } from '@koala/agent-engine/procedure';
 import { ApplicationFailure } from '@temporalio/common';
@@ -56,6 +57,7 @@ export interface ToolCallArgs {
   granted?: string[] | undefined;
   hearsStops?: boolean | undefined;
   stoppedBecause?: string | undefined;
+  approved?: boolean | undefined;
 }
 
 export interface EnvironmentHandleRef {
@@ -71,6 +73,7 @@ export interface ToolCallOutcome {
   content?: string | undefined;
   declined?: boolean;
   artifacts?: Artifact[] | undefined;
+  asks?: boolean | undefined;
 }
 
 export interface MergeArgs {
@@ -383,4 +386,18 @@ export interface SettleClaimsArgs {
   runId: string;
   outcome: string;
   reason?: string | undefined;
+}
+
+export function toolCallArgsOf(request: Pick<ToolRunRequest, 'nodeId' | 'call' | 'persona' | 'environment' | 'run' | 'approved'>): ToolCallArgs {
+  const handle = handleFor(request.environment);
+  return {
+    ticket: ticketFor(request.run),
+    nodeId: request.nodeId,
+    name: request.call.name,
+    arguments: request.call.arguments,
+    callId: request.call.id,
+    granted: request.persona.tools,
+    ...(handle ? { environment: handle } : {}),
+    ...(request.approved ? { approved: true } : {}),
+  };
 }

@@ -360,6 +360,25 @@ describe('call tool, delegate, fan out and wait', () => {
     expect(outcome).toMatchObject({ exit: 'ok', outputs: { result: [{ id: 't1' }], text: '[{"id":"t1"}]' } });
   });
 
+  it('asks before a Call Tool step runs a destructive tool, with nothing wired to say so, because the tool itself says it asks', async () => {
+    const runTool = vi.fn<OrchestrationPorts['runTool']>(async ({ approved }) => (approved ? { ok: true, digest: 'dropped', content: 'dropped' } : { ok: false, digest: 'asks', asks: true }));
+    const p = ports({ runTool, approve: vi.fn(async () => true) });
+    const outcome = await invoke(createOrchestrationNodes(p), callTool, { settings: { tool: 'drop_tree', args: '{}' }, inputs: { persona: persona() } });
+
+    expect(p.approve).toHaveBeenCalledTimes(1);
+    expect(runTool.mock.calls.map(([request]) => request.approved === true)).toEqual([false, true]);
+    expect(outcome).toMatchObject({ exit: 'ok', outputs: { text: 'dropped' } });
+  });
+
+  it('runs nothing a person refused when the tool asked', async () => {
+    const runTool = vi.fn<OrchestrationPorts['runTool']>(async () => ({ ok: false, digest: 'asks', asks: true }));
+    const p = ports({ runTool, approve: vi.fn(async () => false) });
+    const outcome = await invoke(createOrchestrationNodes(p), callTool, { settings: { tool: 'drop_tree', args: '{}' }, inputs: { persona: persona() } });
+
+    expect(runTool).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ exit: 'failed', outputs: { text: REFUSED_CALL } });
+  });
+
   it('hands a child only the inputs written for it, and leaves by how it ended', async () => {
     const p = ports({ runChild: vi.fn(async () => ({ runId: 'c', agentId: 'judge', outcome: 'failed', reason: 'unproven', outputs: {} })) });
     const outcome = await invoke(createOrchestrationNodes(p), delegate, {

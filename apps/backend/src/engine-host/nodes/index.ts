@@ -19,7 +19,7 @@ import { createCodeNodes } from './code-nodes.js';
 import { createConversationNodes } from './conversation-nodes.js';
 import { createHostOpNodes } from './host-op-nodes.js';
 import { handOffProblem } from '../tools/hand-offs.js';
-import { handleFor, launchFor, ticketFor } from '../temporal/contracts.js';
+import { launchFor, ticketFor, toolCallArgsOf } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { HostNodeServices } from './services.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
@@ -72,18 +72,7 @@ export function createProcedureExecutor(
   let children = 0;
 
   const ports: OrchestrationPorts = {
-    runTool: ({ nodeId, call, persona, environment, run }) => {
-      const handle = handleFor(environment);
-      return services.tools.run({
-        ticket: ticketFor(run),
-        nodeId,
-        name: call.name,
-        arguments: call.arguments,
-        callId: call.id,
-        granted: persona.tools,
-        ...(handle ? { environment: handle } : {}),
-      });
-    },
+    runTool: (request) => services.tools.run(toolCallArgsOf(request)),
 
     runChild: async ({ agent, inputs, environment, run }): Promise<ChildOutcomeValue> => {
       children += 1;
