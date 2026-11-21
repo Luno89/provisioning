@@ -173,6 +173,23 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       await done;
       await watching.close();
       expect(heard).toEqual(['installing no address registered', 'installing https://followed.example registered', 'gone']);
+    });
+
+    it('hears each instance removed, and none written', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      await store.saveInstance(instance('inst-a', 'o1'));
+      await store.saveInstance(instance('inst-b', 'o2'));
+      const watching = store.watchInstanceRemovals((instanceId) => { heard.push(instanceId); if (instanceId === 'inst-b') finish(); });
+      await watching.ready;
+      await store.saveInstance(instance('inst-a', 'o1', { status: 'ready' }));
+      await store.deleteInstance('inst-a');
+      await store.deleteInstance('inst-b');
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['inst-a', 'inst-b']);
     });  });
 
   describe('watching whether an instance can be reached', () => {

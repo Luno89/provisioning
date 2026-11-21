@@ -6,7 +6,7 @@ import type { DependencyId } from '../../platform/lib/dependencies.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
-import { claimsFor, clientMetadata, publicJwkOf, runResourceOf } from '../lib/oidc.js';
+import { claimsFor, clientMetadata, publicJwkOf, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { RootProvider } from '../services/RootProvider.js';
@@ -17,6 +17,12 @@ import type { InstanceService } from '../services/InstanceService.js';
 import {
   SESSION_ID_COOKIE, cookieOf, remember, rootSessionOf, rootSigning, servedThroughRoot, sessionIdOf, signInThroughRoot, type Jar, type Served,
 } from './through-root.js';
+
+const whoCalls = (caller: { clientId: string; kind: string; until: number } | undefined): { clientId: string; kind: string } | undefined => {
+  if (!caller) return undefined;
+  const { until: _until, ...who } = caller;
+  return who;
+};
 
 export const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 export const having = (fields: Record<string, unknown>): unknown => expect.objectContaining(fields);
@@ -179,7 +185,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
     expect(again.status).toBe(401);
     expect(await again.json()).toMatchObject({ error: 'invalid_token' });
     expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn?.jwk).toEqual(publicJwkOf(world.clientKeys));
-    expect(await world.provider.serviceCaller(await world.signIn.serviceToken())).toEqual({ clientId: 'inst-u1', kind: 'instance' });
+    expect(whoCalls(await world.provider.serviceCaller(await world.signIn.serviceToken()))).toEqual({ clientId: 'inst-u1', kind: 'instance' });
   });
 
   const refusalOf = (err: Error & { error?: unknown }): unknown => err.error ?? err.message;
@@ -206,7 +212,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
     expect(await Promise.race([followed, again])).toBe('held');
     await world.rootDb.instances.updateInstall('inst-u1', 'install-1', { url: world.instance.url, 'install.state': 'ready', status: 'ready' });
     expect(await again).toBe('registered');
-    expect(await world.provider.serviceCaller(await world.signIn.serviceToken())).toEqual({ clientId: 'inst-u1', kind: 'instance' });
+    expect(whoCalls(await world.provider.serviceCaller(await world.signIn.serviceToken()))).toEqual({ clientId: 'inst-u1', kind: 'instance' });
   });
 
   it('ends a held token request with a refusal once the install ends without an address, or the instance is removed', async () => {
@@ -345,8 +351,12 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
 export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): void {
   it('gives the instance a short-lived service token root takes in place of its long-lived credential', async () => {
     world.signIn.keepRegistering(() => undefined);
+    const asked = Date.now();
     const token = await world.signIn.serviceToken();
-    expect(await world.provider.serviceCaller(token)).toEqual({ clientId: 'inst-u1', kind: 'instance' });
+    const caller = await world.provider.serviceCaller(token);
+    expect(whoCalls(caller)).toEqual({ clientId: 'inst-u1', kind: 'instance' });
+    expect(caller!.until).toBeGreaterThan(asked);
+    expect(caller!.until).toBeLessThanOrEqual(Date.now() + SERVICE_TOKEN_SECONDS * 1000 + 1000);
     expect(await world.rootService.ownerOf('inst-u1', token)).toEqual({ ok: true, value: { ownerId: 'u1' } });
     expect(await world.rootService.ownerOf('inst-other', token)).toMatchObject({ ok: false });
     expect(await world.rootService.ownerOf('inst-u1', 'not-a-token')).toMatchObject({ ok: false, status: 401 });

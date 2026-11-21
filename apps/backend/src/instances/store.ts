@@ -1,7 +1,7 @@
 import type { AreaStore } from '../platform/index.js';
 import { MongoServerError, type Collection, type Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
-import { keepWrittenDocuments, watchDocument, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchDeletes, watchDocument, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
@@ -16,6 +16,7 @@ export interface InstancesStore extends AreaStore {
   updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean>;
   watchInstalls(on: (instance: InstanceRecord) => void): Watching;
   followInstance(instanceId: string, on: (instance: InstanceRecord | undefined) => void): Watching;
+  watchInstanceRemovals(on: (instanceId: string) => void): Watching;
   deleteInstance(id: string): Promise<void>;
   getReleases(): Promise<InstanceRelease[]>;
   recordRelease(release: InstanceRelease): Promise<InstanceRelease>;
@@ -123,6 +124,10 @@ export class MongoInstancesStore implements InstancesStore {
       const { _id, ...rest } = doc;
       on(rest as unknown as InstanceRecord);
     });
+  }
+
+  watchInstanceRemovals(on: (instanceId: string) => void): Watching {
+    return watchDeletes(() => this.instanceRegistry, (id) => on(String(id)));
   }
 
   async deleteInstance(id: string): Promise<void> {

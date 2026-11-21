@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { InstanceRecord } from '../lib/instances.js';
+import type { Watching } from '../../platform/index.js';
 import { InstancePresence } from './InstancePresence.js';
 import { RootPresence } from './RootPresence.js';
 import { wireInstancePresence } from '../wiring/instances.js';
@@ -35,6 +36,10 @@ const clients: RootPresence[] = [];
 
 let tellInstance: (instanceId: string, event: string) => void = () => undefined;
 let arrivals: string[] = [];
+let checked: string[] = [];
+let clock = 1_000_000;
+const runsOutAt = new Map<string, number>();
+let removalsWatched: Watching | undefined;
 
 async function startRoot(onPort = 0): Promise<void> {
   server = http.createServer();
@@ -48,8 +53,16 @@ async function startRoot(onPort = 0): Promise<void> {
     afterMs: GRACE,
     log: (message) => { logged.push(message); },
   });
-  tellInstance = wireInstancePresence(io, presence, async (instanceId, token) =>
-    token === `good-${instanceId}` ? (await db.instances.getInstances()).find((entry) => entry.id === instanceId) : undefined, (instance) => { arrivals.push(instance.id); });
+  tellInstance = wireInstancePresence(io, presence, {
+    caller: async (instanceId, token) => {
+      checked.push(token);
+      const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId);
+      return instance && (token === `good-${instanceId}` || token === `fresh-${instanceId}`) ? { instance, until: runsOutAt.get(token) ?? Number.MAX_SAFE_INTEGER } : undefined;
+    },
+    arrived: (instance) => { arrivals.push(instance.id); },
+    removals: (on) => { removalsWatched = db.instances.watchInstanceRemovals(on); return removalsWatched; },
+    now: () => clock,
+  });
   await new Promise<void>((resolve) => server.listen(onPort, '127.0.0.1', resolve));
   port = (server.address() as AddressInfo).port;
   await presence.start();
@@ -57,18 +70,20 @@ async function startRoot(onPort = 0): Promise<void> {
 
 async function stopRoot(): Promise<void> {
   presence.stop();
+  await removalsWatched?.close();
   io.disconnectSockets(true);
   await io.close();
 }
 
-function instanceDialing(instance: InstanceRecord, token = `good-${instance.id}`, heard: Record<string, () => void> = {}) {
+function instanceDialing(instance: InstanceRecord, token: string | string[] = `good-${instance.id}`, heard: Record<string, () => void> = {}) {
   const pushed: string[] = [];
+  const tokens = Array.isArray(token) ? [...token] : [token];
   const client = new RootPresence({
     heard,
     rootUrl: `http://127.0.0.1:${port}`,
     instanceId: instance.id,
     ownerId: instance.ownerId,
-    token: async () => token,
+    token: async () => (tokens.length > 1 ? tokens.shift()! : tokens[0]!),
     tell: async (_owner, message) => { pushed.push(message.title); },
     afterMs: GRACE,
     retryMs: 50,
@@ -87,6 +102,9 @@ beforeEach(async () => {
   logged = [];
   mailFails = false;
   arrivals = [];
+  checked = [];
+  clock = 1_000_000;
+  runsOutAt.clear();
   await db.instances.saveInstance(own);
   await db.instances.saveInstance(second);
   await startRoot();
@@ -110,6 +128,47 @@ describe('root telling an instance over its connection', () => {
     await until(() => (said.includes('changed') ? true : undefined));
     expect(said).toEqual(['connected', 'changed']);
     expect(elsewhere).toEqual([]);
+  });
+});
+
+describe('the token an instance holds its connection with', () => {
+  it('asks the instance for a fresh token once the one it connected with has run out, and tells it what root had to say on the fresh one', async () => {
+    runsOutAt.set(`good-${own.id}`, clock + 1000);
+    const said: string[] = [];
+    const { client } = instanceDialing(own, [`good-${own.id}`, `fresh-${own.id}`], { 'machines:changed': () => said.push('changed') });
+    await until(() => client.connected());
+    tellInstance(own.id, 'machines:changed');
+    await until(() => (said.length === 1 ? true : undefined));
+    expect(checked).toEqual([`good-${own.id}`]);
+    clock += 2000;
+    tellInstance(own.id, 'machines:changed');
+    await until(() => (said.length === 2 ? true : undefined));
+    expect(checked).toEqual([`good-${own.id}`, `fresh-${own.id}`]);
+    expect(client.connected()).toBe(true);
+  });
+
+  it('cuts the connection of an instance whose fresh token root refuses, and tells it nothing more', async () => {
+    runsOutAt.set(`good-${own.id}`, clock + 1000);
+    const said: string[] = [];
+    const left: string[] = [];
+    const { client } = instanceDialing(own, [`good-${own.id}`, 'wrong'], { 'machines:changed': () => said.push('changed') });
+    const socket = await until(() => [...io.of('/instances').sockets.values()][0]);
+    socket.on('disconnect', () => left.push('cut'));
+    clock += 2000;
+    tellInstance(own.id, 'machines:changed');
+    await until(() => (left.length === 1 ? true : undefined));
+    expect(said).toEqual([]);
+    expect(client.connected()).toBe(false);
+  });
+
+  it('cuts an instance\'s connection the moment the instance is removed, and leaves the others connected', async () => {
+    const removed = instanceDialing(own);
+    const kept = instanceDialing(second);
+    await until(() => presence.connected(own.id) && presence.connected(second.id));
+    await db.instances.deleteInstance(own.id);
+    await until(() => (removed.client.connected() ? undefined : true));
+    expect(presence.connected(own.id)).toBe(false);
+    expect(kept.client.connected()).toBe(true);
   });
 });
 

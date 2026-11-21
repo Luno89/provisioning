@@ -69,6 +69,16 @@ export function watchDocument<T extends Document>(
   }, reopenMs);
 }
 
+export function watchDeletes<T extends Document>(
+  collection: () => Collection<T>,
+  on: (id: unknown) => void,
+  reopenMs = REOPEN_FIRST_MS,
+): Watching {
+  return watchChanges(collection, [{ $match: { operationType: 'delete' } }], {}, (change) => {
+    if (change.operationType === 'delete') on((change.documentKey as { _id: unknown })._id);
+  }, reopenMs);
+}
+
 export function watchNudges<T extends Document>(
   collection: () => Collection<T>,
   on: (key: Document) => void,

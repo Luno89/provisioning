@@ -43,7 +43,7 @@ export interface InstanceSettings {
   siteNames?: readonly string[] | undefined;
   releases?: ReleaseSource | undefined;
   notices?: { tell(): Promise<number> } | undefined;
-  serviceCaller: (token: string) => Promise<{ clientId: string; kind: 'instance' } | undefined>;
+  serviceCaller: (token: string) => Promise<{ clientId: string; kind: 'instance'; until: number } | undefined>;
   registrationCode: (instance: { id: string; ownerId: string }) => Promise<string>;
   connected?: ((instanceId: string) => boolean) | undefined;
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
@@ -183,12 +183,16 @@ export class InstanceService {
   }
 
 
-  private async authenticated(instanceId: unknown, token: unknown): Promise<InstanceRecord | undefined> {
+  private async checked(instanceId: unknown, token: unknown): Promise<{ instance: InstanceRecord; until: number } | undefined> {
     if (typeof instanceId !== 'string' || typeof token !== 'string' || !token) return undefined;
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     if (!instance) return undefined;
     const caller = await this.settings.serviceCaller(token);
-    return caller?.kind === 'instance' && caller.clientId === instance.id ? instance : undefined;
+    return caller?.kind === 'instance' && caller.clientId === instance.id ? { instance, until: caller.until } : undefined;
+  }
+
+  private async authenticated(instanceId: unknown, token: unknown): Promise<InstanceRecord | undefined> {
+    return (await this.checked(instanceId, token))?.instance;
   }
 
   async koalaOf(ownerId: string): Promise<{ url: string; audience: string } | undefined> {
@@ -198,6 +202,10 @@ export class InstanceService {
 
   caller(instanceId: string, token: string): Promise<InstanceRecord | undefined> {
     return this.authenticated(instanceId, token);
+  }
+
+  presenceCaller(instanceId: string, token: string): Promise<{ instance: InstanceRecord; until: number } | undefined> {
+    return this.checked(instanceId, token);
   }
 
   private async meshIpOwned(ownerId: string, meshIp: string): Promise<'yes' | 'no' | 'unknown'> {

@@ -72,7 +72,11 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   if (!reported.ok) throw new Error(reported.error);
   const presence = new InstancePresence({ store: rootDb.instances, tellOwner: async () => undefined, afterMs: 60_000 });
   closers.push(async () => { presence.stop(); });
-  const tellInstance = wireInstancePresence(root.io, presence, (id, token) => instances.caller(id, token), (arrived) => rootSide?.instanceArrived(arrived));
+  const tellInstance = wireInstancePresence(root.io, presence, {
+    caller: (id, token) => instances.presenceCaller(id, token),
+    removals: (on) => { const watching = rootDb.instances.watchInstanceRemovals(on); closers.push(() => watching.close()); return watching; },
+    arrived: (arrived) => rootSide?.instanceArrived(arrived),
+  });
   rootSide = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: pem }),
     db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test',

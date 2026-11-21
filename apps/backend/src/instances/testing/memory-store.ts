@@ -39,6 +39,7 @@ export class MemoryInstancesStore implements InstancesStore {
   private check: DependencyCheck | undefined;
   private readonly withdrawalNotices: Map<string, { ownerId: string; at: string }>;
   private readonly installWatchers = new Set<(instance: InstanceRecord) => void>();
+  private readonly removalWatchers = new Set<(instanceId: string) => void>();
   private readonly followers = new Map<string, Set<(instance: InstanceRecord | undefined) => void>>();
 
   constructor(collections: Collections = new Map()) {
@@ -74,6 +75,11 @@ export class MemoryInstancesStore implements InstancesStore {
     for (const follower of this.followers.get(instanceId) ?? []) queueMicrotask(() => follower(now ? copied(now) : undefined));
   }
 
+  watchInstanceRemovals(on: (instanceId: string) => void): Watching {
+    this.removalWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.removalWatchers.delete(on); } };
+  }
+
   followInstance(instanceId: string, on: (instance: InstanceRecord | undefined) => void): Watching {
     const following = this.followers.get(instanceId) ?? new Set();
     following.add(on);
@@ -106,8 +112,9 @@ export class MemoryInstancesStore implements InstancesStore {
   }
 
   async deleteInstance(id: string): Promise<void> {
-    this.instances.delete(id);
+    const was = this.instances.delete(id);
     this.written(id);
+    if (was) for (const watcher of this.removalWatchers) queueMicrotask(() => watcher(id));
     await this.deleteWatch(id);
   }
 

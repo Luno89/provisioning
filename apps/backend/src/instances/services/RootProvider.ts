@@ -25,6 +25,7 @@ export interface RootProviderSettings {
 export interface ServiceCaller {
   clientId: string;
   kind: ClientKind;
+  until: number;
 }
 
 interface KoalaClient {
@@ -308,10 +309,10 @@ export class RootProvider {
 
   async serviceCaller(token: string): Promise<ServiceCaller | undefined> {
     const found = await this.provider.ClientCredentials.find(token);
-    if (!found?.clientId || found.isExpired || !found.scopes.has(SERVICE_SCOPE)) return undefined;
+    if (!found?.clientId || found.exp === undefined || found.isExpired || !found.scopes.has(SERVICE_SCOPE)) return undefined;
     const client = await this.provider.Client.find(found.clientId);
     if (!client) return undefined;
-    return { clientId: client.clientId, kind: kindOf(client).kind };
+    return { clientId: client.clientId, kind: kindOf(client).kind, until: found.exp * 1000 };
   }
 
   async revoke(event: AccessRevoked): Promise<void> {
