@@ -235,7 +235,7 @@ export function createProjectTools(options: {
       if ('problem' in change) return refuse(change.problem);
       return propose(caller, 'set_project_env', { projectId: found.project.id, env: change.merged }, `change ${change.changed.length} environment variable${change.changed.length === 1 ? '' : 's'} of ${found.project.name}`, [
         section(undefined, [fields(['Project', found.project.name])]),
-        section('What changes', [code(change.changed.join('\n')), text('Takes effect on the next deploy.')]),
+        section('What changes', [code(change.changed.join('\n')), text('Takes effect on the next deploy.'), text('Plain values. Agents can read these. Passwords and tokens go under Secrets.')]),
       ], found.treeId);
     },
 

@@ -53,7 +53,7 @@ export const TOOL_ACCESS: Readonly<Record<string, ToolAccess>> = {
   list_dir: project('see'),
   read_file: project('see'),
   list_project_secrets: project('see-secrets'),
-  get_project_env: project('see-secrets'),
+  get_project_env: project('see-env'),
   request_secret: project('propose'),
   propose_work: project('propose'),
   propose_leaf_plan: project('propose'),

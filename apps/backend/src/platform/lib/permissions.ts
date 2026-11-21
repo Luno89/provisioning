@@ -49,7 +49,7 @@ export interface Actions {
   account: 'remove';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   deployment: 'see' | 'change';
-  project: 'see' | 'propose' | 'change' | 'see-secrets';
+  project: 'see' | 'propose' | 'change' | 'see-secrets' | 'see-env';
   record: 'see' | 'change';
   workflow: 'see' | 'cancel';
 }
@@ -109,6 +109,7 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     propose: { who: ['owner'], hidden: false, said: 'Only the owner can propose changes to this project.' },
     change: { who: ['owner'], hidden: false, said: 'Only the owner can change this project.' },
     'see-secrets': { who: ['owner'], hidden: false, said: 'Only the owner can see this project\'s secrets.' },
+    'see-env': { who: ['owner'], hidden: false, said: 'Only the owner can see this project\'s environment.' },
   },
   record: {
     see: OWN('Not found'),
