@@ -168,6 +168,22 @@ describe('pointing every project\'s build webhook at where Gitea reaches Koala n
     expect(gitea.replaceWebhook).toHaveBeenCalledWith('koala-u1', 'shop', 'http://10.0.0.5:3001/webhooks/gitea/p1', decryptValue(after!.webhookSecretEnc!, KEY));
   });
 
+  it('removes a deleted project\'s webhook at once, so its pushes build nothing, and counts it', async () => {
+    const { gitea, repos } = setUp();
+    gitea.findRepo.mockResolvedValue(null);
+    await repos.createProject('u1', { id: 'p1', name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
+    gitea.removeWebhook.mockResolvedValue(1);
+    expect(await repos.unhook('p1')).toBe(1);
+    expect(gitea.removeWebhook).toHaveBeenCalledWith('koala-u1', 'shop', 'http://10.0.0.5:3001/webhooks/gitea/p1');
+  });
+
+  it('has no webhook to remove for a project with no repository', async () => {
+    const { db, gitea, repos } = setUp();
+    await db.projects.saveProject({ id: 'local', name: 'L', ownerId: 'u1', appType: 'local', createdAt: 't' });
+    expect(await repos.unhook('local')).toBe(0);
+    expect(gitea.removeWebhook).not.toHaveBeenCalled();
+  });
+
   it('makes no webhook for a project with no repository', async () => {
     const { db, gitea, repos } = setUp();
     await db.projects.saveProject({ id: 'local', name: 'L', ownerId: 'u1', appType: 'local', createdAt: 't' });

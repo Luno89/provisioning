@@ -1,21 +1,20 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../platform/index.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
-import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../../platform/lib/workflow-ids.js';
-import { conversationWatermarkKey, memoryRunId } from '../../memory/lib/conclusions.js';
-import { releaseRunWorkflowId } from '../../releases/lib/release-run.js';
+import { ownedQuery } from '../../platform/lib/workflow-owner.js';
+import { conversationWatermarkKey } from '../../memory/lib/conclusions.js';
 
 export const removeAccountWorkflowId = (ownerId: string): string => `remove-account-${ownerId}`;
-export const REMOVE_ACCOUNT_WORKFLOW = 'RemoveAccountWorkflow';
+export const DELETE_ACCOUNT_WORKFLOW = 'DeleteAccountWorkflow';
 export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 
-export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance';
-export const REMOVAL_STEPS: readonly RemovalStep[] = ['workflows', 'repositories', 'workspaces', 'secrets', 'mesh', 'records'];
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance';
 export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
 export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'mesh', 'records'];
 
-export const FENCED_REMOVAL = 'fenced-removal';
-export const UNFENCED_STOP_GRACE_MS = 30_000;
-export const DESTROYS_NAMED_ONCE_STARTED = 'destroys-named-once-started';
+const bare = (id: string): string => id.replace(/["\\]/g, '');
+
+export const openAccountWork = (ownerId: string): string =>
+  `${ownedQuery(ownerId)} AND ExecutionStatus = "Running" AND WorkflowId != "${removeAccountWorkflowId(bare(ownerId))}"`;
 
 export interface RemovalRequest {
   ownerId: string;
@@ -64,29 +63,7 @@ export function refuseRemoval(request: RemovalRequest, world: RemovalWorld & { r
   return undefined;
 }
 
-export interface OwnedIds {
-  runIds: readonly string[];
-  treeIds: readonly string[];
-  conversationIds: readonly string[];
-  proposalIds: readonly string[];
-  projectIds: readonly string[];
-  buildWorkflowIds: readonly string[];
-}
-
-export function ownedWorkflowIds(ownerId: string, owned: OwnedIds): string[] {
-  return [...new Set([
-    benchIdleId(ownerId),
-    ...owned.runIds,
-    ...owned.runIds.map(memoryRunId),
-    ...owned.treeIds.flatMap((id) => [groveRunWorkflowId(id), concludeWorkspaceId({ kind: 'tree', id })]),
-    ...owned.conversationIds.flatMap((id) => [conversationConclusionId(id), concludeWorkspaceId({ kind: 'conversation', id })]),
-    ...owned.proposalIds.map(adoptionWorkflowId),
-    ...owned.projectIds.map(releaseRunWorkflowId),
-    ...owned.buildWorkflowIds,
-  ])];
-}
-
-export const memoryWatermarkKeys = (owned: Pick<OwnedIds, 'conversationIds'>): string[] =>
+export const memoryWatermarkKeys = (owned: { conversationIds: readonly string[] }): string[] =>
   owned.conversationIds.map(conversationWatermarkKey);
 
 export interface RemovalProgress {

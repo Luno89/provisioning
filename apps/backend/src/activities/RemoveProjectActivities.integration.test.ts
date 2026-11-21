@@ -22,6 +22,7 @@ const deps = (): ProjectRemovalDeps => ({
   kube: async (args) => { kubectl.push(args); return { stdout: '', stderr: '', exitCode: 0 }; },
   repositories: { deleteRepo: async (owner, name) => { repos.push(`${owner}/${name}`); } },
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
+  webhooks: { unhook: async () => 0 },
   files: new FileService({ files: stored().files, shares: db.files }),
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'machine', machineId: 'koala', status: 'running' } as never : undefined),

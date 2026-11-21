@@ -3,10 +3,11 @@ import { confirmMatches, refusalBlockers, removalText } from './removal-text'
 
 describe('saying how a removal is going', () => {
   it('names the step under way, counting from the first', () => {
-    expect(removalText({ state: 'running', done: [] })).toBe('stopping its runs (1 of 7)')
-    expect(removalText({ state: 'running', done: ['workflows'] })).toBe('deleting its repositories (2 of 7)')
-    expect(removalText({ state: 'running', done: ['workflows', 'repositories'] })).toBe('removing its apps from their clusters (3 of 7)')
-    expect(removalText({ state: 'running', done: ['workflows', 'repositories', 'apps', 'workspaces', 'secrets'] })).toBe('removing its machines from the mesh (6 of 7)')
+    expect(removalText({ state: 'running', done: [] })).toBe('stopping its runs (1 of 8)')
+    expect(removalText({ state: 'running', done: ['workflows'] })).toBe('deleting its projects for good, the ones in Deleted projects too (2 of 8)')
+    expect(removalText({ state: 'running', done: ['workflows', 'projects'] })).toBe('deleting its repositories (3 of 8)')
+    expect(removalText({ state: 'running', done: ['workflows', 'projects', 'repositories'] })).toBe('removing its apps from their clusters (4 of 8)')
+    expect(removalText({ state: 'running', done: ['workflows', 'projects', 'repositories', 'apps', 'workspaces', 'secrets'] })).toBe('removing its machines from the mesh (7 of 8)')
   })
 
   it('counts the steps of the removal under way when they are given, as root\'s are', () => {

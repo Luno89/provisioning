@@ -35,9 +35,10 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
     CheckNoticedActivity: async () => [],
   };
   const removal: AccountRemovalActivities = {
-    RemoveAccountFenceActivity: async () => [],
-    RemoveAccountFenceEndActivity: async () => [],
-    RemoveAccountWorkflowsActivity: async () => 0,
+    MarkAccountRemovingActivity: async () => undefined,
+    StopAccountWorkActivity: async () => [],
+    RemoveAccountProjectsActivity: async () => [],
+    DeleteAccountProjectActivity: async () => undefined,
     RemoveAccountKeepRunsActivity: async () => 0,
     RemoveAccountAppsActivity: async () => [],
     RemoveAccountAppStartedActivity: async () => undefined,

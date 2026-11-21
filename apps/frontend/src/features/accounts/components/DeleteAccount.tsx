@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import { useCan, useShellStore } from '../../platform'
-import { confirmMatches, dangerButton, dangerPanel, emailField, proofReady, proofSent, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
-import type { Proof } from '../types'
-import { ProofField } from './ProofField'
+import { dangerPanel, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
+import { MyRemovalConfirm, RemovalBlockers } from './RemovalConfirm'
 import { safeHref } from '../../../shared/lib/safe-href'
 
 function RemovedOnRoot() {
@@ -26,9 +25,6 @@ export function DeleteAccount() {
 
 function DeleteHere() {
   const [open, setOpen] = useState(false)
-  const [typed, setTyped] = useState('')
-  const [proof, setProof] = useState<Proof>({})
-  const confirmWith = useShellStore((s) => s.user?.confirmWith)
   const setUser = useShellStore((s) => s.setUser)
   const pushNotification = useShellStore((s) => s.pushNotification)
   const preview = useRemovalPreview(open)
@@ -37,7 +33,6 @@ function DeleteHere() {
     setUser(null)
   })
 
-  const email = preview.data?.email ?? ''
   const blockers = preview.data?.blockers.length ? preview.data.blockers : refusalBlockers(remove.error)
 
   return (
@@ -52,25 +47,11 @@ function DeleteHere() {
       {open && (
         <div className="mt-4 space-y-3" data-testid="delete-account">
           {preview.isLoading && <div className="text-sm text-slate-500">Checking what is still running…</div>}
-          {blockers.length > 0 && (
-            <ul className="text-sm text-amber-300 list-disc pl-5 space-y-1">
-              {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-            </ul>
-          )}
+          {blockers.length > 0 && <RemovalBlockers blockers={blockers} />}
           {preview.data && blockers.length === 0 && (
             <>
-              <label className="block text-xs text-slate-400">
-                Type <span className="font-mono text-slate-200">{email}</span> to confirm
-                <input className={`${emailField} mt-1`} value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" />
-              </label>
-              <ProofField confirmWith={confirmWith} value={proof} onChange={setProof} />
-              {remove.isError && blockers.length === 0 && <div className="text-sm text-red-300">{errorMessage(remove.error)}</div>}
-              <div className="flex gap-2">
-                <button type="button" className={dangerButton} disabled={!confirmMatches(typed, email) || !proofReady(confirmWith, proof) || remove.isPending} onClick={() => remove.mutate({ confirm: typed, proof: proofSent(confirmWith, proof) })}>
-                  {remove.isPending ? 'Removing…' : 'Delete my account'}
-                </button>
-                <button type="button" className={quietButton} onClick={() => { setOpen(false); setTyped(''); setProof({}) }}>Keep it</button>
-              </div>
+              {preview.data.deletedProjects ? <p className="text-sm text-amber-300">This also deletes for good the {preview.data.deletedProjects} projects in Deleted projects.</p> : null}
+              <MyRemovalConfirm email={preview.data.email} remove={remove} keep={<button type="button" className={quietButton} onClick={() => setOpen(false)}>Keep it</button>} />
             </>
           )}
         </div>

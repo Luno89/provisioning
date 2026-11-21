@@ -8,13 +8,13 @@ import { createAccountRemovalActivities, type AccountRemovalDeps } from './Remov
 const fresh = await emptiedEachTime();
 
 let db: MongoDB;
-let terminated: string[];
 let kubectl: string[][];
 let deletedUsers: string[];
 
 const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
   store: db,
-  workflows: { stopIfRunning: async (id) => { terminated.push(id); return id === 'run-live'; } },
+  work: { open: async () => [], handle: () => { throw new Error('this file stops no workflow'); }, decode: async () => [] },
+  projects: { purge: async () => undefined },
   kube: async (args) => { kubectl.push(args); return { stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0 }; },
   repositories: { deleteUser: async (username) => { deletedUsers.push(username); return true; } },
   mesh: { removeUser: async () => ({ devices: 0, user: false }) },
@@ -36,7 +36,6 @@ const seed = async (ownerId: string) => {
 
 beforeEach(async () => {
   db = await fresh();
-  terminated = [];
   kubectl = [];
   deletedUsers = [];
   await seed('bo');
@@ -44,21 +43,10 @@ beforeEach(async () => {
 });
 
 describe('the steps that remove an account', () => {
-  it('stops every workflow it could have running, including the turn still live in a conversation', async () => {
-    const stopped = await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
-
-    expect(stopped).toBe(1);
-    expect(terminated).toEqual(expect.arrayContaining(['bench-idle-bo', 'run-live', 'grove-run-bo-t1', 'conclude-conversation-bo-c1', 'conclude-workspace-conversation-bo-c1']));
-    expect(terminated.some((id) => id.includes('ana'))).toBe(false);
-  });
-
-  it('stops its projects\' releases and running builds', async () => {
+  it('finds every project of its own to delete, and none of anyone else\'s', async () => {
     await db.projects.saveProject({ id: 'bo-shop', name: 'shop', ownerId: 'bo', appType: 'gitapp', createdAt: 'then' });
-    await db.releases.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: 'then' } as never);
-    await db.releases.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: 'then' } as never);
-    await createAccountRemovalActivities(deps()).RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
-    expect(terminated).toEqual(expect.arrayContaining(['release-bo-shop', 'pipeline-r1']));
-    expect(terminated).not.toContain('pipeline-r2');
+    await db.projects.saveProject({ id: 'ana-shop', name: 'shop', ownerId: 'ana', appType: 'gitapp', createdAt: 'then' });
+    expect(await createAccountRemovalActivities(deps()).RemoveAccountProjectsActivity({ ownerId: 'bo' })).toEqual(['bo-shop']);
   });
 
   it('plans the destroy of every app it still has, and only its own', async () => {

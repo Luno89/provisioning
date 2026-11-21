@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ACCOUNT_DATA, memoryWatermarkKeys, ownedWorkflowIds, refuseRemoval, removalBlockers, type RemovalWorld } from './account-removal.js';
+import { ACCOUNT_DATA, memoryWatermarkKeys, openAccountWork, refuseRemoval, removalBlockers, type RemovalWorld } from './account-removal.js';
 import { EVAL_COLLECTIONS } from '../../checks/lib/eval-run.js';
 import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 
@@ -50,11 +50,9 @@ describe('who may remove an account', () => {
 });
 
 describe('what an account owns outside the records', () => {
-  it('names every workflow its runs, the memory keeper on each run, trees, conversations, plans, releases, builds and bench could have running', () => {
-    expect(ownedWorkflowIds('bo', { runIds: ['run-1'], treeIds: ['t1'], conversationIds: ['c1'], proposalIds: ['p1'], projectIds: ['shop'], buildWorkflowIds: ['pipeline-r1'] })).toEqual([
-      'bench-idle-bo', 'run-1', 'memory-run-run-1', 'grove-run-t1', 'conclude-workspace-tree-t1', 'conclude-conversation-c1', 'conclude-workspace-conversation-c1', 'adopt-plan-p1',
-      'release-shop', 'pipeline-r1',
-    ]);
+  it('finds its open work in Temporal by its owner, leaving out its own removal', () => {
+    expect(openAccountWork('bo')).toBe('KoalaOwner = "bo" AND ExecutionStatus = "Running" AND WorkflowId != "remove-account-bo"');
+    expect(openAccountWork('b"o\\')).toBe('KoalaOwner = "bo" AND ExecutionStatus = "Running" AND WorkflowId != "remove-account-bo"');
     expect(memoryWatermarkKeys({ conversationIds: ['c1'] })).toEqual(['conversation:c1']);
   });
 });

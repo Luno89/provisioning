@@ -1,4 +1,4 @@
-import { withWorkFor, workIsUnnamed } from '@koala/engine-core/work-for';
+import { withWorkFor, workFor } from '@koala/engine-core/work-for';
 import type { Client } from '@temporalio/client';
 import { describe, expect, it } from 'vitest';
 import { mock, mockDeep } from 'vitest-mock-extended';
@@ -8,7 +8,7 @@ import { OWNER_ATTRIBUTE } from '../../platform/lib/workflow-owner.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { REMOVE_ACCOUNT_WORKFLOW, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
+import { DELETE_ACCOUNT_WORKFLOW, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
 import { type UndeliveredLogout, AccountRemovalService, temporalRemovalWorkflows, type AccountRemovalWorkflows } from './AccountRemovalService.js';
 
 const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role: 'root' });
@@ -49,6 +49,16 @@ describe('what removing an account would take', () => {
     expect(await service.preview('ana')).toEqual({ email: 'ana@example.com', blockers: ['this is the only admin account; make someone else an admin first'] });
   });
 
+  it('counts the projects in Deleted projects, which go for good with the account', async () => {
+    const { db, service } = await set();
+    for (const id of ['kept-1', 'kept-2', 'open']) await db.projects.saveProject({ id, name: id, ownerId: 'bob', appType: 'gitapp', createdAt: 'then' });
+    for (const id of ['kept-1', 'kept-2']) {
+      await db.projects.markDeleting(id, { startedAt: 'then', requestedBy: 'bob', mode: 'archive' });
+      await db.projects.archive(id);
+    }
+    expect(await service.preview('bob')).toEqual({ email: 'bob@example.com', blockers: [], deletedProjects: 2 });
+  });
+
   it('says there is no such account', async () => {
     const { service } = await set();
     expect(await service.preview('nobody')).toBeUndefined();
@@ -70,15 +80,15 @@ describe('removing an account', () => {
     expect(outcome).toEqual({ ok: true, state: { state: 'running', done: [] } });
     expect((await db.accounts.getUserById('bob'))?.removal).toEqual({ startedAt: 'now', requestedBy: 'bob' });
     expect(revoked).toEqual([{ personId: 'bob', because: 'account-removed', at: 'now' }]);
-    expect(workflows.start).toHaveBeenCalledWith(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('bob'), [{ ownerId: 'bob' }], 'bob');
+    expect(workflows.start).toHaveBeenCalledWith(DELETE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('bob'), [{ ownerId: 'bob' }], 'bob');
   });
 
-  it('starts the removal as work for nobody, so the fence it raises round the account never stops its own steps', async () => {
+  it('starts the removal as the account\'s own removal, so the refusal of the account\'s work lets its own steps through', async () => {
     const { workflows, service } = await set();
-    let unnamed: boolean | undefined;
-    workflows.start.mockImplementation(async () => { unnamed = workIsUnnamed(); });
+    let named: unknown;
+    workflows.start.mockImplementation(async () => { named = workFor(); });
     await withWorkFor({ owner: 'bob' }, () => service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob));
-    expect(unnamed).toBe(true);
+    expect(named).toEqual({ owner: 'bob', removing: 'owner' });
   });
 
   it('starts root\'s own removal where it is told to', async () => {

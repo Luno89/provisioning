@@ -14,6 +14,7 @@ for (const [server, make] of [['the in-memory test server', temporalTestEnvironm
   describe(`Temporal as Koala relies on it, on ${server}`, () => {
     let env: TestTemporal;
     let attempts = 0;
+    let breaks = 0;
     beforeAll(async () => { env = await make(); });
     afterAll(async () => { await env.teardown(); });
 
@@ -22,8 +23,9 @@ for (const [server, make] of [['the in-memory test server', temporalTestEnvironm
       const worker = await testWorker(env, {
         namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(FIXTURE),
         activities: {
-          flaky: async () => { attempts += 1; if (attempts < 3) throw new Error('not yet'); return attempts; },
+          flaky: async () => { attempts += 1; if (attempts < 3) throw Object.assign(new Error('not yet'), { code: 'ECONNRESET' }); return attempts; },
           refuses: async () => { throw ApplicationFailure.nonRetryable('refused for good'); },
+          breaks: async () => { breaks += 1; throw new Error('this cannot work'); },
         },
       });
       return worker.runUntil(work(taskQueue));
@@ -56,10 +58,13 @@ for (const [server, make] of [['the in-memory test server', temporalTestEnvironm
       })).toBe('stopped');
     });
 
-    it('retries an activity that fails until it succeeds, and stops at once on a non-retryable failure', async () => {
+    it('retries an activity whose failure is temporary until it succeeds, and stops at once on a final one', async () => {
       attempts = 0;
+      breaks = 0;
       expect(await running(async (queue) => (await start(queue, 'retries')).result())).toBe(3);
       expect(await running(async (queue) => (await start(queue, 'stopsRetrying')).result())).toBe('refused for good');
+      expect(await running(async (queue) => (await start(queue, 'stopsOnPlainError')).result())).toBe('this cannot work');
+      expect(breaks).toBe(1);
     });
 
     it('takes a new workflow down the patched path, and fails one that throws a non-retryable failure', async () => {

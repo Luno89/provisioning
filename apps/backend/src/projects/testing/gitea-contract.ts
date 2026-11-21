@@ -213,6 +213,18 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
       expect(((await api('GET', '/repos/ann/shop/hooks', asAdmin())).body as { config: { url: string } }[]).map((hook) => hook.config.url)).toEqual([hookUrl]);
     });
 
+    it('removes the webhook at an address\'s path and leaves the others, and finds none on a repository that is not there', async () => {
+      const other = hookUrl.replace('/hook', '/other-hook');
+      await service.replaceWebhook('ann', 'shop', other, 'other-secret');
+      expect(await service.removeWebhook('ann', 'shop', hookUrl.replace('127.0.0.1', 'localhost'))).toBe(1);
+      expect(((await api('GET', '/repos/ann/shop/hooks', asAdmin())).body as { config: { url: string } }[]).map((hook) => hook.config.url)).toEqual([other]);
+      expect(await service.removeWebhook('ann', 'shop', hookUrl)).toBe(0);
+      expect(await service.removeWebhook('ann', 'no-such-repo', hookUrl)).toBe(0);
+      expect(await service.removeWebhook('ann', 'shop', other)).toBe(1);
+      await service.replaceWebhook('ann', 'shop', hookUrl, 'hook-secret');
+      expect(((await api('GET', '/repos/ann/shop/hooks', asAdmin())).body as { config: { url: string } }[]).map((hook) => hook.config.url)).toEqual([hookUrl]);
+    });
+
     it('reads a commit by its id', async () => {
       const head = (await api('GET', '/repos/ann/shop/branches/main', asAdmin())).body as { name: string; commit: { id: string } };
       expect(head.name).toBe('main');

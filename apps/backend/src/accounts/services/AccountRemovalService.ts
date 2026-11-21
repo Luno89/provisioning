@@ -3,10 +3,10 @@ import { dataHolds, type InstanceRecord, type InstanceRelease, type InstanceStat
 import type { Client } from '@temporalio/client';
 import { ignore } from '@koala/engine-core/failures';
 import type { AccountsStore } from '../store.js';
-import { unnamedWork } from '@koala/engine-core/work-for';
+import { withWorkFor } from '@koala/engine-core/work-for';
 import {
   REMOVAL_PROGRESS_QUERY,
-  REMOVE_ACCOUNT_WORKFLOW,
+  DELETE_ACCOUNT_WORKFLOW,
   refuseRemoval,
   removalBlockers,
   removeAccountWorkflowId,
@@ -17,6 +17,7 @@ import {
 
 export interface AccountRemovalStore {
   accounts: Pick<AccountsStore, 'getUsers' | 'getUserById' | 'saveUser'>;
+  projects: { deletedProjects(ownerId: string): Promise<readonly unknown[]> };
   infrastructure: {
     getClusters(): Promise<ClusterMetadata[]>;
     getDeployments(): Promise<DeploymentMetadata[]>;
@@ -153,13 +154,14 @@ export class AccountRemovalService {
     return holds(this.deps.principalFor(user), 'operator');
   }
 
-  async preview(ownerId: string): Promise<{ email: string; blockers: string[]; instance?: PersonInstance } | undefined> {
+  async preview(ownerId: string): Promise<{ email: string; blockers: string[]; instance?: PersonInstance; deletedProjects?: number } | undefined> {
     const world = await this.world();
     const user = world.users.find((entry) => entry.id === ownerId);
     if (!user) return undefined;
     const instance = this.deps.instances ? (await this.deps.instances()).find((entry) => entry.ownerId === ownerId) : undefined;
     const blockers = removalBlockers(ownerId, world);
-    return { email: user.email, blockers, ...(instance ? { instance: instanceOf(instance) } : {}) };
+    const deletedProjects = (await this.deps.store.projects.deletedProjects(ownerId)).length;
+    return { email: user.email, blockers, ...(instance ? { instance: instanceOf(instance) } : {}), ...(deletedProjects > 0 ? { deletedProjects } : {}) };
   }
 
   async remove(request: RemovalRequest, requester: Principal, proven?: () => Promise<RemovalRefusal | undefined>): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
@@ -176,7 +178,7 @@ export class AccountRemovalService {
     const startedAt = this.now();
     await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt, requestedBy: request.requestedBy } });
     await this.deps.revocations?.revoked({ personId: request.ownerId, because: 'account-removed', at: startedAt });
-    await unnamedWork(() => this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId));
+    await withWorkFor({ owner: request.ownerId, removing: 'owner' }, () => this.deps.workflows.start(this.deps.workflowType ?? DELETE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId));
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 

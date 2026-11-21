@@ -54,6 +54,7 @@ describe('deleting a project for good through Temporal', () => {
         return appsAsked > 1 ? [] : [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${appsQueue}`, taskQueue: appsQueue, args: { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c', reach: { clusterId: 'c', kind: 'koala' as const } } }];
       },
       RemoveProjectAppStartedActivity: real.RemoveProjectAppStartedActivity,
+      RemoveProjectWebhookActivity: async () => { seen.push('webhook'); return 1; },
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 1; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); return { workspace: true, readers: 0 }; },
       SweepProjectActivity: async () => {
@@ -83,7 +84,7 @@ describe('deleting a project for good through Temporal', () => {
       });
     }))));
     expect(seen.filter((step) => !step.startsWith('await ') && !step.startsWith('restart '))).toEqual([
-      'stop', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets',
+      'stop', 'webhook', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets',
       'sweep 1', 'sweep 2',
       'repositories', 'files', 'records',
     ]);
@@ -108,6 +109,7 @@ describe('deleting a project for good through Temporal', () => {
       StopProjectWorkActivity: async () => { seen.push('stop'); return []; },
       RemoveProjectAppsActivity: async () => { seen.push('apps'); return []; },
       RemoveProjectAppStartedActivity: async () => undefined,
+      RemoveProjectWebhookActivity: async () => { seen.push('webhook'); return 1; },
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 0; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); return { workspace: false, readers: 0 }; },
       SweepProjectActivity: async () => { seen.push('sweep'); return { open: [], apps: 0, workspaces: 0, secrets: 0 }; },
@@ -117,7 +119,7 @@ describe('deleting a project for good through Temporal', () => {
     const deletions = await deleting(activities, 'p2', 'archive', async (ended) => {
       expect(await ended).toMatchObject({ archived: true, repositories: [], files: 0, records: {} });
     });
-    expect(seen).toEqual(['stop', 'apps', 'workspaces', 'secrets', 'sweep', 'archived']);
+    expect(seen, 'the webhook goes at once, so a push to the kept code builds nothing').toEqual(['stop', 'webhook', 'apps', 'workspaces', 'secrets', 'sweep', 'archived']);
     expect(latest(deletions)).toMatchObject({ phase: 'archived', keptUntil: '2027-02-19T10:00:00.000Z' });
   });
 
@@ -127,6 +129,7 @@ describe('deleting a project for good through Temporal', () => {
       StopProjectWorkActivity: async () => [],
       RemoveProjectAppsActivity: async () => [],
       RemoveProjectAppStartedActivity: async () => undefined,
+      RemoveProjectWebhookActivity: async () => 0,
       RemoveProjectWorkspacesActivity: async () => 0,
       RemoveProjectSecretsActivity: async () => ({ workspace: false, readers: 0 }),
       SweepProjectActivity: async () => ({ open: [], apps: 0, workspaces: 0, secrets: 0 }),
@@ -150,6 +153,7 @@ describe('deleting a project for good through Temporal', () => {
       StopProjectWorkActivity: async () => [],
       RemoveProjectAppsActivity: async () => [],
       RemoveProjectAppStartedActivity: async () => undefined,
+      RemoveProjectWebhookActivity: async () => 0,
       RemoveProjectWorkspacesActivity: async () => 0,
       RemoveProjectSecretsActivity: async () => {
         secretsAsked += 1;

@@ -1,9 +1,13 @@
 import { Context } from '@temporalio/activity';
-import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/index.js';
+import type { Client } from '@temporalio/client';
+import { ApplicationFailure } from '@temporalio/common';
+import { withWorkFor } from '@koala/engine-core/work-for';
+import { memoryWatermarkKeys, openAccountWork, type AccountIds, type AccountRelated } from '../accounts/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
-import { type Closing, type DeploymentMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts } from '../platform/index.js';
-import { endFenceOf, raiseAndHold, type FenceRecords } from './fence-steps.js';
+import { type DeploymentMetadata, type ProjectMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts, innermostMessage, startedFor } from '../platform/index.js';
+import { PURGE_PROJECT_WORKFLOW, purgeNow, type OpenWork } from '../projects/index.js';
+import { cancelOpen, type ProjectWork } from './DeleteProjectActivities.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
 
 export interface RemoveAccountArgs {
@@ -11,9 +15,23 @@ export interface RemoveAccountArgs {
   keepRunsFor?: string | undefined;
 }
 
+export interface AccountProjects {
+  purge(projectId: string, ownerId: string): Promise<void>;
+}
+
+export const temporalAccountProjects = (client: () => Promise<Client>, taskQueue: string): AccountProjects => ({
+  async purge(projectId, ownerId) {
+    const temporal = await client();
+    const purge = await withWorkFor({ owner: ownerId, project: projectId, removing: 'owner' }, () =>
+      temporal.workflow.signalWithStart(PURGE_PROJECT_WORKFLOW, { ...purgeNow(projectId, taskQueue), ...startedFor(ownerId) }));
+    await purge.result().catch((err: unknown) => {
+      throw ApplicationFailure.nonRetryable(`the project ${projectId} could not be deleted: ${innermostMessage(err, String(err))}`, 'ProjectNotDeleted');
+    });
+  },
+});
+
 export interface AccountRemovalDeps {
   store: {
-    platform: FenceRecords;
     accounts: {
       getUserById(id: string): Promise<UserMetadata | undefined>;
       saveUser(user: UserMetadata): Promise<void>;
@@ -21,6 +39,7 @@ export interface AccountRemovalDeps {
       removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
     };
     projects: {
+      getProjects(): Promise<ProjectMetadata[]>;
       getGiteaAccount(ownerId: string): Promise<{ username: string } | null>;
     };
     engine: {
@@ -35,7 +54,8 @@ export interface AccountRemovalDeps {
     };
   };
   apps: AppTeardown;
-  workflows: { stopIfRunning(workflowId: string, reason: string): Promise<boolean> };
+  work: ProjectWork;
+  projects: AccountProjects;
   kube: KubeRunner;
   repositories: { deleteUser(username: string): Promise<boolean> };
   mesh: { removeUser(ownerId: string): Promise<{ devices: number; user: boolean }> };
@@ -52,9 +72,10 @@ export const removalMeshFor = (role: RoleConfig, headscale: () => RemovalMesh): 
   holdsAccounts(role) ? headscale() : NO_MESH_HERE;
 
 export interface AccountRemovalActivities {
-  RemoveAccountFenceActivity(args: RemoveAccountArgs): Promise<string[]>;
-  RemoveAccountFenceEndActivity(args: RemoveAccountArgs): Promise<Closing[]>;
-  RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;
+  MarkAccountRemovingActivity(args: RemoveAccountArgs): Promise<void>;
+  StopAccountWorkActivity(args: RemoveAccountArgs): Promise<OpenWork[]>;
+  RemoveAccountProjectsActivity(args: RemoveAccountArgs): Promise<string[]>;
+  DeleteAccountProjectActivity(args: { ownerId: string; projectId: string }): Promise<void>;
   RemoveAccountKeepRunsActivity(args: { ownerId: string; keepRunsFor: string }): Promise<number>;
   RemoveAccountAppsActivity(args: RemoveAccountArgs): Promise<AppToDestroy[]>;
   RemoveAccountAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
@@ -64,9 +85,6 @@ export interface AccountRemovalActivities {
   RemoveAccountRepositoriesActivity(args: RemoveAccountArgs): Promise<boolean>;
   RemoveAccountRecordsActivity(args: RemoveAccountArgs): Promise<Record<string, number>>;
 }
-
-const REASON = 'the account was removed';
-const BATCH = 20;
 
 const heartbeat = () => {
   try {
@@ -79,27 +97,18 @@ const heartbeat = () => {
 export function createAccountRemovalActivities(deps: AccountRemovalDeps): AccountRemovalActivities {
   const now = deps.now ?? Date.now;
   return {
-    async RemoveAccountFenceActivity({ ownerId, keepRunsFor }) {
-      const at = new Date(now()).toISOString();
+    async MarkAccountRemovingActivity({ ownerId, keepRunsFor }) {
       const user = await deps.store.accounts.getUserById(ownerId);
-      if (user && !user.removal) await deps.store.accounts.saveUser({ ...user, removal: { startedAt: at, requestedBy: keepRunsFor ?? ownerId } });
-      return raiseAndHold(deps.store.platform, { kind: 'owner', id: ownerId }, now);
+      if (user && !user.removal) await deps.store.accounts.saveUser({ ...user, removal: { startedAt: new Date(now()).toISOString(), requestedBy: keepRunsFor ?? ownerId } });
     },
 
-    async RemoveAccountFenceEndActivity({ ownerId }) {
-      return endFenceOf(deps.store.platform, { kind: 'owner', id: ownerId }, now);
+    StopAccountWorkActivity: ({ ownerId }) => cancelOpen(deps.work, openAccountWork(ownerId)),
+
+    async RemoveAccountProjectsActivity({ ownerId }) {
+      return (await deps.store.projects.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => project.id);
     },
 
-    async RemoveAccountWorkflowsActivity({ ownerId }) {
-      const ids = ownedWorkflowIds(ownerId, await deps.store.accounts.accountIds(ownerId));
-      let stopped = 0;
-      for (let at = 0; at < ids.length; at += BATCH) {
-        const results = await Promise.all(ids.slice(at, at + BATCH).map((id) => deps.workflows.stopIfRunning(id, REASON)));
-        stopped += results.filter(Boolean).length;
-        heartbeat();
-      }
-      return stopped;
-    },
+    DeleteAccountProjectActivity: ({ ownerId, projectId }) => deps.projects.purge(projectId, ownerId),
 
     async RemoveAccountKeepRunsActivity({ ownerId, keepRunsFor }) {
       return (await deps.store.engine.reownRuns(ownerId, keepRunsFor)) + (await deps.store.files.reownRunFiles(ownerId, keepRunsFor));

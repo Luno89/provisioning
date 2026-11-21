@@ -47,14 +47,17 @@ const call = (method: 'get' | 'delete', path: string, data?: unknown) => axios.r
 describe('deleting a project', () => {
   it('previews what goes with it, and deletes it once its name is typed', async () => {
     expect((await call('get', '/api/projects/p1/removal')).data).toEqual({
-      name: 'shop', repository: 'koala-t/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 0, conversations: 0 }], keptConversations: 0, builds: 0, apps: [], state: { state: 'none' },
+      name: 'shop', repository: 'koala-t/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 0, conversations: 0 }], keptConversations: 0, builds: 0, apps: [],
     });
     expect((await call('delete', '/api/projects/p1', { confirm: 'Shop', mode: 'permanent' })).status).toBe(400);
 
     const removed = await call('delete', '/api/projects/p1', { confirm: 'shop', mode: 'permanent' });
     expect(removed.status).toBe(202);
     expect(started).toEqual(['delete-project-p1']);
-    expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id, mode: 'permanent', phase: 'deleting' });
+    const deletion = { startedAt: 'now', requestedBy: TEST_USER.id, mode: 'permanent', phase: 'deleting' };
+    expect(removed.data.deletion).toEqual(deletion);
+    expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual(deletion);
+    expect((await call('get', '/api/projects/p1/removal')).data.deletion).toEqual(deletion);
   });
 
   it('lists the app built from it among what goes, and starts deleting it all the same', async () => {
