@@ -3,7 +3,7 @@ import type {
   ActivityInput, ContinueAsNewInput, LocalActivityInput, Next, StartChildWorkflowExecutionInput, WorkflowExecuteInput,
   WorkflowInboundCallsInterceptor, WorkflowInterceptors, WorkflowOutboundCallsInterceptor,
 } from '@temporalio/workflow';
-import { patched, upsertSearchAttributes } from '@temporalio/workflow';
+import { upsertSearchAttributes } from '@temporalio/workflow';
 import { PROJECT_ATTRIBUTE, withProjectAttribute } from '@koala/engine-core/workflow-owner';
 import { WORK_HEADER, workOfPayload, workPayload } from '@koala/engine-core/work-header';
 
@@ -24,13 +24,11 @@ const CARRIER = Symbol.for('koala.carried-headers');
 
 const carrierHere = (): Carrier | undefined => (globalThis as Record<symbol, Carrier | undefined>)[CARRIER];
 
-export const PROJECT_NAMED_LATE = 'koala-project-named-late';
-
 export function nameProject(project: string | undefined): void {
   const carrier = carrierHere();
   if (!project || !carrier) return;
   carrier.headers = { ...carrier.headers, [WORK_HEADER]: workPayload({ ...workOfPayload(carrier.headers[WORK_HEADER]), project }) };
-  if (patched(PROJECT_NAMED_LATE)) upsertSearchAttributes([{ key: PROJECT_ATTRIBUTE, value: project }]);
+  upsertSearchAttributes([{ key: PROJECT_ATTRIBUTE, value: project }]);
 }
 
 

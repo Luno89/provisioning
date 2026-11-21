@@ -4,7 +4,7 @@ import type { Headers } from '@temporalio/common';
 import { workOfPayload, workPayload } from '@koala/engine-core/work-header';
 import { interceptors, nameProject, traceHeadersOf, withTrace } from './telemetry-interceptors.js';
 
-vi.mock('@temporalio/workflow', () => ({ patched: () => true, upsertSearchAttributes: vi.fn() }));
+vi.mock('@temporalio/workflow', () => ({ upsertSearchAttributes: vi.fn() }));
 
 const payload = (text: string) => ({ metadata: { encoding: new TextEncoder().encode('json/plain') }, data: new TextEncoder().encode(JSON.stringify(text)) });
 const traceparent = payload('00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01');
