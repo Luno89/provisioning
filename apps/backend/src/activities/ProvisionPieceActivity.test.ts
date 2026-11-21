@@ -13,7 +13,7 @@ vi.mock('./platform-provision.js', () => ({ provisionPlatformService: vi.fn() })
 vi.mock('./cluster-monitoring.js', async (actual) => ({ ...(await actual<typeof import('./cluster-monitoring.js')>()), installClusterMonitoring: vi.fn() }));
 
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
-const PLACE: ProvisionPlace = { koalaNamespace: 'nowrinkles', pool: false, dataDir: '/data', crawl4aiToken: 'crawlToken40' };
+const PLACE: ProvisionPlace = { koalaNamespace: 'nowrinkles', pool: false, dataDir: '/data', crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' };
 
 const input = (piece: ProvisionPieceInput['piece'], target: ProvisionPieceInput['target'] = { kind: 'koala', clusterId: 'machine-desk' }): ProvisionPieceInput => ({
   ownerId: 'owner-1', recordId: 'provision-machine-desk~1', target, revision: 3, piece,

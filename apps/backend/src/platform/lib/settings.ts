@@ -204,6 +204,7 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   machineMetricsUrl: string | Off;
   podNamespace: string;
   crawl4aiToken: string;
+  qdrantApiKey: string;
   koala: { ownerId: string; revision: number };
 }
 
@@ -577,11 +578,17 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
 const platformNamespaceFrom = (read: Reading): string | undefined =>
   required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
 
-function crawl4aiTokenFrom(read: Reading): string | undefined {
-  const token = required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
-  if (token && !/^[A-Za-z0-9]+$/.test(token)) read.problems.push('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+function chartTokenFrom(read: Reading, name: string, why: string): string | undefined {
+  const token = required(read, name, why);
+  if (token && !/^[A-Za-z0-9]+$/.test(token)) read.problems.push(`${name} holds more than letters and digits, which the instance chart never makes`);
   return token;
 }
+
+const crawl4aiTokenFrom = (read: Reading): string | undefined =>
+  chartTokenFrom(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+
+const qdrantApiKeyFrom = (read: Reading): string | undefined =>
+  chartTokenFrom(read, 'QDRANT_API_KEY', 'Qdrant answers only a caller holding it, and the instance chart makes it');
 
 export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const read = new Reading(env);
@@ -596,10 +603,11 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const metricsUrl = settingIn(read.env, 'MACHINE_METRICS_URL');
   const podNamespace = platformNamespaceFrom(read);
   const crawl4aiToken = crawl4aiTokenFrom(read);
+  const qdrantApiKey = qdrantApiKeyFrom(read);
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
   const ownerId = role?.instance?.ownerId;
   if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || !qdrantApiKey || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -610,6 +618,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     terraform,
     podNamespace,
     crawl4aiToken,
+    qdrantApiKey,
     koala: { ownerId, revision },
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)

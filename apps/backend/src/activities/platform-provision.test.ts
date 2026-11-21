@@ -46,14 +46,17 @@ function cluster(seen: Seen = {}) {
   return { steps: { access, infra }, order };
 }
 
-const place = (dataDir = mkdtempSync(join(tmpdir(), 'koala-platform-'))) => ({ reach: OWN, koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40' });
+const place = (dataDir = mkdtempSync(join(tmpdir(), 'koala-platform-'))) => ({ reach: OWN, koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' });
 
 describe('putting Koala\'s platform services on the cluster it runs in', () => {
   it('applies each service\'s stack in order, its Secrets made first, saying as each starts and is ready', async () => {
     const { steps, order } = cluster();
     const told: string[] = [];
     await provisionPlatformServices(steps, place(), (line) => told.push(line), now);
-    expect(order.filter((line) => line.startsWith('deploy'))).toEqual(['deploy platform-egress', 'deploy platform-searxng', 'deploy platform-crawl4ai', 'deploy platform-gitea', 'deploy platform-verdaccio', 'deploy platform-infisical']);
+    expect(order.filter((line) => line.startsWith('deploy'))).toEqual(['deploy platform-egress', 'deploy platform-searxng', 'deploy platform-crawl4ai', 'deploy platform-quickwit', 'deploy platform-qdrant', 'deploy platform-tei', 'deploy platform-gitea', 'deploy platform-verdaccio', 'deploy platform-infisical']);
+    const qdrant = steps.access.apply.mock.calls.map(([, manifest]) => JSON.parse(manifest) as { kind: string; metadata: { name: string; namespace?: string }; stringData?: Record<string, string> }).find((made) => made.kind === 'Secret' && made.metadata.name === 'qdrant-secret');
+    expect(qdrant).toMatchObject({ metadata: { namespace: 'qdrant' }, stringData: { api_key: 'qdrantKey40' } });
+    expect(order.indexOf('apply Secret/qdrant-secret')).toBeLessThan(order.indexOf('deploy platform-qdrant'));
     expect(order.indexOf('apply Secret/gitea-admin')).toBeLessThan(order.indexOf('deploy platform-gitea'));
     expect(order.indexOf('apply Namespace/gitea')).toBeLessThan(order.indexOf('apply Secret/gitea-admin'));
     expect(order.indexOf('apply Secret/infisical-store-passwords')).toBeLessThan(order.indexOf('deploy platform-infisical'));

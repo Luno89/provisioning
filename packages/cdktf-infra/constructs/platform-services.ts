@@ -61,7 +61,7 @@ export class EgressProxyPlatform extends Construct {
 }
 
 export class InsideKoalaPlatform extends Construct {
-  constructor(scope: Construct, id: string, service: "searxng" | "crawl4ai", inputs: PlatformInputs) {
+  constructor(scope: Construct, id: string, service: "searxng" | "crawl4ai" | "quickwit" | "qdrant" | "tei", inputs: PlatformInputs) {
     super(scope, id);
     const objects = withPodAnnotations(objectsIn(manifestFile(`${service}/${service}.yaml`)), service, { "koala.dev/secret": inputs.stamp });
     new PlatformManifests(this, service, [...objects, answeringOnly(service, inputs.koalaNamespace)], inputs.existing);
@@ -158,6 +158,9 @@ export function platformService(scope: Construct, name: PlatformServiceName, inp
     case "egress": new EgressProxyPlatform(scope, "egress", inputs); return;
     case "searxng": new InsideKoalaPlatform(scope, "searxng", "searxng", inputs); return;
     case "crawl4ai": new InsideKoalaPlatform(scope, "crawl4ai", "crawl4ai", inputs); return;
+    case "quickwit": new InsideKoalaPlatform(scope, "quickwit", "quickwit", inputs); return;
+    case "qdrant": new InsideKoalaPlatform(scope, "qdrant", "qdrant", inputs); return;
+    case "tei": new InsideKoalaPlatform(scope, "tei", "tei", inputs); return;
     case "gitea": new GiteaPlatform(scope, "gitea", inputs); return;
     case "verdaccio": new VerdaccioPlatform(scope, "verdaccio", inputs); return;
     case "infisical": new InfisicalPlatform(scope, "infisical", inputs); return;

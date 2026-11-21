@@ -36,6 +36,7 @@ const TENANT = {
   MINIO_ENDPOINT: 'instance-minio:9000', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'minio-secret', MINIO_BUCKET: 'koala',
   KOALA_REGISTRY: '127.0.0.1:31737', KOALA_REGISTRY_PUSH: 'gitea-http.gitea.svc.cluster.local:3000', REGISTRY_PULL_HOST: '127.0.0.1:31737',
   SEARXNG_URL: 'http://searxng.searxng.svc.cluster.local:8080', CRAWL4AI_URL: 'http://crawl4ai.crawl4ai.svc.cluster.local:11235', CRAWL4AI_API_TOKEN: 'crawl-token',
+  QDRANT_API_KEY: 'qdrantKey40',
   CHECKS_API_URL: 'http://instance.nowrinkles.svc.cluster.local/api',
 };
 
@@ -199,6 +200,9 @@ describe('the settings each worker reads once, at start', () => {
     expect(clusterWorkerSettingsFrom(env)).toMatchObject({ podNamespace: 'nowrinkles', crawl4aiToken: 'crawlToken40', dataDir: '/app/apps/backend/data' });
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: '' }))).toContain('CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: 'a b' }))).toContain('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+    expect(clusterWorkerSettingsFrom(env)).toMatchObject({ qdrantApiKey: TENANT.QDRANT_API_KEY });
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, QDRANT_API_KEY: '' }))).toContain('QDRANT_API_KEY is not set: Qdrant answers only a caller holding it, and the instance chart makes it');
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, QDRANT_API_KEY: 'a b' }))).toContain('QDRANT_API_KEY holds more than letters and digits, which the instance chart never makes');
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
   });
 

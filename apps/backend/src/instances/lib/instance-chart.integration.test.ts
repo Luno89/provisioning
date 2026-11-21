@@ -132,7 +132,7 @@ describe('the instance chart', () => {
       ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production', KOALA_RELEASE_REVISION: '1',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
-    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'INSTANCE_CLIENT_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
+    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'INSTANCE_CLIENT_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'QDRANT_API_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
     expect(Buffer.from(keys.data!.DATA_KEY!, 'base64').toString().length).toBeGreaterThanOrEqual(32);
     expect(keys.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
     expect(Object.keys(keys.data ?? {})).not.toContain('ROOT_IDENTITY_KEY');
@@ -449,8 +449,9 @@ describe('the instance chart', () => {
     for (const worker of ['worker-engine', 'worker-cluster', 'worker-host']) {
       expect(podOf(find(docs, 'Deployment', `luno-${worker}`)).containers[0]!.env, `${worker} is told its own pod's name`).toContainEqual({ name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } });
     }
-    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, qdrantApiKey: fromSecrets.QDRANT_API_KEY, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });
     expect(fromSecrets.CRAWL4AI_API_TOKEN).toMatch(/^[A-Za-z0-9]{40}$/);
+    expect(fromSecrets.QDRANT_API_KEY).toMatch(/^[A-Za-z0-9]{40}$/);
     expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined, pod: given.POD_NAME });
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;

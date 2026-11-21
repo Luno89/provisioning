@@ -53,7 +53,7 @@ describe('the provision procedure', () => {
     const result = await run(OWN);
     expect(result.outcome).toBe('failed');
     expect(result.reason).toBe('pod gitea-0 is Init:Error: the volume is full');
-    expect(started.map((piece) => piece.piece)).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea']);
+    expect(started.map((piece) => piece.piece)).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea']);
     const record = await recordOf(OWN);
     expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
     expect(record.pieces.filter((piece) => piece.state === 'waiting').map((piece) => piece.key)).toEqual(['verdaccio', 'infisical', 'monitoring']);

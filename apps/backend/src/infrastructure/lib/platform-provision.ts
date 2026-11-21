@@ -4,7 +4,7 @@ import type { HelmReleaseJson } from './platform-services.js';
 
 export type SecretSource =
   | { file: string; make: { bytes: number; as: 'hex' | 'base64' } }
-  | { setting: 'crawl4aiToken' }
+  | { setting: 'crawl4aiToken' | 'qdrantApiKey' }
   | { text: string };
 
 export interface PlatformSecret {
@@ -29,6 +29,9 @@ export const PLATFORM_PLAN: readonly PlatformService[] = [
   { key: 'egress', what: 'the egress proxy', namespaces: SPACES.egress, watch: SPACES.egress, secrets: [] },
   { key: 'searxng', what: 'SearXNG', namespaces: SPACES.searxng, watch: SPACES.searxng, secrets: [{ namespace: 'searxng', name: 'searxng-secret', values: { secret_key: hex('.searxng-secret-key', 32) } }] },
   { key: 'crawl4ai', what: 'Crawl4AI', namespaces: SPACES.crawl4ai, watch: SPACES.crawl4ai, secrets: [{ namespace: 'crawl4ai', name: 'crawl4ai-secret', values: { api_token: { setting: 'crawl4aiToken' } } }] },
+  { key: 'quickwit', what: 'Quickwit', namespaces: SPACES.quickwit, watch: SPACES.quickwit, secrets: [] },
+  { key: 'qdrant', what: 'Qdrant', namespaces: SPACES.qdrant, watch: SPACES.qdrant, secrets: [{ namespace: 'qdrant', name: 'qdrant-secret', values: { api_key: { setting: 'qdrantApiKey' } } }] },
+  { key: 'tei', what: 'TEI', namespaces: SPACES.tei, watch: SPACES.tei, secrets: [] },
   {
     key: 'gitea', what: 'Gitea', namespaces: SPACES.gitea, watch: ['gitea'],
     secrets: [{ namespace: 'gitea', name: 'gitea-admin', values: { username: { text: 'provisioning-bot' }, password: base64('.gitea-admin-password', 24) } }],

@@ -87,7 +87,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
     taskQueue: queue,
     activities: {
       ...clusterActivities(steps, {
-        place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
+        place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken, qdrantApiKey: settings.qdrantApiKey },
         lines: recordedLines(db.infrastructure),
         provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
       }, settings.tests.huggingFaceUrl),

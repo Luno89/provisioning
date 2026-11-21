@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quickwit
+  labels:
+    name: quickwit
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quickwit-data-pvc
+  namespace: quickwit
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickwit
+  namespace: quickwit
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: quickwit
+  template:
+    metadata:
+      labels:
+        app: quickwit
+    spec:
+      containers:
+        - name: quickwit
+          image: quickwit/quickwit:v0.9.3@sha256:7c3f5061ea7c00921205c295833f152871d057ec1a9e4c9b1d36131dacc420bd
+          args:
+            - run
+          env:
+            - name: QW_LISTEN_ADDRESS
+              value: 0.0.0.0
+            - name: QW_DATA_DIR
+              value: /quickwit/qwdata
+            - name: QW_ENABLE_OPENTELEMETRY_OTLP_EXPORTER
+              value: "false"
+            - name: QW_DISABLE_TELEMETRY
+              value: "1"
+          ports:
+            - containerPort: 7280
+          volumeMounts:
+            - name: data
+              mountPath: /quickwit/qwdata
+          readinessProbe:
+            httpGet:
+              path: /health/readyz
+              port: 7280
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: 2000m
+            requests:
+              memory: 512Mi
+              cpu: 100m
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: quickwit-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quickwit
+  namespace: quickwit
+spec:
+  selector:
+    app: quickwit
+  ports:
+    - port: 7280
+      targetPort: 7280

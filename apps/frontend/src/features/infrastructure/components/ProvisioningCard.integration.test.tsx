@@ -76,7 +76,7 @@ describe('the "Setting Koala up" card follows Koala setting itself up while it i
     await say(first!.id, 'egress', { state: 'started', line: 'waiting for deployment/egress in egress: 0 of 1 ready' })
     await egressLine
 
-    for (const key of ['egress', 'searxng', 'crawl4ai'] as const) await say(first!.id, key, { state: 'done' })
+    for (const key of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei'] as const) await say(first!.id, key, { state: 'done' })
     const stopped = shown(() => screen.queryByRole('alert'))
     await say(first!.id, 'gitea', { state: 'failed', why: 'pod gitea-0 is Init:Error' })
     expect((await stopped).textContent).toContain('Stopped at Gitea, your repositories and images: pod gitea-0 is Init:Error')

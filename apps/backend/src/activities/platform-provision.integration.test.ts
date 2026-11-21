@@ -31,7 +31,7 @@ beforeAll(async () => {
   own = access.own();
   const dataDir = testDataDir();
   mkdirSync(dataDir, { recursive: true });
-  place = { reach: own, koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40' };
+  place = { reach: own, koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' };
   infra = new InfrastructureService(terraformPlacesFor({ kind: 'local' }, dataDir));
 }, 0);
 

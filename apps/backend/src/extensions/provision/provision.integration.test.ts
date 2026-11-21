@@ -94,7 +94,7 @@ describe('the provision procedure, its pieces on real Temporal', () => {
   it('ends failed at the first piece that can never come up, with its why, starting nothing after it', async () => {
     const { result, order, record } = await runOn('refused');
     expect(result).toMatchObject({ outcome: 'failed', reason: 'pod gitea-0 is Init:Error: the volume is full' });
-    expect(order).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea']);
+    expect(order).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea']);
     expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
     await expect(fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(record.runId, 'verdaccio')).describe()).rejects.toThrow();
   });

@@ -91,7 +91,7 @@ function clusterSteps(): { steps: Pick<ClusterSteps, 'access' | 'infra' | 'datab
       database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey: 'unused' },
       machineMetricsUrl: { off: 'this test sets up no other machine' },
     },
-    place: { koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40' },
+    place: { koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' },
   };
 }
 
@@ -178,7 +178,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     await provisioning.close();
     expect(await env.client.workflow.getHandle(koalaInstallWorkflowId('install-1')).result()).toBe('ready');
 
-    expect(applied).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(applied).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea', 'verdaccio', 'infisical', 'monitoring']);
     expect(seen.some((each) => each.pieces.some((piece) => piece.key === 'egress' && piece.state === 'working' && piece.line === 'the egress proxy: ready'))).toBe(true);
     expect(await instanceDb.infrastructure.getProvisioningRun(record!.id)).toMatchObject({ state: 'up', workflowId: expect.any(String) as unknown });
     expect(await steps.access.kubectl(steps.access.own(), ['get', 'deployment', 'egress-proxy', '-n', 'koala-egress', '-o', 'jsonpath={.status.availableReplicas}'])).toBe('1');
