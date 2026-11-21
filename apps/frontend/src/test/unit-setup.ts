@@ -9,6 +9,7 @@ vi.mock('socket.io-client', () => {
       emit: vi.fn(),
       disconnect: vi.fn(),
       off: vi.fn(),
+      io: { on: vi.fn(), off: vi.fn() },
     })),
   };
 });

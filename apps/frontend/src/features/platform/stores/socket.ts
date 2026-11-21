@@ -69,12 +69,15 @@ export function useLogSocket(opts: {
       if (join) socket.emit(join.emit, join.payload)
     }
 
+    const reconnected = () => { onReconnectRef.current?.(); enter() }
     socket.on(event, (chunk: string) => onChunkRef.current(chunk))
-    socket.on('reconnect', () => { onReconnectRef.current?.(); enter() })
+    socket.io.on('reconnect', reconnected)
+    socket.connect()
     enter()
 
     return () => {
       socket.emit(isKube ? 'leave-kube-room' : 'leave-room', room)
+      socket.io.off('reconnect', reconnected)
       socket.disconnect()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
