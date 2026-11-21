@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { claimsOf, type ClaimedUser } from '../../platform/lib/permissions.js';
 import type { Claim, RevokedBecause } from '../../platform/index.js';
-import { identityKeysFromSeed, kidOf, type IdentityKeyPair } from './identity-token.js';
+import { kidOf, type IdentityKeyPair } from './identity-token.js';
 import type { InstanceRecord } from './instances.js';
 
 export const OIDC_PATH = '/oidc';
@@ -25,6 +25,7 @@ export const OWNER_TOKEN_TYPE = 'urn:koala:params:oauth:token-type:owner';
 export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
 export const RUN_SCOPE = 'koala:run';
 export const RUN_TOKEN_SECONDS = 5 * 60;
+export const REGISTRATION_POLICY = 'koala-instance';
 export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 
 export type ClientKind = 'instance';
@@ -56,9 +57,6 @@ export const publicJwkOf = (keys: IdentityKeyPair): PublicJwk => {
 
 export const privateJwkOf = (keys: IdentityKeyPair): crypto.JsonWebKey & { kid: string } =>
   ({ ...(keys.privateKey.export({ format: 'jwk' }) as crypto.JsonWebKey), kid: keys.kid });
-
-export const clientKeysFrom = (sessionKey: string): IdentityKeyPair =>
-  identityKeysFromSeed(Buffer.from(crypto.hkdfSync('sha256', sessionKey, 'koala-sign-in-client', 'ed25519', 32)));
 
 export const publicJwkShaped = (value: unknown): value is PublicJwk => {
   const jwk = value as Partial<PublicJwk> | undefined;
@@ -102,8 +100,23 @@ export function signInRefusal(client: { kind: ClientKind; owner?: string | undef
 }
 
 export const SIGN_IN_KEY_NOT_NAMED = {
-  instance: 'your Koala has not named its sign-in key to root yet; it does so as it starts',
+  instance: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine',
 } as const;
+
+export const REGISTRATION_REFUSED = 'root refused this instance\'s registration code (it was used, or a newer one replaced it), and does not know its key: put Koala on your machine again';
+
+export const registeredKeyOf = (metadata: Record<string, unknown>): PublicJwk | undefined => {
+  const keys = (metadata.jwks as { keys?: unknown } | undefined)?.keys;
+  if (!Array.isArray(keys) || keys.length !== 1) return undefined;
+  const { kty, crv, x, kid } = (keys[0] ?? {}) as Partial<PublicJwk>;
+  const key = { kty, crv, x, kid };
+  return publicJwkShaped(key) ? key : undefined;
+};
+
+export const registrationMetadata = (client: Omit<ClientRegistration, 'clientId'>): Record<string, unknown> => {
+  const { client_id: _id, ...metadata } = clientMetadata({ ...client, clientId: '' });
+  return metadata;
+};
 
 export const signInWaitingFor = (instance: Pick<InstanceRecord, 'signIn'>): string | undefined =>
   instance.signIn ? undefined : SIGN_IN_KEY_NOT_NAMED.instance;

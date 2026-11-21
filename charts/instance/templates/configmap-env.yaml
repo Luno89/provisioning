@@ -1,4 +1,4 @@
-{{- $required := list "id" "ownerId" "rootUrl" "rootPublicKeys" "credential" -}}
+{{- $required := list "id" "ownerId" "rootUrl" "rootPublicKeys" "registrationCode" -}}
 {{- range $required }}{{ if not (index $.Values.instance .) }}{{ fail (printf "instance.%s is required" .) }}{{ end }}{{ end -}}
 apiVersion: v1
 kind: ConfigMap

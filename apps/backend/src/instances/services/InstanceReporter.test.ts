@@ -16,14 +16,14 @@ interceptHttp(
   }),
 );
 
-const reporter = (said: string[] = []) => new InstanceReporter({ root: { url: ROOT, instanceId: 'inst-bo', credential: 'secret' }, wait: reopening(1), log: (line) => said.push(line) });
+const reporter = (said: string[] = []) => new InstanceReporter({ root: { url: ROOT, instanceId: 'inst-bo', token: async () => 'service-token' }, wait: reopening(1), log: (line) => said.push(line) });
 
 describe('the instance telling root about itself', () => {
   it('reports its status as itself, present, with what it runs and the revision it is', async () => {
     heard.length = 0;
     answers = [];
     expect(await reporter().status({ status: 'installing', detail: 'Upgraded to v8', imageTag: 'v8', dataVersion: 2, revision: 4 })).toEqual({ ok: true });
-    expect(heard).toEqual([{ headers: { instance: 'inst-bo', authorization: 'Bearer secret' }, body: { status: 'installing', detail: 'Upgraded to v8', imageTag: 'v8', dataVersion: 2, revision: 4, presence: true } }]);
+    expect(heard).toEqual([{ headers: { instance: 'inst-bo', authorization: 'Bearer service-token' }, body: { status: 'installing', detail: 'Upgraded to v8', imageTag: 'v8', dataVersion: 2, revision: 4, presence: true } }]);
   });
 
   it('reports each line of its setup as only that', async () => {

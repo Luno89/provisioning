@@ -53,7 +53,7 @@ describe('what an instance asks root for with what root signed', () => {
 
   it('lets the instance\'s own clients ask root about its watch and its updates with its service token', async () => {
     world.root.app.use('/api/instances', express.json(), instancesRouter({ instances: world.rootService, chart: async () => '' }));
-    world.signIn.keepAnnouncing(() => undefined);
+    world.signIn.keepRegistering(() => undefined);
     const asInstance = { rootUrl: world.root.url, instanceId: 'inst-u1', token: rootTokenOf(world.signIn)! };
     expect(await new InstanceWatchSetting(asInstance).read()).toMatchObject({ notifyWhenUnreachable: true });
     expect(await new InstanceWatchSetting(asInstance).set(false)).toMatchObject({ notifyWhenUnreachable: false });

@@ -161,7 +161,7 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     const rootServer = http.createServer(rootApp);
     await new Promise<void>((resolve) => rootServer.listen(0, '127.0.0.1', () => resolve()));
     closing.push(() => new Promise<void>((resolve) => { rootServer.close(() => resolve()); }));
-    const reporter = new InstanceReporter({ root: { url: `http://127.0.0.1:${(rootServer.address() as AddressInfo).port}`, instanceId: 'inst-1', credential: 'secret' }, wait: reopening(1), log: () => undefined });
+    const reporter = new InstanceReporter({ root: { url: `http://127.0.0.1:${(rootServer.address() as AddressInfo).port}`, instanceId: 'inst-1', token: async () => 'service-token' }, wait: reopening(1), log: () => undefined });
     const { url, owner, db } = await koalaAt(clusterId, reporter);
 
     const running = await owner.when((view) => view.state === 'running');

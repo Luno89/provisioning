@@ -109,5 +109,12 @@
  ],
  "apps/backend/src/accounts/routes/projects-removal.integration.test.ts": [
   "2026-11-21T18:08:25.148Z"
+ ],
+ "apps/local-agent/src/agent-program.integration.test.ts": [
+  "2026-11-21T17:40:14.000Z",
+  "2026-11-21T18:09:26.000Z"
+ ],
+ "apps/backend/src/scripts/self-upgrade.integration.test.ts": [
+  "2026-11-21T17:46:17.000Z"
  ]
 }

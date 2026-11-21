@@ -47,22 +47,24 @@ describe('emailing alerts', () => {
 });
 
 describe('an instance\'s email', () => {
-  it('goes to root with the instance\'s credential, never to an address the instance names', async () => {
+  it('goes to root with the instance\'s service token, never to an address the instance names', async () => {
     const asked: Array<{ url: string; init: RequestInit }> = [];
     const mail = new MailService({
-      way: { kind: 'root', rootUrl: 'https://app.koala.dev', instanceId: 'i1', credential: 'cred' },
+      way: { kind: 'root', rootUrl: 'https://app.koala.dev', instanceId: 'i1' },
+      rootToken: async () => 'service-token',
       emailOf: async () => { throw new Error('an instance never looks up an address'); },
       fetchImpl: (async (url: string, init: RequestInit) => { asked.push({ url, init }); return new Response(JSON.stringify({ sent: true }), { status: 200 }); }) as typeof fetch,
     });
     await mail.toOwner('o', { subject: 'Alert: x', text: 'y' });
     expect(asked[0]?.url).toBe('https://app.koala.dev/api/instances/mail');
-    expect(asked[0]?.init.headers).toMatchObject({ 'x-instance-id': 'i1', authorization: 'Bearer cred' });
+    expect(asked[0]?.init.headers).toMatchObject({ 'x-instance-id': 'i1', authorization: 'Bearer service-token' });
     expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ subject: 'Alert: x', text: 'y' });
   });
 
   it('says what root answered when it would not send', async () => {
     const mail = new MailService({
-      way: { kind: 'root', rootUrl: 'https://r', instanceId: 'i1', credential: 'bad' },
+      way: { kind: 'root', rootUrl: 'https://r', instanceId: 'i1' },
+      rootToken: async () => 'service-token',
       emailOf: async () => undefined,
       fetchImpl: (async () => new Response(JSON.stringify({ error: 'unknown instance or credential' }), { status: 401 })) as typeof fetch,
     });

@@ -113,7 +113,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
       dependency: { failed: (_dependency, err) => err },
     })
     : undefined
-  if (throughRoot) await throughRoot.signIn.announce()
+  if (throughRoot) await throughRoot.signIn.register()
   const auth = throughRoot
     ? throughRoot.instanceAuth
     : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) })

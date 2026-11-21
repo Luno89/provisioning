@@ -8,12 +8,13 @@ import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
 import { podPlaceFrom } from '../../platform/lib/drain.js';
 import { loadKey } from '../../platform/lib/keys.js';
 import { backendSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, selfUpgradeSettingsFrom, setupWaitsSettingsFrom } from '../../platform/lib/settings.js';
+import { identityKeysFrom } from './identity-token.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
 const CHART = resolve(REPO, 'charts/instance');
 
-const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'instance.credential=c', 'publicUrl=https://luno.example.com', 'storage.total=100Gi'];
+const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'instance.registrationCode=c', 'publicUrl=https://luno.example.com', 'storage.total=100Gi'];
 
 interface Container {
   name: string;
@@ -115,7 +116,7 @@ describe('the instance chart', () => {
 
   it('pulls that image by the digest root released it under, whatever the tag points at now', () => {
     const digest = `sha256:${'a'.repeat(64)}`;
-    const docs = render([`image.digest=${digest}`, 'instance.credential=c']);
+    const docs = render([`image.digest=${digest}`, 'instance.registrationCode=c']);
     const images = docs.flatMap((doc) => [
       ...(doc.spec?.template?.spec?.containers ?? []),
       ...(doc.spec?.template?.spec?.initContainers ?? []),
@@ -131,7 +132,7 @@ describe('the instance chart', () => {
       ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production', KOALA_RELEASE_REVISION: '1',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
-    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
+    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['CRAWL4AI_API_TOKEN', 'DATA_KEY', 'EGRESS_KEY', 'INSTANCE_CLIENT_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
     expect(Buffer.from(keys.data!.DATA_KEY!, 'base64').toString().length).toBeGreaterThanOrEqual(32);
     expect(keys.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
     expect(Object.keys(keys.data ?? {})).not.toContain('ROOT_IDENTITY_KEY');
@@ -275,7 +276,7 @@ describe('the instance chart', () => {
       expect(pod.containers[0]!.env).toContainEqual({ name: 'DEV_WATCH', value: 'true' });
       expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('DEV_WATCH');
     }
-    const aliased = render(['hostAliases[0].ip=10.42.0.1', 'hostAliases[0].hostnames[0]=koala.localhost', 'instance.credential=cred-from-root']);
+    const aliased = render(['hostAliases[0].ip=10.42.0.1', 'hostAliases[0].hostnames[0]=koala.localhost', 'instance.registrationCode=code-from-root']);
     const koalas = ['luno-backend', 'luno-worker-engine', 'luno-worker-cluster', 'luno-worker-host'];
     const pods = aliased.filter((doc) => doc.kind === 'Job' || doc.kind === 'CronJob' || (doc.kind === 'Deployment' && koalas.includes(doc.metadata.name)));
     expect(pods.map((doc) => doc.kind)).toEqual(expect.arrayContaining(['Deployment', 'Job', 'CronJob']));
@@ -321,20 +322,23 @@ describe('the instance chart', () => {
     expect(specOf(find(render(['backend.nodePort=30320']), 'Service', 'luno'))).toMatchObject({ type: 'NodePort', ports: [{ nodePort: 30320 }] });
   });
 
-  it('takes its credential from root, refusing to render without one, keeps it in a Secret, hands it to the app and its setup jobs, and checks root hourly for the version to run', () => {
-    expect(() => render(['instance.credential='])).toThrow('instance.credential is required');
+  it('takes its registration code from root, refusing to render without one, keeps it in a Secret, makes a client key of its own, hands both to the app, its setup jobs and the self-upgrade, and checks root hourly for the version to run', () => {
+    expect(() => render(['instance.registrationCode='])).toThrow('instance.registrationCode is required');
 
-    const joined = render(['instance.credential=cred-from-root']);
+    const joined = render(['instance.registrationCode=code-from-root']);
     const secret = find(joined, 'Secret', 'luno-instance') as Doc & { stringData?: Record<string, string> };
-    expect(secret.stringData).toEqual({ INSTANCE_CREDENTIAL: 'cred-from-root' });
+    expect(secret.stringData).toEqual({ INSTANCE_REGISTRATION_TOKEN: 'code-from-root' });
     expect(secret.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
+    const clientKey = Buffer.from(find(joined, 'Secret', 'luno-keys').data!.INSTANCE_CLIENT_KEY!, 'base64').toString('utf8');
+    expect(identityKeysFrom(clientKey).privateKey.asymmetricKeyType).toBe('ed25519');
+    expect(Buffer.from(find(render(['instance.registrationCode=code-from-root']), 'Secret', 'luno-keys').data!.INSTANCE_CLIENT_KEY!, 'base64').toString('utf8')).not.toBe(clientKey);
 
     const upgrade = specOf(find(joined, 'CronJob', 'luno-self-upgrade'));
     expect(upgrade.schedule).toBe('17 * * * *');
     expect(upgrade.concurrencyPolicy).toBe('Forbid');
     const container = upgrade.jobTemplate?.spec.template.spec.containers[0];
     expect(container?.args).toEqual(['self-upgrade']);
-    expect(container?.env).toEqual(expect.arrayContaining([{ name: 'CURRENT_IMAGE_TAG', value: 'dev' }, { name: 'RELEASE_NAME', value: 'luno' }]));
+    expect(container?.env).toEqual(expect.arrayContaining([{ name: 'CURRENT_IMAGE_TAG', value: 'dev' }, { name: 'RELEASE_NAME', value: 'luno' }, { name: 'INSTANCE_CLIENT_KEY', valueFrom: { secretKeyRef: { name: 'luno-keys', key: 'INSTANCE_CLIENT_KEY' } } }]));
 
     const backend = podOf(find(joined, 'Deployment', 'luno-backend')).containers[0]!;
     expect(backend.envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
@@ -439,9 +443,9 @@ describe('the instance chart', () => {
     };
     const backend = backendSettingsFrom(envOf('backend'));
     expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, trustProxy: 1, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
-    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1, gatewayTls: { certPath: '/etc/koala/machine-gateway-tls/tls.crt', keyPath: '/etc/koala/machine-gateway-tls/tls.key' } });
+    expect(backend.instance).toMatchObject({ client: { registrationCode: 'c' }, gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1, gatewayTls: { certPath: '/etc/koala/machine-gateway-tls/tls.crt', keyPath: '/etc/koala/machine-gateway-tls/tls.key' } });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
-    expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c', pod: given.POD_NAME });
+    expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, client: { registrationCode: 'c' }, pod: given.POD_NAME });
     for (const worker of ['worker-engine', 'worker-cluster', 'worker-host']) {
       expect(podOf(find(docs, 'Deployment', `luno-${worker}`)).containers[0]!.env, `${worker} is told its own pod's name`).toContainEqual({ name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } });
     }
@@ -480,7 +484,7 @@ describe('the instance chart', () => {
     const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
     const fresh = render(['instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`]);
     const upgrade = selfUpgradeSettingsFrom(environment(fresh, podOf(find(fresh, 'CronJob', 'luno-self-upgrade')), 'self-upgrade'));
-    expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', credential: 'c' }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
+    expect(upgrade).toMatchObject({ root: { url: 'https://app.example.com', instanceId: 'inst-u1', publicUrl: 'https://luno.example.com', client: { registrationCode: 'c' } }, release: { name: 'luno', namespace: 'nowrinkles', dataVersion: 1 } });
     expect(upgrade.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(databaseSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'seed')).mongo).toBeDefined();
     expect(setupWaitsSettingsFrom(environment(fresh, podOf(find(fresh, 'Job', 'luno-seed-1')), 'waits'))).toMatchObject({ step: 'seed', after: [], podNamespace: 'nowrinkles', mongo: { dbName: 'provisioning' }, clusters: { here: { koalaMachineId: 'desk' } } });

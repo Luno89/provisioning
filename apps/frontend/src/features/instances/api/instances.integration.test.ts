@@ -19,6 +19,7 @@ import { MailReputation, type MailReputationView as BackendMailView } from '../.
 import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-role'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
 import { DEPENDENCY_SOURCES } from '../../../../../backend/src/platform/lib/osv'
+import { testInstanceClients } from '../../../../../backend/src/instances/testing/placed-koala'
 
 const DOMAIN = 'people.koala.test'
 
@@ -28,6 +29,7 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
   const instances = new InstanceService(db, {
     rootUrl: origin,
     rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
+    ...testInstanceClients,
     registry: '',
     imageTag: 'dev',
     domain: DOMAIN,

@@ -15,6 +15,7 @@ import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js
 import { dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 import { until, Hopeless, waiting } from './lib/until.js';
 import { startedContainerStopped } from './lib/dead-states.js';
+import { instanceServiceToken } from './lib/instance-token.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -267,9 +268,9 @@ async function main(): Promise<void> {
   assert.equal(https(`books-nobody${NAME}.${DOMAIN}`, '/').status, 404, 'another person\'s name gets nothing');
 
   step('root routes a group the instance claims to its edge, and frees it when the instance lets it go');
-  const credential = (await inVm(vm, 'sudo kubectl get secret instance-instance -n nowrinkles -o jsonpath={.data.INSTANCE_CREDENTIAL} | base64 -d')).trim();
-  assert.ok(credential, 'the instance keeps no credential');
-  const asInstance = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', 'x-instance-id': instanceId!, authorization: `Bearer ${credential}`, ...(init.headers ?? {}) } });
+  const clientKey = (await inVm(vm, 'sudo kubectl get secret instance-keys -n nowrinkles -o jsonpath={.data.INSTANCE_CLIENT_KEY} | base64 -d')).trim();
+  assert.ok(clientKey, 'the instance keeps no key of its own to sign in to root with');
+  const asInstance = async (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', 'x-instance-id': instanceId!, authorization: `Bearer ${await instanceServiceToken({ rootForHost: ROOT_FOR_HOST, rootIssuedAs: ROOT_FOR_GUEST }, instanceId!, clientKey)}`, ...(init.headers ?? {}) } });
   const group = `g${NAME}`;
   const ownName = await (await asInstance(`/api/instances/groups/check?name=${NAME}`)).json() as { ok: boolean; problem?: string };
   assert.equal(ownName.ok, false, 'the instance\'s own name is not a group');

@@ -13,6 +13,9 @@ import { signUp } from './lib/sign-up.js';
 import { DEV_HEADSCALE, dropSuiteDatabase, dropSuiteNamespace, firstAdmin, makeSuiteNamespace, forgetMeshUser, suiteRoot, workerEnv, rootIdentity } from './lib/suite-root.js';
 import { until, waiting } from './lib/until.js';
 import { containerNotRunning, runEndedBadlyOver } from './lib/dead-states.js';
+import { createDatabase, databaseSettingsFrom } from '../apps/backend/src/platform/index.js';
+import { generateIdentityKey, identityKeysFrom } from '../apps/backend/src/instances/lib/identity-token.js';
+import { registrationCodeAt } from '../apps/backend/src/instances/testing/registration-code.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
@@ -80,6 +83,17 @@ async function main(): Promise<void> {
   ownerId = OWNER;
   const joining = `session=${sessionToken({ id: OWNER, email: owner.email }, loadKeys(process.env).session, { seconds: 300 })}`;
   const instances = (args: string[]) => run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', ...args], { MONGO_URI: ROOT.mongoUri });
+  const registeredByHand = async (id: string, ownerId: string, url: string): Promise<string> => {
+    const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: ROOT.mongoUri }));
+    await rootDb.init();
+    try {
+      const now = new Date().toISOString();
+      await rootDb.instances.saveInstance({ id, ownerId, url, createdAt: now, updatedAt: now });
+      return await registrationCodeAt({ db: rootDb, url: ROOT_URL, signing: identityKeysFrom(generateIdentityKey()) }, { id, ownerId });
+    } finally {
+      await rootDb.close?.();
+    }
+  };
 
   step(`the k3d cluster joins the owner's account as their machine through root's join, so ${CLUSTER} is a machine's own cluster`);
   const coded = await fetch(`${ROOT_URL}/api/my-machines/join-code`, { method: 'POST', headers: { 'content-type': 'application/json', Cookie: joining }, body: '{}' });
@@ -92,10 +106,9 @@ async function main(): Promise<void> {
   assert.ok(listed.machines.some((machine) => machine.id === machineId && machine.name === CLUSTER), `My Machines does not list ${CLUSTER}: ${JSON.stringify(listed)}`);
 
   step('root registers the instance and gives it a credential, then the chart installs it on the machine, and its setup jobs install the services it uses');
-  const credential = /--set instance\.credential=(\S+)/.exec(instances(['add', 'inst-live', OWNER, INSTANCE_URL]))?.[1];
-  assert.ok(credential, 'root registered the instance without a credential to sign people in with');
+  const registrationCode = await registeredByHand('inst-live', OWNER, INSTANCE_URL);
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
-    '--set', 'instance.id=inst-live', '--set', `instance.machineId=${machineId}`, '--set', 'storage.total=10Gi', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
+    '--set', 'instance.id=inst-live', '--set', `instance.machineId=${machineId}`, '--set', 'storage.total=10Gi', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.registrationCode=${registrationCode}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
     '--set', 'backend.nodePort=30320', '--timeout', '720h'], { KUBECONFIG });
 
@@ -247,7 +260,7 @@ process.exit(0);`;
   const leaving = (await people()).find((person) => person.email === email);
   assert.ok(leaving, 'root does not list the new account');
   const theirInstance = `inst-live-${leaving.id.slice(0, 8)}`;
-  instances(['add', theirInstance, leaving.id, 'http://127.0.0.1:9']);
+  await registeredByHand(theirInstance, leaving.id, 'http://127.0.0.1:9');
   const theirs = sessionToken({ id: leaving.id, email }, loadKeys(process.env).session, { seconds: 300 });
   const asLeaving = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${theirs}`, ...(init.headers ?? {}) } });
   const preview = await (await asLeaving('/api/account/removal')).json() as { email: string; blockers: string[]; instance?: { where: string } };

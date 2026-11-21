@@ -27,6 +27,8 @@ export interface InstancesStore extends AreaStore {
   oidcRevokeGrant(grantId: string): Promise<void>;
   oidcForgetAccount(accountId: string): Promise<string[]>;
   oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]>;
+  oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void>;
+  oidcTakeRegistration(code: string): Promise<string | undefined>;
   enqueueLogout(delivery: LogoutDelivery): Promise<void>;
   pendingLogouts(): Promise<LogoutDelivery[]>;
   logoutDelivered(id: string): Promise<void>;
@@ -51,6 +53,8 @@ const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> 
   doc && typeof doc.payload === 'string' ? JSON.parse(doc.payload) as Record<string, unknown> : undefined;
 
 export const RETIRED_JOIN_TOKENS = 'instanceJoinTokens';
+
+const REGISTRATION_MODEL = 'InitialAccessToken';
 
 export class MongoInstancesStore implements InstancesStore {
   constructor(private readonly db: () => Db) {}
@@ -219,6 +223,16 @@ export class MongoInstancesStore implements InstancesStore {
 
   async oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]> {
     return (await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray()).map((grant) => asStored(grant)).filter((grant): grant is Record<string, unknown> => grant !== undefined);
+  }
+
+  async oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void> {
+    await this.oidcArtifacts.deleteMany({ model: REGISTRATION_MODEL, instanceId: instance.id, _id: { $ne: `${REGISTRATION_MODEL}:${code}` as never } });
+    await this.oidcArtifacts.updateOne({ _id: `${REGISTRATION_MODEL}:${code}` as never }, { $set: { instanceId: instance.id, accountId: instance.ownerId } });
+  }
+
+  async oidcTakeRegistration(code: string): Promise<string | undefined> {
+    const taken = await this.oidcArtifacts.findOneAndDelete({ _id: `${REGISTRATION_MODEL}:${code}` as never, instanceId: { $exists: true } });
+    return typeof taken?.instanceId === 'string' ? taken.instanceId : undefined;
   }
 
   async oidcForgetAccount(accountId: string): Promise<string[]> {

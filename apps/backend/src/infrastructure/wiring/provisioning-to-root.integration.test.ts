@@ -36,6 +36,7 @@ import { Provisioning } from '../services/Provisioning.js';
 import { testWorker } from '../../workflows/testing/test-worker.js';
 import type { TestTemporal } from '@koala/engine-core/testing/temporal';
 import { grantsHeldInMemory, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { tokenOfInstance } from '../../instances/testing/placed-koala.js';
 
 const GRANTS = grantsHeldInMemory();
 
@@ -164,7 +165,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
         client: () => env.client.workflow,
         agent: PROVISION_AGENT,
       }),
-      root: new InstanceReporter({ root: { url: root.url, instanceId: placed.value.instanceId, credential: koala.value.credential }, wait: reopening(1), log: () => undefined }),
+      root: new InstanceReporter({ root: { url: root.url, instanceId: placed.value.instanceId, token: async () => tokenOfInstance(koala.value.instanceId) }, wait: reopening(1), log: () => undefined }),
       koala: { ownerId: 'bo', clusterId: 'machine-desk', revision: 1 },
       changed: () => undefined,
       log: (line) => { console.warn(line); },

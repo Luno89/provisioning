@@ -8,9 +8,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { instancesRouter } from './instances.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
-import { InstanceService, hashCredential } from '../services/InstanceService.js';
+import { InstanceService } from '../services/InstanceService.js';
+import { testInstanceClients, tokenOfInstance } from '../testing/placed-koala.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
 import { MailService } from '../../platform/services/MailService.js';
+import type { InstanceRelease } from '../lib/instance-updates.js';
+
+const TOKEN = tokenOfInstance('inst-1');
+
+const servingReleases = (imageTag: string, releases: InstanceRelease[], hasChart: (imageTag: string) => boolean, chartOf: (imageTag: string) => string | undefined): Promise<Harness> => mountRouter({
+  prefix: '/api/instances',
+  user: TEST_USER,
+  router: async (db) => {
+    await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', running: 'new222', previous: 'old111' });
+    return instancesRouter({
+      instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag, domain: 'koala.dev', releases: { releases: async () => releases, hasChart } }, undefined),
+      chart: async () => '',
+      chartOf,
+    });
+  },
+});
+
+const asInstance = (harness: Harness) => (method: 'get' | 'put' | 'post', path: string, data?: unknown, token = TOKEN) =>
+  axios.request<Record<string, unknown>>({ method, url: harness.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${token}` }, validateStatus: () => true });
 
 const including = (items: unknown[]): unknown => expect.arrayContaining(items);
 
@@ -23,12 +43,12 @@ describe('an instance keeping the groups its shared projects are addressed under
       prefix: '/api/instances',
       user: TEST_USER,
       router: (db) => instancesRouter({
-        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
+        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
         chart: async () => '',
       }),
     });
-    await harness.db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') });
-    const call = (method: 'get' | 'put' | 'delete', path: string, data?: unknown, credential = 'secret') =>
+    await harness.db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then' });
+    const call = (method: 'get' | 'put' | 'delete', path: string, data?: unknown, credential = TOKEN) =>
       axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
 
     expect((await call('get', '/api/instances/groups/check?name=acme')).data).toEqual({ ok: true });
@@ -48,29 +68,11 @@ describe('an instance\'s updates on root', () => {
   it('answers the instance\'s check-in by its own setting, and serves each release\'s chart', async () => {
     const charts = mkdtempSync(join(tmpdir(), 'release-charts-'));
     writeFileSync(join(charts, 'old111.tgz'), 'old chart');
-    harness = await mountRouter({
-      prefix: '/api/instances',
-      user: TEST_USER,
-      router: async (db) => {
-        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
-        return instancesRouter({
-          instances: new InstanceService(db, {
-            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev',
-            releases: {
-              releases: async () => [
-                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
-                { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z' },
-              ],
-              hasChart: (imageTag) => imageTag === 'old111',
-            },
-          }, undefined),
-          chart: async () => '',
-          chartOf: (imageTag) => (imageTag === 'old111' ? join(charts, 'old111.tgz') : undefined),
-        });
-      },
-    });
-    const call = (method: 'get' | 'put', path: string, data?: unknown, credential = 'secret') =>
-      axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
+    harness = await servingReleases('new222', [
+      { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+      { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z' },
+    ], (imageTag) => imageTag === 'old111', (imageTag) => (imageTag === 'old111' ? join(charts, 'old111.tgz') : undefined));
+    const call = asInstance(harness);
 
     expect((await call('get', '/api/instances/updates')).data).toMatchObject({ auto: true, running: 'new222', target: 'new222' });
     expect((await call('put', '/api/instances/updates', { version: 'v2026.10.24' })).data).toMatchObject({ auto: false, picked: 'old111', target: 'old111' });
@@ -83,29 +85,11 @@ describe('an instance\'s updates on root', () => {
 
   it('after root rolled back: points an instance on auto at root\'s release, shows the withdrawn one, and refuses picking it', async () => {
     const withdrawn = { at: '2026-10-26T00:00:00.000Z', by: 'root rolled back to v2026.10.24' };
-    harness = await mountRouter({
-      prefix: '/api/instances',
-      user: TEST_USER,
-      router: async (db) => {
-        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
-        return instancesRouter({
-          instances: new InstanceService(db, {
-            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
-            releases: {
-              releases: async () => [
-                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
-                { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', withdrawn },
-              ],
-              hasChart: () => false,
-            },
-          }, undefined),
-          chart: async () => '',
-          chartOf: () => undefined,
-        });
-      },
-    });
-    const call = (method: 'get' | 'put', path: string, data?: unknown) =>
-      axios.request<Record<string, unknown>>({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+    harness = await servingReleases('old111', [
+      { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+      { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', withdrawn },
+    ], () => false, () => undefined);
+    const call = asInstance(harness);
 
     expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'old111' });
     const view = (await call('get', '/api/instances/updates')).data as { target: string; runningWithdrawn?: unknown; releases: Array<{ imageTag: string; withdrawn?: unknown; choosable: boolean }> };
@@ -132,9 +116,9 @@ describe('Koala\'s dependencies on root', () => {
     prefix: '/api/instances',
     user: { ...TEST_USER, ...(operator ? { roles: ['operator'] } : {}) },
     router: async (db) => {
-      await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222' });
+      await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', running: 'new222' });
       return instancesRouter({
-        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222' }, undefined),
+        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 'new222' }, undefined),
         chart: async () => '',
         administers: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'administer', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Only the operator of this server can do that.' })),
         dependencies: watch,
@@ -157,29 +141,11 @@ describe('Koala\'s dependencies on root', () => {
 
   it('after root rolled back below an instance\'s data: keeps it on what it runs, says why, and refuses a pick that cannot run its data', async () => {
     const withdrawn = { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.24' };
-    harness = await mountRouter({
-      prefix: '/api/instances',
-      user: TEST_USER,
-      router: async (db) => {
-        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
-        return instancesRouter({
-          instances: new InstanceService(db, {
-            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
-            releases: {
-              releases: async () => [
-                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
-                { imageTag: 'new222', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1, withdrawn },
-              ],
-              hasChart: () => false,
-            },
-          }, undefined),
-          chart: async () => '',
-          chartOf: () => undefined,
-        });
-      },
-    });
-    const call = (method: 'get' | 'put' | 'post', path: string, data?: unknown) =>
-      axios.request<Record<string, unknown>>({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+    harness = await servingReleases('old111', [
+      { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+      { imageTag: 'new222', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1, withdrawn },
+    ], () => false, () => undefined);
+    const call = asInstance(harness);
 
     expect((await call('post', '/api/instances/status', { status: 'ready', imageTag: 'new222', dataVersion: 1 })).status).toBe(200);
     expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'new222', dataVersion: 1 });
@@ -201,7 +167,7 @@ describe('Koala\'s dependencies on root', () => {
         await db.instances.recordRelease({ imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' });
         await db.instances.recordRelease({ imageTag: 'new222', version: 'v2026.11.17', servedAt: '2026-11-17T00:00:00.000Z', dataVersion: 1 });
         await db.instances.withdrawRelease('new222', { at: '2026-11-18T00:00:00.000Z', by: 'root rolled back to v2026.10.24' });
-        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' } as never);
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', running: 'new222', previous: 'old111' } as never);
         const mail = new MailService({
           way: { kind: 'smtp', url: 'smtp://x', from: 'Koala <alerts@koala.dev>' },
           emailOf: async (id) => (id === 'u1' ? 'alice@example.com' : undefined),
@@ -209,7 +175,7 @@ describe('Koala\'s dependencies on root', () => {
         });
         return instancesRouter({
           instances: new InstanceService(db, {
-            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 'old111', domain: 'koala.dev',
             releases: { releases: () => db.instances.getReleases(), hasChart: () => false },
             notices: new WithdrawalNotices(db.instances, mail, 'old111'),
           }, undefined),
@@ -218,7 +184,7 @@ describe('Koala\'s dependencies on root', () => {
         });
       },
     });
-    const report = (dataVersion: number) => axios.post(harness!.url('/api/instances/status'), { status: 'ready', imageTag: 'new222', dataVersion }, { headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+    const report = (dataVersion: number) => axios.post(harness!.url('/api/instances/status'), { status: 'ready', imageTag: 'new222', dataVersion }, { headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${TOKEN}` }, validateStatus: () => true });
     expect((await report(0)).status).toBe(200);
     expect(sent).toEqual([]);
     expect((await report(1)).status).toBe(200);
@@ -230,7 +196,7 @@ describe('Koala\'s dependencies on root', () => {
   it('tells an instance, by its credential, what the release it runs carries and what fixes it', async () => {
     harness = await mount(false);
     const ask = (credential: string) => axios.get(harness!.url('/api/instances/release-findings'), { headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
-    const answer = await ask('secret');
+    const answer = await ask(TOKEN);
     expect(answer.data).toMatchObject({ release: 'v2026.10.25', findings: [{ advisory: { id: 'GHSA-x' }, fixedBy: 'v2026.10.29' }] });
     expect((await ask('wrong')).status).toBe(401);
   });
@@ -244,7 +210,7 @@ describe('root\'s mail on its admin page', () => {
     prefix: '/api/instances',
     user: { ...TEST_USER, ...(operator ? { roles: ['operator'] } : {}) },
     router: async (db) => instancesRouter({
-      instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222' }, undefined),
+      instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 'new222' }, undefined),
       chart: async () => '',
       administers: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'administer', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Only the operator of this server can do that.' })),
       ...(mailReputation ? { mailReputation } : {}),

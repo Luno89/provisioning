@@ -144,11 +144,11 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   });
   const engineRole = settings.role;
   const rootSignIn = rootSignInFor({
-    role: engineRole, instanceCredential: settings.instanceCredential, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl,
+    role: engineRole, client: settings.client, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl,
     sessions: new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: () => true }),
     dependency: { failed: (dependency, err) => { logger.warn(`[sign-in] ${dependency} did not answer the engine worker: ${(err as Error).message}`); return err; } },
   });
-  rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
+  rootSignIn?.keepRegistering((message) => console.warn(`[sign-in] ${message}`));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
   const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });
   const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens });

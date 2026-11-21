@@ -1,4 +1,3 @@
-import { publicJwkShaped } from '../lib/oidc.js';
 import crypto from 'crypto';
 import type { Database } from '../../platform/index.js';
 import { INSTANCE_STATUSES, inService, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
@@ -44,7 +43,8 @@ export interface InstanceSettings {
   siteNames?: readonly string[] | undefined;
   releases?: ReleaseSource | undefined;
   notices?: { tell(): Promise<number> } | undefined;
-  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' } | undefined>) | undefined;
+  serviceCaller: (token: string) => Promise<{ clientId: string; kind: 'instance' } | undefined>;
+  registrationCode: (instance: { id: string; ownerId: string }) => Promise<string>;
   connected?: ((instanceId: string) => boolean) | undefined;
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
   reach?: InstanceReach | undefined;
@@ -64,10 +64,7 @@ export interface PlacingMachine {
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
 
-export const hashCredential = (secret: string): string => crypto.createHash('sha256').update(secret).digest('hex');
-const sameHash = (a: string, b: string): boolean => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-
-export const instanceIdFor = (ownerId: string): string => `inst-${hashCredential(ownerId).slice(0, 12)}`;
+export const instanceIdFor = (ownerId: string): string => `inst-${crypto.createHash('sha256').update(ownerId).digest('hex').slice(0, 12)}`;
 
 export class InstanceService {
   constructor(
@@ -142,9 +139,9 @@ export class InstanceService {
     if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.install?.id === installId);
     if (!instance?.install || instance.install.machineId !== machine.id || !installUnfinished(instance.install)) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
-    const credential = crypto.randomBytes(32).toString('base64url');
-    const recorded = await this.store.instances.updateInstall(instance.id, installId, { credentialHash: hashCredential(credential), 'install.imageTag': this.settings.imageTag, updatedAt: this.now().toISOString() });
+    const recorded = await this.store.instances.updateInstall(instance.id, installId, { 'install.imageTag': this.settings.imageTag, updatedAt: this.now().toISOString() });
     if (!recorded) return { ok: false, status: 404, error: 'no such install is under way on this machine' };
+    const registrationCode = await this.settings.registrationCode(instance);
     return {
       ok: true,
       value: {
@@ -160,7 +157,7 @@ export class InstanceService {
         imageTag: this.settings.imageTag,
         chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
         ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
-        credential,
+        registrationCode,
         name: instance.name ?? '',
         domain: this.settings.domain ?? '',
       },
@@ -186,12 +183,11 @@ export class InstanceService {
   }
 
 
-  private async authenticated(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
-    if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
+  private async authenticated(instanceId: unknown, token: unknown): Promise<InstanceRecord | undefined> {
+    if (typeof instanceId !== 'string' || typeof token !== 'string' || !token) return undefined;
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
     if (!instance) return undefined;
-    if (instance.credentialHash && sameHash(instance.credentialHash, hashCredential(credential))) return instance;
-    const caller = await this.settings.serviceCaller?.(credential);
+    const caller = await this.settings.serviceCaller(token);
     return caller?.kind === 'instance' && caller.clientId === instance.id ? instance : undefined;
   }
 
@@ -202,16 +198,6 @@ export class InstanceService {
 
   caller(instanceId: string, token: string): Promise<InstanceRecord | undefined> {
     return this.authenticated(instanceId, token);
-  }
-
-  async announceSignIn(instanceId: unknown, credential: unknown, jwk: unknown): Promise<Outcome<{ since: string }>> {
-    if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return { ok: false, status: 401, error: 'this instance is not known here' };
-    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
-    if (!instance?.credentialHash || !sameHash(instance.credentialHash, hashCredential(credential))) return { ok: false, status: 401, error: 'this instance is not known here' };
-    if (!publicJwkShaped(jwk)) return { ok: false, status: 400, error: 'send the instance\'s sign-in key as an Ed25519 public JWK with its kid' };
-    const since = instance.signIn?.jwk.kid === jwk.kid ? instance.signIn.since : this.now().toISOString();
-    await this.store.instances.saveSignInKey(instance.id, { jwk: { kty: 'OKP', crv: 'Ed25519', x: jwk.x, kid: jwk.kid }, since });
-    return { ok: true, value: { since } };
   }
 
   private async meshIpOwned(ownerId: string, meshIp: string): Promise<'yes' | 'no' | 'unknown'> {

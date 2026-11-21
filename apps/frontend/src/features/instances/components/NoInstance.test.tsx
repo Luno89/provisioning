@@ -82,7 +82,7 @@ describe('root\'s page when the owner\'s instance is not answering', () => {
   })
 })
 
-describe('root\'s page when the owner\'s instance has not named its sign-in key', () => {
+describe('root\'s page when the owner\'s instance has not registered at root', () => {
   it('says so instead of sending them on', async () => {
     vi.clearAllMocks()
     vi.mocked(api.get).mockImplementation(async (url: string) => {
@@ -90,9 +90,9 @@ describe('root\'s page when the owner\'s instance has not named its sign-in key'
       return { data: { ok: false } }
     })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={client}><NoInstance hasInstance signInWaiting="your Koala has not named its sign-in key to root yet; it does so as it starts" onLogout={() => {}} /></QueryClientProvider>)
+    render(<QueryClientProvider client={client}><NoInstance hasInstance signInWaiting="your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine" onLogout={() => {}} /></QueryClientProvider>)
     expect(await screen.findByText('Your Koala is not ready for sign-in yet')).toBeInTheDocument()
-    expect(screen.getByText(/your Koala has not named its sign-in key to root yet; it does so as it starts/)).toBeInTheDocument()
+    expect(screen.getByText(/your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine/)).toBeInTheDocument()
     expect(screen.queryByText(/Taking you to your instance/)).toBeNull()
   })
 })

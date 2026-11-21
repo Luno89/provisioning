@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
-  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, instanceClient,
+  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientMetadata, instanceClient,
   logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, signInWaitingFor,
 } from './oidc.js';
 
@@ -48,17 +48,15 @@ describe('an instance as root\'s client', () => {
     expect(instanceClient({ ...record, signIn: { jwk, since: 'x' } })).toMatchObject({ clientId: 'inst-u1', owner: 'u1' });
   });
 
-  it('says an instance has not named its sign-in key until it has', () => {
-    expect(signInWaitingFor({})).toBe('your Koala has not named its sign-in key to root yet; it does so as it starts');
+  it('says an instance has not registered at root until it has', () => {
+    expect(signInWaitingFor({})).toBe('your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine');
     expect(signInWaitingFor({ signIn: { jwk, since: 'x' } })).toBeUndefined();
   });
 
-  it('takes a named key only when its kid is its own thumbprint, and derives the same key from the same session key', () => {
+  it('takes a key only when its kid is its own thumbprint', () => {
     expect(publicJwkShaped(jwk)).toBe(true);
     expect(publicJwkShaped({ ...jwk, kid: 'chosen' })).toBe(false);
     expect(publicJwkShaped({ ...jwk, kty: 'RSA' })).toBe(false);
-    expect(clientKeysFrom('a-session-key').kid).toBe(clientKeysFrom('a-session-key').kid);
-    expect(clientKeysFrom('a-session-key').kid).not.toBe(clientKeysFrom('another-session-key').kid);
   });
 
   it('carries a revocation in a back-channel logout token for one client', () => {

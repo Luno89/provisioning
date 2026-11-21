@@ -17,10 +17,10 @@ const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false
 
 const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
 
-export const INSTANCES_OPEN: readonly OpenRoute[] = ['/sign-in-key', '/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail'];
+export const INSTANCES_OPEN: readonly OpenRoute[] = ['/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail'];
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'announceSignIn'>;
+  instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -123,11 +123,6 @@ export function instancesRouter(deps: {
   router.get('/addresses', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
     return answer(res, await deps.instances.addresses(instanceId, credential));
-  }));
-
-  router.put('/sign-in-key', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    return answer(res, await deps.instances.announceSignIn(instanceId, credential, ((req.body ?? {}) as { jwk?: unknown }).jwk));
   }));
 
   router.put('/addresses', asyncRoute(async (req: Request, res: Response) => {

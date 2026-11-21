@@ -75,7 +75,7 @@ const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessag
     toRoot.push(socket);
     socket.emit(PLACE_KOALA, {
       installId, instanceId: 'program-koala', ownerId: 'bo', machineId: 'program-desk', rootUrl, rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh.koala.test',
-      meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, credential: 'program-credential',
+      meshAddress: '100.64.0.7', image: 'nowrinkles/app', imageTag: 'v1', chartUrl: `${rootUrl}/api/instances/chart/v1.tgz`, registrationCode: 'program-registration-code',
     });
   });
   return { rootUrl, reports, toRoot };
@@ -107,6 +107,7 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     const bin = path.join(home, 'bin');
     await fs.mkdir(bin);
     await fs.symlink(process.execPath, path.join(bin, 'node'));
+    await fs.writeFile(path.join(bin, 'systemctl'), '#!/bin/sh\necho inactive\n', { mode: 0o755 });
 
     const said: string[] = [];
     const child = spawn(process.execPath, ['--import', 'tsx', ENTRY], {

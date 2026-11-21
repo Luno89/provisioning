@@ -48,7 +48,7 @@ export interface PlacedKoala {
   imageDigest?: string | undefined;
   chartUrl: string;
   chartSha256?: string | undefined;
-  credential: string;
+  registrationCode: string;
   name: string;
   domain: string;
 }

@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
 import { chartInputs, chartStep, followRelease, releaseRevision, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter, type WaitOptions } from '@koala/provision';
-import { InstanceReporter, UPGRADE_WORDS, withWhy, type InstanceStatus } from '../instances/index.js';
+import { InstanceReporter, RootClient, UPGRADE_WORDS, withWhy, type InstanceStatus } from '../instances/index.js';
 import { clusterAccessFrom } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
 
 export interface SelfUpgradeDeps {
-  root: { url: string; instanceId: string; credential: string };
+  root: { url: string; instanceId: string; token: () => Promise<string> };
   release: { name: string; namespace: string; current: string; dataVersion: number };
   cluster: ChartCluster;
   fetch?: typeof fetch;
@@ -35,7 +35,7 @@ const logged = (log: (line: string) => void): Reporter => ({
 export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const call = deps.fetch ?? fetch;
   const log = deps.log ?? ((line: string) => console.log(line));
-  const headers = { 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${deps.root.credential}` };
+  const headers = async () => ({ 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${await deps.root.token()}` });
   const { name, namespace, current, dataVersion: installed } = deps.release;
   const wait = deps.wait ?? reopening();
   const ctx = { cluster: deps.cluster, ...(deps.watch ? { wait: deps.watch } : {}) };
@@ -50,7 +50,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   };
   const runs = (): Promise<number> => releaseRevision(ctx, { release: name, namespace });
 
-  const asked = await ofRoot('asks which release to run', () => call(`${deps.root.url}/api/instances/release`, { headers }));
+  const asked = await ofRoot('asks which release to run', async () => call(`${deps.root.url}/api/instances/release`, { headers: await headers() }));
   if (!asked.ok) throw new Error(`root did not say which release this instance should run (${asked.status}): ${await asked.text()}`);
   const wanted = await asked.json() as Released;
   if (wanted.imageTag === current) {
@@ -119,7 +119,10 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
 export async function selfUpgradeStep(env: Readonly<Record<string, string | undefined>>, serviceAccountDir?: string, log?: (line: string) => void): Promise<boolean> {
   const settings = selfUpgradeSettingsFrom(env, serviceAccountDir);
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  return selfUpgrade({ root: settings.root, release: settings.release, cluster: access.chartCluster(access.own()), ...(log ? { log } : {}) });
+  const { url, instanceId, ownerId, publicUrl, client } = settings.root;
+  const rootClient = new RootClient({ kind: 'instance', clientId: instanceId, rootUrl: url, publicUrl, owner: ownerId, keys: client.keys, registrationCode: client.registrationCode });
+  rootClient.keepRegistering(log ?? ((line) => console.log(line)));
+  return selfUpgrade({ root: { url, instanceId, token: () => rootClient.serviceToken() }, release: settings.release, cluster: access.chartCluster(access.own()), ...(log ? { log } : {}) });
 }
 
 if (process.argv[1]?.endsWith('self-upgrade.ts')) {

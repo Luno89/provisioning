@@ -29,7 +29,7 @@ import { InstanceWatchSetting } from '../../../../../backend/src/instances/servi
 import { ReleaseCatalogue } from '../../../../../backend/src/instances/services/ReleaseCatalogue'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
 import { openRoutesOf } from '../../../../../backend/src/open-routes'
-import { INSTANCE_CREDENTIAL } from '../../../../../backend/src/instances/testing/through-root'
+import { testInstanceClients, tokenOfInstance } from '../../../../../backend/src/instances/testing/placed-koala'
 
 const DOMAIN = 'people.koala.test'
 const OLDER = 'imgolder'
@@ -52,6 +52,7 @@ root.use('/api/instances', instancesRouter({
   instances: new InstanceService(rootDb, {
     rootUrl,
     rootPublicKeys: () => [],
+    ...testInstanceClients,
     registry: '',
     imageTag: NEWER,
     domain: DOMAIN,
@@ -68,7 +69,7 @@ root.use('/api/instances', instancesRouter({
 }))
 root.use(errorResponder)
 
-const token = async (): Promise<string> => INSTANCE_CREDENTIAL
+const token = async (): Promise<string> => tokenOfInstance(INSTANCE_ID)
 
 const backend = await startBackend(({ api }) => {
   const addresses = new InstanceAddresses({ rootUrl, instanceId: INSTANCE_ID, token, name: 'kangaroo' }, async () => undefined)

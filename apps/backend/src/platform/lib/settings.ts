@@ -1,6 +1,7 @@
 import { roleRuns } from './work-places.js';
 import type { TelemetryPlace } from './telemetry.js';
-import { roleFromEnv, type RoleConfig } from './platform-role.js';
+import { pemOf, roleFromEnv, type RoleConfig } from './platform-role.js';
+import { identityKeysFrom, type IdentityKeyPair } from '../../instances/lib/identity-token.js';
 import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
 import { mongoTarget, type MongoTarget } from './mongo-target.js';
 import { labFrom } from './lab.js';
@@ -124,8 +125,13 @@ export interface RootSettings {
   mailReputation: { domain: string; relayhost?: string | undefined } | Off;
 }
 
+export interface InstanceClient {
+  keys: IdentityKeyPair;
+  registrationCode: string;
+}
+
 export interface InstanceSettings {
-  credential: string;
+  client: InstanceClient;
   edge: EdgeSettings | Off;
   selfUpgrade: { cronJob: string; namespace: string } | Off;
   machineTemporalAddress: string | Off;
@@ -204,7 +210,7 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
   koalaProcess: 'worker-engine';
   publicUrl: string;
-  instanceCredential: string;
+  client: InstanceClient;
   tenant: TenantServices;
   mesh: MeshSettings | Off;
 }
@@ -436,9 +442,21 @@ function rootSettings(read: Reading): RootSettings | undefined {
   };
 }
 
+function instanceClient(read: Reading): InstanceClient | undefined {
+  const key = required(read, 'INSTANCE_CLIENT_KEY', 'it is the key this instance signs in to root with, which the instance chart makes once and keeps');
+  const registrationCode = required(read, 'INSTANCE_REGISTRATION_TOKEN', 'it is the one-use code root gave this instance to register its key with; the instance chart sets it');
+  if (key === undefined || registrationCode === undefined) return undefined;
+  try {
+    return { keys: identityKeysFrom(pemOf(key)), registrationCode };
+  } catch {
+    read.problems.push('INSTANCE_CLIENT_KEY is not the Ed25519 private key the instance chart makes for this instance to sign in to root with');
+    return undefined;
+  }
+}
+
 function instanceSettings(read: Reading): InstanceSettings | undefined {
   const { env } = read;
-  const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is this instance\'s credential at root, without which nobody signs in to it; the instance chart sets it');
+  const client = instanceClient(read);
   const edge = read.take(() => edgeSettingsFrom(env));
   const cronJob = settingIn(read.env, 'SELF_UPGRADE_CRONJOB');
   const namespace = settingIn(read.env, 'INSTANCE_NAMESPACE');
@@ -450,9 +468,9 @@ function instanceSettings(read: Reading): InstanceSettings | undefined {
   if (gatewayParts > 0 && gatewayParts < 3) read.problems.push('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which Koala sets itself up for once; the instance chart sets it');
-  if (!credential || !edge || gatewayPort === undefined || revision === undefined) return undefined;
+  if (!client || !edge || gatewayPort === undefined || revision === undefined) return undefined;
   return {
-    credential,
+    client,
     edge,
     selfUpgrade: cronJob && namespace ? { cronJob, namespace } : { off: 'SELF_UPGRADE_CRONJOB is not set, so this instance is updated only by its installer' },
     machineTemporalAddress: machineTemporal
@@ -605,16 +623,16 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
   const base = common(read, 'worker-engine', role);
   const health = workerHealth(read, 'TEMPORAL_ENGINE_METRICS_PORT', role);
   const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the instance\'s own address, which its sign-in through root names');
-  const instanceCredential = required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which its runs reach root with');
+  const client = instanceClient(read);
   const tenant = tenantServices(read);
   if (role && !roleRuns(role.role, 'engine')) read.problems.push(`the engine worker runs only in an instance, and ROLE is ${role.role}`);
-  if (!base || !health || !publicUrl || !instanceCredential || !tenant) return finish<EngineWorkerSettings>(read, 'the engine worker');
+  if (!base || !health || !publicUrl || !client || !tenant) return finish<EngineWorkerSettings>(read, 'the engine worker');
   return finish(read, 'the engine worker', {
     ...base,
     ...health,
     koalaProcess: 'worker-engine',
     publicUrl,
-    instanceCredential,
+    client,
     tenant,
     mesh: NO_MESH_HERE('an instance'),
   });
@@ -634,14 +652,15 @@ function podStep(read: Reading, serviceAccountDir = SERVICE_ACCOUNT_DIR): PodSte
 }
 
 export interface SelfUpgradeSettings extends PodStepSettings {
-  root: { url: string; instanceId: string; credential: string };
+  root: { url: string; instanceId: string; ownerId: string; publicUrl: string; client: InstanceClient };
   release: { name: string; namespace: string; current: string; dataVersion: number };
 }
 
 export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACCOUNT_DIR): SelfUpgradeSettings {
   const read = new Reading(env);
   const step = podStep(read, serviceAccountDir);
-  const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance asks root for its release with');
+  const client = instanceClient(read);
+  const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the instance\'s own address, which its registration at root names');
   const why = 'the self-upgrade CronJob names the release it upgrades';
   const name = required(read, 'RELEASE_NAME', why);
   const namespace = required(read, 'RELEASE_NAMESPACE', why);
@@ -650,8 +669,8 @@ export function selfUpgradeSettingsFrom(env: Env, serviceAccountDir = SERVICE_AC
   const dataVersion = dataText !== undefined && /^\d+$/.test(dataText) ? Number(dataText) : undefined;
   if (dataText !== undefined && dataVersion === undefined) read.problems.push(`DATA_VERSION is ${dataText}, not a whole number`);
   const instance = step?.role.instance;
-  return finish(read, 'the self-upgrade', step && instance && credential && name && namespace && current && dataVersion !== undefined
-    ? { ...step, root: { url: instance.rootUrl, instanceId: instance.id, credential }, release: { name, namespace, current, dataVersion } }
+  return finish(read, 'the self-upgrade', step && instance && client && publicUrl && name && namespace && current && dataVersion !== undefined
+    ? { ...step, root: { url: instance.rootUrl, instanceId: instance.id, ownerId: instance.ownerId, publicUrl, client }, release: { name, namespace, current, dataVersion } }
     : undefined);
 }
 

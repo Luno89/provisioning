@@ -30,6 +30,7 @@ import { createAuth } from '../../platform/middleware/auth.js';
 import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { closedAfterEach, quietAccountSides } from '../testing/wiring-world.js';
 import { openRoutesOf } from '../../open-routes.js';
+import { testInstanceClients } from '../../instances/testing/placed-koala.js';
 
 const closers = closedAfterEach();
 
@@ -37,7 +38,7 @@ async function root(followBeatMs?: number) {
   const db: Database = await testDatabase();
   const heard: Array<[string, MachineProgress]> = [];
   const instances = new InstanceService(db, {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
+    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], ...testInstanceClients, meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
     reach: new InstanceReach({ open: true, domain: '' }),
   }, { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
   const installs = new KoalaInstalls({

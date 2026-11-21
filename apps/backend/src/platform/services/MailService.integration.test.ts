@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import net, { type AddressInfo } from 'node:net';
 import type { NextFunction, Request, Response } from 'express';
 import { instancesRouter } from '../../instances/routes/instances.js';
-import { InstanceService, hashCredential } from '../../instances/services/InstanceService.js';
+import { InstanceService } from '../../instances/services/InstanceService.js';
+import { testInstanceClients, tokenOfInstance } from '../../instances/testing/placed-koala.js';
 import { InstanceMailLimit } from '../../instances/services/InstanceMailLimit.js';
 import { mountRouter, TEST_USER, type Harness } from '../routes/test-harness.js';
 import { MailError, MailService } from './MailService.js';
@@ -102,8 +103,8 @@ describe('MailService sending through a real SMTP server', () => {
   });
 
   it('refuses to send to other people where it is not root, saying why', async () => {
-    const root = { kind: 'root' as const, rootUrl: 'http://127.0.0.1:1', instanceId: 'inst-1', credential: 'cred-1' };
-    await expect(new MailService({ way: root, emailOf: async () => undefined }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'only root sends email to other people' });
+    const root = { kind: 'root' as const, rootUrl: 'http://127.0.0.1:1', instanceId: 'inst-1' };
+    await expect(new MailService({ way: root, emailOf: async () => undefined, rootToken: async () => 'service-token' }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'only root sends email to other people' });
     await expect(new MailService({ way: { kind: 'none', why: 'no mail here' }, emailOf: async () => undefined }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'no mail here' });
   });
 });
@@ -121,11 +122,11 @@ describe('an instance asking root to send its owner email, over HTTP', () => {
       user: TEST_USER,
       router: async (db) => {
         await db.accounts.saveUser({ id: 'u1', email: 'owner@example.com' } as never);
-        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') } as never);
-        await db.instances.saveInstance({ id: 'inst-2', ownerId: 'u1', name: 'bob', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('other') } as never);
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', createdAt: 'then', updatedAt: 'then' } as never);
+        await db.instances.saveInstance({ id: 'inst-2', ownerId: 'u1', name: 'bob', status: 'ready', createdAt: 'then', updatedAt: 'then' } as never);
         const rootMail = new MailService({ way: smtp(), emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email });
         return instancesRouter({
-          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
+          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev', ...testInstanceClients }, undefined),
           chart: async () => '',
           operatorOnly: (_req: Request, res: Response, _next: NextFunction) => { res.status(403).end(); },
           mail: rootMail,
@@ -137,7 +138,7 @@ describe('an instance asking root to send its owner email, over HTTP', () => {
 
   afterAll(async () => { await harness.close(); });
 
-  const instance = (credential = 'secret', instanceId = 'inst-1') => new MailService({ way: { kind: 'root', rootUrl: harness.url(''), instanceId, credential }, emailOf: async () => undefined });
+  const instance = (token = tokenOfInstance('inst-1'), instanceId = 'inst-1') => new MailService({ way: { kind: 'root', rootUrl: harness.url(''), instanceId }, emailOf: async () => undefined, rootToken: async () => token });
 
   it('is sent by root to the instance owner\'s address, from root\'s own address', async () => {
     await instance().toOwner('u1', message);
@@ -146,19 +147,19 @@ describe('an instance asking root to send its owner email, over HTTP', () => {
     expect(headerOf(received[0]!, 'Subject')).toBe('Down');
   });
 
-  it('is refused with root\'s reason when the credential is wrong or the message is not one', async () => {
+  it('is refused with root\'s reason when the token is not the instance\'s or the message is not one', async () => {
     await expect(instance('wrong').toOwner('u1', message)).rejects.toMatchObject({ status: 502, message: 'root did not send it (401): unknown instance or credential' });
     await expect(instance().toOwner('u1', { subject: '', text: 'x' })).rejects.toMatchObject({ status: 502, message: expect.stringContaining('root did not send it (400)') as unknown });
     expect(received).toEqual([]);
   });
 
   it('is held back past an hour\'s allowance, and tells the owner once that it is', async () => {
-    for (let sent = 0; sent < 60; sent += 1) await instance('other', 'inst-2').toOwner('u1', message);
+    for (let sent = 0; sent < 60; sent += 1) await instance(tokenOfInstance('inst-2'), 'inst-2').toOwner('u1', message);
     expect(received).toHaveLength(60);
-    await expect(instance('other', 'inst-2').toOwner('u1', message)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('root did not send it (429): this instance has sent as many emails as an hour allows') as unknown });
+    await expect(instance(tokenOfInstance('inst-2'), 'inst-2').toOwner('u1', message)).rejects.toMatchObject({ status: 502, message: expect.stringContaining('root did not send it (429): this instance has sent as many emails as an hour allows') as unknown });
     expect(received).toHaveLength(61);
     expect(headerOf(received[60]!, 'Subject')).toBe('Koala is holding back email from your instance');
-    await expect(instance('other', 'inst-2').toOwner('u1', message)).rejects.toMatchObject({ status: 502 });
+    await expect(instance(tokenOfInstance('inst-2'), 'inst-2').toOwner('u1', message)).rejects.toMatchObject({ status: 502 });
     expect(received).toHaveLength(61);
   });
 });

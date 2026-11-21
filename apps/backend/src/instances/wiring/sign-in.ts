@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import type { AccessRevocations, Database, PlatformKeys, RoleConfig } from '../../platform/index.js';
-import { clientKeysFrom, OIDC_PATH } from '../lib/oidc.js';
+import type { AccessRevocations, Database, InstanceClient, PlatformKeys, RoleConfig } from '../../platform/index.js';
+import { OIDC_PATH } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn, type RootSignInDeps } from '../services/RootSignIn.js';
@@ -20,18 +20,18 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
   }, deps.db);
 }
 
-export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: string | undefined; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string } & Pick<RootSignInDeps, 'sessions' | 'dependency'>): RootSignIn | undefined {
+export function rootSignInFor(deps: { role: RoleConfig; client: InstanceClient | undefined; keys: Pick<PlatformKeys, 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string } & Pick<RootSignInDeps, 'sessions' | 'dependency'>): RootSignIn | undefined {
   const { role } = deps;
-  if (role.role !== 'instance' || !role.instance || !deps.instanceCredential) return undefined;
+  if (role.role !== 'instance' || !role.instance || !deps.client) return undefined;
   return new RootSignIn({
     kind: 'instance',
     clientId: role.instance.id,
     rootUrl: role.instance.rootUrl,
     publicUrl: deps.publicUrl,
     owner: role.instance.ownerId,
-    clientKeys: clientKeysFrom(currentOf(deps.keys.session)),
+    clientKeys: deps.client.keys,
+    registrationCode: deps.client.registrationCode,
     dataKey: deps.keys.data,
-    announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.instanceCredential}` } },
   }, { store: deps.db, sessions: deps.sessions, revocations: deps.revocations, dependency: deps.dependency });
 }
 

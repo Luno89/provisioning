@@ -88,18 +88,15 @@ describe('an instance talking to root as itself', () => {
     expect((await (await on(router)).post(`${prefix}/status`, undefined, { headers: asInstance })).status).toBe(401);
   });
 
-  it('asks about its addresses, and names its sign-in key', async () => {
+  it('asks about its addresses', async () => {
     const { instances, router } = route();
     instances.addresses.mockResolvedValue(ok({ nested: false }) as never);
     instances.setAddresses.calledWith('inst-1', 'secret', true).mockResolvedValue(ok({ nested: true }) as never);
-    instances.announceSignIn.calledWith('inst-1', 'secret', matches<{ kid?: string }>((jwk) => jwk.kid === 'k')).mockResolvedValue(ok({ announced: true }) as never);
     expect((await (await on(router)).get(`${prefix}/addresses`, { headers: asInstance })).data).toEqual({ nested: false });
     expect((await (await on(router)).put(`${prefix}/addresses`, { nested: true }, { headers: asInstance })).data).toEqual({ nested: true });
-    expect((await (await on(router)).put(`${prefix}/sign-in-key`, { jwk: { kid: 'k' } }, { headers: asInstance })).data).toEqual({ announced: true });
     instances.addresses.mockResolvedValue(no(401, 'x'));
     instances.setAddresses.mockResolvedValue(no(401, 'x'));
-    instances.announceSignIn.mockResolvedValue(no(401, 'x'));
-    for (const call of [{ path: '/addresses' }, { method: 'PUT' as const, path: '/addresses', body: {} }, { method: 'PUT' as const, path: '/sign-in-key', body: {} }]) {
+    for (const call of [{ path: '/addresses' }, { method: 'PUT' as const, path: '/addresses', body: {} }]) {
       expect((await (await on(router)).request(call.method ?? 'GET', `${prefix}${call.path}`, { body: call.body, headers: asInstance })).status).toBe(401);
     }
   });

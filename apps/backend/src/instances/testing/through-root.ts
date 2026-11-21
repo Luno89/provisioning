@@ -1,18 +1,17 @@
-import express from 'express';
-import { asyncRoute, type Database } from '../../platform/index.js';
+import type express from 'express';
+import type { Database } from '../../platform/index.js';
 import { createAuth, type Auth } from '../../platform/middleware/auth.js';
 import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { BrowserSessions } from '../../platform/services/BrowserSessions.js';
 import { arrivedOverHttps, sessionToken } from '../../platform/lib/auth.js';
 import type { DependencyId } from '../../platform/lib/dependencies.js';
 import type { AccessRevocations } from '../../platform/services/AccessRevocations.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { clientKeysFrom } from '../lib/oidc.js';
+import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys, type IdentityKeyPair } from '../lib/identity-token.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
 import { RunBearers } from '../services/RunBearers.js';
-import { InstanceService, hashCredential } from '../services/InstanceService.js';
+import { InstanceService } from '../services/InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { IdentityService } from '../services/IdentityService.js';
@@ -23,7 +22,6 @@ const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
 const PROVIDER_COOKIE_KEY = 'cookie-key-for-the-round-trip';
-export const INSTANCE_CREDENTIAL = 'the-instance-credential';
 
 export interface Served { url: string; app: express.Express }
 
@@ -70,21 +68,20 @@ export interface ThroughRoot {
   sessions: BrowserSessions;
   signIn: RootSignIn;
   instanceAuth: Auth;
+  clientKeys: IdentityKeyPair;
+  registrationCode: string;
 }
 
 export async function servedThroughRoot(options: ThroughRootOptions): Promise<ThroughRoot> {
   const { rootDb, instanceDb, root, instance, instanceId, ownerId } = options;
-  await rootDb.instances.saveInstance({ id: instanceId, ownerId, url: instance.url, credentialHash: hashCredential(INSTANCE_CREDENTIAL), createdAt: 'x', updatedAt: 'x', status: 'ready' });
+  await rootDb.instances.saveInstance({ id: instanceId, ownerId, url: instance.url, createdAt: 'x', updatedAt: 'x', status: 'ready' });
 
   const provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: PROVIDER_COOKIE_KEY, proxied: false, reach: options.reach }, rootDb);
-  const rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
+  const rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token), registrationCode: (placed) => provider.registrationCode(placed) }, undefined);
   const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
-  root.app.put('/api/instances/sign-in-key', express.json(), asyncRoute(async (req, res) => {
-    const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), ((req.body ?? {}) as { jwk?: unknown }).jwk);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
-  }));
+  const registrationCode = await provider.registrationCode({ id: instanceId, ownerId });
+  const clientKeys = identityKeysFrom(generateIdentityKey());
 
   const sessions = new BrowserSessions({ store: instanceDb.platform, secret: INSTANCE_SESSION, securedFor: (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], false) });
   const signIn = new RootSignIn({
@@ -93,16 +90,16 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
     rootUrl: root.url,
     publicUrl: instance.url,
     owner: ownerId,
-    clientKeys: clientKeysFrom(INSTANCE_SESSION),
+    clientKeys,
+    registrationCode,
     dataKey: DATA_KEY,
-    announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': instanceId, authorization: `Bearer ${INSTANCE_CREDENTIAL}` } },
   }, { store: instanceDb, sessions, revocations: options.revocations, dependency: options.dependency }, options.now);
   const bearers = new RunBearers({ tokens: signIn, grantOfRun: (runId) => instanceDb.engine.getRunGrantOfRun(runId), accounts: instanceDb.accounts, claims: { role: 'instance', instanceOwnerId: ownerId } });
   const instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: ownerId, throughRoot: { sessions, signIn }, bearer: (token) => bearers.signIn(token) });
   const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: instanceId, ownerId, rootUrl: root.url } }, instanceDb);
   instance.app.use('/api/auth', signInRouter({ signIn, sessions, identity, publicUrl: instance.url, landing: '/chat' }));
 
-  return { provider, rootService, sessions, signIn, instanceAuth };
+  return { provider, rootService, sessions, signIn, instanceAuth, clientKeys, registrationCode };
 }
 
 export async function signInThroughRoot(rootUrl: string, at: string, rootJar: Jar): Promise<{ instanceJar: Jar; landed: Response }> {

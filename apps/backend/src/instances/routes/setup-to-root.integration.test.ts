@@ -5,6 +5,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { InstanceReporter } from '../services/InstanceReporter.js';
 import { rootInstallsServed } from '../testing/root-installs.js';
+import { tokenOfInstance } from '../testing/placed-koala.js';
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of closers.splice(0).reverse()) await close(); });
@@ -21,7 +22,7 @@ async function root() {
   if (!placed.ok) throw new Error(placed.error);
   const koala = await instances.placedKoala('install-1', DESK);
   if (!koala.ok) throw new Error(koala.error);
-  const reporter = new InstanceReporter({ root: { url, instanceId: placed.value.instanceId, credential: koala.value.credential }, wait: reopening(1), log: () => undefined });
+  const reporter = new InstanceReporter({ root: { url, instanceId: placed.value.instanceId, token: async () => tokenOfInstance(koala.value.instanceId) }, wait: reopening(1), log: () => undefined });
   const record = async () => (await db.instances.getInstances('bo'))[0]!;
   return { db, instances, handed, reporter, record };
 }

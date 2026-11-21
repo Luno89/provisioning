@@ -150,7 +150,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     provider.keepDelivering();
   }
   if (signsInThroughRoot(role.role) && deps.signIn && deps.browserSessions) {
-    deps.signIn.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
+    deps.signIn.keepRegistering((message) => console.warn(`[sign-in] ${message}`));
     app.use('/api/auth', signInRouter({ signIn: deps.signIn, sessions: deps.browserSessions, identity, publicUrl, landing: '/chat' }));
   }
 
@@ -231,6 +231,8 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     }
   }, (message) => console.warn(message));
   let presenceOf: ((instanceId: string) => boolean) | undefined;
+  const provider = deps.provider;
+  if (!provider) throw new Error('root holds the instances, and it has no OpenID provider to register them and check their tokens with');
   const instanceService = new InstanceService(db, {
     connected: (instanceId) => presenceOf?.(instanceId) ?? false,
     serviceChanged: deps.instanceArrived,
@@ -243,7 +245,8 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     notices: withdrawalNotices,
     domain: routingDomain,
     siteNames,
-    serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
+    serviceCaller: (token) => provider.serviceCaller(token),
+    registrationCode: (instance) => provider.registrationCode(instance),
     reach: new InstanceReach(settings.reach),
     installs: deps.installs,
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed());

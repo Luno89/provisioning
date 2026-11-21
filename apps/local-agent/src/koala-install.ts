@@ -15,7 +15,7 @@ export const KOALA_RELEASE = 'instance';
 export const BACKEND_NODE_PORT = 30320;
 export const EDGE_NODE_PORT = 30321;
 
-const TEXT_FIELDS = ['installId', 'instanceId', 'ownerId', 'machineId', 'rootUrl', 'rootPublicKeys', 'meshLoginServer', 'meshAddress', 'image', 'imageTag', 'chartUrl', 'credential'] as const;
+const TEXT_FIELDS = ['installId', 'instanceId', 'ownerId', 'machineId', 'rootUrl', 'rootPublicKeys', 'meshLoginServer', 'meshAddress', 'image', 'imageTag', 'chartUrl', 'registrationCode'] as const;
 
 export function placedFrom(raw: unknown): PlacedKoala | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -40,7 +40,7 @@ export function koalaValues(placed: PlacedKoala): Record<string, unknown> {
   const routed = Boolean(placed.domain && placed.name);
   return {
     image: { repository: placed.image, tag: placed.imageTag, ...(placed.imageDigest ? { digest: placed.imageDigest } : {}) },
-    instance: { id: placed.instanceId, ownerId: placed.ownerId, rootUrl: placed.rootUrl, credential: placed.credential, machineId: placed.machineId },
+    instance: { id: placed.instanceId, ownerId: placed.ownerId, rootUrl: placed.rootUrl, registrationCode: placed.registrationCode, machineId: placed.machineId },
     publicUrl: koalaUrlOf(placed),
     backend: { nodePort: BACKEND_NODE_PORT },
     mesh: { loginServer: placed.meshLoginServer, address: placed.meshAddress },

@@ -11,7 +11,7 @@ instance:
   ownerId: ""
   rootUrl: ""
   rootPublicKeys: ""
-  credential: ""
+  registrationCode: ""
   machineId: ""
 
 selfUpgrade:

@@ -47,7 +47,7 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
   signingInThroughRoot(world);
 
   it('keeps delivering a revocation on its own, waiting longer each time, until the instance answers', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     world.instance.up = false;
     world.provider.keepDelivering(reopening(20));
@@ -70,7 +70,7 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
 
 describe('what an instance does when the sign-in does not go through', () => {
   it('refuses a return from root that did not start in this browser', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const nothing = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback?code=c&state=s`), undefined);
     expect(nothing).toEqual({ ok: false, status: 400, error: 'this sign-in did not start in this browser — sign in again from here' });
     const started = await world.signIn.start('/projects');
@@ -82,7 +82,7 @@ describe('what an instance does when the sign-in does not go through', () => {
   });
 
   it('starts a sign-in that keeps only a path of its own to go back to, with an address back to itself', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     expect(world.signIn.redirectUri).toBe(`${world.instance.url}/api/auth/oidc/callback`);
     expect(world.signIn.issuer).toBe(`${world.root.url}/oidc`);
     const started = await world.signIn.start('//evil.example.com');
@@ -95,7 +95,7 @@ describe('what an instance does when the sign-in does not go through', () => {
   });
 
   it('holds no one for a session root has revoked', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     expect((await world.heldPerson(instanceJar))?.sub).toBe('u1');
     await world.provider.revoke({ personId: 'u1', at: after(), because: 'signed-out-everywhere' });
@@ -104,7 +104,7 @@ describe('what an instance does when the sign-in does not go through', () => {
   });
 
   it('takes a logout token only when it is a string root signed for this client and for ending sessions', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     expect(await world.signIn.backchannel(undefined)).toEqual({ ok: false, error: 'send the logout token as logout_token' });
     expect(await world.signIn.backchannel('garbage')).toMatchObject({ ok: false, error: containing('the logout token could not be checked') });
     const forPerson = await world.provider.logoutToken({ id: 'd1', clientId: 'inst-u1', url: 'x', subject: 'u1', revokedAt: after(), why: 'member-removed' as never, attempts: 0 } as never);
@@ -117,7 +117,7 @@ describe('what an instance does when the sign-in does not go through', () => {
   });
 
   it('takes each logout token once and only with its expiry, and answers only once everything the person held here was revoked', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const delivery = (id: string) => ({ id, clientId: 'inst-u1', url: 'x', subject: 'u1', revokedAt: after(), why: 'signed-out-everywhere', attempts: 0 }) as never;
     const once = await world.provider.logoutToken(delivery('d1'));
     expect(await world.signIn.backchannel(once)).toEqual({ ok: true });
@@ -133,30 +133,30 @@ describe('what an instance does when the sign-in does not go through', () => {
     expect(await world.signIn.backchannel(await world.provider.logoutToken(delivery('d3')))).toEqual({ ok: true });
   });
 
-  it('says root has not taken its key, and tries again until it does', async () => {
+  it('says root has not registered it yet, and tries again until it has', async () => {
     world.instance.up = true;
     world.root.up = false;
     const said: string[] = [];
     let first!: () => void;
     const saidOnce = new Promise<void>((done) => { first = done; });
-    world.signIn.keepAnnouncing((message) => { said.push(message); first(); }, reopening(5));
+    world.signIn.keepRegistering((message) => { said.push(message); first(); }, reopening(5));
     await saidOnce;
     expect(said.length).toBeGreaterThanOrEqual(1);
-    expect(said[0]).toMatch(/^root has not taken this instance's sign-in key yet: .*; trying again in 0 s$/);
+    expect(said[0]).toMatch(/^root has not registered this instance yet: .*; trying again in 0 s$/);
     world.root.up = true;
-    await world.signIn.announced;
+    await world.signIn.registered;
     expect(await world.rootDb.instances.getInstances('u1')).toEqual([having({ signIn: having({}) })]);
   });
 
-  it('says what root answered when it refuses the key', async () => {
-    await world.rootDb.instances.deleteInstance('inst-u1');
-    await expect(world.signIn.announce()).rejects.toThrow(/^root answered 4\d\d to this instance's sign-in key/);
+  it('says what to do when root knows neither its key nor its code', async () => {
+    await world.rootDb.instances.oidcTakeRegistration(world.registrationCode);
+    await expect(world.signIn.register()).rejects.toThrow('root refused this instance\'s registration code (it was used, or a newer one replaced it), and does not know its key: put Koala on your machine again');
   });
 });
 
 describe('an instance keeping its session with root', () => {
   const heldOnceItsAccessRunsOut = async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const person = (await world.heldPerson(instanceJar))!;
     world.offset = person.accessExp - Date.now() + 1000;
@@ -164,7 +164,7 @@ describe('an instance keeping its session with root', () => {
   };
 
   it('keeps the person as they were while their tokens are still good, and asks root nothing', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const person = (await world.heldPerson(instanceJar))!;
     world.root.up = false;
@@ -189,7 +189,7 @@ describe('an instance keeping its session with root', () => {
   });
 
   it('ends the person when root refuses the refresh token', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const person = (await world.heldPerson(instanceJar))!;
     await world.rootDb.instances.oidcForgetAccount('u1');
@@ -207,7 +207,7 @@ describe('root sending logouts', () => {
   });
 
   it('knows its clients: an instance it registered, and nobody else', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     expect(await world.provider.registration('hub')).toBeUndefined();
     expect(await world.provider.registration('inst-u1')).toMatchObject({ clientId: 'inst-u1' });
     expect(await world.provider.registration('inst-nobody')).toBeUndefined();

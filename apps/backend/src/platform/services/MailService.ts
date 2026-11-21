@@ -24,7 +24,11 @@ export class MailError extends Error {
 export class MailService {
   private readonly smtp: { sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown> } | undefined;
 
+  private readonly rootToken: (() => Promise<string>) | undefined;
+
   constructor(private readonly deps: MailDeps) {
+    if (deps.way.kind === 'root' && !deps.rootToken) throw new Error('an instance sends its mail through root with its service token, and this one was given no way to get one');
+    this.rootToken = deps.rootToken;
     this.smtp = deps.way.kind === 'smtp' ? (deps.transport ?? ((url) => nodemailer.createTransport(url)))(deps.way.url) : undefined;
   }
 
@@ -55,7 +59,7 @@ export class MailService {
       return this.counted('root', async () => {
         const response = await (this.deps.fetchImpl ?? fetch)(`${way.rootUrl}/api/instances/mail`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-instance-id': way.instanceId, authorization: `Bearer ${this.deps.rootToken ? await this.deps.rootToken() : way.credential}` },
+          headers: { 'content-type': 'application/json', 'x-instance-id': way.instanceId, authorization: `Bearer ${await this.rootToken!()}` },
           body: JSON.stringify(message),
         });
         if (!response.ok) {

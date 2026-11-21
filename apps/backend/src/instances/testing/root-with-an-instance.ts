@@ -3,7 +3,7 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { instancesRouter } from '../routes/instances.js';
 import { InstanceService } from '../services/InstanceService.js';
 import type { InstanceRecord } from '../lib/instances.js';
-import { koalaPlacedAndUp } from './placed-koala.js';
+import { koalaPlacedAndUp, testInstanceClients } from './placed-koala.js';
 
 export interface RootWithAnInstance {
   harness: Harness;
@@ -17,7 +17,7 @@ export async function rootWithAnInstance(): Promise<RootWithAnInstance> {
   let service: InstanceService | undefined;
   const meshAsked: string[] = [];
   const settings = {
-    rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev',
+    rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev', ...testInstanceClients,
     releases: { hasChart: () => false, releases: async () => [
       { imageTag: 'old111', version: 'v2026.10.29', servedAt: '2026-10-29T00:00:00Z' },
       { imageTag: 'new222', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00Z' },
@@ -37,7 +37,7 @@ export async function rootWithAnInstance(): Promise<RootWithAnInstance> {
   });
   settings.rootUrl = harness.url('');
   const joined = { value: await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
-  await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', meshIp: '100.64.0.9', presence: true });
-  const instance = { rootUrl: harness.url(''), instanceId: joined.value.instanceId, token: async () => joined.value.credential };
+  await service!.report(joined.value.instanceId, joined.value.token, { status: 'ready', detail: 'Installed', imageTag: 'old111', meshIp: '100.64.0.9', presence: true });
+  const instance = { rootUrl: harness.url(''), instanceId: joined.value.instanceId, token: async () => joined.value.token };
   return { harness, instance, meshAsked, record: async () => (await harness.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)!, close: () => harness.close() };
 }

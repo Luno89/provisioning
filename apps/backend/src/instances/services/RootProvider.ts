@@ -6,7 +6,7 @@ import { reopening, type AccessRevoked, type Database, type Reopening } from '..
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
-  logoutClaims, privateJwkOf, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
+  logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
@@ -94,6 +94,29 @@ export class RootProvider {
     ctx.body = { access_token: accessToken, issued_token_type: ACCESS_TOKEN_TYPE, token_type: 'Bearer', expires_in: at.expiration, refresh_token: refreshToken, scope: RUN_SCOPE };
   }
 
+  async registrationCode(instance: { id: string; ownerId: string }): Promise<string> {
+    const code = await new this.provider.InitialAccessToken({ policies: [REGISTRATION_POLICY] }).save();
+    await this.store.instances.oidcBindRegistration(code, instance);
+    return code;
+  }
+
+  private async registering(ctx: KoaContextWithOIDC, properties: Record<string, unknown>): Promise<void> {
+    const key = registeredKeyOf(properties);
+    if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
+    const code = ctx.oidc.entities.InitialAccessToken?.jti;
+    const instanceId = code ? await this.store.instances.oidcTakeRegistration(code) : undefined;
+    if (!instanceId) throw new errors.InvalidToken('this registration code was used already, or a newer one replaced it');
+    const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === instanceId);
+    if (!instance) throw new errors.InvalidToken('the Koala this registration code was made for is gone');
+    Object.assign(properties, {
+      client_id: instance.id,
+      koala_kind: 'instance',
+      koala_owner: instance.ownerId,
+      token_endpoint_auth_method: 'private_key_jwt',
+      jwks: { keys: [{ ...key, alg: SIGNING_ALG, use: 'sig' }] },
+    });
+  }
+
   get issuer(): string {
     return this.settings.issuer;
   }
@@ -111,7 +134,12 @@ export class RootProvider {
     const instances = this.store.instances;
     if (name === 'Client') {
       return {
-        upsert: async () => undefined,
+        upsert: async (id, payload) => {
+          const key = registeredKeyOf(payload as Record<string, unknown>);
+          if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
+          const held = (await instances.getInstances()).find((candidate) => candidate.id === id)?.signIn;
+          await instances.saveSignInKey(id, { jwk: key, since: held?.jwk.kid === key.kid ? held.since : new Date(this.now()).toISOString() });
+        },
         find: async (id) => {
           const client = await this.registration(id);
           return client ? clientMetadata(client) as AdapterPayload : undefined;
@@ -184,6 +212,12 @@ export class RootProvider {
             if (indicator !== runResourceOf(client.clientId)) throw new errors.InvalidTarget('root serves no such resource');
             return { audience: indicator, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
           },
+        },
+        registration: {
+          enabled: true,
+          initialAccessToken: true,
+          issueRegistrationAccessToken: false,
+          policies: { [REGISTRATION_POLICY]: async (ctx, properties) => this.registering(ctx, properties as Record<string, unknown>) },
         },
         userinfo: { enabled: false },
         pushedAuthorizationRequests: { enabled: false },

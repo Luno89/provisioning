@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer, type AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
-import type { NextFunction, Request, Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
@@ -17,6 +17,11 @@ import { selfUpgrade, selfUpgradeStep } from './self-upgrade.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
 import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
+import { RootProvider } from '../instances/services/RootProvider.js';
+import { RootClient } from '../instances/services/RootClient.js';
+import { InstanceReach } from '../instances/services/InstanceReach.js';
+import { oidcProviderRouter } from '../instances/routes/oidc-provider.js';
+import { generateIdentityKey, identityKeysFrom } from '../instances/lib/identity-token.js';
 
 const CHART = 'the chart root released';
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -37,28 +42,44 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
   const chartSha256 = given ?? createHash('sha256').update(chart).digest('hex');
   const chartFile = join(mkdtempSync(join(tmpdir(), 'root-chart-')), 'chart.tgz');
   writeFileSync(chartFile, chart);
+  const held: { provider?: RootProvider; oidc?: Router } = {};
+  const providerOf = (): RootProvider => {
+    if (!held.provider) throw new Error('root\'s provider is made once root listens');
+    return held.provider;
+  };
   const settings = { rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev',
+    serviceCaller: (token: string) => providerOf().serviceCaller(token), registrationCode: (instance: { id: string; ownerId: string }) => providerOf().registrationCode(instance),
     releases: { hasChart: () => false, releases: async () => [
       { imageTag: 'old111', version: 'v2026.10.29', servedAt: '2026-10-29T00:00:00Z' },
       { imageTag: 'new222', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00Z', digest: DIGEST, chartSha256, ...(newData ? { dataVersion: newData } : {}) },
     ] } };
   let service: InstanceService | undefined;
   harness = await mountRouter({
-    prefix: '/api/instances',
+    prefix: '/',
     router: (db) => {
       service = new InstanceService(db, settings, { createPreAuthKey: async () => ({ key: 'k' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] });
-      return instancesRouter({ instances: service, chart: async () => chartFile, operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
+      const router = Router();
+      router.use('/oidc', (req, res, next) => (held.oidc ? held.oidc(req, res, next) : next(new Error('root\'s provider is made once root listens'))));
+      router.use('/api/instances', instancesRouter({ instances: service, chart: async () => chartFile, operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
+      return router;
     },
   });
   settings.rootUrl = harness.url('');
-  const joined = { value: await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno') };
-  const ran = await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', presence: true });
+  held.provider = new RootProvider({ issuer: harness.url('/oidc'), signing: identityKeysFrom(generateIdentityKey()), cookieKey: 'self-upgrade-provider-cookies', proxied: false, reach: new InstanceReach({ open: true }) }, harness.db);
+  held.oidc = oidcProviderRouter({ provider: held.provider, signedIn: async () => undefined });
+  const joined = await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno');
+  const clientKey = generateIdentityKey();
+  const client = new RootClient({ kind: 'instance', clientId: joined.instanceId, rootUrl: harness.url(''), publicUrl: 'https://luno.koala.dev', owner: TEST_USER.id, keys: identityKeysFrom(clientKey), registrationCode: joined.registrationCode });
+  await client.register();
+  const token = (): Promise<string> => client.serviceToken();
+  const ran = await service!.report(joined.instanceId, await token(), { status: 'ready', detail: 'Installed', imageTag: 'old111', presence: true });
   if (!ran.ok) throw new Error(ran.error);
   return {
-    root: { url: harness.url(''), instanceId: joined.value.instanceId, credential: joined.value.credential },
-    record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)!,
+    root: { url: harness.url(''), instanceId: joined.instanceId, token },
+    client: { key: clientKey, registrationCode: joined.registrationCode },
+    record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.instanceId)!,
     setUp: async (revision: number, progress: Record<string, string> = { stage: 'set-up', title: 'Koala is set up', state: 'done' }) => {
-      const heard = await service!.report(joined.value.instanceId, joined.value.credential, { provision: { revision, progress } });
+      const heard = await service!.report(joined.instanceId, await token(), { provision: { revision, progress } });
       if (!heard.ok) throw new Error(heard.error);
     },
   };
@@ -243,13 +264,13 @@ describe('an instance upgrading itself as its CronJob runs it, on a real k3s', (
     await admin.helm(desk, ['upgrade', '--install', 'luno', chart, '-n', namespace]);
     const packed = mkdtempSync(join(tmpdir(), 'koala-upgrade-packed-'));
     await admin.packageChart(chart, packed);
-    const { root, record } = await rootServing(undefined, undefined, readFileSync(join(packed, 'luno-0.1.0.tgz')));
+    const { root, client, record } = await rootServing(undefined, undefined, readFileSync(join(packed, 'luno-0.1.0.tgz')));
     const said: string[] = [];
 
     const upgraded = await selfUpgradeStep({
       ROLE: 'instance', INSTANCE_ID: root.instanceId, INSTANCE_OWNER_ID: TEST_USER.id, ROOT_URL: root.url,
       ROOT_PUBLIC_KEYS: Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64'),
-      INSTANCE_MACHINE_ID: 'desk', INSTANCE_CREDENTIAL: root.credential, RELEASE_NAME: 'luno', RELEASE_NAMESPACE: namespace, CURRENT_IMAGE_TAG: 'old111', DATA_VERSION: '0',
+      INSTANCE_MACHINE_ID: 'desk', INSTANCE_CLIENT_KEY: client.key, INSTANCE_REGISTRATION_TOKEN: client.registrationCode, PUBLIC_URL: 'https://luno.koala.dev', RELEASE_NAME: 'luno', RELEASE_NAMESPACE: namespace, CURRENT_IMAGE_TAG: 'old111', DATA_VERSION: '0',
       KUBERNETES_SERVICE_HOST: k3s.account.host, KUBERNETES_SERVICE_PORT: k3s.account.port,
     }, dirname(k3s.account.caFile), (line) => said.push(line));
 

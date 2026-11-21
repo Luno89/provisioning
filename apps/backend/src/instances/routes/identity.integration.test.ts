@@ -26,11 +26,11 @@ describe('root\'s identity routes', () => {
     expect([signedOut.status, signedOut.headers.location]).toEqual([302, '/']);
     const signedIn = { ...quiet, headers: { Cookie: 'session=ok' } };
     expect((await axios.get(h.url('/api/identity/go'), signedIn)).status).toBe(404);
-    await identity!.register({ id: 'inst-test', ownerId: TEST_USER.id, url: 'https://test.example.com' });
+    await h.db.instances.saveInstance({ id: 'inst-test', ownerId: TEST_USER.id, url: 'https://test.example.com', createdAt: 'x', updatedAt: 'x' });
 
-    expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com', signInWaiting: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, servesTenants: false });
+    expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com', signInWaiting: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine' }, servesTenants: false });
     const waiting = await axios.get(h.url('/api/identity/go'), signedIn);
-    expect([waiting.status, waiting.data, waiting.headers.location]).toEqual([409, { error: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, undefined]);
+    expect([waiting.status, waiting.data, waiting.headers.location]).toEqual([409, { error: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine' }, undefined]);
 
     await h.db.instances.saveSignInKey('inst-test', { jwk: { kty: 'OKP', crv: 'Ed25519', x: 'x', kid: 'k' }, since: '2026-10-29T00:00:00.000Z' });
     expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com' }, servesTenants: false });
