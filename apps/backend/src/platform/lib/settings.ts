@@ -176,6 +176,7 @@ export interface BackendSettings extends CommonSettings {
 export interface WorkerHealth {
   healthPort: number;
   temporalMetricsPort: number;
+  pod: string | Off;
 }
 
 export interface HostWorkerSettings extends CommonSettings, WorkerHealth {
@@ -516,10 +517,15 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   });
 }
 
-function workerHealth(read: Reading, metricsName: string): WorkerHealth | undefined {
+const ROOT_WORKERS_ARE_PROCESSES: Off = { off: 'root\'s workers run as processes on its computer, not pods, so Temporal knows them by their process and nothing restarts them' };
+
+function workerHealth(read: Reading, metricsName: string, role: RoleConfig | undefined): WorkerHealth | undefined {
   const healthPort = portSetting(read, 'HEALTH_PORT', 'it is the port this worker answers /healthz on (0 for none)', true);
   const temporalMetricsPort = portSetting(read, metricsName, 'it is the port Temporal\'s runtime serves this worker\'s metrics on (0 for any free port)', true);
-  return healthPort === undefined || temporalMetricsPort === undefined ? undefined : { healthPort, temporalMetricsPort };
+  const pod = role?.role === 'root'
+    ? ROOT_WORKERS_ARE_PROCESSES
+    : required(read, 'POD_NAME', 'it is the name of this worker\'s own pod, which Temporal knows it by, so a deletion can restart it when it stops answering; the instance chart sets it');
+  return healthPort === undefined || temporalMetricsPort === undefined || pod === undefined ? undefined : { healthPort, temporalMetricsPort, pod };
 }
 
 export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
@@ -527,7 +533,7 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   const role = read.take(() => roleFromEnv(env));
   const base = common(read, 'worker-host', role);
   if (role && !roleRuns(role.role, 'host')) read.problems.push(`the host worker runs only on root and in an instance, and ROLE is ${role.role}`);
-  const health = workerHealth(read, 'TEMPORAL_METRICS_PORT');
+  const health = workerHealth(read, 'TEMPORAL_METRICS_PORT', role);
   const onRoot = role?.role === 'root';
   const publicUrl = onRoot ? urlSetting(read, 'PUBLIC_URL', 'it is root\'s own address, which its dependency watch hands on') : undefined;
   const imageTag = onRoot ? required(read, 'INSTANCE_IMAGE_TAG', 'it is the release root runs') : undefined;
@@ -564,7 +570,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const role = read.take(() => roleFromEnv(env));
   const base = common(read, 'worker-cluster', role);
   if (role && !roleRuns(role.role, 'cluster')) read.problems.push(`the cluster worker runs only in an instance, whose apps it deploys, and ROLE is ${role.role}`);
-  const health = workerHealth(read, 'TEMPORAL_METRICS_PORT');
+  const health = workerHealth(read, 'TEMPORAL_METRICS_PORT', role);
   const gitea = read.take(() => giteaSettingsFrom(env));
   const infisical = read.take(() => infisicalSettingsFrom(env));
   const terraform = terraformFrom(read);
@@ -597,7 +603,7 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
   const read = new Reading(env);
   const role = read.take(() => roleFromEnv(env));
   const base = common(read, 'worker-engine', role);
-  const health = workerHealth(read, 'TEMPORAL_ENGINE_METRICS_PORT');
+  const health = workerHealth(read, 'TEMPORAL_ENGINE_METRICS_PORT', role);
   const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the instance\'s own address, which its sign-in through root names');
   const instanceCredential = required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which its runs reach root with');
   const tenant = tenantServices(read);

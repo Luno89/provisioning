@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { Logger, Worker } from '@temporalio/worker';
 import { createWorker } from '@koala/engine-core/temporal';
-import { connectTemporalWorker, givenDeletingMarks, reopening, servesTenants, sharedPayloadBlobs, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
+import { connectTemporalWorker, givenDeletingMarks, isOff, reopening, servesTenants, sharedPayloadBlobs, type Off, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
 
 export function workflowInterceptorModules(role: RoleConfig): string[] {
   const modules = [resolve(import.meta.dirname, 'workflows/telemetry-interceptors.ts')];
@@ -13,6 +13,7 @@ export interface BackendWorkerSettings {
   temporal: TemporalSettings;
   keys: Pick<PlatformKeys, 'temporal' | 'payload'>;
   role: RoleConfig;
+  pod: string | Off;
 }
 
 export interface BackendWorker {
@@ -32,6 +33,7 @@ export async function backendWorker(settings: BackendWorkerSettings, { subject, 
     workflowModules: workflowInterceptorModules(settings.role),
     activities,
     deletingMarks: givenDeletingMarks(),
+    ...(isOff(settings.pod) ? {} : { identity: settings.pod }),
   });
 }
 

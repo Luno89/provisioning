@@ -22,7 +22,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey() }
     : {
-      INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: away, ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred',
+      INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: away, ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred', POD_NAME: 'luno-worker-engine-7d9f-abcde',
       GITEA_URL: away, GITEA_REACHES_KOALA_AT: away, INFISICAL_URL: away, ...testMinioEnv(),
       KOALA_REGISTRY: '127.0.0.1:1', KOALA_REGISTRY_PUSH: '127.0.0.1:1', REGISTRY_PULL_HOST: '127.0.0.1:1',
       SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawl-token', CHECKS_API_URL: `${away}/api`,
@@ -43,6 +43,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
     expect(worker.options.interceptors.activity).toHaveLength(6);
+    expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-engine-7d9f-abcde');
     const at = '2026-11-13T10:00:00.000Z';
     await db.projects.saveTree({ id: 'tree-shop', ownerId: 'owner-1', name: 'Shop', projectIds: ['project-shop'], createdAt: at, updatedAt: at } as never);
     await db.projects.savePlanProposal({ id: 'plan-shop', ownerId: 'owner-1', conversationId: 'c1', status: 'adopting', plan: { treeId: 'tree-shop', planDoc: '', branches: [] }, createdAt: at, updatedAt: at } as never);

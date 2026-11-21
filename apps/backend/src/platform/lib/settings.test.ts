@@ -37,6 +37,7 @@ const TENANT = {
 const INSTANCE = {
   ...BACKEND, ...TENANT, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey,
   INSTANCE_CREDENTIAL: 'cred', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local', KOALA_RELEASE_REVISION: '7',
+  POD_NAME: 'luno-worker-7d9f-abcde',
 };
 
 const WORKER = { HEALTH_PORT: '8090', TEMPORAL_METRICS_PORT: '9464' };
@@ -167,8 +168,17 @@ describe('the settings each worker reads once, at start', () => {
     expect(backendSettingsFrom({ ...INSTANCE, POD_IP: '10.42.0.9' }).listenHost).toBe('10.42.0.9');
   });
 
+  it('names each worker of an instance by its own pod, which Temporal knows it by, and a worker of root by none, saying why', () => {
+    const cluster = { ...INSTANCE, ...WORKER, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40' };
+    expect(clusterWorkerSettingsFrom(cluster).pod).toBe('luno-worker-7d9f-abcde');
+    expect(engineWorkerSettingsFrom({ ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' }).pod).toBe('luno-worker-7d9f-abcde');
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...cluster, POD_NAME: '' }))).toContain('POD_NAME is not set: it is the name of this worker\'s own pod, which Temporal knows it by, so a deletion can restart it when it stops answering; the instance chart sets it');
+    expect(problemsOf(() => engineWorkerSettingsFrom({ ...INSTANCE, POD_NAME: '', HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' }))).toContain('POD_NAME is not set: it is the name of this worker\'s own pod, which Temporal knows it by, so a deletion can restart it when it stops answering; the instance chart sets it');
+    expect(hostWorkerSettingsFrom({ ...ROOT, ...WORKER }).pod).toEqual({ off: saying('root\'s workers run as processes') });
+  });
+
   it('asks an instance\'s host worker for nothing of root\'s', () => {
-    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
+    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN, POD_NAME: INSTANCE.POD_NAME })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
   });
 
   it('gives the cluster worker its services, its Terraform and the address machines send metrics to, or why there is none', () => {

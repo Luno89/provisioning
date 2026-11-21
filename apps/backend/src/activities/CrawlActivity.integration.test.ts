@@ -43,7 +43,7 @@ const settingsWith = (crawl4aiUrl: string) => hostWorkerSettingsFrom({
   TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0',
   INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey,
-  SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: crawl4aiUrl, CRAWL4AI_API_TOKEN: 'crawl-token',
+  SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: crawl4aiUrl, CRAWL4AI_API_TOKEN: 'crawl-token', POD_NAME: 'crawl-host-worker',
 });
 
 const activitiesWith = (ends: () => Promise<Record<string, unknown>>) => {

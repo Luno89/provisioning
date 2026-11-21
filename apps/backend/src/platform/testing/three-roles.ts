@@ -204,7 +204,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     const instance = await startRole('instance', instanceEnv, ports.instance);
     instanceSide.push(instance);
     for (const name of options.instanceWorkers ?? []) {
-      const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name] });
+      const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv(), POD_NAME: `instance-${name}` }, undefined, { entry: WORKER_ENTRY[name] });
       instanceSide.push(worker);
       workers[`instance-${name}`] = worker;
     }
