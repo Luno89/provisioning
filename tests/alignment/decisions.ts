@@ -329,8 +329,9 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-21T00:35', text: 'being able to kill a process seems important' },
       { at: '2026-11-21T04:48', text: 'Yep kill at once, if we\'re deleting a project there\'s no point in waiting for it to finish, in theory we can follow githubs example and keep the codebase, and work items archived so they could be brought back but we need to be transparent to the user about it' },
       { at: '2026-11-21T04:50', text: '90 days is fine, keep the files too' },
+      { at: '2026-11-21T08:33', text: 'Yep that sounds alright' },
     ],
-    reading: 'Deleting a project marks it deleting at once, refuses new work for it, cancels its workflows and kills at once whatever is still running for it, a frozen worker included, with no waiting for anything to finish. Stopped and deleted are only ever the actual state, never Temporal giving up, and the page shows what is happening as it happens. Like GitHub, the project\'s code, its work and the files uploaded to it are kept archived for 90 days so they can be brought back, and the person is told plainly what is kept and for how long.',
+    reading: 'Deleting a project marks it deleting at once, refuses new work for it, cancels its workflows and kills at once whatever is still running for it, a frozen worker included, with no waiting for anything to finish. Stopped and deleted are only ever the actual state, never Temporal giving up, and the page shows what is happening as it happens. Like GitHub, the project\'s code, its work and the files uploaded to it are kept archived for 90 days so they can be brought back, and the person is told plainly what is kept and for how long. An upload into a project being deleted is refused in the same transaction as its final save, through one method the projects area offers to check the project is open; the files area never touches project records itself.',
     replaced: [
       { words: { at: '2026-11-13T16:35', text: 'C sounds right' }, by: 'the fence goes for mark, stop and sweep on 2026-11-21: "Yep kill at once, if we\'re deleting a project there\'s no point in waiting for it to finish"' },
     ],
