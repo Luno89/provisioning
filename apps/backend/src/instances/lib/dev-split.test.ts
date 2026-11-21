@@ -26,7 +26,7 @@ describe('root and an instance on one machine', () => {
     const { rootEnv, instanceEnv, rootUrl, instanceUrl } = plan();
     expect(rootUrl).toBe('http://koala.localhost:5175');
     expect(instanceUrl).toBe('http://dev.localhost:5173');
-    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl, TRUST_PROXY: 'loopback', INSTANCE_IMAGE_TAG: 'dev', INSTANCE_REGISTRY: '127.0.0.1:5001', TERRAFORM_STATE: 'local', TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233', TEMPORAL_NAMESPACE: 'koala-split', TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt', DATA_DIR: '/repo/apps/backend/data' });
+    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl, INSTANCE_IMAGE_TAG: 'dev', INSTANCE_REGISTRY: '127.0.0.1:5001', TERRAFORM_STATE: 'local', TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233', TEMPORAL_NAMESPACE: 'koala-split', TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt', DATA_DIR: '/repo/apps/backend/data' });
     expect(instanceEnv).toMatchObject({ ROLE: 'instance', PORT: '3001', PUBLIC_URL: instanceUrl, INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u-1', INSTANCE_CLIENT_KEY: clientKey, INSTANCE_REGISTRATION_TOKEN: 'code', ROOT_URL: rootUrl, KOALA_RELEASE_REVISION: '1', POD_NAME: 'dev-backend' });
     expect(instanceEnv.MONGO_URI).toBeUndefined();
     expect(Buffer.from(instanceEnv.ROOT_PUBLIC_KEYS!, 'base64').toString()).toContain('BEGIN PUBLIC KEY');

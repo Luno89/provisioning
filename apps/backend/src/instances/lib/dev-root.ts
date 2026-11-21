@@ -56,7 +56,6 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       MONGO_URI: withDatabase(input.mongoUri, DEV.rootDatabase),
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
-      TRUST_PROXY: 'loopback',
       ADMIN_SETUP_CODE: input.setupCode,
       MESH_LOGIN_SERVER: DEV.meshLoginServer,
       INSTANCE_REGISTRY: DEV.registry,
