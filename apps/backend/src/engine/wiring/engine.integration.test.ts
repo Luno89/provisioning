@@ -14,15 +14,16 @@ afterAll(async () => {
 });
 
 describe('the engine as an instance wires it, for its owner', () => {
-  it('a memory the owner deletes is gone, where they have no search service deployed to take it out of', async () => {
+  it('a memory the owner deletes while the memory index answers no one is kept, and they are told the index is down, since when and why', async () => {
     const at = roles.instance.url;
     const written = await call<{ id: string }>(`${at}/api/memories`, { method: 'POST', cookie: session, body: { category: 'environment_facts', scope: 'global', title: 'DNS lives at Cloudflare', text: 'The person manages DNS at Cloudflare.' } });
     expect(written.status, JSON.stringify(written.body)).toBe(201);
 
-    const deleted = await call(`${at}/api/memories/${written.body.id}`, { method: 'DELETE', cookie: session });
+    const deleted = await call<{ error: string }>(`${at}/api/memories/${written.body.id}`, { method: 'DELETE', cookie: session });
 
-    expect(deleted, JSON.stringify(deleted.body)).toMatchObject({ status: 200, body: { deleted: true } });
-    expect((await call<{ id: string }[]>(`${at}/api/memories`, { cookie: session })).body.map((memory) => memory.id)).not.toContain(written.body.id);
+    expect(deleted.status, JSON.stringify(deleted.body)).toBe(503);
+    expect(deleted.body.error).toMatch(/^The memory index's (words \(Quickwit\)|meanings \(Qdrant\)) isn't answering since \d\d:\d\d UTC: /);
+    expect((await call<{ id: string }[]>(`${at}/api/memories`, { cookie: session })).body.map((memory) => memory.id)).toContain(written.body.id);
   });
 
   it('an agent the owner saves is theirs, and one that names a tool that does not exist is refused, saying so', async () => {
