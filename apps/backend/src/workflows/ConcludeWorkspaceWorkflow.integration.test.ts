@@ -38,7 +38,7 @@ const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unk
 };
 
 describe('concluding a workspace through Temporal', () => {
-  it('concludes a tree that works for a project as that project\'s work from the workflow\'s first step, so deleting the project fences it', async () => {
+  it('concludes a tree that works for a project as that project\'s work from the workflow\'s first step, so deleting the project refuses and stops it', async () => {
     const db = await testDatabase();
     const at = '2026-11-13T10:00:00.000Z';
     await db.projects.saveTree({ id: 't-shop', ownerId: 'u1', name: 'Shop', projectIds: ['p-shop'], createdAt: at, updatedAt: at } as never);

@@ -10,6 +10,7 @@ export { dataHolds } from './lib/instance-updates.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceWatchRecord } from './lib/instance-watch.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';
+export { inService } from './lib/instances.js';
 export { koalaReadinessOf, MY_KOALA_PATH } from './lib/koala-readiness.js';
 export { setupWaits, type SetupWaitsDeps } from './lib/setup-waits.js';
 export { installArgsOf, KOALA_CHART_STEP, valuesFilesIn, type InstallArgs } from './lib/koala-chart-install.js';

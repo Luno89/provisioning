@@ -1,4 +1,5 @@
 import type { RemovalState, RemovalStep } from '../types'
+import { longDate } from '../../projects'
 
 const STEP_NAMES: Record<RemovalStep, string> = {
   workflows: 'stopping its runs',
@@ -10,7 +11,16 @@ const STEP_NAMES: Record<RemovalStep, string> = {
   repositories: 'deleting its repositories',
   records: 'deleting its records',
   instance: 'removing its instance',
+  koala: 'their own Koala deleting everything of theirs',
 }
+
+export function koalaAwayText(away: { machine?: string; since?: string }): string {
+  const machine = away.machine ?? 'the machine their Koala is on'
+  const since = away.since ? `, off since ${longDate(away.since)}, ${new Date(away.since).toISOString().slice(11, 16)} UTC` : ''
+  return `Waiting for ${machine} to be back${since}. The removal goes on when it is.`
+}
+
+export const koalaProblemText = (problem: string): string => `Not removed yet: ${problem}`
 
 const ORDER: RemovalStep[] = ['workflows', 'projects', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']
 

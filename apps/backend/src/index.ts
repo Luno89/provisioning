@@ -13,13 +13,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders } from './accounts/index.js';
+import { authRouter, AuthService, devicesFor, loadBreachedPasswords, OWNER_REMOVING, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, browserSessionsFor, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
+  AccessRevocations, browserSessionsFor, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce, fenceRecordsDropped,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, memoryIndexReachOf, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -113,6 +113,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await operatorsFromAdmins(db, new Date().toISOString());
   await migrateLegacyOwnership(db, claimSettings, new Date().toISOString());
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
+  await fenceRecordsDropped(db.platform, new Date().toISOString());
   await runOnce(db.platform, 'apps-name-their-project', new Date().toISOString(), async () => {
     const named = appsToName(await db.projects.getProjects(), await db.infrastructure.getDeployments());
     for (const { deploymentId, projectId } of named) await db.infrastructure.saveDeploymentInfo({ id: deploymentId, gitappProjectId: projectId });
@@ -154,6 +155,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, { edge: settings.instance?.edge ?? { off: `${role.role} runs no edge; an instance does` }, unreachableAfterMs: settings.tests.unreachableAfterMs }, rootToken);
   instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message), dependencies);
+  const instanceReporter = role.role === 'instance' && role.instance && rootToken
+    ? new InstanceReporter({ root: { url: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken } })
+    : undefined;
   const appExposureService = new AppExposureService(db, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? db.projects.getProjectGroup(dep.gitappProjectId) : undefined),
@@ -187,7 +191,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const machineTemporal = typeof machineTemporalAddress === 'string' && gatewayTls ? { address: machineTemporalAddress, namespace: settings.temporal.namespace, ca: gatewayTls.ca, serverName: gatewayTls.serverName } : undefined;
   if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'), settings.dataDir);
-  const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
+  const late: { instances?: Awaited<ReturnType<typeof wireInstances>>; removal?: ReturnType<typeof wireAccounts> } = {};
+  const accountRemoval = () => {
+    if (!late.removal) throw new Error('this server keeps no accounts, so it removes none');
+    return late.removal;
+  };
   const { accounts: machineAccounts, installs: koalaInstalls, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
@@ -215,7 +223,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies });
+  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies, ownerRemovalToRoot: instanceReporter });
   if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
   if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
@@ -327,6 +335,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, browserSessions, rootToken, io,
     instanceArrived, installs: koalaInstalls,
+    ownerRemoval: { removing: (ownerId) => accountRemoval().ownerRemoving(ownerId), told: (ownerId, progress) => accountRemoval().koalaTold(ownerId, progress) },
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
@@ -377,7 +386,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
+  late.removal = wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations, tellInstance: (instanceId, event) => late.instances?.tellInstance?.(instanceId, event) });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
@@ -423,13 +432,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     egress,
   });
   if (role.role === 'instance' && role.instance && settings.instance) {
-    if (!rootToken) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
-    const instanceRootToken = rootToken;
+    if (!instanceReporter) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
     const clusterId = koalasClusterId(settings.clusters.here);
+    const ownerRemoval = new OwnerRemoval({ ownerId: role.instance.ownerId, root: instanceReporter, workflows: temporalRemovalWorkflows(getTemporalClient, QUEUES.engine) });
+    const checkOwnerRemoval = (why: 'told' | 'connected') => () => {
+      ownerRemoval.check(why).catch((err: Error) => console.warn(`[accounts] whether root is removing this Koala's owner could not be checked: ${err.message}; root tells it again`));
+    };
+    instanceSide.hear(OWNER_REMOVING, checkOwnerRemoval('told'));
+    instanceSide.hear('connect', checkOwnerRemoval('connected'));
+    checkOwnerRemoval('connected')();
     wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
-      root: new InstanceReporter({ root: { url: role.instance.rootUrl, instanceId: role.instance.id, token: instanceRootToken } }),
+      root: instanceReporter,
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },

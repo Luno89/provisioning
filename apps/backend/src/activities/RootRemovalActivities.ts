@@ -2,10 +2,15 @@ import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase } from '../platform/index.js';
 import { hostSettings } from './host-settings.js';
 import { HeadscaleService } from '../infrastructure/index.js';
-import { installUnfinished } from '../instances/index.js';
+import { inService, installUnfinished } from '../instances/index.js';
+
+export interface RootRemovalInstance {
+  installId?: string | undefined;
+  koala?: string | undefined;
+}
 
 export interface RootRemovalActivities {
-  RootRemovalInstanceActivity(args: { ownerId: string }): Promise<{ installId?: string | undefined }>;
+  RootRemovalInstanceActivity(args: { ownerId: string }): Promise<RootRemovalInstance>;
   RootRemovalMeshActivity(args: { ownerId: string }): Promise<{ devices: number; user: boolean }>;
   RootRemovalRecordsActivity(args: { ownerId: string }): Promise<Record<string, number>>;
 }
@@ -21,10 +26,12 @@ async function withDb<T>(work: (db: ReturnType<typeof createDatabase>) => Promis
   }
 }
 
-export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string }): Promise<{ installId?: string | undefined }> {
+export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string }): Promise<RootRemovalInstance> {
   return withDb(async (db) => {
     const instance = (await db.instances.getInstances()).find((entry) => entry.ownerId === ownerId);
-    return instance?.install && installUnfinished(instance.install) ? { installId: instance.install.id } : {};
+    if (!instance) return {};
+    if (instance.install && installUnfinished(instance.install)) return { installId: instance.install.id };
+    return inService(instance) ? { koala: instance.id } : {};
   });
 }
 

@@ -295,7 +295,7 @@ describe('deployProjectBuild', () => {
     expect(promoted?.promotedAt).toBeTruthy();
   });
 
-  it('deploys a project\'s app as work for that project, so deleting the project fences what the deploy still does', async () => {
+  it('deploys a project\'s app as work for that project, so deleting the project refuses and stops what the deploy still does', async () => {
     const { deps: d, db, workflow } = await deps();
     await db.releases.savePipelineRunInfo(run);
     let during: unknown;

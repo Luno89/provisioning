@@ -297,3 +297,73 @@ describe('Temporal\'s part in removing an account', () => {
     await expect(found(client).state('id')).rejects.toThrow('connection refused');
   });
 });
+
+describe('removing an account at root whose owner has their own Koala', () => {
+  const koala = { id: 'inst-bob', ownerId: 'bob', url: 'http://100.64.0.7:30320', machineId: 'desk', createdAt: 'then', updatedAt: 'then' } as InstanceRecord;
+  const progress = { seq: 4, phase: 'deleting' as const, work: [{ workflowId: 'run-1', type: 'AgentRunWorkflow', startedAt: 'then', state: 'stopping' as const, what: 'An agent at work' }], parts: {} };
+
+  const withKoala = async (options: { watches?: InstanceWatchRecord[] } = {}) => {
+    const world = await set({ instances: [koala], steps: true });
+    const tellings: string[] = [];
+    const signalled: Array<{ workflowId: string; progress: unknown }> = [];
+    let running = true;
+    const service = new AccountRemovalService({
+      store: world.db,
+      workflows: world.workflows,
+      workflowType: ROOT_REMOVAL_WORKFLOW,
+      steps: ROOT_REMOVAL_STEPS,
+      now: () => 'now',
+      principalFor,
+      instances: async () => [koala],
+      ...(options.watches ? { watches: async () => options.watches! } : {}),
+      machines: async () => [{ id: 'desk', name: 'Desk' }],
+      koalas: {
+        tell: (instanceId) => { tellings.push(instanceId); },
+        told: async (workflowId, said) => { signalled.push({ workflowId, progress: said }); return running; },
+        progress: async (workflowId) => (workflowId === removeAccountWorkflowId('bob') ? progress : undefined),
+      },
+    });
+    return { ...world, service, tellings, signalled, stop: () => { running = false; } };
+  };
+
+  it('tells the person\'s own Koala to remove its owner once root\'s removal has started, and again when asked while it is under way', async () => {
+    const { workflows, service, tellings } = await withKoala();
+    expect(await service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob)).toMatchObject({ ok: true });
+    expect(workflows.start).toHaveBeenCalled();
+    expect(tellings).toEqual(['inst-bob']);
+    workflows.state.mockResolvedValue({ state: 'running', done: ['instance'] });
+    await service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob);
+    expect(tellings).toEqual(['inst-bob', 'inst-bob']);
+  });
+
+  it('says the owner is being removed only while their account is marked', async () => {
+    const { db, service } = await withKoala();
+    expect(await service.ownerRemoving('bob')).toBe(false);
+    await db.accounts.saveUser(user('bob', { removal: { startedAt: 'then', requestedBy: 'bob' } }));
+    expect(await service.ownerRemoving('bob')).toBe(true);
+    expect(await service.ownerRemoving('nobody')).toBe(false);
+  });
+
+  it('passes what the Koala tells on to root\'s removal of the account, and refuses it when no removal runs', async () => {
+    const { service, signalled, stop } = await withKoala();
+    expect(await service.koalaTold('bob', progress)).toEqual({ ok: true, value: {} });
+    expect(signalled).toEqual([{ workflowId: removeAccountWorkflowId('bob'), progress }]);
+    stop();
+    expect(await service.koalaTold('bob', progress)).toEqual({ ok: false, status: 409, error: 'root is not removing this account now' });
+  });
+
+  it('shows how the person\'s Koala is removing them, each thing in its real state', async () => {
+    const { db, workflows, service } = await withKoala();
+    await db.accounts.saveUser(user('bob', { removal: { startedAt: 'then', requestedBy: 'ana' } }));
+    workflows.state.mockResolvedValue({ state: 'running', done: ['instance'] });
+    expect((await service.people()).find((person) => person.id === 'bob')?.removal).toMatchObject({ state: { state: 'running', done: ['instance'] }, koala: progress });
+  });
+
+  it('shows the Koala waited for while its machine is off, naming the machine and since when', async () => {
+    const watch = { instanceId: 'inst-bob', reach: { reachable: false, unreachableSince: '2026-11-21T09:00:00.000Z', toldDown: false } } as InstanceWatchRecord;
+    const { db, workflows, service } = await withKoala({ watches: [watch] });
+    await db.accounts.saveUser(user('bob', { removal: { startedAt: 'then', requestedBy: 'ana' } }));
+    workflows.state.mockResolvedValue({ state: 'running', done: ['instance'] });
+    expect((await service.people()).find((person) => person.id === 'bob')?.removal).toMatchObject({ koalaAway: { machine: 'Desk', since: '2026-11-21T09:00:00.000Z' } });
+  });
+});

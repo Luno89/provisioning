@@ -2,9 +2,9 @@ import type express from 'express';
 import type { Client } from '@temporalio/client';
 import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, holdsAccounts, principalOf, type UserMetadata } from '../../platform/index.js';
 import type { Mounts } from '../../platform/index.js';
-import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
+import { AccountRemovalService, temporalKoalaRemovals, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
 import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
-import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
+import { OWNER_REMOVING, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { accountRouter } from '../routes/account.js';
 import type { Devices } from '../routes/device.js';
 import { adminRouter } from '../routes/admin.js';
@@ -20,11 +20,12 @@ export interface AccountsWiringDeps {
   devices: Pick<Devices, 'confirmed'>;
   revocations?: AccessRevocations | undefined;
   currentRelease?: string | undefined;
+  tellInstance: (instanceId: string, event: string) => void;
 }
 
-export function wireAccounts(deps: AccountsWiringDeps): void {
+export function wireAccounts(deps: AccountsWiringDeps): AccountRemovalService | undefined {
   const { app, role, db } = deps;
-  if (!holdsAccounts(role)) return;
+  if (!holdsAccounts(role)) return undefined;
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>) => principalOf(user, claimSettingsFrom(role));
   const removal = new AccountRemovalService({
     store: db,
@@ -38,7 +39,10 @@ export function wireAccounts(deps: AccountsWiringDeps): void {
     logouts: () => db.instances.pendingLogouts(),
     principalFor,
     revocations: deps.revocations,
+    machines: () => db.machines.getLocalAgentDevices(),
+    koalas: temporalKoalaRemovals(deps.temporal, (instanceId) => deps.tellInstance(instanceId, OWNER_REMOVING)),
   });
   app.use('/api/account', accountRouter({ removal, clearSession: deps.clearSession, confirmed: (req) => deps.devices.confirmed(req, (req as unknown as { user: UserMetadata }).user) }));
   app.use('/api/admin', adminRouter({ db, operatorOnly: deps.operatorOnly, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }), removal }));
+  return removal;
 }

@@ -54,6 +54,7 @@ import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { groveAgentOf, resolveTreeType } from '../../projects/lib/tree-types.js';
 
 import type { AdoptedPlan, Tree, Branch, Leaf, ProjectDeletionChange } from '../../projects/index.js';
+import type { AccountDeletionChange } from '../../accounts/index.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { EnvironmentResolver } from '../sandboxes/environments.js';
 import { platformCatalogue } from '../../extensions/installed.js';
@@ -79,6 +80,7 @@ export interface StreamServices {
   asking?: ((ownerId: string, tool: string) => Promise<void>) | undefined;
   groveChanged?: ((ownerId: string) => void) | undefined;
   deletionChanged?: ((change: ProjectDeletionChange) => Promise<void>) | undefined;
+  accountDeletionChanged?: ((change: AccountDeletionChange) => Promise<void>) | undefined;
   workflowFailed?: ((report: WorkflowFailedReport) => Promise<void>) | undefined;
   machineClusters?: MachineClusterRecords | undefined;
   storedFiles?: StoredFilesActivities | undefined;
@@ -104,7 +106,9 @@ function machineClustersOf(services: StreamServices): MachineClusterRecords {
   return services.machineClusters;
 }
 
-const NO_DELETION_NOTICES = 'this process tells nobody about a project\'s deletion, so where it stands cannot be told here';
+const NO_ROOT_TO_TELL = 'this Koala has no root to tell how the removal of its owner stands; only a person\'s own Koala removes its owner for root';
+
+const NO_DELETION_NOTICES ='this process tells nobody about a project\'s deletion, so where it stands cannot be told here';
 
 function deletionChangedOf(services: StreamServices): (change: ProjectDeletionChange) => Promise<void> {
   if (!services.deletionChanged) throw ApplicationFailure.nonRetryable(NO_DELETION_NOTICES, 'NoDeletionNotices');
@@ -158,6 +162,7 @@ export interface StreamActivities extends StoredFilesActivities {
   EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
   EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
   ProjectDeletionChangedActivity(change: ProjectDeletionChange): Promise<void>;
+  AccountDeletionChangedActivity(change: AccountDeletionChange): Promise<void>;
   EngineWorkflowFailedActivity(report: WorkflowFailedReport): Promise<void>;
   EngineMachineClusterStartedActivity(args: { clusterId: string; result: MachineClusterResult }): Promise<void>;
   EngineMachineClusterStoppedActivity(args: { clusterId: string }): Promise<void>;
@@ -520,6 +525,11 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
 
     async ProjectDeletionChangedActivity(change: ProjectDeletionChange): Promise<void> {
       await deletionChangedOf(services)(change);
+    },
+
+    async AccountDeletionChangedActivity(change: AccountDeletionChange): Promise<void> {
+      if (!services.accountDeletionChanged) throw ApplicationFailure.nonRetryable(NO_ROOT_TO_TELL, 'NoRootToTell');
+      await services.accountDeletionChanged(change);
     },
 
     async EngineMachineClusterStartedActivity({ clusterId, result }: { clusterId: string; result: MachineClusterResult }): Promise<void> {

@@ -23,7 +23,7 @@ export interface StoppingWork {
   killed?: string[]
 }
 
-export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
+export type DeletionPart = 'projects' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
 
 export interface PartProgress {
   state: 'deleting' | 'deleted'

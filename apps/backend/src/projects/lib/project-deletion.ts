@@ -14,7 +14,7 @@ export interface StoppingWork extends OpenWork {
   killed?: string[] | undefined;
 }
 
-export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';
+export type DeletionPart = 'projects' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';
 
 export interface PartProgress {
   state: 'deleting' | 'deleted';
@@ -40,6 +40,15 @@ export interface ServiceDown {
   name: string;
   since: string;
   reason: string;
+}
+
+const PHASES: readonly DeletionPhase[] = ['deleting', 'archived', 'deleted'];
+
+export function isDeletionProgress(raw: unknown): raw is DeletionProgress {
+  const progress = raw as Partial<DeletionProgress> | null | undefined;
+  return typeof progress === 'object' && progress !== null
+    && typeof progress.seq === 'number' && PHASES.includes(progress.phase as DeletionPhase)
+    && Array.isArray(progress.work) && typeof progress.parts === 'object' && progress.parts !== null;
 }
 
 export const SERVICE_DOWN_SIGNAL = 'service-down';

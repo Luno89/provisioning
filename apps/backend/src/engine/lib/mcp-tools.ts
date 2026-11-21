@@ -1,5 +1,4 @@
 import type { ToolContract } from '@koala/engine-core';
-import type { McpServer } from './mcp-registry.js';
 import type { McpTool } from './mcp-client.js';
 
 export const SEPARATOR = '__';
@@ -32,32 +31,4 @@ export function contractFor(server: string, tool: McpTool): ToolContract {
     destructive: hints.readOnlyHint !== true && hints.destructiveHint !== false,
     parameters: tool.inputSchema ?? { type: 'object', properties: {} },
   };
-}
-
-export function contractsFor(servers: readonly McpServer[]): ToolContract[] {
-  const seen = new Set<string>();
-  const out: ToolContract[] = [];
-  for (const server of servers) {
-    for (const tool of server.tools) {
-      if (!tool?.name) continue;
-      const contract = contractFor(server.name, tool);
-      if (seen.has(contract.name)) continue;
-      seen.add(contract.name);
-      out.push(contract);
-    }
-  }
-  return out;
-}
-
-export function serversFor(wanted: readonly string[], available: readonly McpServer[]): McpServer[] {
-  const names = new Set(wanted);
-  return available.filter((server) => names.has(server.name) && !server.unreachable && server.tools.length > 0);
-}
-
-export function routeCall(name: string, servers: readonly McpServer[]): { server: McpServer; tool: string } | undefined {
-  const parsed = unqualify(name);
-  if (!parsed) return undefined;
-  const server = servers.find((candidate) => slugify(candidate.name) === parsed.server);
-  if (!server || !server.tools.some((tool) => tool.name === parsed.tool)) return undefined;
-  return { server, tool: parsed.tool };
 }

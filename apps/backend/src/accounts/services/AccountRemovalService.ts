@@ -4,7 +4,10 @@ import type { Client } from '@temporalio/client';
 import { ignore } from '@koala/engine-core/failures';
 import type { AccountsStore } from '../store.js';
 import { withWorkFor } from '@koala/engine-core/work-for';
+import type { DeletionProgress } from '../../projects/index.js';
 import {
+  KOALA_REMOVAL_QUERY,
+  KOALA_REMOVAL_SIGNAL,
   REMOVAL_PROGRESS_QUERY,
   DELETE_ACCOUNT_WORKFLOW,
   refuseRemoval,
@@ -80,7 +83,33 @@ export interface AccountRemovalDeps {
   logouts?: (() => Promise<UndeliveredLogout[]>) | undefined;
   principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
+  machines?: (() => Promise<readonly { id: string; name: string }[]>) | undefined;
+  koalas?: KoalaRemovals | undefined;
   now?: () => string;
+}
+
+export interface KoalaRemovals {
+  tell(instanceId: string): void;
+  told(workflowId: string, progress: DeletionProgress): Promise<boolean>;
+  progress(workflowId: string): Promise<DeletionProgress | undefined>;
+}
+
+export function temporalKoalaRemovals(client: () => Client | Promise<Client>, tell: (instanceId: string) => void): KoalaRemovals {
+  return {
+    tell,
+    async told(workflowId, progress) {
+      try {
+        await (await client()).workflow.getHandle(workflowId).signal(KOALA_REMOVAL_SIGNAL, progress);
+        return true;
+      } catch (err) {
+        if (/not\s*found|already completed/i.test((err as Error).message)) return false;
+        throw err;
+      }
+    },
+    async progress(workflowId) {
+      return (await client()).workflow.getHandle(workflowId).query<DeletionProgress | undefined>(KOALA_REMOVAL_QUERY);
+    },
+  };
 }
 
 export interface UndeliveredLogout {
@@ -118,7 +147,14 @@ export interface PersonEntry {
   operator: boolean;
   createdAt: string;
   instance?: PersonInstance | undefined;
-  removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
+  removal?: {
+    startedAt: string;
+    requestedBy: string;
+    state: RemovalWorkflowState;
+    steps?: readonly RemovalStep[] | undefined;
+    koala?: DeletionProgress | undefined;
+    koalaAway?: { machine?: string | undefined; since?: string | undefined } | undefined;
+  } | undefined;
 }
 
 function instanceOf(instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord, logouts: readonly UndeliveredLogout[] = [], current?: string): PersonInstance {
@@ -172,14 +208,44 @@ export class AccountRemovalService {
 
     const workflowId = removeAccountWorkflowId(request.ownerId);
     const current = await this.deps.workflows.state(workflowId);
-    if (current.state === 'running') return { ok: true, state: current };
+    if (current.state === 'running') {
+      await this.tellKoala(request.ownerId);
+      return { ok: true, state: current };
+    }
     const unproven = await proven?.();
     if (unproven) return { ok: false, refusal: unproven };
     const startedAt = this.now();
     await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt, requestedBy: request.requestedBy } });
     await this.deps.revocations?.revoked({ personId: request.ownerId, because: 'account-removed', at: startedAt });
     await withWorkFor({ owner: request.ownerId, removing: 'owner' }, () => this.deps.workflows.start(this.deps.workflowType ?? DELETE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId));
+    await this.tellKoala(request.ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
+  }
+
+  private async tellKoala(ownerId: string): Promise<void> {
+    const koalas = this.deps.koalas;
+    if (!koalas || !this.deps.instances) return;
+    for (const instance of (await this.deps.instances()).filter((entry) => entry.ownerId === ownerId)) koalas.tell(instance.id);
+  }
+
+  async ownerRemoving(ownerId: string): Promise<boolean> {
+    return Boolean((await this.deps.store.accounts.getUserById(ownerId))?.removal);
+  }
+
+  async koalaTold(ownerId: string, progress: DeletionProgress): Promise<{ ok: true; value: Record<string, never> } | { ok: false; status: number; error: string }> {
+    if (!this.deps.koalas) return { ok: false, status: 404, error: 'this server removes no accounts through their Koala' };
+    if (!(await this.deps.koalas.told(removeAccountWorkflowId(ownerId), progress))) return { ok: false, status: 409, error: 'root is not removing this account now' };
+    return { ok: true, value: {} };
+  }
+
+  private async koalaOf(ownerId: string, state: RemovalWorkflowState, instances: readonly InstanceRecord[], watches: readonly InstanceWatchRecord[], machines: readonly { id: string; name: string }[]) {
+    if (state.state !== 'running' || !this.deps.koalas) return {};
+    const koala = await this.deps.koalas.progress(removeAccountWorkflowId(ownerId));
+    const instance = instances.find((entry) => entry.ownerId === ownerId);
+    const reach = instance ? watches.find((watch) => watch.instanceId === instance.id)?.reach : undefined;
+    const machine = instance?.machineId ? machines.find((entry) => entry.id === instance.machineId)?.name : undefined;
+    const away = koala?.phase !== 'deleted' && reach && !reach.reachable ? { koalaAway: { ...(machine ? { machine } : {}), ...(reach.unreachableSince ? { since: reach.unreachableSince } : {}) } } : {};
+    return { ...(koala ? { koala } : {}), ...away };
   }
 
   async people(): Promise<PersonEntry[]> {
@@ -189,15 +255,20 @@ export class AccountRemovalService {
     const watches = this.deps.watches ? await this.deps.watches() : [];
     const logouts = this.deps.logouts ? await this.deps.logouts() : [];
     const steps = this.deps.steps;
+    const machines = this.deps.machines && users.some((user) => user.removal) ? await this.deps.machines() : [];
     return Promise.all(users.map(async (user) => {
       const instance = instances.find((entry) => entry.ownerId === user.id);
+      const removing = async (removal: NonNullable<UserMetadata['removal']>) => {
+        const state = await this.deps.workflows.state(removeAccountWorkflowId(user.id));
+        return { ...removal, state, ...(steps ? { steps } : {}), ...(await this.koalaOf(user.id, state, instances, watches, machines)) };
+      };
       return {
         id: user.id,
         email: user.email,
         operator: this.operator(user),
         createdAt: user.createdAt,
         ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id), logouts, this.deps.currentRelease) } : {}),
-        ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
+        ...(user.removal ? { removal: await removing(user.removal) } : {}),
       };
     }));
   }

@@ -362,7 +362,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.chosen).toEqual([{ ownerId: 'user-1', projectId: 'project-plan-p1-tree', choices: { release: { agent: 'release-careful', app: 'odoo' }, startsFrom: 'client-database' } }]);
   });
 
-  it('works for the project a plan is adopted into from its first step, so deleting the project fences everything it still does', async () => {
+  it('works for the project a plan is adopted into from its first step, so deleting the project refuses and stops everything it still does', async () => {
     const w = world([proposal({ projectId: 'project-9' })], { homes: true });
     const seen: [string, unknown][] = [];
     await adopt(w, 'p1', undefined, seen);

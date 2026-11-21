@@ -33,7 +33,7 @@ describe('the trace a workflow was started under follows its activities and chil
     expect(scheduled.slice(1)).toEqual([{ other, traceparent }, { traceparent }, { traceparent }, { traceparent }]);
   });
 
-  it('carries whose work it is beside the trace, so an activity, a child and the next run of the workflow are fenced as it is', async () => {
+  it('carries whose work it is beside the trace, so an activity, a child and the next run of the workflow are refused and stopped as it is', async () => {
     const work = payload(JSON.stringify({ owner: 'u1', project: 'p1' }));
     const { inbound, outbound } = interceptors();
     const scheduled: Headers[] = [];

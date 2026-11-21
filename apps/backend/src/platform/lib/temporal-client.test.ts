@@ -64,7 +64,7 @@ describe('work for a project being deleted, or an account being removed, is refu
   });
 });
 
-describe('every workflow the platform starts says whose work it is, so a removal can fence it', () => {
+describe('every workflow the platform starts says whose work it is, so a removal can refuse and stop it', () => {
   const headersOf = async (start: () => Promise<unknown>, next: ReturnType<typeof vi.fn>) => {
     await start();
     return workFromHeaders((next.mock.calls[0]![0] as { headers: Record<string, never> }).headers);

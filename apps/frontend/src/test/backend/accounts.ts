@@ -44,5 +44,6 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
     operatorOnly: site.auth.requireOperator('manage-accounts'),
     clearSession: site.auth.clearSession,
     devices: devicesFor({ auth: site.auth, sessionKey: SESSION_KEY, authService }),
+    tellInstance: () => undefined,
   })
 }

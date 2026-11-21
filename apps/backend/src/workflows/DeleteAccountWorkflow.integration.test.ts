@@ -8,6 +8,8 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 import { fakeRemovalSteps, nothingFrozen, removingAccounts } from './testing/account-removal-steps.js';
+import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
+import type { AccountDeletionChange } from '../accounts/lib/account-removal.js';
 
 const temporal = environmentForFile(temporalTestEnvironment);
 
@@ -90,6 +92,38 @@ describe('removing an account through Temporal', () => {
     expect(destroyed).toEqual(['shop in shop-1a2b3c']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(seen.slice(0, 7)).toEqual(['mark', 'workflows', 'projects', 'repositories', 'apps', 'destroyed', 'workspaces']);
+  });
+
+  it('tells root, when root asked for it, each run it stops with its real state, each thing it deletes, and that the owner is deleted only at the end', async () => {
+    const told: AccountDeletionChange[] = [];
+    const stream = await testWorker(temporal.env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { AccountDeletionChangedActivity: async (change: AccountDeletionChange) => { told.push(change); } } });
+    let stops = 0;
+    await stream.runUntil(removingAccounts(temporal.env, fakeRemovalSteps([], {
+      StopAccountWorkActivity: async () => { stops += 1; return stops === 1 ? [{ workflowId: 'run-1', type: 'AgentRunWorkflow', startedAt: '2026-11-21T10:00:00.000Z' }] : []; },
+      RemoveAccountProjectsActivity: async () => ['shop'],
+      RemoveAccountSecretsActivity: async () => 2,
+    }), async (workflows) => {
+      await workflows.start(DELETE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('hal'), [{ ownerId: 'hal', toRoot: true }], 'hal');
+      await temporal.env.client.workflow.getHandle(removeAccountWorkflowId('hal')).result();
+    }, { AwaitProjectWorkActivity: async () => ({ frozen: [], killed: ['terraform'] }), RestartWorkerActivity: async () => 'restarted' }));
+    const states = told.map((change) => change.progress);
+    expect(told.every((change) => change.ownerId === 'hal')).toBe(true);
+    expect(states.some((progress) => progress.work.some((work) => work.workflowId === 'run-1' && work.state === 'stopping'))).toBe(true);
+    const last = [...states].sort((a, b) => b.seq - a.seq)[0]!;
+    expect(last.phase).toBe('deleted');
+    expect(last.work).toEqual([expect.objectContaining({ workflowId: 'run-1', state: 'stopped', killed: ['terraform'] })]);
+    expect(last.parts).toMatchObject({ projects: { state: 'deleted', deleted: 1 }, secrets: { state: 'deleted', deleted: 2 }, records: { state: 'deleted', deleted: 4 } });
+    expect(states.filter((progress) => progress.phase === 'deleted')).toHaveLength(1);
+  });
+
+  it('tells nobody when it was not asked to tell root', async () => {
+    const told: AccountDeletionChange[] = [];
+    const stream = await testWorker(temporal.env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { AccountDeletionChangedActivity: async (change: AccountDeletionChange) => { told.push(change); } } });
+    await stream.runUntil(removingAccounts(temporal.env, fakeRemovalSteps([]), async (workflows) => {
+      await workflows.start(DELETE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('ike'), [{ ownerId: 'ike' }], 'ike');
+      await temporal.env.client.workflow.getHandle(removeAccountWorkflowId('ike')).result();
+    }));
+    expect(told).toEqual([]);
   });
 
   it('knows nothing of an account that was never being removed', async () => {

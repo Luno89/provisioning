@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_UNREACHABLE_MINUTES, graceLeftMs, instanceReachMail, isDown, nextReach, presenceAuth, reachAtStart, rootReachPush, tellsOwner, unreachableAfterMs, watched,
+  DEFAULT_UNREACHABLE_MINUTES, graceLeftMs, hearAlso, instanceReachMail, isDown, nextReach, presenceAuth, reachAtStart, rootReachPush, tellsOwner, unreachableAfterMs, watched,
 } from './instance-watch.js';
 import type { InstanceRecord } from './instances.js';
+
+describe('what an instance hears from root', () => {
+  it('runs every handler given for one event, in the order they were given', () => {
+    const heard: Record<string, () => void> = {};
+    const ran: string[] = [];
+    hearAlso(heard, 'connect', () => ran.push('machines'));
+    hearAlso(heard, 'connect', () => ran.push('owner removal'));
+    hearAlso(heard, 'owner:removing', () => ran.push('told'));
+    heard.connect!();
+    expect(ran).toEqual(['machines', 'owner removal']);
+  });
+});
 
 const TEN = 10 * 60_000;
 const at = (minutes: number) => new Date(Date.parse('2026-10-29T10:00:00Z') + minutes * 60_000);

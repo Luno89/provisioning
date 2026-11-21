@@ -192,7 +192,7 @@ describe('a push to a project', () => {
     expect(io.emit).toHaveBeenCalledWith('pipeline-run-updated');
   });
 
-  it('starts the build as work for its project, so deleting the project fences what the build still does', async () => {
+  it('starts the build as work for its project, so deleting the project refuses and stops what the build still does', async () => {
     const { ready, workflow } = bridge();
     let during: unknown;
     workflow.start.mockImplementation((async () => { during = workFor(); return mock(); }) as never);
