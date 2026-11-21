@@ -1,6 +1,6 @@
 import { ApplicationFailure, CancellationScope, condition, continueAsNew, defineSignal, executeChild, isCancellation, patched, proxyActivities, setHandler } from '@temporalio/workflow';
 
-const { flaky, refuses } = proxyActivities<{ flaky(): Promise<number>; refuses(): Promise<void> }>({
+const { flaky, refuses, breaks } = proxyActivities<{ flaky(): Promise<number>; refuses(): Promise<void>; breaks(): Promise<void> }>({
   startToCloseTimeout: '1 minute',
   retry: { initialInterval: '10 ms', maximumAttempts: 5 },
 });
@@ -44,6 +44,15 @@ export async function retries(): Promise<number> {
 export async function stopsRetrying(): Promise<string> {
   try {
     await refuses();
+    return 'went on';
+  } catch (err) {
+    return (err as { cause?: { message?: string } }).cause?.message ?? 'no cause';
+  }
+}
+
+export async function stopsOnPlainError(): Promise<string> {
+  try {
+    await breaks();
     return 'went on';
   } catch (err) {
     return (err as { cause?: { message?: string } }).cause?.message ?? 'no cause';
