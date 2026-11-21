@@ -1,6 +1,6 @@
 import { matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
-import { createToolRuntime, type EnvironmentSource } from './tool-runtime.js';
+import { createToolRuntime, type EnvironmentSource, type ToolHandler } from './tool-runtime.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
 import { createNoneDriver } from '@koala/engine-core';
@@ -9,11 +9,17 @@ import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/en
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import { RunGrantService } from '../../engine/index.js';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { asPerson } from '../../platform/lib/permissions.js';
+
+const GRANTS = new RunGrantService({ store: memoryDatabase().engine });
+const GRANT = await GRANTS.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 
 const args = (over: Partial<ToolCallArgs> = {}): ToolCallArgs => ({
-  ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' },
+  ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: GRANT.id },
   nodeId: 'work',
   name: 'run_command',
   arguments: '{"command":"npm test"}',
@@ -73,8 +79,17 @@ const registry = () => createAgentRegistry({
   toolCatalogue: { list: async () => CATALOGUE },
 });
 
+const savingMemory = (heard: (caller: Parameters<ToolHandler>[0]['caller']) => void) => createToolRuntime({
+  grants: GRANTS,
+  registry: registry(),
+  environments: sourceFor(undefined),
+  handlers: { save_memory: async ({ caller }) => { heard(caller); return { ok: true, digest: 'ok' }; } },
+});
+
+const SAVING_TICKET = { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' as const, grantId: GRANT.id };
+
 const runtime = (driver: EnvironmentDriver | undefined) =>
-  createToolRuntime({ registry: registry(), environments: sourceFor(driver) });
+  createToolRuntime({ grants: GRANTS, registry: registry(), environments: sourceFor(driver) });
 
 describe('tool runtime', () => {
   it('runs a command through the environment driver', async () => {
@@ -132,39 +147,35 @@ describe('tool runtime', () => {
   it('asks the run\'s grant before every call, and runs nothing it refuses', async () => {
     const { backend, driver } = sandbox();
     const asked: [string | undefined, string, string | undefined][] = [];
+    const grants = new RunGrantService({ store: memoryDatabase().engine });
+    const live = await grants.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
+    const gone = await grants.issue({ ownerId: 'user-1', runId: 'run-2', principal: asPerson('user-2'), startedBy: 'person' });
+    await grants.revokeGrantsOf({ personId: 'user-2', because: 'signed-out-everywhere' });
     const tools = createToolRuntime({
-      registry: registry(),
+    registry: registry(),
       environments: sourceFor(driver),
-      grants: { callProblem: async (grantId, tool, projectId) => { asked.push([grantId, tool, projectId]); return grantId === 'grant-gone' ? `This run's access was revoked because they signed out everywhere, so it may not use ${tool}.` : undefined; } },
+      grants: { check: (grantId, tool, projectId) => { asked.push([grantId, tool, projectId]); return grants.check(grantId, tool, projectId); } },
     });
-    const live = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: 'grant-live' } }));
-    expect(live.ok).toBe(true);
-    const gone = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: 'grant-gone' } }));
-    expect(gone).toMatchObject({ ok: false });
-    expect(gone.digest).toContain('access was revoked because they signed out everywhere, so it may not use run_command');
+    const ran = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: live.id } }));
+    expect(ran.ok).toBe(true);
+    const refused = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: gone.id } }));
+    expect(refused).toMatchObject({ ok: false });
+    expect(refused.digest).toContain('access was revoked because they signed out everywhere, so it may not use run_command');
     expect(backend.exec).toHaveBeenCalledTimes(1);
-    expect(asked).toEqual([['grant-live', 'run_command', undefined], ['grant-gone', 'run_command', undefined]]);
+    expect(asked).toEqual([[live.id, 'run_command', undefined], [gone.id, 'run_command', undefined]]);
   });
 
   it('hands the run\'s project to a platform tool', async () => {
     const seen: (string | undefined)[] = [];
-    const tools = createToolRuntime({
-      registry: registry(),
-      environments: sourceFor(undefined),
-      handlers: { save_memory: async ({ caller }) => { seen.push(caller.projectId); return { ok: true, digest: 'ok' }; } },
-    });
-    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', projectId: 'p-7' } }));
+    const tools = savingMemory((caller) => { seen.push(caller.projectId); });
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', projectId: 'p-7', grantId: GRANT.id } }));
     expect(seen).toEqual(['p-7']);
   });
 
   it('tells a tool when the call works in a conversation\'s workspace', async () => {
     const seen: (boolean | undefined)[] = [];
-    const tools = createToolRuntime({
-      registry: registry(),
-      environments: sourceFor(undefined),
-      handlers: { save_memory: async ({ caller }) => { seen.push(caller.inConversationWorkspace); return { ok: true, digest: 'ok' }; } },
-    });
-    const ticket = { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' as const };
+    const tools = savingMemory((caller) => { seen.push(caller.inConversationWorkspace); });
+    const ticket = SAVING_TICKET;
     await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-conversation-c1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'conversation-c1', sharedBy: 'conversation' } as never } }));
     await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-tree-t1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'tree-t1' } as never } }));
     expect(seen).toEqual([true, undefined]);
@@ -172,16 +183,29 @@ describe('tool runtime', () => {
 
   it('tells a tool which tree it works in when the call runs in a tree\'s workspace', async () => {
     const seen: (string | undefined)[] = [];
-    const tools = createToolRuntime({
-      registry: registry(),
-      environments: sourceFor(undefined),
-      handlers: { save_memory: async ({ caller }) => { seen.push(caller.treeId); return { ok: true, digest: 'ok' }; } },
-    });
-    const ticket = { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user' as const };
+    const tools = savingMemory((caller) => { seen.push(caller.treeId); });
+    const ticket = SAVING_TICKET;
     await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-tree-t1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'tree-t1' } as never } }));
     await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket, environment: { id: 'engine-conversation-c1', spec: { kind: 'sandbox', lifecycle: 'persistent' }, workspace: { runId: 'conversation-c1', sharedBy: 'conversation' } as never } }));
     await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket }));
     expect(seen).toEqual(['t1', undefined, undefined]);
+  });
+
+  it('refuses every call of a run that holds no grant, and runs nothing', async () => {
+    const { backend, driver } = sandbox();
+    const { grantId: _held, ...ungranted } = args().ticket;
+    const outcome = await runtime(driver).run(args({ ticket: ungranted as never }));
+    expect(outcome).toMatchObject({ ok: false });
+    expect(outcome.digest).toContain('This run holds no grant, so it may not use run_command.');
+    expect(backend.exec).not.toHaveBeenCalled();
+  });
+
+  it('acts as whoever its grant was issued for, not as the run\'s owner', async () => {
+    const { driver } = sandbox();
+    const theirs = await GRANTS.issue({ ownerId: 'user-1', runId: 'run-theirs', principal: asPerson('someone-else'), startedBy: 'person' });
+    const outcome = await runtime(driver).run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: { ...args().ticket, grantId: theirs.id } }));
+    expect(outcome).toMatchObject({ ok: false });
+    expect(outcome.digest).toContain('save_memory was not run');
   });
 
   it('refuses a tool the agent was never granted', async () => {
@@ -216,12 +240,13 @@ describe('tool runtime', () => {
     });
 
     const research = createToolRuntime({
+      grants: GRANTS,
       registry: registry(),
       environments: sourceFor(offline),
     });
 
     const outcome = await research.run(args({
-      ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'research', trigger: 'user' },
+      ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'research', trigger: 'user', grantId: GRANT.id },
       name: 'search_web',
       arguments: '{"q":"pods"}',
     }));
@@ -239,20 +264,20 @@ describe('tool runtime', () => {
 
   it('refuses arguments that are not a JSON object before any check or the watch reads them, telling the model what to send', async () => {
     const watch = { beforeCall: vi.fn(async () => undefined), afterCall: vi.fn(async () => undefined) };
-    const callProblem = vi.fn(async () => undefined);
+    const check = vi.fn((id: string, tool: string, projectId: string | undefined) => GRANTS.check(id, tool, projectId));
     const { backend, driver } = sandbox();
-    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(driver), watch, grants: { callProblem } });
+    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(driver), watch, grants: { check } });
     for (const given of ['{not json', 'null', '[1,2]', '"npm test"', '42']) {
       const outcome = await tools.run(args({ arguments: given }));
       expect(outcome).toMatchObject({ ok: false, digest: matching(/arguments for "run_command" must be one JSON object/) });
     }
     expect(watch.beforeCall).not.toHaveBeenCalled();
-    expect(callProblem).not.toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
     expect(backend.exec).not.toHaveBeenCalled();
   });
 
   it('takes no arguments at all as an empty object', async () => {
-    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(sandbox().driver), handlers: { get_project_url: async () => ({ ok: true, digest: 'here' }) } });
+    const tools = createToolRuntime({ grants: GRANTS, registry: registry(), environments: sourceFor(sandbox().driver), handlers: { get_project_url: async () => ({ ok: true, digest: 'here' }) } });
     expect(await tools.run(args({ name: 'get_project_url', arguments: '' }))).toMatchObject({ ok: true, digest: 'here' });
   });
 
@@ -286,6 +311,7 @@ describe('tool runtime', () => {
   it('lets a caller supply handlers for platform tools', async () => {
     const { driver } = sandbox();
     const tools = createToolRuntime({
+      grants: GRANTS,
       registry: registry(),
       environments: sourceFor(driver),
       handlers: {
@@ -303,6 +329,7 @@ describe('tool runtime', () => {
     const driver = createSandboxDriver({ sandboxId: 'sb-4', spec, backend });
 
     const outcome = await createToolRuntime({
+      grants: GRANTS,
       registry: registry(),
       environments: sourceFor(driver),
       digestChars: 100,
@@ -316,7 +343,7 @@ describe('tool runtime', () => {
   it('refuses when the agent itself does not exist', async () => {
     const { driver } = sandbox();
     const outcome = await runtime(driver).run(args({
-      ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'ghost', trigger: 'user' },
+      ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'ghost', trigger: 'user', grantId: GRANT.id },
     }));
 
     expect(outcome.ok).toBe(false);
@@ -336,6 +363,7 @@ describe('calling a tool a workspace server serves', () => {
   const echoes: McpServerRecord = { id: 'e1', ownerId: 'user-1', name: 'echoes', runs, createdAt: 't0', updatedAt: 't0', captured: { tools: [{ name: 'echo', annotations: { idempotentHint: true, readOnlyHint: true } }], at: 't1', fingerprint: runsFingerprint(runs) } };
   const calls: unknown[] = [];
   const tools = (servers: string[]) => createToolRuntime({
+    grants: GRANTS,
     registry: createAgentRegistry({ agentStore: { list: async () => [{ ...EXECUTOR, servers }] }, toolCatalogue: { list: async () => CATALOGUE } }),
     environments: sourceFor(sandbox().driver),
     serverTools: createServerTools({
@@ -368,7 +396,7 @@ describe('calling a tool a workspace server serves', () => {
 describe('a tool call naming a project', () => {
   it('takes a project it cannot resolve as the owner\'s own', async () => {
     const { driver } = sandbox();
-    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(driver), handlers: { get_project_url: vi.fn(async () => ({ ok: true, digest: 'https://shop' })) } });
+    const tools = createToolRuntime({ grants: GRANTS, registry: registry(), environments: sourceFor(driver), handlers: { get_project_url: vi.fn(async () => ({ ok: true, digest: 'https://shop' })) } });
     expect(await tools.run(args({ name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: true });
   });
 });

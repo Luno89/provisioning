@@ -7,6 +7,7 @@ import { createEngineHost, storesFromDatabase } from './host.js';
 import { ENGINE_TOOL_SEEDS } from './tools/engine-tool-seeds.js';
 import { createEnvironmentNodes } from './nodes/environment-nodes.js';
 import type { NodeImplementation } from '@koala/agent-engine/procedure';
+import { hostGrants } from '../engine/testing/run-grants.js';
 
 const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
 
@@ -14,6 +15,7 @@ describe('the engine host', () => {
   it('has a handler for every tool grove and workspace offer through their runtimes, so none is granted with nothing behind it', async () => {
     const db = await testDatabase();
     const host = createEngineHost({
+    runGrants: hostGrants(),
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this test builds no workspace images' },
@@ -37,6 +39,7 @@ describe('a run whose workspace image cannot be had yet', () => {
     await db.engine.saveEngineTool({ ...seed, name: 'count_lines', ownerId: 'bo', needs: ['jq'] });
     await db.engine.saveToolGrant({ ownerId: 'bo', agent: 'executor', tool: 'count_lines' });
     return createEngineHost({
+    runGrants: hostGrants(),
       models: {} as never,
       cluster: mock<KoalasCluster>(),
       registry: { none: 'this Koala has no registry to build workspace images in' },

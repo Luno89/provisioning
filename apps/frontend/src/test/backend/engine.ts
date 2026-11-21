@@ -43,6 +43,7 @@ import { conversationBinding } from '../../../../backend/src/engine-host/convers
 import { MCP_SERVER_TEMPLATES } from '../../../../backend/src/extensions/mcp/templates'
 import type { TemporalBridge } from '../../../../backend/src/infrastructure/services/TemporalBridge'
 import type { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
+import { runsActingAsTheirOwner } from '../../../../backend/src/engine/testing/run-grants'
 
 export interface StartedEngineWorkflow {
   workflowType: string
@@ -88,7 +89,7 @@ export function mountEngine({ api, db }: Site): EngineSite {
     signal: async () => undefined,
   }
   const turns = new ConversationTurnService({ store: db.engine, log: db.engine, running: async () => true })
-  const runs = createRunStarter({ registry, turns, workflows: () => workflows, binding: conversationBinding(db) })
+  const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry, turns, workflows: () => workflows, binding: conversationBinding(db) })
   const autoMode = new AutoModeService({ store: db, agentExists: async (ownerId, slug) => Boolean(await registry.agent(ownerId, slug)) })
   const toolNotes = new PracticeService({ store: db.memory, unindex, category: 'tool_note' })
   const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId)

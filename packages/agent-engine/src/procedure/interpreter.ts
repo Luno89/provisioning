@@ -19,7 +19,6 @@ export interface UsageDelta {
 
 export interface RunLaunch {
   ownerId: string;
-  principal?: unknown;
   grantId?: string | undefined;
   turnId?: string | undefined;
   projectId?: string | undefined;

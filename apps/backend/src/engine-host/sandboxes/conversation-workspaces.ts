@@ -1,5 +1,5 @@
 import type { AgentDefinition } from '@koala/agent-engine';
-import type { RunEnvironment, RunTicket } from '../temporal/contracts.js';
+import type { RunEnvironment, RunPlace } from '../temporal/contracts.js';
 import { NothingToShareError, type EnvironmentResolver } from './environments.js';
 import { destroyWorkspace, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD } from '@koala/agent-engine';
@@ -46,7 +46,7 @@ export function createConversationWorkspaces(options: {
   kube: KubeRunner;
   documents: WorkspaceDocuments;
 }): ConversationWorkspaces {
-  const ticketFor = (request: ConversationWorkspaceRequest): RunTicket => ({
+  const ticketFor = (request: ConversationWorkspaceRequest): RunPlace => ({
     runId: conversationWorkspaceRunId(request.conversationId),
     depth: 0,
     ownerId: request.ownerId,

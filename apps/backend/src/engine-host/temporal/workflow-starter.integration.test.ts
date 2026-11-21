@@ -12,6 +12,7 @@ import { workflowOfRun, type ProcedureRunInput } from './contracts.js';
 import { temporalWorkflowStarter } from './workflow-starter.js';
 import { environmentForFile, testWorker } from '../../workflows/testing/test-worker.js';
 import { testClient } from '@koala/engine-core/testing/temporal';
+import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
 
 const file = environmentForFile(realTemporalEnvironment);
 
@@ -25,9 +26,9 @@ describe('a run started through Temporal for a project', () => {
       activities: { SeenActivity: async () => workFor() ?? null },
     });
     const naming = testClient(file.env, { interceptors: { workflow: [namesItsWork] } });
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => temporalWorkflowStarter(naming.workflow), taskQueue, newRunId: () => `run-${taskQueue}` });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => temporalWorkflowStarter(naming.workflow), taskQueue, newRunId: () => `run-${taskQueue}` });
     await worker.runUntil(async () => {
-      const { runId } = await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', projectId: 'p1' });
+      const { runId } = await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', projectId: 'p1', startedBy: 'person' });
       await runs.approve(runId, 'call-1', true);
       await runs.cancel(runId, 'u1');
       await runs.answer(runId, 'n1', 'yes');
@@ -61,11 +62,11 @@ describe('two processes starting the same run at once through Temporal', () => {
         }
       },
     });
-    const starter = (who: 'first' | 'second') => createRunStarter({ registry: createAgentRegistry(), workflows: () => held(who), grants, taskQueue, newRunId: () => `run-${taskQueue}` });
+    const starter = (who: 'first' | 'second') => createRunStarter({ ...runsActingAsTheirOwner(grants), registry: createAgentRegistry(), workflows: () => held(who), taskQueue, newRunId: () => `run-${taskQueue}` });
 
     const [won, lost] = await Promise.allSettled([
-      starter('first').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' }),
-      starter('second').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' }),
+      starter('first').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', startedBy: 'person' }),
+      starter('second').start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', startedBy: 'person' }),
     ]);
 
     expect(won.status).toBe('fulfilled');

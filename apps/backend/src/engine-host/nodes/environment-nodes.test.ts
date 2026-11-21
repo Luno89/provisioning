@@ -17,7 +17,7 @@ const provisionWith = (services: Partial<HostNodeServices>, environments = { des
     inputs: {},
     run: {
       identity: { runId: 'run-1', depth: run.depth, agentId: 'koala', trigger: 'user' },
-      launch: { ownerId: 'u1', ...(run.conversationId ? { conversationId: run.conversationId } : {}), ...(run.environment ? { environment: run.environment } : {}), ...(run.modelId ? { modelId: run.modelId } : {}), ...(run.inPlace ? { inPlace: true } : {}) },
+      launch: { ownerId: 'u1', grantId: 'grant-1', ...(run.conversationId ? { conversationId: run.conversationId } : {}), ...(run.environment ? { environment: run.environment } : {}), ...(run.modelId ? { modelId: run.modelId } : {}), ...(run.inPlace ? { inPlace: true } : {}) },
       budget: {},
       emit: () => undefined,
     },
@@ -92,7 +92,7 @@ describe('releasing a run\'s environment', () => {
     const outcome = node.run({
       node: { id: 'release', kind: 'release-sandbox', settings: {} },
       inputs: { environment },
-      run: { identity: { runId: 'run-1', depth: 0, agentId: 'koala', trigger: 'user' }, launch: { ownerId: 'u1', ...(conversationId ? { conversationId } : {}) }, budget: {}, emit: (event: unknown) => emitted.push(event) },
+      run: { identity: { runId: 'run-1', depth: 0, agentId: 'koala', trigger: 'user' }, launch: { ownerId: 'u1', grantId: 'grant-1', ...(conversationId ? { conversationId } : {}) }, budget: {}, emit: (event: unknown) => emitted.push(event) },
     } as never);
     return { outcome, release, emitted };
   };

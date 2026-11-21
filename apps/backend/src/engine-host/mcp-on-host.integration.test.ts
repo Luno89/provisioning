@@ -5,6 +5,7 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { createEngineHost, storesFromDatabase } from './host.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../engine/lib/mcp-servers.js';
 import { seedAll } from '../scripts/seed-all.js';
+import { grantHeld, grantsHeldInMemory, hostGrants } from '../engine/testing/run-grants.js';
 
 const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
 
@@ -19,8 +20,10 @@ const hostFor = async (enabled: string[]) => {
   await seedAll(db);
   await db.engine.saveMcpServer(GITEA);
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], mcpServers: enabled, createdAt: 't0', updatedAt: 't0' });
-  const host = createEngineHost({ models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, revokeRegistryPushToken: async () => undefined, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });
-  const call = (name: string, args: Record<string, unknown>) => host.tools.run({ ticket: { runId: 'r1', depth: 0, ownerId: 'bo', agentSlug: 'koala', trigger: 'user', conversationId: 'c1' }, nodeId: 'n', name, arguments: JSON.stringify(args) }, 1);
+  const grants = grantsHeldInMemory();
+    const grantId = await grantHeld(grants, { ownerId: 'bo', runId: 'r1' });
+    const host = createEngineHost({ runGrants: hostGrants(grants), models: {} as never, cluster: mock<KoalasCluster>(), registry: { none: 'this test builds no workspace images' }, revokeRegistryPushToken: async () => undefined, stores: storesFromDatabase(db, noMemoryIndex), mcpHostedUrl: async () => undefined });
+  const call = (name: string, args: Record<string, unknown>) => host.tools.run({ ticket: { runId: 'r1', depth: 0, ownerId: 'bo', grantId, agentSlug: 'koala', trigger: 'user', conversationId: 'c1' }, nodeId: 'n', name, arguments: JSON.stringify(args) }, 1);
   return { db, call };
 };
 

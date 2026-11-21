@@ -1,4 +1,4 @@
-import { arrayWith, containing, objectWith } from '../../platform/lib/test-matchers.js';
+import { anyOf, arrayWith, containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -13,6 +13,9 @@ import { ApprovalService } from '../services/ApprovalService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { defineGroup } from '@koala/agent-engine/procedure';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
+import { grantsHeldInMemory, runsActingAsTheirOwner } from '../testing/run-grants.js';
+
+const HARNESS_GRANTS = grantsHeldInMemory();
 
 type Summary = ReturnType<typeof extensionSummary>;
 
@@ -55,6 +58,7 @@ let harnessDb: Database | undefined;
 function harnessWith(workflows: WorkflowStarter | undefined, extensions?: EngineRouterDeps['extensions']) {
   const registry = createAgentRegistry();
   const runs = createRunStarter({
+    ...runsActingAsTheirOwner(HARNESS_GRANTS),
     registry,
     workflows: () => workflows,
     newRunId: () => 'run-fixed',
@@ -168,10 +172,12 @@ describe('engine routes', () => {
 
     const [, options] = workflows.start.mock.calls[0] as [string, { args: [Record<string, unknown>] }];
     expect(options.args[0]).toEqual({
-      ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', principal: { kind: 'person', id: 'test-user', claims: [{ role: 'person' }] }, agentSlug: 'koala', trigger: 'user' },
+      ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', grantId: anyOf(String), agentSlug: 'koala', trigger: 'user' },
       procedure: INTERACTIVE_CHAT_V4,
       inputs: { message: 'hello there' },
     });
+    const { grantId } = (options.args[0] as { ticket: { grantId: string } }).ticket;
+    expect(await HARNESS_GRANTS.grant(grantId)).toMatchObject({ runId: 'run-fixed', principal: { kind: 'person', id: 'test-user', claims: [{ role: 'person' }] }, startedBy: 'person', state: 'live' });
 
     await h.close();
   });
@@ -198,7 +204,7 @@ describe('engine routes', () => {
       prefix: '/api/engine',
       router: (database) => {
         db = database;
-        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', binding: conversationBinding(database) });
+        const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', binding: conversationBinding(database) });
         return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, runOrigin: async () => undefined, allowToolInConversation: async () => true }, runs }) });
       },
     });
@@ -243,7 +249,7 @@ describe('engine routes', () => {
         db = database;
         const turns = new ConversationTurnService({ store: database.engine, log: database.engine, running: async () => true });
         let n = 0;
-        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => `run-${(n += 1)}`, turns });
+        const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => `run-${(n += 1)}`, turns });
         return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: { ownsRun: async () => true, runOrigin: async () => undefined, allowToolInConversation: async () => true }, runs }) });
       },
     });
@@ -304,7 +310,7 @@ describe('engine routes', () => {
       prefix: '/api/engine',
       router: (database) => {
         db = database;
-        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => undefined });
+        const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => undefined });
         return engineRouter({ runs, registry: createAgentRegistry(), approvals: new ApprovalService({ store: database.engine, runs }), traces: { list: (ownerId, runId) => database.engine.getRunTraces(ownerId, runId) } });
       },
     });

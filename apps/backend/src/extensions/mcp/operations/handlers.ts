@@ -5,7 +5,7 @@ import { McpClient, type Fetcher } from '../../../engine/lib/mcp-client.js';
 import { runsFingerprint, serverPath, type CapturedServer, type McpServerRecord, type ServerRuns } from '../../../engine/lib/mcp-servers.js';
 import { execFetch, startScript } from '../../../engine-host/tools/workspace-servers.js';
 import { environmentIdFor } from '../../../engine-host/sandboxes/run-environments.js';
-import type { EnvironmentHandleRef, RunTicket } from '../../../engine-host/temporal/contracts.js';
+import type { EnvironmentHandleRef, RunPlace } from '../../../engine-host/temporal/contracts.js';
 import type { HostOperationRun } from '../../types.js';
 
 export const CAPTURE_CPU = '1';
@@ -20,7 +20,7 @@ export interface McpOperationDeps {
   plan(runs: Extract<ServerRuns, { where: 'workspace' }>, name: string, ownerId: string): Promise<ImagePlan>;
   images: { ensure(plan: ImagePlan): Promise<string> };
   environments: {
-    forRun(request: { ticket: RunTicket; environment?: EnvironmentHandleRef | undefined }): Promise<EnvironmentDriver | undefined>;
+    forRun(request: { ticket: RunPlace; environment?: EnvironmentHandleRef | undefined }): Promise<EnvironmentDriver | undefined>;
     release(runId: string): Promise<void>;
   };
   fetch?: Fetcher | undefined;
@@ -46,7 +46,7 @@ function serverFrom(request: NodeRequest): OpenedServer {
   return server as unknown as OpenedServer;
 }
 
-const ticketOf = (request: NodeRequest): RunTicket => ({
+const ticketOf = (request: NodeRequest): RunPlace => ({
   runId: request.run.identity.runId,
   depth: request.run.identity.depth,
   ownerId: ownerOf(request),
@@ -66,7 +66,7 @@ async function ask(client: McpClient, at: string, fingerprint: string): Promise<
   };
 }
 
-export function captureWorkspace(ticket: RunTicket, image: string, provides: readonly string[]): RunWorkspace {
+export function captureWorkspace(ticket: RunPlace, image: string, provides: readonly string[]): RunWorkspace {
   const access = packageAccessFor(provides);
   return {
     runId: ticket.runId,

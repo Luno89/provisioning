@@ -26,7 +26,7 @@ import { environmentIdFor, type RunEnvironments } from './run-environments.js';
 import { lifetimeFor } from './workspace.js';
 import type { ImageBuilder } from './image-builder.js';
 import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
-import type { EnvironmentHandleRef, RunEnvironment, RunTicket } from '../temporal/contracts.js';
+import type { EnvironmentHandleRef, RunEnvironment, RunPlace } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import { composeWithBases } from '../../extensions/workspace-bases.js';
 import type { McpServerRecord, ComposedWorkspace } from '../../engine/index.js';
@@ -39,19 +39,19 @@ export type WorkspaceTarget =
   | { kind: 'sandbox'; spec?: Partial<EnvironmentSpec> | undefined };
 
 export interface WorkspaceSource {
-  forRun(ticket: RunTicket): Promise<WorkspaceTarget | undefined>;
+  forRun(ticket: RunPlace): Promise<WorkspaceTarget | undefined>;
 }
 
 export interface EnvironmentRequest {
-  ticket: RunTicket;
+  ticket: RunPlace;
   environment?: EnvironmentHandleRef | undefined;
   worktree?: string | undefined;
 }
 
 export interface EnvironmentResolver {
-  describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
-  describeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined; extras?: WorkspaceExtras | undefined; treeId?: string | undefined }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
-  composeShared(request: { ticket: RunTicket; agents: readonly string[]; languages?: readonly string[] | undefined; file?: WorkspaceFile | undefined }): Promise<ComposedWorkspace>;
+  describe(ticket: RunPlace, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
+  describeShared(request: { ticket: RunPlace; agents: readonly string[]; languages?: readonly string[] | undefined; extras?: WorkspaceExtras | undefined; treeId?: string | undefined }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
+  composeShared(request: { ticket: RunPlace; agents: readonly string[]; languages?: readonly string[] | undefined; file?: WorkspaceFile | undefined }): Promise<ComposedWorkspace>;
   forRun(request: EnvironmentRequest): Promise<EnvironmentDriver | undefined>;
   release(runId: string): Promise<void>;
 }
@@ -210,7 +210,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
     ? { grants: await options.egress.grants(ownerId, agentSlug), proxyUrl: options.egress.proxyUrl(ownerId, agentSlug) }
     : {});
 
-  const specFor = async (ticket: RunTicket): Promise<
+  const specFor = async (ticket: RunPlace): Promise<
     { agent: AgentDefinition; spec: EnvironmentSpec; workspace: boolean } | undefined
   > => {
     const agent = await options.registry.agent(ticket.ownerId, ticket.agentSlug);
@@ -289,7 +289,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
       };
     },
 
-    async describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment> {
+    async describe(ticket: RunPlace, wallClockLimitMs?: number | undefined): Promise<RunEnvironment> {
       const resolved = await specFor(ticket);
       if (!resolved) return { kind: 'none', egress: false };
 

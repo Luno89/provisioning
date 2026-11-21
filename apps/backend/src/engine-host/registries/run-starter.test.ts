@@ -2,8 +2,22 @@ import { describe, it, expect, vi } from 'vitest';
 import { AccountClosingError, createRunStarter, MachineUnavailableError } from './run-starter.js';
 import type { ProcedureRunInput } from '../temporal/contracts.js';
 import { createAgentRegistry } from './registry.js';
+import { grantsHeldInMemory, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const turns = () => ({ open: vi.fn(async () => undefined), fail: vi.fn(async () => undefined) });
+
+describe('the grant every run starts with', () => {
+  it('is issued for whoever the run acts for and whoever started it, and the ticket names only the grant', async () => {
+    const grants = grantsHeldInMemory();
+    const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'x' }));
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(grants), registry: createAgentRegistry(), workflows: () => ({ start }) });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person' });
+    const { ticket } = start.mock.calls[0]![1].args[0] as ProcedureRunInput;
+    expect(ticket).not.toHaveProperty('principal');
+    expect(await grants.grant(ticket.grantId)).toMatchObject({ runId: ticket.runId, principal: asPerson('u1'), startedBy: 'person', state: 'live' });
+  });
+});
 
 describe('starting a run that is a conversation turn', () => {
   it('opens the turn on the conversation before its run starts', async () => {
@@ -11,13 +25,14 @@ describe('starting a run that is a conversation turn', () => {
     const t = turns();
     t.open.mockImplementation(async () => { order.push('open'); });
     const runs = createRunStarter({
+      ...runsActingAsTheirOwner(),
       registry: createAgentRegistry(),
       workflows: () => ({ start: async () => { order.push('start'); return { workflowId: 'run-1' }; } }),
       newRunId: () => 'run-1',
       turns: t,
     });
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person', conversationId: 'c1' });
 
     expect(t.open).toHaveBeenCalledWith({ ownerId: 'u1', conversationId: 'c1', runId: 'run-1', message: 'hello' });
     expect(order).toEqual(['open', 'start']);
@@ -26,10 +41,10 @@ describe('starting a run that is a conversation turn', () => {
   it('keeps a message\'s attachments on the person\'s message, and tells the run where each is', async () => {
     const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'run-1' }));
     const t = turns();
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: t });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: t });
     const attachments = [{ fileId: 'f1', name: 'brief.pdf', type: 'application/pdf', project: { id: 'p1', name: 'Shop' } }];
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'see this', conversationId: 'c1', attachments });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'see this', startedBy: 'person', conversationId: 'c1', attachments });
 
     expect(t.open).toHaveBeenCalledWith({ ownerId: 'u1', conversationId: 'c1', runId: 'run-1', message: 'see this', attachments });
     const input = start.mock.calls[0]![1].args[0] as ProcedureRunInput;
@@ -38,20 +53,20 @@ describe('starting a run that is a conversation turn', () => {
 
     it('hands the run the conversation its turn was opened in, whatever the inputs said', async () => {
     const start = vi.fn(async (_type: string, _options: { args: unknown[] }) => ({ workflowId: 'run-1' }));
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: turns() });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: turns() });
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1' });
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1', inputs: { conversationId: 'c2' } });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person', conversationId: 'c1' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person', conversationId: 'c1', inputs: { conversationId: 'c2' } });
 
     expect(start.mock.calls.map(([, options]) => (options.args[0] as ProcedureRunInput).inputs.conversationId)).toEqual(['c1', 'c1']);
   });
 
   it('opens nothing for a run that does not save a conversation, or has none', async () => {
     const t = turns();
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start: async () => ({ workflowId: 'x' }) }), turns: t });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start: async () => ({ workflowId: 'x' }) }), turns: t });
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', conversationId: 'c1' });
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', startedBy: 'person', conversationId: 'c1' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person' });
 
     expect(t.open).not.toHaveBeenCalled();
   });
@@ -59,13 +74,14 @@ describe('starting a run that is a conversation turn', () => {
   it('closes the turn with why when its run cannot start', async () => {
     const t = turns();
     const runs = createRunStarter({
+      ...runsActingAsTheirOwner(),
       registry: createAgentRegistry(),
       workflows: () => ({ start: async () => { throw new Error('Temporal is down'); } }),
       newRunId: () => 'run-1',
       turns: t,
     });
 
-    await expect(runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c1' })).rejects.toThrow('Temporal is down');
+    await expect(runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person', conversationId: 'c1' })).rejects.toThrow('Temporal is down');
     expect(t.fail).toHaveBeenCalledWith({ ownerId: 'u1', conversationId: 'c1', runId: 'run-1' }, 'the run could not start: Temporal is down');
   });
 });
@@ -73,11 +89,11 @@ describe('starting a run that is a conversation turn', () => {
 describe('an account being removed', () => {
   it('starts no new run, so nothing writes after its records are gone', async () => {
     const start = vi.fn(async () => ({ workflowId: 'x' }))
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), closing: async (ownerId) => (ownerId === 'leaving' ? 'it is being removed' : undefined) });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), closing: async (ownerId) => (ownerId === 'leaving' ? 'it is being removed' : undefined) });
 
-    await expect(runs.start({ ownerId: 'leaving', agentSlug: 'koala', message: 'hello' })).rejects.toBeInstanceOf(AccountClosingError);
+    await expect(runs.start({ ownerId: 'leaving', agentSlug: 'koala', message: 'hello', startedBy: 'person' })).rejects.toBeInstanceOf(AccountClosingError);
     expect(start).not.toHaveBeenCalled();
-    await runs.start({ ownerId: 'staying', agentSlug: 'koala', message: 'hello' });
+    await runs.start({ ownerId: 'staying', agentSlug: 'koala', message: 'hello', startedBy: 'person' });
     expect(start).toHaveBeenCalledTimes(1);
   });
 });
@@ -85,12 +101,12 @@ describe('an account being removed', () => {
 describe('a run that works for a project', () => {
   it('names the project it works for when it starts, so deleting the project fences what the run still does', async () => {
     const start = vi.fn(async (_type: string, _options: { project?: string | undefined }) => ({ workflowId: 'x' }));
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), binding: async () => ({ projectId: 'p3', treeId: 't3' }) });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), binding: async () => ({ projectId: 'p3', treeId: 't3' }) });
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', projectId: 'p1', bound: { treeId: 't1' } });
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'release', bound: { projectId: 'p2' } });
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', conversationId: 'c3' });
-    await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', startedBy: 'person', projectId: 'p1', bound: { treeId: 't1' } });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'release', startedBy: 'person', bound: { projectId: 'p2' } });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'hello', startedBy: 'person', conversationId: 'c3' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'research', message: 'look it up', startedBy: 'person' });
 
     expect(start.mock.calls.map(([, options]) => options.project)).toEqual(['p1', 'p2', 'p3', undefined]);
   });
@@ -100,9 +116,9 @@ describe('a run whose workflow is kept for one run at a time', () => {
   it('starts under the workflow its run id belongs to, remembers the run id, its agent, conversation and what it is about, and is reached through that workflow', async () => {
     const start = vi.fn(async (_type: string, options: { workflowId: string }) => ({ workflowId: options.workflowId }));
     const signal = vi.fn(async () => undefined);
-    const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start, signal }) });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start, signal }) });
 
-    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', runId: 'grove-run-t1~k2x9', conversationId: 'c1', about: 'the tree "Shop"' });
+    await runs.start({ ownerId: 'u1', agentSlug: 'koala', message: 'grow', startedBy: 'person', runId: 'grove-run-t1~k2x9', conversationId: 'c1', about: 'the tree "Shop"' });
     expect(start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({ workflowId: 'grove-run-t1', memo: { runId: 'grove-run-t1~k2x9', agent: 'koala', conversation: 'c1', about: 'the tree "Shop"' } }));
 
     await runs.cancel('grove-run-t1~k2x9');
@@ -120,9 +136,9 @@ describe('a run sent to an agent on the person\'s machine', () => {
   it('runs a chat turn through the chat procedure on that machine, after checking the machine can answer', async () => {
     const { runs, start } = started();
     const asked: unknown[] = [];
-    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async (ownerId, choice) => { asked.push([ownerId, choice]); return undefined; } });
+    const starter = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), machines: async (ownerId, choice) => { asked.push([ownerId, choice]); return undefined; } });
 
-    const run = await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', conversationId: 'c1', modelId: 'machine:d1:antigravity' });
+    const run = await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', startedBy: 'person', conversationId: 'c1', modelId: 'machine:d1:antigravity' });
 
     expect(run.loopId).toBe('external-agent-chat');
     expect(asked).toEqual([['bo', { deviceId: 'd1', agent: 'antigravity' }]]);
@@ -131,18 +147,18 @@ describe('a run sent to an agent on the person\'s machine', () => {
 
   it('keeps an agent\'s own procedure when it hands its work to a machine, and hands anything else to the task procedure', async () => {
     const { start } = started();
-    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => undefined });
-    expect((await starter.start({ ownerId: 'bo', agentSlug: 'executor', message: 'do it', modelId: 'machine:d1:antigravity' })).loopId).toBe('do-one-task');
-    expect((await starter.start({ ownerId: 'bo', agentSlug: 'memory-keeper', message: 'keep it', modelId: 'machine:d1:antigravity' })).loopId).toBe('tool-rounds');
-    expect((await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'look into it', modelId: 'machine:d1:antigravity' })).loopId).toBe('external-agent-task');
+    const starter = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => undefined });
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'executor', message: 'do it', startedBy: 'person', modelId: 'machine:d1:antigravity' })).loopId).toBe('do-one-task');
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'memory-keeper', message: 'keep it', startedBy: 'person', modelId: 'machine:d1:antigravity' })).loopId).toBe('tool-rounds');
+    expect((await starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'look into it', startedBy: 'person', modelId: 'machine:d1:antigravity' })).loopId).toBe('external-agent-task');
   });
 
   it('starts nothing when the machine cannot answer, and says why', async () => {
     const { runs, start } = started();
-    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => 'desk is not connected, so Antigravity cannot answer' });
-    await expect(starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', conversationId: 'c1', modelId: 'machine:d1:antigravity' }))
+    const starter = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), machines: async () => 'desk is not connected, so Antigravity cannot answer' });
+    await expect(starter.start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', startedBy: 'person', conversationId: 'c1', modelId: 'machine:d1:antigravity' }))
       .rejects.toThrow(new MachineUnavailableError('desk is not connected, so Antigravity cannot answer'));
-    await expect(createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }) }).start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', modelId: 'machine:d1:antigravity' }))
+    await expect(createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }) }).start({ ownerId: 'bo', agentSlug: 'koala', message: 'hi', startedBy: 'person', modelId: 'machine:d1:antigravity' }))
       .rejects.toThrow(MachineUnavailableError);
     expect(runs).toHaveLength(0);
   });
@@ -154,7 +170,7 @@ describe('the grant a run starts with', () => {
     const issued: { projectId?: string | undefined }[] = [];
     const grants = { issue: vi.fn(async (request: { projectId?: string | undefined }) => { issued.push(request); return { id: `g${issued.length}` }; }) };
     const binding = vi.fn(async () => ({ projectId: 'p1', chat: 'the project channel' }));
-    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), turns: turns(), binding, grants: grants as never });
+    const starter = createRunStarter({ principal: runsActingAsTheirOwner().principal, registry: createAgentRegistry(), workflows: () => ({ start }), turns: turns(), binding, grants: grants as never });
     await starter.start({ ownerId: 'ann', agentSlug: 'koala', message: 'and the other project?', conversationId: 'channel-p1', startedBy: 'person' });
     await starter.start({ ownerId: 'ann', agentSlug: 'koala', message: 'Grow the tree.', projectId: 'p1', startedBy: 'person' });
     expect(issued.map((request) => request.projectId)).toEqual([undefined, 'p1']);
@@ -181,12 +197,12 @@ describe('two processes starting the same run at once', () => {
       tickets.push((options.args[0] as ProcedureRunInput).ticket.grantId);
       return { workflowId: 'run-same' };
     });
-    const first = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), grants });
-    const second = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), grants });
+    const first = createRunStarter({ principal: runsActingAsTheirOwner().principal, registry: createAgentRegistry(), workflows: () => ({ start }), grants });
+    const second = createRunStarter({ principal: runsActingAsTheirOwner().principal, registry: createAgentRegistry(), workflows: () => ({ start }), grants });
 
     const [won, lost] = await Promise.allSettled([
-      first.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', runId: 'run-same' }),
-      second.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', runId: 'run-same' }),
+      first.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', startedBy: 'person', runId: 'run-same' }),
+      second.start({ ownerId: 'ann', agentSlug: 'research', message: 'look it up', startedBy: 'person', runId: 'run-same' }),
     ]);
 
     expect(won.status).toBe('fulfilled');

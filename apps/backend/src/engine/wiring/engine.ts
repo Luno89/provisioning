@@ -199,7 +199,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
-    start: async (request) => { await engineRuns.start(request); },
+    start: async (request) => { await engineRuns.start({ ...request, startedBy: 'platform' }); },
     timer: async ({ ownerId, conversationId, signal, quietMs }) => {
       const workflows = (await getTemporalClient()).workflow;
       const where = {
@@ -308,6 +308,11 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const evalWeb = await buildWebTools(deps.webTools);
   const unindexMemories = unindexerFrom((ownerId) => corpusEndpoints(deps.webTools, ownerId));
   const evalHost = createEngineHost({
+    runGrants: {
+      check: (grantId, tool, projectId) => core.runGrants.check(grantId, tool, projectId),
+      grant: (id) => core.runGrants.grant(id),
+      keepHandover: (ownerId, runId, handover) => core.runGrants.keepHandover(ownerId, runId, handover),
+    },
     dependencies: dependenciesOf,
     customizations: { drift: (...args) => deps.customizations.drift(...args), propose: (...args) => deps.customizations.propose(...args), exportItems: (...args) => deps.customizations.exportItems(...args) },
     treeModels: {
@@ -365,7 +370,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       const at = new Date().toISOString();
       const conversationId = randomUUID();
       await db.engine.saveConversation({ id: conversationId, ownerId, title: 'Procedure change request', messages: [], agentSlug: PROCEDURE_CHANGE_AGENT, createdAt: at, updatedAt: at });
-      const started = await engineRuns.start({ ownerId, agentSlug: PROCEDURE_CHANGE_AGENT, procedureId: 'interactive-chat', message, conversationId, inputs: { conversationId } });
+      const started = await engineRuns.start({ startedBy: 'platform', ownerId, agentSlug: PROCEDURE_CHANGE_AGENT, procedureId: 'interactive-chat', message, conversationId, inputs: { conversationId } });
       return { conversationId, runId: started.runId };
     },
   });

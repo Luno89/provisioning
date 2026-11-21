@@ -37,7 +37,7 @@ const request = (settings: Record<string, unknown>, inputs: Record<string, unkno
   execution: 1,
   run: {
     identity: { runId: 'run-e', depth: 0, agentId: 'executor', loopId: 'p', loopVersion: '1', trigger: 'user' },
-    launch: { ownerId: 'user-1' },
+    launch: { ownerId: 'user-1', grantId: 'grant-1' },
     handles: new Set(),
     inputs: {},
     counters: {} as never,

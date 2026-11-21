@@ -3,7 +3,7 @@ import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { RunTicket } from '../temporal/contracts.js';
 
-const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'u1', agentSlug: 'executor', trigger: 'user', conversationId: 'c1' };
+const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'u1', grantId: 'grant-1', agentSlug: 'executor', trigger: 'user', conversationId: 'c1' };
 const sandbox = { id: 'sandbox-1', spec: { kind: 'sandbox', lifecycle: 'invocation' } } as never;
 
 const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['playwright-mcp'], start: 'playwright-mcp --port 8931', port: 8931 };

@@ -20,6 +20,7 @@ export function engineReleaseRuns(deps: {
   return {
     async start({ projectId, ownerId, agent, inputs }) {
       await deps.runs.start({
+        startedBy: 'platform',
         ownerId,
         agentSlug: agent,
         message: 'Release the build.',

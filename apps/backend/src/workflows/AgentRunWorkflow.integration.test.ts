@@ -68,6 +68,10 @@ import {
   type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
 import { testWorker } from './testing/test-worker.js';
+import { grantHeld, grantsHeldInMemory } from '../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
+const GRANT_ID = await grantHeld(GRANTS);
 
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
 
@@ -128,6 +132,7 @@ function activities(options: {
   };
 
   const hostNodes = hostNodesFor(createHostNodes({
+    grants: GRANTS,
     conversations,
     registry,
     models,
@@ -213,6 +218,7 @@ const ticket = (agentSlug: string): RunTicket => ({
   runId: `run-${Math.random().toString(36).slice(2, 8)}`,
   depth: 0,
   ownerId: 'user-1',
+  grantId: GRANT_ID,
   agentSlug,
   trigger: 'user',
 });

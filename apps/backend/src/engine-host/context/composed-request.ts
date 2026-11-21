@@ -19,6 +19,7 @@ import type { ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { seededAgents } from '../../extensions/seeds.js';
+import { asPerson } from '../../platform/index.js';
 
 export interface ComposedRequest {
   system: string;
@@ -134,7 +135,11 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
     tools: async () => [],
   });
 
+  const ownerId = options.ownerId ?? 'user-1';
+  const grantId = `composed-${options.agent}`;
+  const grants = { grant: async (id: string) => (id === grantId ? { principal: asPerson(ownerId) } : undefined) };
   const services: HostNodeServices = {
+    grants,
     conversations: inMemoryConversations(),
     registry,
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
@@ -147,7 +152,6 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
     fetchImpl: fetchImpl as unknown as typeof fetch,
   };
 
-  const ownerId = options.ownerId ?? 'user-1';
   const result = await runProcedure({
     procedure: options.procedure,
     catalogue: platformCatalogue(),
@@ -170,7 +174,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
       loopVersion: options.procedure.version,
       trigger: 'user',
     },
-    launch: { ownerId },
+    launch: { ownerId, grantId },
     inputs: { ...(options.inputs ?? {}), message: options.message ?? 'get on with it' },
   });
 

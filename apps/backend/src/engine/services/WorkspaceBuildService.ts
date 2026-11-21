@@ -20,6 +20,7 @@ export class WorkspaceBuildService {
     const runId = workspaceBuildRunId(treeId, commit);
     try {
       await this.deps.runs.start({
+        startedBy: 'platform',
         ownerId,
         agentSlug: WORKSPACE_AGENT,
         message: 'Build the workspace.',

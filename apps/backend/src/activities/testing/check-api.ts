@@ -71,6 +71,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { PlanAdopter } from '../../projects/services/PlanService.js';
 import { openRoutesOf } from '../../open-routes.js';
+import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
 
 export const SESSION_KEY = 'check-api-session-key';
 
@@ -138,7 +139,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
     },
   };
   const registry = createAgentRegistry();
-  const runs = createRunStarter({ registry, workflows: () => starter });
+  const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry, workflows: () => starter });
 
   const ports: CheckApiPorts = {
     workflows,

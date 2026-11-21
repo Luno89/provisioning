@@ -32,6 +32,7 @@ export class ImageReleases {
     if (secrets?.waiting.length) return this.refuse(run, `waiting for the person to enter ${secrets.waiting.join(', ')}`);
     const inputs: ReplaceRunInput = { ownerId: project.ownerId, projectId: project.id, pipelineRunId: run.id };
     await this.deps.runs.start({
+      startedBy: 'platform',
       ownerId: project.ownerId,
       agentSlug: agent,
       message: 'Deploy the build.',

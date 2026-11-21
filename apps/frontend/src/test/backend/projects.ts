@@ -67,6 +67,7 @@ import { testClusterAccess } from '../../../../backend/src/infrastructure/testin
 import { releaseDecider } from '../../../../backend/src/releases/services/release-decider'
 import { changesIn } from '../../../../backend/src/releases/services/repo-changes'
 import { testDataDir } from '../../../../backend/src/platform/testing/data-dir'
+import { runsActingAsTheirOwner } from '../../../../backend/src/engine/testing/run-grants'
 
 export interface PaperWorkflow {
   workflowType: string
@@ -169,6 +170,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   })
   const turns = new ConversationTurnService({ store: db.engine, log: db.engine, running: async () => true })
   const runs = createRunStarter({
+    ...runsActingAsTheirOwner(),
     registry,
     turns,
     workflows: () => temporal.starter,

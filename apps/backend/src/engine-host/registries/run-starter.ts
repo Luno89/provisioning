@@ -7,7 +7,7 @@ import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
 import { machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
-import { asPerson, type Principal } from '../../platform/lib/permissions.js';
+import type { Principal } from '../../platform/index.js';
 import type { GrantRequest, GrantStartedBy } from '../../engine/index.js';
 
 export interface WorkflowStarter {
@@ -41,7 +41,7 @@ export interface StartRunRequest {
   asks?: string | undefined;
   about?: string | undefined;
   attachments?: MessageAttachment[] | undefined;
-  startedBy?: GrantStartedBy | undefined;
+  startedBy: GrantStartedBy;
   projectId?: string | undefined;
 }
 
@@ -84,8 +84,8 @@ export { UnknownAgentError };
 
 export interface RunStarterOptions {
   registry: AgentRegistry;
-  principal?: ((ownerId: string) => Promise<Principal>) | undefined;
-  grants?: { issue(request: GrantRequest): Promise<{ id: string }>; withdraw(id: string): Promise<void> } | undefined;
+  principal: (ownerId: string) => Promise<Principal>;
+  grants: { issue(request: GrantRequest): Promise<{ id: string }>; withdraw(id: string): Promise<void> };
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
@@ -131,16 +131,16 @@ export function createRunStarter(options: RunStarterOptions) {
 
       const runId = request.runId ?? newRunId();
 
-      const principal = await options.principal?.(request.ownerId) ?? asPerson(request.ownerId);
+      const principal = await options.principal(request.ownerId);
       const bound = request.conversationId && options.binding
         ? await options.binding(request.ownerId, request.conversationId)
         : undefined;
       const grantProject = request.projectId;
-      const grant = await options.grants?.issue({
+      const grant = await options.grants.issue({
         ownerId: request.ownerId,
         runId,
         principal,
-        startedBy: request.startedBy ?? 'platform',
+        startedBy: request.startedBy,
         ...(grantProject ? { projectId: grantProject } : {}),
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
       });
@@ -148,8 +148,7 @@ export function createRunStarter(options: RunStarterOptions) {
         runId,
         depth: 0,
         ownerId: request.ownerId,
-        principal,
-        ...(grant ? { grantId: grant.id } : {}),
+        grantId: grant.id,
         agentSlug: request.agentSlug,
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
         trigger: 'user',
@@ -195,7 +194,7 @@ export function createRunStarter(options: RunStarterOptions) {
           },
         });
       } catch (err) {
-        if (grant) await options.grants!.withdraw(grant.id);
+        await options.grants.withdraw(grant.id);
         if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(ignore('the start failure is thrown below, and a turn left open is closed the next time its conversation is read, its run not running'));
         throw err;
       }

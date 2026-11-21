@@ -22,7 +22,7 @@ import type {
   StepResult,
   ValueResult,
 } from '@koala/agent-engine/procedure';
-import type { Principal } from '../../platform/index.js';
+import { ApplicationFailure } from '@temporalio/common';
 import type { SamplingConfig } from '@koala/harness-types';
 import { QUEUES } from '../../platform/lib/work-places.js';
 
@@ -33,8 +33,7 @@ export interface RunTicket {
   turnId?: string | undefined;
   depth: number;
   ownerId: string;
-  principal?: Principal | undefined;
-  grantId?: string | undefined;
+  grantId: string;
   agentSlug: string;
   conversationId?: string | undefined;
   projectId?: string | undefined;
@@ -44,6 +43,8 @@ export interface RunTicket {
   modelReach?: ModelReach | undefined;
   sampling?: SamplingConfig | undefined;
 }
+
+export type RunPlace = Omit<RunTicket, 'grantId'>;
 
 export interface ToolCallArgs {
   ticket: RunTicket;
@@ -174,6 +175,12 @@ export interface ResolveEnvironmentArgs {
 
 export const deviceQueue = (deviceId: string): string => `device-${deviceId}`;
 
+export interface GroveRunArgs {
+  treeId: string;
+  ownerId: string;
+  at?: number | undefined;
+}
+
 export interface ResolveAgentArgs {
   ownerId: string;
   agentSlug: string;
@@ -301,14 +308,18 @@ export interface RecordTracesArgs {
   traces: NodeTrace[];
 }
 
+const grantOf = (run: Pick<RunContext, 'identity' | 'launch'>): string => {
+  if (!run.launch.grantId) throw ApplicationFailure.nonRetryable(`run ${run.identity.runId} holds no grant, so it can make no call`, 'RunHoldsNoGrant');
+  return run.launch.grantId;
+};
+
 export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTicket => ({
   runId: run.identity.runId,
   ...(run.identity.parentRunId ? { parentRunId: run.identity.parentRunId } : {}),
   ...(run.identity.parentCallId ? { parentCallId: run.identity.parentCallId } : {}),
   depth: run.identity.depth,
   ownerId: run.launch.ownerId,
-  ...(run.launch.principal ? { principal: run.launch.principal as Principal } : {}),
-  ...(run.launch.grantId ? { grantId: run.launch.grantId } : {}),
+  grantId: grantOf(run),
   ...(run.launch.turnId && run.launch.turnId !== run.identity.runId ? { turnId: run.launch.turnId } : {}),
   agentSlug: run.identity.agentId,
   ...(run.launch.conversationId ? { conversationId: run.launch.conversationId } : {}),
@@ -323,8 +334,7 @@ export const turnOf = (ticket: Pick<RunTicket, 'runId' | 'turnId'>): string => t
 
 export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => ({
   ownerId: ticket.ownerId,
-  ...(ticket.principal ? { principal: ticket.principal } : {}),
-  ...(ticket.grantId ? { grantId: ticket.grantId } : {}),
+  grantId: ticket.grantId,
   turnId: turnOf(ticket),
   ...((projectId ?? ticket.projectId) ? { projectId: projectId ?? ticket.projectId } : {}),
   ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),

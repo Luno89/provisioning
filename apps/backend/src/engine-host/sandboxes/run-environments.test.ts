@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createRunEnvironments, environmentIdFor, type ProvisionForRun } from './run-environments.js';
 import type { EnvironmentDriver, EnvironmentSpec } from '@koala/engine-core';
-import type { RunTicket } from '../temporal/contracts.js';
+import type { RunPlace } from '../temporal/contracts.js';
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 
-const ticket = (runId: string): RunTicket => ({
+const ticket = (runId: string): RunPlace => ({
   runId,
   depth: 0,
   ownerId: 'user-1',

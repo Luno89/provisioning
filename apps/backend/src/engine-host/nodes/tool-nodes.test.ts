@@ -6,6 +6,11 @@ import { createServerTools } from '../tools/server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { McpTool } from '../../engine/lib/mcp-client.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
+import type { ToolContract } from '@koala/engine-core';
+import { RunGrantService } from '../../engine/index.js';
+import { WITHHELD_WHY } from '../../engine/lib/tool-access.js';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const koala: AgentDefinition = {
   slug: 'koala', name: 'Koala', description: 'talks', version: '1', prompt: 'p', guidance: '', returns: '', failures: [],
@@ -29,19 +34,33 @@ const serverTools = (enabled: string[]) => createServerTools({
   workspace: { call: async () => ({ ok: true, digest: '' }) },
 });
 
-async function offered(persona: AgentDefinition, { enabled = [], environment, settings = {}, memories, binding }: { enabled?: string[]; environment?: unknown; settings?: Record<string, unknown>; memories?: MemoryItem[]; binding?: unknown } = {}) {
+async function offered(persona: AgentDefinition, { enabled = [], environment, settings = {}, memories, binding, catalogue = [], actingFor = 'u1' }: { enabled?: string[]; environment?: unknown; settings?: Record<string, unknown>; memories?: MemoryItem[]; binding?: unknown; catalogue?: ToolContract[]; actingFor?: string } = {}) {
+  const grants = new RunGrantService({ store: memoryDatabase().engine });
+  const grant = await grants.issue({ ownerId: 'u1', runId: 'r1', principal: asPerson(actingFor), startedBy: 'person' });
   const [node] = createToolNodes({
-    registry: createAgentRegistry({ agentStore: { list: async () => [persona] }, toolCatalogue: { list: async () => [] } }),
+    grants,
+    registry: createAgentRegistry({ agentStore: { list: async () => [persona] }, toolCatalogue: { list: async () => catalogue } }),
     serverTools: serverTools(enabled),
     ...(memories ? { memories: { list: async () => memories } as never } : {}),
   });
   const out = await (node!.run as (request: unknown) => Promise<{ outputs: { offered: { name: string; openWorld?: boolean; learned?: string[]; servedBy?: { learned?: string[] } }[]; withheld: { name: string; why: string }[] } }>)({
     node: { id: 'tools', settings },
     inputs: { persona, ...(environment ? { environment } : {}), ...(binding ? { binding } : {}) },
-    run: { identity: { runId: 'r1', depth: 0, agentId: persona.slug }, launch: { ownerId: 'u1', conversationId: 'c1' }, handles: {} },
+    run: { identity: { runId: 'r1', depth: 0, agentId: persona.slug }, launch: { ownerId: 'u1', conversationId: 'c1', grantId: grant.id }, handles: {} },
   });
   return out.outputs;
 }
+
+describe('resolve-tools acting for whoever the run\'s grant was issued for', () => {
+  it('offers what that principal may use, not what the run\'s owner may', async () => {
+    const keeper: AgentDefinition = { ...koala, tools: ['save_memory'] };
+    const catalogue: ToolContract[] = [{ name: 'save_memory', description: 'Remember something', binding: 'platform' }];
+    expect((await offered(keeper, { catalogue })).offered.map((tool) => tool.name)).toEqual(['save_memory']);
+    const elsewhere = await offered(keeper, { catalogue, actingFor: 'someone-else' });
+    expect(elsewhere.offered).toEqual([]);
+    expect(elsewhere.withheld).toContainEqual({ name: 'save_memory', why: WITHHELD_WHY });
+  });
+});
 
 describe('resolve-tools with MCP servers', () => {
   it('offers the tools of a server switched on for the conversation, and none otherwise', async () => {
