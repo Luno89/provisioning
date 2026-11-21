@@ -3,6 +3,7 @@ import { failureOf } from './failures.js';
 import { heartbeatWhileRunning } from './liveness.js';
 import { traceActivities } from './telemetry.js';
 import { carryWorkFor } from './work-for.js';
+import { killOnCancel } from './stops-with.js';
 
 export { WAITING_RETRY } from './failures.js';
 
@@ -36,4 +37,4 @@ export function classifiedFailures() {
   });
 }
 
-export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), carryWorkFor(), classifiedFailures()];
+export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), carryWorkFor(), killOnCancel(), classifiedFailures()];

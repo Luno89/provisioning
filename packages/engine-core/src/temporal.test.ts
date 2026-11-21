@@ -36,19 +36,19 @@ describe('a worker Koala builds', () => {
     await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: UNREAD, workflowModules: ['/the/telemetry.ts'] });
     const options = vi.mocked(Worker.create).mock.calls[0]?.[0];
     expect(options?.maxHeartbeatThrottleInterval).toBe(WORKER_DEFAULTS.maxHeartbeatThrottleInterval);
-    expect(options?.interceptors?.activity).toHaveLength(4);
+    expect(options?.interceptors?.activity).toHaveLength(5);
     expect(options?.interceptors?.workflowModules).toEqual(['/the/telemetry.ts']);
   });
 
   it('refuses an activity of a project being deleted when it reads the marks, and says why it reads none where it cannot', async () => {
     await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: async () => ({ owner: false, project: true }) });
     const refusing = vi.mocked(Worker.create).mock.calls[0]?.[0]?.interceptors?.activity ?? [];
-    expect(refusing).toHaveLength(5);
+    expect(refusing).toHaveLength(6);
     const last = (refusing.at(-1) as unknown as () => { inbound: { execute(input: unknown, next: () => Promise<unknown>): Promise<unknown> } })();
     await expect(last.inbound.execute({ headers: { [WORK_HEADER]: workHeader({ project: 'p1' }) } }, async () => 'ran')).rejects.toThrow('this project is being deleted');
     vi.mocked(Worker.create).mockClear();
     await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: { unread: 'a machine reads no marks' } });
-    expect(vi.mocked(Worker.create).mock.calls[0]?.[0]?.interceptors?.activity).toHaveLength(4);
+    expect(vi.mocked(Worker.create).mock.calls[0]?.[0]?.interceptors?.activity).toHaveLength(5);
   });
 
   it('tells whoever asked when a payload it was handed can never be read, and still refuses it', async () => {
