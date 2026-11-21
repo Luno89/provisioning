@@ -7,7 +7,7 @@ import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
 import type { RunTicket } from './contracts.js';
-import { grantsHeldInMemory } from '../../engine/testing/run-grants.js';
+import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 
 const ticket = (over: Partial<RunTicket> = {}): RunTicket => ({
@@ -51,6 +51,7 @@ function services(over: Partial<EngineServices> = {}): { services: EngineService
       },
       tools: { run: vi.fn(async () => ({ ok: true, digest: 'tool digest', content: 'tool content' })) },
       merges: { run: vi.fn(async () => ({ merged: 2 })) },
+      grants: grantsHeldInMemory(),
       bus,
       ...over,
     },
@@ -298,6 +299,20 @@ describe('settling the tasks a run claimed', () => {
   });
 });
 
+
+describe('a run handing work to another agent', () => {
+  const persona = (slug: string, agents: string[] = []) => ({ slug, name: slug, description: slug, version: '1', prompt: 'p', procedure: 'tool-rounds', guidance: '', returns: '', failures: [], tools: [], environment: {}, agents });
+
+  it('resolves the agent only when the run handing it work holds that hand-off and its grant is live', async () => {
+    const grants = grantsHeldInMemory();
+    const from = ticket({ agentSlug: 'asker', grantId: await grantHeld(grants) });
+    const registry = createAgentRegistry({ agentStore: { list: async () => [persona('asker', ['helper']), persona('helper'), persona('other')] }, toolCatalogue: { list: async () => [] } });
+    const activities = createEngineActivities(services({ registry, grants }).services);
+    expect(await activities.EngineResolveAgentActivity({ ownerId: 'user-1', agentSlug: 'helper', handedBy: from })).toMatchObject({ found: true });
+    expect(await activities.EngineResolveAgentActivity({ ownerId: 'user-1', agentSlug: 'other', handedBy: from }))
+      .toEqual({ found: false, refused: 'asker is not allowed to hand work to "other" — grant it the agent first', callableAgents: [] });
+  });
+});
 
 describe('the run a tree is grown by', () => {
   const tree = { id: 'tree-1', ownerId: 'user-1', name: 'Paper', type: 'research-paper', projectIds: [], createdAt: 'then', updatedAt: 'then' };

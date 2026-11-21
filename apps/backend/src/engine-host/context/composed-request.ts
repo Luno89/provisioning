@@ -20,6 +20,7 @@ import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 import { platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { seededAgents } from '../../extensions/seeds.js';
 import { asPerson } from '../../platform/index.js';
+import { noGrantProblem, type GrantCheck } from '../../engine/index.js';
 
 export interface ComposedRequest {
   system: string;
@@ -137,7 +138,10 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
 
   const ownerId = options.ownerId ?? 'user-1';
   const grantId = `composed-${options.agent}`;
-  const grants = { grant: async (id: string) => (id === grantId ? { principal: asPerson(ownerId) } : undefined) };
+  const grants = {
+    grant: async (id: string) => (id === grantId ? { principal: asPerson(ownerId) } : undefined),
+    check: async (id: string, tool: string): Promise<GrantCheck> => (id === grantId ? { principal: asPerson(ownerId) } : { problem: noGrantProblem(tool) }),
+  };
   const services: HostNodeServices = {
     grants,
     conversations: inMemoryConversations(),

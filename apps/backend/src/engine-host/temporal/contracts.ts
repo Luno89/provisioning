@@ -187,10 +187,12 @@ export interface ResolveAgentArgs {
   modelId?: string | undefined;
   handedDown?: boolean | undefined;
   turnId?: string | undefined;
+  handedBy?: RunTicket | undefined;
 }
 
 export interface ResolvedAgentInfo {
   found: boolean;
+  refused?: string | undefined;
   tools?: string[] | undefined;
   procedure?: Procedure | undefined;
   callableAgents: string[];

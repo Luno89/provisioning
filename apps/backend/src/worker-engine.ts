@@ -366,6 +366,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const hostNodes = hostNodesFor(createHostNodes(host.services), ['activity', 'sandbox']);
 
   const engine = createEngineActivities({
+    grants: runGrants,
     grantFor: async (ownerId, runId) => (await runGrants.issueOnce({ ownerId, runId, principal: await principalOfOwner(ownerId), startedBy: 'person' })).id,
     neverStarted: (runId) => runGrants.neverStarted(runId),
     registry,

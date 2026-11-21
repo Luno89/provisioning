@@ -577,9 +577,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const childRunId = `${ticket.runId}-${agent}-${children}`;
       const handed = ticket.modelReach === 'chat' ? undefined : run.launch.modelId;
       const inherited = machineChoice(handed) ? undefined : handed;
-      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent, turnId: turnOf(ticket), ...(handed ? { modelId: handed, handedDown: true } : {}) });
+      const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent, turnId: turnOf(ticket), handedBy: ticketFor(run), ...(handed ? { modelId: handed, handedDown: true } : {}) });
       const childModel = resolved.machine ?? (resolved.tree ? resolved.tree.modelId : inherited);
 
+      if (resolved.refused) return { runId: childRunId, agentId: agent, outcome: 'failed', reason: resolved.refused, outputs: {} };
       if (!resolved.found || !resolved.procedure) {
         return { runId: childRunId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
       }

@@ -18,6 +18,7 @@ import { createToolNodes } from './tool-nodes.js';
 import { createCodeNodes } from './code-nodes.js';
 import { createConversationNodes } from './conversation-nodes.js';
 import { createHostOpNodes } from './host-op-nodes.js';
+import { handOffProblem } from '../tools/hand-offs.js';
 import { handleFor, launchFor, ticketFor } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { HostNodeServices } from './services.js';
@@ -92,16 +93,8 @@ export function createProcedureExecutor(
         return { runId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
       }
 
-      const caller = await options.registry.agent(run.launch.ownerId, run.identity.agentId);
-      if (caller && !(caller.agents ?? []).includes(agent)) {
-        return {
-          runId,
-          agentId: agent,
-          outcome: 'failed',
-          reason: `${caller.slug} is not allowed to hand work to "${agent}" — grant it the agent first`,
-          outputs: {},
-        };
-      }
+      const refused = await handOffProblem({ registry: options.registry, grants: services.grants }, ticketFor(run), agent);
+      if (refused) return { runId, agentId: agent, outcome: 'failed', reason: refused, outputs: {} };
 
       const result = await runProcedure({
         procedure: runnable.procedure,

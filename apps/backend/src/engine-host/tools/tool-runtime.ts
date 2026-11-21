@@ -6,7 +6,7 @@ import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
 import { accessOf, accessProblem, projectRefsIn, sourceOf, type ProjectResolution } from '../../engine/lib/tool-access.js';
 import type { PoisoningWatch } from './poisoning-watch.js';
-import { noGrantProblem, type GrantCheck, type ProjectResolver } from '../../engine/index.js';
+import { HANDOVER_TOOL, noGrantProblem, type GrantCheck, type ProjectResolver } from '../../engine/index.js';
 import { withoutHidden } from '../../engine/lib/hidden-text.js';
 
 export type { ToolHandler } from '@koala/engine-core';
@@ -90,7 +90,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const outcome = await executeTool({
         name: args.name,
         arguments: args.arguments,
-        granted: [...(args.granted ?? agent.tools), ...(served?.tools.map((tool) => tool.name) ?? [])],
+        granted: [...(args.granted ?? agent.tools).filter((tool) => agent.tools.includes(tool) || tool === HANDOVER_TOOL), ...(served?.tools.map((tool) => tool.name) ?? [])],
         catalogue,
         ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {

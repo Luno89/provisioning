@@ -216,13 +216,31 @@ describe('tool runtime', () => {
     expect(outcome.digest).toContain('not a tool this agent can use');
   });
 
-  it('runs what the run grants for the call, such as run_command for an agent on a machine\'s run_in_workspace, though the agent does not hold it', async () => {
-    const { driver } = sandbox();
+  it('refuses run_command to an agent that does not hold it, even when the call says it was offered', async () => {
+    const { backend, driver } = sandbox();
     const outcome = await runtime(driver).run({ ...args({ name: 'run_command', arguments: '{"command":"ls"}' }), ticket: { ...args({ name: 'run_command', arguments: '' }).ticket, agentSlug: 'research' }, granted: ['search_web', 'run_command'] });
-    expect(outcome.ok).toBe(true);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('not a tool this agent can use');
+    expect(backend.exec).not.toHaveBeenCalled();
 
     const held = await runtime(driver).run({ ...args({ name: 'run_command', arguments: '{"command":"ls"}' }), ticket: { ...args({ name: 'run_command', arguments: '' }).ticket, agentSlug: 'research' } });
     expect(held.digest).toContain('not a tool this agent can use');
+  });
+
+  it('refuses a tool taken from the agent while its run goes on, though the run was offered it when it started', async () => {
+    const { backend, driver } = sandbox();
+    let held = EXECUTOR.tools;
+    const tools = createToolRuntime({
+      grants: GRANTS,
+      registry: createAgentRegistry({ agentStore: { list: async () => [{ ...EXECUTOR, tools: held }] }, toolCatalogue: { list: async () => CATALOGUE } }),
+      environments: sourceFor(driver),
+    });
+    expect((await tools.run({ ...args(), granted: EXECUTOR.tools })).ok).toBe(true);
+    held = EXECUTOR.tools.filter((tool) => tool !== 'run_command');
+    const after = await tools.run({ ...args(), granted: EXECUTOR.tools });
+    expect(after.ok).toBe(false);
+    expect(after.digest).toContain('not a tool this agent can use');
+    expect(backend.exec).toHaveBeenCalledTimes(1);
   });
 
   it('refuses an environment tool when the agent has no machine, explaining why', async () => {

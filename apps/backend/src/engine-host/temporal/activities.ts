@@ -43,6 +43,7 @@ import type {
 } from './contracts.js';
 import { type HandoverArgs, type LifecycleEvent, type WorkflowFailedReport, type BenchIdleOutcome, type ConcludeWorkspaceArgs, type GroveRunArgs, groveRunId, runStamp } from './contracts.js';
 import { HANDOVER_TOOL, handoverPrompt, type Handover } from '../../engine/lib/run-grants.js';
+import { handOffProblem, type HandOffChecks } from '../tools/hand-offs.js';
 import { HANDOVER_TOOLS } from '../tools/handover-tools-catalogue.js';
 import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
 import type { SavedDocuments } from '../sandboxes/workspace-documents.js';
@@ -109,6 +110,7 @@ export interface TraceRecorder {
 export interface EngineServices extends StreamServices {
   tools: ToolRuntime;
   merges: MergeRuntime;
+  grants: HandOffChecks['grants'];
   environments: EnvironmentResolver;
   hostNodes?: readonly NodeImplementation[] | undefined;
   traces?: TraceRecorder | undefined;
@@ -276,6 +278,8 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         ? await services.registry.runnable(args.ownerId, args.agentSlug)
         : asked;
       if (!runnable) return { found: false, callableAgents: [] };
+      const refused = args.handedBy ? await handOffProblem({ registry: services.registry, grants: services.grants }, args.handedBy, args.agentSlug) : undefined;
+      if (refused) return { found: false, refused, callableAgents: [] };
       if (runnable.machine) {
         const problem = services.machineProblem ? await services.machineProblem(args.ownerId, runnable.machine) : 'this worker cannot reach people\'s machines';
         if (problem) throw ApplicationFailure.nonRetryable(`This run cannot go to that machine: ${problem}.`, 'MachineUnavailable');
