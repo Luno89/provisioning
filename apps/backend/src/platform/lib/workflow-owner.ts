@@ -1,8 +1,8 @@
 import type { SearchAttributePair, TypedSearchAttributes } from '@temporalio/common';
-import { OWNER_ATTRIBUTE } from '@koala/engine-core/workflow-owner';
+import { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE } from '@koala/engine-core/workflow-owner';
 import { allowed, holds, type Principal } from './permissions.js';
 
-export { OWNER_ATTRIBUTE };
+export { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE };
 export const PLATFORM_OWNER = 'platform';
 
 export const startedFor = (owner: string): { typedSearchAttributes: SearchAttributePair[] } => ({
@@ -19,6 +19,8 @@ export function ownerIn(attributes: TypedSearchAttributes | readonly SearchAttri
 }
 
 export const ownedQuery = (owner: string): string => `${OWNER_ATTRIBUTE.name} = "${owner.replace(/["\\]/g, '')}"`;
+
+export const projectQuery = (project: string): string => `${PROJECT_ATTRIBUTE.name} = "${project.replace(/["\\]/g, '')}"`;
 
 export const withinQuery = (scope: string | undefined, query: string | undefined): string | undefined => {
   const parts = [scope, query].filter((part): part is string => Boolean(part?.trim()));

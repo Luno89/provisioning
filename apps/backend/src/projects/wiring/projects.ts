@@ -198,7 +198,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const treeConclusions = { release: (treeId: string, ownerId: string) => deps.workspaceConclusions.conclude(ownerId, { kind: 'tree', id: treeId }) };
   const groveDeletion = new GroveDeletionService({
     store: db,
-    workflows: { stop: (workflowId, reason) => temporalBridge.stopIfRunning(workflowId, reason) },
+    workflows: { stop: (workflowId) => temporalBridge.cancelIfRunning(workflowId) },
     workspaces: treeConclusions,
   });
   const groveOrder = new GroveOrderService({ store: db.projects });

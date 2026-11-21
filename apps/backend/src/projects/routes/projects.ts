@@ -207,7 +207,6 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
       const runs = await db.releases.getPipelineRuns();
       const run = runs.find((r) => r.id === req.params.runId && r.projectId === project.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
-      if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });
 
       const info = await temporalBridge.promoteProjectBuild(project, run, user?.id);
       res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });

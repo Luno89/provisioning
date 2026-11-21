@@ -29,7 +29,7 @@ describe('the host worker, started the way its entry starts it', () => {
       const running = runThenLetGo(worker, fences);
       while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
       expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual([...HOST_ACTIVITIES[role]].sort());
-      expect(worker.options.interceptors.activity).toHaveLength(4);
+      expect(worker.options.interceptors.activity).toHaveLength(6);
       expect((await live()).map((process) => process.name)).toContain('worker-host');
       worker.shutdown();
       await running;

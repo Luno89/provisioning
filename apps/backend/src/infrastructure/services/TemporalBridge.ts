@@ -2,7 +2,7 @@ import { withWorkFor } from '@koala/engine-core/work-for'
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, closedWith, reopening, thrownFor, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
+  cancelIfRunning, getTemporalClient, closedWith, reopening, thrownFor, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
   type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
@@ -587,9 +587,9 @@ export class TemporalBridge {
     }
   }
 
-  async stopIfRunning(wfId: string, reason: string): Promise<boolean> {
+  async cancelIfRunning(wfId: string): Promise<boolean> {
     if (!this.client) return false
-    return (await stopIfRunning(this.client.workflow.getHandle(wfId), reason)) !== 'not-running'
+    return (await cancelIfRunning(this.client.workflow.getHandle(wfId))) !== 'not-running'
   }
 
   async cancelWorkflow(workflowId: string): Promise<'cancelled' | 'not-running' | 'unreachable'> {

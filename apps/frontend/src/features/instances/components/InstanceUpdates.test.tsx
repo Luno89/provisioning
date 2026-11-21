@@ -4,10 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { InstanceUpdates } from './InstanceUpdates'
 import { api } from '../../../api/client'
 
-vi.mock('../../../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../api/client')>()
-  return { ...original, api: { get: vi.fn(), put: vi.fn() } }
-})
+vi.mock('../../../api/client', async (importOriginal) => (await import('../../../test/mocked-api')).mockedApi(importOriginal, 'get', 'put'))
 
 const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><InstanceUpdates /></QueryClientProvider>)
 

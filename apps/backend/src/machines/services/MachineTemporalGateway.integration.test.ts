@@ -93,7 +93,7 @@ const refusedWith = async (attempt: Promise<unknown>, said: RegExp) => {
 
 describe('a machine reaching Temporal through the gateway', () => {
   it('takes its own work, heartbeats and answers it, as if it spoke to Temporal itself', async () => {
-    const machine = await createWorker({
+    const machine = await createWorker({ deletingMarks: { unread: 'this test reads no deletion marks' },
       connection: await asMachine('token-d1'),
       namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',
@@ -106,7 +106,7 @@ describe('a machine reaching Temporal through the gateway', () => {
   });
 
   it('lets a machine read the large payloads of the tasks it was handed, and no other machine', async () => {
-    const machine = await createWorker({
+    const machine = await createWorker({ deletingMarks: { unread: 'this test reads no deletion marks' },
       connection: await asMachine('token-d1'),
       namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',
@@ -114,7 +114,7 @@ describe('a machine reaching Temporal through the gateway', () => {
       activities: { Echo: async (text: string) => `machine says ${text}` },
     });
     const payloads = { ring: PAYLOAD_KEY, blobs };
-    const workflows = await createWorker({ connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-big', payloads, workflowBundle: await bundled(resolve(__dirname, '../testing/MachineTemporalGateway.fixture-workflow.ts')) });
+    const workflows = await createWorker({ deletingMarks: { unread: 'this test reads no deletion marks' }, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-big', payloads, workflowBundle: await bundled(resolve(__dirname, '../testing/MachineTemporalGateway.fixture-workflow.ts')) });
     const client = createClient({ connection: env.connection, namespace: env.namespace ?? 'default', payloads });
     const pasted = 'a'.repeat(100) + Buffer.alloc(200_000).map(() => Math.floor(Math.random() * 26) + 97).toString();
     const before = new Set((await stored()).map((blob) => blob.id));
@@ -139,7 +139,7 @@ describe('a machine reaching Temporal through the gateway', () => {
   });
 
   it('never lets a machine take another machine\'s work', async () => {
-    const thief = await createWorker({ connection: await asMachine('token-d2'), namespace: env.namespace ?? 'default', taskQueue: 'device-d1', payloads: env.payloads, activities: { Echo: async () => 'stolen' } });
+    const thief = await createWorker({ deletingMarks: { unread: 'this test reads no deletion marks' }, connection: await asMachine('token-d2'), namespace: env.namespace ?? 'default', taskQueue: 'device-d1', payloads: env.payloads, activities: { Echo: async () => 'stolen' } });
     await thief.runUntil(new Promise((done) => setTimeout(done, 3_000)));
     expect(refusals.some((line) => line.includes('refused PollActivityTaskQueue from d2: a machine takes work only from its own queue, device-d2'))).toBe(true);
   });

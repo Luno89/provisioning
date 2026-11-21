@@ -15,7 +15,7 @@ import { testBucket } from '../files/testing/real-minio.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { releaseRunWorkflowId } from '../releases/lib/release-run.js';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
-import { stopIfRunning } from '../platform/lib/stop-workflow.js';
+import { cancelIfRunning } from '../platform/lib/stop-workflow.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
@@ -119,6 +119,10 @@ async function workers(queue: string, removal: object, removalWorkflow: string, 
 
 const naming = () => testClient(env, { namespace: world.namespace, interceptors: { workflow: [namesItsWork] } });
 
+const cancelling = (temporal: { workflow: { getHandle(id: string): Parameters<typeof cancelIfRunning>[0] } }) => ({
+  stopIfRunning: async (id: string) => (await cancelIfRunning(temporal.workflow.getHandle(id))) !== 'not-running',
+});
+
 describe('an account being removed while a step of its run is still writing', () => {
   it('waits for every live process to hold the account\'s fence, waits on no timer, and leaves nothing the late step tried to keep', async () => {
     const owner = `leaving-${Math.random().toString(36).slice(2, 8)}`;
@@ -135,7 +139,7 @@ describe('an account being removed while a step of its run is still writing', ()
       ...mock<AccountRemovalDeps>(),
       store: db,
       apps: fakeApps,
-      workflows: { stopIfRunning: async (id, reason) => (await stopIfRunning(temporal.workflow.getHandle(id), reason)) !== 'not-running' },
+      workflows: cancelling(temporal),
       kube: mockFn<KubeRunner>().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
       secrets: { removeProject: async () => ({ workspace: false, readers: 0 }) },
       mesh: NO_MESH_HERE,
@@ -186,7 +190,7 @@ describe('a project being deleted while a step of its release is still writing',
       ...mock<ProjectRemovalDeps>(),
       store: db,
       apps: fakeApps,
-      workflows: { stopIfRunning: async (id, reason) => (await stopIfRunning(temporal.workflow.getHandle(id), reason)) !== 'not-running' },
+      workflows: cancelling(temporal),
       kube: mockFn<KubeRunner>().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
       repositories: { deleteRepo: async () => undefined },
       secrets: { removeProject: async () => ({ workspace: false, readers: 0 }) },

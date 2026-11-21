@@ -30,7 +30,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
 });
 
 describe('the engine worker, started the way its entry starts it', () => {
-  it('on an instance builds its activities, polls the engine queue with them and the shared interceptors, and stops when told', async () => {
+  it('on an instance builds its activities, polls the engine queue with them, the shared interceptors and the refusal of work being deleted, and stops when told', async () => {
     const settings = engineWorkerSettingsFrom(placeFor('instance'));
     const { dependencies, fences } = await engineWorkerSetup(settings);
     const { worker, activities } = await createEngineWorker(settings, dependencies);
@@ -42,7 +42,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
-    expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect(worker.options.interceptors.activity).toHaveLength(6);
     const at = '2026-11-13T10:00:00.000Z';
     await db.projects.saveTree({ id: 'tree-shop', ownerId: 'owner-1', name: 'Shop', projectIds: ['project-shop'], createdAt: at, updatedAt: at } as never);
     await db.projects.savePlanProposal({ id: 'plan-shop', ownerId: 'owner-1', conversationId: 'c1', status: 'adopting', plan: { treeId: 'tree-shop', planDoc: '', branches: [] }, createdAt: at, updatedAt: at } as never);

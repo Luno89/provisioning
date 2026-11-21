@@ -12,7 +12,7 @@ import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activitie
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
-import { type ClusterWorkerSettings, createDatabase, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
+import { type ClusterWorkerSettings, createDatabase, refuseWorkWith, deletingMarksIn, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { GiteaService } from './projects/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -63,6 +63,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const db = createDatabase({ mongo: settings.mongo, dataKey });
   db.reportReachTo(dependencies);
   await db.init();
+  refuseWorkWith(deletingMarksIn(db));
   const steps: ClusterSteps = {
     access,
     infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources)),

@@ -1,6 +1,7 @@
 import { Client, Connection, type ClientOptions } from '@temporalio/client';
 import { NativeConnection, Worker, type ReplayWorkerOptions, type WorkerOptions } from '@temporalio/worker';
 import { activityInterceptors } from './classified-failures.js';
+import { refusingDeletingWork, type DeletingMarksHere } from './work-for.js';
 import { WORKER_DEFAULTS } from './liveness.js';
 import type { PayloadCodec } from '@temporalio/common';
 import { buildDataConverter, type BlobReach, type SecretKey } from './payload-codec.js';
@@ -73,6 +74,7 @@ export type KoalaWorkerOptions = Omit<WorkerOptions, 'dataConverter' | 'intercep
   payloads: TemporalPayloads;
   workflowModules?: string[] | undefined;
   onUnreadable?: ((why: Error) => void) | undefined;
+  deletingMarks: DeletingMarksHere;
 };
 
 const heardWhenUnreadable = (codec: PayloadCodec, heard: (why: Error) => void): PayloadCodec => ({
@@ -88,14 +90,14 @@ const heardWhenUnreadable = (codec: PayloadCodec, heard: (why: Error) => void): 
 });
 
 export async function createWorker(options: KoalaWorkerOptions): Promise<Worker> {
-  const { payloads, workflowModules, onUnreadable, ...rest } = options;
+  const { payloads, workflowModules, onUnreadable, deletingMarks, ...rest } = options;
   const sealed = payloadConverter(payloads);
   const dataConverter = onUnreadable ? { ...sealed, payloadCodecs: sealed.payloadCodecs.map((codec) => heardWhenUnreadable(codec, onUnreadable)) } : sealed;
   return Worker.create({
     ...WORKER_DEFAULTS,
     ...rest,
     dataConverter,
-    interceptors: { activity: activityInterceptors(), ...(workflowModules ? { workflowModules } : {}) },
+    interceptors: { activity: activityInterceptors().concat(refusingDeletingWork(deletingMarks)), ...(workflowModules ? { workflowModules } : {}) },
   });
 }
 

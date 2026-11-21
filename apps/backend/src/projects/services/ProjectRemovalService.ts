@@ -37,7 +37,7 @@ export type ProjectRemovalRefusal =
   | { status: 400; error: string };
 
 export interface ProjectRemovalDeps {
-  store: ProjectRemovalStore & { projects: { saveProject(project: ProjectMetadata): Promise<void> } };
+  store: ProjectRemovalStore;
   workflows: AccountRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>;
   now?: () => string;
 }
@@ -61,10 +61,10 @@ export class ProjectRemovalService {
     if (!loaded) return { ok: false, refusal: { status: 404, error: 'Project not found' } };
     if (confirm.trim() !== loaded.project.name) return { ok: false, refusal: { status: 400, error: `Type the project's name, ${loaded.project.name}, to confirm` } };
 
+    await this.deps.store.projects.markDeleting(projectId, { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId });
     const workflowId = removeProjectWorkflowId(projectId);
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
-    await this.deps.store.projects.saveProject({ ...loaded.project, removal: { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId } });
     await unnamedWork(() => this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId));
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }

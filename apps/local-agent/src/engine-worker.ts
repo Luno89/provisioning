@@ -149,6 +149,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<D
     shutdownGraceTime: DRAIN_CEILING,
     namespace: options.namespace ?? 'default',
     activities: createDeviceActivities(options),
+    deletingMarks: { unread: 'a machine reads no deletion marks: its work for a project being deleted is stopped by cancelling it' },
   });
 
   options.onReady?.(taskQueue);

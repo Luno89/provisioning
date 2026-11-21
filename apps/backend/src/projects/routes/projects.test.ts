@@ -247,16 +247,13 @@ describe('promoting a build', () => {
     expect(bridge.promoteProjectBuild).toHaveBeenCalledWith(matches<ProjectMetadata>((made) => made.id === 'proj-1'), matches<PipelineRunMetadata>((given) => given.id === 'run-1'), TEST_USER.id);
   });
 
-  it('refuses a project or run that is not there, and a project being deleted', async () => {
+  it('refuses a project or run that is not there', async () => {
     const { db, bridge, routes } = await setUp();
     await db.projects.saveProjectInfo(project);
-    await db.projects.saveProjectInfo({ ...project, id: 'going', giteaRepo: 'going', removal: { startedAt: 't', requestedBy: TEST_USER.id } });
     await db.releases.savePipelineRunInfo(run());
-    await db.releases.savePipelineRunInfo(run({ id: 'run-2', projectId: 'going' }));
     await db.releases.savePipelineRunInfo(run({ id: 'run-3', projectId: 'other' }));
     expect(plain(await routes.post('/nope/runs/run-1/promote'))).toEqual({ status: 404, body: { error: 'Project not found' } });
     expect(plain(await routes.post('/proj-1/runs/run-3/promote'))).toEqual({ status: 404, body: { error: 'Run not found' } });
-    expect(plain(await routes.post('/going/runs/run-2/promote'))).toEqual({ status: 409, body: { error: 'This project is being deleted' } });
     expect(bridge.promoteProjectBuild).not.toHaveBeenCalled();
   });
 

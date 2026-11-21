@@ -2,7 +2,7 @@ import type { Server as SocketServer } from 'socket.io';
 import { ignore } from '@koala/engine-core/failures';
 import { type ClusterMetadata, type Database, type DatabaseSettings, type ProjectMetadata, awaitedNotice, releaseNotice, type Principal } from '../../platform/index.js';
 import {
-  treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
+  groveRecordsOf, treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
   type ProjectRepoService, type GiteaService,
 } from '../../projects/index.js';
 import { latestBuildOf, odooVersionOfDockerfile, projectMajor } from '../lib/client-import.js';
@@ -92,10 +92,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     cluster: slotCluster(),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
-    trees: () => db.projects.getTrees(),
-    branches: () => db.projects.getBranches(),
-    leaves: () => db.projects.getLeaves(),
-    tasks: (ownerId) => db.projects.getTasks(ownerId),
+    ...groveRecordsOf(db.projects),
     savePlan: (proposal) => db.projects.savePlanProposal(proposal),
     treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });

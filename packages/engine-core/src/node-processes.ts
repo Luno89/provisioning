@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { childEnv } from './child-env.js';
 import { ignore } from './failures.js';
+import { killedWhenStopped } from './stops-with.js';
 import { ProcessNotStarted, SIGNALLED, type Followed, type Heard, type Io, type Named, type ProcessResult, type ProcessRun, type Processes, type Streams } from './processes.js';
 
 export type EnvOf = (named: Named | undefined) => Record<string, string>;
@@ -100,7 +101,9 @@ function started(envOf: EnvOf, run: ProcessRun, io: Io): Followed {
   const stderr = child.stderr ? collect(child.stderr, heard?.stderr) : nothing;
   feed(begun, io.input ?? run.input);
   const ended = Promise.all([begun.closed, written]).then(([end]) => ({ ...end, stdout: stdout(), stderr: stderr() }));
-  return { pid: child.pid, stop: stopper(begun, group), exited: begun.exited, ended };
+  const stop = stopper(begun, group);
+  killedWhenStopped(stop, begun.exited);
+  return { pid: child.pid, stop, exited: begun.exited, ended };
 }
 
 export interface NodeProcesses extends Processes, Streams {}

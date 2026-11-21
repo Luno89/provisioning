@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { upsertSearchAttributes } from '@temporalio/workflow';
 import type { Headers } from '@temporalio/common';
 import { workOfPayload, workPayload } from '@koala/engine-core/work-header';
 import { interceptors, nameProject, traceHeadersOf, withTrace } from './telemetry-interceptors.js';
+
+vi.mock('@temporalio/workflow', () => ({ upsertSearchAttributes: vi.fn() }));
 
 const payload = (text: string) => ({ metadata: { encoding: new TextEncoder().encode('json/plain') }, data: new TextEncoder().encode(JSON.stringify(text)) });
 const traceparent = payload('00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01');
@@ -53,6 +56,7 @@ describe('the trace a workflow was started under follows its activities and chil
     void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 3 } as never, next as never);
     expect(scheduled.map((headers) => workOfPayload(headers['koala-work']))).toEqual([{ owner: 'u1' }, { owner: 'u1', project: 'p1' }, { owner: 'u1', project: 'p1' }]);
     expect(scheduled[2]!.traceparent).toEqual(traceparent);
+    expect(vi.mocked(upsertSearchAttributes).mock.calls.map(([pairs]) => (pairs as { key: { name: string }; value: unknown }[]).map((pair) => [pair.key.name, pair.value]))).toEqual([[['KoalaProject', 'p1']]]);
   });
 
   it('is a fresh carrier for each workflow run', async () => {

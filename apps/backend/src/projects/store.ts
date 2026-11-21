@@ -3,7 +3,7 @@ import type { Branch, Leaf } from './lib/leaves.js';
 import type { Collection, Db, Document } from 'mongodb';
 import type { GiteaAccount } from './lib/projects.js';
 import { tokenKey, type TokenToRevoke } from './lib/gitea-tokens.js';
-import type { PartialInfo, ProjectMetadata } from '../platform/index.js';
+import type { PartialInfo, ProjectMetadata, ProjectRemoval } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
 import type { SecretRequest, SecretRequestFilter } from './lib/secret-requests.js';
 import type { Task } from './lib/tasks.js';
@@ -18,6 +18,8 @@ export interface ProjectsStore extends AreaStore {
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
   saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
+  markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean>;
+  deletion(projectId: string): Promise<ProjectRemoval | undefined>;
   forgetClientFiles(): Promise<number>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
@@ -131,7 +133,21 @@ export class MongoProjectsStore implements ProjectsStore {
   }
 
   async saveProject(project: ProjectMetadata): Promise<void> {
-    await put(this.projects, project);
+    const { _id, removal, ...rest } = toDoc(project);
+    await this.projects.updateOne(
+      { _id: project.id },
+      [{ $replaceWith: { $mergeObjects: [{ $literal: { ...rest, _id: project.id } }, { removal: '$removal' }] } }],
+      { upsert: true },
+    );
+  }
+
+  async markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean> {
+    return (await this.projects.updateOne({ _id: projectId, removal: { $exists: false } }, { $set: { removal: mark } })).modifiedCount === 1;
+  }
+
+  async deletion(projectId: string): Promise<ProjectRemoval | undefined> {
+    const found = await this.projects.findOne({ _id: projectId }, { projection: { removal: 1 } });
+    return found?.removal ? (found.removal as ProjectRemoval) : undefined;
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
@@ -309,3 +325,10 @@ export class MongoProjectsStore implements ProjectsStore {
     await this.secretRequests.deleteOne({ _id: id, ownerId });
   }
 }
+
+export const groveRecordsOf = (store: Pick<ProjectsStore, 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks'>) => ({
+  trees: () => store.getTrees(),
+  branches: () => store.getBranches(),
+  leaves: () => store.getLeaves(),
+  tasks: (ownerId: string) => store.getTasks(ownerId),
+});

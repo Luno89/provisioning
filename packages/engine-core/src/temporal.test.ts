@@ -4,6 +4,7 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import { CompressionCodec, EncryptionCodec, type BlobReach } from './payload-codec.js';
 import { WORKER_DEFAULTS } from './liveness.js';
 import { connectTemporal, createClient, createWorker, replayHistory } from './temporal.js';
+import { WORK_HEADER, workHeader } from './work-for.js';
 
 vi.mock('@temporalio/worker', () => ({
   Worker: { create: vi.fn(async (options: unknown) => ({ options })), runReplayHistory: vi.fn(async () => undefined) },
@@ -15,6 +16,7 @@ vi.mock('@temporalio/client', () => ({
   Connection: { lazy: vi.fn(() => ({ ensureConnected: vi.fn(async () => undefined), close: vi.fn(async () => undefined) })) },
 }));
 
+const UNREAD = { unread: 'this worker runs no project work' };
 const payloads = { ring: { current: 'a-payload-key-for-the-unit-tier' }, blobs: ({ put: async () => undefined, get: async () => new Map() } satisfies BlobReach) };
 const CA = '-----BEGIN CERTIFICATE-----\nthe install\'s own CA\n-----END CERTIFICATE-----\n';
 
@@ -24,23 +26,34 @@ beforeEach(() => { vi.clearAllMocks(); });
 
 describe('a worker Koala builds', () => {
   it('compresses and then seals every payload it sends, and keeps large ones outside Temporal', async () => {
-    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, activities: {} });
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, activities: {}, deletingMarks: UNREAD });
     const options = vi.mocked(Worker.create).mock.calls[0]?.[0];
     expect(codecsOf(options?.dataConverter)).toEqual([CompressionCodec, EncryptionCodec]);
     expect(options?.dataConverter?.externalStorage?.drivers.map((driver) => driver.name)).toEqual(['blobs']);
   });
 
   it('notices a stop within the shared window and runs every activity through the shared interceptors', async () => {
-    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, workflowModules: ['/the/telemetry.ts'] });
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: UNREAD, workflowModules: ['/the/telemetry.ts'] });
     const options = vi.mocked(Worker.create).mock.calls[0]?.[0];
     expect(options?.maxHeartbeatThrottleInterval).toBe(WORKER_DEFAULTS.maxHeartbeatThrottleInterval);
-    expect(options?.interceptors?.activity).toHaveLength(4);
+    expect(options?.interceptors?.activity).toHaveLength(5);
     expect(options?.interceptors?.workflowModules).toEqual(['/the/telemetry.ts']);
+  });
+
+  it('refuses an activity of a project being deleted when it reads the marks, and says why it reads none where it cannot', async () => {
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: async () => ({ owner: false, project: true }) });
+    const refusing = vi.mocked(Worker.create).mock.calls[0]?.[0]?.interceptors?.activity ?? [];
+    expect(refusing).toHaveLength(6);
+    const last = (refusing.at(-1) as unknown as () => { inbound: { execute(input: unknown, next: () => Promise<unknown>): Promise<unknown> } })();
+    await expect(last.inbound.execute({ headers: { [WORK_HEADER]: workHeader({ project: 'p1' }) } }, async () => 'ran')).rejects.toThrow('this project is being deleted');
+    vi.mocked(Worker.create).mockClear();
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: { unread: 'a machine reads no marks' } });
+    expect(vi.mocked(Worker.create).mock.calls[0]?.[0]?.interceptors?.activity).toHaveLength(5);
   });
 
   it('tells whoever asked when a payload it was handed can never be read, and still refuses it', async () => {
     const heard: string[] = [];
-    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, onUnreadable: (why) => heard.push(why.message) });
+    await createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads, deletingMarks: UNREAD, onUnreadable: (why) => heard.push(why.message) });
     const codecs = vi.mocked(Worker.create).mock.calls[0]?.[0]?.dataConverter?.payloadCodecs ?? [];
     const plain = [{ metadata: { encoding: Buffer.from('json/plain') }, data: Buffer.from('"in the clear"') }];
     let decoding = Promise.resolve(plain) as Promise<unknown>;
@@ -50,7 +63,7 @@ describe('a worker Koala builds', () => {
   });
 
   it('cannot be built without the key that seals its payloads', async () => {
-    await expect(createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads: { ring: { current: '' }, blobs: payloads.blobs } })).rejects.toThrow(/requires a master key/);
+    await expect(createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads: { ring: { current: '' }, blobs: payloads.blobs }, deletingMarks: UNREAD })).rejects.toThrow(/requires a master key/);
     expect(Worker.create).not.toHaveBeenCalled();
   });
 

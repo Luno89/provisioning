@@ -16,7 +16,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
+  getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
@@ -33,6 +33,7 @@ import { wireAccounts } from './accounts/wiring/accounts.js';
 import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
 import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
+import { refuseWebhookOfDeletingProjects, refuseWorkOfDeletingProjects } from './projects/wiring/deleting-refusals.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
 import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
@@ -106,6 +107,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await db.init();
   const fences = await holdFences('backend', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
+  refuseWorkWith(deletingMarksIn(db));
   const { role } = settings;
   const claimSettings = claimSettingsFrom(role);
   await operatorsFromAdmins(db, new Date().toISOString());
@@ -221,12 +223,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     credentials: true,
   }));
 
+  refuseWebhookOfDeletingProjects(tenant, db);
   tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
     try {
       const projects = await db.projects.getProjects();
       const project = projects.find((p) => p.id === req.params.projectId);
       if (!project) return res.status(404).json({ error: 'Unknown project' });
-      if (project.removal) return res.status(410).json({ error: 'This project is being deleted' });
       if (!project.webhookSecretEnc) return res.status(500).json({ error: 'Project has no webhook secret configured' });
 
       const secret = decryptValue(project.webhookSecretEnc, keys.data);
@@ -288,6 +290,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api', auth.requireAuth);
   const jsonParsers = { signedIn: express.json({ limit: JSON_LIMITS.signedIn }), signedOut: express.json({ limit: JSON_LIMITS.signedOut }) };
   app.use((req, res, next) => jsonParsers[jsonLimitFor(req.path, Boolean((req as { user?: unknown }).user))](req, res, next));
+  refuseWorkOfDeletingProjects(tenant, db);
   app.get('/api/metrics', asyncRoute(async (req, res) => {
     if (!metrics.allowed(req.headers.authorization)) return res.status(401).json({ error: 'metrics are read with the METRICS_TOKEN' });
     res.type(metrics.contentType).send(await metrics.text());

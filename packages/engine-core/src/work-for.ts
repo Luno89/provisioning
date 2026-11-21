@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Payload } from '@temporalio/common';
+import { ApplicationFailure, type Payload } from '@temporalio/common';
 import { WORK_HEADER, namedOnly, workOfPayload, workPayload, type WorkNamed } from './work-header.js';
 
 export { WORK_HEADER } from './work-header.js';
@@ -45,12 +45,55 @@ export function carryWorkFor() {
   });
 }
 
-export class WorkStopped extends Error {
-  readonly stopped: { kind: 'owner' | 'project'; id: string };
+export interface Stopping {
+  kind: 'owner' | 'project';
+  id: string;
+}
 
-  constructor(stopped: { kind: 'owner' | 'project'; id: string }) {
-    super(stopped.kind === 'owner' ? `the account ${stopped.id} is being removed, so nothing more is kept for it` : `the project ${stopped.id} is being deleted, so nothing more is kept for it`);
+export class WorkStopped extends Error {
+  readonly stopped: Stopping;
+
+  constructor(stopped: Stopping) {
+    super(stopped.kind === 'owner' ? 'this account is being removed' : 'this project is being deleted');
     this.name = 'WorkStopped';
     this.stopped = stopped;
   }
+}
+
+export interface DeletingMarks {
+  owner: boolean;
+  project: boolean;
+}
+
+export type ReadDeletingMarks = (work: WorkFor) => Promise<DeletingMarks>;
+
+export type DeletingMarksHere = ReadDeletingMarks | { unread: string };
+
+export function stoppedBy(work: WorkFor, marks: DeletingMarks): Stopping | undefined {
+  if (work.owner && marks.owner && work.removing !== 'owner') return { kind: 'owner', id: work.owner };
+  if (work.project && marks.project && !work.removing) return { kind: 'project', id: work.project };
+  return undefined;
+}
+
+export async function refuseWhileDeleting(work: WorkFor | undefined, read: ReadDeletingMarks): Promise<void> {
+  if (!work || (!work.owner && !work.project)) return;
+  const stopped = stoppedBy(work, await read(work));
+  if (stopped) throw new WorkStopped(stopped);
+}
+
+export function refusingDeletingWork(marks: DeletingMarksHere): (() => { inbound: Execute })[] {
+  if (typeof marks !== 'function') return [];
+  return [() => ({
+    inbound: {
+      async execute(input, next) {
+        try {
+          await refuseWhileDeleting(workFromHeaders(input.headers), marks);
+        } catch (err) {
+          if (err instanceof WorkStopped) throw ApplicationFailure.nonRetryable(err.message, err.name);
+          throw err;
+        }
+        return next(input);
+      },
+    },
+  })];
 }

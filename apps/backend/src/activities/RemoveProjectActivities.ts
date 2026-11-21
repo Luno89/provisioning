@@ -1,6 +1,6 @@
 import { Context } from '@temporalio/activity';
 import {
-  type Closing, type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
+  type Closing, type ClusterMetadata, type ProjectMetadata, type ProjectRemoval, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs, type HandOver } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, projectWorkflowIds, loadProjectScope } from '../projects/index.js';
@@ -20,6 +20,7 @@ export interface ProjectRemovalStore {
   projects: {
     getProjects(): Promise<ProjectMetadata[]>;
     saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
+    markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean>;
     getTrees(): Promise<Tree[]>;
     saveTree(tree: Tree): Promise<void>;
     getBranches(): Promise<Branch[]>;
@@ -117,7 +118,7 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
   return {
     async RemoveProjectFenceActivity({ projectId }) {
       const project = (await store.projects.getProjects()).find((entry) => entry.id === projectId);
-      if (project && !project.removal) await store.projects.saveProjectInfo({ id: projectId, removal: { startedAt: new Date(now()).toISOString(), requestedBy: project.ownerId ?? projectId } });
+      if (project) await store.projects.markDeleting(projectId, { startedAt: new Date(now()).toISOString(), requestedBy: project.ownerId ?? projectId });
       return raiseAndHold(store.platform, { kind: 'project', id: projectId }, now);
     },
 

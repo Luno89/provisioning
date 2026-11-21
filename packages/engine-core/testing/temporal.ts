@@ -6,7 +6,7 @@ import { bundleWorkflowCode, type Worker, type WorkflowBundle } from '@temporali
 import { inject } from 'vitest';
 import type { BlobReach, SecretKey, StoredBlob } from '../src/payload-codec.js';
 import { createClient, createWorker, payloadConverter, type KoalaClientOptions, type KoalaWorkerOptions, type TemporalPayloads } from '../src/temporal.js';
-import { OWNER_ATTRIBUTE } from '../src/workflow-owner.js';
+import { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE } from '../src/workflow-owner.js';
 import { temporalServerExecutable, temporalTestServerExecutable } from './shared.js';
 import { tlsInFrontOf, type ServingCertificate } from './temporal-tls.js';
 
@@ -49,7 +49,7 @@ const carrying = (env: TestWorkflowEnvironment, payloads: TemporalPayloads): Tes
 const sealing = (payloads: TemporalPayloads) => ({ client: { dataConverter: payloadConverter(payloads) } });
 
 export async function localTemporal(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
-  const env = await TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE], executable: temporalServerExecutable() }, ...sealing(payloads) });
+  const env = await TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE], executable: temporalServerExecutable() }, ...sealing(payloads) });
   return carrying(env, payloads);
 }
 
@@ -84,7 +84,7 @@ export interface TimeSkippingClientOptions {
 export const timeSkippingClient = (env: TestTemporal, options: TimeSkippingClientOptions = {}): TimeSkippingWorkflowClient =>
   new TimeSkippingWorkflowClient({ connection: env.connection, namespace: options.namespace ?? env.namespace ?? 'default', dataConverter: payloadConverter(env.payloads), ...(options.interceptors ? { interceptors: options.interceptors } : {}) });
 
-export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string; payloads?: TemporalPayloads };
+export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads' | 'deletingMarks'> & { namespace?: string; payloads?: TemporalPayloads; deletingMarks?: KoalaWorkerOptions['deletingMarks'] };
 
 export async function testWorker(env: TestTemporal, options: TestWorkerOptions): Promise<Worker> {
   let refuse!: (why: Error) => void;
@@ -92,6 +92,7 @@ export async function testWorker(env: TestTemporal, options: TestWorkerOptions):
   refused.catch(() => undefined);
   const worker = await createWorker({
     ...options,
+    deletingMarks: options.deletingMarks ?? { unread: 'this test worker reads no deletion marks' },
     connection: env.nativeConnection,
     namespace: options.namespace ?? env.namespace ?? 'default',
     payloads: options.payloads ?? env.payloads,

@@ -7,7 +7,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import { koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE, treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars, TreeHomeService, webhookUrlAt, type GroveRunLauncher } from './projects/index.js';
-import { stopIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
+import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
@@ -76,6 +76,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   db.reportReachTo(dependencies);
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
+  refuseWorkWith(deletingMarksIn(db));
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
@@ -411,7 +412,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
         const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
         if (project) await db.projects.saveProjectInfo(projectChoicesPatch(project as { id: string; clientImport?: ClientImport }, choices, new Date().toISOString()));
       },
-      stopRun: async (workflowId: string) => { await stopIfRunning(temporal.workflow.getHandle(workflowId), 'the story it was working changed'); },
+      stopRun: async (workflowId: string) => { await cancelIfRunning(temporal.workflow.getHandle(workflowId)); },
       ...(host.checkNeeds ? { checkNeeds: host.checkNeeds } : {}),
     }),
     grove: {
@@ -446,7 +447,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const temporal = await getTemporalClient();
   workflowStarter = temporalWorkflowStarter(temporal.workflow);
   const removalWorkflows = {
-    stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
+    stopIfRunning: async (workflowId: string) => (await cancelIfRunning(temporal.workflow.getHandle(workflowId))) !== 'not-running',
   };
   const appTeardown: AppTeardown = {
     clusterById: (id) => clusterService.getByIdUnscoped(id),
