@@ -1,6 +1,6 @@
 import { bindChatWithItsFiles } from '../../files/index.js';
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, liveSince, type Principal, type RoleConfig } from '../../platform/index.js';
+import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, type Principal, type RoleConfig } from '../../platform/index.js';
 import { keepUsersPrivate } from '../services/gitea-start.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
@@ -53,6 +53,7 @@ export interface ProjectsCoreDeps {
   gitea: GiteaService;
   webhooksTo: string | undefined;
   infisical: InfisicalService;
+  podName: string | undefined;
 }
 
 export interface ProjectsCore {
@@ -71,7 +72,7 @@ const webhooksAt = (backend: string | undefined): ((projectId: string) => Promis
 
 export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
-  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.here) });
+  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.here), process: deps.podName });
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),
@@ -165,7 +166,6 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
 
   if (servesTenants(deps.role)) {
     void keepUsersPrivate(gitea);
-    void projectRepoService.keepRevokingLeftovers(async () => (await db.platform.processesSeenSince(liveSince(Date.now()))).map((process) => process.id));
   }
 
   const projectRemoval = new ProjectRemovalService({

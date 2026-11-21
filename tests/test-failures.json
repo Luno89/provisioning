@@ -116,5 +116,14 @@
  ],
  "apps/backend/src/scripts/self-upgrade.integration.test.ts": [
   "2026-11-21T17:46:17.000Z"
+ ],
+ "apps/backend/src/engine/wiring/engine.integration.test.ts": [
+  "2026-11-21T19:41:19.585Z"
+ ],
+ "apps/backend/src/worker-engine.integration.test.ts": [
+  "2026-11-21T20:01:18.942Z"
+ ],
+ "apps/backend/src/worker-cluster.integration.test.ts": [
+  "2026-11-21T20:01:34.124Z"
  ]
 }

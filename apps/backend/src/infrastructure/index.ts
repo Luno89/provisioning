@@ -88,6 +88,7 @@ export { StorageAdapter } from './services/StorageAdapter.js';
 export { DEPLOYMENT_UPDATED, tellDeploymentChanged } from './services/deployment-told.js';
 export type { GroveRunStatus, TemporalBridge } from './services/TemporalBridge.js';
 export { WorkerRestart } from './services/WorkerRestart.js';
+export { KoalaPods } from './services/KoalaPods.js';
 export { VpsCatalogService } from './services/VpsCatalogService.js';
 export type { WorkFailureService } from './services/WorkFailureService.js';
 export { default as WorkerService } from './services/WorkerService.js';

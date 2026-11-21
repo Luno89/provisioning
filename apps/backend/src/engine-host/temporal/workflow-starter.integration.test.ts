@@ -1,9 +1,9 @@
-import { workFor } from '@koala/engine-core/work-for';
+import { WorkStopped, workFor } from '@koala/engine-core/work-for';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { namesItsWork } from '../../platform/lib/temporal-client.js';
+import { namesItsWork, requireOwner } from '../../platform/lib/temporal-client.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createRunStarter, type WorkflowStarter } from '../registries/run-starter.js';
@@ -33,6 +33,22 @@ describe('a run started through Temporal for a project', () => {
       await runs.answer(runId, 'n1', 'yes');
       expect(await naming.workflow.getHandle(workflowOfRun(runId)).result()).toEqual({ seen: { owner: 'u1', project: 'p1' }, answered: { nodeId: 'n1', value: 'yes' }, approved: { callId: 'call-1', allowed: true, forRun: false }, cancelledBy: 'u1' });
     });
+  });
+});
+
+describe('a chat for an account being removed', () => {
+  it('is refused at its start by the one refusal every start goes through, and leaves no grant behind', async () => {
+    const taskQueue = `run-leaving-${Math.random().toString(36).slice(2, 8)}`;
+    const db = await testDatabase();
+    const grants = grantsOver(db.engine);
+    const refusing = testClient(file.env, { interceptors: { workflow: [namesItsWork, requireOwner(async (work) => ({ owner: work.owner === 'leaving', project: false }))] } });
+    const runs = createRunStarter({ ...runsActingAsTheirOwner(grants), registry: createAgentRegistry(), workflows: () => temporalWorkflowStarter(refusing.workflow), taskQueue, newRunId: () => `run-${taskQueue}` });
+
+    const refused = runs.start({ ownerId: 'leaving', agentSlug: 'research', message: 'look it up', startedBy: 'person' });
+
+    await expect(refused).rejects.toBeInstanceOf(WorkStopped);
+    await expect(refused).rejects.toThrow('this account is being removed');
+    expect(await db.engine.getLiveRunGrants('leaving')).toEqual([]);
   });
 });
 

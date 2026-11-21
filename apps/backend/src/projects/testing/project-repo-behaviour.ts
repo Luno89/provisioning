@@ -122,19 +122,57 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
       expect(await db.projects.getTokensToRevoke()).toEqual([]);
     });
 
-    it('keeps trying to revoke the tokens stopped processes left until the live processes can be read', async () => {
+    it('tags each token it makes with the pod that made it', async () => {
+      const { db, gitea } = await setUp(make);
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { process: 'luno-backend-5c8d-xyz12' });
+      gitea.findRepo.mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
+      gitea.createPushToken.mockResolvedValue({ name: 'push-1', token: 'tok' });
+      let keptWhileUsed: unknown;
+      gitea.pushBundle.mockImplementation(async () => { keptWhileUsed = await db.projects.getTokensToRevoke(); return 'abc123'; });
+
+      await repos.pushDocuments({ ownerId: 'u1', repo: 'docs', describe: 'Docs', bundle: 'b' });
+
+      expect(keptWhileUsed).toEqual([expect.objectContaining({ name: 'push-1', process: 'luno-backend-5c8d-xyz12' })]);
+    });
+
+    it('revokes the tokens of pods Kubernetes no longer has, and a pod\'s tokens the moment Kubernetes says it is gone, leaving a live pod\'s alone', async () => {
       const { db, gitea } = await setUp(make);
       const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
       await repos.ensureAccountFor('u1');
-      await db.projects.saveTokenToRevoke({ name: 'push-gone', ownerId: 'u1', username: 'koala-u1', process: 'backend-gone', at: '2026-11-17T10:00:00.000Z' });
-      let asked = 0;
-      const live = async () => {
-        asked += 1;
-        if (asked === 1) throw new Error('mongo is not answering');
-        return [];
+      const token = (name: string, process: string) => db.projects.saveTokenToRevoke({ name, ownerId: 'u1', username: 'koala-u1', process, at: '2026-11-17T10:00:00.000Z' });
+      await token('push-gone', 'luno-backend-old');
+      await token('push-live', 'luno-worker-engine-live');
+      let gone: ((pod: string) => void) | undefined;
+      const pods = {
+        live: async () => ['luno-worker-engine-live'],
+        whenGone: async (onGone: (pod: string) => void) => { gone = onGone; return { ended: new Promise<never>(() => undefined), stop: () => undefined }; },
       };
 
-      expect(await repos.keepRevokingLeftovers(live)).toBe(false);
+      void repos.keepRevokingLeftovers(pods);
+      await vi.waitFor(async () => expect((await db.projects.getTokensToRevoke()).map((kept) => kept.name)).toEqual(['push-live']));
+      expect(gone, 'the watch on gone pods was started before the live ones were read').toBeDefined();
+      gone!('luno-worker-engine-live');
+
+      await vi.waitFor(async () => expect(await db.projects.getTokensToRevoke()).toEqual([]));
+      expect(gitea.revokeUserToken.mock.calls).toEqual([['koala-u1', 'pw-koala-u1', 'push-gone'], ['koala-u1', 'pw-koala-u1', 'push-live']]);
+    });
+
+    it('keeps trying to revoke the tokens gone pods left until Kubernetes can be read', async () => {
+      const { db, gitea } = await setUp(make);
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
+      await repos.ensureAccountFor('u1');
+      await db.projects.saveTokenToRevoke({ name: 'push-gone', ownerId: 'u1', username: 'koala-u1', process: 'luno-backend-old', at: '2026-11-17T10:00:00.000Z' });
+      let asked = 0;
+      const pods = {
+        live: async () => {
+          asked += 1;
+          if (asked === 1) throw new Error('the Kubernetes API is not answering');
+          return [];
+        },
+        whenGone: async () => ({ ended: new Promise<never>(() => undefined), stop: () => undefined }),
+      };
+
+      void repos.keepRevokingLeftovers(pods);
       await vi.waitFor(async () => expect(await db.projects.getTokensToRevoke()).toEqual([]));
       expect(gitea.revokeUserToken).toHaveBeenCalledWith('koala-u1', 'pw-koala-u1', 'push-gone');
       expect(asked).toBe(2);

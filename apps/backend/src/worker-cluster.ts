@@ -14,7 +14,7 @@ import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
 import { type ClusterWorkerSettings, createDatabase, refuseWorkWith, deletingMarksIn, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
 import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
-import { GiteaService } from './projects/index.js';
+import { GiteaService, ProjectRepoService } from './projects/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
 import { collectorSink } from './monitoring/index.js';
@@ -25,7 +25,7 @@ import { HUGGING_FACE } from './infrastructure/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
 import { runAsProgram, watchedWorker } from './worker-program.js';
 import { createFrozenWorkActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
-import { WorkerRestart } from './infrastructure/index.js';
+import { KoalaPods, WorkerRestart } from './infrastructure/index.js';
 import { getTemporalClient } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,6 +78,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
 
   checkServices(dependencies, { gitea: settings.gitea.url, infisical: settings.infisical.url });
   void dependencies.start();
+  void new ProjectRepoService(db, steps.gitea, dataKey).keepRevokingLeftovers(new KoalaPods({ access, target: () => access.own(), namespace: settings.podNamespace }));
   const queue = QUEUES.cluster;
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
