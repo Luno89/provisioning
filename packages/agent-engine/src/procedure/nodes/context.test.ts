@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampToolResult, extendConversation, handOff, openingWith } from './context.js';
+import { clampToolResult, continuitySummary, extendConversation, openingWith } from './context.js';
 import { REFUSED_CALL } from './orchestration.js';
 
 function theReply(id: string, content: string, callIds: string[] = [], name = 'run_command') {
@@ -126,7 +126,7 @@ describe('remembering what each round of the conversation asked for and got back
   });
 });
 
-describe('handOff continuity state preservation', () => {
+describe('the rule-based summary a hand-off makes', () => {
   it('preserves initial goal, subsequent user directives, and negative knowledge without losing scope', () => {
     const messages = [
       { role: 'user' as const, content: 'Initial task: Implement auth service' },
@@ -141,24 +141,16 @@ describe('handOff continuity state preservation', () => {
       { role: 'assistant' as const, content: 'Tail reply 1' },
     ];
 
-    const result = handOff(messages, {
-      at: 0.5,
-      tail: 2,
+    const handoffText = continuitySummary(messages, {
       goalChars: 500,
       discoveries: 5,
       discoveryChars: 150,
     });
 
-    const handoffText = result[0]?.content ?? '';
-    // Preserves initial goal
     expect(handoffText).toContain('Implement auth service');
-    // Preserves subsequent user directives
     expect(handoffText).toContain('Do not use SQLite, use Postgres only');
     expect(handoffText).toContain('Also ensure port 5433 is used instead');
-    // Preserves negative knowledge / failed tool error
     expect(handoffText).toContain('Connection refused on port 5432');
-    // Preserves live tail
-    expect(result[result.length - 1]?.content).toBe('Tail reply 1');
   });
 
   it('supports dual-boundary clamping with configurable headRatio', () => {

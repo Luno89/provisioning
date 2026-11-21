@@ -582,65 +582,70 @@ export const trimToolResults: BuiltInNode = {
 };
 
 export interface HandOffSettings {
-  at: number;
-  tail: number;
   goalChars: number;
   discoveries: number;
   discoveryChars: number;
 }
 
-export function handOff(
-  messages: readonly ChatMessage[],
-  settings?: Partial<HandOffSettings> | undefined,
-): ChatMessage[] {
-  const goalChars = settings?.goalChars ?? DEFAULT_COMPACTION_CONFIG.goalChars;
-  const discoveries = settings?.discoveries ?? DEFAULT_COMPACTION_CONFIG.maxDiscoveries;
-  const discoveryChars = settings?.discoveryChars ?? DEFAULT_COMPACTION_CONFIG.discoveryChars;
-  const tailCount = settings?.tail ?? DEFAULT_COMPACTION_CONFIG.liveTailTurns;
-
+export function continuitySummary(messages: readonly ChatMessage[], settings?: Partial<HandOffSettings> | undefined): string {
   const state = extractContinuityState(messages, {
-    goalChars,
-    maxDiscoveries: discoveries,
-    discoveryChars,
+    goalChars: settings?.goalChars ?? DEFAULT_COMPACTION_CONFIG.goalChars,
+    maxDiscoveries: settings?.discoveries ?? DEFAULT_COMPACTION_CONFIG.maxDiscoveries,
+    discoveryChars: settings?.discoveryChars ?? DEFAULT_COMPACTION_CONFIG.discoveryChars,
   });
-
-  const found = state.recentDiscoveries;
   const directives = state.cumulativeUserDirectives;
   const negative = state.negativeKnowledge;
   const files = [...state.filesCreated, ...state.filesModified];
+  const found = state.recentDiscoveries;
 
-  let tail = messages.slice(-tailCount);
-  while (tail[0]?.role === 'tool') tail = tail.slice(1);
-
-  const noticeLines = [
-    'Earlier messages in this conversation were summarised to fit the context window.',
-    '',
-    '**What this conversation is about**',
-    state.goal || '(not recorded)',
-  ];
-
-  if (directives.length > 0) {
-    noticeLines.push('', '**Cumulative User Directives & Constraints**', ...directives.map((d) => `- ${d}`));
-  }
-
-  if (files.length > 0) {
-    noticeLines.push('', '**Files Touched**', ...files.slice(0, 10).map((f) => `- ${f}`));
-  }
-
-  if (negative.length > 0) {
-    noticeLines.push('', '**Errors & Negative Knowledge (Do Not Repeat)**', ...negative.slice(0, 5).map((e) => `- ${e}`));
-  }
-
-  if (found.length > 0) {
-    noticeLines.push('', '**What the tools found**', ...found.map((line) => `- ${line}`));
-  }
-
-  noticeLines.push(
+  const lines = ['**What this conversation is about**', state.goal || '(not recorded)'];
+  if (directives.length > 0) lines.push('', '**Cumulative User Directives & Constraints**', ...directives.map((d) => `- ${d}`));
+  if (files.length > 0) lines.push('', '**Files Touched**', ...files.slice(0, 10).map((f) => `- ${f}`));
+  if (negative.length > 0) lines.push('', '**Errors & Negative Knowledge (Do Not Repeat)**', ...negative.slice(0, 5).map((e) => `- ${e}`));
+  if (found.length > 0) lines.push('', '**What the tools found**', ...found.map((line) => `- ${line}`));
+  lines.push(
     '',
     'Carry on from here. If you need detail that was in the elided messages, call the tool again rather than guessing — the results above are a summary, not the full output.',
   );
+  return lines.join('\n');
+}
 
-  return [{ role: 'user', content: noticeLines.join('\n') }, ...tail];
+export interface CompactionInput {
+  messages: readonly ChatMessage[];
+  system: string;
+  binding: ModelBinding;
+  previous?: Compaction | undefined;
+  at: number;
+  keep: number;
+}
+
+export type Summarised<Usage> = { summary: string; usage?: Usage | undefined } | { interrupted: string; usage?: Usage | undefined };
+
+export type Compacted<Usage> =
+  | { compacted: false; messages: ChatMessage[]; compaction?: Compaction | undefined }
+  | { compacted: true; messages: ChatMessage[]; compaction: Compaction; usage?: Usage | undefined }
+  | { interrupted: string; usage?: Usage | undefined };
+
+export async function compactConversation<Usage>(
+  input: CompactionInput,
+  summarise: (older: ChatMessage[]) => Promise<Summarised<Usage>>,
+): Promise<Compacted<Usage>> {
+  const kept = input.previous && input.previous.through <= input.messages.length ? input.previous : undefined;
+  const view = compactedView(input.messages, kept);
+  const unchanged = { compacted: false as const, messages: view, ...(kept ? { compaction: kept } : {}) };
+  const pressure = contextPressure(
+    { contextTokens: input.binding.contextTokens, contextMargin: DEFAULT_CONTEXT_MARGIN } as BudgetConfig,
+    promptCharacters(input.system, view),
+    input.binding.contextTokens,
+  );
+  if (pressure < input.at) return unchanged;
+  const boundary = compactionBoundary(view, input.keep, input.binding.contextTokens * 4 * DEFAULT_COMPACT_TAIL);
+  if (boundary === 0) return unchanged;
+
+  const summarised = await summarise(view.slice(0, boundary));
+  if ('interrupted' in summarised) return summarised;
+  const compaction: Compaction = { summary: summarised.summary, through: kept ? kept.through + boundary - 1 : boundary };
+  return { compacted: true, messages: compactedView(input.messages, compaction), compaction, ...(summarised.usage ? { usage: summarised.usage } : {}) };
 }
 
 export const handOffConversation: BuiltInNode = {
@@ -648,16 +653,19 @@ export const handOffConversation: BuiltInNode = {
     kind: 'hand-off-conversation',
     title: 'Hand Off Conversation',
     category: 'context',
-    describe: 'When the prompt fills the context window past a threshold, replaces the history with a summary — what the conversation is about and what the tools found — plus the last few messages. Otherwise passes the history through.',
+    describe: 'Compacts the conversation the way Compact Context does, but writes the summary by rule instead of asking the model: once the prompt fills the window past the threshold, everything but the last few messages becomes a summary of what the conversation is about and what the tools found, sent in their place from then on.',
     role: 'step',
     inputs: [
       { name: 'messages', type: 'messages', describe: 'The full history.', required: true },
       { name: 'binding', type: 'modelBinding', describe: 'The model, for its context window.', required: true },
       { name: 'system', type: 'text', describe: 'The system prompt, which also takes up the window.' },
     ],
-    outputs: [{ name: 'messages', type: 'messages', describe: 'The history to send.' }],
+    outputs: [
+      { name: 'messages', type: 'messages', describe: 'The history to send.' },
+      { name: 'compaction', type: 'json', describe: 'The summary in use and how many messages it stands for, when there is one.' },
+    ],
     exits: [
-      { name: 'fits', describe: 'The history fits and was passed through.' },
+      { name: 'fits', describe: 'It fits; what was sent last time is sent again.' },
       { name: 'handedOff', describe: 'The history was replaced with a summary and a tail.' },
     ],
     settings: {
@@ -674,30 +682,27 @@ export const handOffConversation: BuiltInNode = {
     idempotent: true,
     summarize: (settings) => `summarises the history once the window is ${Math.round(numberOf(settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold) * 100)}% full`,
   }),
-  implementation: stepImplementation('hand-off-conversation', ({ node, inputs }) => {
-    const messages = inputs.messages as ChatMessage[];
-    const binding = inputs.binding as ModelBinding;
-    const system = (inputs.system as string | undefined) ?? '';
-    const pressure = contextPressure(
-      { contextTokens: binding.contextTokens, contextMargin: DEFAULT_CONTEXT_MARGIN } as BudgetConfig,
-      promptCharacters(system, messages),
-      binding.contextTokens,
-    );
-
-    if (pressure < numberOf(node.settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold)) return { exit: 'fits', outputs: { messages } };
-
-    return {
-      exit: 'handedOff',
-      outputs: {
-        messages: handOff(messages, {
-          at: numberOf(node.settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold),
-          tail: numberOf(node.settings, 'tail', DEFAULT_COMPACTION_CONFIG.liveTailTurns),
+  implementation: stepImplementation('hand-off-conversation', async ({ node, inputs, previous }) => {
+    const done = await compactConversation(
+      {
+        messages: inputs.messages as ChatMessage[],
+        system: (inputs.system as string | undefined) ?? '',
+        binding: inputs.binding as ModelBinding,
+        previous: previous?.compaction as Compaction | undefined,
+        at: numberOf(node.settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold),
+        keep: numberOf(node.settings, 'tail', DEFAULT_COMPACTION_CONFIG.liveTailTurns),
+      },
+      async (older) => ({
+        summary: continuitySummary(older, {
           goalChars: numberOf(node.settings, 'goalChars', DEFAULT_COMPACTION_CONFIG.goalChars),
           discoveries: numberOf(node.settings, 'discoveries', DEFAULT_COMPACTION_CONFIG.maxDiscoveries),
           discoveryChars: numberOf(node.settings, 'discoveryChars', DEFAULT_COMPACTION_CONFIG.discoveryChars),
         }),
-      },
-    };
+      }),
+    );
+    if ('interrupted' in done) return { interrupted: done.interrupted };
+    const outputs = { messages: done.messages, ...(done.compaction ? { compaction: done.compaction } : {}) };
+    return { exit: done.compacted ? 'handedOff' : 'fits', outputs };
   }),
 };
 

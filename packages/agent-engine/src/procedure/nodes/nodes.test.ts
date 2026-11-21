@@ -374,7 +374,7 @@ describe('context nodes', () => {
       const handed = await invoke(handOffConversation, { inputs: { messages: history, binding } });
 
       expect(handed.exit).toBe('fits');
-      expect(handed.outputs.messages).toBe(history);
+      expect(handed.outputs.messages).toEqual(history);
     });
 
     it('summarises the goal and findings, and keeps a tail that never starts on an orphaned tool result', async () => {
@@ -385,9 +385,22 @@ describe('context nodes', () => {
       expect(handed.exit).toBe('handedOff');
       expect(notice!.role).toBe('user');
       expect(notice!.content).toContain('Find out why the build fails');
-      expect(notice!.content).toContain('- read_file → {"scripts":{}}');
       expect(notice!.content).toContain('- run_command → npm ERR! missing script: build');
-      expect(tail).toEqual(history.slice(-1));
+      expect(tail[0]!.role).not.toBe('tool');
+      expect(tail).toEqual(history.slice(3));
+    });
+
+    it('keeps sending the summary it made while the rest fits, as Compact Context does, so the start of the prompt stays the same', async () => {
+      const tiny = { ...binding, contextTokens: 1100 };
+      const first = await invoke(handOffConversation, { settings: { tail: 2 }, inputs: { messages: history, binding: tiny } });
+      const later = [...history, { role: 'user' as const, content: 'and now?' }];
+      const second = await invoke(handOffConversation, { settings: { tail: 2 }, inputs: { messages: later, binding }, previous: first.outputs });
+
+      expect(first.outputs.compaction).toMatchObject({ through: 3 });
+      expect(second.exit).toBe('fits');
+      expect(second.outputs.compaction).toEqual(first.outputs.compaction);
+      expect((second.outputs.messages as ChatMessage[])[0]).toEqual((first.outputs.messages as ChatMessage[])[0]);
+      expect((second.outputs.messages as ChatMessage[]).at(-1)).toEqual({ role: 'user', content: 'and now?' });
     });
   });
 });

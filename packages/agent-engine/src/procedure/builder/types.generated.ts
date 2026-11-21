@@ -257,6 +257,8 @@ export type HandOffConversationSettings = {
 export interface HandOffConversationNode extends Step<'fits' | 'handedOff'> {
   /** The history to send. */
   readonly messages: Out<'messages'>
+  /** The summary in use and how many messages it stands for, when there is one. */
+  readonly compaction: Out<'json'>
   wire(wires: HandOffConversationWires): void
 }
 
@@ -1254,8 +1256,8 @@ export interface Nodes {
   /** Describe Tools: Lists the tools the model can use right now with their guidance, the ones it cannot and why, and what to do when it cannot proceed. */
   describeTools(id: string, wires?: DescribeToolsWires, settings?: DescribeToolsSettings, meta?: NodeMeta): DescribeToolsNode
   /**
-   * Hand Off Conversation: When the prompt fills the context window past a threshold, replaces the history with a summary — what the conversation is about and what the tools found — plus the last few messages. Otherwise passes the history through.
-   * Leaves through fits: The history fits and was passed through.
+   * Hand Off Conversation: Compacts the conversation the way Compact Context does, but writes the summary by rule instead of asking the model: once the prompt fills the window past the threshold, everything but the last few messages becomes a summary of what the conversation is about and what the tools found, sent in their place from then on.
+   * Leaves through fits: It fits; what was sent last time is sent again.
    * Leaves through handedOff: The history was replaced with a summary and a tail.
    */
   handOffConversation(id: string, wires?: HandOffConversationWires, settings?: HandOffConversationSettings, meta?: NodeMeta): HandOffConversationNode
