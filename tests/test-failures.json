@@ -116,5 +116,8 @@
  ],
  "apps/backend/src/scripts/self-upgrade.integration.test.ts": [
   "2026-11-21T17:46:17.000Z"
+ ],
+ "apps/backend/src/engine/wiring/engine.integration.test.ts": [
+  "2026-11-21T19:41:19.585Z"
  ]
 }
