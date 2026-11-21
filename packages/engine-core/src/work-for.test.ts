@@ -32,7 +32,7 @@ describe('whose work this is, carried with each piece of work', () => {
     expect(await unnamedWork(() => withWorkFor({ project: undefined }, async () => workIsUnnamed()))).toBe(true);
   });
 
-  it('keeps a removal\'s own steps unnamed whatever project they come to touch, so its own deletions are never fenced', async () => {
+  it('keeps a removal\'s own steps unnamed whatever project they come to touch, so its own deletions are never refused', async () => {
     expect(await unnamedWork(() => withWorkFor({ project: 'p1' }, async () => ({ work: workFor(), unnamed: workIsUnnamed() })))).toEqual({ work: undefined, unnamed: true });
   });
 

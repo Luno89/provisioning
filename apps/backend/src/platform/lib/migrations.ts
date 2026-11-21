@@ -19,6 +19,9 @@ export async function runOnce(ledger: MigrationLedger, name: string, now: string
   return result;
 }
 
+export const fenceRecordsDropped = (store: MigrationLedger & { dropFenceRecords(): Promise<Record<string, number>> }, now: string): Promise<Record<string, number>> =>
+  runOnce(store, 'fence-records-dropped', now, () => store.dropFenceRecords());
+
 export function memoryLedger(): MigrationLedger & { records: MigrationRecord[] } {
   const records: MigrationRecord[] = [];
   return {

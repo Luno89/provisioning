@@ -10,6 +10,7 @@ import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
 export interface PlatformStore extends AreaStore {
   hasMigration(name: string): Promise<boolean>;
   recordMigration(record: MigrationRecord): Promise<void>;
+  dropFenceRecords(): Promise<Record<string, number>>;
   browserSessions(): SessionStore;
   endBrowserSessions(of: BrowserSessionsOf): Promise<string[]>;
   attemptsOf(key: string): Promise<SignInAttempts | undefined>;
@@ -36,6 +37,8 @@ export function dependencyStateFrom(doc: Record<string, unknown>): DependencySta
     at,
   };
 }
+
+const FENCE_COLLECTIONS = ['fences', 'fenceAcks', 'koalaProcesses'] as const;
 
 export class MongoPlatformStore implements PlatformStore {
   constructor(private readonly db: () => Db) {}
@@ -68,6 +71,17 @@ export class MongoPlatformStore implements PlatformStore {
 
   async ensureIndexes(): Promise<void> {
     await this.signInAttempts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  }
+
+  async dropFenceRecords(): Promise<Record<string, number>> {
+    const db = this.db();
+    const there = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((collection) => collection.name));
+    const dropped: Record<string, number> = {};
+    for (const name of FENCE_COLLECTIONS) {
+      dropped[name] = there.has(name) ? await db.collection(name).countDocuments() : 0;
+      if (there.has(name)) await db.collection(name).drop();
+    }
+    return dropped;
   }
 
   async hasMigration(name: string): Promise<boolean> {

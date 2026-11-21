@@ -14,7 +14,7 @@ const commitsSeeing = (seen: unknown[]) => {
 };
 
 describe('keeping and removing stored files through Temporal', () => {
-  it('keeps and removes a project\'s files as work for that project, so deleting the project fences them, and anyone else\'s for no project', async () => {
+  it('keeps and removes a project\'s files as work for that project, so deleting the project refuses and stops them, and anyone else\'s for no project', async () => {
     const seen: unknown[] = [];
     const commits = commitsSeeing(seen);
     await commits.commit('u1', [{ id: 'f1', size: 1 }], { replace: false, scope: { kind: 'project', id: 'p1' } });

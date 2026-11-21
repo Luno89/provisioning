@@ -47,6 +47,10 @@ export class MemoryPlatformStore implements PlatformStore {
     return this.migrations.has(name);
   }
 
+  async dropFenceRecords(): Promise<Record<string, number>> {
+    return { fences: 0, fenceAcks: 0, koalaProcesses: 0 };
+  }
+
   async recordMigration(record: MigrationRecord): Promise<void> {
     const { name, ...rest } = record;
     this.migrations.set(name, asStored(rest));

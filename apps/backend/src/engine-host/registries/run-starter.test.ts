@@ -88,7 +88,7 @@ describe('starting a run that is a conversation turn', () => {
 
 
 describe('a run that works for a project', () => {
-  it('names the project it works for when it starts, so deleting the project fences what the run still does', async () => {
+  it('names the project it works for when it starts, so deleting the project refuses and stops what the run still does', async () => {
     const start = vi.fn(async (_type: string, _options: { project?: string | undefined }) => ({ workflowId: 'x' }));
     const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), binding: async () => ({ projectId: 'p3', treeId: 't3' }) });
 

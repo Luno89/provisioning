@@ -43,7 +43,7 @@ export type { EmailChoice, MailMessage, NotificationSettings } from './lib/mail.
 export { blocklistQuery, blocklistVerdict, forwardVerdict, isIpv4, MAIL_BLOCKLISTS, MAIL_CHECK_MARK, mailCheckFrom, mailDomainFrom, mailHostOf, mailLines, mailProblems, mailReport, mailUnknowns, port25Verdict, reverseDnsVerdict } from './lib/mail-reputation.js';
 export type { Blocklist, BlocklistResult, DnsAnswer, MailLine, MailReadiness, MailReport, ReverseDnsResult } from './lib/mail-reputation.js';
 export { migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects } from './lib/migrate-ownership.js';
-export { runOnce } from './lib/migrations.js';
+export { fenceRecordsDropped, runOnce } from './lib/migrations.js';
 export type { MigrationLedger } from './lib/migrations.js';
 export { mongoTarget } from './lib/mongo-target.js';
 export type { MongoTarget } from './lib/mongo-target.js';
