@@ -5,7 +5,7 @@ import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/li
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
-import type { ClientSession, LogoutDelivery, SessionRevocation } from './lib/sign-in-state.js';
+import type { LogoutDelivery } from './lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from './lib/dependency-findings.js';
 
@@ -31,12 +31,6 @@ export interface InstancesStore extends AreaStore {
   pendingLogouts(): Promise<LogoutDelivery[]>;
   logoutDelivered(id: string): Promise<void>;
   logoutFailed(id: string, error: string, at: string): Promise<void>;
-  saveClientSession(session: ClientSession): Promise<void>;
-  getClientSession(sid: string): Promise<ClientSession | undefined>;
-  dropClientSession(sid: string): Promise<void>;
-  dropClientSessionsOf(subject: string): Promise<void>;
-  recordRevocation(revocation: SessionRevocation): Promise<void>;
-  getRevocations(): Promise<SessionRevocation[]>;
   takeLogoutToken(jti: string, until: Date): Promise<boolean>;
   getWatches(): Promise<InstanceWatchRecord[]>;
   getWatch(instanceId: string): Promise<InstanceWatchRecord | undefined>;
@@ -77,14 +71,6 @@ export class MongoInstancesStore implements InstancesStore {
     return this.db().collection('logoutDeliveries');
   }
 
-  private get clientSessions(): Collection {
-    return this.db().collection('clientSessions');
-  }
-
-  private get sessionRevocations(): Collection {
-    return this.db().collection('sessionRevocations');
-  }
-
   async ensureIndexes(): Promise<void> {
     await keepWrittenDocuments(this.db(), ['instances']);
     await this.instanceRegistry.createIndex({ ownerId: 1 });
@@ -94,8 +80,6 @@ export class MongoInstancesStore implements InstancesStore {
     await this.oidcArtifacts.createIndex({ accountId: 1 });
     await this.oidcArtifacts.createIndex({ model: 1, uid: 1 });
     await this.oidcArtifacts.createIndex({ model: 1, userCode: 1 });
-    await this.clientSessions.createIndex({ ownerId: 1 });
-    await this.clientSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   }
 
   async dropJoinTokens(): Promise<number> {
@@ -262,34 +246,6 @@ export class MongoInstancesStore implements InstancesStore {
     await this.logoutDeliveries.updateOne({ _id: id as never }, { $set: { lastError: error, lastTriedAt: at }, $inc: { attempts: 1 } });
   }
 
-  async saveClientSession(session: ClientSession): Promise<void> {
-    const { id, ...rest } = session;
-    await this.clientSessions.replaceOne({ _id: id as never }, { ...rest, expiresAt: new Date(session.expiresAt) }, { upsert: true });
-  }
-
-  async getClientSession(sid: string): Promise<ClientSession | undefined> {
-    const doc = await this.clientSessions.findOne({ _id: sid as never });
-    if (!doc) return undefined;
-    const { _id, expiresAt, ...rest } = doc;
-    return { id: String(_id), ...rest, expiresAt: (expiresAt as Date).toISOString() } as ClientSession;
-  }
-
-  async dropClientSession(sid: string): Promise<void> {
-    await this.clientSessions.deleteOne({ _id: sid as never });
-  }
-
-  async dropClientSessionsOf(subject: string): Promise<void> {
-    await this.clientSessions.deleteMany({ ownerId: subject });
-  }
-
-  async recordRevocation(revocation: SessionRevocation): Promise<void> {
-    await this.sessionRevocations.updateOne(
-      { _id: revocation.subject as never },
-      [{ $set: { before: { $cond: [{ $gt: ['$before', revocation.before] }, '$before', revocation.before] } } }],
-      { upsert: true },
-    );
-  }
-
   async takeLogoutToken(jti: string, until: Date): Promise<boolean> {
     try {
       await this.oidcArtifacts.insertOne({ _id: `LogoutTaken:${jti}` as never, model: 'LogoutTaken', payload: '{}', expiresAt: until });
@@ -298,11 +254,6 @@ export class MongoInstancesStore implements InstancesStore {
       if (err instanceof MongoServerError && err.code === 11000) return false;
       throw err;
     }
-  }
-
-  async getRevocations(): Promise<SessionRevocation[]> {
-    const docs = await this.sessionRevocations.find({}).toArray();
-    return docs.map((doc) => ({ subject: String(doc._id), before: String(doc.before) }));
   }
 
   async getDependencyFindings(): Promise<DependencyFinding[]> {

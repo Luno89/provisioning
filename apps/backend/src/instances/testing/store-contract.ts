@@ -388,62 +388,13 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
-  describe('sessions an instance holds with root', () => {
-    const session = (id: string, ownerId: string, more = {}) => ({ id, ownerId, email: `${ownerId}@example.test`, refreshToken: `refresh-${id}`, startedAt: '2026-10-10T00:00:00.000Z', expiresAt: '2030-01-01T00:00:00.000Z', ...more });
-
-    it('keeps a session as saved, with its expiry as an ISO time, replacing it when saved again', async () => {
-      const store = await make();
-      await store.saveClientSession(session('s1', 'p1', { accessToken: 'at', accessExpiresAt: '2026-10-10T01:00:00.000Z' }));
-      expect(await store.getClientSession('s1')).toEqual(session('s1', 'p1', { accessToken: 'at', accessExpiresAt: '2026-10-10T01:00:00.000Z' }));
-      await store.saveClientSession(session('s1', 'p1', { expiresAt: '2031-05-06T07:08:09Z' }));
-      const replaced = await store.getClientSession('s1');
-      expect(replaced).toEqual(session('s1', 'p1', { expiresAt: '2031-05-06T07:08:09.000Z' }));
-      expect(replaced).not.toHaveProperty('accessToken');
-      expect(await store.getClientSession('missing')).toBeUndefined();
-    });
-
-    it('drops one session, or every session of a person', async () => {
-      const store = await make();
-      await store.saveClientSession(session('s1', 'p1'));
-      await store.saveClientSession(session('s2', 'p1'));
-      await store.saveClientSession(session('s3', 'p2'));
-      await store.dropClientSession('s1');
-      await store.dropClientSession('never');
-      expect(await store.getClientSession('s1')).toBeUndefined();
-      expect(await store.getClientSession('s2')).toBeDefined();
-      await store.dropClientSessionsOf('p1');
-      await store.dropClientSessionsOf('nobody');
-      expect(await store.getClientSession('s2')).toBeUndefined();
-      expect(await store.getClientSession('s3')).toBeDefined();
-    });
-  });
-
-  describe('sign-ins revoked before a time', () => {
-    it('keeps the latest time each person was revoked before, never an earlier one', async () => {
-      const store = await make();
-      expect(await store.getRevocations()).toEqual([]);
-      await store.recordRevocation({ subject: 'p1', before: '2026-10-10T00:00:00.000Z' });
-      await store.recordRevocation({ subject: 'p1', before: '2026-10-09T00:00:00.000Z' });
-      await store.recordRevocation({ subject: 'p2', before: '2026-10-01T00:00:00.000Z' });
-      await store.recordRevocation({ subject: 'p2', before: '2026-10-12T00:00:00.000Z' });
-      expect((await store.getRevocations()).sort((a, b) => a.subject.localeCompare(b.subject))).toEqual([
-        { subject: 'p1', before: '2026-10-10T00:00:00.000Z' },
-        { subject: 'p2', before: '2026-10-12T00:00:00.000Z' },
-      ]);
-    });
-
+  describe('logouts root sent', () => {
     it('takes a logout token\'s id once, even when it arrives twice at the same moment', async () => {
       const store = await make();
       const until = new Date(Date.now() + 120_000);
       expect(await Promise.all([store.takeLogoutToken('jti-1', until), store.takeLogoutToken('jti-1', until)])).toEqual(expect.arrayContaining([true, false]));
       expect(await store.takeLogoutToken('jti-1', until)).toBe(false);
       expect(await store.takeLogoutToken('jti-2', until)).toBe(true);
-    });
-
-    it('lets two revocations at once both count', async () => {
-      const store = await make();
-      await Promise.all(['2026-10-03', '2026-10-05', '2026-10-04'].map((day) => store.recordRevocation({ subject: 'p', before: `${day}T00:00:00.000Z` })));
-      expect(await store.getRevocations()).toEqual([{ subject: 'p', before: '2026-10-05T00:00:00.000Z' }]);
     });
   });
 

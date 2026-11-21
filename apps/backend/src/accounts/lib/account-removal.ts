@@ -103,7 +103,7 @@ export const ACCOUNT_DATA = {
     'accessRequests', 'actionProposals', 'appSpecs', 'artifactChunks', 'artifacts', 'authoredExtensions', 'bindingTypes', 'branches', 'clusters', 'conversations',
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
-    'clientSessions', 'evalScenarios', 'fileShares', 'giteaTokensToRevoke', 'hubLinks', 'instanceWatches', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests',
+    'evalScenarios', 'fileShares', 'giteaTokensToRevoke', 'hubLinks', 'instanceWatches', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests',
     'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'passwordResets', 'pendingApprovals', 'planProposals',
     'procedures', 'projects', 'provisioning', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
     'scriptedRequests', 'storedFiles', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
@@ -111,7 +111,7 @@ export const ACCOUNT_DATA = {
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'memoryKeeping', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'fenceAcks', 'fences', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
+  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'endedSessions', 'fenceAcks', 'fences', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
 } as const;
 
 type AccountData = typeof ACCOUNT_DATA;
