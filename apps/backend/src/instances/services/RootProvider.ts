@@ -1,11 +1,11 @@
 import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-import Provider, { type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
+import Provider, { errors, type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
 import { reopening, type AccessRevoked, type Database, type Reopening } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  CLAIMS_SECONDS, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
+  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
@@ -51,6 +51,45 @@ export class RootProvider {
   ) {
     this.provider = new Provider(settings.issuer, this.configuration());
     this.provider.proxy = true;
+    this.provider.registerGrantType(TOKEN_EXCHANGE, (ctx) => this.exchange(ctx), ['subject_token', 'subject_token_type', 'resource', 'koala_run']);
+  }
+
+  private runServer(resource: string): InstanceType<Provider['ResourceServer']> {
+    return new this.provider.ResourceServer(resource, { audience: resource, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } });
+  }
+
+  private async liveSignIn(accountId: string, clientId: string): Promise<boolean> {
+    const now = Math.floor(this.now() / 1000);
+    return (await this.store.instances.oidcGrantsOf(accountId)).some((grant) => grant.clientId === clientId && Number(grant.exp ?? 0) > now && grant.resources === undefined);
+  }
+
+  private async exchange(ctx: KoaContextWithOIDC): Promise<void> {
+    const client = ctx.oidc.client;
+    if (!client) throw new errors.InvalidClient('the client could not be identified');
+    const params = ctx.oidc.params as Record<string, unknown>;
+    if (params.subject_token_type !== OWNER_TOKEN_TYPE) throw new errors.CustomOIDCProviderError('invalid_request', `a run token is exchanged for ${OWNER_TOKEN_TYPE}`);
+    const resource = runResourceOf(client.clientId);
+    if (params.resource !== resource) throw new errors.CustomOIDCProviderError('invalid_target', 'a run token is only for the instance asking for it');
+    const runId = params.koala_run;
+    if (typeof runId !== 'string' || !runId) throw new errors.CustomOIDCProviderError('invalid_request', 'name the run as koala_run');
+    const kind = kindOf(client);
+    const accountId = String(params.subject_token ?? '');
+    if (!accountId || kind.owner !== accountId) throw new errors.CustomOIDCProviderError('invalid_grant', 'an instance asks run tokens only for its owner');
+    const user = await this.store.accounts.getUserById(accountId);
+    if (!user || user.removal) throw new errors.CustomOIDCProviderError('invalid_grant', 'that account is not there');
+    if (!(await this.liveSignIn(accountId, client.clientId))) throw new errors.CustomOIDCProviderError('invalid_grant', 'its owner is not signed in to this Koala: they sign in again, and their runs can act for them');
+
+    const grant = new this.provider.Grant({ accountId, clientId: client.clientId });
+    grant.addResourceScope(resource, RUN_SCOPE);
+    const grantId = await grant.save();
+    await this.store.instances.oidcUpsert('KoalaRun', grantId, { grantId, accountId, clientId: client.clientId, runId, claims: claimsFor(user, kind) }, SESSION_SECONDS);
+
+    const at = new this.provider.AccessToken({ accountId, client, grantId, gty: 'token_exchange', scope: RUN_SCOPE });
+    at.resourceServer = this.runServer(resource);
+    const accessToken = await at.save();
+    const rt = new this.provider.RefreshToken({ accountId, client, grantId, gty: 'token_exchange', resource, rotations: 0, scope: RUN_SCOPE });
+    const refreshToken = await rt.save();
+    ctx.body = { access_token: accessToken, issued_token_type: ACCESS_TOKEN_TYPE, token_type: 'Bearer', expires_in: at.expiration, refresh_token: refreshToken, scope: RUN_SCOPE };
   }
 
   get issuer(): string {
@@ -108,7 +147,7 @@ export class RootProvider {
         };
       },
       claims: { openid: ['sub'], email: ['email', 'email_verified'], [KOALA_SCOPE]: [KOALA_CLAIMS] },
-      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE],
+      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE],
       conformIdTokenClaims: false,
       clientDefaults: { grant_types: ['authorization_code'], id_token_signed_response_alg: SIGNING_ALG, response_types: ['code'], token_endpoint_auth_method: 'private_key_jwt' },
       clientAuthMethods: ['private_key_jwt'],
@@ -124,13 +163,27 @@ export class RootProvider {
         revocation: { enabled: true },
         backchannelLogout: { enabled: true },
         rpInitiatedLogout: { enabled: false },
-        resourceIndicators: { enabled: false },
+        resourceIndicators: {
+          enabled: true,
+          defaultResource: async () => undefined,
+          useGrantedResource: async () => true,
+          getResourceServerInfo: async (_ctx, indicator, client) => {
+            if (indicator !== runResourceOf(client.clientId)) throw new errors.InvalidTarget('root serves no such resource');
+            return { audience: indicator, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
+          },
+        },
         userinfo: { enabled: false },
         pushedAuthorizationRequests: { enabled: false },
       },
       interactions: { url: (_ctx, interaction) => `${INTERACTION_PATH}/${interaction.uid}` },
       issueRefreshToken: async (_ctx, client) => client.grantTypeAllowed('refresh_token'),
       expiresWithSession: async () => false,
+      extraTokenClaims: async (_ctx, token) => {
+        if (token.kind !== 'AccessToken' || !token.grantId) return undefined;
+        const run = await this.store.instances.oidcFind('KoalaRun', token.grantId);
+        if (!run) return undefined;
+        return { koala_run: run.runId, [KOALA_CLAIMS]: run.claims, act: { sub: run.clientId } };
+      },
       rotateRefreshToken: true,
       loadExistingGrant: async (ctx: KoaContextWithOIDC) => {
         const accountId = ctx.oidc.session?.accountId;

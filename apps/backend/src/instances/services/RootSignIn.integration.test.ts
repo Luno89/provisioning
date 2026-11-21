@@ -9,7 +9,7 @@ import { rootTokenOf } from '../wiring/sign-in.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
 import { clientSessionsContract } from '../../platform/testing/client-sessions-contract.js';
-import { rootSignInWorld, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, type Served } from '../testing/root-sign-in-behaviour.js';
+import { rootSignInWorld, runTokensThroughRoot, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, type Served } from '../testing/root-sign-in-behaviour.js';
 
 const freshInstanceDb = await emptiedEachTime();
 const freshRootDb = await emptiedEachTime();
@@ -40,6 +40,7 @@ afterEach(async () => {
 
 describe('signing in on an instance through root\'s OpenID provider', () => {
   signingInThroughRoot(world);
+  runTokensThroughRoot(world);
 
   it('in production never sends a logout to an address the instance made up on this machine or a private network', async () => {
     await logoutKeptFromAPrivateAddress(world, new InstanceReach({ open: false, domain: 'koala.dev' }));

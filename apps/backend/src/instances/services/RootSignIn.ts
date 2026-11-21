@@ -7,7 +7,7 @@ import {
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, privateJwkOf, publicJwkOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS,
+  CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
 import { instanceMadeSession, RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
@@ -37,6 +37,12 @@ export type SignedIn =
   | { ok: false; status: 400 | 401 | 403; error: string };
 
 export type Renewed = { token: string; session: SignedInSession } | 'kept' | 'ended';
+
+export interface RunToken {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}
 
 export const SIGN_IN_COOKIE = 'koala_sign_in';
 
@@ -264,6 +270,32 @@ export class RootSignIn {
     await this.store.instances.dropClientSessionsOf(event.personId);
     await this.revocations.revoked(event);
     return { ok: true };
+  }
+
+  private runTokenOf(tokens: { access_token: string; refresh_token?: string | undefined; expires_in?: number | undefined }): RunToken {
+    if (!tokens.refresh_token) throw new Error('root gave the run no way to renew its token');
+    return { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresAt: this.now() + (tokens.expires_in ?? 0) * 1000 };
+  }
+
+  async runToken(runId: string): Promise<RunToken> {
+    if (!this.settings.owner) throw new Error(`this ${this.settings.kind} serves no owner to act for`);
+    const tokens = await client.genericGrantRequest(await this.config(), TOKEN_EXCHANGE, {
+      subject_token: this.settings.owner,
+      subject_token_type: OWNER_TOKEN_TYPE,
+      resource: runResourceOf(this.settings.clientId),
+      koala_run: runId,
+    }).catch((err: unknown) => { throw new Error(`root gave run ${runId} no token: ${reasonOf(err)}`); });
+    return this.runTokenOf(tokens);
+  }
+
+  async renewRunToken(refreshToken: string): Promise<RunToken> {
+    const tokens = await client.refreshTokenGrant(await this.config(), refreshToken, { resource: runResourceOf(this.settings.clientId) })
+      .catch((err: unknown) => { throw new Error(`root renewed no run token: ${reasonOf(err)}`); });
+    return this.runTokenOf(tokens);
+  }
+
+  async endRunToken(refreshToken: string): Promise<void> {
+    await client.tokenRevocation(await this.config(), refreshToken, { token_type_hint: 'refresh_token' });
   }
 
   private held: { value: string; until: number } | undefined;
