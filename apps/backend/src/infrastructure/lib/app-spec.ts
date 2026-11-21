@@ -307,21 +307,6 @@ export const AUDIOBOOKSHELF_SPEC: AppSpec = {
   ingressPort: 80,
 };
 
-export const QDRANT_SPEC: AppSpec = {
-  id: 'qdrant',
-  image: 'qdrant/qdrant:latest',
-  env: [
-    { name: 'QDRANT__SERVICE__API_KEY', fromSecret: 'api_key', generate: 'password' },
-    { name: 'QDRANT__LOG_LEVEL', value: 'INFO' },
-  ],
-  ports: [{ name: 'http', port: 6333 }, { name: 'grpc', port: 6334 }],
-  volumes: [{ path: '/qdrant/storage', size: '50Gi' }],
-  liveness: { path: '/healthz', port: 6333, initialDelaySeconds: 10, periodSeconds: 20 },
-  readiness: { path: '/readyz', port: 6333, initialDelaySeconds: 5, periodSeconds: 10 },
-  resources: { limits: { memory: '4Gi', cpu: '2000m' }, requests: { memory: '512Mi', cpu: '200m' } },
-  ingressPort: 6333,
-};
-
 const SEARXNG_SETTINGS_YAML = [
   'use_default_settings: true',
   'server:',
@@ -473,7 +458,6 @@ export const APP_CATALOGUE_META: Record<string, AppCatalogueMeta> = {
   homeassistant: { label: 'Home Assistant', is: 'a home automation hub', provides: ['home-automation'] },
   papra: { label: 'Papra Document Management', is: 'a document archive', provides: ['documents'] },
   audiobookshelf: { label: 'Audiobookshelf Media Server', is: 'an audiobook and podcast server', provides: ['media'] },
-  qdrant: { label: 'Qdrant Vector Database', is: 'a vector database', provides: ['vector-search', 'similarity-search', 'embeddings-storage'] },
   mariadb: { label: 'MariaDB', is: 'a relational database', provides: ['database', 'mysql-compatible'] },
   postgres: { label: 'PostgreSQL', is: 'a relational database', provides: ['database', 'postgresql'] },
   searxng: { label: 'SearXNG (agent web search)', is: 'a metasearch engine', provides: ['web-search'] },
@@ -601,7 +585,7 @@ export interface StoredAppSpec {
 
 export const BUILT_IN_SPECS: AppSpec[] = [
   MINIO_SPEC, JELLYFIN_SPEC, PLEX_SPEC, NAVIDROME_SPEC, KAVITA_SPEC, IMMICH_SPEC,
-  HOMEASSISTANT_SPEC, PAPRA_SPEC, AUDIOBOOKSHELF_SPEC, QDRANT_SPEC, MARIADB_SPEC, POSTGRES_SPEC,
+  HOMEASSISTANT_SPEC, PAPRA_SPEC, AUDIOBOOKSHELF_SPEC, MARIADB_SPEC, POSTGRES_SPEC,
   SEARXNG_SPEC, VERDACCIO_SPEC, CRAWL4AI_SPEC,
 ];
 
@@ -711,7 +695,6 @@ export function appTypeFromName(name: string, knownIds: readonly string[]): stri
 export interface KnownAppSecrets {
   crawl4aiApiToken?: string | undefined;
   searxngSecretKey?: string | undefined;
-  qdrantApiKey?: string | undefined;
   minioRootUser?: string | undefined;
   minioRootPassword?: string | undefined;
 }
@@ -719,7 +702,6 @@ export interface KnownAppSecrets {
 const RECORDED_SECRETS: Record<string, Record<string, keyof KnownAppSecrets>> = {
   crawl4ai: { api_token: 'crawl4aiApiToken' },
   searxng: { secret_key: 'searxngSecretKey' },
-  qdrant: { api_key: 'qdrantApiKey' },
   minio: { root_user: 'minioRootUser', root_password: 'minioRootPassword' },
 };
 

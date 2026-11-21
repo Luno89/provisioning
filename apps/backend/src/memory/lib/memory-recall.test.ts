@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 
 type SearchMemories = typeof import('./memory-index.js').searchMemories;
 const searchMemories = vi.fn<SearchMemories>();
@@ -23,7 +24,7 @@ const bank: Mem[] = [
   mem({ id: 'oldest', title: 'OLDEST', createdAt: '2020-01-01T00:00:00.000Z' }),
 ];
 
-const X = { index: { base: 'http://x' }, vectors: { base: 'http://x', apiKey: 'k' }, embeddings: { base: 'http://x' } };
+const X = unreportedReach({ index: { base: 'http://x' }, vectors: { base: 'http://x', apiKey: 'k' }, embeddings: { base: 'http://x' } });
 
 beforeEach(() => { searchMemories.mockReset(); });
 

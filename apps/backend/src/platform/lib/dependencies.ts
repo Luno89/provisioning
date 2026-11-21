@@ -1,6 +1,7 @@
 import { temporaryStatus } from '@koala/engine-core/failures';
 export { failureOf, GONE_STATUSES, NAME_NOT_FOUND, refusedByServer, statusFailure, stillDown, temporaryStatus, type Failure } from '@koala/engine-core/failures';
-import { isOff, type BackendSettings, type ClusterWorkerSettings, type EngineWorkerSettings, type HostWorkerSettings, type KoalaProcess, type WebToolSettings } from './settings.js';
+import { isOff } from './off.js';
+import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, KoalaProcess, MemoryIndex, WebToolSettings } from './settings.js';
 import { ownReach } from '../../infrastructure/lib/cluster-places.js';
 
 export type DependencyId =
@@ -110,6 +111,28 @@ const webDependencies = (web: WebToolSettings): DependencyId[] =>
   [...(web.searxngUrl ? ['searxng' as const] : []), ...(web.crawl4aiUrl ? ['crawl4ai' as const] : [])];
 
 export const MEMORY_INDEX_DEPENDENCIES = ['quickwit', 'qdrant', 'tei'] as const satisfies readonly DependencyId[];
+
+export interface Reaching {
+  fetch: typeof fetch;
+  failed(error: unknown): unknown;
+}
+
+export interface MemoryIndexReach {
+  index: MemoryIndex['index'] & Reaching;
+  vectors: MemoryIndex['vectors'] & Reaching;
+  embeddings: MemoryIndex['embeddings'] & Reaching;
+}
+
+export const reachingDependency = (reporter: DependencyReporter, dependency: DependencyId, doFetch: typeof fetch): Reaching => ({
+  fetch: reportingFetch(reporter, dependency, doFetch),
+  failed: (error) => thrownFor(reporter, dependency, error),
+});
+
+export const reachingMemoryIndex = (index: MemoryIndex, reporter: DependencyReporter, doFetch: typeof fetch): MemoryIndexReach => ({
+  index: { ...index.index, ...reachingDependency(reporter, 'quickwit', doFetch) },
+  vectors: { ...index.vectors, ...reachingDependency(reporter, 'qdrant', doFetch) },
+  embeddings: { ...index.embeddings, ...reachingDependency(reporter, 'tei', doFetch) },
+});
 
 export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
   const always: DependencyId[] = ['mongo', 'temporal', ...(sendsTelemetry(settings) ? ['collector' as const] : [])];

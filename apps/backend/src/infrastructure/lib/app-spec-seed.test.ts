@@ -49,7 +49,7 @@ describe('the seeds themselves', () => {
   it('only contains specs verified against their construct', () => {
     expect(BUILT_IN_SPECS.map((s) => s.id)).toEqual([
       'minio', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich',
-      'homeassistant', 'papra', 'audiobookshelf', 'qdrant', 'mariadb', 'postgres',
+      'homeassistant', 'papra', 'audiobookshelf', 'mariadb', 'postgres',
       'searxng', 'verdaccio', 'crawl4ai',
     ]);
   });

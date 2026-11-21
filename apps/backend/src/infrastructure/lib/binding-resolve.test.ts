@@ -19,7 +19,7 @@ const deployments = [
   { name: 'their-mongo', appType: 'mongo', status: 'running', ownerId: 'u2' },
   { name: 'starting-mongo', appType: 'mongo', status: 'deploying', ownerId: 'u1' },
   { name: 'a-game', appType: 'palworld', status: 'running', ownerId: 'u1' },
-  { name: 'from-construct', appType: 'qdrant', status: 'running', ownerId: 'u1' },
+  { name: 'from-construct', appType: 'verdaccio', status: 'running', ownerId: 'u1' },
 ];
 const specs = [{ id: 'mongo', spec: MONGO_SPEC }, { id: 'minio', spec: MINIO_SPEC }];
 const resolve = (needs: BindingRequest[], owner = 'u1') =>
@@ -149,17 +149,15 @@ describe('platform service contracts and dynamic bindings', () => {
     });
   });
 
-  it('resolves in-cluster memory services (qdrant, quickwit, tei, minio)', () => {
+  it('offers no binding to the memory index, which is Koala\'s own and answers only its pods', () => {
     const result = resolveBindings(
-      [{ service: 'koala-vectors', as: 'qdrant' }, { service: 'koala-index', as: 'quickwit' }],
+      [{ service: 'koala-vectors', as: 'qdrant' }, { service: 'koala-index', as: 'quickwit' }, { service: 'koala-embed', as: 'tei' }],
       [],
       [],
       'u1',
     );
-    expect(result.problems).toEqual([]);
-    expect(result.bindings).toHaveLength(2);
-    expect(result.bindings.find((b) => b.name === 'qdrant')?.port).toBe(6333);
-    expect(result.bindings.find((b) => b.name === 'quickwit')?.port).toBe(7280);
+    expect(result.bindings).toEqual([]);
+    expect(result.problems).toHaveLength(3);
   });
 
   it('supports custom dynamic binding types from database', () => {

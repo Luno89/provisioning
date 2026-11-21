@@ -1,6 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { clusterUrl } from './cluster-dns.js';
-import { namespaceOf } from './app-namespace.js';
 import type { AppSettings, DeploymentMetadata } from '../../platform/index.js';
 import { appSettingsOf } from './deploy-request.js';
 
@@ -81,59 +79,6 @@ export function resolveHermesDefaults(dep: DeploymentMetadata): DeploymentMetada
   return Object.assign({}, dep, {
     hermesDashboardPassword: dep.hermesDashboardPassword || randomBytes(24).toString('hex'),
   });
-}
-
-export function resolveQdrantDefaults(dep: DeploymentMetadata): DeploymentMetadata {
-  if (dep.appType !== 'qdrant') return dep;
-  return Object.assign({}, dep, {
-    qdrantApiKey: dep.qdrantApiKey || randomBytes(32).toString('hex'),
-  });
-}
-
-export function resolveQuickwitDefaults(
-  dep: DeploymentMetadata,
-  deployments: DeploymentMetadata[],
-): DeploymentMetadata {
-  if (dep.appType !== 'quickwit') return dep;
-
-  const GONE = new Set(['destroying', 'destroyed', 'failed']);
-  const minio = deployments.find((d) =>
-    d.appType === 'minio'
-    && !GONE.has(d.status)
-    && Boolean(d.minioRootUser)
-    && Boolean(d.minioRootPassword)
-    && (!dep.ownerId || !d.ownerId || d.ownerId === dep.ownerId));
-
-  if (minio) {
-    return Object.assign({}, dep, {
-      quickwitBucket: dep.quickwitBucket || 'koala-corpus',
-      quickwitS3AccessKey: dep.quickwitS3AccessKey || minio.minioRootUser,
-      quickwitS3SecretKey: dep.quickwitS3SecretKey || minio.minioRootPassword,
-      quickwitS3Endpoint: dep.quickwitS3Endpoint || clusterUrl({ service: 'minio', namespace: namespaceOf(minio), port: 9000 }),
-    });
-  }
-
-  const own = [
-    ['access key', dep.quickwitS3AccessKey],
-    ['secret key', dep.quickwitS3SecretKey],
-    ['endpoint', dep.quickwitS3Endpoint],
-  ] as const;
-  const missing = own.filter(([, value]) => !value).map(([what]) => what);
-  if (missing.length && missing.length < own.length) {
-    throw new Error(`Quickwit with no MinIO of yours beside it needs its own store's access key, secret key and endpoint, and is missing its ${missing.join(' and ')}`);
-  }
-  if (missing.length) {
-    const anyMinio = deployments.some((d) => d.appType === 'minio' && !GONE.has(d.status));
-    throw new Error(
-      anyMinio
-        ? 'A MinIO deployment exists but its root credentials are not stored, so Quickwit cannot be '
-          + 'given keys for it. Redeploy minio so the credentials are minted and persisted.'
-        : 'Quickwit keeps its indexes in MinIO, so a MinIO deployment is required before it can be '
-          + 'deployed. Deploy minio first.',
-    );
-  }
-
-  return Object.assign({}, dep, { quickwitBucket: dep.quickwitBucket || 'koala-corpus' });
 }
 
 export function resolveVllmDefaults(dep: DeploymentMetadata): DeploymentMetadata {
@@ -227,16 +172,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     NEXTCLOUD_DB_ROOT_PASSWORD: a.nextcloudDbRootPassword || '',
     HERMES_DASHBOARD_PASSWORD: a.hermesDashboardPassword || '',
     MINIO_STORAGE: a.minioStorage || '',
-    QDRANT_API_KEY: a.qdrantApiKey || '',
-    QDRANT_STORAGE: a.qdrantStorage || '',
-    QDRANT_MEMORY_LIMIT: a.qdrantMemoryLimit || '',
-    QUICKWIT_S3_ENDPOINT: a.quickwitS3Endpoint || '',
-    QUICKWIT_S3_ACCESS_KEY: a.quickwitS3AccessKey || '',
-    QUICKWIT_S3_SECRET_KEY: a.quickwitS3SecretKey || '',
-    QUICKWIT_BUCKET: a.quickwitBucket || '',
-    TEI_MODEL_ID: a.teiModelId || '',
-    TEI_USE_GPU: a.teiUseGpu === true ? 'true' : '',
-    TEI_MEMORY_LIMIT: a.teiMemoryLimit || '',
     VERDACCIO_UPSTREAM: a.verdaccioUpstream || '',
     VERDACCIO_STORAGE: a.verdaccioStorage || '',
     GITAPP_ENV: a.gitappEnv || '',

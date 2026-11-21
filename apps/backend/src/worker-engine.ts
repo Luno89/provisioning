@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { QUEUES, isOff } from './platform/index.js';
+import { QUEUES, isOff, reachingMemoryIndex } from './platform/index.js';
+import { dependencyFetch } from '@koala/engine-core/http';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, revokeRunSignal, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
@@ -115,7 +116,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const extensions = extensionServiceFor(db);
   const checksApi = tenant.checksApi;
   const checks = httpCheckAccess(async (who) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerFor(who.grantId))));
-  const engineStores = storesFromDatabase(db, unindexerFrom(tenant.memoryIndex));
+  const engineStores = storesFromDatabase(db, unindexerFrom(reachingMemoryIndex(tenant.memoryIndex, dependencies, dependencyFetch)));
   const growers: { launcher?: GroveRunLauncher } = {};
   const groving = (): GroveRunLauncher => {
     if (!growers.launcher) throw new Error('the grove launcher is not ready yet');

@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
+import { intercepted as settings, QDRANT, qdrantAt, QUICKWIT, quickwitAt, TEI, unreportedReach } from '../../platform/testing/memory-index.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
+import { DependencyDownError, MEMORY_INDEX_DEPENDENCIES, reachingMemoryIndex } from '../../platform/lib/dependencies.js';
+import { dependencyFetch } from '@koala/engine-core/http';
 import { ensureMemoryCollection, ensureMemoryIndex, indexMemories, removeMemories, searchMemories, similarTo } from './memory-index.js';
 import { pointId } from '../../engine/lib/corpus-backend.js';
 import { recallMemories } from './memory-recall.js';
 import type { MemoryItem } from './memory-store.js';
 
-const QUICKWIT = 'http://quickwit.test:7280';
-const QDRANT = 'http://qdrant.test:6333';
-const TEI = 'http://tei.test';
-
-const ends = { index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: TEI } };
+const ends = unreportedReach(settings);
 
 const memory: MemoryItem = {
   id: 'm1', ownerId: 'u1', category: 'lessons_learned', scope: 'global', title: 'A lesson', text: 'Something learned.',
@@ -65,13 +65,55 @@ describe('making the memories\' index and collection', () => {
   it('an index Quickwit refuses to make fails with its answer', async () => {
     const base = 'http://quickwit-refusing.test:7280';
     server.use(http.post(`${base}/api/v1/indexes`, () => HttpResponse.text('invalid index config', { status: 400 })));
-    await expect(ensureMemoryIndex(base)).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
+    await expect(ensureMemoryIndex(quickwitAt(base))).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
   });
 
   it('a collection Qdrant refuses to make fails with its answer', async () => {
     const base = 'http://qdrant-refusing.test:6333';
     server.use(http.put(`${base}/collections/:collection`, () => HttpResponse.text('wrong api key', { status: 401 })));
-    await expect(ensureMemoryCollection(base, 'k')).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
+    await expect(ensureMemoryCollection(qdrantAt(base))).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
+  });
+});
+
+describe('the index reporting to its dependencies', () => {
+  const watching = (doFetch: typeof fetch = dependencyFetch) => {
+    const states = new DependencyStates({ process: 'worker-engine', described: MEMORY_INDEX_DEPENDENCIES, now: () => new Date('2026-11-21T10:00:00.000Z'), log: () => undefined });
+    return { states, reach: reachingMemoryIndex(settings, states, doFetch) };
+  };
+  const refusedAt = (base: string): typeof fetch => (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if (String(input).startsWith(base)) throw new TypeError('fetch failed', { cause: Object.assign(new Error(`connect ECONNREFUSED ${base}`), { code: 'ECONNREFUSED' }) });
+    return dependencyFetch(input, init);
+  }) as typeof fetch;
+
+  it('a Qdrant that cannot answer just now is shown down with since and why, and the search says so', async () => {
+    server.use(
+      http.post(`${TEI}/embed`, () => HttpResponse.json([[0.1, 0.2]])),
+      http.post(`${QDRANT}/collections/:collection/points/search`, () => HttpResponse.text('overloaded', { status: 503 })),
+      http.get(`${QUICKWIT}/api/v1/:index/search`, () => HttpResponse.json({ hits: [] })),
+    );
+    const { states, reach } = watching();
+    const failed = await searchMemories(reach, 'lesson', { ownerId: 'u1' }).then(() => undefined, (err: unknown) => err);
+    states.stop();
+    expect(failed).toBeInstanceOf(DependencyDownError);
+    expect(failed).toMatchObject({ dependency: 'qdrant', since: '2026-11-21T10:00:00.000Z' });
+    expect(states.down().map((down) => down.dependency)).toEqual(['qdrant']);
+  });
+
+  it('a TEI nothing answers at is shown down, and the search says so', async () => {
+    server.use(http.get(`${QUICKWIT}/api/v1/:index/search`, () => HttpResponse.json({ hits: [] })));
+    const { states, reach } = watching(refusedAt(TEI));
+    const failed = await searchMemories(reach, 'lesson', { ownerId: 'u1' }).then(() => undefined, (err: unknown) => err);
+    states.stop();
+    expect(failed).toMatchObject({ dependency: 'tei' });
+    expect(states.down().map((down) => down.dependency)).toEqual(['tei']);
+  });
+
+  it('a Qdrant that refuses for good is not shown down, and its answer is kept', async () => {
+    server.use(http.post(`${QDRANT}/collections/:collection/points/recommend`, () => HttpResponse.text('wrong api key', { status: 401 })));
+    const { states, reach } = watching();
+    await expect(similarTo(reach, 'm1', { ownerId: 'u1' })).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
+    states.stop();
+    expect(states.down()).toEqual([]);
   });
 });
 

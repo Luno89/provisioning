@@ -2480,14 +2480,6 @@
       ]
     },
     {
-      "name": "qdrant/qdrant",
-      "how": "an app a person deploys, outside v1 and frozen: its image floats with the tag its maker moves",
-      "usedIn": [
-        "apps/backend/src/infrastructure/lib/app-spec.ts",
-        "packages/cdktf-infra/constructs/qdrant-native.ts"
-      ]
-    },
-    {
       "name": "thijsvanloef/palworld-server-docker",
       "how": "an app a person deploys, outside v1 and frozen: its image floats with the tag its maker moves",
       "usedIn": [
@@ -2529,20 +2521,6 @@
       "how": "an app a person deploys, outside v1 and frozen: its image floats with the tag its maker moves",
       "usedIn": [
         "packages/cdktf-infra/constructs/minio-native.ts"
-      ]
-    },
-    {
-      "name": "quickwit/quickwit",
-      "how": "an app a person deploys, outside v1 and frozen: its image floats with the tag its maker moves",
-      "usedIn": [
-        "packages/cdktf-infra/constructs/quickwit-native.ts"
-      ]
-    },
-    {
-      "name": "minio/mc",
-      "how": "an app a person deploys, outside v1 and frozen: its image floats with the tag its maker moves",
-      "usedIn": [
-        "packages/cdktf-infra/constructs/quickwit-native.ts"
       ]
     },
     {

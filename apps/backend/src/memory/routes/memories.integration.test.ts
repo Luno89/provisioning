@@ -21,7 +21,7 @@ describe('/api/memories', () => {
       router: (db) => memoriesRouter({
         db,
         temporalBridge: { lastConsolidation: report },
-        unindex: unindexerFrom(standIn.endpoints),
+        unindex: unindexerFrom(standIn.reach),
       }),
     });
   });
@@ -71,18 +71,18 @@ describe('/api/memories', () => {
 
   it('a retired memory is gone from the index, so nothing searching it finds it again', async () => {
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Retries', text: 'The retry budget is three attempts.', scope: 'global' });
-    await indexMemories(standIn.endpoints, [made.data]);
-    expect((await searchMemories(standIn.endpoints, 'retry budget', { ownerId: TEST_USER.id })).map((hit) => hit.id)).toEqual([made.data.id]);
+    await indexMemories(standIn.reach, [made.data]);
+    expect((await searchMemories(standIn.reach, 'retry budget', { ownerId: TEST_USER.id })).map((hit) => hit.id)).toEqual([made.data.id]);
 
     expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
 
-    expect(await searchMemories(standIn.endpoints, 'retry budget', { ownerId: TEST_USER.id })).toEqual([]);
+    expect(await searchMemories(standIn.reach, 'retry budget', { ownerId: TEST_USER.id })).toEqual([]);
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
   });
 
   it('a forgotten memory leaves the database and Quickwit both', async () => {
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
-    await indexMemories(standIn.endpoints, [made.data]);
+    await indexMemories(standIn.reach, [made.data]);
 
     expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);

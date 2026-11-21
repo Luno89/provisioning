@@ -1,6 +1,6 @@
 import { ignore } from '@koala/engine-core/failures';
 import { consolidateMemories, type ConsolidateDeps, type ConsolidationReport } from './memory-consolidate.js';
-import type { MemoryIndex } from '../../platform/index.js';
+import type { MemoryIndexReach } from '../../platform/index.js';
 import { indexMemories, removeMemories, similarTo } from './memory-index.js';
 
 export type KeepingState =
@@ -14,7 +14,7 @@ export interface KeepingRecords {
 
 export interface KeepingPlace {
   db: ConsolidateDeps['db'];
-  index: () => MemoryIndex;
+  index: () => MemoryIndexReach;
   now?: (() => string) | undefined;
 }
 

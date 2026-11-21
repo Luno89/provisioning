@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildAppEnv, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults, type AppEnvArgs } from './app-env.js';
+import { buildAppEnv, resolveMinioDefaults, resolveNextcloudDefaults, type AppEnvArgs } from './app-env.js';
 import { appTypeFromName } from './app-spec.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
@@ -20,76 +20,7 @@ describe('minting credentials before a deployment exists', () => {
   });
 
   it('leaves other app types alone', () => {
-    expect(resolveMinioDefaults(dep({ appType: 'qdrant' })).minioRootPassword).toBeUndefined();
-    expect(resolveQdrantDefaults(dep({ appType: 'minio' })).qdrantApiKey).toBeUndefined();
-  });
-
-  it('generates a Qdrant key, because without one it serves unauthenticated', () => {
-    expect(resolveQdrantDefaults(dep({ appType: 'qdrant' })).qdrantApiKey).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
-const minio = dep({
-  id: 'm1', name: 'koala-store', appType: 'minio', status: 'running',
-  minioRootUser: 'koala', minioRootPassword: 'the-real-password',
-});
-
-describe('Quickwit, whose credentials are not its own', () => {
-  it('takes the keys the MinIO beside it was actually deployed with', () => {
-    const out = resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [minio]);
-    expect(out.quickwitS3SecretKey).toBe('the-real-password');
-    expect(out.quickwitS3AccessKey).toBe('koala');
-  });
-
-  it('points at the in-cluster Service, not an ingress', () => {
-    const out = resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [minio]);
-    expect(out.quickwitS3Endpoint).toBe('http://minio.koala-store.svc.cluster.local:9000');
-  });
-
-  it('refuses to deploy when there is no MinIO, rather than deploying something inert', () => {
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), []))
-      .toThrow(/requires|required|Deploy minio first/i);
-  });
-
-  it('accepts a MinIO that is still deploying, because what it needs is the keys', () => {
-    const deploying = { ...minio, status: 'deploying' } as DeploymentMetadata;
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [deploying]).quickwitS3SecretKey)
-      .toBe('the-real-password');
-  });
-
-  it('skips a MinIO that is on its way out', () => {
-    const going = { ...minio, status: 'destroying' } as DeploymentMetadata;
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [going])).toThrow();
-  });
-
-  it('says so when a MinIO exists but its credentials were never stored', () => {
-    const { minioRootPassword, ...noCreds } = minio;
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [noCreds]))
-      .toThrow(/credentials are not stored/i);
-  });
-
-  it('does not take another tenant\'s storage', () => {
-    const theirs = { ...minio, ownerId: 'them' } as DeploymentMetadata;
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit', ownerId: 'me' }), [theirs])).toThrow();
-  });
-
-  it('keeps explicit settings, so a corpus can point at storage outside the cluster', () => {
-    const out = resolveQuickwitDefaults(
-      dep({ appType: 'quickwit', quickwitS3Endpoint: 'https://s3.example', quickwitS3AccessKey: 'me', quickwitS3SecretKey: 'mine' }),
-      [],
-    );
-    expect(out.quickwitS3Endpoint).toBe('https://s3.example');
-  });
-
-  it('points Quickwit at the namespace the MinIO beside it actually runs in', () => {
-    const placed = { ...minio, namespace: 'koala-store-m1a2b3' } as DeploymentMetadata;
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [placed]).quickwitS3Endpoint)
-      .toBe('http://minio.koala-store-m1a2b3.svc.cluster.local:9000');
-  });
-
-  it('refuses Quickwit given only some of its own store\'s keys, naming the missing ones', () => {
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit', quickwitS3SecretKey: 'mine' }), []))
-      .toThrow('Quickwit with no MinIO of yours beside it needs its own store\'s access key, secret key and endpoint, and is missing its access key and endpoint');
+    expect(resolveMinioDefaults(dep({ appType: 'mariadb' })).minioRootPassword).toBeUndefined();
   });
 });
 
@@ -156,19 +87,18 @@ describe('the environment a deploy hands its stack', () => {
     expect(env).toMatchObject({
       WEB_IMAGE_REPO: '', WEB_IMAGE_TAG: '', DB_IMAGE_REPO: '', DB_IMAGE_TAG: '', VPN_ENABLED: 'false', VPN_PROTOCOL: 'wireguard', VPN_CONFIG: '', VPN_DEDICATED_IP: '',
       VLLM_MODEL: '', VLLM_GPU_VENDOR: '', VLLM_MODEL_PREDOWNLOADED: 'false', HF_TOKEN: '', VLLM_MAX_MODEL_LEN: '', VLLM_GPU_MEM_UTIL: '', VLLM_TOOL_CALLING_ENABLED: 'false', VLLM_ENABLE_PREFIX_CACHING: 'false',
-      TABBYAPI_REASONING: 'false', TABBYAPI_INLINE_MODEL_LOADING: 'false', TABBYAPI_DISABLE_AUTH: 'true', TEI_USE_GPU: '', WEBUI_ENABLE_WEB_SEARCH: '', APP_SETTINGS_JSON: '{}', APP_SPEC_JSON: '',
+      TABBYAPI_REASONING: 'false', TABBYAPI_INLINE_MODEL_LOADING: 'false', TABBYAPI_DISABLE_AUTH: 'true', WEBUI_ENABLE_WEB_SEARCH: '', APP_SETTINGS_JSON: '{}', APP_SPEC_JSON: '',
     });
     expect(env).not.toHaveProperty('VLLM_GPU_COUNT');
     expect(env).not.toHaveProperty('TABBYAPI_GPU_COUNT');
   });
 
   it('hands over the other apps\' settings, the app\'s own settings and its storage', () => {
-    const env = buildAppEnv({ ...base, appType: 'searxng', searxngSecretKey: 'sx', searxngEngines: 'ddg', crawl4aiApiToken: 'c4', crawl4aiMemoryLimit: '2Gi', crawl4aiShmSize: '1Gi', minioRootUser: 'root', minioRootPassword: 'mp', nextcloudAdminPassword: 'na', nextcloudDbPassword: 'nd', nextcloudDbRootPassword: 'nr', hermesDashboardPassword: 'hp', minioStorage: '10Gi', qdrantApiKey: 'qk', qdrantStorage: '5Gi', qdrantMemoryLimit: '1Gi', quickwitS3Endpoint: 'http://m:9000', quickwitS3AccessKey: 'qa', quickwitS3SecretKey: 'qs', quickwitBucket: 'corpus', teiModelId: 'bge', teiUseGpu: true, teiMemoryLimit: '3Gi', verdaccioUpstream: 'https://registry.npmjs.org', verdaccioStorage: '2Gi', gitappEnv: 'A=1', openaiApiBaseUrl: 'http://llm/v1', webuiEnableWebSearch: false, webuiWebSearchEngine: 'brave', webuiWebSearchApiKey: 'wk', appSettings: { theme: 'dark' }, renderedSpec: { kind: 'x' } as never, bindingsJson: '[]', storageEnv: { STORAGE_DATA: '20Gi' } });
+    const env = buildAppEnv({ ...base, appType: 'searxng', searxngSecretKey: 'sx', searxngEngines: 'ddg', crawl4aiApiToken: 'c4', crawl4aiMemoryLimit: '2Gi', crawl4aiShmSize: '1Gi', minioRootUser: 'root', minioRootPassword: 'mp', nextcloudAdminPassword: 'na', nextcloudDbPassword: 'nd', nextcloudDbRootPassword: 'nr', hermesDashboardPassword: 'hp', minioStorage: '10Gi', verdaccioUpstream: 'https://registry.npmjs.org', verdaccioStorage: '2Gi', gitappEnv: 'A=1', openaiApiBaseUrl: 'http://llm/v1', webuiEnableWebSearch: false, webuiWebSearchEngine: 'brave', webuiWebSearchApiKey: 'wk', appSettings: { theme: 'dark' }, renderedSpec: { kind: 'x' } as never, bindingsJson: '[]', storageEnv: { STORAGE_DATA: '20Gi' } });
     expect(env).toMatchObject({
       SEARXNG_SECRET_KEY: 'sx', SEARXNG_ENGINES: 'ddg', CRAWL4AI_API_TOKEN: 'c4', CRAWL4AI_MEMORY_LIMIT: '2Gi', CRAWL4AI_SHM_SIZE: '1Gi', MINIO_ROOT_USER: 'root', MINIO_ROOT_PASSWORD: 'mp',
-      NEXTCLOUD_ADMIN_PASSWORD: 'na', NEXTCLOUD_DB_PASSWORD: 'nd', NEXTCLOUD_DB_ROOT_PASSWORD: 'nr', HERMES_DASHBOARD_PASSWORD: 'hp', MINIO_STORAGE: '10Gi', QDRANT_API_KEY: 'qk', QDRANT_STORAGE: '5Gi',
-      QDRANT_MEMORY_LIMIT: '1Gi', QUICKWIT_S3_ENDPOINT: 'http://m:9000', QUICKWIT_S3_ACCESS_KEY: 'qa', QUICKWIT_S3_SECRET_KEY: 'qs', QUICKWIT_BUCKET: 'corpus', TEI_MODEL_ID: 'bge', TEI_USE_GPU: 'true',
-      TEI_MEMORY_LIMIT: '3Gi', VERDACCIO_UPSTREAM: 'https://registry.npmjs.org', VERDACCIO_STORAGE: '2Gi', GITAPP_ENV: 'A=1', OPENAI_API_BASE_URL: 'http://llm/v1', WEBUI_ENABLE_WEB_SEARCH: 'false',
+      NEXTCLOUD_ADMIN_PASSWORD: 'na', NEXTCLOUD_DB_PASSWORD: 'nd', NEXTCLOUD_DB_ROOT_PASSWORD: 'nr', HERMES_DASHBOARD_PASSWORD: 'hp', MINIO_STORAGE: '10Gi',
+      VERDACCIO_UPSTREAM: 'https://registry.npmjs.org', VERDACCIO_STORAGE: '2Gi', GITAPP_ENV: 'A=1', OPENAI_API_BASE_URL: 'http://llm/v1', WEBUI_ENABLE_WEB_SEARCH: 'false',
       WEBUI_WEB_SEARCH_ENGINE: 'brave', WEBUI_WEB_SEARCH_API_KEY: 'wk', APP_SETTINGS_JSON: '{"theme":"dark"}', APP_SPEC_JSON: '{"kind":"x"}', BINDINGS_JSON: '[]', STORAGE_DATA: '20Gi',
     });
   });
@@ -183,33 +113,10 @@ describe('the defaults a deploy fills in, held to their exact values', () => {
     expect(partly.nextcloudDbRootPassword).toMatch(/^[0-9a-f]{48}$/);
   });
 
-  it('puts Quickwit\'s indexes in the koala-corpus bucket unless one is named, beside a MinIO or on its own store', () => {
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [minio]).quickwitBucket).toBe('koala-corpus');
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit', quickwitBucket: 'mine' }), [minio]).quickwitBucket).toBe('mine');
-    const own = { quickwitS3Endpoint: 'https://s3.example', quickwitS3AccessKey: 'me', quickwitS3SecretKey: 'mine' };
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit', ...own }), []).quickwitBucket).toBe('koala-corpus');
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit', ...own, quickwitBucket: 'theirs' }), []).quickwitBucket).toBe('theirs');
-  });
-
-  it('takes no MinIO that is destroyed or failed, and takes one whose owner matches or that names no owner', () => {
-    for (const status of ['destroyed', 'failed'] as const) {
-      expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [{ ...minio, status } as DeploymentMetadata])).toThrow(/Deploy minio first/);
-    }
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit', ownerId: 'me' }), [{ ...minio, ownerId: 'me' } as DeploymentMetadata]).quickwitS3AccessKey).toBe(minio.minioRootUser);
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [{ ...minio, ownerId: 'them' } as DeploymentMetadata]).quickwitS3AccessKey).toBe(minio.minioRootUser);
-    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit', ownerId: 'me' }), [(({ ownerId: _none, ...rest }) => rest)(minio) as DeploymentMetadata]).quickwitS3AccessKey).toBe(minio.minioRootUser);
-  });
-
-  it('tells a person with no MinIO to deploy one first, and one whose MinIO has no stored keys to redeploy it', () => {
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [])).toThrow('Quickwit keeps its indexes in MinIO, so a MinIO deployment is required before it can be deployed. Deploy minio first.');
-    const { minioRootPassword: _gone, ...noKeys } = minio;
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [noKeys as DeploymentMetadata])).toThrow('A MinIO deployment exists but its root credentials are not stored, so Quickwit cannot be given keys for it. Redeploy minio so the credentials are minted and persisted.');
-  });
-
   it('hands the stack an empty value for every setting a deploy left out, never some other text', () => {
     const asked = new Set(['STACK_TYPE', 'CLUSTER_NAME', 'DEPLOYMENT_STRATEGY', 'DEPLOYMENT_NAME', 'DEPLOYMENT_ID', 'KUBECONFIG', 'APP_SERVICE_TYPE', 'APP_TYPE', 'VPN_ENABLED', 'VPN_PROTOCOL', 'VLLM_MODEL_PREDOWNLOADED', 'VLLM_TOOL_CALLING_ENABLED', 'VLLM_ENABLE_PREFIX_CACHING', 'TABBYAPI_REASONING', 'TABBYAPI_INLINE_MODEL_LOADING', 'TABBYAPI_DISABLE_AUTH', 'APP_SETTINGS_JSON']);
     const left = Object.entries(buildAppEnv({ serviceType: 'ClusterIP', physicalName: 'desk', strategy: 'helm', namespace: 'shop-1a2b', deploymentId: 'd1', kubeconfigPath: '/k/config', appType: 'odoo', storageEnv: {} })).filter(([name]) => !asked.has(name));
-    expect(left.length).toBeGreaterThan(60);
+    expect(left.length).toBeGreaterThan(50);
     expect(left.filter(([, value]) => value !== '')).toEqual([]);
   });
 });

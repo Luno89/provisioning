@@ -1,4 +1,4 @@
-import { createDatabase, failureOf, frontierRow, followsLinks, isOff, reportingFetch, type Database, type DependencyReporter, type FrontierClaim, type HostWorkerSettings, type MemoryIndex } from '../platform/index.js';
+import { createDatabase, failureOf, frontierRow, followsLinks, isOff, reachingDependency, reachingMemoryIndex, type Database, type DependencyReporter, type FrontierClaim, type HostWorkerSettings, type MemoryIndexReach } from '../platform/index.js';
 import {
   buildWebTools, ensureIndex, indexPages, ensureCollection, embedPages,
   purgeCorpus, crawlPages, canonical, hostOf, usableLinks, toPage,
@@ -13,7 +13,7 @@ import { hostDependencies, hostSettings } from './host-settings.js';
 export interface CrawlPlace {
   withDatabase<T>(work: (db: Database) => Promise<T>): Promise<T>;
   crawler(): Crawler;
-  index(): MemoryIndex;
+  index(): MemoryIndexReach;
 }
 
 function asActivityFailure(err: unknown): unknown {
@@ -106,9 +106,9 @@ export function crawlActivities(placed: () => CrawlPlace) {
       }));
 
       const docs = stored.map((p) => toDoc(p));
-      await ensureIndex(ends.index.base);
-      const indexed = await indexPages(ends.index.base, docs);
-      await ensureCollection(ends.vectors.base, ends.vectors.apiKey);
+      await ensureIndex(ends.index);
+      const indexed = await indexPages(ends.index, docs);
+      await ensureCollection(ends.vectors);
       const embedded = await embedPages(ends, docs);
 
       await db.engine.saveCorpusPages(stored);
@@ -173,12 +173,12 @@ export function crawlPlaceFor(settings: HostWorkerSettings, dependencies: Depend
     crawler: () => {
       const { crawl4aiUrl, crawl4aiToken } = settings.webTools;
       if (!crawl4aiUrl || !crawl4aiToken) throw ApplicationFailure.nonRetryable('this Koala has no Crawl4AI of its own set (CRAWL4AI_URL and CRAWL4AI_API_TOKEN), so nothing can be crawled', 'NoCrawler');
-      return { base: crawl4aiUrl, token: crawl4aiToken, fetch: reportingFetch(dependencies, 'crawl4ai', dependencyFetch) };
+      return { base: crawl4aiUrl, token: crawl4aiToken, ...reachingDependency(dependencies, 'crawl4ai', dependencyFetch) };
     },
     index: () => {
       const index = settings.memoryIndex;
       if (isOff(index)) throw ApplicationFailure.nonRetryable(`nothing can be crawled here: ${index.off}`, 'NoMemoryIndex');
-      return index;
+      return reachingMemoryIndex(index, dependencies, dependencyFetch);
     },
   };
 }

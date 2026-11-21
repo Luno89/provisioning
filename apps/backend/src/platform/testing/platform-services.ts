@@ -1,5 +1,5 @@
 
-export const NO_SERVICE_HOST = '127.0.0.1:1';
+export const NO_SERVICE_HOST = '127.0.0.1:2';
 
 export const TEST_RELEASE = { imageTag: 'dev', registry: '127.0.0.1:5001' };
 

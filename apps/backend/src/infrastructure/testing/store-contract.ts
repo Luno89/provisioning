@@ -43,7 +43,7 @@ const order = (id: string, extra: Partial<ServerOrder> = {}): ServerOrder => ({
 
 const SECRET_FIELDS = {
   vllmHfToken: 'hf-1', tabbyHfToken: 'hf-2', searxngSecretKey: 'sx', crawl4aiApiToken: 'c4', minioRootPassword: 'minio-pw', nextcloudAdminPassword: 'nc-admin',
-  nextcloudDbPassword: 'nc-db', nextcloudDbRootPassword: 'nc-root', hermesDashboardPassword: 'hermes-pw', qdrantApiKey: 'q-key', quickwitS3SecretKey: 'qw', webuiWebSearchApiKey: 'web',
+  nextcloudDbPassword: 'nc-db', nextcloudDbRootPassword: 'nc-root', hermesDashboardPassword: 'hermes-pw', webuiWebSearchApiKey: 'web',
 } satisfies Partial<DeploymentMetadata>;
 
 const run = (stamp: string, clusterId = 'machine-desk', at = '2026-11-18T10:00:00.000Z'): ProvisioningRecord =>

@@ -1,13 +1,15 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { VECTOR_SIZE } from '../lib/corpus-backend.js';
-import type { MemoryIndex } from '../../platform/index.js';
+import type { MemoryIndex, MemoryIndexReach } from '../../platform/index.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 
 type Doc = Record<string, unknown>;
 
 export interface CorpusStandIn {
   base: string;
   endpoints: MemoryIndex;
+  reach: MemoryIndexReach;
   documents(index: string): Doc[];
   points(collection: string): Doc[];
   crawled: string[][];
@@ -110,10 +112,12 @@ export async function startCorpusStandIn(token = 'crawl-token'): Promise<CorpusS
   });
   await new Promise<void>((ready) => server.listen(0, '127.0.0.1', ready));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const endpoints: MemoryIndex = { index: { base }, vectors: { base, apiKey: 'standInKey' }, embeddings: { base } };
 
   return {
     base,
-    endpoints: { index: { base }, vectors: { base, apiKey: 'standInKey' }, embeddings: { base } },
+    endpoints,
+    reach: unreportedReach(endpoints),
     documents: (index) => [...(indexes.get(index) ?? [])],
     points: (name) => [...collection(name).values()],
     crawled,

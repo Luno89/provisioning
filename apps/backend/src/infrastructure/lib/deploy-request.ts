@@ -52,9 +52,7 @@ export const APP_SETTINGS: { [K in keyof Required<AppSettings>]: Kind } = {
   ...REQUESTED_SETTINGS,
   minioRootUser: 'text', minioRootPassword: 'text', minioStorage: 'text',
   nextcloudAdminPassword: 'text', nextcloudDbPassword: 'text', nextcloudDbRootPassword: 'text', hermesDashboardPassword: 'text',
-  qdrantApiKey: 'text', qdrantStorage: 'text', qdrantMemoryLimit: 'text',
-  quickwitS3Endpoint: 'text', quickwitS3AccessKey: 'text', quickwitS3SecretKey: 'text', quickwitBucket: 'text',
-  teiModelId: 'text', teiUseGpu: 'flag', teiMemoryLimit: 'text', verdaccioUpstream: 'text', verdaccioStorage: 'text',
+  verdaccioUpstream: 'text', verdaccioStorage: 'text',
 };
 
 const KINDS: { [K in keyof Required<DeployRequest>]: Kind } = {

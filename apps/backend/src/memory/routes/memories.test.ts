@@ -89,8 +89,8 @@ describe('/api/memories', () => {
 
   it('keeps a memory the index will not let go of, saying why', async () => {
     const item = await made();
-    indexRefuses = new DependencyDownError('collector', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
-    expect(await call(`/${item.id}`, 'DELETE')).toMatchObject({ status: 503, data: { error: 'The telemetry collector isn\'t answering since 10:00 UTC: its pod is not ready' } });
+    indexRefuses = new DependencyDownError('qdrant', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+    expect(await call(`/${item.id}`, 'DELETE')).toMatchObject({ status: 503, data: { error: 'The memory index\'s meanings (Qdrant) isn\'t answering since 10:00 UTC: its pod is not ready' } });
     expect(await mine()).toHaveLength(1);
   });
 

@@ -22,7 +22,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   AccessRevocations, arrivedOverHttps, BrowserSessions, SessionEnds, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
-import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
+import { checkServices, collectorAnswers, dependencyStatesFor, memoryIndexReachOf, reportCollectorTo } from './platform/wiring/dependencies.js';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { archiveOldFilesOnce, keepStoredFilesSwept, storedFilesFor, storyDropsFor, wireFiles } from './files/wiring/files.js';
@@ -201,7 +201,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);
 
   const toolCallParsers = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
-  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers, memoryIndex: memoryIndexOf(tenantServices, role.role) });
+  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers, memoryIndex: memoryIndexReachOf(memoryIndexOf(tenantServices, role.role), dependencies) });
   if (tenants) {
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
       await temporalBridge.start();
@@ -387,7 +387,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
   const { poisoning, evalHost, level2Service, mcpCatalogue } = await wireEngine({
-    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { settings: tenantServices?.webTools ?? {}, dependencies }, memoryIndex: memoryIndexOf(tenantServices, role.role), role, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
+    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { settings: tenantServices?.webTools ?? {}, dependencies }, memoryIndex: memoryIndexReachOf(memoryIndexOf(tenantServices, role.role), dependencies), role, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));

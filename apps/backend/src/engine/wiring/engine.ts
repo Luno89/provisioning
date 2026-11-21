@@ -8,7 +8,7 @@ import {
   type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
-  isOff, type MemoryIndex, type Off,
+  isOff, type MemoryIndexReach, type Off,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT, procedureChangeRun } from '../lib/agent-usage.js';
@@ -258,7 +258,7 @@ export interface EngineWiringDeps {
   port: number;
   registry: RegistryHosts | { none: string };
   webTools: WebToolsPlace;
-  memoryIndex: MemoryIndex | Off;
+  memoryIndex: MemoryIndexReach | Off;
   role: RoleConfig;
   dataKey: SecretKey;
   core: EngineCore;

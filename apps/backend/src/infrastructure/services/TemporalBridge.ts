@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
-import { at, isOff, listAt, textAt, type MemoryIndex, type Off } from '../../platform/index.js'
+import { at, isOff, listAt, textAt, type MemoryIndexReach, type Off } from '../../platform/index.js'
 import { appSettingsOf, definedFields, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
 import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
@@ -47,7 +47,7 @@ import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
+  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 import { QUEUES } from '../../platform/index.js';
@@ -210,7 +210,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined; toolCalling?: Pick<ToolCallParsers, 'decide'> | undefined; memoryIndex?: MemoryIndex | Off | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined; toolCalling?: Pick<ToolCallParsers, 'decide'> | undefined; memoryIndex?: MemoryIndexReach | Off | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -228,7 +228,7 @@ export class TemporalBridge {
     return this.mcpProbeCache(dep)
   }
 
-  private memoryIndex(): MemoryIndex {
+  private memoryIndex(): MemoryIndexReach {
     const index = this.seams.memoryIndex
     if (!index) throw new Error('memories are kept in the memory index, and this bridge was given none')
     if (isOff(index)) throw new Error(`memories cannot be kept here: ${index.off}`)
@@ -723,8 +723,6 @@ export class TemporalBridge {
     dep = resolveSearxngDefaults(dep)
     dep = resolveNextcloudDefaults(resolveMinioDefaults(dep))
     dep = resolveHermesDefaults(dep)
-    dep = resolveQdrantDefaults(dep)
-    dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
 
     const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, deployments);

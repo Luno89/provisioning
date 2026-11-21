@@ -12,7 +12,7 @@ let standIn: CorpusStandIn;
 beforeAll(async () => { standIn = await startCorpusStandIn(); });
 afterAll(async () => { await standIn.stop(); });
 
-const service = async () => poisoningServiceOn(await testDatabase(), unindexerFrom(standIn.endpoints));
+const service = async () => poisoningServiceOn(await testDatabase(), unindexerFrom(standIn.reach));
 
 describe('the findings a person sees and acts on', () => {
   it('a finding whose match cannot be unsealed says so instead of showing nothing', async () => {
@@ -72,7 +72,7 @@ describe('the findings a person sees and acts on', () => {
     await db.engine.savePoisoningSignal(signal({}));
     const tainted = memory('tainted', { provenance: { experimentId: 'run-9', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['run-9'] } } });
     await db.memory.saveMemory(tainted);
-    await indexMemories(standIn.endpoints, [tainted]);
+    await indexMemories(standIn.reach, [tainted]);
 
     await poisoning.retire('owner', 's1', 'source');
 

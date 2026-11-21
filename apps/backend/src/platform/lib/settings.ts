@@ -33,10 +33,8 @@ export type Env = Settings;
 
 export type KoalaProcess = 'backend' | 'worker-host' | 'worker-cluster' | 'worker-engine';
 
-export interface Off { readonly off: string }
-
-export const isOff = (value: unknown): value is Off =>
-  typeof value === 'object' && value !== null && typeof (value as { off?: unknown }).off === 'string';
+import { isOff, type Off } from './off.js';
+export { isOff, type Off };
 
 export class SettingsError extends Error {
   constructor(readonly koalaProcess: string, readonly problems: readonly string[]) {

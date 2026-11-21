@@ -15,9 +15,6 @@ export const SERVICE_BINDING_ROOT = '/bindings';
 const BINDING_TYPES: Record<string, string> = {
   mongo: 'mongodb',
   minio: 's3',
-  qdrant: 'qdrant',
-  quickwit: 'quickwit',
-  tei: 'embeddings',
   verdaccio: 'npm',
   gitea: 'git',
 };
@@ -56,30 +53,6 @@ export const PLATFORM_SERVICE_CONTRACTS: Record<string, ServiceBindingContract> 
     protocol: 'http',
     secretName: 'gitea',
     keyMapping: { token: 'token' },
-    isPlatformService: true,
-  },
-  'koala-vectors': {
-    serviceName: 'qdrant',
-    namespace: 'koala-vectors',
-    port: 6333,
-    bindingType: 'qdrant',
-    protocol: 'http',
-    isPlatformService: true,
-  },
-  'koala-index': {
-    serviceName: 'quickwit',
-    namespace: 'koala-index',
-    port: 7280,
-    bindingType: 'quickwit',
-    protocol: 'http',
-    isPlatformService: true,
-  },
-  'koala-embed': {
-    serviceName: 'tei',
-    namespace: 'koala-embed',
-    port: 80,
-    bindingType: 'embeddings',
-    protocol: 'http',
     isPlatformService: true,
   },
   'koala-store': {

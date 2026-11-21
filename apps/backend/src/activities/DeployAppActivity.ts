@@ -107,9 +107,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: DeploySteps,
     hermes: { repo: 'nousresearch/hermes-agent', tag: 'latest' },
     palworld: { repo: 'thijsvanloef/palworld-server-docker', tag: 'latest' },
     minio: { repo: 'pgsty/minio', tag: 'RELEASE.2026-03-14T12-00-00Z' },
-    qdrant: { repo: 'qdrant/qdrant', tag: 'latest' },
-    quickwit: { repo: 'quickwit/quickwit', tag: 'latest' },
-    tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-latest' },
     verdaccio: { repo: 'verdaccio/verdaccio', tag: 'latest' },
   };
 
@@ -232,7 +229,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: DeploySteps,
       const secrets = specSecrets(args.appType, stored.spec, {
         crawl4aiApiToken: args.crawl4aiApiToken,
         searxngSecretKey: args.searxngSecretKey,
-        qdrantApiKey: args.qdrantApiKey,
         minioRootUser: args.minioRootUser,
         minioRootPassword: args.minioRootPassword,
       }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));

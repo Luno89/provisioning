@@ -1,14 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Construct } from "constructs";
-import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
-import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
-import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
-import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
-import { defaultServiceType } from "../lib/service-type.js";
+import { Construct, Namespace, Deployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, VpnService, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 export interface NextcloudNativeConfig extends VpnConfig {
   readonly namespace?: string;

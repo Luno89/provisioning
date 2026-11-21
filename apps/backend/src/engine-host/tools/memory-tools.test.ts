@@ -7,6 +7,7 @@ import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.j
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
 import { interceptHttp, http, HttpResponse } from '../../platform/testing/http.js';
 import { unindexerFrom } from '../../memory/lib/memory-index.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 import { pointId } from '../../engine/lib/corpus-backend.js';
 
 let bank: Map<string, MemoryItem>;
@@ -253,7 +254,7 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
     store: {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item) => { bank.set(item.id, item); },
-      unindex: unindexerFrom({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } }),
+      unindex: unindexerFrom(unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } })),
     },
     now: () => 'now',
     newId: () => `new-${++ids}`,

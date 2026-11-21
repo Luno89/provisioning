@@ -85,16 +85,6 @@ export interface AppSettings extends RequestedAppSettings {
   nextcloudDbPassword?: string;
   nextcloudDbRootPassword?: string;
   hermesDashboardPassword?: string;
-  qdrantApiKey?: string;
-  qdrantStorage?: string;
-  qdrantMemoryLimit?: string;
-  quickwitS3Endpoint?: string;
-  quickwitS3AccessKey?: string;
-  quickwitS3SecretKey?: string;
-  quickwitBucket?: string;
-  teiModelId?: string;
-  teiUseGpu?: boolean;
-  teiMemoryLimit?: string;
   verdaccioUpstream?: string;
   verdaccioStorage?: string;
 }

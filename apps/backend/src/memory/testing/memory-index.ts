@@ -5,5 +5,5 @@ import { unindexerFrom, type MemoryUnindexer } from '../lib/memory-index.js';
 export async function standInUnindexer(): Promise<MemoryUnindexer> {
   const standIn = await startCorpusStandIn();
   afterAll(async () => { await standIn.stop(); });
-  return unindexerFrom(standIn.endpoints);
+  return unindexerFrom(standIn.reach);
 }

@@ -29,15 +29,15 @@ describe('the deployments store keeps secrets sealed at rest', () => {
   const raw = async (id: string) => db.collection('deployments').findOne({ _id: id as never });
 
   it('writes a password as ciphertext and reads it back plain', async () => {
-    await store.saveDeployment(deployment('d1', { minioRootPassword: 'hunter2', qdrantApiKey: 'q-key' }));
+    await store.saveDeployment(deployment('d1', { minioRootPassword: 'hunter2', searxngSecretKey: 'sx-key' }));
 
     const stored = await raw('d1');
     expect(looksEncrypted(String(stored?.minioRootPassword))).toBe(true);
-    expect(looksEncrypted(String(stored?.qdrantApiKey))).toBe(true);
+    expect(looksEncrypted(String(stored?.searxngSecretKey))).toBe(true);
     expect(stored?.minioRootUser).toBe('koala');
 
     const read = (await store.getDeployments()).find((d) => d.id === 'd1');
-    expect(read).toMatchObject({ minioRootPassword: 'hunter2', qdrantApiKey: 'q-key', minioRootUser: 'koala' });
+    expect(read).toMatchObject({ minioRootPassword: 'hunter2', searxngSecretKey: 'sx-key', minioRootUser: 'koala' });
   });
 
   it('seals what a save writes, and what a partial update merges in', async () => {

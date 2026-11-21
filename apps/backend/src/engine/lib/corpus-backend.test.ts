@@ -5,6 +5,7 @@ import {
   CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE,
 } from './corpus-backend.js';
 import { embed, EMBED_BATCH } from './corpus-client.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 
 describe('splitting a page for embedding', () => {
   it('leaves a short page as one chunk', () => {
@@ -83,7 +84,7 @@ describe('batching the embedding requests', () => {
     });
     vi.stubGlobal('fetch', fake);
 
-    const vectors = await embed('http://tei', Array.from({ length: 100 }, (_, i) => `chunk ${i}`));
+    const vectors = await embed(unreportedReach({ index: { base: 'http://quickwit' }, vectors: { base: 'http://qdrant', apiKey: 'k' }, embeddings: { base: 'http://tei' } }).embeddings, Array.from({ length: 100 }, (_, i) => `chunk ${i}`));
     expect(Math.max(...seen)).toBeLessThanOrEqual(EMBED_BATCH);
     expect(vectors).toHaveLength(100);
     vi.unstubAllGlobals();
