@@ -111,6 +111,23 @@ describe('Koala\'s code as the coupler sees it', () => {
     expect(codebaseOf(twice, [], { changed: [] }).links.map((link) => link.id)).toEqual([`${SAVE}:2:5`, `${SAVE}:2:5#2`]);
   });
 
+  it('gives a call into a dependency whose failure is handled where it is made a failure link of its own, proven only when a run entered that handler', () => {
+    const handled: Graph = { ...graph, edges: [{ from: 'store', site: site(STORE, 5), to: ['pkg:mongodb#Collection.insertOne'], through: 'dependency', path: ['mongodb', 'users', 'Collection.insertOne'], handler: { line: 6, endLine: 8 } }] };
+    const ranges = (handlerCount: number): RanRange[] => [ran(1, 'store'), { start: { line: 6, column: 3 }, end: { line: 8, column: 4 }, count: handlerCount }];
+    const runs: Ran[] = [
+      { testFile: 'apps/backend/src/platform/lib/store.integration.test.ts', files: { [STORE]: ranges(0) } },
+      { testFile: 'apps/backend/src/platform/lib/store-down.integration.test.ts', files: { [STORE]: ranges(2) } },
+    ];
+
+    const codebase = codebaseOf(handled, runs, { changed: [] });
+
+    expect(codebase.links.map((link) => [link.id, link.kind, link.path])).toEqual([
+      [`${STORE}:5`, 'dependency', ['mongodb', 'users', 'Collection.insertOne']],
+      [`${STORE}:5!fails`, 'dependency', ['mongodb!fails', 'users', 'Collection.insertOne']],
+    ]);
+    expect(codebase.runs.map((run) => run.links)).toEqual([[`${STORE}:5`], [`${STORE}:5`, `${STORE}:5!fails`]]);
+  });
+
   it('names the outside services Koala depends on and the lowest layer each is real at, and leaves pure libraries out', () => {
     expect(DEPENDENCIES.mongodb).toBe('component');
     expect(DEPENDENCIES['@temporalio/client']).toBe('component');

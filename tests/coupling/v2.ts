@@ -1,5 +1,5 @@
 import type { Codebase, Kind, Layer, Link, Run, Sharing } from '@koala/coupling';
-import type { Ran } from './collect.js';
+import type { Ran, RanRange } from './collect.js';
 import type { Edge, Graph, Unit } from './graph.js';
 import { judge, siteRan, unitsRanBy } from './join.js';
 import { STARTUP } from './live.js';
@@ -73,6 +73,9 @@ function linkIds(edges: readonly Edge[]): string[] {
   });
 }
 
+const handlerRan = (ranges: readonly RanRange[] | undefined, handler: { line: number; endLine: number }): boolean =>
+  (ranges ?? []).some((range) => range.count > 0 && range.start.line >= handler.line && range.end.line <= handler.endLine);
+
 export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context): Codebase {
   const units = Object.values(graph.units).filter(judged);
   const kept = new Set(units.map((unit) => unit.id));
@@ -83,6 +86,12 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     return { id: ids[index]!, from: edge.from, to: edge.to, kind: 'dependency', ...(edge.path ? { path: edge.path } : {}), ...(realFrom ? { realFrom } : {}) };
   });
   const outward = graph.edges.map((edge, index) => ({ edge, id: ids[index]! })).filter(({ edge }) => edge.through === 'dependency');
+  const failing = outward.filter(({ edge }) => edge.handler !== undefined);
+  for (const { edge, id } of failing) {
+    const realFrom = DEPENDENCIES[edge.path?.[0] ?? ''];
+    const [service = '', ...rest] = edge.path ?? [];
+    links.push({ id: `${id}!fails`, from: edge.from, to: edge.to, kind: 'dependency', path: [`${service}!fails`, ...rest], ...(realFrom ? { realFrom } : {}) });
+  }
   const provedBy = new Map<string, string[]>();
   judge(graph, ran, () => 'unit').forEach((entry, index) => {
     for (const covered of entry.covered) provedBy.set(covered.test, [...(provedBy.get(covered.test) ?? []), ids[index]!]);
@@ -102,6 +111,7 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     links: [...new Set([
       ...(provedBy.get(run.testFile) ?? []),
       ...outward.filter(({ edge }) => siteRan(run.files[edge.site.file], { line: edge.site.line, column: edge.site.column })).map(({ id }) => id),
+      ...failing.filter(({ edge }) => handlerRan(run.files[edge.site.file], edge.handler!)).map(({ id }) => `${id}!fails`),
     ])],
     ...(since ? { expired: unitsIn(since.files), versions: since.versions } : {}),
     };

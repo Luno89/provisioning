@@ -26,6 +26,7 @@ export interface Edge {
   through: 'call' | 'interface' | 'temporal' | 'render' | 'reference' | 'dependency' | ChannelEnd['kind'];
   device?: boolean;
   path?: string[];
+  handler?: { line: number; endLine: number } | undefined;
 }
 
 export interface Unresolved { from: string; site: Site; text: string; why: string }
@@ -259,6 +260,19 @@ export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: Proje
       return moduleUnit(node.getSourceFile());
     };
 
+    const linesOf = (node: ts.Node): { line: number; endLine: number } => {
+      const source = node.getSourceFile();
+      return { line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1, endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line + 1 };
+    };
+    const handlerOf = (call: ts.Node): { line: number; endLine: number } | undefined => {
+      const chained = call.parent;
+      if (chained && ts.isPropertyAccessExpression(chained) && chained.expression === call && chained.name.text === 'catch' && ts.isCallExpression(chained.parent) && chained.parent.arguments[0]) return linesOf(chained.parent.arguments[0]);
+      for (let at: ts.Node = call; at.parent && !FUNCTION_KINDS.has(at.kind); at = at.parent) {
+        const up = at.parent;
+        if (ts.isTryStatement(up) && up.tryBlock === at && up.catchClause) return linesOf(up.catchClause);
+      }
+      return undefined;
+    };
     const siteOf = (node: ts.Node): Site => {
       const source = node.getSourceFile();
       const start = node.getStart(source);
@@ -527,7 +541,8 @@ export function buildParts(options: GraphOptions, reuse?: Reuse): { parts: Proje
               if (module !== undefined && options.dependencies(module)) {
                 const member = memberOf(declaration);
                 const collections = [...new Set(touchedHere.map((touched) => touched.collection))];
-                edges.push({ from: from.id, site, to: [`pkg:${module}#${member}`], through: 'dependency', path: [module, ...collections, member] });
+                const handler = handlerOf(node);
+                edges.push({ from: from.id, site, to: [`pkg:${module}#${member}`], through: 'dependency', path: [module, ...collections, member], ...(handler ? { handler } : {}) });
               }
             } else if (declaration && ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {
               const target = at(declaration.getSourceFile().fileName);
