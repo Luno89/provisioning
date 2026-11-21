@@ -28,7 +28,7 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentHandOffListsMoved, handOffGrantsWritten, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, ...counts } = await seedAll(db);
     expect(clusterProvidersDropped).toBe(0);
     expect(vllmLatestPinned).toBe(0);
     expect(githubCredentialsDropped).toBe(0);
@@ -39,6 +39,7 @@ describe('seed-all', () => {
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
     expect(toolGrantsWritten).toBe(0);
+    expect([agentHandOffListsMoved, handOffGrantsWritten]).toEqual([0, 0]);
     expect(builtInCopiesDropped).toBe(0);
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
@@ -94,6 +95,15 @@ describe('seed-all', () => {
     expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
     expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
     expect((await db.engine.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
+  });
+
+  it('moves an agent stored with its own list of agents it hands work to onto hand-off grants, once, keeping its tool list for the tool move', async () => {
+    const db = await testDatabase();
+    await db.engine.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', agents: ['research'], tools: ['read_file'] } as never);
+
+    expect(await seedAll(db)).toMatchObject({ agentHandOffListsMoved: 1, handOffGrantsWritten: 1, agentToolListsMoved: 1, toolGrantsWritten: 1 });
+    expect(await seedAll(db)).toMatchObject({ agentHandOffListsMoved: 0, handOffGrantsWritten: 0 });
+    expect((await db.engine.getToolGrants('user-1')).map((grant) => [grant.tool, grant.kind ?? 'tool'])).toEqual(expect.arrayContaining([['research', 'agent'], ['read_file', 'tool']]));
   });
 
   it('moves an agent stored with its own list of MCP servers onto server grants, once', async () => {

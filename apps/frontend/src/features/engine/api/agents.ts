@@ -42,6 +42,7 @@ export interface Agent {
   usedBy?: AgentUsage[]
   toolSources?: SourcedTool[]
   serverSources?: SourcedTool[]
+  handOffSources?: SourcedTool[]
   image?: AgentImage
 }
 

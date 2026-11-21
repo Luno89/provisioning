@@ -8,7 +8,7 @@ import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, VLLM_VERSION 
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
-  migrateAgentTools, migrateMcpServers, migrateToDependencies,
+  migrateAgentHandOffs, migrateAgentTools, migrateMcpServers, migrateToDependencies,
 } from '../engine/index.js';
 import { giveDeviceTokenLifetimes } from '../machines/index.js';
 import { seedToolCallParsers } from '../models/index.js';
@@ -41,6 +41,10 @@ export async function seedAll(db: Database) {
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db.engine);
   counts.engineTools = await seedEngineTools(db.engine);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db.engine);
+  Object.assign(counts, { agentHandOffListsMoved: 0, handOffGrantsWritten: 0 }, await runOnce(ledger, 'hand-off-grants', now, async () => {
+    const moved = await migrateAgentHandOffs(db.engine, seededPersonas(), now);
+    return { agentHandOffListsMoved: moved.agents, handOffGrantsWritten: moved.granted + moved.revoked };
+  }));
   Object.assign(counts, { agentToolListsMoved: 0, toolGrantsWritten: 0, builtInCopiesDropped: 0 }, await runOnce(ledger, 'tool-grants', now, async () => {
     const moved = await migrateAgentTools(db.engine, seededPersonas(), seededGrants(), now);
     return { agentToolListsMoved: moved.agents, toolGrantsWritten: moved.granted + moved.revoked, builtInCopiesDropped: moved.copiesDropped };

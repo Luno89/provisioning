@@ -119,8 +119,8 @@ class Rows<T extends object> {
 type StoredTurn = Omit<TurnLogEntry, 'at' | 'events'> & { at: Date; events: Array<Readonly<Record<string, unknown>>> };
 type StoredReads = Omit<RunReads, 'key'>;
 
-const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
-const kindMatches = (kind: GrantKind | undefined, grant: ToolGrant): boolean => (kind === 'server' ? grant.kind === 'server' : kind === 'tool' ? grant.kind !== 'server' : true);
+const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' || kind === 'agent' ? `${ownerId}:${agent}:${kind}:${tool}` : `${ownerId}:${agent}:${tool}`);
+const kindMatches = (kind: GrantKind | undefined, grant: ToolGrant): boolean => (kind === 'tool' ? grant.kind !== 'server' && grant.kind !== 'agent' : kind ? grant.kind === kind : true);
 const sharedOr = (ownerId: string | undefined, row: { ownerId?: string | undefined }): boolean => ownerId === undefined || row.ownerId === ownerId || !('ownerId' in row);
 const turnOut = ({ at, ...rest }: StoredTurn): TurnLogEntry => ({ ...rest, at: at.toISOString() }) as unknown as TurnLogEntry;
 const readsOut = (key: string, row: StoredReads): RunReads => ({ key, ...row });

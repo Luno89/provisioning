@@ -1,6 +1,6 @@
 import type { Persona, PersonaRecord } from './agent.js';
 
-export type GrantKind = 'tool' | 'server';
+export type GrantKind = 'tool' | 'server' | 'agent';
 
 export interface ToolGrant {
   ownerId?: string | undefined;
@@ -53,12 +53,16 @@ export function toolsOf(slug: string, shipped: readonly ToolGrant[], person: rea
   return sourcedTools(slug, shipped, person, kind).filter((entry) => entry.source !== 'revoked').map((entry) => entry.tool);
 }
 
-export function withTools(record: PersonaRecord, tools: readonly string[], servers: readonly string[] = []): Persona {
-  return { ...record, tools: [...tools], servers: [...servers] };
+export function withTools(record: PersonaRecord, tools: readonly string[], servers: readonly string[] = [], agents: readonly string[] = []): Persona {
+  return { ...record, tools: [...tools], servers: [...servers], agents: [...agents] };
 }
 
 export function withGrants(records: readonly PersonaRecord[], shipped: readonly ToolGrant[], person: readonly ToolGrant[]): Persona[] {
-  return records.map((record) => withTools(record, toolsOf(record.slug, shipped, person), toolsOf(record.slug, shipped, person, 'server')));
+  return records.map((record) => withTools(record, toolsOf(record.slug, shipped, person), toolsOf(record.slug, shipped, person, 'server'), toolsOf(record.slug, shipped, person, 'agent')));
+}
+
+export function handOffsShippedBy(records: readonly PersonaRecord[]): ToolGrant[] {
+  return records.flatMap((record) => (record.agents ?? []).map((target) => ({ agent: record.slug, tool: target, kind: 'agent' as const })));
 }
 
 export function grantChanges(slug: string, wanted: readonly string[], shipped: readonly ToolGrant[], person: readonly ToolGrant[], kind: GrantKind = 'tool'): GrantChanges {
@@ -78,7 +82,7 @@ export function grantChanges(slug: string, wanted: readonly string[], shipped: r
 }
 
 export function toRecord(persona: Persona | PersonaRecord): PersonaRecord {
-  const { tools: _tools, servers: _servers, needs: _needs, needsFrom: _needsFrom, ...record } = persona as Persona;
+  const { tools: _tools, servers: _servers, agents: _agents, needs: _needs, needsFrom: _needsFrom, ...record } = persona as Persona;
   return record;
 }
 

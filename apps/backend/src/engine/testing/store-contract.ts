@@ -776,6 +776,17 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       expect(await store.getToolGrants('owner-1')).toEqual([]);
     });
 
+    it('keeps a hand-off grant apart from a tool grant of the same name, and deletes it by its kind', async () => {
+      const store = await make();
+      await store.saveToolGrant(toolGrant('koala', 'research'));
+      await store.saveToolGrant(toolGrant('koala', 'research', { kind: 'agent', revoked: true }));
+      expect(await store.getToolGrants('owner-1')).toHaveLength(2);
+      expect(await store.deleteToolGrantsFor('owner-1', { tool: 'research', kind: 'tool' })).toBe(1);
+      expect(await store.getToolGrants('owner-1')).toEqual([toolGrant('koala', 'research', { kind: 'agent', revoked: true })]);
+      await store.deleteToolGrant('owner-1', 'koala', 'research', 'agent');
+      expect(await store.getToolGrants('owner-1')).toEqual([]);
+    });
+
     it('deletes the grants that match an agent, a tool and a kind, for one owner or all, and counts them', async () => {
       const store = await make();
       await store.saveToolGrant(toolGrant('koala', 'fetch'));

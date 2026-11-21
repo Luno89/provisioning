@@ -7,7 +7,7 @@ import { inject } from 'vitest';
 import type { BlobReach, SecretKey, StoredBlob } from '../src/payload-codec.js';
 import { createClient, createWorker, payloadConverter, type KoalaClientOptions, type KoalaWorkerOptions, type TemporalPayloads } from '../src/temporal.js';
 import { OWNER_ATTRIBUTE } from '../src/workflow-owner.js';
-import { temporalServerExecutable } from './shared.js';
+import { temporalServerExecutable, temporalTestServerExecutable } from './shared.js';
 import { tlsInFrontOf, type ServingCertificate } from './temporal-tls.js';
 
 declare module 'vitest' {
@@ -65,7 +65,7 @@ export async function temporalAt(address: string = inject('temporalAddress'), at
 }
 
 export async function timeSkippingTemporal(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
-  const env = await TestWorkflowEnvironment.createTimeSkipping(sealing(payloads));
+  const env = await TestWorkflowEnvironment.createTimeSkipping({ server: { executable: temporalTestServerExecutable() }, ...sealing(payloads) });
   return carrying(env, payloads);
 }
 
