@@ -48,7 +48,7 @@ import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
 import type { ArtifactService, FileService, StoredFilesActivities } from '../../files/index.js';
 import {
-  createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker,
+  createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker, streamWorkerRun, type StreamWorkerRun,
 } from '../../engine-host/index.js';
 import { createModelNodes, hostNodesFor } from '../../engine-host/nodes/index.js';
 import { createProcedureStore, stepNeedsReader } from '../../engine-host/registries/procedure-store.js';
@@ -662,13 +662,15 @@ function ownerRemovalTold(deps: EngineStreamDeps): ((change: AccountDeletionChan
   };
 }
 
-export function startEngineStream(deps: EngineStreamDeps): void {
+export function startEngineStream(deps: EngineStreamDeps): StreamWorkerRun {
   const { role, io, db, core } = deps;
   const { engineRegistry, memoryKeeper, bench, reportMemory } = core;
-  if (!servesTenants(role)) return;
+  const run = streamWorkerRun((line) => console.warn(line));
+  if (!servesTenants(role)) return run;
   const { storedFiles } = deps;
   if (!storedFiles) throw new Error('the stream worker keeps the instance\'s stored files, and this backend was given none to keep');
   void keepTrying('[engine] stream worker not started yet, runs do not stream until it is', async () => {
+    if (run.stopping()) return;
     const worker = await startStreamWorker({
       io,
       turnLogs: db.engine,
@@ -742,8 +744,8 @@ export function startEngineStream(deps: EngineStreamDeps): void {
         storedFiles,
       },
     });
-    void worker.run().catch((err: Error) =>
-      console.warn(`[engine] stream worker stopped: ${err.message}`));
-    console.log('[engine] stream worker polling engine-stream-queue');
+    run.started(worker);
+    if (!run.stopping()) console.log('[engine] stream worker polling engine-stream-queue');
   }, (message) => console.warn(message));
+  return run;
 }

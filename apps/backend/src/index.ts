@@ -55,6 +55,7 @@ import {
   savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
+import { Runtime } from '@temporalio/worker';
 import { GiteaService, pushToBuild } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
@@ -223,7 +224,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies, ownerRemovalToRoot: instanceReporter });
+  const engineStream = startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies, ownerRemovalToRoot: instanceReporter });
   if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
   if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
@@ -513,6 +514,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     void stopBackend({
       stopping: () => { dependencies.stop(); clusterProxyService.stopAll(); },
       sockets: signedInSockets,
+      streams: engineStream,
       drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, log: (line) => console.log(line) },
       exit: (code) => process.exit(code),
     });
@@ -524,6 +526,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 }
 
 if (startsHere) {
+  Runtime.install({ shutdownSignals: [] });
   bootstrap().catch((err) => {
     if (err instanceof SettingsError) console.error(`[bootstrap] ${err.message}`);
     else console.error('[bootstrap] the backend could not start, so it stops rather than staying up without serving:', err);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createTurnLogBus, notifyProjectDeletion, notifyTurnLog, TURN_LOG_CHANNEL, userRoom } from './stream-worker.js';
+import { createTurnLogBus, notifyProjectDeletion, notifyTurnLog, streamWorkerRun, TURN_LOG_CHANNEL, userRoom } from './stream-worker.js';
 import { PROJECT_DELETION } from '../../projects/index.js';
 import type { EngineEvent } from '@koala/agent-engine';
 import type { TurnLogEntry } from '../../engine/lib/turn-log.js';
@@ -47,5 +47,54 @@ describe('telling browsers about a turn', () => {
 
     expect(written).toHaveLength(1);
     expect(sent.map(({ channel }) => channel)).toEqual([TURN_LOG_CHANNEL]);
+  });
+});
+
+const fakeWorker = () => {
+  let state: 'INITIALIZED' | 'RUNNING' | 'DRAINING' | 'STOPPED' = 'INITIALIZED';
+  let ended: () => void = () => undefined;
+  const calls: string[] = [];
+  return {
+    calls,
+    worker: {
+      getState: () => state,
+      run: () => { state = 'RUNNING'; calls.push('run'); return new Promise<void>((done) => { ended = () => { state = 'STOPPED'; done(); }; }); },
+      shutdown: () => { if (state !== 'RUNNING') throw new Error(`Not running. Current state: ${state}`); state = 'DRAINING'; calls.push('shutdown'); },
+    },
+    finish: () => { ended(); },
+  };
+};
+
+describe('the stream worker stopping with the backend', () => {
+  it('stops taking work at once and is stopped only once the work it holds has finished', async () => {
+    const { worker, calls, finish } = fakeWorker();
+    const run = streamWorkerRun(() => undefined);
+    run.started(worker);
+    let stopped = false;
+    const stopping = run.stop().then(() => { stopped = true; });
+    expect(calls).toEqual(['run', 'shutdown']);
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    finish();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
+  it('never lets a worker that connects after the backend began stopping take work', async () => {
+    const { worker, calls, finish } = fakeWorker();
+    const run = streamWorkerRun(() => undefined);
+    await run.stop();
+    expect(run.stopping()).toBe(true);
+    run.started(worker);
+    expect(calls).toEqual(['run', 'shutdown']);
+    finish();
+  });
+
+  it('says why when the worker ends in a failure while it stops', async () => {
+    const said: string[] = [];
+    const run = streamWorkerRun((line) => { said.push(line); });
+    run.started({ getState: () => 'RUNNING', run: () => Promise.reject(new Error('the connection to Temporal broke')), shutdown: () => undefined });
+    await run.stop();
+    expect(said).toEqual(['[engine] stream worker stopped: the connection to Temporal broke']);
   });
 });
