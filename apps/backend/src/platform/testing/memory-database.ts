@@ -2,8 +2,6 @@ import { MemoryAccountsStore } from '../../accounts/testing/memory-store.js';
 import { MemoryChecksStore } from '../../checks/testing/memory-store.js';
 import { MemoryEngineStore } from '../../engine/testing/memory-store.js';
 import { MemoryFilesStore } from '../../files/testing/memory-store.js';
-import { markingHubWrites } from '../../hub/lib/hub-sync.js';
-import { MemoryHubStore } from '../../hub/testing/memory-store.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
 import { MemoryInstancesStore } from '../../instances/testing/memory-store.js';
 import { MemoryMachinesStore } from '../../machines/testing/memory-store.js';
@@ -18,7 +16,6 @@ import { MemoryPlatformStore } from './memory-store.js';
 
 export function memoryDatabase(): Database {
   const shared: Collections = new Map();
-  const hub = new MemoryHubStore(shared);
   return {
     init: async () => undefined,
     close: async () => undefined,
@@ -39,8 +36,7 @@ export function memoryDatabase(): Database {
     platform: new MemoryPlatformStore(),
     accounts: new MemoryAccountsStore(shared),
     instances: new MemoryInstancesStore(shared),
-    hub,
-    projects: markingHubWrites(new MemoryProjectsStore(shared), hub),
+    projects: new MemoryProjectsStore(shared),
     releases: new MemoryReleasesStore(shared),
     files: new MemoryFilesStore(shared),
     machines: new MemoryMachinesStore(shared),
@@ -49,6 +45,6 @@ export function memoryDatabase(): Database {
     memory: new MemoryMemoryStore(shared),
     checks: new MemoryChecksStore(shared),
     infrastructure: new MemoryInfrastructureStore(undefined, shared),
-    engine: markingHubWrites(new MemoryEngineStore(shared), hub),
+    engine: new MemoryEngineStore(shared),
   };
 }

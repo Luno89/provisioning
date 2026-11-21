@@ -2,10 +2,10 @@ import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
-import { endsSessions, reopening, type AccessRevoked, type Database, type Reopening } from '../../platform/index.js';
+import { reopening, type AccessRevoked, type Database, type Reopening } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  CLAIMS_SECONDS, clientMetadata, claimsFor, HUB_CLIENT_ID, hubClient, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
+  CLAIMS_SECONDS, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
   logoutClaims, privateJwkOf, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
@@ -18,7 +18,6 @@ export interface RootProviderSettings {
   issuer: string;
   signing: IdentityKeyPair;
   cookieKey: string;
-  hubUrl?: string | undefined;
   proxied: boolean;
   reach: InstanceReach;
 }
@@ -36,7 +35,7 @@ interface KoalaClient {
 
 const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined } => {
   const known = client as KoalaClient;
-  return { kind: known.koala_kind === 'hub' ? 'hub' : 'instance', owner: known.koala_owner };
+  return { kind: 'instance', owner: known.koala_owner };
 };
 
 export class RootProvider {
@@ -63,7 +62,6 @@ export class RootProvider {
   }
 
   async registration(clientId: string): Promise<ClientRegistration | undefined> {
-    if (clientId === 'hub') return hubClient(this.settings.hubUrl, await this.store.instances.getHubSignInKey());
     const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === clientId);
     return instance ? instanceClient(instance) : undefined;
   }
@@ -190,19 +188,10 @@ export class RootProvider {
     return { clientId: client.clientId, kind: kindOf(client).kind };
   }
 
-  async personAtHub(token: string): Promise<string | undefined> {
-    const found = await this.provider.AccessToken.find(token);
-    if (!found?.accountId || found.isExpired || found.clientId !== 'hub') return undefined;
-    const user = await this.store.accounts.getUserById(found.accountId);
-    return user && !user.removal ? user.id : undefined;
-  }
-
   async revoke(event: AccessRevoked): Promise<void> {
-    if (!endsSessions(event)) return;
     const clientIds = await this.store.instances.oidcForgetAccount(event.personId);
     const own = (await this.store.instances.getInstances(event.personId)).filter((instance) => instance.signIn).map((instance) => instance.id);
-    const hub = (await this.store.instances.getHubSignInKey()) && this.settings.hubUrl ? ['hub'] : [];
-    for (const clientId of new Set([...clientIds, ...own, ...hub])) {
+    for (const clientId of new Set([...clientIds, ...own])) {
       const client = await this.registration(clientId);
       if (!client) continue;
       const delivery: LogoutDelivery = {
@@ -254,7 +243,6 @@ export class RootProvider {
   }
 
   private async deliveryFetch(delivery: LogoutDelivery): Promise<typeof fetch> {
-    if (delivery.clientId === HUB_CLIENT_ID) return globalThis.fetch;
     const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === delivery.clientId);
     return this.settings.reach.fetchFor(instance ?? {});
   }

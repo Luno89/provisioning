@@ -45,18 +45,18 @@ beforeAll(async () => {
   const signing = identityKeysFrom(identity);
   const plan = devSplitPlan({
     name: 'dev', owner: { id: 'owner-1', email: 'owner@example.com', createdAt: 'then' } as never, instanceId: 'inst-1', credential: 'c', credentialHash: hashCredential('c'),
-    hubCredential: 'h', hubCredentialHash: hashCredential('h'), rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
+    rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
     temporal: { address: NO_SERVICE_HOST, namespace: 'default', ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: testDataDir(),
   });
   const own = (database: string) => ({ MONGO_URI: `${mongo}${database}_${randomUUID().slice(0, 8)}` });
   const keys = { ...testKeyEnv('frontend-routes'), ROOT_IDENTITY_KEY: Buffer.from(identity).toString('base64') };
-  const roles = { root: { ...keys, ...plan.rootEnv, ...own('root') }, instance: { ...keys, ...plan.instanceEnv, ...own('instance') }, hub: { ...keys, ...plan.hubEnv, ...own('hub') } };
+  const roles = { root: { ...keys, ...plan.rootEnv, ...own('root') }, instance: { ...keys, ...plan.instanceEnv, ...own('instance') } };
   await Promise.all(Object.entries(roles).map(async ([role, env]) => { byRole[role] = await routesFor(env as Record<string, string>); }));
 });
 
 describe('every call the frontend makes is one some backend serves', () => {
   it('reads each role\'s routes from Express itself', () => {
-    expect(Object.keys(byRole).sort()).toEqual(['hub', 'instance', 'root']);
+    expect(Object.keys(byRole).sort()).toEqual(['instance', 'root']);
     expect(byRole.root).toContainEqual({ method: 'GET', path: '/api/auth/me' });
     expect(byRole.instance).toContainEqual({ method: 'GET', path: '/api/server-orders' });
     expect(byRole.instance).toContainEqual({ method: 'GET', path: '/api/auth/account-removal' });
@@ -73,7 +73,7 @@ describe('every call the frontend makes is one some backend serves', () => {
   it('lets through without sign-in only paths some route of that role serves, so a removed route leaves no open door behind', () => {
     const SERVED_BY_A_PATTERN: Record<string, string> = { 'instance /machines/git/': 'the machine\'s git server, routed by a pattern the route listing shows only as that pattern' };
     const unserved = Object.entries(byRole).flatMap(([role, routes]) => {
-      const { paths, prefixes } = publicPathsOf(role as 'root' | 'instance' | 'hub');
+      const { paths, prefixes } = publicPathsOf(role as 'root' | 'instance');
       const servedPath = (path: string) => routes.some((route) => route.path === `/api${path}`);
       const servedPrefix = (prefix: string) => routes.some((route) => route.path.startsWith(`/api${prefix}`));
       return [...paths.filter((path) => !servedPath(path)), ...prefixes.filter((prefix) => !servedPrefix(prefix))].map((open) => `${role} ${open}`);

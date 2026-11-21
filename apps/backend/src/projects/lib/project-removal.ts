@@ -76,7 +76,6 @@ export interface ProjectRemovalPreview {
   keptConversations: number;
   builds: number;
   apps: string[];
-  sharedOnHub?: boolean | undefined;
 }
 
 export function projectRemovalPreview(project: Pick<ProjectMetadata, 'id' | 'name'>, scope: ProjectRemovalScope): ProjectRemovalPreview {

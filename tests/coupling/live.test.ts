@@ -71,7 +71,7 @@ describe('which of the dev stack\'s processes the sampler waits for', () => {
 });
 
 describe('what ship asks of the processes measured', () => {
-  it('refuses a stack measuring nothing, and one measuring root and the hub but not Koala\'s pods', () => {
+  it('refuses a stack measuring nothing, and one measuring root but not Koala\'s pods', () => {
     expect(measuringProblem([])).toMatch(/COUPLING_LIVE=1 npm run dev/);
     expect(measuringProblem([ENTRY])).toMatch(/not your Koala's pods/);
     expect(measuringProblem([ENTRY, '/app/apps/backend/src/worker-engine.ts'])).toBeUndefined();

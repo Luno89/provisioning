@@ -11,12 +11,11 @@ const refusedPage = (error: string): string =>
 
 export interface InstanceSignIn {
   url: string;
-  hub: string | null;
 }
 
 export function signInRouter(deps: {
   signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCookieSeconds'>;
-  identity: Pick<IdentityService, 'hubUrl' | 'removalUrl'>;
+  identity: Pick<IdentityService, 'removalUrl'>;
   auth: Pick<Auth, 'setSessionCookie' | 'getCookie' | 'securedFor' | 'sessionCookieOptions'>;
   publicUrl: string;
   landing: string;
@@ -25,7 +24,7 @@ export function signInRouter(deps: {
   const startCookie = (req: Request) => cookieNamed(SIGN_IN_COOKIE, deps.auth.securedFor(req));
 
   router.get('/sign-in', (_req: Request, res: Response) => {
-    const answer: InstanceSignIn = { url: START_PATH, hub: deps.identity.hubUrl() ?? null };
+    const answer: InstanceSignIn = { url: START_PATH };
     res.json(answer);
   });
 

@@ -29,11 +29,9 @@ interface StoredWatch { ownerId: string; reach?: Reach; presence?: boolean; noti
 const RELEASE_FIELDS = ['notes', 'hotfix', 'digest', 'chartSha256', 'dataVersion'] as const;
 
 export class MemoryInstancesStore implements InstancesStore {
-  private readonly handoffs = new Map<string, Date>();
   private readonly instances: Map<string, InstanceRecord>;
   private readonly watches: Map<string, StoredWatch>;
   private readonly releases = new Map<string, Fields>();
-  private hubKey: SignInKey | undefined;
   private readonly artifacts: Map<string, Artifact>;
   private readonly logouts = new Map<string, LogoutDelivery>();
   private readonly sessions: Map<string, StoredSession>;
@@ -52,12 +50,6 @@ export class MemoryInstancesStore implements InstancesStore {
   }
 
   async ensureIndexes(): Promise<void> {}
-
-  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
-    if (this.handoffs.has(jti)) return false;
-    this.handoffs.set(jti, new Date(expiresAt));
-    return true;
-  }
 
   async dropJoinTokens(): Promise<number> {
     return 0;
@@ -173,14 +165,6 @@ export class MemoryInstancesStore implements InstancesStore {
     if (!instance) return false;
     instance.signIn = asStored(copied(key));
     return true;
-  }
-
-  async getHubSignInKey(): Promise<SignInKey | undefined> {
-    return this.hubKey ? copied(this.hubKey) : undefined;
-  }
-
-  async saveHubSignInKey(key: SignInKey): Promise<void> {
-    this.hubKey = asStored(copied({ jwk: key.jwk, since: key.since }));
   }
 
   async oidcUpsert(model: string, id: string, payload: Record<string, unknown>, _expiresIn?: number): Promise<void> {

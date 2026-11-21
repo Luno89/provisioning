@@ -6,7 +6,7 @@ import {
 } from '../../instances/lib/identity-token.js';
 import { plaintextProblem } from './lab.js';
 
-export type PlatformRole = 'root' | 'instance' | 'hub';
+export type PlatformRole = 'root' | 'instance';
 
 export interface InstanceIdentity {
   id: string;
@@ -14,23 +14,11 @@ export interface InstanceIdentity {
   rootUrl: string;
 }
 
-export interface HubIdentity {
-  rootUrl: string;
-  credential: string;
-}
-
-export interface HubLink {
-  url: string;
-  credentialHash: string;
-}
-
 export interface RoleConfig {
   role: PlatformRole;
   signing?: IdentityKeyPair | undefined;
   trusted?: ReadonlyMap<string, crypto.KeyObject> | undefined;
   instance?: InstanceIdentity | undefined;
-  hub?: HubIdentity | undefined;
-  hubLink?: HubLink | undefined;
 }
 
 export class RoleConfigError extends Error {
@@ -40,7 +28,7 @@ export class RoleConfigError extends Error {
   }
 }
 
-const ROLES: readonly PlatformRole[] = ['root', 'instance', 'hub'];
+const ROLES: readonly PlatformRole[] = ['root', 'instance'];
 
 const pemOf = (value: string): string => {
   const trimmed = value.trim();
@@ -85,23 +73,7 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     };
   }
 
-  if (role === 'hub') {
-    const missing = ['ROOT_URL', 'ROOT_PUBLIC_KEYS', 'HUB_CREDENTIAL'].filter((name) => !env[name]?.trim());
-    if (missing.length > 0) throw new RoleConfigError(`a hub needs ${missing.join(', ')}`);
-    const plaintext = plaintextProblem('ROOT_URL', env.ROOT_URL!.trim(), env);
-    if (plaintext) throw new RoleConfigError(plaintext);
-    return {
-      role,
-      trusted: rootKeysFrom(env.ROOT_PUBLIC_KEYS!),
-      hub: { rootUrl: env.ROOT_URL!.trim().replace(/\/+$/, ''), credential: env.HUB_CREDENTIAL!.trim() },
-    };
-  }
-
-  const signing = signingKeys(env);
-  const hubLink = env.HUB_URL?.trim() && env.HUB_CREDENTIAL_HASH?.trim()
-    ? { hubLink: { url: env.HUB_URL.trim().replace(/\/+$/, ''), credentialHash: env.HUB_CREDENTIAL_HASH.trim() } }
-    : {};
-  return { role, signing, ...hubLink };
+  return { role, signing: signingKeys(env) };
 }
 
 export const claimSettingsFrom = (config: RoleConfig): { role: PlatformRole; instanceOwnerId?: string | undefined } =>
@@ -109,5 +81,4 @@ export const claimSettingsFrom = (config: RoleConfig): { role: PlatformRole; ins
 
 export const servesTenants = (config: RoleConfig): boolean => config.role === 'instance';
 export const holdsAccounts = (config: RoleConfig): boolean => config.role === 'root';
-export const servesHub = (config: RoleConfig): boolean => config.role === 'hub';
-export const signsInThroughRoot = (role: PlatformRole): boolean => role === 'instance' || role === 'hub';
+export const signsInThroughRoot = (role: PlatformRole): boolean => role === 'instance';

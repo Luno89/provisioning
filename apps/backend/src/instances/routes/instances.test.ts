@@ -313,25 +313,6 @@ describe('an instance sending mail through root', () => {
   });
 });
 
-describe('a hub asking root for access on an instance\'s behalf', () => {
-  it('gives the access root grants the instance\'s owner', async () => {
-    const hubAccess = vi.fn(async (_instanceId: string, ownerId: string) => ({ token: `for-${ownerId}` }) as never);
-    const { instances, router } = route({ hubAccess });
-    instances.ownerOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ ownerId: 'owner-1' }) as never);
-    expect((await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance })).data).toEqual({ token: 'for-owner-1' });
-    expect(hubAccess).toHaveBeenCalledWith('inst-1', 'owner-1');
-  });
-
-  it('says there is no hub where root has none, and refuses an instance it does not know', async () => {
-    const { instances, router } = route();
-    instances.ownerOf.mockResolvedValueOnce(ok({ ownerId: 'owner-1' }) as never);
-    const none = await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance });
-    expect([none.status, none.data]).toEqual([404, { error: 'this root has no hub' }]);
-    instances.ownerOf.mockResolvedValueOnce(no(401, 'unknown instance or credential'));
-    expect((await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance })).status).toBe(401);
-  });
-});
-
 describe('the install.sh join root no longer serves', () => {
   it('answers 404 to a join command asked for, a join made with one and its shell form, from a person or a machine', async () => {
     const { router } = route();

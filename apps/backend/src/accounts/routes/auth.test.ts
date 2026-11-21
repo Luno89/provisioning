@@ -20,7 +20,7 @@ const SETUP = 'the-setup-code';
 const APP = 'http://localhost:5173';
 const PREFIX = '/api/auth';
 
-function set(options: { accounts?: boolean; hub?: boolean; withProviders?: boolean } = {}) {
+function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
   const db = memoryDatabase();
   const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
   const authService = mock<AuthService>();
@@ -30,7 +30,7 @@ function set(options: { accounts?: boolean; hub?: boolean; withProviders?: boole
   const revoked: AccessRevoked[] = [];
   const router = authRouter({
     db, authService, auth, sessionKey: KEY, appUrl: APP, passwords,
-    accounts: options.accounts, hub: options.hub,
+    accounts: options.accounts,
     revocations: { revoked: async (event) => { revoked.push(event); } },
     providers: options.withProviders === false ? undefined : providers,
   });
@@ -491,11 +491,6 @@ describe('who is signed in', () => {
   it('tells an operator what an operator may do', async () => {
     const answer = await set().get('/me', { user: member({ roles: ['operator'] }) });
     expect(answer.data).toMatchObject({ claims: [{ role: 'person' }, { role: 'operator' }], permissions: { administer: true, 'manage-accounts': true } });
-  });
-
-  it('says it is on the hub where it is one', async () => {
-    expect((await set({ hub: true }).get('/me', { user: member() })).data).toMatchObject({ onHub: true });
-    expect('onHub' in ((await set().get('/me', { user: member() })).data as object)).toBe(false);
   });
 
   it('holds no accounts where accounts are root\'s: no confirmation or password in what it shows, and no sign-up or sign-in routes', async () => {

@@ -9,9 +9,8 @@ describe('what the host worker serves in each role', () => {
     expect([...listed].sort()).toEqual(Object.keys(HOST_WORKER_ACTIVITIES).sort());
   });
 
-  it('serves root its own work and an instance its own, and refuses on the hub', () => {
+  it('serves root its own work and an instance its own', () => {
     expect(Object.keys(hostActivitiesFor('root')).sort()).toEqual([...HOST_ACTIVITIES.root].sort());
     expect(Object.keys(hostActivitiesFor('instance')).sort()).toEqual([...HOST_ACTIVITIES.instance].sort());
-    expect(() => hostActivitiesFor('hub')).toThrow(/the hub runs no host worker/);
   });
 });

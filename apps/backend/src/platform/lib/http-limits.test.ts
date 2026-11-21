@@ -6,7 +6,6 @@ describe('which public paths are rate limited', () => {
     expect(ruleFor('/auth/login')?.name).toBe('sign-in');
     expect(ruleFor('/auth/handoff')?.name).toBe('sign-in');
     expect(ruleFor('/machines/join')?.name).toBe('joining');
-    expect(ruleFor('/hub/invitations/abc/accept')?.name).toBe('joining');
     expect(ruleFor('/share/tok')?.name).toBe('share-links');
     expect(ruleFor('/AUTH/2fa/Verify/')?.name).toBe('sign-in');
     expect(ruleFor('/auth//login')?.name).toBe('sign-in');
@@ -82,10 +81,9 @@ describe('how much JSON a request may send', () => {
     expect(jsonLimitFor('/ingress/verify', false)).toBe('signedOut');
   });
 
-  it('lets the scripted model and the hub\'s instances, which check their own keys, send a large body', () => {
+  it('lets the scripted model, which checks its own keys, send a large body', () => {
     expect(jsonLimitFor('/api/checks/scripted/s1/v1/chat/completions', false)).toBe('signedIn');
-    expect(jsonLimitFor('/api/hub-instance/projects/p1/sync', false)).toBe('signedIn');
-    expect(jsonLimitFor('/api/hub-root/people/u1', false)).toBe('signedOut');
+    expect(jsonLimitFor('/api/projects', false)).toBe('signedOut');
   });
 });
 

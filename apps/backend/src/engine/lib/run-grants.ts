@@ -10,7 +10,6 @@ export type GrantStartedBy = 'person' | 'platform';
 
 export interface GrantScope {
   projectId?: string | undefined;
-  sharedProjectId?: string | undefined;
   conversationId?: string | undefined;
 }
 
@@ -34,14 +33,12 @@ export interface GrantRequest {
   principal: Principal;
   startedBy: GrantStartedBy;
   projectId?: string | undefined;
-  sharedProjectId?: string | undefined;
   conversationId?: string | undefined;
 }
 
 export interface Revocation {
   personId: string;
   because: RevokedBecause;
-  sharedProjectId?: string | undefined;
 }
 
 export function newRunGrant(input: {
@@ -51,7 +48,6 @@ export function newRunGrant(input: {
   principal: Principal;
   startedBy: GrantStartedBy;
   projectId?: string | undefined;
-  sharedProjectId?: string | undefined;
   conversationId?: string | undefined;
   now: Date;
 }): RunGrant {
@@ -63,7 +59,6 @@ export function newRunGrant(input: {
     principal: input.principal,
     scope: {
       ...(input.projectId ? { projectId: input.projectId } : {}),
-      ...(input.sharedProjectId ? { sharedProjectId: input.sharedProjectId } : {}),
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
     },
     startedBy: input.startedBy,
@@ -75,7 +70,6 @@ export function newRunGrant(input: {
 export function revokes(grant: RunGrant, revocation: Revocation): boolean {
   if (grant.state !== 'live' || grant.personId !== revocation.personId) return false;
   if (revocation.because === 'account-removed') return true;
-  if (revocation.because === 'removed-from-shared-project') return Boolean(revocation.sharedProjectId) && grant.scope.sharedProjectId === revocation.sharedProjectId;
   return grant.startedBy === 'person';
 }
 

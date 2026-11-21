@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Navigate, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import { RootJoinPage } from '../features/hub';
-import { HubShell } from '../features/hub';
-import { HUB_GO_URL } from '../features/hub';
-import { pendingJoin } from '../features/hub';
+import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
@@ -94,29 +90,23 @@ export function RootLayout() {
     }
   };
 
-  const searched = new URLSearchParams(location.searchStr ?? '');
-  const joinPage = location.pathname === '/join';
   const signInUrl = useQuery({ queryKey: signInKeys.place(), queryFn: signInPlace, enabled: !authLoading && !user, staleTime: Infinity, select: (place) => place.url });
-  const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user) && !user?.onHub, staleTime: Infinity });
+  const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user), staleTime: Infinity });
   useEffect(() => {
     const resume = user ? resumePathFrom(window.location.search) : undefined;
     if (resume) window.location.assign(resume);
   }, [user]);
   useEffect(() => {
     const signIn = safeHref(signInUrl.data);
-    if (!user && signIn && !joinPage) window.location.assign(signIn);
-  }, [user, signInUrl.data, joinPage]);
-  useEffect(() => {
-    const pending = user && !joinPage ? pendingJoin() : undefined;
-    if (pending) void navigate({ to: '/join', search: pending });
-  }, [user, joinPage, navigate]);
+    if (!user && signIn) window.location.assign(signIn);
+  }, [user, signInUrl.data]);
   const adminPage = (location.pathname === '/admin' && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !placement.data.instance.signInWaiting && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
-  }, [placement.data, adminPage, removalPage, joinPage]);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !placement.data.instance.signInWaiting && !adminPage && !removalPage) window.location.assign(INSTANCE_GO_URL);
+  }, [placement.data, adminPage, removalPage]);
 
-  const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && placement.data.servesTenants;
+  const tenant = Boolean(user) && placement.isSuccess && placement.data.servesTenants;
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000, enabled: tenant });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, enabled: tenant });
   const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders, enabled: tenant });
@@ -200,22 +190,6 @@ export function RootLayout() {
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
 
-  if (joinPage && !authLoading && !(user && placement.isPending)) {
-    return (
-      <RootJoinPage
-        code={searched.get('code') ?? ''}
-        project={searched.get('project') ?? ''}
-        user={user}
-        onSignedIn={setUser}
-        onSignOut={() => void handleLogout()}
-        onContinue={(project) => {
-          if (placement.data && !placement.data.servesTenants) window.location.assign(HUB_GO_URL(`/hub/join/${project}`));
-          else void navigate({ to: '/hub/join/$token', params: { token: project } });
-        }}
-      />
-    );
-  }
-
   if (authLoading || (!user && signInUrl.isPending) || (signInUrl.data && !user) || (user && placement.isPending)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans">
@@ -226,15 +200,6 @@ export function RootLayout() {
 
   if (!user) {
     return <Login onSuccess={setUser} />;
-  }
-
-  if (user.onHub) {
-    const hubPage = ['/shared', '/hub/join'].some((prefix) => location.pathname.startsWith(prefix));
-    return (
-      <HubShell email={user.email} onLogout={() => void handleLogout()}>
-        {hubPage ? <Outlet /> : <Navigate to="/shared" replace />}
-      </HubShell>
-    );
   }
 
   if (placement.isError) {

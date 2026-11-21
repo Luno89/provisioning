@@ -153,7 +153,6 @@ export class MemoryAccountsStore implements AccountsStore {
     if (related.watermarkKeys.length) count('memoryWatermarks', removeKeys(this.collections, 'memoryWatermarks', related.watermarkKeys));
     if (related.ingestIds.length) count('crawl_frontier', removeWhere(this.collections, 'crawl_frontier', (row) => inList(related.ingestIds, row.ingestId)));
     if (related.projectIds.length) count('pipelineRuns', removeWhere(this.collections, 'pipelineRuns', (row) => inList(related.projectIds, row.projectId)));
-    if (related.projectIds.length) count('hubSnapshots', removeWhere(this.collections, 'hubSnapshots', (row) => inList(related.projectIds, row.projectId)));
     count('oidcArtifacts', removeWhere(this.collections, 'oidcArtifacts', (row) => row.accountId === ownerId));
     for (const name of ACCOUNT_DATA.byOwner) count(name, removeKeys(this.collections, name, this.ids(name, ownerId)));
     for (const name of ACCOUNT_DATA.byId) count(name, removeKeys(this.collections, name, [ownerId]));

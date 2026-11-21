@@ -8,8 +8,6 @@ import {
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
-import { issueMoveToken } from '../lib/identity-token.js';
-import { HUB_AUDIENCE, hubInstancePart } from '../../hub/index.js';
 import type { Mounts } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
@@ -153,7 +151,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   if (signsInThroughRoot(role.role) && deps.signIn) {
     await deps.signIn.load();
     deps.signIn.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
-    app.use('/api/auth', signInRouter({ signIn: deps.signIn, identity, auth: deps.auth, publicUrl, landing: role.role === 'hub' ? '/shared' : '/chat' }));
+    app.use('/api/auth', signInRouter({ signIn: deps.signIn, identity, auth: deps.auth, publicUrl, landing: '/chat' }));
   }
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
@@ -262,16 +260,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     presence.start().catch((err: Error) => console.warn(`[instance-presence] ${err.message}`));
   }
 
-  const hubAccess = role.signing && role.hubLink
-    ? async (instanceId: string, ownerId: string) => {
-      const owner = await db.accounts.getUserById(ownerId);
-      if (!owner) return undefined;
-      return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
-    }
-    : undefined;
   const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, hubAccess }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation }));
   return { instanceService, tellInstance };
 }
 

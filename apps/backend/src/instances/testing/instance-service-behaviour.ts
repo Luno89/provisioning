@@ -187,7 +187,7 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     });
   });
 
-  describe('the groups a shared project\'s apps are addressed under', () => {
+  describe('the groups apps are addressed under', () => {
     const joinedAs = (ownerId: string, name: string) => placedFor(ownerId, name);
 
     it('checks a name against the rules, every instance\'s name and every group anywhere on root', async () => {

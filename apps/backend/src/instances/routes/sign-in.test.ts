@@ -12,10 +12,9 @@ type SignIn = Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCook
 const prefix = '/api/auth';
 const on = (router: Router) => routesInProcess({ prefix, router: () => router, user: null, open: true });
 
-function rig(over: { hubUrl?: string | undefined; removalUrl?: string | undefined } = {}) {
+function rig(over: { removalUrl?: string | undefined } = {}) {
   const signIn = mock<SignIn>({ startCookieSeconds: 600 });
-  const identity = mock<Pick<IdentityService, 'hubUrl' | 'removalUrl'>>();
-  identity.hubUrl.mockReturnValue(over.hubUrl);
+  const identity = mock<Pick<IdentityService, 'removalUrl'>>();
   identity.removalUrl.mockReturnValue(over.removalUrl);
   const auth = mock<Pick<Auth, 'setSessionCookie' | 'getCookie' | 'securedFor' | 'sessionCookieOptions'>>({ sessionCookieOptions: { httpOnly: true, sameSite: 'lax' } });
   auth.securedFor.mockReturnValue(false);
@@ -23,10 +22,9 @@ function rig(over: { hubUrl?: string | undefined; removalUrl?: string | undefine
   return { signIn, identity, auth, router };
 }
 
-describe('signing in on an instance or the hub through root', () => {
-  it('points the browser at the instance\'s own start, and at the hub when root has one', async () => {
-    expect((await (await on(rig().router)).get(`${prefix}/sign-in`)).data).toEqual({ url: '/api/auth/oidc/start', hub: null });
-    expect((await (await on(rig({ hubUrl: 'https://app.example.com/api/identity/go?to=hub' }).router)).get(`${prefix}/sign-in`)).data).toEqual({ url: '/api/auth/oidc/start', hub: 'https://app.example.com/api/identity/go?to=hub' });
+describe('signing in on an instance through root', () => {
+  it('points the browser at the instance\'s own start', async () => {
+    expect((await (await on(rig().router)).get(`${prefix}/sign-in`)).data).toEqual({ url: '/api/auth/oidc/start' });
   });
 
   it('points the browser at root for removing an account, or at nothing', async () => {

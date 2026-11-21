@@ -24,9 +24,4 @@ describe('the files on a sent message', () => {
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.getByTitle('x.png: cannot be opened here')).toBeInTheDocument()
   })
-
-  it('links a project\'s attachment through the hub on a shared project', () => {
-    render(<MessageAttachments conversationId="c1" hubProjectId="h1" attachments={[{ fileId: 'f1', name: 'brief.pdf', project: { id: 'p1', name: 'Shop' } }]} />)
-    expect(screen.getByRole('link', { name: /brief\.pdf/ })).toHaveAttribute('href', expect.stringContaining('/hub/projects/h1/files/content?path=chats%2Fc1%2Fbrief.pdf'))
-  })
 })

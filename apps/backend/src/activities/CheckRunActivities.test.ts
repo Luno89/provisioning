@@ -239,16 +239,14 @@ describe('a check\'s space', () => {
     expect((await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1')).toHaveLength(1);
   });
 
-  it('gets a scripted model of its own, with a key sealed for it, and an account for each member of its shared project', async () => {
+  it('gets a scripted model of its own, with a key sealed for it', async () => {
     await activities().CheckCreateSpaceActivity({
       spaceId: 'space-1', checkRunId: 'c1', person: 'bo',
-      scenario: { ...SCENARIO, script: { rules: [], contextTokens: 4096 }, world: { shared: { members: ['collaborator', 'client'] } } },
+      scenario: { ...SCENARIO, script: { rules: [], contextTokens: 4096 } },
     });
     const endpoint = (await db.models.getModelEndpoints()).find((entry) => entry.id === 'scripted-space-1');
     expect(endpoint).toMatchObject({ ownerId: 'space-1', model: 'scripted', baseUrl: 'http://localhost:3001/api/checks/scripted/space-1/v1', contextTokens: 4096 });
     expect(endpoint?.apiKeyEnc).toMatch(/^v2:/);
-    expect(await db.accounts.getUserById('space-collaborator-1')).toMatchObject({ space: { person: 'bo', scenarioId: 'executor-does-one-task' } });
-    expect(await db.accounts.getUserById('space-client-1')).toBeDefined();
   });
 
   it('keeps the person\'s workspace dependencies, tools and tree types and adds the world\'s own tools, dependencies and servers', async () => {
@@ -582,80 +580,6 @@ describe('a check\'s world', () => {
     expect(happened('POST /deployments')).toHaveLength(3);
     const refused = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { 'POST /deployments': { status: 400, data: { error: 'no cluster' } } });
     expect(refused.result.error).toBe('the world\'s app shop could not be deployed: no cluster');
-  });
-});
-
-describe('a check that shares its project', () => {
-  const shared: Scenario = { ...CHAT, world: { project: { name: 'shop' }, shared: { members: ['client'] } } };
-  const project = { 'POST /projects': { data: { id: 'p1', name: 'shop-space-1', giteaOwner: 'space', giteaRepo: 'r' } } as Reply };
-  const sharing = {
-    ...project,
-    'POST /project-sharing/p1': { data: { shared: { hubProjectId: 'h1' } } } as Reply,
-    'POST /hub/projects/h1/invites': { data: { link: 'http://koala.test/#/join?code=x&project=tok%2F1' } } as Reply,
-    'POST /hub/invitations/tok%2F1/accept': {} as Reply,
-    'DELETE /project-sharing/p1': {} as Reply,
-  };
-
-  it('shares the project under a group of its own, invites each member by email and has them join, then takes the project back', async () => {
-    await db.accounts.saveUser(spaceUser('space-client-1', { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, 't'));
-    const { result } = await perform(shared, sharing);
-    expect(unexpected).toEqual([]);
-    expect(happened('POST /project-sharing/p1')[0]!.body).toEqual({ group: 'chkspace1' });
-    expect(happened('POST /hub/projects/h1/invites')[0]!.body).toEqual({ email: 'space-client-1@checks.internal', role: 'client' });
-    expect(happened('POST /hub/invitations/tok%2F1/accept')).toHaveLength(1);
-    expect(happened('DELETE /project-sharing/p1')[0]!.body).toEqual({ confirm: 'shop-space-1' });
-    expect(result.outcome).toBe('ok');
-  });
-
-  it('stops with the reason at each step that is refused', async () => {
-    await db.accounts.saveUser(spaceUser('space-client-1', { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, 't'));
-    const refusing = (key: string, error: string) => ({ ...sharing, [key]: { status: 400, data: { error } } });
-    expect((await perform(shared, refusing('POST /project-sharing/p1', 'no hub'))).result.error).toBe('the check\'s project could not be shared: no hub');
-    expect((await perform(shared, refusing('POST /hub/projects/h1/invites', 'full'))).result.error).toBe('the check\'s client could not be invited: full');
-    expect((await perform(shared, refusing('POST /hub/invitations/tok%2F1/accept', 'late'))).result.error).toBe('the check\'s client could not join: late');
-  });
-
-  it('stops when the check shares without a project, or when a member\'s account is gone', async () => {
-    expect((await perform({ ...CHAT, world: { shared: { members: ['client'] } } })).result.error).toBe('the check shares its project, and has none: give the world a project');
-    expect((await perform(shared, sharing)).result.error).toBe('the check\'s client is gone');
-  });
-
-  it('has a member ask Koala in the shared channel and follows the run the owner\'s instance starts', async () => {
-    await db.accounts.saveUser(spaceUser('space-client-1', { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, 't'));
-    let reads = 0;
-    const { result } = await perform({ ...shared, then: [{ name: 'ask', do: { memberAsks: { as: 'client', message: 'What is live?' } }, expect: { outcome: 'ok' } }] }, {
-      ...sharing,
-      'GET /projects/p1/channel': { data: { channel: { id: 'chan-1' } } },
-      'POST /hub/projects/h1/conversations/chan-1/messages': { data: { asked: { id: 'ask-1' } } },
-      'GET /hub/projects/h1/board': { data: { requests: [{ id: 'ask-1', state: 'pending' }] } },
-      'GET /conversations/chan-1': () => {
-        reads += 1;
-        return { data: { messages: reads < 2 ? [] : [{ role: 'user', content: 'What is live?', runId: 'run-1', author: { kind: 'person', id: 'space-client-1' } }] } };
-      },
-    });
-    expect(happened('POST /hub/projects/h1/conversations/chan-1/messages')[0]!.body).toEqual({ content: 'What is live?', askKoala: true });
-    expect(failures(result.checks)).toEqual([]);
-  });
-
-  it('says why when the member\'s ask is refused, or was never an ask', async () => {
-    await db.accounts.saveUser(spaceUser('space-client-1', { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, 't'));
-    const asking = (over: Record<string, Route>) => perform({ ...shared, then: [{ name: 'ask', do: { memberAsks: { as: 'client', message: 'Hi' } }, expect: { outcome: 'ok' } }] }, {
-      ...sharing,
-      'GET /projects/p1/channel': { data: { channel: { id: 'chan-1' } } },
-      ...over,
-    });
-    const refused = await asking({
-      'POST /hub/projects/h1/conversations/chan-1/messages': { data: { asked: { id: 'ask-1' } } },
-      'GET /conversations/chan-1': { data: { messages: [] } },
-      'GET /hub/projects/h1/board': { data: { requests: [{ id: 'ask-1', state: 'refused', why: 'not yours' }] } },
-    });
-    expect(refused.result.checks.map((check) => check.detail)).toContain('the owner\'s instance refused the client\'s ask: not yours');
-    const unasked = await asking({ 'POST /hub/projects/h1/conversations/chan-1/messages': { data: {} } });
-    expect(unasked.result.checks.map((check) => check.detail)).toContain('the client\'s message did not ask Koala');
-    const refusedPost = await asking({ 'POST /hub/projects/h1/conversations/chan-1/messages': { status: 403, data: { error: 'read only' } } });
-    expect(refusedPost.result.checks.map((check) => check.detail)).toContain('the client\'s message was refused: read only');
-    const alone = await perform({ ...CHAT, then: [{ name: 'ask', do: { memberAsks: { as: 'client', message: 'Hi' } }, expect: { outcome: 'ok' } }] });
-    expect(alone.result.checks.map((check) => check.detail)).toContain('the check has no client on a shared project: list them in the world\'s shared members');
   });
 });
 

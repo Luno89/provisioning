@@ -2,15 +2,10 @@ import type { PlatformRole } from './platform-role.js';
 import type { PlatformGrant } from './types.js';
 import { noteOnSpan } from '@koala/engine-core/telemetry';
 
-export type SharedRole = 'owner' | 'collaborator' | 'client';
-
-export const SHARED_ROLES: readonly SharedRole[] = ['owner', 'collaborator', 'client'];
-
 export type Claim =
   | { role: 'person' }
   | { role: 'operator' }
   | { role: 'instance-owner' }
-  | { role: 'shared'; project: string; as: SharedRole }
   | { role: 'space-of'; person: string };
 
 export interface Principal {
@@ -42,36 +37,11 @@ export const principalOf = (user: ClaimedUser, settings: ClaimSettings): Princip
 
 export const asPerson = (id: string): Principal => ({ kind: 'person', id, claims: [{ role: 'person' }] });
 
-export const withSharedRole = (principal: Principal, project: string, as: SharedRole): Principal => ({
-  ...principal,
-  claims: [...principal.claims.filter((claim) => !(claim.role === 'shared' && claim.project === project)), { role: 'shared', project, as }],
-});
-
 export const holds = (principal: Principal, role: 'operator' | 'instance-owner'): boolean =>
   principal.claims.some((claim) => claim.role === role);
 
 export const operatorsAmong = <T extends ClaimedUser & { space?: unknown }>(users: readonly T[], settings: ClaimSettings): T[] =>
   users.filter((user) => !user.space && holds(principalOf(user, settings), 'operator'));
-
-export const sharedRoleOf = (principal: Principal, project: string): SharedRole | undefined => {
-  const claim = principal.claims.find((entry): entry is Extract<Claim, { role: 'shared' }> => entry.role === 'shared' && entry.project === project);
-  return claim?.as;
-};
-
-export type SharedAction =
-  | 'see-project'
-  | 'see-people'
-  | 'invite'
-  | 'change-roles'
-  | 'remove-people'
-  | 'change-files'
-  | 'approve-changes'
-  | 'work-stories'
-  | 'release'
-  | 'see-secrets'
-  | 'change-settings'
-  | 'pin-and-comment'
-  | 'ask-koala';
 
 export interface Actions {
   install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces' | 'see-platform-dependencies' | 'set-up-again';
@@ -80,7 +50,6 @@ export interface Actions {
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   deployment: 'see' | 'change';
   project: 'see' | 'propose' | 'change' | 'see-secrets';
-  'shared-project': SharedAction;
   record: 'see' | 'change';
   workflow: 'see' | 'cancel';
 }
@@ -94,11 +63,10 @@ export type Resource =
   | { kind: 'cluster'; id: string; ownerId?: string | undefined }
   | { kind: 'deployment'; ownerId?: string | undefined }
   | { kind: 'project'; id?: string | undefined; ownerId?: string | undefined }
-  | { kind: 'shared-project'; id: string }
   | { kind: 'record'; noun: string; ownerId?: string | undefined }
   | { kind: 'workflow'; owner?: string | undefined };
 
-type Who = 'nobody' | 'person' | 'operator' | 'instance-owner' | 'owner' | 'owners-space' | 'self' | { shared: readonly SharedRole[] };
+type Who = 'nobody' | 'person' | 'operator' | 'instance-owner' | 'owner' | 'owners-space' | 'self';
 
 interface Rule {
   who: readonly Who[];
@@ -108,10 +76,6 @@ interface Rule {
 
 const OPERATOR = (said: string): Rule => ({ who: ['operator'], hidden: false, said });
 const OWN = (said: string): Rule => ({ who: ['owner'], hidden: true, said });
-const SHARED = (roles: readonly SharedRole[], said: string): Rule => ({ who: [{ shared: roles }], hidden: false, said });
-const EVERY_MEMBER: readonly SharedRole[] = SHARED_ROLES;
-const WORKERS: readonly SharedRole[] = ['owner', 'collaborator'];
-const OWNERS: readonly SharedRole[] = ['owner'];
 
 export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actions[K]]: Rule } } = {
   install: {
@@ -141,25 +105,10 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     change: OWN('Deployment not found'),
   },
   project: {
-    see: { who: ['owner', { shared: EVERY_MEMBER }], hidden: true, said: 'Project not found' },
-    propose: { who: ['owner', { shared: WORKERS }], hidden: false, said: 'Only an owner or a collaborator can propose changes to this project.' },
-    change: { who: ['owner', { shared: WORKERS }], hidden: false, said: 'Only an owner or a collaborator can change this project.' },
-    'see-secrets': { who: ['owner', { shared: OWNERS }], hidden: false, said: 'Only an owner can see this project\'s secrets.' },
-  },
-  'shared-project': {
-    'see-project': SHARED(EVERY_MEMBER, 'That shared project does not exist, or you are not on it.'),
-    'see-people': SHARED(EVERY_MEMBER, 'You cannot see who is on this project.'),
-    invite: SHARED(OWNERS, 'Only an owner can invite people to this project.'),
-    'change-roles': SHARED(OWNERS, 'Only an owner can change what people may do.'),
-    'remove-people': SHARED(OWNERS, 'Only an owner can remove people.'),
-    'change-files': SHARED(WORKERS, 'Only an owner or a collaborator can move, remove or replace files.'),
-    'approve-changes': SHARED(WORKERS, 'Only an owner or a collaborator can change the work.'),
-    'work-stories': SHARED(WORKERS, 'Only an owner or a collaborator can work the stories.'),
-    release: SHARED(OWNERS, 'Only an owner can release this project.'),
-    'see-secrets': SHARED(OWNERS, 'Only an owner can see this project\'s secrets.'),
-    'change-settings': SHARED(OWNERS, 'Only an owner can change or delete this project.'),
-    'pin-and-comment': SHARED(EVERY_MEMBER, 'You cannot post on this project.'),
-    'ask-koala': SHARED(['owner', 'client'], 'Koala answers a collaborator from their own instance, once it is linked to this project'),
+    see: OWN('Project not found'),
+    propose: { who: ['owner'], hidden: false, said: 'Only the owner can propose changes to this project.' },
+    change: { who: ['owner'], hidden: false, said: 'Only the owner can change this project.' },
+    'see-secrets': { who: ['owner'], hidden: false, said: 'Only the owner can see this project\'s secrets.' },
   },
   record: {
     see: OWN('Not found'),
@@ -201,10 +150,7 @@ function satisfies(principal: Principal, who: Who, resource: Resource): boolean 
     const owner = ownerOf(resource);
     return owner !== undefined && owner !== '' && principal.claims.some((claim) => claim.role === 'space-of' && claim.person === owner);
   }
-  const project = resource.kind === 'shared-project' || resource.kind === 'project' ? resource.id : undefined;
-  if (project === undefined) return false;
-  const role = sharedRoleOf(principal, project);
-  return role !== undefined && who.shared.includes(role);
+  return false;
 }
 
 export function ruleFor<K extends ResourceKind>(kind: K, action: Actions[K]): Rule {
@@ -226,15 +172,6 @@ export const allowed = <R extends Resource>(principal: Principal, action: Action
 
 export const clusterResource = (cluster: { id: string; ownerId?: string | undefined }): Resource =>
   ({ kind: 'cluster', id: cluster.id, ownerId: cluster.ownerId });
-
-export const sharedActionsOf = (principal: Principal, project: string): SharedAction[] =>
-  (Object.keys(PERMISSIONS['shared-project']) as SharedAction[]).filter((action) => allowed(principal, action, { kind: 'shared-project', id: project }));
-
-export const rolePrincipal = (id: string, project: string, as: SharedRole): Principal =>
-  ({ kind: 'person', id, claims: [{ role: 'person' }, { role: 'shared', project, as }] });
-
-export const memberPrincipal = (personId: string, project: string, role: string): Principal =>
-  (SHARED_ROLES as readonly string[]).includes(role) ? rolePrincipal(personId, project, role as SharedRole) : asPerson(personId);
 
 export const SESSION_PERMISSIONS = ['administer', 'manage-accounts', 'see-all-work', 'open-platform-namespaces', 'change-instance-settings', 'manage-own-account', 'set-up-again'] as const;
 

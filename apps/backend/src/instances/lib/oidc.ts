@@ -9,7 +9,6 @@ export const INTERACTION_PATH = `${OIDC_PATH}/interaction`;
 export const START_PATH = '/api/auth/oidc/start';
 export const CALLBACK_PATH = '/api/auth/oidc/callback';
 export const BACKCHANNEL_PATH = '/api/auth/oidc/backchannel-logout';
-export const HUB_CLIENT_ID = 'hub';
 export const KOALA_SCOPE = 'koala';
 export const SERVICE_SCOPE = 'koala:service';
 export const SIGN_IN_SCOPES = ['openid', 'email', 'offline_access', KOALA_SCOPE] as const;
@@ -21,7 +20,7 @@ export const SIGNING_ALG = 'Ed25519';
 export const LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
 export const LOGOUT_TYP = 'logout+jwt';
 
-export type ClientKind = 'instance' | 'hub';
+export type ClientKind = 'instance';
 
 export interface PublicJwk {
   kty: 'OKP';
@@ -89,9 +88,6 @@ export function clientMetadata(client: ClientRegistration): Record<string, unkno
 export const instanceClient = (instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url' | 'signIn'>): ClientRegistration | undefined =>
   instance.signIn && instance.url ? { clientId: instance.id, kind: 'instance', url: instance.url, key: instance.signIn.jwk, owner: instance.ownerId } : undefined;
 
-export const hubClient = (url: string | undefined, key: SignInKey | undefined): ClientRegistration | undefined =>
-  url && key ? { clientId: HUB_CLIENT_ID, kind: 'hub', url, key: key.jwk } : undefined;
-
 export function signInRefusal(client: { kind: ClientKind; owner?: string | undefined }, accountId: string): string | undefined {
   if (client.kind === 'instance' && client.owner !== accountId) return 'this instance belongs to someone else';
   return undefined;
@@ -99,24 +95,19 @@ export function signInRefusal(client: { kind: ClientKind; owner?: string | undef
 
 export const SIGN_IN_KEY_NOT_NAMED = {
   instance: 'your Koala has not named its sign-in key to root yet; it does so as it starts',
-  hub: 'the hub has not named its sign-in key to root yet; it does so as it starts',
 } as const;
 
 export const signInWaitingFor = (instance: Pick<InstanceRecord, 'signIn'>): string | undefined =>
   instance.signIn ? undefined : SIGN_IN_KEY_NOT_NAMED.instance;
 
 export const claimsFor = (user: ClaimedUser, client: { kind: ClientKind; owner?: string | undefined }): Claim[] =>
-  client.kind === 'instance' ? claimsOf(user, { role: 'instance', instanceOwnerId: client.owner }) : claimsOf(user, { role: 'hub' });
+  claimsOf(user, { role: 'instance', instanceOwnerId: client.owner });
 
-export const CLAIM_ROLES: readonly Claim['role'][] = ['person', 'operator', 'instance-owner', 'shared', 'space-of'];
+export const CLAIM_ROLES: readonly Claim['role'][] = ['person', 'operator', 'instance-owner', 'space-of'];
 
 export const claimsShaped = (value: unknown): value is Claim[] =>
   Array.isArray(value) && value.every((claim) => {
     const role = (claim as { role?: unknown } | undefined)?.role;
-    if (role === 'shared') {
-      const shared = claim as { project?: unknown; as?: unknown };
-      return typeof shared.project === 'string' && (shared.as === 'owner' || shared.as === 'collaborator' || shared.as === 'client');
-    }
     if (role === 'space-of') return typeof (claim as { person?: unknown }).person === 'string';
     return role === 'person' || role === 'operator' || role === 'instance-owner';
   });

@@ -7,7 +7,6 @@ import type { PlatformStore } from '../store.js';
 import type { DependencyReporter } from './dependencies.js';
 import type { AccountsStore } from '../../accounts/index.js';
 import type { InstancesStore } from '../../instances/index.js';
-import type { HubStore } from '../../hub/index.js';
 import type { ProjectsStore } from '../../projects/index.js';
 import type { ReleasesStore } from '../../releases/index.js';
 import type { FilesStore } from '../../files/index.js';
@@ -28,7 +27,6 @@ export interface Database {
   platform: PlatformStore;
   accounts: AccountsStore;
   instances: InstancesStore;
-  hub: HubStore;
   projects: ProjectsStore;
   releases: ReleasesStore;
   files: FilesStore;

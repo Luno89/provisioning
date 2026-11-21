@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface ProjectsStore extends AreaStore {
   removeProjectRecords(projectId: string): Promise<Record<string, number>>;
+  getProjectGroup(projectId: string): Promise<string | undefined>;
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
   saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
@@ -58,6 +59,11 @@ async function put(collection: Collection<Stored>, entity: Identified): Promise<
 
 export class MongoProjectsStore implements ProjectsStore {
   constructor(private readonly db: () => Db) {}
+
+  async getProjectGroup(projectId: string): Promise<string | undefined> {
+    const link = await this.db().collection<Stored>('hubLinks').findOne({ _id: projectId });
+    return typeof link?.group === 'string' ? link.group : undefined;
+  }
 
   private get branches(): Collection<Stored> {
     return this.db().collection<Stored>('branches');

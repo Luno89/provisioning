@@ -96,8 +96,6 @@ export interface Auth {
 export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: string[] } {
   const paths = [
     ...(signsInThroughRoot(role) ? [] : [
-      '/hub-link/invite',
-      '/hub-link/invitation',
       '/auth/login',
       '/auth/register',
       '/auth/register/verify',
@@ -110,7 +108,6 @@ export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: 
       '/identity/keys',
       '/identity/go',
       '/instances/sign-in-key',
-      '/hub-link/sign-in-key',
       '/instances/chart.tgz',
       '/instances/release',
       '/instances/status',
@@ -122,7 +119,6 @@ export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: 
       '/instances/groups',
       '/instances/watch',
       '/instances/mail',
-      '/instances/hub-token',
     ]),
     ...(signsInThroughRoot(role) ? ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout'] : []),
     '/machines/join',
@@ -131,7 +127,7 @@ export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: 
     '/machines/metrics',
     '/metrics',
   ];
-  const prefixes = role === 'instance' ? ['/checks/scripted/', '/machines/git/', '/share/'] : role === 'hub' ? ['/hub-root/', '/hub-instance/'] : ['/auth/provider/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
+  const prefixes = role === 'instance' ? ['/checks/scripted/', '/machines/git/', '/share/'] : ['/auth/provider/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
   return { paths, prefixes };
 }
 

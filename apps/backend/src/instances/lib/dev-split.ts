@@ -10,34 +10,24 @@ export const DEV_SPLIT = {
   rootWebPort: 5175,
   instanceApiPort: 3001,
   instanceWebPort: 5173,
-  hubDatabase: 'koala_hub',
-  hubHost: 'hub',
-  hubApiPort: 3003,
-  hubWebPort: 5176,
   defaultName: 'dev',
 } as const;
 
 export interface SplitPlace {
   rootUrl: string;
   instanceUrl: string;
-  hubUrl: string;
   rootApiPort: number;
   instanceApiPort: number;
-  hubApiPort: number;
   rootDatabase: string;
-  hubDatabase: string;
   instanceDatabase?: string | undefined;
 }
 
 export const devSplitPlace = (name: string): SplitPlace => ({
   rootUrl: webUrl(DEV_SPLIT.rootHost, DEV_SPLIT.rootWebPort),
   instanceUrl: webUrl(name, DEV_SPLIT.instanceWebPort),
-  hubUrl: webUrl(DEV_SPLIT.hubHost, DEV_SPLIT.hubWebPort),
   rootApiPort: DEV_SPLIT.rootApiPort,
   instanceApiPort: DEV_SPLIT.instanceApiPort,
-  hubApiPort: DEV_SPLIT.hubApiPort,
   rootDatabase: DEV_SPLIT.rootDatabase,
-  hubDatabase: DEV_SPLIT.hubDatabase,
 });
 
 export interface DevSplitInput {
@@ -47,8 +37,6 @@ export interface DevSplitInput {
   instanceId: string;
   credential: string;
   credentialHash: string;
-  hubCredential: string;
-  hubCredentialHash: string;
   rootPublicKeys: string;
   mongoUri: string;
   now: string;
@@ -61,10 +49,8 @@ export interface DevSplitInput {
 export interface DevSplitPlan {
   rootUrl: string;
   instanceUrl: string;
-  hubUrl: string;
   rootEnv: Record<string, string>;
   instanceEnv: Record<string, string>;
-  hubEnv: Record<string, string>;
   rootUser: UserMetadata;
   instance: InstanceRecord;
 }
@@ -78,17 +64,16 @@ export function withDatabase(uri: string, database: string): string {
 }
 
 export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
-  const problem = nameProblem(input.name, [DEV_SPLIT.rootHost, DEV_SPLIT.hubHost]);
+  const problem = nameProblem(input.name, [DEV_SPLIT.rootHost]);
   if (problem) throw new Error(`DEV_INSTANCE_NAME "${input.name}": ${problem}`);
   const place = input.place ?? devSplitPlace(input.name);
-  const { rootUrl, instanceUrl, hubUrl } = place;
+  const { rootUrl, instanceUrl } = place;
   const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
   const temporal = { TEMPORAL_CONNECTION_ADDRESS: input.temporal.address, TEMPORAL_NAMESPACE: input.temporal.namespace, TEMPORAL_TLS_CA: input.temporal.ca, DATA_DIR: input.dataDir };
 
   return {
     rootUrl,
     instanceUrl,
-    hubUrl,
     rootEnv: {
       ROLE: 'root',
       PORT: String(place.rootApiPort),
@@ -96,8 +81,6 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
       TRUST_PROXY: 'loopback',
-      HUB_URL: hubUrl,
-      HUB_CREDENTIAL_HASH: input.hubCredentialHash,
       INSTANCE_IMAGE_TAG: input.release.imageTag,
       INSTANCE_REGISTRY: input.release.registry,
       TERRAFORM_STATE: 'local',
@@ -118,19 +101,6 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       TERRAFORM_STATE: 'local',
-      ...temporal,
-    },
-    hubEnv: {
-      ROLE: 'hub',
-      PORT: String(place.hubApiPort),
-      MONGO_URI: withDatabase(input.mongoUri, place.hubDatabase),
-      HUB_DATABASE: place.hubDatabase,
-      PUBLIC_URL: hubUrl,
-      APP_URL: hubUrl,
-      TRUST_PROXY: 'loopback',
-      ROOT_URL: rootUrl,
-      ROOT_PUBLIC_KEYS: rootPublicKeys,
-      HUB_CREDENTIAL: input.hubCredential,
       ...temporal,
     },
     rootUser: accountOf(input.owner),

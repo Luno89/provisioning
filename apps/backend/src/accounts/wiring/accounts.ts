@@ -1,7 +1,6 @@
 import type express from 'express';
 import type { Client } from '@temporalio/client';
 import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, holdsAccounts, principalOf, type UserMetadata } from '../../platform/index.js';
-import type { HubPeople } from '../../hub/index.js';
 import type { Mounts } from '../../platform/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
 import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
@@ -16,7 +15,6 @@ export interface AccountsWiringDeps {
   role: RoleConfig;
   db: Database;
   temporal: () => Client | Promise<Client>;
-  hubPeople: HubPeople | undefined;
   operatorOnly: express.RequestHandler;
   clearSession: (res: express.Response) => void;
   devices: Pick<Devices, 'confirmed'>;
@@ -38,7 +36,6 @@ export function wireAccounts(deps: AccountsWiringDeps): void {
     currentRelease: deps.currentRelease,
     watches: () => db.instances.getWatches(),
     logouts: () => db.instances.pendingLogouts(),
-    hub: deps.hubPeople,
     principalFor,
     revocations: deps.revocations,
   });

@@ -8,7 +8,7 @@ import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { clientKeysFrom, publicJwkOf } from '../lib/oidc.js';
+import { clientKeysFrom } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
@@ -24,7 +24,6 @@ const rootSigning = identityKeysFrom(generateIdentityKey());
 const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
-const HUB_SESSION = 'hub-session-key-for-the-round-trip';
 
 export type Jar = Map<string, string>;
 
@@ -44,8 +43,8 @@ export const cookieOf = (jar: Jar): string => [...jar].map(([name, value]) => `$
 export interface Served { url: string; app: express.Express }
 
 export interface SignInWorldOptions<S extends Served> {
-  databases: { root: () => Promise<Database>; instance: () => Promise<Database>; hub: () => Promise<Database> };
-  serve: (name: 'root' | 'instance' | 'hub') => Promise<S>;
+  databases: { root: () => Promise<Database>; instance: () => Promise<Database> };
+  serve: (name: 'root' | 'instance') => Promise<S>;
   reach: () => InstanceReach;
   alias: (root: S) => string;
   revokedAt: () => string;
@@ -56,12 +55,10 @@ export interface SignInWorldOptions<S extends Served> {
 export interface SignInWorld<S extends Served> {
   readonly root: S;
   readonly instance: S;
-  readonly hub: S;
   readonly rootDb: Database;
   readonly instanceDb: Database;
   readonly provider: RootProvider;
   readonly signIn: RootSignIn;
-  readonly hubSignIn: RootSignIn;
   readonly instanceAuth: Auth;
   readonly rootService: InstanceService;
   readonly heard: readonly AccessRevoked[];
@@ -79,10 +76,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let instanceDb: Database;
   let root: S;
   let instance: S;
-  let hub: S;
   let provider: RootProvider;
   let signIn: RootSignIn;
-  let hubSignIn: RootSignIn;
   let instanceAuth: Auth;
   let rootService: InstanceService;
   let offset = 0;
@@ -93,7 +88,6 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     instanceDb = await options.databases.instance();
     root = await options.serve('root');
     instance = await options.serve('instance');
-    hub = await options.serve('hub');
     offset = 0;
     heard.length = 0;
 
@@ -101,8 +95,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
     await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: instance.url, credentialHash: hashCredential('the-instance-credential'), createdAt: 'x', updatedAt: 'x', status: 'ready' });
 
-    await rootDb.instances.saveHubSignInKey({ jwk: publicJwkOf(clientKeysFrom(HUB_SESSION)), since: 'x' });
-    provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, hubUrl: hub.url, reach: options.reach() }, rootDb);
+    provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: options.reach() }, rootDb);
     rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
     const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', sessionEnds: new SessionEnds(rootDb.platform) });
     root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
@@ -137,21 +130,6 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
       res.json({ id, claims, permissions });
     });
 
-    const hubDb = await options.databases.hub();
-    hubSignIn = new RootSignIn({
-      kind: 'hub',
-      clientId: 'hub',
-      rootUrl: root.url,
-      publicUrl: hub.url,
-      clientKeys: clientKeysFrom(HUB_SESSION),
-      trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]),
-      sessionKey: HUB_SESSION,
-      dataKey: DATA_KEY,
-      announce: { path: '/api/hub-link/sign-in-key', headers: {} },
-    }, hubDb, new AccessRevocations());
-    const hubAuth = createAuth({ db: hubDb, sessionKey: HUB_SESSION, publicUrl: hub.url, role: 'hub', clientSessions: hubSignIn, sessionEnds: new SessionEnds(hubDb.platform) });
-    const hubIdentity = new IdentityService({ role: 'hub', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]) } as never, hubDb);
-    hub.app.use('/api/auth', signInRouter({ signIn: hubSignIn, identity: hubIdentity, auth: hubAuth, publicUrl: hub.url, landing: '/hub' }));
   });
 
   async function signInAs(userId: string, at: S = instance): Promise<{ instanceJar: Jar; landed: Response }> {
@@ -175,12 +153,10 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   return {
     get root() { return root; },
     get instance() { return instance; },
-    get hub() { return hub; },
     get rootDb() { return rootDb; },
     get instanceDb() { return instanceDb; },
     get provider() { return provider; },
     get signIn() { return signIn; },
-    get hubSignIn() { return hubSignIn; },
     get instanceAuth() { return instanceAuth; },
     get rootService() { return rootService; },
     get alias() { return options.alias(root); },
@@ -295,21 +271,6 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     expect((await world.whoami(instanceJar)).status).toBe(401);
   });
 
-  it('names the person the hub signed in to root by a token root gave them there, and not by one an instance holds', async () => {
-    await world.signIn.announce();
-    const atInstance = world.signIn.verified((await world.signInAs('u1')).instanceJar.get('session'));
-    const instanceToken = await world.signIn.personToken(atInstance);
-    expect(instanceToken).toBeTruthy();
-    expect(await world.provider.personAtHub(instanceToken!)).toBeUndefined();
-    const atHub = (await world.signInAs('u2', world.hub)).instanceJar;
-    const onHub = world.hubSignIn.verified(atHub.get('session'));
-    expect(onHub?.userId).toBe('u2');
-    const hubToken = await world.hubSignIn.personToken(onHub);
-    expect(await world.provider.personAtHub(hubToken!)).toBe('u2');
-    expect(await world.provider.personAtHub('made-up')).toBeUndefined();
-    await world.provider.revoke({ personId: 'u2', at: world.revokedAt(), because: 'signed-out-everywhere' });
-    expect(await world.provider.personAtHub(hubToken!)).toBeUndefined();
-  });
 }
 
 export async function logoutKeptFromAPrivateAddress<S extends Served>(world: SignInWorld<S>, reach: InstanceReach): Promise<void> {

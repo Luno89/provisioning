@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matches, mock } from 'vitest-mock-extended';
+import { mock } from 'vitest-mock-extended';
 import type { Router } from 'express';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import { identityRouter } from './identity.js';
@@ -61,18 +61,11 @@ describe('root\'s identity routes', () => {
 
   it('redirects a signed-in person to their instance\'s own sign-in start', async () => {
     const identity = mock<Identity>();
-    identity.goUrl.calledWith(PERSON, undefined).mockResolvedValue({ url: 'https://test.example.com/api/auth/oidc/start' });
+    identity.goUrl.calledWith(PERSON).mockResolvedValue({ url: 'https://test.example.com/api/auth/oidc/start' });
     const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go', { cookie: 'session=ok' });
     expect(answer.status).toBe(302);
     expect(answer.headers.location).toBe('https://test.example.com/api/auth/oidc/start');
     expect(answer.headers['cache-control']).toBe('no-store');
-  });
-
-  it('sends a person to the hub, carrying where they were going', async () => {
-    const identity = mock<Identity>();
-    identity.goUrl.calledWith(PERSON, matches<{ hub: true; next?: string | undefined } | undefined>((to) => to?.hub === true && to.next === '/hub/join/abc')).mockResolvedValue({ url: 'https://hub.example.com/api/auth/oidc/start' });
-    const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go?to=hub&next=%2Fhub%2Fjoin%2Fabc', { cookie: 'session=ok' });
-    expect(answer.headers.location).toBe('https://hub.example.com/api/auth/oidc/start');
   });
 
   it('says why there is nowhere to send a person', async () => {
@@ -81,8 +74,6 @@ describe('root\'s identity routes', () => {
     const router = identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } });
     const noInstance = await get(router, '/go', { cookie: 'session=ok' });
     expect([noInstance.status, noInstance.data]).toEqual([404, { error: 'you have no instance yet' }]);
-    const noHub = await get(router, '/go?to=hub', { cookie: 'session=ok' });
-    expect([noHub.status, noHub.data]).toEqual([404, { error: 'this root has no hub' }]);
   });
 
   it('tells a person their instance has not named its sign-in key yet, rather than sending them on', async () => {

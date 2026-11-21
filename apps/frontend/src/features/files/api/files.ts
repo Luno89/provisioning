@@ -2,18 +2,13 @@ import { isAxiosError } from 'axios'
 import { api, API_BASE } from '../../../api/client'
 import { DROP_TYPE, dropBody } from '../../../shared/lib/drop-body'
 import type { PickedFile } from '../lib/file-drop'
-import type { FileScope, FileShare, ShareableScope, ShareDays, StoredFile } from '../types'
+import type { FileScope, FileShare, ShareDays, StoredFile } from '../types'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 
-const ownBase = (scope: ShareableScope): string =>
-  scope.kind === 'mine' ? '/files/mine'
-    : `/files/${scope.kind === 'conversation' ? 'conversations' : 'projects'}/${encodeURIComponent(scope.kind === 'conversation' ? scope.conversationId : scope.projectId)}`
-
 const base = (scope: FileScope): string =>
   scope.kind === 'mine' ? '/files/mine'
-    : scope.kind === 'hub' ? `/hub/projects/${encodeURIComponent(scope.projectId)}/files`
-      : `/files/${scope.kind === 'conversation' ? 'conversations' : 'projects'}/${encodeURIComponent(scope.kind === 'conversation' ? scope.conversationId : scope.projectId)}`
+    : `/files/${scope.kind === 'conversation' ? 'conversations' : 'projects'}/${encodeURIComponent(scope.kind === 'conversation' ? scope.conversationId : scope.projectId)}`
 
 export const scopeKey = (scope: FileScope): string => {
   if (scope.kind === 'mine') return 'mine'
@@ -40,8 +35,8 @@ export const uploadStoredFile = (scope: FileScope, path: string, file: Blob, onP
     onUploadProgress: (event) => onProgress?.(event.total ? event.loaded / event.total : 0),
   }).then((r) => r.data)
 
-export const dropStoredFiles = (scope: ShareableScope, dir: string, picked: readonly PickedFile[], replace: boolean, onProgress?: (share: number) => void): Promise<{ files: { path: string; id: string }[] }> =>
-  api.post<{ files: { path: string; id: string }[] }>(`${ownBase(scope)}/drop`, dropBody({ dir, replace }, picked), {
+export const dropStoredFiles = (scope: FileScope, dir: string, picked: readonly PickedFile[], replace: boolean, onProgress?: (share: number) => void): Promise<{ files: { path: string; id: string }[] }> =>
+  api.post<{ files: { path: string; id: string }[] }>(`${base(scope)}/drop`, dropBody({ dir, replace }, picked), {
     headers: { 'Content-Type': DROP_TYPE },
     timeout: 0,
     maxBodyLength: Infinity,
@@ -66,8 +61,8 @@ export const makeStoredFolder = (scope: FileScope, path: string): Promise<{ path
 export const searchStoredFiles = (scope: FileScope, query: string): Promise<StoredFile[]> =>
   api.get<StoredFile[]>(`${base(scope)}/search`, { params: { q: query } }).then((r) => r.data)
 
-export const shareStoredFile = (scope: ShareableScope, path: string, days: ShareDays): Promise<FileShare> =>
-  api.post<FileShare>(`${ownBase(scope)}/shares`, { path, days }).then((r) => r.data)
+export const shareStoredFile = (scope: FileScope, path: string, days: ShareDays): Promise<FileShare> =>
+  api.post<FileShare>(`${base(scope)}/shares`, { path, days }).then((r) => r.data)
 
 export const listFileShares = (): Promise<FileShare[]> =>
   api.get<FileShare[]>('/files/shares').then((r) => r.data)

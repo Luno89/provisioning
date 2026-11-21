@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IN_FLIGHT, InFlightLimits, limitedAddress, limitedPath } from './in-flight-limits.js';
+import { IN_FLIGHT, InFlightLimits, limitedAddress } from './in-flight-limits.js';
 
 describe('how many requests one address may have open at once', () => {
   it('starts at 50 for each address on its own, and frees a place as each finishes', () => {
@@ -44,8 +44,5 @@ describe('how many requests one address may have open at once', () => {
     expect(limitedAddress('10.42.0.7')).toBe(false);
     expect(limitedAddress('100.64.0.3')).toBe(false);
     expect(limitedAddress('')).toBe(false);
-    expect(limitedPath('/api/projects')).toBe(true);
-    expect(limitedPath('/api/hub-instance/projects/p1/relay')).toBe(false);
-    expect(limitedPath('/api/hub-instance/projects/p1/changes')).toBe(true);
   });
 });

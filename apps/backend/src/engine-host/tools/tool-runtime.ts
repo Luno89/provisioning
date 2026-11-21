@@ -4,11 +4,10 @@ import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
-import { keptToProblem } from '../../engine/lib/acting-for.js';
 import { accessOf, accessProblem, projectRefsIn, sourceOf, type ProjectResolution } from '../../engine/lib/tool-access.js';
 import type { PoisoningWatch } from './poisoning-watch.js';
 import type { ProjectResolver } from '../../engine/index.js';
-import { asPerson, memberPrincipal } from '../../platform/lib/permissions.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 import { withoutHidden } from '../../engine/lib/hidden-text.js';
 
 export type { ToolHandler } from '@koala/engine-core';
@@ -59,10 +58,6 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const parsed = read.args;
       const mcp = isMcpToolName(args.name);
       await options.watch?.beforeCall(args, parsed, mcp);
-      if (args.ticket.keptTo) {
-        const problem = keptToProblem(args.name, parsed);
-        if (problem) return placed(refuse(problem), args);
-      }
 
       const driver = await options.environments?.forRun({
         ticket: args.ticket,
@@ -83,9 +78,9 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const resolved: ProjectResolution = access.on === 'project'
         ? options.resources
           ? await options.resources.project(args.ticket.ownerId, refs, scope)
-          : args.ticket.actingFor ? { outside: Object.keys(refs)[0] ?? 'project' } : {}
+          : {}
         : {};
-      const problem = accessProblem(args.name, access, args.ticket.principal ?? (args.ticket.actingFor ? memberPrincipal(args.ticket.actingFor.personId, args.ticket.actingFor.projectId, args.ticket.actingFor.role) : asPerson(args.ticket.ownerId)), args.ticket.ownerId, parsed, resolved, args.ticket.actingFor);
+      const problem = accessProblem(args.name, access, args.ticket.principal ?? asPerson(args.ticket.ownerId), args.ticket.ownerId, parsed, resolved);
       if (problem) return placed(refuse(problem), args);
       const granted = await options.grants?.callProblem(args.ticket.grantId, args.name, resolved.project?.id);
       if (granted) return placed(refuse(granted), args);

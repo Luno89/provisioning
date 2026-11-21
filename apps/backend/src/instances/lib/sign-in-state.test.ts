@@ -3,7 +3,7 @@ import { claimsStale, instanceMadeSession, RevocationList, signedInSession } fro
 
 const session = { userId: 'u1', email: 'u1@example.com', sid: 's1', sessionAt: 1_000, freshUntil: 2_000, claims: [{ role: 'person' }] };
 
-describe('a session an instance or the hub keeps for someone root signed in', () => {
+describe('a session an instance keeps for someone root signed in', () => {
   it('is read only whole, with claims it could have been issued', () => {
     expect(signedInSession(session)).toEqual(session);
     expect(signedInSession({ ...session, sid: '' })).toBeUndefined();

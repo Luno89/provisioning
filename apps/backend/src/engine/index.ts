@@ -4,7 +4,7 @@ export type { AgentChange, PromptChange, PromptComparison } from './lib/agent-ch
 export type { AuthoredExtension } from './lib/authored-extensions.js';
 export { retireStoredBuiltInPersonas } from './lib/built-in-personas.js';
 export { retireStoredBuiltInProcedures } from './lib/built-in-procedures.js';
-export { itemChatIdFor, mentionsKoala, personMessage, withAuthorNames } from './lib/conversations.js';
+export { itemChatIdFor, personMessage } from './lib/conversations.js';
 export type { ChatItem, Conversation, ConversationMessage, ConversationNotice, ConversationToolCall, NoticeAction, NoticeKind } from './lib/conversations.js';
 export { embedPages, ensureCollection, ensureIndex, indexPages, purgeCorpus } from './lib/corpus-client.js';
 export { CorpusStoreDown, CorpusStoresMissing, SEARCHABLE, storesMissing, withStores } from './lib/corpus-stores.js';
@@ -32,7 +32,7 @@ export { modelsOf } from './lib/run-traces.js';
 export type { ModelThinkingProfile } from '@koala/agent-engine';
 export { migrateAgentTools } from './lib/tool-grant-migration.js';
 export { checksForNote, isToolNote, noteSubject } from './lib/tool-notes.js';
-export { ASK_MARKS, procedureRanIn, runsUnder, unansweredAsks } from './lib/turn-log.js';
+export { ASK_MARKS, runsUnder, unansweredAsks } from './lib/turn-log.js';
 export type { RunMark, TurnLogEntry, WaitingAsk } from './lib/turn-log.js';
 export { corpusEndpointsWith, liveDeployment, webToolsDepsFrom } from './lib/web-tools-resolver.js';
 export type { CorpusEndpoints } from './lib/web-tools-resolver.js';

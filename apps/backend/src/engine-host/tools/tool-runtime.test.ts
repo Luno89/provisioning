@@ -1,7 +1,6 @@
 import { matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createToolRuntime, type EnvironmentSource } from './tool-runtime.js';
-import { rolePrincipal } from '../../platform/lib/permissions.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
 import { createNoneDriver } from '@koala/engine-core';
@@ -247,8 +246,6 @@ describe('tool runtime', () => {
       const outcome = await tools.run(args({ arguments: given }));
       expect(outcome).toMatchObject({ ok: false, digest: matching(/arguments for "run_command" must be one JSON object/) });
     }
-    const kept = await tools.run(args({ ticket: { ...args().ticket, keptTo: 'p1' }, name: 'save_memory', arguments: '["scope","global"]' }));
-    expect(kept).toMatchObject({ ok: false, digest: matching(/must be one JSON object/) });
     expect(watch.beforeCall).not.toHaveBeenCalled();
     expect(callProblem).not.toHaveBeenCalled();
     expect(backend.exec).not.toHaveBeenCalled();
@@ -368,57 +365,11 @@ describe('calling a tool a workspace server serves', () => {
   });
 });
 
-describe('a tool call in a run Koala does for a member of a shared project', () => {
-  const member = { personId: 'cy', email: 'cy@example.com', role: 'client', projectId: 'p1', hubProjectId: 'h1' };
-  const client = rolePrincipal('cy', 'p1', 'client');
-  const collaborator = rolePrincipal('cy', 'p1', 'collaborator');
-  const resources = { project: vi.fn(async (_owner: string, refs: Record<string, unknown>) => (refs.projectId === undefined || refs.projectId === 'p1' ? { project: { id: 'p1', ownerId: 'user-1' } } : { outside: 'projectId' })) };
-  const handlers = { save_memory: vi.fn(async () => ({ ok: true, digest: 'saved' })), get_project_url: vi.fn(async () => ({ ok: true, digest: 'https://shop' })) };
-  const withRuntime = (over: Partial<Parameters<typeof createToolRuntime>[0]> = {}) => {
-    const { backend, driver } = sandbox();
-    return { backend, tools: createToolRuntime({ registry: registry(), environments: sourceFor(driver), handlers, resources, ...over }) };
-  };
-  const asMember = (principal = client, over: Partial<ToolCallArgs> = {}) => args({ ...over, ticket: { ...args().ticket, actingFor: member, principal, projectId: 'p1' } });
-
-  it('runs what the member\'s role allows in the project and refuses the rest before anything runs, naming nothing outside it', async () => {
-    const { backend, tools } = withRuntime();
-    expect(await tools.run(asMember(client, { name: 'read_file', arguments: '{"path":"a.ts"}' }))).toMatchObject({ ok: true, digest: 'file contents' });
-    const refused = await tools.run(asMember(client, { name: 'save_memory', arguments: '{"title":"x","text":"y"}' }));
-    expect(refused).toMatchObject({ ok: false, digest: 'Koala is answering cy@example.com, a client on this shared project, so it may not use save_memory, which reaches beyond the project.' });
-    expect(handlers.save_memory).not.toHaveBeenCalled();
-    const elsewhere = await tools.run(asMember(client, { name: 'get_project_url', arguments: '{"projectId":"p2"}' }));
-    expect(elsewhere).toMatchObject({ ok: false, digest: 'Koala is answering cy@example.com, a client on this shared project, so get_project_url may not be given that projectId: it names something outside this shared project.' });
-    expect(handlers.get_project_url).not.toHaveBeenCalled();
-    expect(await tools.run(asMember(client, { name: 'get_project_url', arguments: '{}' }))).toMatchObject({ ok: true, digest: 'https://shop' });
-    expect(backend.exec).not.toHaveBeenCalled();
-  });
-
-  it('lets a client read and a collaborator change, through the project\'s rows', async () => {
-    const { backend, tools } = withRuntime();
-    const written = await tools.run(asMember(client, { name: 'write_file', arguments: '{"path":"a.ts","content":"x"}' }));
-    expect(written).toMatchObject({ ok: false, digest: 'Koala is answering cy@example.com, a client on this shared project, so it may not use write_file here: Only an owner or a collaborator can change this project.' });
-    expect(backend.writeFile).not.toHaveBeenCalled();
-    expect(await tools.run(asMember(collaborator, { name: 'write_file', arguments: '{"path":"a.ts","content":"x"}' }))).toMatchObject({ ok: true });
-    expect(backend.writeFile).toHaveBeenCalled();
-  });
-
-  it('treats a project it cannot resolve as outside when it answers a member, and as the owner\'s own when it does not', async () => {
-    const { tools } = withRuntime({ resources: undefined });
-    expect(await tools.run(asMember(client, { name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: false, digest: matching(/may not be given that projectId/) });
+describe('a tool call naming a project', () => {
+  it('takes a project it cannot resolve as the owner\'s own', async () => {
+    const { driver } = sandbox();
+    const tools = createToolRuntime({ registry: registry(), environments: sourceFor(driver), handlers: { get_project_url: vi.fn(async () => ({ ok: true, digest: 'https://shop' })) } });
     expect(await tools.run(args({ name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: true });
   });
-
-  it('keeps the memory keeper to the project when others talked in the conversation', async () => {
-    const { tools } = withRuntime();
-    const kept = { ...args().ticket, keptTo: 'p1', projectId: 'p1' };
-    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: false, digest: matching(/never global/) });
-    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y"}' }))).toMatchObject({ ok: true, digest: 'saved' });
-  });
-
-  it('changes nothing for the owner\'s own runs', async () => {
-    const { tools } = withRuntime();
-    handlers.save_memory.mockClear();
-    expect(await tools.run(args({ name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: true });
-    expect(handlers.save_memory).toHaveBeenCalledTimes(1);
-  });
 });
+

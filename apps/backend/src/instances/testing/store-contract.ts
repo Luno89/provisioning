@@ -27,14 +27,6 @@ const finding = (key: string, more: Partial<DependencyFinding> = {}): Dependency
 const release = (imageTag: string, more: Record<string, unknown> = {}) => ({ imageTag, version: `v-${imageTag}`, servedAt: '2026-10-10T00:00:00.000Z', ...more });
 
 export function instancesStoreContract(make: () => Promise<InstancesStore>): void {
-  describe('sign-in handoffs', () => {
-    it('lets a handoff be claimed once and refuses a second claim', async () => {
-      const store = await make();
-      expect(await store.claimHandoff('jti-1', '2030-01-01T00:00:00.000Z')).toBe(true);
-      expect(await store.claimHandoff('jti-1', '2030-01-01T00:00:00.000Z')).toBe(false);
-      expect(await store.claimHandoff('jti-2', '2030-01-01T00:00:00.000Z')).toBe(true);
-    });
-  });
 
   describe('the instance registry', () => {
     it('keeps an instance as saved, replaces it whole when saved again and forgets it when deleted', async () => {
@@ -270,16 +262,6 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
-  describe('the hub\'s sign-in key', () => {
-    it('has none until saved, then keeps the latest', async () => {
-      const store = await make();
-      expect(await store.getHubSignInKey()).toBeUndefined();
-      await store.saveHubSignInKey(key('k1'));
-      await store.saveHubSignInKey(key('k2'));
-      expect(await store.getHubSignInKey()).toEqual(key('k2'));
-    });
-  });
-
   describe('what the OpenID provider keeps', () => {
     it('finds an artifact by model and id as it was saved, replaces it whole and forgets it when destroyed', async () => {
       const store = await make();
@@ -406,7 +388,7 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     });
   });
 
-  describe('sessions an instance or the hub holds with root', () => {
+  describe('sessions an instance holds with root', () => {
     const session = (id: string, ownerId: string, more = {}) => ({ id, ownerId, email: `${ownerId}@example.test`, refreshToken: `refresh-${id}`, startedAt: '2026-10-10T00:00:00.000Z', expiresAt: '2030-01-01T00:00:00.000Z', ...more });
 
     it('keeps a session as saved, with its expiry as an ISO time, replacing it when saved again', async () => {

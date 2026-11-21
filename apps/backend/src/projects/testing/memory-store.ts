@@ -48,6 +48,11 @@ export class MemoryProjectsStore implements ProjectsStore {
     this.planProposals = new MemoryRecords(collectionIn<PlanProposal>(collections, 'planProposals'));
   }
 
+  async getProjectGroup(projectId: string): Promise<string | undefined> {
+    const link = collectionIn<{ group?: unknown }>(this.collections, 'hubLinks').get(projectId);
+    return typeof link?.group === 'string' ? link.group : undefined;
+  }
+
   async ensureIndexes(): Promise<void> {}
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {

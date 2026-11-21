@@ -122,7 +122,6 @@ export interface RootSettings {
   signIn: ConfiguredSignIn;
   signInReturn: { url?: string; problem?: string };
   mailReputation: { domain: string; relayhost?: string | undefined } | Off;
-  hubLinked: boolean;
 }
 
 export interface InstanceSettings {
@@ -172,8 +171,6 @@ export interface BackendSettings extends CommonSettings {
   tenant: TenantServices | undefined;
   instance: InstanceSettings | undefined;
   root: RootSettings | undefined;
-  hubDatabase: string | undefined;
-  hubGitea: GiteaSettings | undefined;
 }
 
 export interface WorkerHealth {
@@ -404,7 +401,7 @@ function finish<T>(read: Reading, koalaProcess: string, settings: T | undefined 
   return settings;
 }
 
-function rootSettings(read: Reading, role: RoleConfig): RootSettings | undefined {
+function rootSettings(read: Reading): RootSettings | undefined {
   const { env } = read;
   const imageTag = required(read, 'INSTANCE_IMAGE_TAG', 'it is the release root runs, which it serves to instances');
   const registry = hostPortSetting(read, 'INSTANCE_REGISTRY', 'it is root\'s registry, which machines and instances pull Koala\'s image from');
@@ -435,7 +432,6 @@ function rootSettings(read: Reading, role: RoleConfig): RootSettings | undefined
     mailReputation: mailDomain && smtp
       ? { domain: mailDomain, ...(relayhost ? { relayhost } : {}) }
       : { off: 'root sends no mail of its own (MAIL_SMTP_URL, and DOMAIN or MAIL_FROM), so there is no mail to check' },
-    hubLinked: Boolean(role.hubLink),
   };
 }
 
@@ -478,12 +474,10 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   const appUrl = urlSetting(read, 'APP_URL', 'it is the address the browser loads Koala\'s pages from (PUBLIC_URL where the backend serves them)');
   const trustProxy = trustProxyFrom(env.TRUST_PROXY);
   if ('problem' in trustProxy) read.problems.push(trustProxy.problem);
-  const terraform = role?.role === 'hub' ? { off: 'the hub runs no Terraform' } : terraformFrom(read);
+  const terraform = terraformFrom(read);
   const tenant = role?.role === 'instance' ? tenantServices(read) : undefined;
   const instance = role?.role === 'instance' ? instanceSettings(read) : undefined;
-  const root = role?.role === 'root' ? rootSettings(read, role) : undefined;
-  const hubDatabase = role?.role === 'hub' ? required(read, 'HUB_DATABASE', 'it is the database the hub keeps its registry of shared projects in') : undefined;
-  const hubGitea = role?.role === 'hub' ? read.take(() => giteaSettingsFrom(env)) : undefined;
+  const root = role?.role === 'root' ? rootSettings(read) : undefined;
   const mail = role ? read.take(() => emailWayFrom(env, role)) : undefined;
   const mesh = role?.role === 'root' ? meshFrom(read) : NO_MESH_HERE(role?.role ?? 'this process');
   const ingressDomain = settingIn(read.env, 'INGRESS_DOMAIN');
@@ -494,8 +488,7 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   const scriptedBase = tenant ? scriptedModelBase(tenant.checksApi) : undefined;
   if (!base || !('trust' in trustProxy) || port === undefined || !publicUrl || !appUrl || !mail || terraform === undefined
     || (role?.role === 'instance' && (!tenant || !instance))
-    || (role?.role === 'root' && !root)
-    || (role?.role === 'hub' && (!hubDatabase || !hubGitea))) return finish<BackendSettings>(read, 'the backend');
+    || (role?.role === 'root' && !root)) return finish<BackendSettings>(read, 'the backend');
   return finish(read, 'the backend', {
     ...base,
     koalaProcess: 'backend',
@@ -520,8 +513,6 @@ export function backendSettingsFrom(env: Env): BackendSettings {
     tenant,
     instance,
     root,
-    hubDatabase,
-    hubGitea,
   });
 }
 

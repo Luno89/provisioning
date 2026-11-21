@@ -9,7 +9,6 @@ import type { PromptChange } from '../checks/index.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 import { combineAttempts } from '../checks/lib/check-attempts.js';
-import { memberSpaceId } from '../checks/lib/check-space.js';
 import { NOTICED_PATCH, noticedChecks, type Noticed } from '../checks/lib/check-noticed.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
@@ -96,9 +95,9 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
   };
 
   const noticed: Noticed[] = [];
-  const gone = async (spaceId: string, scenario: Scenario): Promise<Check> => {
+  const gone = async (spaceId: string): Promise<Check> => {
     const left = await CancellationScope.nonCancellable(async () => {
-      const removed = [...(scenario.world?.shared?.members ?? []).map((role) => memberSpaceId(spaceId, role)), spaceId];
+      const removed = [spaceId];
       if (patched(NOTICED_PATCH)) noticed.push(...await space.CheckNoticedActivity({ spaceIds: removed }));
       const leftovers: string[] = [];
       for (const accountId of removed) {
@@ -127,12 +126,12 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
         result = await attempt(scenario, spaceId, spaceId !== sharedSpace);
       } finally {
         if (shared) sharedSpace = spaceId;
-        else spaces.push(await gone(spaceId, scenario));
+        else spaces.push(await gone(spaceId));
       }
       if (cancelled && result.error === 'the check was cancelled') break;
       attempts.push(result);
     }
-    if (sharedSpace) spaces.push(await gone(sharedSpace, scenario));
+    if (sharedSpace) spaces.push(await gone(sharedSpace));
     if (attempts.length === 0) break;
     const combined = repeats === 1 ? attempts[0]! : combineAttempts(attempts, scenario.passAt ?? repeats);
     const leaks = spaces.filter((check) => !check.passed);

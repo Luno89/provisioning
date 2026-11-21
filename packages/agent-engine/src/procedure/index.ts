@@ -85,7 +85,6 @@ export {
   CLEANUP_STEP_CAP,
   type UsageDelta,
   type RunContext,
-  type ActingFor,
   type RunLaunch,
   type NodeRequest,
   type StepResult,

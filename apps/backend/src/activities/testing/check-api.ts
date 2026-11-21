@@ -14,8 +14,6 @@ import type { ScriptedModelService } from '../../checks/services/ScriptedModelSe
 import type { ArtifactService } from '../../files/services/ArtifactService.js';
 import type { RepositoryDropService } from '../../files/services/RepositoryDropService.js';
 import type { StoryDropService } from '../../files/services/StoryDropService.js';
-import type { HubService } from '../../hub/services/HubService.js';
-import type { ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
 import type { AppService } from '../../infrastructure/services/AppService.js';
 import type { AppExposureService } from '../../infrastructure/services/AppExposureService.js';
 import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
@@ -48,8 +46,6 @@ import { turnsRouter } from '../../engine/routes/turns.js';
 import { checksRouter } from '../../checks/routes/checks.js';
 import { artifactsRouter } from '../../files/routes/artifacts.js';
 import { projectFilesRouter } from '../../files/routes/project-files.js';
-import { hubRouter } from '../../hub/routes/hub.js';
-import { projectSharingRouter } from '../../hub/routes/project-sharing.js';
 import type { ToolCallParsers } from '../../models/index.js';
 import { deploymentsRouter } from '../../infrastructure/routes/deployments.js';
 import { monitoringRouter } from '../../monitoring/routes/monitoring.js';
@@ -88,8 +84,6 @@ export interface CheckApiPorts {
   artifacts: MockProxy<ArtifactService>;
   repositoryDrops: MockProxy<RepositoryDropService>;
   storyDrops: MockProxy<StoryDropService>;
-  hub: MockProxy<HubService>;
-  sharing: MockProxy<ProjectSharingService>;
   appService: MockProxy<AppService>;
   exposure: MockProxy<AppExposureService>;
   clusters: MockProxy<ClusterService>;
@@ -156,8 +150,6 @@ export async function mountCheckApi(): Promise<CheckApi> {
     artifacts: mock<ArtifactService>(),
     repositoryDrops: mock<RepositoryDropService>(),
     storyDrops: mock<StoryDropService>(),
-    hub: mock<HubService>(),
-    sharing: mock<ProjectSharingService>(),
     appService: mock<AppService>(),
     exposure: mock<AppExposureService>(),
     clusters: mock<ClusterService>(),
@@ -264,8 +256,6 @@ export async function mountCheckApi(): Promise<CheckApi> {
   app.use('/api/release-settings', releaseSettingsRouter({ settings: ports.releaseSettings }));
   app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, temporalBridge: ports.bridge, toolCalling: ports.toolCalling, db, io: mock<SocketServer>() }));
   app.use('/api/monitoring', monitoringRouter({ monitoring: ports.monitoring }));
-  app.use('/api/project-sharing', projectSharingRouter({ sharing: ports.sharing }));
-  app.use('/api/hub', hubRouter({ hub: ports.hub }));
   app.use(errorResponder);
 
   const server = http.createServer(app);

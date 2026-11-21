@@ -27,7 +27,6 @@ export interface AuthRouterDeps {
   sessionKey: SecretKey;
   appUrl: string;
   accounts?: boolean | undefined;
-  hub?: boolean | undefined;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'> | undefined;
   passwords: Pick<PasswordService, 'newPasswordProblem'>;
@@ -48,7 +47,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
     ...sessionView(user, principal, place),
     twoFactorEnabled: user.twoFactorEnabled === true,
     ...(place.holdsAccounts ? { confirmWith: confirmWith(user), hasPassword: Boolean(user.passwordHash) } : {}),
-    ...(deps.hub ? { onHub: true } : {}),
   });
   const APP_URL = appUrl;
 

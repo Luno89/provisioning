@@ -98,22 +98,21 @@ const telemetry = { otlpEndpoint: undefined };
 const noCluster = { here: { root: false } };
 
 describe('dependenciesOf', () => {
-  it('describes for an instance\'s backend every service the chart gives it, root and the hub', () => {
+  it('describes for an instance\'s backend every service the chart gives it, and root', () => {
     const backend = {
       koalaProcess: 'backend', telemetry, clusters: { here: { root: false, koalaMachineId: 'desk' } },
       tenant: { webTools: { searxngUrl: 'http://searxng:8080', crawl4aiUrl: 'http://crawl4ai:11235' } },
     } as unknown as BackendSettings;
-    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'collector', 'minio', 'gitea', 'infisical', 'registry', 'searxng', 'crawl4ai', 'root', 'hub']);
+    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'collector', 'minio', 'gitea', 'infisical', 'registry', 'searxng', 'crawl4ai', 'root']);
   });
 
   it('describes nothing a process has no setting for: no collector without a cluster or an endpoint, no web tools not given', () => {
     const backend = { koalaProcess: 'backend', telemetry, clusters: noCluster, tenant: { webTools: {} } } as unknown as BackendSettings;
-    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'root', 'hub']);
+    expect(dependenciesOf(backend)).toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'root']);
   });
 
-  it('describes root\'s own, the hub\'s Gitea, and each worker\'s', () => {
+  it('describes root\'s own and each worker\'s', () => {
     expect(dependenciesOf({ koalaProcess: 'backend', telemetry: { otlpEndpoint: 'http://127.0.0.1:4318' }, clusters: { here: { root: true } } } as unknown as BackendSettings)).toEqual(['mongo', 'temporal', 'collector']);
-    expect(dependenciesOf({ koalaProcess: 'backend', telemetry, clusters: noCluster, hubGitea: { url: 'http://gitea' } } as unknown as BackendSettings)).toEqual(['mongo', 'temporal', 'gitea']);
     expect(dependenciesOf({ koalaProcess: 'worker-engine', telemetry, clusters: noCluster, tenant: { webTools: { searxngUrl: 'http://searxng:8080' } } } as unknown as EngineWorkerSettings))
       .toEqual(['mongo', 'temporal', 'minio', 'gitea', 'infisical', 'registry', 'searxng']);
     expect(dependenciesOf({ koalaProcess: 'worker-cluster', telemetry, clusters: noCluster } as unknown as ClusterWorkerSettings)).toEqual(['mongo', 'temporal', 'gitea', 'infisical']);

@@ -599,8 +599,7 @@ export function storesFromDatabase(db: Database, unindexMemories: (ownerId: stri
       get: (ownerId, id) => db.engine.getConversation(ownerId, id),
       save: (conversation) => db.engine.saveConversation(conversation),
       names: async (ids) => {
-        const onHub = new Map((await db.hub.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
-        return Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.accounts.getUserById(id))?.email ?? onHub.get(id)] as const)))
+        return Object.fromEntries((await Promise.all(ids.map(async (id) => [id, (await db.accounts.getUserById(id))?.email] as const)))
           .filter((entry): entry is readonly [string, string] => Boolean(entry[1])));
       },
     },

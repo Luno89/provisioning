@@ -24,7 +24,7 @@ const CONTAINER_TEMPORAL_CA = '/etc/koala/temporal-tls/ca.crt';
 const SPLIT_PREFIX = 'koala_split_';
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
-export type SplitSide = 'root' | 'instance' | 'hub';
+export type SplitSide = 'root' | 'instance';
 export type SplitProcess = SplitSide | 'instance-engine' | 'root-host';
 
 export interface SplitNames {
@@ -38,11 +38,10 @@ export function splitNames(stamp: string): SplitNames {
   return {
     stamp,
     namespace: `split-${stamp}`,
-    databases: { root: `${SPLIT_PREFIX}root_${stamp}`, instance: `${SPLIT_PREFIX}instance_${stamp}`, hub: `${SPLIT_PREFIX}hub_${stamp}` },
+    databases: { root: `${SPLIT_PREFIX}root_${stamp}`, instance: `${SPLIT_PREFIX}instance_${stamp}` },
     containers: {
       root: `nw-split-root-${stamp}`,
       instance: `nw-split-instance-${stamp}`,
-      hub: `nw-split-hub-${stamp}`,
       'instance-engine': `nw-split-instance-engine-${stamp}`,
       'root-host': `nw-split-root-host-${stamp}`,
       mailbox: `nw-split-mailbox-${stamp}`,
@@ -51,24 +50,18 @@ export function splitNames(stamp: string): SplitNames {
   };
 }
 
-export interface SplitPorts { root: number; instance: number; hub: number; instanceGateway: number; rootGateway: number; hubGateway: number; smtp: number; mailApi: number; metrics: number; files: number; engineMetrics?: number }
+export interface SplitPorts { root: number; instance: number; instanceGateway: number; rootGateway: number; smtp: number; mailApi: number; metrics: number; files: number; engineMetrics?: number }
 
 export const splitPlace = (names: SplitNames, ports: SplitPorts): SplitPlace => ({
   rootUrl: `http://localhost:${ports.root}`,
   instanceUrl: `http://localhost:${ports.instance}`,
-  hubUrl: `http://localhost:${ports.hub}`,
   rootApiPort: ports.root,
   instanceApiPort: ports.instance,
-  hubApiPort: ports.hub,
   rootDatabase: names.databases.root,
-  hubDatabase: names.databases.hub,
   instanceDatabase: names.databases.instance,
 });
 
 export const ownedBySplit = (database: string): boolean => database.startsWith(SPLIT_PREFIX);
-
-export const sharedProjectDatabases = (ids: readonly unknown[]): string[] =>
-  ids.filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).map((id) => `hub_${id}`);
 
 export const envArgs = (env: Readonly<Record<string, string>>): string[] => Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`]);
 
@@ -77,7 +70,6 @@ export interface SplitStack {
   ports: SplitPorts;
   rootUrl: string;
   instanceUrl: string;
-  hubUrl: string;
   mailpitApi: string;
   owner: FirstAdmin;
   instanceId: string;
@@ -128,8 +120,8 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
   const names = splitNames(Date.now().toString(36));
   const ports: SplitPorts = {
-    root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn(),
-    instanceGateway: await portToHandOn(), rootGateway: await portToHandOn(), hubGateway: await portToHandOn(),
+    root: await portToHandOn(), instance: await portToHandOn(),
+    instanceGateway: await portToHandOn(), rootGateway: await portToHandOn(),
     smtp: await portToHandOn(), mailApi: await portToHandOn(), metrics: await portToHandOn(), files: await portToHandOn(), engineMetrics: await portToHandOn(),
   };
   const place = splitPlace(names, ports);
@@ -146,8 +138,6 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     }
     const { client, release } = await leaseMongo(mongoUri);
     try {
-      const shared = await client.db(names.databases.hub).collection('shared_projects').find({}, { projection: { _id: 1 } }).toArray();
-      for (const database of sharedProjectDatabases(shared.map((doc) => doc._id))) await client.db(database).dropDatabase();
       for (const database of Object.values(names.databases)) if (ownedBySplit(database)) await client.db(database).dropDatabase();
     } finally {
       await release();
@@ -169,7 +159,6 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
 
     const setupCode = randomBytes(12).toString('base64url');
     const instanceCredential = randomBytes(32).toString('base64url');
-    const hubCredential = randomBytes(32).toString('base64url');
     const signing = roleFromEnv({ ...process.env, ROLE: 'root' }).signing;
     if (!signing) throw new Error('the dev env holds no ROOT_IDENTITY_KEY for root to sign with');
 
@@ -187,7 +176,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     const draft = (owner: { id: string; email: string }) => devSplitPlan({
       name: 'split', owner: { id: owner.id, email: owner.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
       instanceId: instanceIdFor(owner.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
-      hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
+      rootPublicKeys: publicKeyPem(signing.publicKey),
       mongoUri, now: new Date().toISOString(), place,
       temporal: { address: DEV_TEMPORAL_ADDRESS, namespace: names.namespace, ca: CONTAINER_TEMPORAL_CA }, release: { imageTag: 'split', registry: DEV.registry }, dataDir: '/app/apps/backend/data',
     });
@@ -206,12 +195,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
 
     await backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
     if (options.engine) await backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
-    await backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...unreachedPlatformServices(place.hubUrl) });
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['instance']));
-    await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['hub']));
-    const asOwner = fetchSide(place.rootUrl, owner.cookie);
-    await until('the hub naming its sign-in key to root', async () =>
-      { const { location } = await asOwner('/api/identity/go?to=hub'); return location === `${place.hubUrl}/api/auth/oidc/start` ? true : waiting(`root sent the owner to ${location}`); }, () => containerNotRunning(names.containers['hub']));
 
     const instanceDb = async () => {
       const { client, release } = await leaseMongo(withDatabase(mongoUri, names.databases.instance));
@@ -222,11 +206,11 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       exec: (process, command) => hostContainers.exec(names.containers[process], ['sh', '-c', command]),
       restart: async (process) => {
         await hostContainers.restart(names.containers[process]);
-        const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : process === 'hub' ? place.hubUrl : undefined;
+        const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : undefined;
         if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(names.containers[process]));
       },
       terminate: async (workflowId, reason) => { await hostContainers.exec(await temporalContainer(), ['temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
-      names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl, hubUrl: place.hubUrl,
+      names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl,
       mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id, instanceCredential,
       instanceDb, logs, stop,
     };

@@ -5,10 +5,6 @@ export const DEV = {
   rootHost: 'koala',
   rootApiPort: 3002,
   rootWebPort: 5175,
-  hubDatabase: 'koala_dev_hub',
-  hubHost: 'hub',
-  hubApiPort: 3003,
-  hubWebPort: 5176,
   instanceName: 'dev',
   instanceWebPort: 5173,
   instanceNodePort: 30320,
@@ -29,24 +25,17 @@ export const DEV = {
 
 export const devGiteaOnThisComputer = `http://127.0.0.1:${DEV.giteaNodePort}`;
 
-export const devHubOnThePodNetwork = `http://${DEV.podGateway}:${DEV.hubApiPort}`;
-
 export interface DevRootInput {
   mongoUri: string;
   setupCode: string;
-  hubCredential: string;
-  hubCredentialHash: string;
-  rootPublicKeys: string;
   temporalCa: string;
   dataDir: string;
 }
 
 export interface DevRootPlan {
   rootUrl: string;
-  hubUrl: string;
   instanceUrl: string;
   rootEnv: Record<string, string>;
-  hubEnv: Record<string, string>;
 }
 
 const devTemporal = (input: Pick<DevRootInput, 'temporalCa' | 'dataDir'>): Record<string, string> => ({
@@ -58,11 +47,8 @@ const devTemporal = (input: Pick<DevRootInput, 'temporalCa' | 'dataDir'>): Recor
 
 export function devRootPlan(input: DevRootInput): DevRootPlan {
   const rootUrl = webUrl(DEV.rootHost, DEV.rootWebPort);
-  const hubUrl = webUrl(DEV.hubHost, DEV.hubWebPort);
-  const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
   return {
     rootUrl,
-    hubUrl,
     instanceUrl: webUrl(DEV.instanceName, DEV.instanceWebPort),
     rootEnv: {
       ROLE: 'root',
@@ -71,8 +57,6 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
       TRUST_PROXY: 'loopback',
-      HUB_URL: hubUrl,
-      HUB_CREDENTIAL_HASH: input.hubCredentialHash,
       ADMIN_SETUP_CODE: input.setupCode,
       MESH_LOGIN_SERVER: DEV.meshLoginServer,
       INSTANCE_REGISTRY: DEV.registry,
@@ -85,23 +69,6 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       MAIL_FROM: DEV.mailFrom,
       HEALTH_PORT: '0',
       TEMPORAL_METRICS_PORT: String(DEV.rootWorkerMetricsPort),
-    },
-    hubEnv: {
-      ROLE: 'hub',
-      PORT: String(DEV.hubApiPort),
-      MONGO_URI: withDatabase(input.mongoUri, DEV.hubDatabase),
-      HUB_DATABASE: DEV.hubDatabase,
-      PUBLIC_URL: hubUrl,
-      APP_URL: hubUrl,
-      TRUST_PROXY: 'loopback',
-      ROOT_URL: rootUrl,
-      ROOT_PUBLIC_KEYS: rootPublicKeys,
-      HUB_CREDENTIAL: input.hubCredential,
-      GITEA_URL: devGiteaOnThisComputer,
-      GITEA_REACHES_KOALA_AT: devHubOnThePodNetwork,
-      KOALA_TELEMETRY_CLUSTER: 'hub',
-      ...devTemporal(input),
-      MAIL_FROM: DEV.mailFrom,
     },
   };
 }
@@ -117,7 +84,6 @@ export function devKoalaValues(checkout: string, instanceUrl: string): string {
     `  - ip: "${DEV.podGateway}"`,
     '    hostnames:',
     `      - "${DEV.rootHost}.localhost"`,
-    `      - "${DEV.hubHost}.localhost"`,
     '',
   ].join('\n');
 }

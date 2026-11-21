@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosInstance } from 'axios';
-import { memberSpaceId, spaceUser } from '../checks/index.js';
+import { spaceUser } from '../checks/index.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import type { UserMetadata } from '../platform/lib/types.js';
 import { mountCheckApi, type CheckApi } from './testing/check-api.js';
@@ -15,6 +15,12 @@ import { createCheckProgressActivity, createCheckRunActivities, type CheckReleas
 const at = '2026-11-02T10:00:00.000Z';
 
 let api: CheckApi;
+
+const madeProjectsAreKept = () => api.ports.repos.createProject.mockImplementation(async (ownerId, input) => {
+  const project = { id: 'p1', name: input.name, ownerId, giteaOwner: 'space', giteaRepo: input.repo, appType: 'gitapp' as const, createdAt: at };
+  await api.db.projects.saveProject(project as never);
+  return project as never;
+});
 let seeded: Record<string, string>;
 let terminated: string[];
 let released: CheckReleases | undefined;
@@ -241,72 +247,6 @@ describe('a check\'s world made through the real routes', () => {
     expect((await perform({ ...CHAT, world: apps })).result.error).toBe('the world\'s app shop did not deploy: it is gone');
     api.ports.bridge.deployApp.mockRejectedValue(new Error('no cluster'));
     expect((await perform({ ...CHAT, world: apps })).result.error).toBe('the world\'s app shop could not be deployed: no cluster');
-  });
-});
-
-describe('a check that shares its project through the real routes', () => {
-  const shared: Scenario = { ...CHAT, world: { project: { name: 'shop' }, shared: { members: ['client'] } } };
-  const member = () => memberSpaceId('space-1', 'client');
-
-  beforeEach(async () => {
-    api.ports.repos.createProject.mockImplementation(async (ownerId, input) => {
-      const project = { id: 'p1', name: input.name, ownerId, giteaOwner: 'space', giteaRepo: input.repo, appType: 'gitapp' as const, createdAt: at };
-      await api.db.projects.saveProject(project as never);
-      return project as never;
-    });
-    api.ports.sharing.share.mockResolvedValue({ ok: true, value: { shared: { hubProjectId: 'h1' } } } as never);
-    api.ports.sharing.takeBack.mockResolvedValue({ ok: true, value: { taken: true } } as never);
-    api.ports.hub.invite.mockResolvedValue({ ok: true, value: { link: 'http://koala.test/#/join?code=x&project=tok%2F1' } } as never);
-    api.ports.hub.accept.mockResolvedValue({ ok: true, value: {} } as never);
-    await api.db.accounts.saveUser(spaceUser(member(), { person: 'bo', checkRunId: 'c1', scenarioId: 'x' }, at));
-  });
-
-  it('shares the project under a group of its own, invites each member by email and has them join as themselves, then takes the project back', async () => {
-    const { result } = await perform(shared);
-
-    expect(api.ports.sharing.share).toHaveBeenCalledWith({ id: 'space-1', email: 'space-1@checks.internal' }, 'p1', 'chkspace1');
-    expect(api.ports.hub.invite).toHaveBeenCalledWith(expect.objectContaining({ id: 'space-1' }), 'h1', { email: `${member()}@checks.internal`, role: 'client' });
-    expect(api.ports.hub.accept).toHaveBeenCalledWith({ id: member(), email: `${member()}@checks.internal` }, 'tok/1');
-    expect(api.ports.sharing.takeBack).toHaveBeenCalledWith('space-1', 'p1', 'shop-space-1');
-    expect(result.outcome).toBe('ok');
-  });
-
-  it('stops with the reason at each step the real routes refuse', async () => {
-    api.ports.sharing.share.mockResolvedValue({ ok: false, status: 400, why: 'no hub' } as never);
-    expect((await perform(shared)).result.error).toBe('the check\'s project could not be shared: no hub');
-    api.ports.sharing.share.mockResolvedValue({ ok: true, value: { shared: { hubProjectId: 'h1' } } } as never);
-    api.ports.hub.invite.mockResolvedValue({ ok: false, status: 400, why: 'full' } as never);
-    expect((await perform(shared)).result.error).toBe('the check\'s client could not be invited: full');
-    api.ports.hub.invite.mockResolvedValue({ ok: true, value: { link: 'http://koala.test/#/join?code=x&project=tok%2F1' } } as never);
-    api.ports.hub.accept.mockResolvedValue({ ok: false, status: 403, why: 'late' } as never);
-    expect((await perform(shared)).result.error).toBe('the check\'s client could not join: late');
-  });
-
-  it('has a member ask Koala in the shared channel as themselves and follows the run the owner\'s instance starts', async () => {
-    api.ports.hub.post.mockImplementation(async (person, _hubId, channelId, body) => {
-      const channel = (await api.db.engine.getConversation('space-1', channelId))!;
-      await api.db.engine.saveConversation({ ...channel, messages: [
-        { role: 'user', content: String(body.content), runId: 'run-9', author: { kind: 'person', id: person.id }, at },
-        { role: 'assistant', content: 'It is live.', runId: 'run-9', at },
-      ] as never });
-      await log('space-1', 'run-9', 1, [{ type: 'run.started', runId: 'run-9', at, agentId: 'koala' }, { type: 'content', runId: 'run-9', at, delta: 'It is live.' }, finishing('run-9')]);
-      return { ok: true, value: { asked: { id: 'ask-1' } } } as never;
-    });
-    const { result } = await perform({ ...shared, then: [{ name: 'ask', do: { memberAsks: { as: 'client', message: 'What is live?' } }, expect: { outcome: 'ok' } }] });
-
-    expect(api.ports.hub.post).toHaveBeenCalledWith({ id: member(), email: `${member()}@checks.internal` }, 'h1', expect.stringContaining('channel') as string, { content: 'What is live?', askKoala: true });
-    expect(failures(result.checks)).toEqual([]);
-  });
-
-  it('says why when the member\'s ask is refused, was never an ask, or the owner\'s instance refused it', async () => {
-    const asking = () => perform({ ...shared, then: [{ name: 'ask', do: { memberAsks: { as: 'client', message: 'Hi' } }, expect: { outcome: 'ok' } }] });
-    api.ports.hub.post.mockResolvedValue({ ok: false, status: 403, why: 'read only' } as never);
-    expect((await asking()).result.checks.map((check) => check.detail)).toContain('the client\'s message was refused: read only');
-    api.ports.hub.post.mockResolvedValue({ ok: true, value: {} } as never);
-    expect((await asking()).result.checks.map((check) => check.detail)).toContain('the client\'s message did not ask Koala');
-    api.ports.hub.post.mockResolvedValue({ ok: true, value: { asked: { id: 'ask-1' } } } as never);
-    api.ports.hub.boardView.mockResolvedValue({ ok: true, value: { requests: [{ id: 'ask-1', state: 'refused', why: 'not yours' }] } } as never);
-    expect((await asking()).result.checks.map((check) => check.detail)).toContain('the owner\'s instance refused the client\'s ask: not yours');
   });
 });
 
@@ -607,11 +547,7 @@ describe('the actions a check performs on a tree and its project through the rea
 
   it('posts to the project\'s channel on the real conversations route, and says when the post is refused', async () => {
     const world = { project: { name: 'shop' } };
-    api.ports.repos.createProject.mockImplementation(async (ownerId, input) => {
-      const project = { id: 'p1', name: input.name, ownerId, giteaOwner: 'space', giteaRepo: input.repo, appType: 'gitapp' as const, createdAt: at };
-      await api.db.projects.saveProject(project as never);
-      return project as never;
-    });
+    madeProjectsAreKept();
     const post = (message: string, scenario: Partial<Scenario> = {}) => perform({ ...CHAT, world, then: [{ name: 'post', do: { post: { message, in: 'channel' } }, expect: { outcome: 'ok' } }], ...scenario });
     expect(failures((await post('In {{world.conversationId}}')).result.checks)).toEqual([]);
     const channel = (await api.db.engine.getConversations()).find((conversation) => conversation.kind === 'channel')!;
@@ -638,11 +574,7 @@ describe('the actions a check performs on a tree and its project through the rea
 
   it('deletes the project by its name on the real projects route and waits for its removal to finish, or says why it stopped', async () => {
     const world = { project: { name: 'shop' } };
-    api.ports.repos.createProject.mockImplementation(async (ownerId, input) => {
-      const project = { id: 'p1', name: input.name, ownerId, giteaOwner: 'space', giteaRepo: input.repo, appType: 'gitapp' as const, createdAt: at };
-      await api.db.projects.saveProject(project as never);
-      return project as never;
-    });
+    madeProjectsAreKept();
     const remove = () => perform({ ...CHAT, world, then: [{ name: 'delete', do: { deleteProject: true }, expect: { outcome: 'ok' } }] });
     api.ports.removal.remove.mockResolvedValue({ ok: true, state: { state: 'running' } } as never);
     api.ports.removal.preview
@@ -853,11 +785,7 @@ describe('what a check observes of its run, through the real routes', () => {
   });
 
   it('finds out whether the project is gone', async () => {
-    api.ports.repos.createProject.mockImplementation(async (ownerId, input) => {
-      const project = { id: 'p1', name: input.name, ownerId, giteaOwner: 'space', giteaRepo: input.repo, appType: 'gitapp' as const, createdAt: at };
-      await api.db.projects.saveProject(project as never);
-      return project as never;
-    });
+    madeProjectsAreKept();
     api.ports.removal.preview.mockResolvedValue(undefined as never);
     const { result } = await perform({ ...CHAT, world: { project: { name: 'shop' } }, expect: { project: { exists: false } } });
     expect(failures(result.checks)).toEqual([]);

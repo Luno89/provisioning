@@ -41,7 +41,6 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey() }),
     db: site.db,
     temporal: () => temporal.client,
-    hubPeople: undefined,
     operatorOnly: site.auth.requireOperator('manage-accounts'),
     clearSession: site.auth.clearSession,
     devices: devicesFor({ auth: site.auth, sessionKey: SESSION_KEY, authService }),

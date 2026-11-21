@@ -27,7 +27,6 @@ let roles: ThreeRoles;
 let issuer: StandInIssuer;
 let root: LoopbackRole;
 let instance: LoopbackRole;
-let hub: LoopbackRole;
 let mail: SmtpSink;
 let owner: ThreeRoles['owner'];
 let instanceId: string;
@@ -51,7 +50,7 @@ beforeAll(async () => {
       return { OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in' };
     },
   });
-  ({ root, instance, hub, mail, owner, instanceId, mongoUri, databases } = roles);
+  ({ root, instance, mail, owner, instanceId, mongoUri, databases } = roles);
 });
 
 afterAll(async () => {
@@ -59,7 +58,7 @@ afterAll(async () => {
   await issuer?.close();
 });
 
-describe('signing in across root, an instance and the hub, each its own process', () => {
+describe('signing in across root and an instance, each its own process', () => {
   it('root offers only the providers it is configured for, refuses a sign-up through one with no invite, makes the account with an invite and finds it again by its subject', async () => {
     const person = { sub: `provider-${STAMP}`, email: `provider-${STAMP}@across.test`, email_verified: true };
     const offered = (await call(`${root.url}/api/auth/sign-in`)).body as { providers: { id: string; label: string }[] };
@@ -95,7 +94,7 @@ describe('signing in across root, an instance and the hub, each its own process'
   });
 
   it('each answers at its own address, root holds no one\'s work, and the instance starts a sign-in through root', async () => {
-    for (const url of [root.url, instance.url, hub.url]) expect((await call(`${url}/api/auth/sign-in`)).status).toBe(200);
+    for (const url of [root.url, instance.url]) expect((await call(`${url}/api/auth/sign-in`)).status).toBe(200);
     expect(((await call(`${instance.url}/api/auth/sign-in`)).body as { url: string }).url).toBe('/api/auth/oidc/start');
     expect((await call(`${instance.url}/api/conversations`)).status).toBe(401);
     expect(((await call(`${root.url}/api/auth/me`, { cookie: owner.cookie })).body as { id?: string }).id).toBe(owner.id);
@@ -104,7 +103,6 @@ describe('signing in across root, an instance and the hub, each its own process'
   });
 
   let session = '';
-  let hubSession = '';
 
   it('root signs the owner in to the instance by code, PKCE and state, once and only in the browser that started it; the instance makes no accounts', async () => {
     await until('root to send the owner on to the instance', async () => {
@@ -151,13 +149,6 @@ describe('signing in across root, an instance and the hub, each its own process'
     expect(forged.status).toBe(401);
   });
 
-  it('the hub signs the owner in through root too', async () => {
-    hubSession = (await signedInThrough(fetchSide(root.url, owner.cookie), fetchSide(hub.url), '/api/identity/go?to=hub')).session;
-    const hubMe = await call(`${hub.url}/api/auth/me`, { cookie: hubSession });
-    expect(hubMe.status).toBe(200);
-    expect((hubMe.body as { onHub?: boolean }).onHub).toBe(true);
-  });
-
   it('root emails the owner once its instance has been gone past its threshold and once it is back; root gone shows on the instance and clears', async () => {
     onTestFailed(() => console.log(`mail: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ')}\n── root ──\n${root.logs(80)}\n── instance ──\n${instance.logs(40)}`));
     const rootDown = async () => {
@@ -189,7 +180,7 @@ describe('signing in across root, an instance and the hub, each its own process'
     }
   });
 
-  it('signing out everywhere on root ends the instance\'s and the hub\'s sessions at once, and revokes a run\'s grant', async () => {
+  it('signing out everywhere on root ends the instance\'s sessions at once, and revokes a run\'s grant', async () => {
     const run = await call(`${instance.url}/api/engine/runs`, { method: 'POST', body: { agent: 'koala', message: 'hello from the sign-in test' }, cookie: session });
     expect(run.status, JSON.stringify(run.body)).toBe(201);
     const runId = (run.body as { runId: string }).runId;
@@ -205,10 +196,6 @@ describe('signing in across root, an instance and the hub, each its own process'
       await until('the instance to end the owner\'s session', async () => {
         const status = (await call(`${instance.url}/api/auth/me`, { cookie: session })).status;
         return status === 401 ? true : waiting(`the instance answers ${status}`);
-      });
-      await until('the hub to end the owner\'s session', async () => {
-        const status = (await call(`${hub.url}/api/auth/me`, { cookie: hubSession })).status;
-        return status === 401 ? true : waiting(`the hub answers ${status}`);
       });
       await until('the run\'s grant to be revoked', async () => {
         const state = (await grantOf())?.state;

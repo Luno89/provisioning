@@ -35,9 +35,8 @@ export function identityRouter(deps: {
     const user = await accounts.signedIn(req);
     res.setHeader('Cache-Control', 'no-store');
     if (!user) return res.redirect(302, '/');
-    const toHub = req.query.to === 'hub';
-    const going = await accounts.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined);
-    if (!going) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
+    const going = await accounts.identity.goUrl(user);
+    if (!going) return res.status(404).json({ error: 'you have no instance yet' });
     if ('waiting' in going) return res.status(409).json({ error: going.waiting });
     return res.redirect(302, going.url);
   }));

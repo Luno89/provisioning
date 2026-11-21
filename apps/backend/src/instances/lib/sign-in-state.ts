@@ -6,8 +6,6 @@ export interface ClientSession {
   ownerId: string;
   email: string;
   refreshToken: string;
-  accessToken?: string | undefined;
-  accessExpiresAt?: string | undefined;
   startedAt: string;
   expiresAt: string;
 }

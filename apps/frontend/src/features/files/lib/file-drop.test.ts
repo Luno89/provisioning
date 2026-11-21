@@ -63,12 +63,6 @@ describe('where an attachment is kept', () => {
     expect(sentAttachmentPlace({ name: 'old.png' }, 'c1')).toBeUndefined()
     expect(sentAttachmentPlace({ fileId: 'f1', name: 'x.png' }, undefined)).toBeUndefined()
   })
-
-  it('is the shared project\'s files on the hub, where a chat\'s own files cannot be reached', () => {
-    expect(sentAttachmentPlace({ fileId: 'f1', name: 'brief.pdf', project: { id: 'p1', name: 'Shop' } }, 'c1', 'h1')).toEqual({ scope: { kind: 'hub', projectId: 'h1' }, path: 'chats/c1/brief.pdf' })
-    expect(sentAttachmentPlace({ fileId: 'f2', name: 'x.png' }, 'c1', 'h1')).toBeUndefined()
-    expect(sentAttachmentPlace({ name: 'old.png', project: { id: 'p1', name: 'Shop' } }, 'c1', 'h1')).toBeUndefined()
-  })
 })
 
 describe('what is sent of an attachment', () => {

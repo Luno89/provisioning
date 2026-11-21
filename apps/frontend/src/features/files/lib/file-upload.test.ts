@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { StoredFile } from '../types'
 import {
-  checksRoom, countsLinks, fileIdsUnder, fits, linksStopped, movePrompt, replacePrompt, roomText,
+  fileIdsUnder, fits, linksStopped, movePrompt, replacePrompt, roomText,
   takenPaths, targetPaths, totalSize, uploadRefusal, uploadWay,
 } from './file-upload'
 
@@ -24,23 +24,11 @@ describe('what an upload sends', () => {
     expect(totalSize([picked('a', 3), picked('b', 1024)])).toBe(1027)
   })
 
-  it('sends one file by itself and several as one drop, on the hub one at a time', () => {
-    const project = { kind: 'project' as const, projectId: 'p' }
-    expect(uploadWay(project, 1)).toBe('put')
-    expect(uploadWay(project, 0)).toBe('put')
-    expect(uploadWay(project, 2)).toBe('drop')
-    expect(uploadWay({ kind: 'mine' }, 5)).toBe('drop')
-    expect(uploadWay({ kind: 'conversation', conversationId: 'c' }, 2)).toBe('drop')
-    expect(uploadWay({ kind: 'hub', projectId: 'h' }, 1)).toBe('put')
-    expect(uploadWay({ kind: 'hub', projectId: 'h' }, 3)).toBe('each')
-  })
-
-  it('asks for room and counts links only on the person\'s own instance', () => {
-    expect(checksRoom({ kind: 'mine' })).toBe(true)
-    expect(checksRoom({ kind: 'project', projectId: 'p' })).toBe(true)
-    expect(checksRoom({ kind: 'hub', projectId: 'h' })).toBe(false)
-    expect(countsLinks({ kind: 'conversation', conversationId: 'c' })).toBe(true)
-    expect(countsLinks({ kind: 'hub', projectId: 'h' })).toBe(false)
+  it('sends one file by itself and several as one drop', () => {
+    expect(uploadWay(1)).toBe('put')
+    expect(uploadWay(0)).toBe('put')
+    expect(uploadWay(2)).toBe('drop')
+    expect(uploadWay(5)).toBe('drop')
   })
 })
 

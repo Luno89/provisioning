@@ -19,7 +19,6 @@ import type {
   RunCheckpoint,
   RunContext,
   RunLaunch,
-  ActingFor,
   StepResult,
   ValueResult,
 } from '@koala/agent-engine/procedure';
@@ -36,8 +35,6 @@ export interface RunTicket {
   ownerId: string;
   principal?: Principal | undefined;
   grantId?: string | undefined;
-  actingFor?: ActingFor | undefined;
-  keptTo?: string | undefined;
   agentSlug: string;
   conversationId?: string | undefined;
   projectId?: string | undefined;
@@ -312,8 +309,6 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   ownerId: run.launch.ownerId,
   ...(run.launch.principal ? { principal: run.launch.principal as Principal } : {}),
   ...(run.launch.grantId ? { grantId: run.launch.grantId } : {}),
-  ...(run.launch.actingFor ? { actingFor: run.launch.actingFor } : {}),
-  ...(run.launch.keptTo ? { keptTo: run.launch.keptTo } : {}),
   ...(run.launch.turnId && run.launch.turnId !== run.identity.runId ? { turnId: run.launch.turnId } : {}),
   agentSlug: run.identity.agentId,
   ...(run.launch.conversationId ? { conversationId: run.launch.conversationId } : {}),
@@ -330,8 +325,6 @@ export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => (
   ownerId: ticket.ownerId,
   ...(ticket.principal ? { principal: ticket.principal } : {}),
   ...(ticket.grantId ? { grantId: ticket.grantId } : {}),
-  ...(ticket.actingFor ? { actingFor: ticket.actingFor } : {}),
-  ...(ticket.keptTo ? { keptTo: ticket.keptTo } : {}),
   turnId: turnOf(ticket),
   ...((projectId ?? ticket.projectId) ? { projectId: projectId ?? ticket.projectId } : {}),
   ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),

@@ -39,8 +39,6 @@ const INSTANCE = {
   INSTANCE_CREDENTIAL: 'cred', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local', KOALA_RELEASE_REVISION: '7',
 };
 
-const HUB = { ...BACKEND, ROLE: 'hub', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, HUB_CREDENTIAL: 'hub-cred', HUB_DATABASE: 'koala_hub', GITEA_URL: TENANT.GITEA_URL, GITEA_REACHES_KOALA_AT: 'http://hub.koala.dev' };
-
 const WORKER = { HEALTH_PORT: '8090', TEMPORAL_METRICS_PORT: '9464' };
 
 const problemsOf = (read: () => unknown): string[] => {
@@ -135,9 +133,8 @@ describe('the settings a backend reads once, at start', () => {
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, POOL: 'yes' }))).toContain('POOL is "yes"; it is "true" on a trial instance on Koala\'s servers and unset anywhere else');
   });
 
-  it('takes the hub\'s, its registry database named rather than guessed', () => {
-    expect(backendSettingsFrom(HUB)).toMatchObject({ hubDatabase: 'koala_hub', hubGitea: { url: TENANT.GITEA_URL }, terraform: { off: 'the hub runs no Terraform' } });
-    expect(problemsOf(() => backendSettingsFrom({ ...HUB, HUB_DATABASE: '' }))).toContain('HUB_DATABASE is not set: it is the database the hub keeps its registry of shared projects in');
+  it('takes no hub, which is archived, naming the roles there are', () => {
+    expect(problemsOf(() => backendSettingsFrom({ ...BACKEND, ROLE: 'hub', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, HUB_CREDENTIAL: 'hub-cred' }))).toContain('ROLE is "hub"; it has to be one of root, instance');
   });
 
   it('takes no queue names from the environment, which name where work runs in one place, and keeps test parameters at the product\'s value unless a suite shortens them', () => {

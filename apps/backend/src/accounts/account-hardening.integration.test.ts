@@ -88,7 +88,7 @@ afterAll(async () => {
   await roles?.close();
 });
 
-describe('an account is hard to take over, on a root of its own beside an instance and a hub', () => {
+describe('an account is hard to take over, on a root of its own beside an instance', () => {
   it('refuses a short or leaked password, and hands no sign-up code back: the code only goes by email', async () => {
     const patInvite = await invite();
     for (const [password, said] of [['short-pw', /at least 12 characters/], ['Password1234', /leaked/]] as const) {

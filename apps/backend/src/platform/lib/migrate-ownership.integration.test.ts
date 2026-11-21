@@ -39,7 +39,6 @@ describe('records nobody owned', () => {
     await db.accounts.saveUser(person('old', '2026-01-01'));
     await db.projects.saveProjectInfo({ id: 'legacy', name: 'Legacy', createdAt: 't' } as never);
     await db.infrastructure.saveCluster({ id: 'c', name: 'c', provider: 'machine', status: 'stopped' } as never);
-    expect(await ownUnownedProjects(db, { role: 'hub' })).toEqual({ owned: 0, left: 1 });
     expect(await ownUnownedProjects(db, { role: 'root' })).toEqual({ owned: 0, left: 1 });
     expect(await migrateLegacyOwnership(db, { role: 'root' }, '2026-11-17T00:00:00.000Z')).toEqual({ owned: 0, left: 1 });
     expect((await db.accounts.getUserById('old'))?.roles).toBeUndefined();
