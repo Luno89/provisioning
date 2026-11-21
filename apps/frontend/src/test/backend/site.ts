@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import express, { type Router } from 'express'
 import { Server as SocketServer } from 'socket.io'
 import { afterAll } from 'vitest'
-import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
+import { createAuth, type Auth, type ClientSession, type ClientSessions } from '../../../../backend/src/platform/middleware/auth'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
@@ -19,7 +19,7 @@ import { PasswordService } from '../../../../backend/src/accounts/services/Passw
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
-import { login, verifySignUp, type SessionUser } from '../../features/platform'
+import { getMe, login, verifySignUp, type SessionUser } from '../../features/platform'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
 export const SETUP_CODE = 'frontend-integration-setup-code'
@@ -61,7 +61,28 @@ const moveThePageTo = (origin: string): void => {
   dom.window._origin = origin
 }
 
-export async function startBackend(mount: (site: Site) => void | Promise<void>): Promise<Backend> {
+const INSTANCE_OWNER = 'owner-1'
+
+function signedInThroughRoot(): { sessions: ClientSessions; signIn: (email: string) => string } {
+  const held = new Map<string, ClientSession>()
+  return {
+    sessions: {
+      verified: (token) => { const session = token ? held.get(token) : undefined; return session && { ...session, until: Date.now() + 3_600_000 } },
+      renew: async () => 'kept',
+      end: async (session) => { for (const [token, kept] of held) if (kept.sid === session.sid) held.delete(token) },
+      sessionSeconds: 3600,
+    },
+    signIn: (email) => {
+      const token = randomUUID()
+      held.set(token, { userId: email === 'owner@koala.test' ? INSTANCE_OWNER : `person-${held.size}`, email, sid: randomUUID(), sessionAt: Date.now(), freshUntil: Date.now() + 3_600_000, claims: [{ role: 'person' }, ...(email === 'owner@koala.test' ? [{ role: 'instance-owner' as const }] : [])] })
+      return token
+    },
+  }
+}
+
+export async function startBackend(mount: (site: Site) => void | Promise<void>, options: { role?: 'root' | 'instance' } = {}): Promise<Backend> {
+  const asInstance = options.role === 'instance'
+  const throughRoot = signedInThroughRoot()
   const db = await testDatabase()
   await seedAll(db)
   const app = express()
@@ -73,7 +94,9 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
 
   const sessionEnds = new SessionEnds(db.platform)
   const revocations = new AccessRevocations()
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', setupCode: SETUP_CODE, sessionEnds })
+  const auth = asInstance
+    ? createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'instance', instanceOwnerId: INSTANCE_OWNER, clientSessions: throughRoot.sessions, sessionEnds })
+    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', setupCode: SETUP_CODE, sessionEnds })
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })
@@ -91,6 +114,12 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
   moveThePageTo(origin)
 
   const signIn = async (email = 'owner@koala.test'): Promise<SessionUser> => {
+    if (asInstance) {
+      document.cookie = `session=${throughRoot.signIn(email)}; path=/`
+      const me = await getMe()
+      if (!me) throw new Error(`the instance did not take ${email}'s session from root`)
+      return me
+    }
     if ((await db.accounts.getUsers()).length === 0) await login({ email, password: PASSWORD, inviteCode: SETUP_CODE }, { register: true })
     const signedIn = await login({ email, password: PASSWORD })
     if (!signedIn.user) throw new Error(`signing in as ${email} answered ${JSON.stringify(signedIn)}`)
@@ -110,6 +139,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>):
   }
 
   const signInAnother = async (email: string): Promise<SessionUser> => {
+    if (asInstance) return signIn(email)
     const pending = await login({ email, password: PASSWORD, inviteCode: await invite() }, { register: true })
     if (!pending.verify) throw new Error(`signing up ${email} answered ${JSON.stringify(pending)}`)
     const made = await verifySignUp({ id: pending.verify, code: codeMailedTo(email) })

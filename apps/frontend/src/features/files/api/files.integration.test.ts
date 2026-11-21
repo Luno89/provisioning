@@ -28,7 +28,7 @@ const backend = await startBackend(async ({ api, db }) => {
     getOwnedConversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
   }))
   api.use('/share', shareRouter({ files }))
-})
+}, { role: 'instance' })
 
 const owner = await backend.signIn()
 const now = new Date().toISOString()
