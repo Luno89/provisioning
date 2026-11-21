@@ -32,8 +32,8 @@ export const getMe = (): Promise<SessionUser | null> =>
     throw err
   })
 
-export const logout = (): Promise<void> =>
-  api.post('/auth/logout', {}).then(() => undefined)
+export const logout = (): Promise<string | undefined> =>
+  api.post<{ endSession?: string }>('/auth/logout', {}).then((r) => r.data.endSession)
 
 export interface LoginResult {
   user?: SessionUser

@@ -7,7 +7,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import { koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE, treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars, TreeHomeService, webhookUrlAt, type GroveRunLauncher } from './projects/index.js';
-import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, principalOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
+import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, principalOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, BrowserSessions, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -143,7 +143,11 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
   const engineRole = settings.role;
-  const rootSignIn = rootSignInFor({ role: engineRole, instanceCredential: settings.instanceCredential, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl });
+  const rootSignIn = rootSignInFor({
+    role: engineRole, instanceCredential: settings.instanceCredential, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl,
+    sessions: new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: () => true }),
+    dependency: { failed: (dependency, err) => { logger.warn(`[sign-in] ${dependency} did not answer the engine worker: ${(err as Error).message}`); return err; } },
+  });
   rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
   const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });

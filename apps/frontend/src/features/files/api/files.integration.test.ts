@@ -139,11 +139,11 @@ describe('adding files, as the file browser sends them', () => {
 })
 
 describe('another person\'s files, as the file browser asks for them', () => {
-  it('reaches none of the first person\'s projects, chats or links', async () => {
-    await backend.signInAnother('second@koala.test')
-    await expect(listStoredFiles(shop, '')).rejects.toMatchObject({ response: { status: 404 } })
-    await expect(listStoredFiles({ kind: 'conversation', conversationId: 'chat' }, '')).rejects.toMatchObject({ response: { status: 404 } })
-    expect(await listStoredFiles({ kind: 'mine' }, '')).toEqual([])
-    expect(await listFileShares()).toEqual([])
+  it('is turned away at root and reaches none of the owner\'s projects, chats or links', async () => {
+    expect(await backend.turnedAway('second@koala.test')).toMatch(/belongs to someone else/)
+    await expect(listStoredFiles(shop, '')).rejects.toMatchObject({ response: { status: 401 } })
+    await expect(listStoredFiles({ kind: 'conversation', conversationId: 'chat' }, '')).rejects.toMatchObject({ response: { status: 401 } })
+    await expect(listStoredFiles({ kind: 'mine' }, '')).rejects.toMatchObject({ response: { status: 401 } })
+    await expect(listFileShares()).rejects.toMatchObject({ response: { status: 401 } })
   })
 })

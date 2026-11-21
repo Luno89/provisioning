@@ -232,9 +232,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
   }));
 
   router.post('/logout', asyncRoute(async (req, res) => {
-    await deps.auth.endSession(req);
+    const endSession = await deps.auth.endSession(req);
     clearSession(res);
-    res.json({ success: true });
+    res.json({ success: true, ...(endSession ? { endSession } : {}) });
   }));
 
   router.get('/me', (req, res) => {

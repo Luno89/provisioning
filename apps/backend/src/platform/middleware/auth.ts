@@ -1,6 +1,8 @@
 import express from 'express';
-import type { IncomingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signedSession, verifyJWT } from '../lib/auth.js';
+import { BROWSER_SESSION_COOKIE, type BrowserPerson, type PersonThroughRoot } from '../lib/browser-session.js';
+import type { BrowserSessions } from '../services/BrowserSessions.js';
 import type { SessionEnds } from '../services/SessionEnds.js';
 import { inviteCodeHash, inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
@@ -8,22 +10,11 @@ import type { Database } from '../lib/db-interface.js';
 import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
-import { authorize, principalOf, type Actions, type BearerSignIn, type Claim, type Principal, type Resource } from '../lib/permissions.js';
+import { authorize, principalOf, type Actions, type BearerSignIn, type Principal, type Resource } from '../lib/permissions.js';
 
-export interface ClientSession {
-  userId: string;
-  email: string;
-  sid: string;
-  sessionAt: number;
-  freshUntil: number;
-  claims: Claim[];
-}
-
-export interface ClientSessions {
-  verified(token: string | undefined): (ClientSession & { until: number }) | undefined;
-  renew(session: ClientSession): Promise<{ token: string; session: ClientSession } | 'kept' | 'ended'>;
-  end(session: ClientSession): Promise<void>;
-  sessionSeconds: number;
+export interface ThroughRoot {
+  sessions: BrowserSessions;
+  signIn: PersonThroughRoot;
 }
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
@@ -43,9 +34,9 @@ export interface AuthDeps {
   role: PlatformRole;
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
-  clientSessions?: ClientSessions | undefined;
+  throughRoot?: ThroughRoot | undefined;
   bearer?: ((token: string) => Promise<BearerSignIn>) | undefined;
-  sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
+  sessionEnds?: Pick<SessionEnds, 'ended' | 'end'> | undefined;
   open: readonly OpenMount[];
 }
 
@@ -60,7 +51,6 @@ interface SignedIn {
   user: UserMetadata;
   principal: Principal;
   sessionId?: string | undefined;
-  clientSession?: ClientSession;
 }
 
 const signedIn = (req: express.Request, fields: SignedIn): void => {
@@ -76,14 +66,15 @@ export function principalFrom(req: express.Request): Principal {
 export interface Auth {
   getCookie: (req: express.Request, name: string) => string | undefined;
   userFromSessionCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<UserMetadata | undefined>;
-  sessionFromCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined>;
+  sessionOf: (req: IncomingMessage) => Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined>;
+  sessionHandle: ((req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => void) | undefined;
   securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
   requireOperator: (action: Actions['install']) => express.RequestHandler;
   principalFor: (user: Pick<UserMetadata, 'id' | 'roles'>) => Principal;
   setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
   clearSession: (res: express.Response) => void;
-  endSession: (req: express.Request) => Promise<void>;
+  endSession: (req: express.Request) => Promise<string | undefined>;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
   checkAndConsumeInvite: (
     code: string | undefined,
@@ -122,15 +113,22 @@ function openedBy(open: readonly OpenMount[]): (req: express.Request, res: expre
   });
 }
 
-const userOfSession = (session: ClientSession): UserMetadata => ({
-  id: session.userId,
-  email: session.email,
+const userOfPerson = (person: BrowserPerson): UserMetadata => ({
+  id: person.sub,
+  email: person.email,
   emailVerified: true,
   twoFactorEnabled: false,
-  createdAt: new Date(session.sessionAt).toISOString(),
+  createdAt: new Date(person.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, bearer, sessionEnds, open }: AuthDeps): Auth {
+type HeldRequest = IncomingMessage & Pick<express.Request, 'session' | 'sessionID'>;
+
+const ran = (handle: NonNullable<Auth['sessionHandle']>, req: IncomingMessage, res: ServerResponse): Promise<void> =>
+  new Promise((resolve, reject) => { handle(req, res, (err) => (err ? reject(err instanceof Error ? err : new Error(String(err))) : resolve())); });
+
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, throughRoot, bearer, sessionEnds, open }: AuthDeps): Auth {
+  if (signsInThroughRoot(role) && (!throughRoot || sessionEnds)) throw new Error(`a ${role} signs people in only through root, so it is given root's sessions and no sessions of its own`);
+  if (!signsInThroughRoot(role) && (throughRoot || !sessionEnds)) throw new Error(`a ${role} keeps its own sessions, so it is given those and none through root`);
   const opens = openedBy(open);
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
@@ -143,48 +141,57 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
   const securedFor = (arrived: { headers: IncomingHttpHeaders; secure: boolean }): boolean =>
     signsInThroughRoot(role) ? arrivedOverHttps(arrived.headers['x-forwarded-proto'], arrived.secure) : sessionCookieOptions.secure;
 
-  const clientSessionOf = (token: string | undefined) => {
-    const session = clientSessions?.verified(token);
-    return session && !sessionEnds.ended(session.sid) ? session : undefined;
+  const ownSessionOf = (token: string | undefined) => {
+    const session = token && sessionEnds ? signedSession(verifyJWT(token, 'session', sessionKey)) : undefined;
+    return session && !sessionEnds?.ended(session.jti) ? session : undefined;
   };
 
-  const ownSessionOf = (token: string | undefined) => {
-    const session = token ? signedSession(verifyJWT(token, 'session', sessionKey)) : undefined;
-    return session && !sessionEnds.ended(session.jti) ? session : undefined;
+  const personHeld = async (req: HeldRequest): Promise<BrowserPerson | undefined> => {
+    const held = req.session?.person;
+    if (!throughRoot || !held) return undefined;
+    const fresh = await throughRoot.signIn.fresh(held);
+    if (fresh === 'ended') {
+      await throughRoot.sessions.end(req as express.Request);
+      return undefined;
+    }
+    if (fresh === 'kept') return held;
+    if (fresh !== held) await throughRoot.sessions.keep(req as express.Request, fresh);
+    return fresh;
   };
 
   async function sessionFromCookie(cookieHeader: string | undefined, secure: boolean): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> {
-    const token = parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure));
-    if (!token) return undefined;
-    if (clientSessions) {
-      const session = clientSessionOf(token);
-      return session ? { user: userOfSession(session), sessionId: session.sid, sessionAt: session.sessionAt } : undefined;
-    }
-    const session = ownSessionOf(token);
+    const session = ownSessionOf(parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure)));
     if (!session) return undefined;
     const user = await db.accounts.getUserById(session.userId);
     return !user || user.removal || sessionEnded(session, user) ? undefined : { user, sessionId: session.jti, sessionAt: session.sessionAt };
+  }
+
+  async function sessionOf(req: IncomingMessage): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> {
+    if (!throughRoot) return sessionFromCookie(req.headers.cookie, securedFor({ headers: req.headers, secure: false }));
+    const person = await personHeld(req as HeldRequest);
+    return person ? { user: userOfPerson(person), sessionId: (req as HeldRequest).sessionID, sessionAt: person.sessionAt } : undefined;
   }
 
   async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
     return (await sessionFromCookie(cookieHeader, secure))?.user;
   }
 
-  async function endSession(req: express.Request): Promise<void> {
-    const token = getCookie(req, cookieNamed(SESSION_COOKIE, securedFor(req)));
-    if (clientSessions) {
-      const session = clientSessionOf(token);
-      if (!session) return;
-      await sessionEnds.end(session.sid, Math.max(session.until, Date.now() + clientSessions.sessionSeconds * 1000));
-      await clientSessions.end(session);
-      return;
+  async function endSession(req: express.Request): Promise<string | undefined> {
+    if (throughRoot) {
+      await ran(throughRoot.sessions.handle, req, req.res!);
+      const person = req.session?.person;
+      if (!person) return undefined;
+      await throughRoot.sessions.end(req);
+      return throughRoot.signIn.end(person);
     }
-    const session = ownSessionOf(token);
-    if (session) await sessionEnds.end(session.jti, session.until);
+    const session = ownSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, securedFor(req))));
+    if (session) await sessionEnds?.end(session.jti, session.until);
+    return undefined;
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
     if (await opens(req, res)) return next();
+    if (throughRoot) await ran(throughRoot.sessions.handle, req, res);
     const presented = bearer ? /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1] : undefined;
     if (bearer && presented) {
       const signed = await bearer(presented);
@@ -192,26 +199,16 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
       signedIn(req, { user: signed.user, principal: signed.principal });
       return next();
     }
+    if (throughRoot) {
+      if (!req.session?.person) return res.status(401).json({ error: 'Unauthorized: Session missing' });
+      const person = await personHeld(req);
+      if (!person) return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
+      signedIn(req, { user: userOfPerson(person), sessionId: req.sessionID, principal: { kind: 'person', id: person.sub, claims: person.claims } });
+      return next();
+    }
     const secure = securedFor(req);
     if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });
-    }
-    if (clientSessions) {
-      let session: ClientSession | undefined = clientSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, secure)));
-      if (session && Date.now() >= session.freshUntil) {
-        const renewed = await clientSessions.renew(session);
-        if (renewed === 'ended') session = undefined;
-        else if (renewed !== 'kept') {
-          setSessionCookie(res, renewed.token, req);
-          session = renewed.session;
-        }
-      }
-      if (!session) {
-        clearSession(res);
-        return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
-      }
-      signedIn(req, { user: userOfSession(session), sessionId: session.sid, clientSession: session, principal: { kind: 'person', id: session.userId, claims: session.claims } });
-      return next();
     }
     const user = await userFromSessionCookie(req.headers.cookie, secure);
     if (!user) {
@@ -230,11 +227,12 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
 
   const setSessionCookie = (res: express.Response, token: string, req?: express.Request) => {
     const secure = req ? securedFor(req) : sessionCookieOptions.secure;
-    res.cookie(cookieNamed(SESSION_COOKIE, secure), token, { ...sessionCookieOptions, secure, maxAge: (clientSessions?.sessionSeconds ?? 24 * 60 * 60) * 1000 });
+    res.cookie(cookieNamed(SESSION_COOKIE, secure), token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
   };
   const clearSession = (res: express.Response) => {
-    res.clearCookie(cookieNamed(SESSION_COOKIE, true), { ...sessionCookieOptions, secure: true });
-    res.clearCookie(cookieNamed(SESSION_COOKIE, false), { ...sessionCookieOptions, secure: false });
+    const name = throughRoot ? BROWSER_SESSION_COOKIE : SESSION_COOKIE;
+    res.clearCookie(cookieNamed(name, true), { ...sessionCookieOptions, secure: true, path: '/' });
+    res.clearCookie(cookieNamed(name, false), { ...sessionCookieOptions, secure: false, path: '/' });
   };
 
   const inviteRefusal = (invite: InviteMetadata | undefined, email: string | undefined): string | null => {
@@ -268,7 +266,7 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
   }
 
   return {
-    getCookie, userFromSessionCookie, sessionFromCookie, securedFor, requireAuth, requireOperator, principalFor,
+    getCookie, userFromSessionCookie, sessionOf, sessionHandle: throughRoot?.sessions.handle, securedFor, requireAuth, requireOperator, principalFor,
     setSessionCookie, clearSession, endSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

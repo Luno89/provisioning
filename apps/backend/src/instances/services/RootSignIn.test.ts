@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { http, HttpResponse } from 'msw';
 import { mock } from 'vitest-mock-extended';
-import { reopening } from '../../platform/index.js';
+import { encryptValue, reopening } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { serveInProcess } from '../testing/serve-in-process.js';
@@ -74,19 +74,19 @@ describe('what an instance does when the sign-in does not go through', () => {
     const nothing = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback?code=c&state=s`), undefined);
     expect(nothing).toEqual({ ok: false, status: 400, error: 'this sign-in did not start in this browser — sign in again from here' });
     const started = await world.signIn.start('/projects');
-    const forged = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback?code=c&state=another`), started.cookie);
+    expect(started.started.next).toBe('/projects');
+    const forged = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback?code=c&state=another`), started.started);
     expect(forged).toMatchObject({ ok: false, status: 401 });
-    const garbage = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback`), 'not-a-cookie');
-    expect(garbage).toMatchObject({ ok: false, status: 400 });
+    const partial = await world.signIn.callback(new URL(`${world.instance.url}/api/auth/oidc/callback`), { state: 's' } as never);
+    expect(partial).toMatchObject({ ok: false, status: 400 });
   });
 
-  it('starts a sign-in that keeps only a path of its own in the cookie, with an address back to itself', async () => {
+  it('starts a sign-in that keeps only a path of its own to go back to, with an address back to itself', async () => {
     await world.signIn.announce();
     expect(world.signIn.redirectUri).toBe(`${world.instance.url}/api/auth/oidc/callback`);
     expect(world.signIn.issuer).toBe(`${world.root.url}/oidc`);
-    expect(world.signIn.startCookieSeconds).toBe(600);
-    expect(world.signIn.sessionSeconds).toBeGreaterThan(60 * 60);
     const started = await world.signIn.start('//evil.example.com');
+    expect(started.started.next).toBeUndefined();
     const url = new URL(started.url);
     expect(url.origin).toBe(world.root.url);
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
@@ -94,16 +94,13 @@ describe('what an instance does when the sign-in does not go through', () => {
     expect(url.searchParams.get('redirect_uri')).toBe(world.signIn.redirectUri);
   });
 
-  it('reads no one from a session token it did not sign, or one that root has revoked', async () => {
+  it('holds no one for a session root has revoked', async () => {
     await world.signIn.announce();
-    expect(world.signIn.verified(undefined)).toBeUndefined();
-    expect(world.signIn.verified('garbage')).toBeUndefined();
     const { instanceJar } = await world.signInAs('u1');
-    const session = world.signIn.verified(instanceJar.get('session'));
-    expect(session?.userId).toBe('u1');
+    expect((await world.heldPerson(instanceJar))?.sub).toBe('u1');
     await world.provider.revoke({ personId: 'u1', at: after(), because: 'signed-out-everywhere' });
     await world.provider.deliverLogouts();
-    expect(world.signIn.verified(instanceJar.get('session'))).toBeUndefined();
+    expect(await world.heldPerson(instanceJar)).toBeUndefined();
   });
 
   it('takes a logout token only when it is a string root signed for this client and for ending sessions', async () => {
@@ -158,42 +155,46 @@ describe('what an instance does when the sign-in does not go through', () => {
 });
 
 describe('an instance keeping its session with root', () => {
-  it('keeps the session as it was while root cannot be reached, and ends it for a session it does not hold', async () => {
+  const heldOnceItsAccessRunsOut = async () => {
     await world.signIn.announce();
     const { instanceJar } = await world.signInAs('u1');
-    const session = world.signIn.verified(instanceJar.get('session'))!;
+    const person = (await world.heldPerson(instanceJar))!;
+    world.offset = person.accessExp - Date.now() + 1000;
+    return person;
+  };
+
+  it('keeps the person as they were while their tokens are still good, and asks root nothing', async () => {
+    await world.signIn.announce();
+    const { instanceJar } = await world.signInAs('u1');
+    const person = (await world.heldPerson(instanceJar))!;
     world.root.up = false;
-    expect(await world.signIn.renew(session)).toBe('kept');
+    expect(await world.signIn.fresh(person)).toBe(person);
+    expect(world.rootDown).toEqual([]);
+  });
+
+  it('keeps the person on their last claims while root cannot be reached, says root is down, and ends a person whose refresh token root never gave', async () => {
+    const person = await heldOnceItsAccessRunsOut();
+    world.root.up = false;
+    expect(await world.signIn.fresh(person)).toBe('kept');
+    expect(world.rootDown).toEqual([having({ dependency: 'root', reason: anyText() })]);
     world.root.up = true;
-    expect(await world.signIn.renew({ ...session, sid: 'unknown' })).toBe('ended');
-    expect(await world.signIn.renew({ ...session, userId: 'u2' })).toBe('ended');
+    expect(await world.signIn.fresh({ ...person, tokens: { ...person.tokens, refresh: encryptValue('never-issued', 'instance-data-key-for-the-round-trip-0001') } })).toBe('ended');
   });
 
-  it('asks root once for a session renewed twice at once', async () => {
-    await world.signIn.announce();
-    const { instanceJar } = await world.signInAs('u1');
-    const session = world.signIn.verified(instanceJar.get('session'))!;
-    const [first, second] = await Promise.all([world.signIn.renew(session), world.signIn.renew(session)]);
+  it('asks root once for a person renewed twice at once', async () => {
+    const person = await heldOnceItsAccessRunsOut();
+    const [first, second] = await Promise.all([world.signIn.fresh(person), world.signIn.fresh(person)]);
     expect(first).toEqual(second);
-    expect(first).toMatchObject({ token: anyText() });
+    expect(first).toMatchObject({ sub: 'u1', tokens: { refresh: anyText() } });
   });
 
-  it('ends the session when root refuses the refresh token', async () => {
+  it('ends the person when root refuses the refresh token', async () => {
     await world.signIn.announce();
     const { instanceJar } = await world.signInAs('u1');
-    const session = world.signIn.verified(instanceJar.get('session'))!;
+    const person = (await world.heldPerson(instanceJar))!;
     await world.rootDb.instances.oidcForgetAccount('u1');
     world.offset = 10 * 60 * 60 * 1000;
-    expect(await world.signIn.renew(session)).toBe('ended');
-    expect(await world.instanceDb.instances.getClientSession(session.sid)).toBeUndefined();
-  });
-
-  it('ends a session on the instance by dropping it', async () => {
-    await world.signIn.announce();
-    const { instanceJar } = await world.signInAs('u1');
-    const session = world.signIn.verified(instanceJar.get('session'))!;
-    await world.signIn.end(session);
-    expect(await world.instanceDb.instances.getClientSession(session.sid)).toBeUndefined();
+    expect(await world.signIn.fresh(person)).toBe('ended');
   });
 });
 

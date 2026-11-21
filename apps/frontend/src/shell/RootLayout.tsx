@@ -82,8 +82,9 @@ export function RootLayout() {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      const endAtRoot = safeHref(await logout());
       setUser(null);
+      if (endAtRoot) return window.location.assign(endAtRoot);
       void navigate({ to: '/infrastructure' });
     } catch (err) {
       console.error('Logout failed', err);

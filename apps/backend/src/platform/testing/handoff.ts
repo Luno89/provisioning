@@ -73,6 +73,6 @@ export async function followSignIn(root: Side, target: Side, startAt: URL, locat
 }
 
 export const sessionFrom = (setCookies: readonly string[]): string | undefined =>
-  setCookies.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=./.test(pair));
+  setCookies.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?(session|koala_sid)=./.test(pair));
 
 export const signedInLanding = (exchange: Hop): boolean => exchange.status === 200 || (exchange.status === 302 && exchange.location.startsWith('/#'));

@@ -1,7 +1,7 @@
 import express, { Router, type Request, type Response } from 'express';
-import { asyncRoute, cookieNamed, type Auth, type OpenRoute } from '../../platform/index.js';
+import { asyncRoute, type BrowserSessions, type OpenRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
-import { SIGN_IN_COOKIE, type RootSignIn } from '../services/RootSignIn.js';
+import type { RootSignIn } from '../services/RootSignIn.js';
 import { START_PATH } from '../lib/oidc.js';
 
 const escaped = (text: string): string => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
@@ -16,14 +16,13 @@ export interface InstanceSignIn {
 export const SIGN_IN_OPEN: readonly OpenRoute[] = ['/sign-in', '/oidc/start', '/oidc/callback', '/oidc/backchannel-logout'];
 
 export function signInRouter(deps: {
-  signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCookieSeconds'>;
+  signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel'>;
+  sessions: Pick<BrowserSessions, 'handle' | 'hold' | 'end'>;
   identity: Pick<IdentityService, 'removalUrl'>;
-  auth: Pick<Auth, 'setSessionCookie' | 'getCookie' | 'securedFor' | 'sessionCookieOptions'>;
   publicUrl: string;
   landing: string;
 }): Router {
   const router = Router();
-  const startCookie = (req: Request) => cookieNamed(SIGN_IN_COOKIE, deps.auth.securedFor(req));
 
   router.get('/sign-in', (_req: Request, res: Response) => {
     const answer: InstanceSignIn = { url: START_PATH };
@@ -34,19 +33,22 @@ export function signInRouter(deps: {
     res.json({ url: deps.identity.removalUrl() ?? null });
   });
 
-  router.get('/oidc/start', asyncRoute(async (req: Request, res: Response) => {
+  router.get('/oidc/start', deps.sessions.handle, asyncRoute(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
     const started = await deps.signIn.start(req.query.next);
-    res.cookie(startCookie(req), started.cookie, { ...deps.auth.sessionCookieOptions, secure: deps.auth.securedFor(req), maxAge: deps.signIn.startCookieSeconds * 1000 });
+    req.session.signingIn = started.started;
     res.redirect(302, started.url);
   }));
 
-  router.get('/oidc/callback', asyncRoute(async (req: Request, res: Response) => {
+  router.get('/oidc/callback', deps.sessions.handle, asyncRoute(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
-    const signedIn = await deps.signIn.callback(new URL(req.originalUrl, deps.publicUrl), deps.auth.getCookie(req, startCookie(req)));
-    res.clearCookie(startCookie(req), { ...deps.auth.sessionCookieOptions, secure: deps.auth.securedFor(req) });
-    if (!signedIn.ok) return res.status(signedIn.status).type('html').send(refusedPage(signedIn.error));
-    deps.auth.setSessionCookie(res, signedIn.token, req);
+    const signedIn = await deps.signIn.callback(new URL(req.originalUrl, deps.publicUrl), req.session.signingIn);
+    if (!signedIn.ok) {
+      if (req.session.person) delete req.session.signingIn;
+      else await deps.sessions.end(req);
+      return res.status(signedIn.status).type('html').send(refusedPage(signedIn.error));
+    }
+    await deps.sessions.hold(req, signedIn.person);
     return res.redirect(302, `/#${signedIn.next ?? deps.landing}`);
   }));
 

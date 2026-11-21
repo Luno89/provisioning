@@ -40,11 +40,12 @@ describe('getMe', () => {
 });
 
 describe('logout', () => {
-  it('posts to /auth/logout and resolves undefined', async () => {
-    mocked.post.mockResolvedValue({ data: {} });
-
+  it('posts to /auth/logout and says where the browser goes to end root\'s session too, or nowhere', async () => {
+    mocked.post.mockResolvedValue({ data: { success: true } });
     await expect(logout()).resolves.toBeUndefined();
     expect(mocked.post).toHaveBeenCalledWith('/auth/logout', {});
+    mocked.post.mockResolvedValue({ data: { success: true, endSession: 'https://app.example.com/oidc/session/end?id_token_hint=t' } });
+    await expect(logout()).resolves.toBe('https://app.example.com/oidc/session/end?id_token_hint=t');
   });
 });
 

@@ -177,7 +177,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
     pullRequests: [],
   };
 
-  const auth = createAuth({ db, sessionKey: SESSION_KEY as never, publicUrl: 'http://localhost:3001', role: 'instance', open: openRoutesOf('instance'), sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: SESSION_KEY as never, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) });
   const authService = new AuthService(db, {});
   const getOwnedProject = async (id: string, principal: Principal) => {
     const project = (await db.projects.getProjects()).find((candidate) => candidate.id === id);

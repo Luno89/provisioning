@@ -85,8 +85,9 @@ export function clientMetadata(client: ClientRegistration): Record<string, unkno
     token_endpoint_auth_signing_alg: SIGNING_ALG,
     id_token_signed_response_alg: SIGNING_ALG,
     jwks: { keys: [{ ...client.key, alg: SIGNING_ALG, use: 'sig' }] },
+    post_logout_redirect_uris: [`${base}/`],
     backchannel_logout_uri: `${base}${BACKCHANNEL_PATH}`,
-    backchannel_logout_session_required: false,
+    backchannel_logout_session_required: true,
     koala_kind: client.kind,
     ...(client.owner ? { koala_owner: client.owner } : {}),
   };
