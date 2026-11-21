@@ -1,6 +1,6 @@
 import { defineNode } from '../definition.js';
 import type { BuiltInNode } from '../implementation.js';
-import { numberOf, textOf } from './read.js';
+import { textOf } from './read.js';
 
 export const MEMORY_CATEGORIES = ['lessons_learned', 'environment_facts', 'prompt_guidance'] as const;
 
@@ -22,10 +22,11 @@ export const recallMemory: BuiltInNode = {
     kind: 'recall-memory',
     title: 'Recall Memory',
     category: 'memory',
-    describe: 'Picks the owner\'s active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model.',
+    describe: 'Recalls the owner\'s active memories by meaning through the memory index, with the run\'s task as the query, and renders as many of the most relevant as fit the model\'s context as a prompt section, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. While the index is down the run goes on without memories, and the chat says so with since and why.',
     role: 'value',
     inputs: [
-      { name: 'binding', type: 'modelBinding', describe: 'The model the prompt is for. Nothing wired means memories kept for one model are left out.' },
+      { name: 'binding', type: 'modelBinding', describe: 'The model the prompt is for, whose context the memories fit. Nothing wired means memories kept for one model are left out, and the memories fit the context of the model the run itself uses.' },
+      { name: 'task', type: 'text', describe: 'What to recall memories for. Nothing wired means the message the run started with.' },
     ],
     outputs: [
       { name: 'memories', type: 'memory', describe: 'The memories picked.' },
@@ -42,12 +43,43 @@ export const recallMemory: BuiltInNode = {
           enum: ['all', 'project', 'global'],
           default: 'all',
         },
-        maxChars: { type: 'integer', title: 'Characters', minimum: 200, maximum: 50_000, default: 6000 },
       },
     },
     runs: 'activity',
     idempotent: true,
-    summarize: (settings) => `recalls ${textOf(settings, 'scope', 'all')} memories, up to ${numberOf(settings, 'maxChars', 6000)} characters`,
+    summarize: (settings) => `recalls the ${textOf(settings, 'scope', 'all')} memories most relevant to the task, as many as fit the context`,
+  }),
+};
+
+export const pointToMemories: BuiltInNode = {
+  definition: defineNode({
+    kind: 'point-to-memories',
+    title: 'Point to Memories',
+    category: 'memory',
+    describe: 'For an agent whose own loop manages its context, such as a coding agent on the person\'s machine: names what memory holds for the run\'s task, by title, most relevant first, and tells it to look the memories up itself with search_memories. Memories kept for one model are left out. While the index is down the run goes on, and the agent and the chat are told so with since and why.',
+    role: 'value',
+    inputs: [
+      { name: 'task', type: 'text', describe: 'What to point to memories for. Nothing wired means the message the run started with.' },
+    ],
+    outputs: [
+      { name: 'text', type: 'text', describe: 'What to tell the agent at its start about memory.' },
+    ],
+    exits: [],
+    settings: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'string',
+          title: 'Scope',
+          describe: '"project" only names memories for the run\'s project; "global" only the ones that apply everywhere.',
+          enum: ['all', 'project', 'global'],
+          default: 'all',
+        },
+      },
+    },
+    runs: 'activity',
+    idempotent: true,
+    summarize: (settings) => `names the ${textOf(settings, 'scope', 'all')} memories relevant to the task, for the agent to look up itself`,
   }),
 };
 
@@ -121,4 +153,4 @@ export const forgetMemory: BuiltInNode = {
   }),
 };
 
-export const MEMORY_NODES = [recallMemory, saveMemory, updateMemory, forgetMemory];
+export const MEMORY_NODES = [recallMemory, pointToMemories, saveMemory, updateMemory, forgetMemory];

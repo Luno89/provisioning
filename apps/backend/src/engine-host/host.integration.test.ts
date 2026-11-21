@@ -8,8 +8,9 @@ import { ENGINE_TOOL_SEEDS } from './tools/engine-tool-seeds.js';
 import { createEnvironmentNodes } from './nodes/environment-nodes.js';
 import type { NodeImplementation } from '@koala/agent-engine/procedure';
 import { hostGrants } from '../engine/testing/run-grants.js';
+import { NO_MEMORY_INDEX } from './testing/host-fixtures.js';
 
-const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+const noMemoryIndex = NO_MEMORY_INDEX;
 
 describe('the engine host', () => {
   it('has a handler for every tool grove and workspace offer through their runtimes, so none is granted with nothing behind it', async () => {

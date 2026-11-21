@@ -1,135 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { unreportedReach } from '../../platform/testing/memory-index.js';
+import { describe, it, expect } from 'vitest';
+import { dnsMemory } from '../testing/memories.js';
+import { recalledInOrder, roomForMemories } from './memory-recall.js';
 
-type SearchMemories = typeof import('./memory-index.js').searchMemories;
-const searchMemories = vi.fn<SearchMemories>();
-vi.mock('./memory-index.js', () => ({ searchMemories: (...a: Parameters<SearchMemories>) => searchMemories(...a) }));
+describe('the memories a run is given, in the index\'s order', () => {
+  const first = dnsMemory({ id: 'first' });
+  const second = dnsMemory({ id: 'second' });
 
-const { recallMemories, recallQuery, orderByRelevance, markUsed, PINNED_TITLES } =
-  await import('./memory-recall.js');
-const { buildMemoryContext } = await import('./memory-store.js');
-
-type Mem = import('./memory-store.js').MemoryItem;
-
-const mem = (over: Partial<Mem> = {}): Mem => ({
-  id: 'm1', ownerId: 'u1', category: 'lessons_learned',
-  title: 'A lesson', text: 'Something learned.',
-  createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z',
-  ...over,
-});
-
-const bank: Mem[] = [
-  mem({ id: 'newest', title: 'NEWEST', createdAt: '2026-08-20T00:00:00.000Z' }),
-  mem({ id: 'relevant', title: 'RELEVANT', createdAt: '2026-01-01T00:00:00.000Z' }),
-  mem({ id: 'oldest', title: 'OLDEST', createdAt: '2020-01-01T00:00:00.000Z' }),
-];
-
-const X = unreportedReach({ index: { base: 'http://x' }, vectors: { base: 'http://x', apiKey: 'k' }, embeddings: { base: 'http://x' } });
-
-beforeEach(() => { searchMemories.mockReset(); });
-
-describe('when search answers', () => {
-  it('puts what it ranked first, ahead of what is merely recent', () => {
-    const ordered = orderByRelevance(bank, ['relevant', 'oldest']);
-    expect(ordered.map((m) => m.id)).toEqual(['relevant', 'oldest', 'newest']);
+  it('follows the index\'s ranking, not when the memories were made', () => {
+    expect(recalledInOrder([first, second], ['second', 'first']).map((memory) => memory.id)).toEqual(['second', 'first']);
   });
 
-  it('still includes everything search did not rank', () => {
-    const ordered = orderByRelevance(bank, ['oldest']);
-    expect(new Set(ordered.map((m) => m.id))).toEqual(new Set(['oldest', 'newest', 'relevant']));
-  });
-
-  it('reports that it used hybrid search', async () => {
-    searchMemories.mockResolvedValue([{ id: 'relevant', score: 1, via: ['dense'] }]);
-    const out = await recallMemories({
-      memories: bank, ownerId: 'u1', query: 'rate limiting', endpoints: async () => X,
-    });
-
-    expect(out.via).toBe('hybrid');
-    expect(out.context.indexOf('RELEVANT')).toBeLessThan(out.context.indexOf('NEWEST'));
+  it('leaves out what the index found that the person no longer has, and what it did not find', () => {
+    expect(recalledInOrder([first, second], ['gone', 'first']).map((memory) => memory.id)).toEqual(['first']);
   });
 });
 
-describe('the pinned layout fact', () => {
-  it('leads, even when search ranked something else and never mentioned it', () => {
-    const layout = mem({ id: 'layout', title: PINNED_TITLES[0]!, createdAt: '2020-01-01T00:00:00.000Z' });
-    const ordered = orderByRelevance([...bank, layout], ['relevant']);
-
-    expect(ordered[0]!.id).toBe('layout');
-    expect(ordered[1]!.id).toBe('relevant');
-  });
-});
-
-describe('when search does not answer', () => {
-  const recencyOrder = buildMemoryContext(bank);
-
-  it('recalls by recency where no memory search is set up at all', async () => {
-    const out = await recallMemories({ memories: bank, ownerId: 'u1', query: 'anything' });
-
-    expect(out.via).toBe('recency');
-    expect(out.context).toBe(recencyOrder);
-    expect(searchMemories).not.toHaveBeenCalled();
+describe('the room a model\'s context has for memories', () => {
+  it('is the window less the margin and the smallest reply, at four characters a token', () => {
+    expect(roomForMemories(2_000)).toBe((2_000 - 1_000 - 512) * 4);
   });
 
-  it('fails with why when the search throws, never recalling by recency instead', async () => {
-    searchMemories.mockImplementation(() => { throw new Error('Qdrant refused: HTTP 503'); });
-    await expect(recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => X,
-    })).rejects.toThrow('memories could not be searched: Qdrant refused: HTTP 503');
-  });
-
-  it('fails with why when where to search cannot be found', async () => {
-    await expect(recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x',
-      endpoints: async () => { throw new Error('no kubeconfig'); },
-    })).rejects.toThrow('memories could not be searched: no kubeconfig');
-  });
-
-  it('waits for a slow search rather than giving up on it', async () => {
-    searchMemories.mockImplementation(() => new Promise((r) => setTimeout(() => r([{ id: 'relevant', score: 1, via: ['dense'] }]), 300)));
-    const out = await recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x',
-      endpoints: async () => X,
-    });
-
-    expect(out.via).toBe('hybrid');
-  });
-
-  it('says recency when the stack is deployed but ranked nothing', async () => {
-    searchMemories.mockResolvedValue([]);
-    const out = await recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => X,
-    });
-
-    expect(out.via).toBe('recency');
-  });
-});
-
-describe('the query', () => {
-  it('is what the leaf was asked to do, not just its title', () => {
-    const q = recallQuery({ title: 'Add rate limiting', body: 'to the upload route', expects: ['src/limit.ts'] });
-    expect(q).toContain('Add rate limiting');
-    expect(q).toContain('upload route');
-    expect(q).toContain('src/limit.ts');
-  });
-
-  it('survives a leaf with nothing but a title', () => {
-    expect(recallQuery({ title: 'x' })).toBe('x');
-    expect(recallQuery({})).toBe('');
-  });
-});
-
-describe('use bookkeeping', () => {
-  it('counts what reached the prompt', async () => {
-    const saved: Mem[] = [];
-    await markUsed({ saveMemory: async (m: Mem) => { saved.push(m); } }, [mem({ useCount: 2 })], 'NOW');
-
-    expect(saved[0]!.useCount).toBe(3);
-    expect(saved[0]!.lastUsedAt).toBe('NOW');
-  });
-
-  it('does not let a failed write cost the leaf its run', async () => {
-    await expect(markUsed({ saveMemory: async () => { throw new Error('mongo down'); } }, [mem()]))
-      .resolves.toBeUndefined();
+  it('is none when the window is smaller than the margin and the smallest reply', () => {
+    expect(roomForMemories(1_000)).toBe(0);
   });
 });

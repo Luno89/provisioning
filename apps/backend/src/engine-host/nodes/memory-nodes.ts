@@ -6,11 +6,26 @@ import {
   type RecalledMemory,
   type StepResult,
 } from '@koala/agent-engine/procedure';
-import { createMemoryWriter, type MemoryWrite, type MemoryWritten } from '../../memory/index.js';
+import { createMemoryWriter, memoryPointer, memoryPointerDown, recalledInOrder, roomForMemories, type MemoryWrite, type MemoryWritten } from '../../memory/index.js';
 import { renderMemoryContext, selectForContext, type MemoryItem } from '../drivers/memory-store.js';
 import type { HostNodeServices } from './services.js';
 
-const DEFAULT_MEMORY_CHARS = 6000;
+const lowerFirst = (text: string): string => text.replace(/^./, (first) => first.toLowerCase());
+
+const tokensIn = (value: unknown): number | undefined => {
+  const tokens = (value as { contextTokens?: unknown } | undefined)?.contextTokens;
+  return typeof tokens === 'number' && tokens > 0 ? tokens : undefined;
+};
+
+async function contextTokensOf(services: HostNodeServices, binding: unknown, ownerId: string, modelId: string | undefined): Promise<number> {
+  const wired = tokensIn(binding);
+  if (wired) return wired;
+  if (!modelId) throw new Error('memories are recalled to fit a model\'s context, and this run names no model');
+  const { provider } = await services.models.resolveBaseUrl(ownerId, modelId);
+  const own = tokensIn(provider);
+  if (!own) throw new Error(`memories are recalled to fit a model's context, and ${modelId} reports no context size`);
+  return own;
+}
 
 const inScope = (scope: unknown) => (memory: MemoryItem): boolean => {
   if (scope === 'project') return memory.scope === 'project';
@@ -52,16 +67,39 @@ const written = (outcome: MemoryWritten, exit: string): StepResult => {
 export function createMemoryNodes(services: HostNodeServices): NodeImplementation[] {
   const writer = createMemoryWriter({ store: services.memories, now: services.now, newId: services.newId });
 
+  const relevant = async ({ node, inputs, run }: Pick<NodeRequest, 'node' | 'inputs' | 'run'>): Promise<{ memories: MemoryItem[] } | { down: string }> => {
+    const { ownerId } = run.launch;
+    const all = (await services.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId);
+    const task = wiredText(inputs.task) ?? wiredText(run.inputs.message) ?? '';
+    try {
+      const ranked = task ? await services.memories.search(ownerId, task, all.length) : [];
+      return { memories: recalledInOrder(all, ranked).filter(inScope(node.settings.scope)) };
+    } catch (err) {
+      const down = lowerFirst((err as Error).message);
+      run.emit({ type: 'notice', level: 'warn', nodeId: node.id, message: `This run goes on without its memories: ${down}` } as never);
+      return { down };
+    }
+  };
+
   return [
-    valueImplementation('recall-memory', async ({ node, inputs, run }) => {
-      const all = await services.memories.list(run.launch.ownerId);
-      const { kept, dropped } = selectForContext(all.filter(inScope(node.settings.scope)), run.launch.projectId, {
-        maxChars: typeof node.settings.maxChars === 'number' ? node.settings.maxChars : DEFAULT_MEMORY_CHARS,
+    valueImplementation('recall-memory', async (request) => {
+      const { inputs, run } = request;
+      const found = await relevant(request);
+      if ('down' in found) return { outputs: { memories: [], text: '' } };
+      const { kept, dropped } = selectForContext(found.memories, run.launch.projectId, {
+        preRanked: true,
+        maxChars: roomForMemories(await contextTokensOf(services, inputs.binding, run.launch.ownerId, run.launch.modelId)),
         agent: run.identity.agentId,
         model: modelOf(inputs.binding),
       });
-
       return { outputs: { memories: kept.map(recalled), text: renderMemoryContext(kept, dropped) } };
+    }),
+
+    valueImplementation('point-to-memories', async (request) => {
+      const found = await relevant(request);
+      if ('down' in found) return { outputs: { text: memoryPointerDown(found.down) } };
+      const { kept } = selectForContext(found.memories, request.run.launch.projectId, { preRanked: true, maxChars: Number.POSITIVE_INFINITY, agent: request.run.identity.agentId });
+      return { outputs: { text: memoryPointer(kept) } };
     }),
 
     stepImplementation('save-memory', async (request) => written(await writer.save(writeOf(request)), 'saved')),

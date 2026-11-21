@@ -4,13 +4,13 @@ import { EXTERNAL_CHAT_PROCEDURE, EXTERNAL_TASK_PROCEDURE } from '../../machines
 export const EXTERNAL_AGENT_TASK: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   id: EXTERNAL_TASK_PROCEDURE,
   name: 'Hand a task to an agent on the machine',
-  describe: 'The run\'s task, handed to the agent of the same name on the person\'s machine, in the project\'s folder there: it is told this agent\'s prompt and what was learned before once, when its session starts, then given the task, with this agent\'s own tools served to it (each call runs here, as this agent\'s would). Whatever it wants permission for waits for the person. It ends with what the agent said.',
-  version: '3',
+  describe: 'The run\'s task, handed to the agent of the same name on the person\'s machine, in the project\'s folder there: it is told this agent\'s prompt and what memory holds for the task once, when its session starts, then given the task, with this agent\'s own tools served to it (each call runs here, as this agent\'s would), search_memories among them to look memories up itself. Whatever it wants permission for waits for the person. It ends with what the agent said.',
+  version: '4',
   budget: {},
 }, (p) => {
   const input = p.runInput('input');
   const persona = p.persona('persona');
-  const memories = p.recallMemory('memories');
+  const memories = p.pointToMemories('memories');
   const provision = p.provisionSandbox('provision');
   const tools = p.resolveTools('tools', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });
   const agent = p.externalAgent('agent', { brief: input.message, prompt: persona.prompt, memories: memories.text, environment: provision.environment, persona: persona.persona, tools: tools.offered });
@@ -42,13 +42,13 @@ export const EXTERNAL_AGENT_TASK: Procedure = defineProcedure(BUILT_IN_GROUPS, {
 export const EXTERNAL_AGENT_CHAT: Procedure = defineProcedure(BUILT_IN_GROUPS, {
   id: EXTERNAL_CHAT_PROCEDURE,
   name: 'A chat turn answered by an agent on the machine',
-  describe: 'One turn of a conversation answered by an agent on the person\'s machine, picked where a model is picked, on the model picked for it. The conversation keeps one session with each agent, model and machine, so the next turn continues it; a new session is told this agent\'s prompt, what was learned before and what was said so far, once. This agent\'s own tools are served to it, and each call runs here as this agent\'s would. Whatever the agent wants permission for waits for the person. The turn is written back to the conversation.',
-  version: '4',
+  describe: 'One turn of a conversation answered by an agent on the person\'s machine, picked where a model is picked, on the model picked for it. The conversation keeps one session with each agent, model and machine, so the next turn continues it; a new session is told this agent\'s prompt, what memory holds for the turn and what was said so far, once. This agent\'s own tools are served to it, search_memories among them to look memories up itself, and each call runs here as this agent\'s would. Whatever the agent wants permission for waits for the person. The turn is written back to the conversation.',
+  version: '5',
   budget: {},
 }, (p) => {
   const input = p.runInput('input');
   const persona = p.persona('persona');
-  const memories = p.recallMemory('memories');
+  const memories = p.pointToMemories('memories');
   const earlier = p.loadConversation('earlier', { values: input.inputs }, { id: '{{values.conversationId}}' });
   const provision = p.provisionSandbox('provision');
   const tools = p.resolveTools('tools', { persona: persona.persona, delegates: persona.delegates, environment: provision.environment });

@@ -3,7 +3,7 @@ import { QUEUES, isOff, reachingMemoryIndex } from './platform/index.js';
 import { dependencyFetch } from '@koala/engine-core/http';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, revokeRunSignal, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
-import { unindexerFrom } from './memory/index.js';
+import { searcherFrom, unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
@@ -115,7 +115,8 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const extensions = extensionServiceFor(db);
   const checksApi = tenant.checksApi;
   const checks = httpCheckAccess(async (who) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerFor(who.grantId))));
-  const engineStores = storesFromDatabase(db, unindexerFrom(reachingMemoryIndex(tenant.memoryIndex, dependencies, dependencyFetch)));
+  const memoryIndex = reachingMemoryIndex(tenant.memoryIndex, dependencies, dependencyFetch);
+  const engineStores = storesFromDatabase(db, { unindex: unindexerFrom(memoryIndex), search: searcherFrom(memoryIndex) });
   const growers: { launcher?: GroveRunLauncher } = {};
   const groving = (): GroveRunLauncher => {
     if (!growers.launcher) throw new Error('the grove launcher is not ready yet');

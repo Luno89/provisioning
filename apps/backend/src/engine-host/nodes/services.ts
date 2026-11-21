@@ -21,6 +21,7 @@ export interface HostNodeServices {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
     unindex(ownerId: string, ids: string[]): Promise<void>;
+    search(ownerId: string, query: string, limit: number): Promise<string[]>;
   };
   code?: import('./code-runner.js').CodeRunner | undefined;
   conversations: import('./conversation-nodes.js').ConversationStore;

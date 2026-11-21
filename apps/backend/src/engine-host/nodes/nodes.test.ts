@@ -164,7 +164,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
     tools: { run: toolRuns },
     environments,
-    memories: { list: async () => over.memories ?? [], save: async (item) => { saved.push(item); }, unindex: async () => undefined },
+    memories: { list: async () => over.memories ?? [], save: async (item) => { saved.push(item); }, unindex: async () => undefined, search: async () => (over.memories ?? []).map((memory) => memory.id) },
     now: () => '2026-09-16T00:00:00.000Z',
     newId: () => 'memory-1',
   };

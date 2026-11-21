@@ -850,9 +850,30 @@ export interface ForgetMemoryNode extends Step<'forgotten' | 'refused'> {
   wire(wires: ForgetMemoryWires): void
 }
 
+export interface PointToMemoriesWires {
+  /** What to point to memories for. Nothing wired means the message the run started with. */
+  task?: In<'text'>
+}
+
+export type PointToMemoriesSettings = {
+  /**
+   * Scope
+   * "project" only names memories for the run's project; "global" only the ones that apply everywhere.
+   */
+  scope?: 'all' | 'project' | 'global'
+}
+
+export interface PointToMemoriesNode extends Value {
+  /** What to tell the agent at its start about memory. */
+  readonly text: Out<'text'>
+  wire(wires: PointToMemoriesWires): void
+}
+
 export interface RecallMemoryWires {
-  /** The model the prompt is for. Nothing wired means memories kept for one model are left out. */
+  /** The model the prompt is for, whose context the memories fit. Nothing wired means memories kept for one model are left out, and the memories fit the context of the model the run itself uses. */
   binding?: In<'modelBinding'>
+  /** What to recall memories for. Nothing wired means the message the run started with. */
+  task?: In<'text'>
 }
 
 export type RecallMemorySettings = {
@@ -861,8 +882,6 @@ export type RecallMemorySettings = {
    * "project" only recalls memories for the run's project; "global" only the ones that apply everywhere.
    */
   scope?: 'all' | 'project' | 'global'
-  /** Characters */
-  maxChars?: number
 }
 
 export interface RecallMemoryNode extends Value {
@@ -1365,7 +1384,9 @@ export interface Nodes {
    * Leaves through refused: It could not be retired, and the output says why.
    */
   forgetMemory(id: string, wires?: ForgetMemoryWires, settings?: ForgetMemorySettings, meta?: NodeMeta): ForgetMemoryNode
-  /** Recall Memory: Picks the owner's active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. */
+  /** Point to Memories: For an agent whose own loop manages its context, such as a coding agent on the person's machine: names what memory holds for the run's task, by title, most relevant first, and tells it to look the memories up itself with search_memories. Memories kept for one model are left out. While the index is down the run goes on, and the agent and the chat are told so with since and why. */
+  pointToMemories(id: string, wires?: PointToMemoriesWires, settings?: PointToMemoriesSettings, meta?: NodeMeta): PointToMemoriesNode
+  /** Recall Memory: Recalls the owner's active memories by meaning through the memory index, with the run's task as the query, and renders as many of the most relevant as fit the model's context as a prompt section, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. While the index is down the run goes on without memories, and the chat says so with since and why. */
   recallMemory(id: string, wires?: RecallMemoryWires, settings?: RecallMemorySettings, meta?: NodeMeta): RecallMemoryNode
   /**
    * Save Memory: Writes something worth remembering for later runs, the way the save_memory tool does: the same thing is never stored twice. A project memory is refused when the run has no project, because it could never be recalled.

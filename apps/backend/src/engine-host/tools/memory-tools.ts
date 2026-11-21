@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
-import { createMemoryWriter, currentMemory, sameMemoryText, type MemoryWriterStore } from '../../memory/index.js';
+import { createMemoryWriter, currentMemory, recalledInOrder, sameMemoryText, type MemoryWriterStore } from '../../memory/index.js';
 import type { MemoryItem, MemorySources } from '../drivers/memory-store.js';
 import { unqualify } from '../../engine/lib/mcp-tools.js';
 import { noteSubject } from '../../engine/lib/tool-notes.js';
@@ -10,27 +10,15 @@ export interface KnownTools {
   servers: readonly { name: string; tools: readonly string[] }[];
 }
 
-export type MemoryToolStore = MemoryWriterStore;
-
-const words = (value: string): string[] => value.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{2,}/g) ?? [];
+export type MemoryToolStore = MemoryWriterStore & { search(ownerId: string, query: string, limit: number): Promise<string[]> };
 
 const text = textArgument;
 
 const describe = (memory: MemoryItem): string =>
   `- id ${memory.id} [${memory.category}, ${memory.scope ?? 'global'}${memory.model ? `, only for ${memory.model}` : ''}] ${memory.title}: ${memory.text}`;
 
-export function matchMemories(memories: readonly MemoryItem[], query: string): MemoryItem[] {
-  const wanted = new Set(words(query));
-  return memories
-    .filter(currentMemory)
-    .map((memory) => ({ memory, score: words(`${memory.title} ${memory.text}`).filter((word) => wanted.has(word)).length }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt))
-    .map((entry) => entry.memory);
-}
-
-export function searchAnswer(memories: readonly MemoryItem[], query: string): { found: number; text: string } {
-  const found = matchMemories(memories, query);
+export function searchAnswer(memories: readonly MemoryItem[], rankedIds: readonly string[], query: string): { found: number; text: string } {
+  const found = recalledInOrder(memories, rankedIds).filter(currentMemory);
   if (found.length === 0) return { found: 0, text: `Nothing remembered matches "${query}".` };
   return { found: found.length, text: found.map(describe).join('\n') };
 }
@@ -77,8 +65,15 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
     async search_memories({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner whose memories to search');
       const query = text(parsed, 'query');
-      if (!query) return refuse('give a query: words to look for');
-      const answer = searchAnswer(await store.list(caller.ownerId), query);
+      if (!query) return refuse('give a query: what to look for');
+      const mine = (await store.list(caller.ownerId)).filter((memory) => memory.ownerId === caller.ownerId);
+      let ranked: string[];
+      try {
+        ranked = await store.search(caller.ownerId, query, mine.length);
+      } catch (err) {
+        return refuse(`memories cannot be searched just now: ${(err as Error).message}`);
+      }
+      const answer = searchAnswer(mine, ranked, query);
       return { ok: true, digest: answer.found ? `${answer.found} memories match` : 'nothing remembered matches', content: answer.text };
     },
 

@@ -6,8 +6,9 @@ import { createEngineHost, storesFromDatabase } from './host.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../engine/lib/mcp-servers.js';
 import { seedAll } from '../scripts/seed-all.js';
 import { grantHeld, grantsHeldInMemory, hostGrants } from '../engine/testing/run-grants.js';
+import { NO_MEMORY_INDEX } from './testing/host-fixtures.js';
 
-const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+const noMemoryIndex = NO_MEMORY_INDEX;
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://127.0.0.1:1/mcp' };
 const GITEA: McpServerRecord = {

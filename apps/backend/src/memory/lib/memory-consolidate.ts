@@ -170,7 +170,7 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
   const survivors = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id) && m.status !== 'pending_review');
   const indexed = deps.index
     ? await deps.index(survivors).then((r) => r.vectors).catch((err: unknown) => {
-      console.warn(`[Consolidate] the memories could not be indexed, so recall finds them by recency until the next pass: ${(err as Error).message}`);
+      console.warn(`[Consolidate] the memories could not be indexed, so recall cannot find them until the next pass: ${(err as Error).message}`);
       return 0;
     })
     : 0;

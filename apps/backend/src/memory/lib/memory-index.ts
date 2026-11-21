@@ -14,6 +14,14 @@ export type MemoryUnindexer = (ownerId: string, ids: string[]) => Promise<void>;
 export const unindexerFrom = (index: MemoryIndexReach): MemoryUnindexer =>
   async (_ownerId, ids) => removeMemories(index, ids);
 
+export type MemorySearcher = (ownerId: string, query: string, limit: number) => Promise<string[]>;
+
+export const searcherFrom = (index: MemoryIndexReach): MemorySearcher => async (ownerId, query, limit) => {
+  if (limit < 1) return [];
+  await bothOf(ensureMemoryIndex(index.index), ensureMemoryCollection(index.vectors));
+  return (await searchMemories(index, query, { ownerId }, limit)).map((hit) => hit.id);
+};
+
 const memoryIdOf = (point: unknown): string => String(at(at(point, 'payload'), 'memory_id') ?? '');
 
 export const ensureMemoryIndex = (index: MemoryIndexReach['index']): Promise<void> => ensureIndex(index, MEMORY_INDEX, memoryIndexConfig());

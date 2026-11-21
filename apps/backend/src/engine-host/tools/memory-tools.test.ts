@@ -3,7 +3,8 @@ import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
-import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
+import { createMemoryTools, searchAnswer } from './memory-tools.js';
+import { DependencyDownError } from '../../platform/index.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
 import { interceptHttp, http, HttpResponse } from '../../platform/testing/http.js';
 import { unindexerFrom } from '../../memory/lib/memory-index.js';
@@ -14,6 +15,8 @@ let bank: Map<string, MemoryItem>;
 let ids: number;
 let unindexed: { ownerId: string; ids: string[]; liveThen: boolean[] }[];
 let indexRefuses: string | undefined;
+let indexFinds: string[] | Error | undefined;
+let searched: string[];
 
 const memory = dnsMemory;
 
@@ -27,6 +30,11 @@ const tools = () => createMemoryTools({
     unindex: async (ownerId, gone) => {
       if (indexRefuses) throw new Error(indexRefuses);
       unindexed.push({ ownerId, ids: gone, liveThen: gone.map((id) => !bank.get(id)?.invalidAt) });
+    },
+    search: async (ownerId, query) => {
+      searched.push(query);
+      if (indexFinds instanceof Error) throw indexFinds;
+      return indexFinds ?? [...bank.values()].filter((item) => item.ownerId === ownerId).map((item) => item.id);
     },
   },
   sourcesOf: async (runId) => (runId === 'run-web' ? { classes: ['web'], hosts: ['some.example'], runs: ['run-web'] } : undefined),
@@ -42,19 +50,36 @@ beforeEach(() => {
   ids = 0;
   unindexed = [];
   indexRefuses = undefined;
+  indexFinds = undefined;
+  searched = [];
 });
 
 describe('search_memories', () => {
-  it('finds the person\'s own current memories by the words in them, best match first', async () => {
-    const out = await call('search_memories', { query: 'which DNS provider, cloudflare?' });
+  it('finds the person\'s own current memories by meaning through the index, most relevant first', async () => {
+    bank.set('m3', memory({ id: 'm3', title: 'Domains are at Porkbun', text: 'The .app domains are registered at Porkbun.' }));
+    indexFinds = ['m3', 'm2', 'm1'];
 
+    const out = await call('search_memories', { query: 'where are my domains managed?' });
+
+    expect(searched).toEqual(['where are my domains managed?']);
     expect(out.ok).toBe(true);
-    expect(out.content).toContain('id m1 [environment_facts, global] DNS lives at Cloudflare');
-    expect(out.content).not.toContain('m2');
+    expect(out.content).toBe([
+      '- id m3 [environment_facts, global] Domains are at Porkbun: The .app domains are registered at Porkbun.',
+      '- id m1 [environment_facts, global] DNS lives at Cloudflare: The person manages DNS for their domain at Cloudflare.',
+    ].join('\n'));
   });
 
-  it('does not find a retired memory', () => {
-    expect(matchMemories([memory({ invalidAt: 'then' })], 'cloudflare')).toEqual([]);
+  it('does not find a retired memory', async () => {
+    bank.set('m1', memory({ invalidAt: 'then' }));
+    indexFinds = ['m1'];
+    expect((await call('search_memories', { query: 'cloudflare' })).content).toBe('Nothing remembered matches "cloudflare".');
+  });
+
+  it('says the index is down, since when and why, rather than finding nothing', async () => {
+    indexFinds = new DependencyDownError('tei', '2026-11-21T10:00:00.000Z', 'it answered 503');
+    const out = await call('search_memories', { query: 'cloudflare' });
+    expect(out.ok).toBe(false);
+    expect(out.digest).toContain('The memory index\'s embeddings (TEI) isn\'t answering since 10:00 UTC: it answered 503');
   });
 });
 
@@ -241,8 +266,8 @@ describe('the answer to a memory search, as an agent on a machine gets it', () =
       memory({ id: 'a', title: 'Odoo 20 access', text: 'Access rules are ir.access rows.' }),
       memory({ id: 'b', title: 'Old access note', text: 'Access rules are ir.model.access rows.', invalidAt: '2026-10-01T00:00:00Z' }),
     ];
-    expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
-    expect(searchAnswer(memories, 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
+    expect(searchAnswer(memories, ['b', 'a'], 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
+    expect(searchAnswer(memories, [], 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
   });
 });
 
@@ -255,6 +280,7 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item) => { bank.set(item.id, item); },
       unindex: unindexerFrom(unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } })),
+      search: async () => [],
     },
     now: () => 'now',
     newId: () => `new-${++ids}`,

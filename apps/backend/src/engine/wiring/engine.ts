@@ -37,7 +37,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, unindexerFrom, type MemoryUnindexer } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, searcherFrom, unindexerFrom, type MemorySearcher, type MemoryUnindexer } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -314,6 +314,9 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const unindexMemories: MemoryUnindexer = isOff(memoryIndex)
     ? async () => { throw new Error(`no memory can be taken out of an index here: ${memoryIndex.off}`); }
     : unindexerFrom(memoryIndex);
+  const searchMemories: MemorySearcher = isOff(memoryIndex)
+    ? async () => { throw new Error(`no memory can be searched here: ${memoryIndex.off}`); }
+    : searcherFrom(memoryIndex);
   const evalHost = createEngineHost({
     runGrants: {
       check: (grantId, tool, projectId) => core.runGrants.check(grantId, tool, projectId),
@@ -340,7 +343,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models: deps.models,
-    stores: storesFromDatabase(db, unindexMemories),
+    stores: storesFromDatabase(db, { unindex: unindexMemories, search: searchMemories }),
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,

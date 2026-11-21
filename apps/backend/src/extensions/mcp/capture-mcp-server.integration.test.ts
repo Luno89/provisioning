@@ -1,6 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { NO_MEMORY_INDEX } from '../../engine-host/testing/host-fixtures.js';
 import { BUILT_IN_GROUPS, HOST_OP_KIND, WORKFLOW_IMPLEMENTATIONS, runProcedure, type NodeExecutor, type NodeImplementation } from '@koala/agent-engine/procedure';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { storesFromDatabase } from '../../engine-host/host.js';
@@ -9,7 +10,7 @@ import { platformCatalogue } from '../installed.js';
 import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';
 
-const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+const noMemoryIndex = NO_MEMORY_INDEX;
 
 const TOOLS = [{ name: 'list_repos', description: 'List repositories', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } }];
 let server: http.Server;

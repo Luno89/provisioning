@@ -9,7 +9,7 @@ export const EXTERNAL_PERSONAS: PersonaRecord[] = [
     name: 'Antigravity',
     description: 'Google\'s Antigravity agent, running on the person\'s machine under their own Google sign-in, handed a task to do in the project\'s folder there',
     version: '1',
-    guidance: 'Runs no model of ours. Its procedure hands the task to the machine\'s antigravity agent with this prompt and what was learned before, follows what it does, and asks the person before anything it wants permission for. It never claims, records or judges anything: whoever handed it the task checks the work.',
+    guidance: 'Runs no model of ours. Its procedure hands the task to the machine\'s antigravity agent with this prompt and what memory holds for the task, which it looks up itself with search_memories, follows what it does, and asks the person before anything it wants permission for. It never claims, records or judges anything: whoever handed it the task checks the work.',
     returns: 'What the agent said when its turn ended.',
     failures: [
       { when: 'the run has no machine, or the machine has no antigravity agent', says: 'which' },
