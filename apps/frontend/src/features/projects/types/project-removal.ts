@@ -38,6 +38,15 @@ export interface DeletionProgress {
   parts: Partial<Record<DeletionPart, PartProgress>>
   problem?: string
   keptUntil?: string
+  down?: ServiceDown[]
+}
+
+export interface ServiceDown {
+  step: string
+  dependency: string
+  name: string
+  since: string
+  reason: string
 }
 
 export interface ProjectDeletion {

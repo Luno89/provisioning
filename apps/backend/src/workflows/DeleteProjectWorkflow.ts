@@ -1,4 +1,4 @@
-import { defineQuery, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
+import { defineQuery, defineSignal, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { destroyEach } from './project-apps.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
@@ -12,6 +12,11 @@ import {
   workClosed,
   workerRestarted,
   workStopping,
+  serviceBack,
+  serviceDown,
+  SERVICE_BACK_SIGNAL,
+  SERVICE_DOWN_SIGNAL,
+  type ServiceDown,
   type DeletionPart,
   type DeletionProgress,
   type OpenWork,
@@ -41,6 +46,9 @@ const grove = proxyActivities<{ EngineGroveChangedActivity(args: { ownerId: stri
 
 export const projectDeletionProgressQuery = defineQuery<ProjectRemovalStep[]>(PROJECT_REMOVAL_PROGRESS_QUERY);
 
+const serviceDownSignal = defineSignal<[ServiceDown]>(SERVICE_DOWN_SIGNAL);
+const serviceBackSignal = defineSignal<[string]>(SERVICE_BACK_SIGNAL);
+
 export interface ProjectDeleted {
   stopped: string[];
   restarted: string[];
@@ -68,6 +76,9 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
     progress = change(progress);
     if (owner) await told.ProjectDeletionChangedActivity({ ownerId: owner, projectId: args.projectId, progress });
   };
+
+  setHandler(serviceDownSignal, (down) => tell((current) => serviceDown(current, down)));
+  setHandler(serviceBackSignal, (step) => tell((current) => serviceBack(current, step)));
 
   const stopped: string[] = [];
   const restarted: string[] = [];

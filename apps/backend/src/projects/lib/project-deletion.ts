@@ -31,6 +31,26 @@ export interface DeletionProgress {
   parts: Partial<Record<DeletionPart, PartProgress>>;
   problem?: string | undefined;
   keptUntil?: string | undefined;
+  down?: ServiceDown[] | undefined;
+}
+
+export interface ServiceDown {
+  step: string;
+  dependency: string;
+  name: string;
+  since: string;
+  reason: string;
+}
+
+export const SERVICE_DOWN_SIGNAL = 'service-down';
+export const SERVICE_BACK_SIGNAL = 'service-back';
+
+export function serviceDown(progress: DeletionProgress, down: ServiceDown): DeletionProgress {
+  return next(progress, { down: [...(progress.down ?? []).filter((item) => item.step !== down.step), down] });
+}
+
+export function serviceBack(progress: DeletionProgress, step: string): DeletionProgress {
+  return next(progress, { down: (progress.down ?? []).filter((item) => item.step !== step) });
 }
 
 const next = (progress: DeletionProgress, change: Partial<DeletionProgress>): DeletionProgress => {

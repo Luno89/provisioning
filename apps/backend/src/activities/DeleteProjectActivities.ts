@@ -1,8 +1,9 @@
 import { ignore } from '@koala/engine-core/failures';
 import type { Client } from '@temporalio/client';
 import { withWorkFor } from '@koala/engine-core/work-for';
-import { cancelIfRunning, cancelledDetailsIn, frozenWorkersIn, killedIn, projectQuery, startedFor, type CancellableWorkflow, type CancelPayload, type HistoryEvent } from '../platform/index.js';
-import { PURGE_PROJECT_WORKFLOW, keptUntil, purgeStart, type OpenWork, type ProjectsStore } from '../projects/index.js';
+import { Context } from '@temporalio/activity';
+import { cancelIfRunning, cancelledDetailsIn, DEPENDENCIES, DependencyDownError, frozenWorkersIn, killedIn, projectQuery, startedFor, type CancellableWorkflow, type CancelPayload, type HistoryEvent } from '../platform/index.js';
+import { PURGE_PROJECT_WORKFLOW, SERVICE_BACK_SIGNAL, SERVICE_DOWN_SIGNAL, keptUntil, purgeStart, type OpenWork, type ProjectsStore, type ServiceDown } from '../projects/index.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from './RemoveProjectActivities.js';
 import type { ProjectDeletionMode } from '../platform/index.js';
 
@@ -29,6 +30,7 @@ export interface ProjectDeletionDeps {
   work: ProjectWork;
   removal: ProjectRemovalSteps;
   archive: ProjectArchive;
+  told: DeletionTold;
 }
 
 export interface FrozenWorkDeps {
@@ -120,8 +122,45 @@ export const temporalProjectArchive = (client: () => Promise<Client>, projects: 
   },
 });
 
-export function createProjectDeletionActivities(deps: ProjectDeletionDeps): ProjectDeletionActivities {
+export interface DeletionTold {
+  down(down: ServiceDown): Promise<void>;
+  back(step: string): Promise<void>;
+  attempt(): number;
+}
+
+type Step = (...args: never[]) => Promise<unknown>;
+
+export function tellingWhenDown<T extends { [K in keyof T]: Step }>(activities: T, told: DeletionTold): T {
+  const telling = Object.entries(activities as Record<string, Step>).map(([step, run]) => [step, async (...args: never[]) => {
+    try {
+      const done = await run(...args);
+      if (told.attempt() > 1) await told.back(step);
+      return done;
+    } catch (err) {
+      if (err instanceof DependencyDownError) {
+        await told.down({ step, dependency: err.dependency, name: DEPENDENCIES[err.dependency].name, since: err.since, reason: err.reason });
+      }
+      throw err;
+    }
+  }]);
+  return Object.fromEntries(telling) as T;
+}
+
+export const deletionToldThrough = (client: () => Promise<Client>): DeletionTold => {
+  const deletion = async () => {
+    const workflowId = Context.current().info.workflowExecution?.workflowId;
+    if (!workflowId) throw new Error('a step of a deletion ran outside the deletion\'s workflow');
+    return (await client()).workflow.getHandle(workflowId);
+  };
   return {
+    down: async (down) => { await (await deletion()).signal(SERVICE_DOWN_SIGNAL, down); },
+    back: async (step) => { await (await deletion()).signal(SERVICE_BACK_SIGNAL, step); },
+    attempt: () => Context.current().info.attempt,
+  };
+};
+
+export function createProjectDeletionActivities(deps: ProjectDeletionDeps): ProjectDeletionActivities {
+  return tellingWhenDown<ProjectDeletionActivities>({
     ...deps.removal,
 
     StopProjectWorkActivity: ({ projectId }) => cancelOpen(deps.work, projectId),
@@ -139,5 +178,5 @@ export function createProjectDeletionActivities(deps: ProjectDeletionDeps): Proj
       await deps.archive.archive(projectId);
       return kept;
     },
-  };
+  }, deps.told);
 }

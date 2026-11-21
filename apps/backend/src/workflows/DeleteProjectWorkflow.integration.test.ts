@@ -6,7 +6,8 @@ import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId, PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
-import type { ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
+import { deletionToldThrough, tellingWhenDown, type ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
+import { DependencyDownError } from '../platform/index.js';
 import { QUEUES } from '../platform/lib/work-places.js';
 import { temporalTestEnvironment } from './testing/temporal-test-env.js';
 import { deletedForGood, groveTold, latest } from './testing/removal-steps.js';
@@ -139,5 +140,33 @@ describe('deleting a project for good through Temporal', () => {
     expect(latest(deletions)).toMatchObject({ phase: 'deleting', problem: 'Gitea refused to delete koala-bo/shop: 403', parts: { repositories: { state: 'deleting' } } });
     expect(deletions.some((change) => change.progress.phase === 'deleted')).toBe(false);
     expect(seen).toEqual([]);
+  });
+
+  it('shows a service it needs as down, since when and why, and carries on when the service is back', async () => {
+    const seen: string[] = [];
+    let secretsAsked = 0;
+    const since = '2026-11-21T10:05:00.000Z';
+    const activities: ProjectDeletionActivities = tellingWhenDown({
+      StopProjectWorkActivity: async () => [],
+      RemoveProjectAppsActivity: async () => [],
+      RemoveProjectAppStartedActivity: async () => undefined,
+      RemoveProjectWorkspacesActivity: async () => 0,
+      RemoveProjectSecretsActivity: async () => {
+        secretsAsked += 1;
+        if (secretsAsked === 1) throw new DependencyDownError('infisical', since, 'it cannot be reached: ECONNREFUSED');
+        return { workspace: true, readers: 0 };
+      },
+      SweepProjectActivity: async () => ({ open: [], apps: 0, workspaces: 0, secrets: 0 }),
+      ...deletedForGood(seen),
+      ArchiveProjectActivity: async () => ({ keptUntil: '2027-02-19T10:00:00.000Z' }),
+    }, deletionToldThrough(async () => temporal.env.client));
+    const deletions = await deleting(activities, 'p4', 'permanent', async (ended) => {
+      expect(await ended).toMatchObject({ archived: false });
+    });
+    const ordered = [...deletions].sort((a, b) => a.progress.seq - b.progress.seq).map((change) => change.progress);
+    const shownDown = ordered.findIndex((progress) => progress.down?.length);
+    expect(ordered[shownDown]?.down, 'the person sees which service is down, since when and why').toEqual([{ step: 'RemoveProjectSecretsActivity', dependency: 'infisical', name: 'Infisical', since, reason: 'it cannot be reached: ECONNREFUSED' }]);
+    expect(ordered.slice(0, shownDown).some((progress) => progress.phase === 'deleted')).toBe(false);
+    expect(latest(deletions)).toMatchObject({ phase: 'deleted', down: [], parts: { secrets: { state: 'deleted', deleted: 1 } } });
   });
 });

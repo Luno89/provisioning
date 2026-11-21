@@ -20,7 +20,7 @@ import { InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterPr
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
-import { createProjectDeletionActivities, temporalProjectArchive, temporalProjectWork } from './activities/DeleteProjectActivities.js';
+import { createProjectDeletionActivities, deletionToldThrough, temporalProjectArchive, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { CustomizationsService } from './releases/services/CustomizationsService.js';
@@ -472,7 +472,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       files: instanceFiles.storedFiles,
     }),
     ...projectRemoval,
-    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine) }),
+    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine), told: deletionToldThrough(async () => temporal) }),
     ...createWorkspaceProjectActivities(db),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({

@@ -9,6 +9,8 @@ export const keptUntilFrom = (now: Date): string => new Date(now.getTime() + ARC
 export const longDate = (iso: string): string =>
   new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 
+const sinceText = (iso: string): string => `${longDate(iso)}, ${new Date(iso).toISOString().slice(11, 16)} UTC`
+
 export interface ConfirmationText {
   now: string[]
   kept?: { until: string; lines: string[] }
@@ -58,7 +60,9 @@ export function deletionLines(progress: DeletionProgress | undefined): string[] 
     return [`${name}: deleting`]
   })
   const work = progress.work.flatMap((item) => [workLine(item), ...(item.killed ?? []).map((program) => `${program}: killed`)])
-  return [...work, ...parts]
+  const down = [...new Map((progress.down ?? []).map((item) => [item.dependency, item])).values()].map((item) =>
+    `${item.name} is down since ${sinceText(item.since)}: ${item.reason}. The deletion carries on when it is back.`)
+  return [...work, ...parts, ...down]
 }
 
 export function deletionHeadline(progress: DeletionProgress | undefined): string {

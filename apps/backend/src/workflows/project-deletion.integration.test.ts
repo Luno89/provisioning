@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import { testClient, type TestTemporal } from '@koala/engine-core/testing/temporal';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
-import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectArchive, temporalProjectWork } from '../activities/DeleteProjectActivities.js';
+import { createFrozenWorkActivities, createProjectDeletionActivities, deletionToldThrough, temporalProjectArchive, temporalProjectWork } from '../activities/DeleteProjectActivities.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from '../activities/RemoveProjectActivities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
@@ -67,7 +67,7 @@ async function deletedWhileStepRuns(step: Step): Promise<DeletedWhileRunning> {
   const work = temporalProjectWork(async () => client);
   const told: ToldDeletion[] = [];
   const workers = await Promise.all([
-    testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'DeleteProjectWorkflow.ts')), activities: createProjectDeletionActivities({ work, removal, archive: temporalProjectArchive(async () => client, db.projects, queue) }) }),
+    testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'DeleteProjectWorkflow.ts')), activities: createProjectDeletionActivities({ work, removal, archive: temporalProjectArchive(async () => client, db.projects, queue), told: deletionToldThrough(async () => client) }) }),
     testWorker(env, { taskQueue: QUEUES.cluster, activities: createFrozenWorkActivities({ work, workers: { restart: async () => 'not-here' } }) }),
     testWorker(env, { taskQueue: `${queue}-step`, workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/project-step.fixture-workflow.ts'), [resolve(import.meta.dirname, 'telemetry-interceptors.ts')]), activities: { ProjectStepActivity: (args: { ownerId: string; projectId: string }) => step(args, started) } }),
     testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined, ProjectDeletionChangedActivity: async (change: ToldDeletion) => { told.push(change); } } }),

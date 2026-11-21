@@ -11,6 +11,8 @@ import {
   deletionStuck,
   laterThan,
   namedWork,
+  serviceBack,
+  serviceDown,
 } from './project-deletion.js';
 
 const run = { workflowId: 'run-1', type: 'AgentRunWorkflow', startedAt: '2026-11-21T10:00:00.000Z' };
@@ -61,6 +63,16 @@ describe('what a project being deleted shows as it goes', () => {
   it('ends archived with the date it is kept until, or deleted for good', () => {
     expect(deletionEnded(deletionBegun(), { phase: 'archived', keptUntil: '2027-02-19T10:00:00.000Z' })).toMatchObject({ phase: 'archived', keptUntil: '2027-02-19T10:00:00.000Z' });
     expect(deletionEnded(deletionBegun(), { phase: 'deleted' }).phase).toBe('deleted');
+  });
+
+  it('shows a service it needs as down, since when and why, until the step that waited on it carries on', () => {
+    const infisical = { step: 'RemoveProjectSecretsActivity', dependency: 'infisical', name: 'Infisical', since: '2026-11-21T10:05:00.000Z', reason: 'it cannot be reached: ECONNREFUSED' };
+    const down = serviceDown(partDeleting(deletionBegun(), 'secrets'), infisical);
+    expect(down).toMatchObject({ phase: 'deleting', down: [infisical] });
+    expect(serviceDown(down, { ...infisical, reason: 'it answered 503' }).down).toEqual([{ ...infisical, reason: 'it answered 503' }]);
+    expect(partDeleting(down, 'files').down, 'other changes keep it shown').toEqual([infisical]);
+    expect(serviceBack(down, 'RemoveProjectSecretsActivity').down).toEqual([]);
+    expect(serviceBack(down, 'RemoveProjectFilesActivity').down).toEqual([infisical]);
   });
 
   it('stays deleting with why when a part can never be deleted, and loses the why once it is tried again', () => {
