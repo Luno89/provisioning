@@ -9,7 +9,6 @@ import { createProcedureExecutor, type HostNodeServices } from '../nodes/index.j
 import { createAgentRegistry } from '../registries/registry.js';
 import { createEnvironmentResolver, type WorkspaceSource } from '../sandboxes/environments.js';
 import { createRunEnvironments } from '../sandboxes/run-environments.js';
-import { createSandboxDriver } from '../drivers/sandbox.js';
 import { type AgentDefinition } from '@koala/agent-engine';
 import type { ToolContract } from '@koala/engine-core';
 
@@ -23,7 +22,7 @@ import type { MachineBackend } from '../drivers/machine.js';
 import type { RunTicket } from './contracts.js';
 import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
-import { READY_IMAGES } from '../testing/host-fixtures.js';
+import { READY_IMAGES, sandboxDriverFor } from '../testing/host-fixtures.js';
 
 const GRANTS = grantsHeldInMemory();
 const GRANT_ID = await grantHeld(GRANTS);
@@ -76,19 +75,6 @@ const machineBackend = (): MachineBackend => ({
   deleteFile: vi.fn(async () => undefined),
 });
 
-function sandboxDriverFor({ id, spec }: { id: string; spec: Parameters<typeof createSandboxDriver>[0]['spec'] }) {
-  return createSandboxDriver({
-    sandboxId: id,
-    spec,
-    backend: {
-      exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-      readFile: async () => '',
-      writeFile: async () => undefined,
-      listDir: async () => [],
-      deleteFile: async () => undefined,
-    },
-  });
-}
 
 function engine(options: {
   agents: AgentDefinition[];

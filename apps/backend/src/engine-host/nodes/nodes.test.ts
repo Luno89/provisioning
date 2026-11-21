@@ -1,3 +1,4 @@
+import { sandboxDriverFor } from '../testing/host-fixtures.js';
 import { anyOf, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createEventBus, fittedMaxTokens, type AgentDefinition, type EngineEvent, type Monitor, type ModelProvider } from '@koala/agent-engine';
@@ -17,7 +18,6 @@ import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createEnvironmentResolver } from '../sandboxes/environments.js';
 import { createRunEnvironments } from '../sandboxes/run-environments.js';
-import { createSandboxDriver } from '../drivers/sandbox.js';
 import type { MemoryItem } from '../drivers/memory-store.js';
 import type { RunTicket, ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
@@ -93,21 +93,33 @@ const toolCall = (id: string, name: string, args: Record<string, unknown>): Fram
   { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
 ];
 
+const sseResponse = (frames: readonly Frame[]): Response => ({
+  ok: true,
+  status: 200,
+  headers: new Headers(),
+  text: async () => '',
+  body: (async function* () {
+    for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
+    yield 'data: [DONE]\n';
+  })(),
+} as unknown as Response);
+
+const offeredIn = (sent: { tools?: unknown[] }): string[] => (sent.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+
+function observed() {
+  const bus = createEventBus();
+  const events: EngineEvent[] = [];
+  bus.subscribe((event) => { events.push(event); });
+  const traces: NodeTrace[] = [];
+  return { bus, events, traces };
+}
+
 function stubModel(...turns: Frame[][]) {
   let turn = 0;
   const fetchImpl = vi.fn(async () => {
     const frames = turns[Math.min(turn, turns.length - 1)]!;
     turn += 1;
-    return {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    } as unknown as Response;
+    return sseResponse(frames);
   });
   vi.stubGlobal('fetch', fetchImpl);
 
@@ -130,17 +142,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
   const resolver = createEnvironmentResolver({
     registry,
     environments: createRunEnvironments({
-      provision: async ({ id, spec }) => createSandboxDriver({
-        sandboxId: id,
-        spec,
-        backend: {
-          exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-          readFile: async () => '',
-          writeFile: async () => undefined,
-          listDir: async () => [],
-          deleteFile: async () => undefined,
-        },
-      }),
+      provision: async (request) => sandboxDriverFor(request),
     }),
     images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
@@ -256,16 +258,7 @@ describe('how much room a reply gets', () => {
 
 describe('calling the model', () => {
   const streamed = (...frames: Frame[]) => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    } as unknown as Response));
+    const fetchImpl = vi.fn(async () => sseResponse(frames));
     vi.stubGlobal('fetch', fetchImpl);
     return fetchImpl;
   };
@@ -324,10 +317,7 @@ describe('calling the model', () => {
     }));
 
     const { services } = world();
-    const bus = createEventBus();
-    const events: EngineEvent[] = [];
-    bus.subscribe((event) => { events.push(event); });
-    const traces: NodeTrace[] = [];
+    const { bus, events, traces } = observed();
 
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     let result: Awaited<ReturnType<typeof runV2>>;
@@ -358,16 +348,7 @@ describe('calling the model', () => {
       const frames = calls === 1
         ? [{ choices: [{ delta: { reasoning_content: 'should I run the spec or write my own? should I run the spec or write my own?' } }] }, { choices: [{ delta: { content: 'never gets here' } }] }]
         : [{ choices: [{ delta: { content: 'I ran the spec; it passes.' }, finish_reason: 'stop' }] }];
-      return {
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        text: async () => '',
-        body: (async function* () {
-          for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-          yield 'data: [DONE]\n';
-        })(),
-      } as unknown as Response;
+      return sseResponse(frames);
     });
     vi.stubGlobal('fetch', fetchImpl);
 
@@ -377,10 +358,7 @@ describe('calling the model', () => {
       return watched === 1 ? { name: 'spinning', onThinking: () => 'caught looping' } : { name: 'spinning' };
     };
     const { services } = world();
-    const bus = createEventBus();
-    const events: EngineEvent[] = [];
-    bus.subscribe((event) => { events.push(event); });
-    const traces: NodeTrace[] = [];
+    const { bus, events, traces } = observed();
 
     const result = await runV2({ ...services, streamMonitors: () => [spinning()] }, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
 
@@ -779,7 +757,7 @@ describe('a tool the procedure does itself', () => {
     await runV2(services, 'executor', withHandledStep(false));
 
     const [sent] = model.bodies();
-    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+    const offered = offeredIn(sent!);
     const system = sent!.messages.find((message) => message.role === 'system')!.content;
 
     expect(offered).not.toContain('start_task');
@@ -794,7 +772,7 @@ describe('a tool the procedure does itself', () => {
     await runV2(services, 'executor', withHandledStep(true));
 
     const [sent] = model.bodies();
-    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+    const offered = offeredIn(sent!);
 
     expect(offered).toContain('start_task');
     expect(sent!.messages.find((message) => message.role === 'system')!.content)
@@ -928,16 +906,7 @@ describe('keeping a long run inside its context window', () => {
     let worked = 0;
     let summaries = 0;
     const bodies: { messages: { role: string; content: string }[] }[] = [];
-    const respond = (frames: Frame[]) => ({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    }) as unknown as Response;
+    const respond = sseResponse;
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
       bodies.push(body);

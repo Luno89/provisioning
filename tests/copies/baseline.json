@@ -341,7 +341,6 @@
  "tests apps/backend/src/engine-host/sandboxes/workspace-documents.integration.test.ts <-> apps/backend/src/engine-host/sandboxes/workspace-documents.integration.test.ts #c02abce38ea9": 1,
  "tests apps/backend/src/engine-host/sandboxes/workspace-documents.integration.test.ts <-> apps/backend/src/extensions/grove/operations/prepare-worktrees.integration.test.ts #8dec33efdad3": 1,
  "tests apps/backend/src/engine-host/temporal/activities.test.ts <-> apps/backend/src/engine-host/temporal/activities.test.ts #0ba257ae424f": 1,
- "tests apps/backend/src/engine-host/temporal/context.test.ts <-> packages/engine-core/src/tool-exec.test.ts #7345c75aea98": 1,
  "tests apps/backend/src/engine-host/temporal/stream-worker.integration.test.ts <-> apps/local-agent/src/device-worker.integration.test.ts #378c8bb72dd8": 1,
  "tests apps/backend/src/engine-host/tools/engine-tools.test.ts <-> packages/agent-engine/src/procedure/nodes/code.test.ts #34c7455a38fb": 1,
  "tests apps/backend/src/engine-host/tools/engine-tools.test.ts <-> packages/agent-engine/src/procedure/nodes/code.test.ts #5845f8b5bd4d": 1,

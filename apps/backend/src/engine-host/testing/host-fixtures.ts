@@ -1,3 +1,4 @@
+import { createSandboxDriver } from '../drivers/sandbox.js';
 import type { HostNodeServices } from '../nodes/services.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
 
@@ -21,3 +22,17 @@ export const NO_MEMORIES: HostNodeServices['memories'] = {
   save: async () => undefined,
   unindex: async () => undefined,
 };
+
+export function sandboxDriverFor({ id, spec }: { id: string; spec: Parameters<typeof createSandboxDriver>[0]['spec'] }) {
+  return createSandboxDriver({
+    sandboxId: id,
+    spec,
+    backend: {
+      exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+      readFile: async () => '',
+      writeFile: async () => undefined,
+      listDir: async () => [],
+      deleteFile: async () => undefined,
+    },
+  });
+}
