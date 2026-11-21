@@ -55,5 +55,5 @@ export { recallMemory, saveMemory, MEMORY_CATEGORIES } from './memory.js';
 export { chooseModel, fitReplyBudget, callModel, decide, readDecision, DECIDE_INSTRUCTIONS, DECISIONS, type Decision, DEFAULT_CONTEXT_MARGIN, DEFAULT_MIN_REPLY_TOKENS, FALLBACK_CONTEXT_TOKENS } from './model.js';
 export { checkRepetition, checkStall, checkToolFailures } from './safety.js';
 export { code, runCode, codeProblems, declaredSockets, codeTimeout, CODE_KIND, RUN_CODE_KIND, CODE_KINDS, type DeclaredSocket } from './code.js';
-export { approveToolCalls, runToolCalls, callTool, APPROVAL_POLICIES } from './tools.js';
+export { approveToolCalls, runToolCalls, callTool } from './tools.js';
 export { createOrchestrationNodes, REFUSED_CALL, NOT_RUN_CALL, RUN_IN_WORKSPACE, RUN_IN_WORKSPACE_TOOL, UNNAMED_MACHINE, machineOfRun, type WorkspaceEnvironment, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';

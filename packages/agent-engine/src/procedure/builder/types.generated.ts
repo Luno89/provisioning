@@ -1105,13 +1105,7 @@ export interface ApproveToolCallsWires {
   offered?: In<'toolSet'>
 }
 
-export type ApproveToolCallsSettings = {
-  /**
-   * Ask
-   * "on-a-machine" asks for every call on a registered machine and for destructive calls outside the run's sandbox, "always" asks for every call, "never" lets everything through, destructive or not.
-   */
-  ask?: 'on-a-machine' | 'always' | 'never'
-}
+export type ApproveToolCallsSettings = Record<string, never>
 
 export interface ApproveToolCallsNode extends Step<'approved' | 'refused'> {
   /** The reply with only the approved calls left in it. */
@@ -1423,7 +1417,7 @@ export interface Nodes {
    */
   checkToolFailures(id: string, wires?: CheckToolFailuresWires, settings?: CheckToolFailuresSettings, meta?: NodeMeta): CheckToolFailuresNode
   /**
-   * Approve Tool Calls: Asks a person to allow each tool call before it runs. By default it asks for every call when the run is working on someone's own machine, and for any call to a tool that can destroy or overwrite something outside a sandbox; a call that runs inside the run's sandbox never asks, whatever it does. A run whose agent or tree is in auto mode is never asked about. A refused call gets a result saying so, which goes back to the model.
+   * Approve Tool Calls: Asks a person about the reply's tool calls before any of them runs, by the same rule every tool call is held to: every call on someone's own machine, and any call to a tool that can destroy or overwrite something elsewhere; a call that runs inside the run's sandbox never asks, and a run in auto mode is never asked about. A call asked about here is not asked about again when it runs. A refused call gets a result saying so, which goes back to the model.
    * Leaves through approved: At least one call may run.
    * Leaves through refused: Every call was refused.
    */

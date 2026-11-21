@@ -144,27 +144,25 @@ export interface OrchestrationPorts {
   ask(request: QuestionRequest): Promise<QuestionAnswer>;
   runExternal?(request: ExternalAgentRequest): Promise<ExternalAgentOutcome>;
   handOffsTogether?(): boolean;
-  sandboxCallsUnasked?(): boolean;
   readsTogether?(): boolean;
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
 
+export type OfferedShape = readonly Pick<ToolSet[number], 'name' | 'destructive' | 'binding'>[];
+
 export interface AskingContext {
-  ask: string;
-  offered: readonly Pick<ToolSet[number], 'name' | 'destructive' | 'binding'>[];
+  offered: OfferedShape;
   environment: EnvironmentValue | undefined;
-  sandboxCallsUnasked: boolean;
 }
 
 const RUN_COMMAND_SHAPE = { name: 'run_command', binding: 'environment' as const };
 
 export function callNeedsAsking(name: string, context: AskingContext): boolean {
-  if (context.ask === 'never') return false;
-  if (context.ask === 'always') return true;
+  if (context.environment?.kind === 'machine') return true;
   const tool = context.offered.find((entry) => entry.name === name);
-  if (context.environment?.kind === 'sandbox' && context.sandboxCallsUnasked && tool?.binding === 'environment') return false;
-  return context.environment?.kind === 'machine' || tool?.destructive === true;
+  if (context.environment?.kind === 'sandbox' && tool?.binding === 'environment') return false;
+  return tool?.destructive === true;
 }
 /** Shown on a saved tool call that never got a result — the run ended before it could run. */
 export const NOT_RUN_CALL = 'it did not run — the run ended before it got a result';
@@ -216,7 +214,9 @@ const childText = (agent: string, child: ChildOutcomeValue): string =>
   child.outcome === 'ok' ? JSON.stringify(child.outputs) : `${agent} did not finish: ${child.reason ?? child.outcome}`;
 
 export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImplementation[] {
-  const runOne = (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined) => {
+  const putToThePerson = new Set<string>();
+
+  const runOne = (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined, offered: OfferedShape) => {
     const delegated = (persona.agents ?? []).includes(call.name);
     const startedAt = Date.now();
     return withSpan('tool.call', {
@@ -225,7 +225,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       'koala.run.id': request.run.identity.runId,
       'koala.agent': request.run.identity.agentId,
     }, async (span) => {
-      const ran = await runOneCall(request, call, persona, environment);
+      const ran = await runOneCall(request, call, persona, environment, offered);
       const outcome = ran.outcome.declined ? 'declined' : ran.outcome.ok ? 'ok' : 'failed';
       span.setAttribute('koala.tool.outcome', outcome);
       koalaMetrics().toolCallSeconds.record(elapsedSeconds(startedAt), { tool: call.name, outcome, delegated: String(delegated) });
@@ -233,9 +233,17 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
     });
   };
 
-  const runOneCall = async (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined) => {
+  const runOneCall = async (request: NodeRequest, call: ToolCallRequest, persona: AgentDefinition, environment: EnvironmentValue | undefined, offered: OfferedShape) => {
     const { node, run } = request;
     run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
+
+    if (!putToThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment })) {
+      putToThePerson.add(call.id);
+      if (!(await ports.approve({ nodeId: node.id, call, environment, run }))) {
+        run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
+        return { outcome: { ok: false, digest: REFUSED_CALL, content: REFUSED_CALL } as ToolRunOutcome, delegated: false };
+      }
+    }
 
     let outcome: ToolRunOutcome;
     let delegated = false;
@@ -278,9 +286,8 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const { node, inputs, run } = request;
       const reply = inputs.reply as ModelReply;
       const environment = inputs.environment as EnvironmentValue | undefined;
-      const ask = textOf(node.settings, 'ask', 'on-a-machine');
       const offered = (inputs.offered as ToolSet | undefined) ?? [];
-      const needsAsking = (call: ToolCallRequest): boolean => callNeedsAsking(call.name, { ask, offered, environment, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true });
+      const needsAsking = (call: ToolCallRequest): boolean => !putToThePerson.has(call.id) && callNeedsAsking(call.name, { offered, environment });
 
       if (!reply.toolCalls.some(needsAsking)) {
         return { exit: 'approved', outputs: { approved: reply, refused: [] } };
@@ -291,6 +298,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       for (const call of reply.toolCalls) {
         if (!needsAsking(call)) { approved.push(call); continue; }
         run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
+        putToThePerson.add(call.id);
         if (await ports.approve({ nodeId: node.id, call, environment, run })) {
           approved.push(call);
         } else {
@@ -310,16 +318,17 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const reply = inputs.reply as ModelReply;
       const persona = inputs.persona as AgentDefinition;
       const environment = inputs.environment as EnvironmentValue | undefined;
+      const offered = (inputs.offered as ToolSet | undefined) ?? [];
       const digestChars = numberOf(node.settings, 'digestChars', DEFAULT_DIGEST_CHARS);
       const delegates = new Set(ports.handOffsTogether?.() === false ? [] : persona.agents ?? []);
       const handOffs = new Map(reply.toolCalls
         .filter((call) => delegates.has(call.name))
-        .map((call) => [call.id, runOne(request, call, persona, environment)] as const));
+        .map((call) => [call.id, runOne(request, call, persona, environment, offered)] as const));
       for (const handOff of handOffs.values()) handOff.catch(ignore('each hand-off is awaited below, where its failure surfaces; this only keeps it from counting as unhandled until then'));
       const settled: { call: ToolCallRequest; outcome: ToolRunOutcome }[] = [];
 
       if (ports.readsTogether?.() === true) {
-        const reads = new Set(((inputs.offered as ToolSet | undefined) ?? []).filter((tool) => tool.effect === 'read').map((tool) => tool.name));
+        const reads = new Set(offered.filter((tool) => tool.effect === 'read').map((tool) => tool.name));
         const started = new Map<string, Promise<{ outcome: ToolRunOutcome }>>();
         const before: Promise<unknown>[] = [];
         for (const call of reply.toolCalls) {
@@ -330,7 +339,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           }
           if (run.signal?.aborted) continue;
           if (reads.has(call.name)) {
-            const reading = runOne(request, call, persona, environment);
+            const reading = runOne(request, call, persona, environment, offered);
             reading.catch(ignore('each read is awaited below, where its failure surfaces; this only keeps it from counting as unhandled until then'));
             started.set(call.id, reading);
             before.push(reading);
@@ -338,7 +347,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           }
           await Promise.allSettled(before);
           if (run.signal?.aborted) continue;
-          const changing = runOne(request, call, persona, environment);
+          const changing = runOne(request, call, persona, environment, offered);
           started.set(call.id, changing);
           before.push(changing);
           await Promise.allSettled([changing]);
@@ -355,7 +364,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
             continue;
           }
           if (run.signal?.aborted) continue;
-          settled.push({ call, outcome: (await runOne(request, call, persona, environment)).outcome });
+          settled.push({ call, outcome: (await runOne(request, call, persona, environment, offered)).outcome });
         }
       }
 
@@ -382,7 +391,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         name: textOf(node.settings, 'tool'),
         arguments: JSON.stringify(template(request, 'args')),
       };
-      const { outcome } = await runOne(request, call, inputs.persona as AgentDefinition, inputs.environment as EnvironmentValue | undefined);
+      const { outcome } = await runOne(request, call, inputs.persona as AgentDefinition, inputs.environment as EnvironmentValue | undefined, []);
       const text = outcome.content ?? outcome.digest;
 
       return { exit: outcome.ok ? 'ok' : 'failed', outputs: { result: parseJson(text), text }, usage: { toolCalls: 1 } };
@@ -475,7 +484,6 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const model = textOf(node.settings, 'model') || (picked?.agent === agent ? picked.model : undefined);
       const persona = inputs.persona as AgentDefinition | undefined;
       const offered = ((inputs.tools as ToolSet | undefined) ?? []).filter((tool) => tool.binding !== 'environment');
-      const destructive = new Set(offered.filter((tool) => tool.destructive === true).map((tool) => tool.name));
       const tools = offered.map((tool) => ({
         name: tool.name,
         description: [tool.description, tool.usageGuidance].filter(Boolean).join('\n\n'),
@@ -506,26 +514,12 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<ServedCallAnswer> => {
         if (asked.name === RUN_IN_WORKSPACE && runsCommands && persona) {
           const command: ToolCallRequest = { id: asked.callId, name: 'run_command', arguments: asked.arguments };
-          if (callNeedsAsking('run_command', { ask: 'on-a-machine', offered: [RUN_COMMAND_SHAPE], environment: runsCommands, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true })) {
-            run.emit({ type: 'tool.called', nodeId: node.id, callId: command.id, name: command.name, args: command.arguments } as never);
-            if (!(await ports.approve({ nodeId: node.id, call: command, environment: runsCommands, run }))) {
-              run.emit({ type: 'tool.result', nodeId: node.id, callId: command.id, ok: false, digest: REFUSED_CALL } as never);
-              return { ok: false, content: REFUSED_CALL };
-            }
-          }
-          const { outcome } = await runOne(request, command, persona, runsCommands);
+          const { outcome } = await runOne(request, command, persona, runsCommands, [RUN_COMMAND_SHAPE]);
           return answerOf(outcome);
         }
         const call: ToolCallRequest = { id: asked.callId, name: asked.name, arguments: asked.arguments };
         if (!persona || !offered.some((tool) => tool.name === call.name)) return { ok: false, content: `${call.name} is not one of the tools offered here` };
-        if (destructive.has(call.name)) {
-          run.emit({ type: 'tool.called', nodeId: node.id, callId: call.id, name: call.name, args: call.arguments } as never);
-          if (!(await ports.approve({ nodeId: node.id, call, environment: sandbox ?? environment, run }))) {
-            run.emit({ type: 'tool.result', nodeId: node.id, callId: call.id, ok: false, digest: REFUSED_CALL } as never);
-            return { ok: false, content: REFUSED_CALL };
-          }
-        }
-        const { outcome } = await runOne(request, call, persona, sandbox);
+        const { outcome } = await runOne(request, call, persona, sandbox, offered);
         return answerOf(outcome);
       };
       const sessions = inputs.sessions && typeof inputs.sessions === 'object' ? inputs.sessions as Record<string, unknown> : {};

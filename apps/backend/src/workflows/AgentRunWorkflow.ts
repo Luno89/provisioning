@@ -145,7 +145,6 @@ const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
 const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
 const NODES_HEAR_STOPS = 'nodes-hear-stops';
-const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
@@ -569,7 +568,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     },
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
-    sandboxCallsUnasked: () => patched(SANDBOX_CALLS_UNASKED),
     readsTogether: () => patched(READS_TOGETHER),
 
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {

@@ -28,7 +28,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentHandOffListsMoved, handOffGrantsWritten, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentHandOffListsMoved, handOffGrantsWritten, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, approveAskDropped, ...counts } = await seedAll(db);
+    expect(approveAskDropped).toBe(0);
     expect(clusterProvidersDropped).toBe(0);
     expect(vllmLatestPinned).toBe(0);
     expect(githubCredentialsDropped).toBe(0);
@@ -44,6 +45,17 @@ describe('seed-all', () => {
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }
+  });
+
+  it('takes, once, the old ask setting off the approve node of every saved procedure', async () => {
+    const db = await testDatabase();
+    const source = (ask: string | undefined) => JSON.stringify({ schema: 2, id: 'mine', start: 'approve', nodes: [{ id: 'approve', kind: 'approve-tool-calls', settings: ask ? { ask } : {}, position: { x: 0, y: 0 } }], wires: [], flow: [], groups: [] });
+    await db.engine.saveProcedure({ id: 'mine', ownerId: 'ann', version: '1', source: source('never'), updatedAt: 'then' });
+
+    expect(await seedAll(db)).toMatchObject({ approveAskDropped: 1 });
+    expect((JSON.parse((await db.engine.getProcedure('ann', 'mine'))!.source) as { nodes: { settings: unknown }[] }).nodes[0]!.settings).toEqual({});
+    await db.engine.saveProcedure({ id: 'mine', ownerId: 'ann', version: '2', source: source('always'), updatedAt: 'later' });
+    expect(await seedAll(db)).toMatchObject({ approveAskDropped: 0 });
   });
 
   it('drops, once, every chat attachment that names a path and no kept file, keeping the message', async () => {

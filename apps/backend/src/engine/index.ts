@@ -21,6 +21,7 @@ export { cachedProbes } from './lib/mcp-probe-url.js';
 export type { McpProbe } from './lib/mcp-probe-url.js';
 export { looksLikeMcp, namespaceOfDeployment } from './lib/mcp-registry.js';
 export { migrateMcpServers } from './lib/mcp-server-migration.js';
+export { APPROVE_ASK_MIGRATION, dropApproveAskSetting } from './lib/approve-ask-migration.js';
 export type { McpServerRecord, McpServerTemplate, ServerRuns } from './lib/mcp-servers.js';
 export type { ProcedureSource } from './lib/procedure-source.js';
 export { installText, stageText } from './lib/published-workspace.js';
