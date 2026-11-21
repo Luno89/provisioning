@@ -18,9 +18,18 @@ export const SIGN_IN_UNCHECKED = { tryAgain: true } as const;
 
 const signedInData = (socket: Socket): SignedInData => socket.data as SignedInData;
 
-export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
+export interface SignedInSockets {
+  stopTaking(): void;
+}
+
+export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): SignedInSockets {
+  let stopping = false;
   if (deps.auth.sessionHandle) io.engine.use(deps.auth.sessionHandle);
   io.use((socket, next) => {
+    if (stopping) {
+      next(Object.assign(new Error('this backend is stopping; try again'), { data: SIGN_IN_UNCHECKED }));
+      return;
+    }
     const signIn = async (): Promise<Error | undefined> => {
       const signedIn = await deps.auth.sessionOf(socket.request);
       if (!signedIn) return new Error('Unauthorized');
@@ -40,4 +49,10 @@ export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
     deps.sessionSockets.track(socket, session);
     socket.on('disconnect', () => deps.sessionSockets.forget(socket.id));
   });
+  return {
+    stopTaking: () => {
+      stopping = true;
+      io.disconnectSockets(true);
+    },
+  };
 }

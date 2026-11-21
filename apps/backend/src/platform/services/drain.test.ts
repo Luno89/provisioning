@@ -26,9 +26,8 @@ describe('a backend told to stop in its pod', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("serves while a service routes to it and while every node's proxy catches up, then asks every client to reconnect and exits once no connection is left", async () => {
+  it("serves while a service routes to it and while every node's proxy catches up, then closes once no connection is left", async () => {
     const server = serverWith([2, 1, 0]);
-    const sockets = { disconnectSockets: vi.fn() };
     const lines: string[] = [];
     let routed = 2;
     const slices = vi.fn(async () => { routed -= 1; return routedTo(routed >= 0); });
@@ -37,18 +36,17 @@ describe('a backend told to stop in its pod', () => {
     const wait = vi.fn((ms: number) => { waited.push(ms); return new Promise<void>((done) => { caughtUp = done; }); });
     let stopped = false;
 
-    const draining = drainThenStop({ place: POD, slices, server, sockets, log: (line) => lines.push(line), wait }).then(() => { stopped = true; });
+    const draining = drainThenStop({ place: POD, slices, server, log: (line) => lines.push(line), wait }).then(() => { stopped = true; });
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(slices).toHaveBeenCalledTimes(3);
     expect(slices).toHaveBeenCalledWith('nowrinkles');
     expect(waited).toEqual([PROXIES_CATCH_UP_MS]);
-    expect(sockets.disconnectSockets).not.toHaveBeenCalled();
     expect(server.prependListener).not.toHaveBeenCalled();
 
     caughtUp();
     await vi.advanceTimersByTimeAsync(0);
-    expect(sockets.disconnectSockets).toHaveBeenCalledWith(true);
+    expect(server.prependListener).toHaveBeenCalledTimes(1);
     expect(stopped).toBe(false);
     await vi.advanceTimersByTimeAsync(1000);
     await draining;
@@ -63,7 +61,7 @@ describe('a backend told to stop in its pod', () => {
 
   it('answers what still comes with Connection: close', async () => {
     const server = serverWith([0]);
-    await drainThenStop({ place: undefined, server, sockets: { disconnectSockets: vi.fn() }, log: vi.fn() });
+    await drainThenStop({ place: undefined, server, log: vi.fn() });
     const [event, listener] = server.prependListener.mock.calls[0] ?? [];
     expect(event).toBe('request');
     const answer = { setHeader: vi.fn() };
@@ -71,15 +69,14 @@ describe('a backend told to stop in its pod', () => {
     expect(answer.setHeader).toHaveBeenCalledWith('Connection', 'close');
   });
 
-  it('outside a pod goes straight to asking clients to reconnect', async () => {
+  it('outside a pod goes straight to closing once no connection is left', async () => {
     const server = serverWith([0]);
-    const sockets = { disconnectSockets: vi.fn() };
     const slices = vi.fn();
     const wait = vi.fn(async () => undefined);
-    await drainThenStop({ place: undefined, slices, server, sockets, log: vi.fn(), wait });
+    await drainThenStop({ place: undefined, slices, server, log: vi.fn(), wait });
     expect(slices).not.toHaveBeenCalled();
     expect(wait).not.toHaveBeenCalled();
-    expect(sockets.disconnectSockets).toHaveBeenCalledWith(true);
+    expect(server.prependListener).toHaveBeenCalledTimes(1);
     expect(server.close).toHaveBeenCalled();
   });
 
@@ -89,7 +86,7 @@ describe('a backend told to stop in its pod', () => {
     const wait = vi.fn(async () => undefined);
     const answers: Array<() => unknown> = [() => { throw new Error('forbidden'); }, () => { throw new Error('forbidden'); }, () => routedTo(false)];
     const slices = vi.fn(async () => answers.shift()!());
-    const drained = drainThenStop({ place: POD, slices: slices as never, server, sockets: { disconnectSockets: vi.fn() }, log: (line) => lines.push(line), wait });
+    const drained = drainThenStop({ place: POD, slices: slices as never, server, log: (line) => lines.push(line), wait });
     await vi.advanceTimersByTimeAsync(4_999);
     expect(slices).toHaveBeenCalledTimes(1);
     expect(wait).not.toHaveBeenCalled();
@@ -107,7 +104,7 @@ describe('a backend told to stop in its pod', () => {
       done(new Error('gone'), 5);
       return server;
     }) as never);
-    await drainThenStop({ place: undefined, server, sockets: { disconnectSockets: vi.fn() }, log: vi.fn() });
+    await drainThenStop({ place: undefined, server, log: vi.fn() });
     expect(server.close).not.toHaveBeenCalled();
   });
 });

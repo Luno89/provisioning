@@ -577,7 +577,6 @@
  "tests apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx <-> apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx #a496c4f06fcd": 1,
  "tests apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx <-> apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx #f17a82ce091d": 1,
  "tests apps/frontend/src/shell/App.test.tsx <-> apps/frontend/src/shell/RootLayout.test.tsx #2f4ddb9f547d": 1,
- "tests apps/frontend/src/shell/App.test.tsx <-> apps/frontend/src/shell/RootLayout.test.tsx #74cd06d545a4": 1,
  "tests apps/frontend/src/shell/App.test.tsx <-> apps/frontend/src/shell/RootLayout.test.tsx #752ff9b3e4c9": 1,
  "tests apps/frontend/src/shell/App.test.tsx <-> apps/frontend/src/shell/Router.test.tsx #2579dfaf43dc": 1,
  "tests apps/frontend/src/shell/RootLayout.test.tsx <-> apps/frontend/src/shell/Router.test.tsx #693fde808aa2": 1,

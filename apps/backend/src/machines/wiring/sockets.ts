@@ -4,7 +4,7 @@ import path from 'path';
 import type { Server as SocketServer } from 'socket.io';
 import {
   type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
-  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets, nodeStreams, type Followed, type Streams,
+  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SignedInSockets, type SessionSockets, nodeStreams, type Followed, type Streams,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
@@ -64,11 +64,11 @@ export interface SocketsWiringDeps {
   streams?: Streams | undefined;
 }
 
-export function wireSockets(deps: SocketsWiringDeps): void {
+export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
   const { io, db, role, payloadKey, clusters, apps } = deps;
   const streams = deps.streams ?? nodeStreams;
   const podLogs = new PodLogTails({ access: clusters.access, say: (room, text) => io.to(room).emit('kube-log', text), log: (message) => console.warn(message) });
-  signSocketsIn(io, { auth: deps.auth, sessionSockets: deps.sessionSockets });
+  const signedIn = signSocketsIn(io, { auth: deps.auth, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
   const admitted = new WeakMap<object, MachineSocketData>();
@@ -255,5 +255,5 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       socketTails.clear();
     });
   });
-
+  return signedIn;
 }

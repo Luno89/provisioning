@@ -1,8 +1,7 @@
 import express from 'express';
 import type { Database } from '../../platform/index.js';
 import { createAuth, type Auth } from '../../platform/middleware/auth.js';
-import { BrowserSessions } from '../../platform/services/BrowserSessions.js';
-import { arrivedOverHttps } from '../../platform/lib/auth.js';
+import { browserSessionsFor, type BrowserSessions } from '../../platform/services/BrowserSessions.js';
 import { signedInWithPassword } from '../../accounts/testing/password-sign-in.js';
 import type { DependencyId } from '../../platform/lib/dependencies.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
@@ -81,7 +80,7 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
   const provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: PROVIDER_COOKIE_KEY, proxied: false, reach: options.reach }, rootDb);
   const rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token), registrationCode: (placed) => provider.registrationCode(placed) }, undefined);
   const rootRevocations = new AccessRevocations();
-  const rootSessions = new BrowserSessions({ store: rootDb.platform, secret: ROOT_SESSION, securedFor: () => root.url.startsWith('https://') });
+  const rootSessions = browserSessionsFor('root', root.url, { store: rootDb.platform, secret: ROOT_SESSION });
   const rootAuth = createAuth({ db: rootDb, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), own: { sessions: rootSessions, revocations: rootRevocations } });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userOf(req) }));
   const authService = new AuthService(rootDb);
@@ -97,7 +96,7 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
   const registrationCode = await provider.registrationCode({ id: instanceId, ownerId });
   const clientKeys = identityKeysFrom(generateIdentityKey());
 
-  const sessions = new BrowserSessions({ store: instanceDb.platform, secret: INSTANCE_SESSION, securedFor: (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], false) });
+  const sessions = browserSessionsFor('instance', instance.url, { store: instanceDb.platform, secret: INSTANCE_SESSION });
   const signIn = new RootSignIn({
     kind: 'instance',
     clientId: instanceId,

@@ -9,7 +9,8 @@ describe('the backend stopping cleanly in a pod', () => {
     const exits: number[] = [];
     await stopBackend({
       stopping: () => undefined,
-      drain: { place: { ip: '10.42.0.9', namespace: 'nowrinkles' }, slices: async () => ({ items: [] }), server, sockets: { disconnectSockets: () => undefined }, log: () => undefined, wait: vi.fn(async () => undefined) },
+      sockets: { stopTaking: () => undefined },
+      drain: { place: { ip: '10.42.0.9', namespace: 'nowrinkles' }, slices: async () => ({ items: [] }), server, log: () => undefined, wait: vi.fn(async () => undefined) },
       exit: (code) => { exits.push(code); },
     });
     expect(server.listening).toBe(false);

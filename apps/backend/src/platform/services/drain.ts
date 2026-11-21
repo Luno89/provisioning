@@ -7,15 +7,10 @@ import { stillRoutedTo, type EndpointSlices, type PodPlace } from '../lib/drain.
 const LOOK_AGAIN_MS = 500;
 export const PROXIES_CATCH_UP_MS = 10_000;
 
-export interface Reconnectable {
-  disconnectSockets(close: boolean): unknown;
-}
-
 export interface DrainDeps {
   place: PodPlace | undefined;
   slices?: ((namespace: string) => Promise<EndpointSlices>) | undefined;
   server: Server;
-  sockets: Reconnectable;
   log: (line: string) => void;
   wait?: ((ms: number) => Promise<void>) | undefined;
   readAgain?: Reopening | undefined;
@@ -67,7 +62,6 @@ export async function drainThenStop(deps: DrainDeps): Promise<void> {
   }
   deps.log('[drain] answering what still comes with Connection: close, until no connection is left');
   deps.server.prependListener('request', (_request, answer) => answer.setHeader('Connection', 'close'));
-  deps.sockets.disconnectSockets(true);
   while (await openConnections(deps.server) > 0) await new Promise((done) => setTimeout(done, LOOK_AGAIN_MS));
   if (deps.server.listening) await new Promise<void>((done) => deps.server.close(() => done()));
   deps.log('[drain] no connection is left');

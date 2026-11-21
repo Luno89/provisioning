@@ -14,7 +14,7 @@ const ask = (port: number, agent: http.Agent | false = false, path = '/'): Promi
 });
 
 describe('a backend told to stop in its pod', () => {
-  it("serves as before while a service routes to it and while every node's proxy catches up, then asks every client to reconnect and exits once no connection is left", async () => {
+  it("serves as before while a service routes to it and while every node's proxy catches up, then closes once no connection is left", async () => {
     let release: () => void = () => undefined;
     const held = new Promise<void>((done) => { release = done; });
     const server = http.createServer((request, answer) => {
@@ -35,22 +35,20 @@ describe('a backend told to stop in its pod', () => {
       routed -= 1;
       return { items: [{ endpoints: [{ addresses: ['10.42.0.9'], conditions: { ready: routed >= 0 } }] }] };
     });
-    const sockets = { disconnectSockets: vi.fn() };
     const lines: string[] = [];
     let stopped = false;
     let caughtUp: () => void = () => undefined;
     const waited: number[] = [];
     const wait = vi.fn((ms: number) => { waited.push(ms); return new Promise<void>((done) => { caughtUp = done; }); });
-    const draining = drainThenStop({ place: { ip: '10.42.0.9', namespace: 'nowrinkles' }, slices, server, sockets, log: (line) => lines.push(line), wait }).then(() => { stopped = true; });
+    const draining = drainThenStop({ place: { ip: '10.42.0.9', namespace: 'nowrinkles' }, slices, server, log: (line) => lines.push(line), wait }).then(() => { stopped = true; });
 
     await vi.waitFor(() => expect(wait).toHaveBeenCalled(), { timeout: 10_000 });
     expect(waited).toEqual([PROXIES_CATCH_UP_MS]);
     expect(await ask(port, kept)).toEqual({ status: 200, connection: 'keep-alive' });
     expect((await ask(port)).status).toBe(200);
-    expect(sockets.disconnectSockets).not.toHaveBeenCalled();
     caughtUp();
 
-    await vi.waitFor(() => expect(sockets.disconnectSockets).toHaveBeenCalledWith(true), { timeout: 10_000 });
+    await vi.waitFor(() => expect(lines).toContain('[drain] answering what still comes with Connection: close, until no connection is left'), { timeout: 10_000 });
     expect(whileRouted).toEqual([{ status: 200, connection: 'keep-alive' }, { status: 200, connection: 'keep-alive' }]);
     expect(slices).toHaveBeenCalledWith('nowrinkles');
     expect(await ask(port, kept)).toEqual({ status: 200, connection: 'close' });
@@ -70,7 +68,7 @@ describe('a backend told to stop in its pod', () => {
     ]);
   });
 
-  it('outside a pod goes straight to asking clients to reconnect, and in one whose endpoints could not be read at first reads them again', async () => {
+  it('outside a pod goes straight to closing once no connection is left, and in one whose endpoints could not be read at first reads them again', async () => {
     for (const place of [undefined, { ip: '10.42.0.9', namespace: 'nowrinkles' }]) {
       let refused = 0;
       const server = http.createServer((_request, answer) => answer.end('ok'));
@@ -78,7 +76,7 @@ describe('a backend told to stop in its pod', () => {
       const lines: string[] = [];
       const wait = vi.fn(async () => undefined);
       const slices = async () => { if (refused++ === 0) throw new Error('forbidden'); return { items: [] }; };
-      await drainThenStop({ place, slices, server, sockets: { disconnectSockets: () => undefined }, log: (line) => lines.push(line), wait, readAgain: reopening(50) });
+      await drainThenStop({ place, slices, server, log: (line) => lines.push(line), wait, readAgain: reopening(50) });
       expect(server.listening).toBe(false);
       expect(wait).toHaveBeenCalledTimes(place ? 1 : 0);
       expect(refused).toBe(place ? 2 : 0);

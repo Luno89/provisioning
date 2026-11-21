@@ -69,6 +69,12 @@ const codeOf = (error: unknown): string | undefined => {
   return typeof own === 'string' && own ? own : causeCode(error);
 };
 
+const socketNotThereYet = (error: unknown): string | undefined => {
+  const connecting = [error, field(error, 'cause')].find((one) => field(one, 'code') === 'ENOENT' && field(one, 'syscall') === 'connect');
+  const address = field(connecting, 'address');
+  return connecting ? (typeof address === 'string' ? address : 'its socket') : undefined;
+};
+
 const grpcCodeOf = (error: unknown): number | undefined => {
   const own = field(error, 'code');
   if (typeof own === 'number') return own;
@@ -103,6 +109,8 @@ export function failureOf(error: unknown): Failure {
   if (refusedByServer(error)) return final(`it refused: ${messageOf(error)}`);
   const status = httpStatusOf(error);
   if (status !== undefined) return statusFailure(status, retryAfterOf(error));
+  const socket = socketNotThereYet(error);
+  if (socket) return temporary(`nothing listens on ${socket} yet (ENOENT)`);
   const code = codeOf(error);
   const byCode = code ? codeFailure(code) : undefined;
   if (byCode) return byCode;

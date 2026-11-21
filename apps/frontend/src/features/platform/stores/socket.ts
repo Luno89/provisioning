@@ -4,6 +4,7 @@ import { SOCKET_URL } from '../../../api/client'
 import { tryAgainAfter, tryAgainAfterRefusal, UNCHECKED_RETRY_MS } from '../lib/socket-reconnect'
 
 let shared: Socket | null = null
+const reconnectedListeners = new Set<() => void>()
 
 const opened = (): Socket => {
   const socket = io(SOCKET_URL, { withCredentials: true, autoConnect: false })
@@ -12,8 +13,23 @@ const opened = (): Socket => {
   return socket
 }
 
+const openedShared = (): Socket => {
+  const socket = opened()
+  let connectedBefore = false
+  socket.on('connect', () => {
+    if (connectedBefore) for (const listener of reconnectedListeners) listener()
+    connectedBefore = true
+  })
+  return socket
+}
+
+export function onReconnected(listener: () => void): () => void {
+  reconnectedListeners.add(listener)
+  return () => { reconnectedListeners.delete(listener) }
+}
+
 export function getSocket(): Socket {
-  if (!shared) shared = opened()
+  if (!shared) shared = openedShared()
   return shared
 }
 

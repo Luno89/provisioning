@@ -29,7 +29,7 @@ async function serve(failing = false) {
   app.post('/out', (req, res, next) => { real.endSession(req).then(() => res.json({}), next); });
   const server = http.createServer(app);
   const io = new SocketServer(server);
-  signSocketsIn(io, { auth, sessionSockets });
+  const signedIn = signSocketsIn(io, { auth, sessionSockets });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   closing.push(async () => { await Promise.all([io.close(), new Promise<void>((resolve) => server.close(() => resolve()))]); });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -43,7 +43,7 @@ async function serve(failing = false) {
     const out = await fetch(`${url}/out`, { method: 'POST', headers: { cookie } });
     if (out.status !== 200) throw new Error(`signing out answered ${out.status}`);
   };
-  return { revocations, sessionSockets, url, signIn, signOut };
+  return { revocations, sessionSockets, url, signIn, signOut, signedIn };
 }
 
 const opened = (url: string, cookie: string): Promise<{ socket: ClientSocket; closed: Promise<string> }> => new Promise((resolve, reject) => {
@@ -92,6 +92,22 @@ describe('an open connection ends with its session', () => {
     expect(await beforeToo.closed).toBe('io server disconnect');
     const after = await opened(url, await signIn());
     expect(after.socket.connected).toBe(true);
+  });
+});
+
+describe('a backend that starts stopping while another takes over', () => {
+  it('closes every connection at once and asks each new one to try again, so a browser\'s connection is only ever on the backend that stays', async () => {
+    const { url, signIn, signedIn, sessionSockets } = await serve();
+    const cookie = await signIn();
+    const first = await opened(url, cookie);
+    const second = await opened(url, await signIn());
+    signedIn.stopTaking();
+    expect(await first.closed).toBe('io server disconnect');
+    expect(await second.closed).toBe('io server disconnect');
+    const refused = await refusal(url, cookie);
+    expect(refused.message).toBe('this backend is stopping; try again');
+    expect(refused.data).toEqual({ tryAgain: true });
+    expect(sessionSockets.size).toBe(0);
   });
 });
 
