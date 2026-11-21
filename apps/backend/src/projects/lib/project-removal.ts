@@ -34,6 +34,14 @@ export function projectApps(project: Pick<ProjectMetadata, 'id' | 'name'>, deplo
     || (!deployment.gitappProjectId && deployment.appType === 'gitapp' && deployment.name === project.name));
 }
 
+export function appsToName(projects: readonly Pick<ProjectMetadata, 'id' | 'name' | 'ownerId'>[], deployments: readonly DeploymentMetadata[]): { deploymentId: string; projectId: string }[] {
+  return deployments.flatMap((deployment) => {
+    if (deployment.gitappProjectId || deployment.appType !== 'gitapp') return [];
+    const project = projects.find((entry) => entry.ownerId === deployment.ownerId && entry.name === deployment.name);
+    return project ? [{ deploymentId: deployment.id, projectId: project.id }] : [];
+  });
+}
+
 const RUNNING_BUILDS = ['queued', 'running'];
 
 export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name' | 'ownerId' | 'giteaOwner' | 'giteaRepo'>, world: ProjectWorld): ProjectRemovalScope {

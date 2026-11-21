@@ -3,8 +3,14 @@ import { treeOutline } from '../projects/lib/tree-outline.js';
 import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
+import { primaryProjectId, type Tree } from '../projects/lib/trees.js';
 
 type BindingSources = Pick<Database, 'engine' | 'projects' | 'releases' | 'accounts'>;
+
+const homeOf = (tree: Tree): { projectId?: string } => {
+  const projectId = primaryProjectId(tree);
+  return projectId ? { projectId } : {};
+};
 
 export function conversationBinding(db: BindingSources) {
   const statusOf = async (ownerId: string, projectIds: readonly string[]): Promise<string> => {
@@ -28,10 +34,10 @@ export function conversationBinding(db: BindingSources) {
       if (leaf) {
         const tasks = (await db.projects.getTasks(ownerId)).filter((task) => task.leafId === leaf.id);
         const project = await statusOf(ownerId, tree.projectIds ?? []);
-        return { treeId: tree.id, leafId: leaf.id, story: storyOutline(leaf, { tree, branch }, leaves, tasks), ...(project ? { project } : {}) };
+        return { treeId: tree.id, leafId: leaf.id, story: storyOutline(leaf, { tree, branch }, leaves, tasks), ...homeOf(tree), ...(project ? { project } : {}) };
       }
       const project = await statusOf(ownerId, tree.projectIds ?? []);
-      return { treeId: tree.id, branchId: branch.id, feature: featureOutline(branch, tree, leaves), ...(project ? { project } : {}) };
+      return { treeId: tree.id, branchId: branch.id, feature: featureOutline(branch, tree, leaves), ...homeOf(tree), ...(project ? { project } : {}) };
     }
     if (conversation?.treeId) {
       const tree = (await db.projects.getTrees()).find((candidate) => candidate.id === conversation.treeId && candidate.ownerId === ownerId);
@@ -42,7 +48,7 @@ export function conversationBinding(db: BindingSources) {
       const leafIds = new Set(leaves.map((leaf) => leaf.id));
       const tasks = (await db.projects.getTasks(ownerId)).filter((task) => task.leafId && leafIds.has(task.leafId));
       const project = await statusOf(ownerId, [...new Set([...(conversation.projectId ? [conversation.projectId] : []), ...(tree.projectIds ?? [])])]);
-      return { treeId: tree.id, tree: treeOutline(tree, branches, leaves, tasks), ...(project ? { project } : {}) };
+      return { treeId: tree.id, tree: treeOutline(tree, branches, leaves, tasks), ...homeOf(tree), ...(project ? { project } : {}) };
     }
     if (conversation?.projectId) {
       const project = (await db.projects.getProjects()).find((candidate) => candidate.id === conversation.projectId && candidate.ownerId === ownerId);

@@ -18,6 +18,7 @@ export class WorkspaceBuildService {
   async start(ownerId: string, treeId: string, commit: string): Promise<WorkspaceBuildStart> {
     if ((await this.deps.hidden?.(ownerId))?.agents.has(WORKSPACE_AGENT)) return { started: false, reason: 'switched-off' };
     const runId = workspaceBuildRunId(treeId, commit);
+    const projectId = (await this.deps.trees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0];
     try {
       await this.deps.runs.start({
         startedBy: 'person',
@@ -26,7 +27,7 @@ export class WorkspaceBuildService {
         message: 'Build the workspace.',
         inputs: { treeId, commit },
         runId,
-        bound: { treeId },
+        bound: { treeId, ...(projectId ? { projectId } : {}) },
       });
       return { started: true, runId };
     } catch (err) {

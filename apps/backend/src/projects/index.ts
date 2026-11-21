@@ -35,5 +35,8 @@ export { createSecretVault, SecretRequestService } from './services/SecretReques
 export { TreeHomeService } from './services/TreeHomeService.js';
 export { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 export { groveRecordsOf } from './store.js';
+export { appsToName } from './lib/project-removal.js';
+export { projectOfWork } from './services/project-of-work.js';
+export type { ProjectOfWork } from './services/project-of-work.js';
 export { ARCHIVE_DAYS, PURGE_PROJECT_WORKFLOW, keptUntil, purgeNow, purgeProjectWorkflowId, purgeStart, restoreProject } from './lib/project-archive.js';
 export type { ProjectsStore } from './store.js';

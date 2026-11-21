@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectApps, projectRemovalPreview, projectRemovalScope, type ProjectWorld } from './project-removal.js';
+import { appsToName, projectApps, projectRemovalPreview, projectRemovalScope, type ProjectWorld } from './project-removal.js';
 
 const project = { id: 'p1', name: 'shop', ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: 'shop' };
 
@@ -55,5 +55,19 @@ describe('the channel of a project being deleted', () => {
     const scope = projectRemovalScope(project, world({ trees: [], conversations: [{ id: 'channel-p1', ownerId: 'bo', projectId: 'p1', kind: 'channel' }, { id: 'side', ownerId: 'bo', projectId: 'p1' }] }));
     expect(scope.channelIds).toEqual(['channel-p1']);
     expect(scope.keptConversationIds).toEqual(['side']);
+  });
+});
+
+describe('an app built from a project that does not name it', () => {
+  it('is given the project of its owner it was built from, by name, once, so its work names the project', () => {
+    const projects = [{ id: 'p1', name: 'shop', ownerId: 'bo' }, { id: 'p2', name: 'shop', ownerId: 'cy' }];
+    const deployments = [
+      { id: 'd1', name: 'shop', appType: 'gitapp', ownerId: 'bo' },
+      { id: 'd2', name: 'shop', appType: 'gitapp', ownerId: 'bo', gitappProjectId: 'p1' },
+      { id: 'd3', name: 'shop', appType: 'odoo', ownerId: 'bo' },
+      { id: 'd4', name: 'blog', appType: 'gitapp', ownerId: 'bo' },
+      { id: 'd5', name: 'shop', appType: 'gitapp', ownerId: 'cy' },
+    ] as never[];
+    expect(appsToName(projects, deployments)).toEqual([{ deploymentId: 'd1', projectId: 'p1' }, { deploymentId: 'd5', projectId: 'p2' }]);
   });
 });

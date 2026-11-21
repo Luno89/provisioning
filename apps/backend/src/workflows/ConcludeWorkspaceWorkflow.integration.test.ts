@@ -34,7 +34,7 @@ const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unk
     activities: { ConcludeWorkspaceActivity: activity, ...createWorkspaceProjectActivities(stores ?? await testDatabase()) },
   });
   const naming = testClient(env, { interceptors: { workflow: [namesItsWork] } });
-  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => naming.workflow, taskQueue })));
+  await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => naming.workflow, taskQueue, projectOf: async () => undefined })));
 };
 
 describe('concluding a workspace through Temporal', () => {
