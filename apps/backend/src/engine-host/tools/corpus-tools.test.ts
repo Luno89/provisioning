@@ -7,7 +7,6 @@ const page = (over: Partial<CorpusPage>): CorpusPage => ({ id: 'x', ownerId: 'u1
 function tools() {
   const started: { id: string; args: unknown }[] = [];
   const access: CorpusAccess = {
-    storesProblem: async (ownerId) => (ownerId === 'u1' ? undefined : 'crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Qdrant and TEI: deploy it as an app first'),
     addressProblem: async (url) => (url.includes('10.0.0.') ? '10.0.0.5 is a private, loopback, mesh or reserved address' : undefined),
     start: vi.fn<CorpusAccess['start']>(async (id, args) => { started.push({ id, args }); }),
     status: vi.fn<CorpusAccess['status']>(async (id) => (id.endsWith('done')
@@ -33,12 +32,6 @@ describe('corpus tools', () => {
   it('crawls only a site on the open internet', async () => {
     const { call, started } = tools();
     expect((await call('start_ingest', { url: 'http://10.0.0.5:8080/' })).digest).toBe('Koala crawls only sites on the open internet, and not this one: 10.0.0.5 is a private, loopback, mesh or reserved address');
-    expect(started).toEqual([]);
-  });
-
-  it('refuses to start a crawl without the person\'s own Quickwit, Qdrant and TEI, naming what is missing and how to get it', async () => {
-    const { call, started } = tools();
-    expect((await call('start_ingest', { url: 'https://docs.example.com' }, 'u2')).digest).toBe('crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Qdrant and TEI: deploy it as an app first. Propose each with propose_deploy_app, then start the crawl once they run');
     expect(started).toEqual([]);
   });
 

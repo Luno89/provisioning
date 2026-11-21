@@ -1,23 +1,18 @@
 import { at, listAt } from '../../platform/lib/json-shapes.js';
 import { collectionConfig, pointId } from '../../engine/lib/corpus-backend.js';
 import { embed } from '../../engine/lib/corpus-client.js';
-import { answered, bothOf, refusal, SEARCHABLE, withStores } from '../../engine/lib/corpus-stores.js';
+import { answered, bothOf, refusal } from '../../engine/lib/corpus-stores.js';
 import {
   MEMORY_INDEX, MEMORY_COLLECTION, MEMORY_SEARCH_LIMIT, buildMemoryQuery, memoryIndexConfig,
   fuseRRF, type FusedHit, type MemoryDoc,
 } from './memory-rank.js';
 import type { MemoryItem } from './memory-store.js';
-import type { CorpusEndpoints } from '../../engine/index.js';
-
-export type MemoryEndpoints = Pick<CorpusEndpoints, 'vectors' | 'embeddings' | 'index'>;
+import type { MemoryIndex } from '../../platform/index.js';
 
 export type MemoryUnindexer = (ownerId: string, ids: string[]) => Promise<void>;
 
-export const unindexerFrom = (endpoints: (ownerId: string) => Promise<MemoryEndpoints>): MemoryUnindexer =>
-  async (ownerId, ids) => {
-    if (!ids.length) return;
-    await removeMemories(await endpoints(ownerId), ids);
-  };
+export const unindexerFrom = (index: MemoryIndex): MemoryUnindexer =>
+  async (_ownerId, ids) => removeMemories(index, ids);
 
 const memoryIdOf = (point: unknown): string => String(at(at(point, 'payload'), 'memory_id') ?? '');
 
@@ -63,19 +58,16 @@ const docFor = (m: MemoryItem): MemoryDoc => ({
 });
 
 export async function indexMemories(
-  ends: MemoryEndpoints,
+  stores: MemoryIndex,
   items: MemoryItem[],
 ): Promise<{ vectors: number; documents: number }> {
-  const stores = withStores(ends, SEARCHABLE, 'keeping memories searchable');
   if (!items.length) return { vectors: 0, documents: 0 };
 
   const [vectors, documents] = await bothOf(embedMemories(stores, items), writeMemoryDocs(stores, items));
   return { vectors, documents };
 }
 
-type Searchable = MemoryEndpoints & Required<MemoryEndpoints>;
-
-async function embedMemories(ends: Searchable, items: MemoryItem[]): Promise<number> {
+async function embedMemories(ends: MemoryIndex, items: MemoryItem[]): Promise<number> {
   await ensureMemoryCollection(ends.vectors.base, ends.vectors.apiKey);
 
   const vectors = await embed(ends.embeddings.base, items.map(bodyOf));
@@ -98,7 +90,7 @@ async function embedMemories(ends: Searchable, items: MemoryItem[]): Promise<num
   return points.length;
 }
 
-async function writeMemoryDocs(ends: Searchable, items: MemoryItem[]): Promise<number> {
+async function writeMemoryDocs(ends: MemoryIndex, items: MemoryItem[]): Promise<number> {
   await ensureMemoryIndex(ends.index.base);
 
   const ndjson = items.map((m) => JSON.stringify(docFor(m))).join('\n');
@@ -111,34 +103,29 @@ async function writeMemoryDocs(ends: Searchable, items: MemoryItem[]): Promise<n
   return items.length;
 }
 
-export async function removeMemories(ends: MemoryEndpoints, ids: string[]): Promise<void> {
+export async function removeMemories(ends: Pick<MemoryIndex, 'index' | 'vectors'>, ids: string[]): Promise<void> {
   if (!ids.length) return;
   const { index, vectors } = ends;
   await bothOf(
-    index
-      ? fetch(`${index.base}/api/v1/${MEMORY_INDEX}/delete-tasks`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: ids.map((id) => `memory_id:"${id}"`).join(' OR ') }),
-      }).then((res) => answered(res, 'Quickwit'))
-      : Promise.resolve(),
-    vectors
-      ? fetch(`${vectors.base}/collections/${MEMORY_COLLECTION}/points/delete?wait=true`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
-        body: JSON.stringify({ points: ids.map(pointId) }),
-      }).then((res) => answered(res, 'Qdrant'))
-      : Promise.resolve(),
+    fetch(`${index.base}/api/v1/${MEMORY_INDEX}/delete-tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: ids.map((id) => `memory_id:"${id}"`).join(' OR ') }),
+    }).then((res) => answered(res, 'Quickwit')),
+    fetch(`${vectors.base}/collections/${MEMORY_COLLECTION}/points/delete?wait=true`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
+      body: JSON.stringify({ points: ids.map(pointId) }),
+    }).then((res) => answered(res, 'Qdrant')),
   );
 }
 
 export async function searchMemoryVectors(
-  ends: MemoryEndpoints,
+  stores: Pick<MemoryIndex, 'vectors' | 'embeddings'>,
   query: string,
   scope: { ownerId: string },
   limit = MEMORY_SEARCH_LIMIT,
 ): Promise<string[]> {
-  const stores = withStores(ends, ['vectors', 'embeddings'], 'searching memories');
   const [vector] = await embed(stores.embeddings.base, [query]);
   if (!vector) throw new Error('TEI answered with no vector for the search');
 
@@ -175,12 +162,11 @@ export async function searchMemoryIndex(
 }
 
 export async function searchMemories(
-  ends: MemoryEndpoints,
+  stores: MemoryIndex,
   query: string,
   scope: { ownerId: string },
   limit = MEMORY_SEARCH_LIMIT,
 ): Promise<FusedHit[]> {
-  const stores = withStores(ends, SEARCHABLE, 'searching memories');
   const [dense, sparse] = await bothOf(
     searchMemoryVectors(stores, query, scope, limit),
     searchMemoryIndex(stores.index.base, query, scope, limit),
@@ -189,12 +175,11 @@ export async function searchMemories(
 }
 
 export async function similarTo(
-  ends: MemoryEndpoints,
+  stores: Pick<MemoryIndex, 'vectors'>,
   memoryId: string,
   scope: { ownerId: string },
   limit = 10,
 ): Promise<{ id: string; score: number }[]> {
-  const stores = withStores(ends, ['vectors'], 'comparing memories');
   const res = await fetch(`${stores.vectors.base}/collections/${MEMORY_COLLECTION}/points/recommend`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },

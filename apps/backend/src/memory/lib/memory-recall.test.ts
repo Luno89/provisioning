@@ -23,6 +23,8 @@ const bank: Mem[] = [
   mem({ id: 'oldest', title: 'OLDEST', createdAt: '2020-01-01T00:00:00.000Z' }),
 ];
 
+const X = { index: { base: 'http://x' }, vectors: { base: 'http://x', apiKey: 'k' }, embeddings: { base: 'http://x' } };
+
 beforeEach(() => { searchMemories.mockReset(); });
 
 describe('when search answers', () => {
@@ -39,7 +41,7 @@ describe('when search answers', () => {
   it('reports that it used hybrid search', async () => {
     searchMemories.mockResolvedValue([{ id: 'relevant', score: 1, via: ['dense'] }]);
     const out = await recallMemories({
-      memories: bank, ownerId: 'u1', query: 'rate limiting', endpoints: async () => ({ index: { base: 'http://x' } }),
+      memories: bank, ownerId: 'u1', query: 'rate limiting', endpoints: async () => X,
     });
 
     expect(out.via).toBe('hybrid');
@@ -71,7 +73,7 @@ describe('when search does not answer', () => {
   it('fails with why when the search throws, never recalling by recency instead', async () => {
     searchMemories.mockImplementation(() => { throw new Error('Qdrant refused: HTTP 503'); });
     await expect(recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => ({ index: { base: 'http://x' } }),
+      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => X,
     })).rejects.toThrow('memories could not be searched: Qdrant refused: HTTP 503');
   });
 
@@ -86,7 +88,7 @@ describe('when search does not answer', () => {
     searchMemories.mockImplementation(() => new Promise((r) => setTimeout(() => r([{ id: 'relevant', score: 1, via: ['dense'] }]), 300)));
     const out = await recallMemories({
       memories: bank, ownerId: 'u1', query: 'x',
-      endpoints: async () => ({ index: { base: 'http://x' } }),
+      endpoints: async () => X,
     });
 
     expect(out.via).toBe('hybrid');
@@ -95,7 +97,7 @@ describe('when search does not answer', () => {
   it('says recency when the stack is deployed but ranked nothing', async () => {
     searchMemories.mockResolvedValue([]);
     const out = await recallMemories({
-      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => ({ index: { base: 'http://x' } }),
+      memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => X,
     });
 
     expect(out.via).toBe('recency');

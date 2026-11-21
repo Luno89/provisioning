@@ -1,6 +1,6 @@
 import { indexConfig, collectionConfig, chunksFor, pointId, type CorpusDoc } from './corpus-backend.js';
-import type { CorpusEndpoints } from './web-tools-resolver.js';
-import { answered, bothOf, refusal, withStores } from './corpus-stores.js';
+import type { MemoryIndex } from '../../platform/index.js';
+import { answered, bothOf, refusal } from './corpus-stores.js';
 
 export const INDEX_ID = 'koala-corpus';
 export const COLLECTION_ID = 'koala-corpus';
@@ -69,10 +69,9 @@ export async function ensureCollection(base: string, apiKey: string): Promise<vo
 }
 
 export async function embedPages(
-  ends: Pick<CorpusEndpoints, 'vectors' | 'embeddings'>,
+  stores: Pick<MemoryIndex, 'vectors' | 'embeddings'>,
   docs: CorpusDoc[],
 ): Promise<number> {
-  const stores = withStores(ends, ['vectors', 'embeddings'], 'embedding crawled pages');
   if (!docs.length) return 0;
 
   const chunks = docs.flatMap((d) => chunksFor(d.url, d.body).map((c) => ({ ...c, doc: d })));
@@ -105,22 +104,18 @@ export async function embedPages(
   return points.length;
 }
 
-export async function purgeCorpus(ends: CorpusEndpoints, ingestId: string): Promise<void> {
+export async function purgeCorpus(ends: Pick<MemoryIndex, 'index' | 'vectors'>, ingestId: string): Promise<void> {
   const { index, vectors } = ends;
   await bothOf(
-    index
-      ? fetch(`${index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
-      }).then((res) => answered(res, 'Quickwit'))
-      : Promise.resolve(),
-    vectors
-      ? fetch(`${vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
-        body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
-      }).then((res) => answered(res, 'Qdrant'))
-      : Promise.resolve(),
+    fetch(`${index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
+    }).then((res) => answered(res, 'Quickwit')),
+    fetch(`${vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
+      body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
+    }).then((res) => answered(res, 'Qdrant')),
   );
 }

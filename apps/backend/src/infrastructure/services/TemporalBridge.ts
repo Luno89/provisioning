@@ -7,7 +7,7 @@ import {
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
-  looksLikeMcp, cachedProbes, mcpReachFrom, corpusEndpointsWith, webToolsDepsFrom, type McpProbe, type WaitingAsk,
+  looksLikeMcp, cachedProbes, mcpReachFrom, type McpProbe, type WaitingAsk,
 } from '../../engine/index.js'
 import type { DeploymentHealth } from '../store.js'
 import { missingNamespaceReason, namespacesByName, namespaceOf, removalHoldOf } from '../lib/app-namespace.js'
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
 import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
-import { at, listAt, textAt } from '../../platform/index.js'
+import { at, isOff, listAt, textAt, type MemoryIndex, type Off } from '../../platform/index.js'
 import { appSettingsOf, definedFields, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
 import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
@@ -36,7 +36,6 @@ import { deploymentForProject, projectOfWork } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
 import { keepEveryOwner, type ConsolidationReport } from '../../memory/index.js'
-import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '@koala/provision'
 import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
@@ -211,7 +210,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined; toolCalling?: Pick<ToolCallParsers, 'decide'> | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; dependencies?: DependencyReporter | undefined; toolCalling?: Pick<ToolCallParsers, 'decide'> | undefined; memoryIndex?: MemoryIndex | Off | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -227,6 +226,13 @@ export class TemporalBridge {
   private mcpProbes(dep: DeploymentMetadata): Promise<McpProbe> {
     this.mcpProbeCache ??= cachedProbes(mcpReachFrom({ access: this.clusterAccess(), clusterById: (id) => this.getClusterById(id) }).probe)
     return this.mcpProbeCache(dep)
+  }
+
+  private memoryIndex(): MemoryIndex {
+    const index = this.seams.memoryIndex
+    if (!index) throw new Error('memories are kept in the memory index, and this bridge was given none')
+    if (isOff(index)) throw new Error(`memories cannot be kept here: ${index.off}`)
+    return index
   }
 
   private toolCalling(): Pick<ToolCallParsers, 'decide'> {
@@ -568,7 +574,7 @@ export class TemporalBridge {
     if (this.consolidating) return
     this.consolidating = true
     try {
-      const place = { db: this.db, reach: (ownerId: string) => corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId) }
+      const place = { db: this.db, index: () => this.memoryIndex() }
       for (const outcome of await keepEveryOwner(place)) {
         const { ownerId } = outcome.state
         if (!('report' in outcome)) {

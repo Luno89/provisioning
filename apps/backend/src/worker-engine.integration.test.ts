@@ -1,5 +1,6 @@
 import { temporal } from '@temporalio/proto';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { startCorpusStandIn } from './engine/testing/corpus-stand-in.js';
 import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
 import { workerWorld } from './platform/testing/worker-world.js';
@@ -15,6 +16,8 @@ import { asPerson } from './platform/lib/permissions.js';
 
 const { env, rootKey, live, placed, db } = await workerWorld();
 const away = 'http://127.0.0.1:1';
+const memoryIndex = await startCorpusStandIn();
+afterAll(async () => { await memoryIndex.stop(); });
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   ...placed(`engine-${role}`, role),
@@ -25,7 +28,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
       INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: away, ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', POD_NAME: 'luno-worker-engine-7d9f-abcde',
       GITEA_URL: away, GITEA_REACHES_KOALA_AT: away, INFISICAL_URL: away, ...testMinioEnv(),
       KOALA_REGISTRY: '127.0.0.1:1', KOALA_REGISTRY_PUSH: '127.0.0.1:1', REGISTRY_PULL_HOST: '127.0.0.1:1',
-      SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawl-token', CHECKS_API_URL: `${away}/api`,
+      SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawl-token', QUICKWIT_URL: memoryIndex.base, QDRANT_URL: memoryIndex.base, QDRANT_API_KEY: memoryIndex.endpoints.vectors.apiKey, TEI_URL: memoryIndex.base, CHECKS_API_URL: `${away}/api`,
     }),
 });
 
@@ -69,10 +72,10 @@ describe('the engine worker, started the way its entry starts it', () => {
     const at = new Date().toISOString();
     await db.memory.saveMemory({ id: 'mem-dns', ownerId: 'owner-tools', category: 'environment_facts', scope: 'global', status: 'active', title: 'DNS lives at Cloudflare', text: 'The person manages DNS at Cloudflare.', createdAt: at, updatedAt: at });
 
-    expect(await call('koala', 'start_ingest', { url: 'https://93.184.215.14/' }), 'a crawl is refused, naming the stores the person has not deployed').toMatchObject({
-      ok: false, digest: 'crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Quickwit, Qdrant and TEI: deploy it as an app first. Propose each with propose_deploy_app, then start the crawl once they run',
+    expect(await call('koala', 'start_ingest', { url: 'https://93.184.215.14/' }), 'a crawl starts into the instance\'s own memory index').toMatchObject({
+      ok: true, digest: expect.stringMatching(/^crawl \S+ started$/) as unknown,
     });
-    expect(await call('memory-keeper', 'forget_memory', { id: 'mem-dns', why: 'they moved to Porkbun' }), 'a memory of a person with no index of their own is retired').toMatchObject({ ok: true, content: 'Retired mem-dns.' });
+    expect(await call('memory-keeper', 'forget_memory', { id: 'mem-dns', why: 'they moved to Porkbun' }), 'a memory is retired and taken out of the memory index').toMatchObject({ ok: true, content: 'Retired mem-dns.' });
     expect((await db.memory.getMemories('owner-tools')).find((item) => item.id === 'mem-dns')).toMatchObject({ invalidAt: anyOf(String) });
 
     worker.shutdown();

@@ -3,7 +3,6 @@ import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-
 import { search, type CorpusPage, type IngestReceipt } from '../../engine/lib/corpus.js';
 
 export interface CorpusAccess {
-  storesProblem(ownerId: string): Promise<string | undefined>;
   addressProblem?: ((url: string) => Promise<string | undefined>) | undefined;
   start(workflowId: string, args: { ownerId: string; projectId?: string | undefined; url: string; maxDepth?: number | undefined; maxPages?: number | undefined; domains?: string[] | undefined; keywords?: string[] | undefined }): Promise<void>;
   status(workflowId: string): Promise<{ state: 'running' | 'completed' | 'failed' | 'unknown'; receipt?: IngestReceipt | undefined; error?: string | undefined }>;
@@ -45,8 +44,6 @@ export function createCorpusTools(options: { access: CorpusAccess; now?: (() => 
       const outside = await access.addressProblem?.(url);
       if (outside) return refuse(`Koala crawls only sites on the open internet, and not this one: ${outside}`);
 
-      const missing = await access.storesProblem(caller.ownerId);
-      if (missing) return refuse(`${missing}. Propose each with propose_deploy_app, then start the crawl once they run`);
       const id = `${ingestPrefix(caller.ownerId)}${now().toString(36)}`;
       await access.start(id, {
         ownerId: caller.ownerId,

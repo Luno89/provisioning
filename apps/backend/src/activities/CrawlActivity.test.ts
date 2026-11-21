@@ -6,9 +6,8 @@ import { ApplicationFailure } from '@temporalio/common';
 import { interceptHttp } from '../platform/testing/http.js';
 import { containing } from '../platform/lib/test-matchers.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
-import type { DependencyReporter, HostWorkerSettings } from '../platform/index.js';
+import type { DependencyReporter, HostWorkerSettings, MemoryIndex } from '../platform/index.js';
 import type { ClusterAccess } from '../infrastructure/index.js';
-import type { CorpusEndpoints } from '../engine/index.js';
 import { crawlPages } from '../engine/lib/crawl-client.js';
 import { giveHostActivities } from './host-settings.js';
 import { crawlActivities, crawlPlaceFor, DiscardFrontierActivity, NextBatchActivity, PurgeCorpusActivity, SeedFrontierActivity } from './CrawlActivity.js';
@@ -16,21 +15,21 @@ import { crawlActivities, crawlPlaceFor, DiscardFrontierActivity, NextBatchActiv
 const CRAWL4AI = 'http://crawl4ai.instance.test:11235';
 const PAGE = 'The retry budget is three attempts per job, and each attempt waits twice as long as the one before it, so a job that keeps failing is given up on after about a minute of trying again.';
 
-const settingsWith = (webTools: HostWorkerSettings['webTools']) =>
-  ({ webTools, mongo: { uri: 'mongodb://unused', dbName: 'unused' }, keys: { data: 'crawl-test-key' } }) as unknown as HostWorkerSettings;
-
-const placeWith = (webTools: HostWorkerSettings['webTools']) =>
-  crawlPlaceFor(settingsWith(webTools), mock<ClusterAccess>(), mock<DependencyReporter>());
-
-const server = interceptHttp();
-
 let stores = 0;
-const ownStores = (): Required<Pick<CorpusEndpoints, 'index' | 'vectors' | 'embeddings'>> => {
+const ownStores = (): MemoryIndex => {
   stores += 1;
   return { index: { base: `http://quickwit-${stores}.test:7280` }, vectors: { base: `http://qdrant-${stores}.test:6333`, apiKey: 'k' }, embeddings: { base: `http://tei-${stores}.test` } };
 };
 
-const crawlingWith = (ends: CorpusEndpoints) => crawlActivities(() => ({ ...placeWith({ crawl4aiUrl: CRAWL4AI, crawl4aiToken: 'instance-token' }), endpoints: async () => ends }));
+const settingsWith = (webTools: HostWorkerSettings['webTools'], memoryIndex: HostWorkerSettings['memoryIndex'] = ownStores()) =>
+  ({ webTools, memoryIndex, mongo: { uri: 'mongodb://unused', dbName: 'unused' }, keys: { data: 'crawl-test-key' } }) as unknown as HostWorkerSettings;
+
+const placeWith = (webTools: HostWorkerSettings['webTools'], memoryIndex?: HostWorkerSettings['memoryIndex']) =>
+  crawlPlaceFor(settingsWith(webTools, memoryIndex), mock<DependencyReporter>());
+
+const server = interceptHttp();
+
+const crawlingWith = (ends: HostWorkerSettings['memoryIndex']) => crawlActivities(() => placeWith({ crawl4aiUrl: CRAWL4AI, crawl4aiToken: 'instance-token' }, ends));
 
 const answering = (ends: ReturnType<typeof ownStores>, ingest: () => Response | Promise<Response> = () => HttpResponse.json({ num_docs_for_processing: 1 })) => {
   const indexed: string[] = [];
@@ -115,16 +114,16 @@ describe('crawling a batch into a person\'s corpus', () => {
     expect(await records.db!.engine.getCorpusPages({ ownerId: 'u1', ingestId: 'i3' })).toEqual([]);
   });
 
-  it('a person with no Quickwit, Qdrant or TEI of their own is refused for good, naming them', async () => {
-    const failed = await failureOfCrawl(crawlingWith({}).CrawlBatchActivity(batch('i4')));
+  it('is refused for good, saying why, by a host worker that keeps no memory index', async () => {
+    const failed = await failureOfCrawl(crawlingWith({ off: 'root keeps no memories and crawls no corpus, so it has no memory index; each instance does' }).CrawlBatchActivity(batch('i4')));
 
-    expect(failed).toMatchObject({ nonRetryable: true, type: 'CorpusStoresMissing', message: 'crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Quickwit, Qdrant and TEI: deploy it as an app first' });
+    expect(failed).toMatchObject({ nonRetryable: true, type: 'NoMemoryIndex', message: 'nothing can be crawled here: root keeps no memories and crawls no corpus, so it has no memory index; each instance does' });
   });
 });
 
 describe('ending and purging a crawl', () => {
   it('a crawl\'s frontier that is discarded hands out nothing more', async () => {
-    const crawling = crawlingWith({});
+    const crawling = crawlingWith(ownStores());
     await crawling.SeedFrontierActivity({ ingestId: 'i5', seed: 'https://docs.example.com/', keywords: [] });
 
     await crawling.DiscardFrontierActivity({ ingestId: 'i5' });
@@ -166,8 +165,14 @@ describe('ending and purging a crawl', () => {
 });
 
 describe('the crawl activities the host worker registers', () => {
-  it('work on the database the host worker\'s settings name, once the worker has given them', async () => {
-    giveHostActivities(settingsWith({}), mock<ClusterAccess>(), mock<DependencyReporter>());
+  it('work on the database and the memory index the host worker\'s settings name, once the worker has given them', async () => {
+    const ends = ownStores();
+    const purged: string[] = [];
+    server.use(
+      http.post(`${ends.index.base}/api/v1/:index/delete-tasks`, () => { purged.push('quickwit'); return HttpResponse.json({ opstamp: 1 }); }),
+      http.post(`${ends.vectors.base}/collections/:collection/points/delete`, () => { purged.push('qdrant'); return HttpResponse.json({ result: {} }); }),
+    );
+    giveHostActivities(settingsWith({}, ends), mock<ClusterAccess>(), mock<DependencyReporter>());
     await records.db!.engine.saveCorpusPages([{ id: 'h1:https://docs.example.com/', ownerId: 'u1', ingestId: 'h1', url: 'https://docs.example.com/', host: 'docs.example.com', text: PAGE, bytes: PAGE.length, fetchedAt: '2026-11-18T00:00:00.000Z' }]);
 
     expect(await SeedFrontierActivity({ ingestId: 'h2', seed: 'https://docs.example.com/', keywords: [] })).toEqual({ queued: 1 });
@@ -175,5 +180,6 @@ describe('the crawl activities the host worker registers', () => {
     expect(await NextBatchActivity({ ingestId: 'h2', limit: 8 })).toEqual({ batch: [], remaining: 0 });
     await PurgeCorpusActivity({ ownerId: 'u1', ingestId: 'h1' });
     expect(await records.db!.engine.getCorpusPages({ ownerId: 'u1', ingestId: 'h1' })).toEqual([]);
+    expect(purged.sort()).toEqual(['qdrant', 'quickwit']);
   });
 });

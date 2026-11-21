@@ -1,13 +1,13 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { VECTOR_SIZE } from '../lib/corpus-backend.js';
-import type { CorpusEndpoints } from '../lib/web-tools-resolver.js';
+import type { MemoryIndex } from '../../platform/index.js';
 
 type Doc = Record<string, unknown>;
 
 export interface CorpusStandIn {
   base: string;
-  endpoints: Required<Pick<CorpusEndpoints, 'index' | 'vectors' | 'embeddings'>>;
+  endpoints: MemoryIndex;
   documents(index: string): Doc[];
   points(collection: string): Doc[];
   crawled: string[][];
@@ -113,7 +113,7 @@ export async function startCorpusStandIn(token = 'crawl-token'): Promise<CorpusS
 
   return {
     base,
-    endpoints: { index: { base }, vectors: { base, apiKey: 'stand-in-key' }, embeddings: { base } },
+    endpoints: { index: { base }, vectors: { base, apiKey: 'standInKey' }, embeddings: { base } },
     documents: (index) => [...(indexes.get(index) ?? [])],
     points: (name) => [...collection(name).values()],
     crawled,

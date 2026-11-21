@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { QUEUES, liveSince } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
-import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, WorkspaceBuildService, hostedMcpUrl, storesMissing, SEARCHABLE } from './engine/index.js';
+import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
@@ -47,7 +47,7 @@ import { createEventBus } from '@koala/agent-engine';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import { createEngineActivities, createEffortTracker, createEngineHost, PoisoningWatch, storesFromDatabase, DEFAULT_ENGINE_TASK_QUEUE, type Task, type MergeArgs, type RecordTracesArgs } from './engine-host/index.js';
 import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
-import { buildWebTools, corpusEndpoints } from './engine/wiring/web-tools.js';
+import { buildWebTools } from './engine/wiring/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
@@ -80,8 +80,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' }, settings.dataDir)), mesh: settings.mesh, dataDir: settings.dataDir, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
   const toolCalling = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
-  const webPlace = { db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies };
-  const web = await buildWebTools(webPlace);
+  const web = await buildWebTools({ settings: tenant.webTools, dependencies });
 
   const giteaAt = tenant.gitea;
   const imageRegistry = tenant.registry;
@@ -116,7 +115,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const extensions = extensionServiceFor(db);
   const checksApi = tenant.checksApi;
   const checks = httpCheckAccess(async (who) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerFor(who.grantId))));
-  const engineStores = storesFromDatabase(db, unindexerFrom((ownerId) => corpusEndpoints(webPlace, ownerId)));
+  const engineStores = storesFromDatabase(db, unindexerFrom(tenant.memoryIndex));
   const growers: { launcher?: GroveRunLauncher } = {};
   const groving = (): GroveRunLauncher => {
     if (!growers.launcher) throw new Error('the grove launcher is not ready yet');
@@ -235,7 +234,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     egressSecret: keys.egress,
     corpus: {
       addressProblem: publicAddressProblem,
-      storesProblem: async (ownerId) => storesMissing(await corpusEndpoints(webPlace, ownerId), SEARCHABLE, 'crawling a site into your corpus'),
       start: async (workflowId, args) => {
         await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: QUEUES.host, workflowId, args: [args], ...startedFor(args.ownerId) });
       },

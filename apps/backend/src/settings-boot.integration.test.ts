@@ -34,7 +34,7 @@ const INSTANCE = {
   GITEA_URL: 'http://127.0.0.1:1', GITEA_REACHES_KOALA_AT: 'http://127.0.0.1:1', INFISICAL_URL: 'http://127.0.0.1:1',
   MINIO_ENDPOINT: '127.0.0.1:1', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'koala-secret', MINIO_BUCKET: 'koala',
   KOALA_REGISTRY: '127.0.0.1:1', KOALA_REGISTRY_PUSH: '127.0.0.1:1', REGISTRY_PULL_HOST: '127.0.0.1:1',
-  SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token', CHECKS_API_URL: 'http://127.0.0.1:1/api', TERRAFORM_STATE: 'local',
+  SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token', QUICKWIT_URL: 'http://127.0.0.1:1', QDRANT_URL: 'http://127.0.0.1:1', QDRANT_API_KEY: 'qdrantKey40', TEI_URL: 'http://127.0.0.1:1', CHECKS_API_URL: 'http://127.0.0.1:1/api', TERRAFORM_STATE: 'local',
 };
 
 async function stopsAt(entry: string, env: Record<string, string>): Promise<{ code: number | null; said: string }> {

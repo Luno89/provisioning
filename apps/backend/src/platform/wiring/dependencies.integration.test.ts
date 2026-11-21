@@ -60,8 +60,6 @@ describe('web search at the platform\'s SearXNG', () => {
     closing.push(async () => { states.stop(); });
     const offline: typeof fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }); };
     const tools = await resolveWebTools({
-      db: { getDeployments: async () => [] },
-      serviceUrl: async () => { throw new Error('no deployment is asked for'); },
       settings: { searxngUrl: searxng },
       dependencies: states,
       baseFetch: (input, init) => (String(input).startsWith(searxng) ? fetch(input, init) : offline(input, init)),

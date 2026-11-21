@@ -1,4 +1,4 @@
-import { QUEUES } from './platform/index.js';
+import { memoryIndexOf, QUEUES } from './platform/index.js';
 import { getModelRateLimiterSnapshot } from '@koala/agent-engine';
 import express from 'express';
 import cors from 'cors';
@@ -200,7 +200,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);
 
   const toolCallParsers = new ToolCallParsers({ store: db.models, templates: chatTemplatesOverHttp(settings.tests.huggingFaceUrl), savedToken: savedHuggingFaceTokenOf(db.accounts, keys.data) });
-  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers });
+  const temporalBridge = new TemporalBridge(db, path.join(settings.dataDir, 'logs'), io, keys.data, clusterService, { dependencies, toolCalling: toolCallParsers, memoryIndex: memoryIndexOf(tenantServices, role.role) });
   if (tenants) {
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
       await temporalBridge.start();
@@ -386,7 +386,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
   const { poisoning, evalHost, level2Service, mcpCatalogue } = await wireEngine({
-    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
+    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { settings: tenantServices?.webTools ?? {}, dependencies }, memoryIndex: memoryIndexOf(tenantServices, role.role), role, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));

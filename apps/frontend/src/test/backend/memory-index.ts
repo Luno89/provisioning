@@ -5,5 +5,5 @@ import { startCorpusStandIn } from '../../../../backend/src/engine/testing/corpu
 export function standInMemoryIndex(): MemoryUnindexer {
   const started = startCorpusStandIn()
   afterAll(async () => { await (await started).stop() })
-  return unindexerFrom(async () => (await started).endpoints)
+  return async (ownerId, ids) => unindexerFrom((await started).endpoints)(ownerId, ids)
 }

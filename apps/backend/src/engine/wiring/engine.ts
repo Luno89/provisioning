@@ -7,6 +7,7 @@ import {
   type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
+  isOff, type MemoryIndex, type Off,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT, procedureChangeRun } from '../lib/agent-usage.js';
@@ -35,7 +36,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, unindexerFrom } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, unindexerFrom, type MemoryUnindexer } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -57,7 +58,7 @@ import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandb
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
-import { buildWebTools, corpusEndpoints, type WebToolsPlace } from './web-tools.js';
+import { buildWebTools, type WebToolsPlace } from './web-tools.js';
 import type { Mounts } from '../../platform/index.js';
 import { proceduresRouter } from '../routes/procedures.js';
 import { engineRouter } from '../routes/engine.js';
@@ -261,6 +262,7 @@ export interface EngineWiringDeps {
   port: number;
   registry: RegistryHosts | { none: string };
   webTools: WebToolsPlace;
+  memoryIndex: MemoryIndex | Off;
   role: RoleConfig;
   dataKey: SecretKey;
   core: EngineCore;
@@ -313,7 +315,10 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   });
 
   const evalWeb = await buildWebTools(deps.webTools);
-  const unindexMemories = unindexerFrom((ownerId) => corpusEndpoints(deps.webTools, ownerId));
+  const memoryIndex = deps.memoryIndex;
+  const unindexMemories: MemoryUnindexer = isOff(memoryIndex)
+    ? async () => { throw new Error(`no memory can be taken out of an index here: ${memoryIndex.off}`); }
+    : unindexerFrom(memoryIndex);
   const evalHost = createEngineHost({
     runGrants: {
       check: (grantId, tool, projectId) => core.runGrants.check(grantId, tool, projectId),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { failureOf } from '../../platform/lib/dependencies.js';
-import { embedPages, ensureCollection, ensureIndex, indexPages, purgeCorpus } from './corpus-client.js';
+import { ensureCollection, ensureIndex, indexPages, purgeCorpus } from './corpus-client.js';
 import type { CorpusDoc } from './corpus-backend.js';
 
 const QUICKWIT = 'http://quickwit.test:7280';
@@ -36,27 +36,12 @@ describe('purging an ingest', () => {
     const failed = await purgeCorpus(ends, 'i1').then(() => undefined, (err: unknown) => err);
     expect(failureOf(failed)).toEqual({ kind: 'temporary', reason: 'it answered 503' });
   });
-
-  it('a person with no Quickwit or Qdrant of their own has nothing indexed, so the purge goes ahead and nothing is asked', async () => {
-    await expect(purgeCorpus({}, 'i1')).resolves.toBeUndefined();
-  });
-
-  it('a person with only Quickwit has the crawl purged from Quickwit, and Qdrant, which they do not have, is not asked', async () => {
-    const asked: string[] = [];
-    server.use(http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => { asked.push(await request.text()); return HttpResponse.json({ opstamp: 1 }); }));
-    await purgeCorpus({ index: { base: QUICKWIT } }, 'i1');
-    expect(asked).toEqual([JSON.stringify({ query: 'ingest_id:"i1"' })]);
-  });
 });
 
 describe('writing pages to the corpus', () => {
   it('pages Quickwit refuses fail with its answer', async () => {
     server.use(http.post(`${QUICKWIT}/api/v1/:index/ingest`, () => HttpResponse.text('disk full', { status: 507 })));
     await expect(indexPages(QUICKWIT, [doc])).rejects.toThrow('Quickwit refused: HTTP 507 disk full');
-  });
-
-  it('pages with no TEI to embed them are refused, naming it, rather than left unembedded', async () => {
-    await expect(embedPages({ vectors: { base: QDRANT, apiKey: 'k' } }, [doc])).rejects.toThrow('you have no running TEI');
   });
 });
 

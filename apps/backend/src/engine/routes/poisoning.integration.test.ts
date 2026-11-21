@@ -5,12 +5,9 @@ import type { MemoryItem } from '../../memory/index.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from './poisoning.js';
-import { unindexerFrom } from '../../memory/lib/memory-index.js';
-import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+import { standInUnindexer } from '../../memory/testing/memory-index.js';
 
-const memoryIndex = await startCorpusStandIn();
-afterAll(async () => { await memoryIndex.stop(); });
-const unindex = unindexerFrom(async () => memoryIndex.endpoints);
+const unindex = await standInUnindexer();
 
 const quiet = { validateStatus: () => true };
 const at = '2026-10-29T10:00:00.000Z';

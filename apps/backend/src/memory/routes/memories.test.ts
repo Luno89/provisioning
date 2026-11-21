@@ -6,7 +6,7 @@ import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes
 import type { ConsolidationReport } from '../lib/memory-consolidate.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { memoriesRouter } from './memories.js';
-import { CorpusStoreDown } from '../../engine/lib/corpus-stores.js';
+import { DependencyDownError } from '../../platform/lib/dependencies.js';
 
 const report: ConsolidationReport = { at: '2026-10-31T00:00:00.000Z', indexed: 0, deduped: 0, promoted: 0, unreachable: 0, live: 3 };
 
@@ -89,8 +89,8 @@ describe('/api/memories', () => {
 
   it('keeps a memory the index will not let go of, saying why', async () => {
     const item = await made();
-    indexRefuses = new CorpusStoreDown('Qdrant "vectors" is deployed but not answering: its pod is not ready');
-    expect(await call(`/${item.id}`, 'DELETE')).toMatchObject({ status: 503, data: { error: 'Qdrant "vectors" is deployed but not answering: its pod is not ready' } });
+    indexRefuses = new DependencyDownError('collector', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+    expect(await call(`/${item.id}`, 'DELETE')).toMatchObject({ status: 503, data: { error: 'The telemetry collector isn\'t answering since 10:00 UTC: its pod is not ready' } });
     expect(await mine()).toHaveLength(1);
   });
 

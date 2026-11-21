@@ -95,6 +95,12 @@ export interface WebToolSettings {
   crawl4aiToken?: string | undefined;
 }
 
+export interface MemoryIndex {
+  index: { base: string };
+  vectors: { base: string; apiKey: string };
+  embeddings: { base: string };
+}
+
 export interface MeshSettings {
   loginServer: string;
   headscaleUrl: string;
@@ -147,6 +153,7 @@ export interface TenantServices {
   registry: RegistryHosts;
   registryPullHost: string;
   webTools: WebToolSettings;
+  memoryIndex: MemoryIndex;
   checksApi: string;
 }
 
@@ -192,6 +199,7 @@ export interface HostWorkerSettings extends CommonSettings, WorkerHealth {
   mesh: MeshSettings | Off;
   operator: OperatorCredentials;
   webTools: WebToolSettings;
+  memoryIndex: MemoryIndex | Off;
   root: { imageTag: string; ingressDomain: string | Off } | undefined;
 }
 
@@ -341,6 +349,20 @@ function webToolsFrom(read: Reading): WebToolSettings {
   };
 }
 
+const noMemoryIndex = (role: string): Off => ({ off: `${role} keeps no memories and crawls no corpus, so it has no memory index; each instance does` });
+
+export const memoryIndexOf = (tenant: Pick<TenantServices, 'memoryIndex'> | undefined, role: string): MemoryIndex | Off =>
+  tenant ? tenant.memoryIndex : noMemoryIndex(role);
+
+function memoryIndexFrom(read: Reading): MemoryIndex | undefined {
+  const index = urlSetting(read, 'QUICKWIT_URL', 'it is where the memory index keeps and finds words; the instance chart sets it');
+  const vectors = urlSetting(read, 'QDRANT_URL', 'it is where the memory index keeps and finds meanings; the instance chart sets it');
+  const apiKey = qdrantApiKeyFrom(read);
+  const embeddings = urlSetting(read, 'TEI_URL', 'it is where the memory index turns text into meanings; the instance chart sets it');
+  if (!index || !vectors || !apiKey || !embeddings) return undefined;
+  return { index: { base: index }, vectors: { base: vectors, apiKey }, embeddings: { base: embeddings } };
+}
+
 function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | undefined): CommonSettings | undefined {
   const { env } = read;
   const production = env.NODE_ENV === 'production';
@@ -395,9 +417,10 @@ function tenantServices(read: Reading): TenantServices | undefined {
   const registry = read.take(() => registrySettingsFrom(read.env));
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const webTools = webToolsFrom(read);
+  const memoryIndex = memoryIndexFrom(read);
   const checksApi = urlSetting(read, 'CHECKS_API_URL', 'it is where the check runner and the scripted model reach this instance\'s API; the instance chart sets it');
-  if (!gitea || !infisical || !minio || !registry || !registryPullHost || !checksApi) return undefined;
-  return { gitea, infisical, minio, registry, registryPullHost, webTools, checksApi };
+  if (!gitea || !infisical || !minio || !registry || !registryPullHost || !memoryIndex || !checksApi) return undefined;
+  return { gitea, infisical, minio, registry, registryPullHost, webTools, memoryIndex, checksApi };
 }
 
 function terraformFrom(read: Reading): TerraformStateKind | undefined {
@@ -561,7 +584,8 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   const mesh = onRoot ? meshFrom(read) : NO_MESH_HERE(role?.role ?? 'this process');
   const operator = operatorCredentials(read);
   const webTools = role?.role === 'instance' ? webToolsFrom(read) : {};
-  if (!base || !health || !mail || (onRoot && (!publicUrl || !imageTag))) return finish<HostWorkerSettings>(read, 'the host worker');
+  const memoryIndex = role?.role === 'instance' ? memoryIndexFrom(read) : noMemoryIndex(role?.role ?? 'this process');
+  if (!base || !memoryIndex || !health || !mail || (onRoot && (!publicUrl || !imageTag))) return finish<HostWorkerSettings>(read, 'the host worker');
   return finish(read, 'the host worker', {
     ...base,
     ...health,
@@ -571,6 +595,7 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
     mesh,
     operator,
     webTools,
+    memoryIndex,
     root: onRoot ? { imageTag: imageTag!, ingressDomain: ingressDomain ?? { off: 'INGRESS_DOMAIN is not set' } } : undefined,
   });
 }
@@ -584,11 +609,13 @@ function chartTokenFrom(read: Reading, name: string, why: string): string | unde
   return token;
 }
 
-const crawl4aiTokenFrom = (read: Reading): string | undefined =>
-  chartTokenFrom(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+function crawl4aiTokenFrom(read: Reading): string | undefined {
+  return chartTokenFrom(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
+}
 
-const qdrantApiKeyFrom = (read: Reading): string | undefined =>
-  chartTokenFrom(read, 'QDRANT_API_KEY', 'Qdrant answers only a caller holding it, and the instance chart makes it');
+function qdrantApiKeyFrom(read: Reading): string | undefined {
+  return chartTokenFrom(read, 'QDRANT_API_KEY', 'Qdrant answers only a caller holding it, and the instance chart makes it');
+}
 
 export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const read = new Reading(env);

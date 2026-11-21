@@ -15,7 +15,7 @@ const instance = async (): Promise<Record<string, string>> => ({
   INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', INSTANCE_MACHINE_ID: 'desk', ROOT_URL: away, ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', KOALA_RELEASE_REVISION: '1', POD_NAME: 'luno-worker-7d9f-abcde',
   GITEA_URL: away, GITEA_REACHES_KOALA_AT: away, INFISICAL_URL: away, ...testMinioEnv(),
   KOALA_REGISTRY: '127.0.0.1:1', KOALA_REGISTRY_PUSH: '127.0.0.1:1', REGISTRY_PULL_HOST: '127.0.0.1:1',
-  SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawlToken40', QDRANT_API_KEY: 'qdrantKey40', CHECKS_API_URL: `${away}/api`, POD_NAMESPACE: 'nowrinkles',
+  SEARXNG_URL: away, CRAWL4AI_URL: away, CRAWL4AI_API_TOKEN: 'crawlToken40', QDRANT_API_KEY: 'qdrantKey40', QUICKWIT_URL: away, QDRANT_URL: away, TEI_URL: away, CHECKS_API_URL: `${away}/api`, POD_NAMESPACE: 'nowrinkles',
 });
 
 const liveNames = async (): Promise<string[]> => (await live()).map((process) => process.name);

@@ -35,17 +35,6 @@ describe('taking memories out of the index', () => {
     );
     await expect(removeMemories(ends, ['m1'])).rejects.toThrow('Quickwit refused: HTTP 404 index not found');
   });
-
-  it('a person with no Quickwit or Qdrant of their own has nothing in an index, so forgetting goes ahead and nothing is asked', async () => {
-    await expect(removeMemories({}, ['m1'])).resolves.toBeUndefined();
-  });
-
-  it('a person with only Quickwit has the memory taken out of Quickwit, and Qdrant, which they do not have, is not asked', async () => {
-    const asked: string[] = [];
-    server.use(http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => { asked.push(await request.text()); return HttpResponse.json({ opstamp: 1 }); }));
-    await removeMemories({ index: { base: QUICKWIT } }, ['m1']);
-    expect(asked).toEqual([JSON.stringify({ query: 'memory_id:"m1"' })]);
-  });
 });
 
 describe('putting memories in the index', () => {
@@ -58,10 +47,6 @@ describe('putting memories in the index', () => {
       http.post(`${QUICKWIT}/api/v1/:index/ingest`, () => HttpResponse.text('disk full', { status: 507 })),
     );
     await expect(indexMemories(ends, [memory])).rejects.toThrow('Quickwit refused: HTTP 507 disk full');
-  });
-
-  it('memories with no TEI to embed them are refused, naming it', async () => {
-    await expect(indexMemories({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' } }, [memory])).rejects.toThrow('you have no running TEI');
   });
 });
 
@@ -109,10 +94,6 @@ describe('finding memories like one', () => {
   it('a comparison Qdrant cannot answer fails with its answer rather than finding nothing alike', async () => {
     server.use(http.post(`${QDRANT}/collections/:collection/points/recommend`, () => HttpResponse.text('overloaded', { status: 503 })));
     await expect(similarTo(ends, 'm1', { ownerId: 'u1' })).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
-  });
-
-  it('a person with no Qdrant of their own is told so', async () => {
-    await expect(similarTo({ index: { base: QUICKWIT } }, 'm1', { ownerId: 'u1' })).rejects.toThrow('comparing memories needs your own Qdrant running, and you have no running Qdrant: deploy it as an app first');
   });
 });
 
