@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net'
 import express, { type Router } from 'express'
 import { Server as SocketServer } from 'socket.io'
 import { afterAll } from 'vitest'
-import { createAuth, type Auth, type ClientSession, type ClientSessions } from '../../../../backend/src/platform/middleware/auth'
+import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
+import { standInClientSessions } from '../../../../backend/src/platform/testing/client-sessions-stand-in'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
@@ -63,26 +64,10 @@ const moveThePageTo = (origin: string): void => {
 
 const INSTANCE_OWNER = 'owner-1'
 
-function signedInThroughRoot(): { sessions: ClientSessions; signIn: (email: string) => string } {
-  const held = new Map<string, ClientSession>()
-  return {
-    sessions: {
-      verified: (token) => { const session = token ? held.get(token) : undefined; return session && { ...session, until: Date.now() + 3_600_000 } },
-      renew: async () => 'kept',
-      end: async (session) => { for (const [token, kept] of held) if (kept.sid === session.sid) held.delete(token) },
-      sessionSeconds: 3600,
-    },
-    signIn: (email) => {
-      const token = randomUUID()
-      held.set(token, { userId: email === 'owner@koala.test' ? INSTANCE_OWNER : `person-${held.size}`, email, sid: randomUUID(), sessionAt: Date.now(), freshUntil: Date.now() + 3_600_000, claims: [{ role: 'person' }, ...(email === 'owner@koala.test' ? [{ role: 'instance-owner' as const }] : [])] })
-      return token
-    },
-  }
-}
-
 export async function startBackend(mount: (site: Site) => void | Promise<void>, options: { role?: 'root' | 'instance' } = {}): Promise<Backend> {
   const asInstance = options.role === 'instance'
-  const throughRoot = signedInThroughRoot()
+  const throughRoot = standInClientSessions()
+  let people = 0
   const db = await testDatabase()
   await seedAll(db)
   const app = express()
@@ -115,7 +100,9 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
 
   const signIn = async (email = 'owner@koala.test'): Promise<SessionUser> => {
     if (asInstance) {
-      document.cookie = `session=${throughRoot.signIn(email)}; path=/`
+      const owner = email === 'owner@koala.test'
+      const token = throughRoot.signIn({ userId: owner ? INSTANCE_OWNER : `person-${(people += 1)}`, email, claims: owner ? [{ role: 'person' }, { role: 'instance-owner' }] : [{ role: 'person' }] })
+      document.cookie = `session=${token}; path=/`
       const me = await getMe()
       if (!me) throw new Error(`the instance did not take ${email}'s session from root`)
       return me

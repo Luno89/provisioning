@@ -8,6 +8,7 @@ import { instancesRouter } from '../routes/instances.js';
 import { rootTokenOf } from '../wiring/sign-in.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
+import { clientSessionsContract } from '../../platform/testing/client-sessions-contract.js';
 import { rootSignInWorld, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, type Served } from '../testing/root-sign-in-behaviour.js';
 
 const freshInstanceDb = await emptiedEachTime();
@@ -45,6 +46,13 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
   });
 
   sessionsThroughRoot(world);
+});
+
+describe('root\'s sign-in as an instance\'s source of sessions, held to the contract its stand-in is', () => {
+  clientSessionsContract(async () => {
+    await world.signIn.announce();
+    return { sessions: world.signIn, signIn: async () => (await world.signInAs('u1')).instanceJar.get('session')! };
+  });
 });
 
 describe('what an instance asks root for with what root signed', () => {
