@@ -392,3 +392,20 @@ describe('what a person may give their agents', () => {
     expect(given).toMatchObject({ saved: true });
   });
 });
+
+describe('the agents an agent may hand work to', () => {
+  it('keeps who an agent may hand work to as its grants: a built-in\'s taken away shows as revoked, one given shows as yours, and the record holds none', async () => {
+    const { agents, db, stored } = await service();
+    const koala = seededAgents().find((one) => one.slug === 'koala')!;
+    const [first, ...rest] = koala.agents ?? [];
+    if (!first) throw new Error('koala ships with no hand-off to take away');
+
+    const outcome = await agents.save('user-1', { ...koala, agents: rest });
+
+    expect(outcome).toMatchObject({ saved: true, agent: { slug: 'koala', mine: false, agents: rest } });
+    expect(await stored()).toEqual([]);
+    expect((await agents.get('user-1', 'koala'))?.handOffSources).toEqual([{ tool: first, source: 'revoked' }, ...rest.map((tool) => ({ tool, source: 'shipped' }))]);
+    expect((await db.engine.getToolGrants('user-1')).filter((grant) => grant.kind === 'agent')).toEqual([expect.objectContaining({ agent: 'koala', tool: first, kind: 'agent', revoked: true })]);
+    expect((await agents.get('user-2', 'koala'))?.agents).toEqual(koala.agents);
+  });
+});

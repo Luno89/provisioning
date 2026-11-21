@@ -252,8 +252,9 @@ describe('the grants a procedure requires', () => {
 
     expect(screen.getByText('What do-one-task needs')).toBeInTheDocument()
     expect(screen.getByText('The outcome is recorded for you.', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('do-one-task needs it')).toBeInTheDocument()
+    expect(screen.getAllByText('do-one-task needs it')).toHaveLength(2)
     expect(screen.queryByRole('button', { name: 'Take away mark_done' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Revoke judge' })).toBeNull()
   })
 
   it('ticks what the procedure needs when you switch to it', async () => {
@@ -294,5 +295,28 @@ describe('one part of an agent, opened on its own', () => {
     expect(screen.getByText(/changing only its tools keeps it built in/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({ slug: 'executor', servers: ['playwright'] })))
+  })
+})
+
+describe('who an agent may hand work to', () => {
+  it('shows each hand-off as a grant beside where it came from, takes one away with Revoke, and gives a built-in one back', async () => {
+    const research = agent({ slug: 'research', name: 'Research', procedure: 'tool-rounds' })
+    const judge = agent({ slug: 'judge', name: 'Judge', procedure: 'tool-rounds' })
+    const delivery = agent({ slug: 'delivery', name: 'Delivery', procedure: 'tool-rounds', agents: ['research'], handOffSources: [{ tool: 'research', source: 'shipped' }, { tool: 'judge', source: 'revoked' }] })
+    vi.mocked(listAgents).mockResolvedValue([delivery, research, judge])
+    vi.mocked(saveAgent).mockResolvedValue(delivery)
+    await edit('delivery')
+
+    const held = screen.getByRole('region', { name: 'Agents it may hand work to' })
+    expect(within(held).getByText('may hand work to research')).toBeInTheDocument()
+    expect(within(held).getByText('built in')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Hand-offs taken away' })).getByText('judge')).toBeInTheDocument()
+
+    await userEvent.click(within(held).getByRole('button', { name: 'Revoke research' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Give back judge' }))
+    await userEvent.click(screen.getByRole('button', { name: /Save/ }))
+
+    await waitFor(() => expect(saveAgent).toHaveBeenCalled())
+    expect(vi.mocked(saveAgent).mock.calls.at(-1)?.[0]?.agents).toEqual(['judge'])
   })
 })

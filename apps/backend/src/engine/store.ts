@@ -130,8 +130,8 @@ const keyedDoc = <T extends Identified>(entity: T): { _id: string; rest: Omit<T,
   return { _id: id, rest };
 };
 
-const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
-const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
+const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' || kind === 'agent' ? `${ownerId}:${agent}:${kind}:${tool}` : `${ownerId}:${agent}:${tool}`);
+const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'tool' ? { kind: { $nin: ['server', 'agent'] } } : kind ? { kind } : {});
 
 export class MongoEngineStore implements EngineStore {
   constructor(private readonly db: () => Db) {}

@@ -11,7 +11,7 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
   procedure: 'tool-rounds', tools: [], environment: { terminal: true, filesystem: true }, ...over,
 });
 
-const editable = (over: Partial<Persona> = {}): EditableAgent => ({ ...persona(over), mine: false, recallsMemories: false, usedBy: [], toolSources: [], serverSources: [] });
+const editable = (over: Partial<Persona> = {}): EditableAgent => ({ ...persona(over), mine: false, recallsMemories: false, usedBy: [], toolSources: [], serverSources: [], handOffSources: [] });
 
 let agents: ReturnType<typeof mock<AgentService>>;
 let app: InProcessRoutes;

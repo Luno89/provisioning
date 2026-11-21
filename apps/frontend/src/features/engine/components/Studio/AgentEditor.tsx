@@ -3,8 +3,9 @@ import { Loader2 } from 'lucide-react'
 import type { Agent } from '../../api/agents'
 import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMcpCatalogue, useProcedureList, useSaveAgent } from './shared'
 import { serverLine } from './mcp-server-forms'
-import { NEEDS, onlyToolsChanged, requirementFor, withRequired } from './agent-forms'
+import { NEEDS, onlyToolsChanged, withRequired } from './agent-forms'
 import ToolGrants from './ToolGrants'
+import HandOffGrants from './HandOffGrants'
 import { ModelSelector } from '../../../models'
 import AutoModeSwitch from '../AutoModeSwitch'
 import { useAgentAutoMode } from '../../hooks/useAutoMode'
@@ -224,25 +225,15 @@ export default function AgentEditor({ agent, agents, onClose, onSaved, onDeleted
 
       {show('hand-offs') && <div className="space-y-1">
         <span className={label}>Agents it may hand work to</span>
-        <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
-          {agents.filter((one) => one.slug !== draft.slug).map((one) => {
-            const required = requirementFor(requires, 'agent', one.slug)
-            return (
-              <label key={one.slug} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--leaf-stem)]"
-                  checked={(draft.agents ?? []).includes(one.slug)}
-                  disabled={required !== undefined}
-                  title={required ? `${draft.procedure} needs this — ${required.why}` : undefined}
-                  onChange={() => set('agents', toggle(draft.agents ?? [], one.slug))}
-                />
-                {one.slug}
-                {required && <span className="text-emerald-300">— needed</span>}
-              </label>
-            )
-          })}
-        </div>
+        <HandOffGrants
+          self={draft.slug}
+          held={draft.agents ?? []}
+          sources={agent.handOffSources ?? []}
+          agents={agents}
+          requires={requires}
+          procedure={draft.procedure}
+          onChange={(next) => set('agents', next)}
+        />
       </div>}
 
       {show('settings') && <div className="space-y-1">

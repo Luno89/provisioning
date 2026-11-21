@@ -31,6 +31,7 @@ export type { TemperatureSampling } from './lib/run-knobs.js';
 export { modelsOf } from './lib/run-traces.js';
 export type { ModelThinkingProfile } from '@koala/agent-engine';
 export { migrateAgentTools } from './lib/tool-grant-migration.js';
+export { migrateAgentHandOffs } from './lib/hand-off-grant-migration.js';
 export { checksForNote, isToolNote, noteSubject } from './lib/tool-notes.js';
 export { ASK_MARKS, runsUnder, unansweredAsks } from './lib/turn-log.js';
 export type { RunMark, TurnLogEntry, WaitingAsk } from './lib/turn-log.js';

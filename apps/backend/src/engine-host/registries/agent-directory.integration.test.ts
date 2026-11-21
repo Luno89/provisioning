@@ -12,7 +12,7 @@ async function directory(over: { hidden?: HiddenVocabulary; onChanged?: (ownerId
   const agents = createAgentDirectory({
     records: { list: (ownerId) => db.engine.getEnginePersonas(ownerId) },
     grants: grantStoreFrom(db.engine),
-    builtIn: () => [record('executor'), record('judge')],
+    builtIn: () => [{ ...record('executor'), agents: ['judge'] }, record('judge')],
     shipped: () => [{ agent: 'executor', tool: 'run_command' }, { agent: 'executor', tool: 'settle_leaf' }, { agent: 'judge', tool: 'read_file' }],
     hidden: async (ownerId) => (ownerId === 'user-1' && over.hidden ? over.hidden : nothingHidden),
     now: () => '2026-10-12T00:00:00Z',
@@ -85,6 +85,31 @@ describe('the agent directory', () => {
     expect(await toolsOf(agents, 'user-1', 'executor')).toEqual(['run_command', 'settle_leaf']);
     expect(await toolsOf(agents, 'user-2', 'executor')).toEqual(['browser']);
     expect(changed).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('the agents an agent may hand work to', () => {
+  it('are grants: a built-in agent ships with its hand-offs, the person takes one away or gives one, and each says where it came from', async () => {
+    const { db, agents } = await directory();
+    await db.engine.saveEnginePersona(record('helper', 'user-1'));
+    expect((await agents.agents('user-1')).map((agent) => [agent.slug, agent.agents])).toEqual([['executor', ['judge']], ['judge', []], ['helper', []]]);
+
+    expect(await agents.setHandOffs('user-1', 'executor', [])).toBe(true);
+    expect(await agents.setHandOffs('user-1', 'helper', ['judge'])).toBe(true);
+    const sourced = await agents.sourced('user-1');
+    expect(sourced.agents.map((agent) => [agent.slug, agent.agents])).toEqual([['executor', []], ['judge', []], ['helper', ['judge']]]);
+    expect(sourced.handOffSources.executor).toEqual([{ tool: 'judge', source: 'revoked' }]);
+    expect(sourced.handOffSources.helper).toEqual([{ tool: 'judge', source: 'granted' }]);
+    expect((await agents.agents('user-2')).find((agent) => agent.slug === 'executor')?.agents).toEqual(['judge']);
+  });
+
+  it('go with the agent they hand work to when it is forgotten', async () => {
+    const { db, agents } = await directory();
+    await db.engine.saveEnginePersona(record('helper', 'user-1'));
+    await db.engine.saveEnginePersona(record('writer', 'user-1'));
+    await agents.setHandOffs('user-1', 'helper', ['writer']);
+    expect(await agents.forgetAgent('user-1', 'writer')).toBe(1);
+    expect((await db.engine.getToolGrants('user-1'))).toEqual([]);
   });
 });
 

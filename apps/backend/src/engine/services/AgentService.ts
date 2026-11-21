@@ -33,6 +33,7 @@ export interface EditableAgent extends Persona {
   usedBy: AgentUsage[];
   toolSources: SourcedTool[];
   serverSources: SourcedTool[];
+  handOffSources: SourcedTool[];
   image?: AgentImage | undefined;
 }
 
@@ -181,9 +182,9 @@ export class AgentService {
     this.options = options;
   }
 
-  private async all(ownerId: string): Promise<{ agents: Persona[]; sources: Record<string, SourcedTool[]>; serverSources: Record<string, SourcedTool[]> }> {
-    const { agents, sources, serverSources } = await this.options.agents.sourced(ownerId, { withHidden: true });
-    return { agents: visibleAgents(agents, ownerId), sources, serverSources };
+  private async all(ownerId: string): Promise<{ agents: Persona[]; sources: Record<string, SourcedTool[]>; serverSources: Record<string, SourcedTool[]>; handOffSources: Record<string, SourcedTool[]> }> {
+    const { agents, sources, serverSources, handOffSources } = await this.options.agents.sourced(ownerId, { withHidden: true });
+    return { agents: visibleAgents(agents, ownerId), sources, serverSources, handOffSources };
   }
 
   private servers(ownerId: string): Promise<readonly McpServerRecord[]> {
@@ -219,13 +220,13 @@ export class AgentService {
   }
 
   async list(ownerId: string): Promise<EditableAgent[]> {
-    const [{ agents, sources, serverSources }, tools, procedures, treeTypes, servers] = await Promise.all([
+    const [{ agents, sources, serverSources, handOffSources }, tools, procedures, treeTypes, servers] = await Promise.all([
       this.all(ownerId), this.options.tools(ownerId), this.options.procedures(ownerId), this.options.treeTypes?.(ownerId) ?? [], this.servers(ownerId),
     ]);
     const usage = agentUsage({ agents, procedures, treeTypes, groups: platformGroups() });
     return Promise.all(agents
       .sort((a, b) => a.slug.localeCompare(b.slug))
-      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: sources[agent.slug] ?? [], serverSources: serverSources[agent.slug] ?? [], ...(await this.imageOf(ownerId, agent, tools, servers)) })));
+      .map(async (agent) => ({ ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: sources[agent.slug] ?? [], serverSources: serverSources[agent.slug] ?? [], handOffSources: handOffSources[agent.slug] ?? [], ...(await this.imageOf(ownerId, agent, tools, servers)) })));
   }
 
   async get(ownerId: string, slug: string): Promise<EditableAgent | undefined> {
@@ -294,6 +295,7 @@ export class AgentService {
     }
     await this.options.agents.setTools(ownerId, wanted.slug, wanted.tools ?? []);
     await this.options.agents.setServers(ownerId, wanted.slug, wanted.servers ?? []);
+    await this.options.agents.setHandOffs(ownerId, wanted.slug, wanted.agents ?? []);
     const saved = await this.all(ownerId);
     const agent = saved.agents.find((one) => one.slug === wanted.slug) ?? wanted;
 
@@ -301,7 +303,7 @@ export class AgentService {
 
     const treeTypes = await this.options.treeTypes?.(ownerId) ?? [];
     const usage = agentUsage({ agents: [...agents.filter((one) => one.slug !== agent.slug), agent], procedures, treeTypes, groups: platformGroups() });
-    return { saved: true, agent: { ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: saved.sources[agent.slug] ?? [], serverSources: saved.serverSources[agent.slug] ?? [], ...(image ? { image } : {}) } };
+    return { saved: true, agent: { ...agent, mine: isFork(agent), recallsMemories: recallsMemories(agent, procedures), usedBy: usage.get(agent.slug) ?? [], toolSources: saved.sources[agent.slug] ?? [], serverSources: saved.serverSources[agent.slug] ?? [], handOffSources: saved.handOffSources[agent.slug] ?? [], ...(image ? { image } : {}) } };
   }
 
   async remove(ownerId: string, slug: string): Promise<boolean> {

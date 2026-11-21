@@ -64,6 +64,7 @@ export {
   grantChanges,
   kindOfGrant,
   grantsFrom,
+  handOffsShippedBy,
   toRecord,
   type ToolGrant,
   type GrantKind,

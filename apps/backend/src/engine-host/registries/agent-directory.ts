@@ -1,5 +1,6 @@
 import {
   grantChanges,
+  handOffsShippedBy,
   kindOfGrant,
   sourcedTools,
   withGrants,
@@ -37,6 +38,7 @@ export interface SourcedAgents {
   agents: Persona[];
   sources: Record<string, SourcedTool[]>;
   serverSources: Record<string, SourcedTool[]>;
+  handOffSources: Record<string, SourcedTool[]>;
 }
 
 export interface AgentDirectory {
@@ -44,6 +46,7 @@ export interface AgentDirectory {
   sourced(ownerId: string, options?: AgentReadOptions): Promise<SourcedAgents>;
   setTools(ownerId: string, slug: string, wanted: readonly string[], meta?: GrantMeta): Promise<boolean>;
   setServers(ownerId: string, slug: string, wanted: readonly string[], meta?: GrantMeta): Promise<boolean>;
+  setHandOffs(ownerId: string, slug: string, wanted: readonly string[], meta?: GrantMeta): Promise<boolean>;
   renameServer(ownerId: string, from: string, to: string): Promise<number>;
   forgetServer(ownerId: string, name: string): Promise<number>;
   forgetAgent(ownerId: string, slug: string): Promise<number>;
@@ -63,7 +66,7 @@ export interface AgentDirectoryOptions {
 
 export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirectory {
   const builtIn = options.builtIn ?? seededPersonas;
-  const shippedAll = options.shipped ?? seededGrants;
+  const shippedAll = (): ToolGrant[] => [...(options.shipped ?? seededGrants)(), ...handOffsShippedBy(builtIn())];
   const now = options.now ?? (() => new Date().toISOString());
   const forget = async (ownerId: string, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> => {
     const removed = await options.grants.removeAll(ownerId, of);
@@ -76,7 +79,7 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
     const person = await options.grants.list(ownerId);
     const changes = grantChanges(slug, wanted, shipped, person, kind);
     const at = now();
-    const extra = { ...(meta.why ? { why: meta.why } : {}), ...(meta.proposalId ? { proposalId: meta.proposalId } : {}), ...(kind === 'server' ? { kind } : {}) };
+    const extra = { ...(meta.why ? { why: meta.why } : {}), ...(meta.proposalId ? { proposalId: meta.proposalId } : {}), ...(kind === 'tool' ? {} : { kind }) };
     for (const tool of changes.drop) await options.grants.remove(ownerId, slug, tool, kind);
     for (const tool of changes.grant) await options.grants.save({ ownerId, agent: slug, tool, grantedAt: at, ...extra });
     for (const tool of changes.revoke) await options.grants.save({ ownerId, agent: slug, tool, revoked: true, grantedAt: at, ...extra });
@@ -128,16 +131,20 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
       const { records, shipped, person } = await view(ownerId, read);
       const sources: Record<string, SourcedTool[]> = {};
       const serverSources: Record<string, SourcedTool[]> = {};
+      const handOffSources: Record<string, SourcedTool[]> = {};
       for (const record of records) {
         sources[record.slug] ??= sourcedTools(record.slug, shipped, person);
         serverSources[record.slug] ??= sourcedTools(record.slug, shipped, person, 'server');
+        handOffSources[record.slug] ??= sourcedTools(record.slug, shipped, person, 'agent');
       }
-      return { agents: await withNeeds(ownerId, withGrants(records, shipped, person)), sources, serverSources };
+      return { agents: await withNeeds(ownerId, withGrants(records, shipped, person)), sources, serverSources, handOffSources };
     },
 
     setTools: (ownerId, slug, wanted, meta = {}) => setGranted(ownerId, slug, wanted, 'tool', meta),
 
     setServers: (ownerId, slug, wanted, meta = {}) => setGranted(ownerId, slug, wanted, 'server', meta),
+
+    setHandOffs: (ownerId, slug, wanted, meta = {}) => setGranted(ownerId, slug, wanted, 'agent', meta),
 
     async renameServer(ownerId, from, to) {
       const moving = (await options.grants.list(ownerId)).filter((grant) => kindOfGrant(grant) === 'server' && grant.tool === from);
@@ -151,7 +158,7 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
 
     forgetServer: (ownerId, name) => forget(ownerId, { tool: name, kind: 'server' }),
 
-    forgetAgent: (ownerId, slug) => forget(ownerId, { agent: slug }),
+    forgetAgent: async (ownerId, slug) => (await forget(ownerId, { agent: slug })) + (await forget(ownerId, { tool: slug, kind: 'agent' })),
 
     forgetTool: (ownerId, tool) => forget(ownerId, { tool, kind: 'tool' }),
   };

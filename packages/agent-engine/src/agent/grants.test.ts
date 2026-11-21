@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import type { Persona } from './agent.js';
-import { grantChanges, grantsFrom, sourcedTools, toolsOf, toRecord, withGrants, type ToolGrant } from './grants.js';
+import { grantChanges, grantsFrom, handOffsShippedBy, sourcedTools, toolsOf, toRecord, withGrants, type ToolGrant } from './grants.js';
 import type { PersonaRecord } from './agent.js';
 
 const shipped = grantsFrom({ executor: ['run_command', 'read_file', 'write_file'], judge: ['read_file'] });
 const mine = (tool: string, revoked = false): ToolGrant => ({ ownerId: 'u1', agent: 'executor', tool, ...(revoked ? { revoked } : {}) });
+
+describe('who an agent may hand work to', () => {
+  const records = [{ slug: 'delivery', name: 'Delivery', agents: ['research', 'executor'] }, { slug: 'research', name: 'Research' }] as PersonaRecord[];
+  const handOffs = handOffsShippedBy(records);
+  const theirs = (target: string, revoked = false): ToolGrant => ({ ownerId: 'u1', agent: 'delivery', tool: target, kind: 'agent', ...(revoked ? { revoked } : {}) });
+
+  it('ships as the grants the built-in agents hand work with today', () => {
+    expect(handOffs).toEqual([{ agent: 'delivery', tool: 'research', kind: 'agent' }, { agent: 'delivery', tool: 'executor', kind: 'agent' }]);
+  });
+
+  it('is what its hand-off grants say, the person\'s grants and revocations included, not the list on its record', () => {
+    const resolved = withGrants([{ ...records[0]!, agents: ['ghost'] }, records[1]!], handOffs, [theirs('executor', true), theirs('judge')]);
+    expect(resolved.map((agent) => [agent.slug, agent.agents])).toEqual([['delivery', ['research', 'judge']], ['research', []]]);
+    expect(sourcedTools('delivery', handOffs, [theirs('executor', true), theirs('judge')], 'agent')).toEqual([
+      { tool: 'research', source: 'shipped' },
+      { tool: 'executor', source: 'revoked' },
+      { tool: 'judge', source: 'granted' },
+    ]);
+  });
+
+  it('is kept apart from the tools of the same name', () => {
+    expect(toolsOf('delivery', [...handOffs, { agent: 'delivery', tool: 'research' }], [], 'tool')).toEqual(['research']);
+  });
+
+  it('leaves the record without the hand-offs it held', () => {
+    expect(toRecord(withGrants(records, handOffs, [])[0]!)).toEqual({ slug: 'delivery', name: 'Delivery' });
+  });
+});
 
 describe('what an agent holds', () => {
   it('is what ships for it, in the order it ships, then what the person granted, less what they took away', () => {
