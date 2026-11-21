@@ -4,10 +4,8 @@ import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from '../lib
 import type { MigrationRecord } from '../lib/migrations.js';
 import type { PlatformStore } from '../store.js';
 import type { DependencyStateRow } from '../lib/dependencies.js';
-import type { Watching } from '../lib/change-streams.js';
 import { asStored } from './as-stored.js';
 import { copied } from './memory-records.js';
-import { fenceIdOf, type Closing, type KoalaProcess, type RaisedFence } from '../lib/fence.js';
 
 interface Attempts {
   failures: number[];
@@ -71,80 +69,4 @@ export class MemoryPlatformStore implements PlatformStore {
     this.signInAttempts.delete(key);
   }
 
-  private readonly fences = new Map<string, RaisedFence>();
-  private readonly acks = new Map<string, Set<string>>();
-  private readonly beats = new Map<string, { name: string; at: string }>();
-  private readonly fenceWatchers = new Set<(fence: RaisedFence) => void>();
-  private readonly ackWatchers = new Set<(ack: { closing: Closing; process: string }) => void>();
-  private readonly processWatchers = new Set<() => void>();
-
-  private watching<T>(watchers: Set<T>, on: T): Watching {
-    watchers.add(on);
-    return { ready: Promise.resolve(), close: async () => { watchers.delete(on); } };
-  }
-
-  async raiseFence(closing: Closing, at: string): Promise<void> {
-    const id = fenceIdOf(closing);
-    const fence = this.fences.get(id) ?? { closing: { ...closing }, at, confirmed: false };
-    this.fences.set(id, fence);
-    for (const watcher of this.fenceWatchers) queueMicrotask(() => watcher(copied(fence)));
-  }
-
-  async fencesRaised(): Promise<RaisedFence[]> {
-    return copied([...this.fences.values()]);
-  }
-
-  watchFences(on: (fence: RaisedFence) => void): Watching {
-    return this.watching(this.fenceWatchers, on);
-  }
-
-  async ackFence(closing: Closing, process: string, _at: string): Promise<void> {
-    const id = fenceIdOf(closing);
-    this.acks.set(id, new Set([...(this.acks.get(id) ?? []), process]));
-    for (const watcher of this.ackWatchers) queueMicrotask(() => watcher({ closing: { ...closing }, process }));
-  }
-
-  async fenceAcks(closing: Closing): Promise<string[]> {
-    return [...(this.acks.get(fenceIdOf(closing)) ?? [])];
-  }
-
-  watchFenceAcks(on: (ack: { closing: Closing; process: string }) => void): Watching {
-    return this.watching(this.ackWatchers, on);
-  }
-
-  async confirmFence(closing: Closing): Promise<void> {
-    const id = fenceIdOf(closing);
-    const fence = this.fences.get(id);
-    if (fence) this.fences.set(id, { ...fence, confirmed: true });
-    this.acks.delete(id);
-  }
-
-  async endFence(closing: Closing, liveWith: readonly string[]): Promise<void> {
-    const id = fenceIdOf(closing);
-    const fence = this.fences.get(id);
-    if (fence) this.fences.set(id, { ...fence, endedWith: [...liveWith] });
-  }
-
-  async dropFence(closing: Closing): Promise<void> {
-    const id = fenceIdOf(closing);
-    this.acks.delete(id);
-    this.fences.delete(id);
-  }
-
-  async beatProcess(process: KoalaProcess, at: string): Promise<void> {
-    this.beats.set(process.id, { name: process.name, at });
-    for (const watcher of this.processWatchers) queueMicrotask(() => watcher());
-  }
-
-  async forgetProcess(id: string): Promise<void> {
-    this.beats.delete(id);
-  }
-
-  async processesSeenSince(at: string): Promise<KoalaProcess[]> {
-    return [...this.beats.entries()].filter(([, beat]) => beat.at >= at).map(([id, beat]) => ({ id, name: beat.name }));
-  }
-
-  watchProcesses(on: () => void): Watching {
-    return this.watching(this.processWatchers, on);
-  }
 }

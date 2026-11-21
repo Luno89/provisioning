@@ -8,8 +8,6 @@ import { encryptValue, type ClusterMetadata, type Processes, type Streams } from
 import { startedMachine } from '../lib/cluster-places.js';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
 import { ClusterAccess, clusterAccessOfKubeconfig, runnersByRecord, type ClusterAccessDeps } from './ClusterAccess.js';
-import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
-import { theFence } from '../../platform/lib/fence.js';
 
 const spawned = vi.hoisted(() => ({ runs: [] as Array<{ command: string; args: readonly string[] }> }));
 
@@ -267,21 +265,5 @@ describe('runnersByRecord: a cluster record\'s kubectl, helm and apply, each by 
       ['/bin/kubectl', '--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'get', 'pods'],
       ['/bin/helm', '--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'list', '-A'],
     ]);
-  });
-});
-
-describe('ClusterAccess: nothing reaches a cluster for an account being removed', () => {
-  it('runs no kubectl, helm or apply, and starts nothing, for work of an account whose removal has started, and runs everyone else\'s', async () => {
-    theFence().close({ kind: 'owner', id: 'leaving-cluster' });
-    const { access, processes, streams } = await door({ clusters: undefined, dataKey: undefined });
-    const machine = startedMachine('machine-dev2', ADMIN);
-    const leaving = <T>(run: () => Promise<T>) => withWorkFor({ owner: 'leaving-cluster' }, run);
-    await expect(leaving(() => access.kubectl(machine, ['create', 'namespace', 'koala-run-x']))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(leaving(() => access.helm(machine, ['install', 'x', 'chart']))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(leaving(() => access.apply(machine, 'kind: Pod'))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(leaving(() => access.start(machine, ['exec', 'pod', '--', 'sh']))).rejects.toBeInstanceOf(WorkStopped);
-    expect(processes.run).not.toHaveBeenCalled();
-    expect(streams.start).not.toHaveBeenCalled();
-    expect(await withWorkFor({ owner: 'staying' }, () => access.kubectl(machine, ['get', 'pods']))).toBe('ok');
   });
 });

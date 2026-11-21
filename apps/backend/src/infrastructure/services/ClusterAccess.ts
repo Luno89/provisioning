@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import type { ChartCluster } from '@koala/provision';
-import { decryptValue, nodeProcesses, nodeStreams, theFence, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
+import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
 import { helmArgsFor } from '../lib/chart-sources.js';
 import { machineToStart, ownReach, placeOf, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
@@ -97,21 +97,11 @@ export class ClusterAccess {
   }
 
   async kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
-    const leave = this.admitted();
-    try {
-      return await this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input));
-    } finally {
-      leave();
-    }
+    return this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input));
   }
 
   async helm(target: Target, args: readonly string[]): Promise<string> {
-    const leave = this.admitted();
-    try {
-      return await this.ran(target, await this.run(target, this.deps.tools.helm, helmArgsFor(args, this.deps.chartSources)));
-    } finally {
-      leave();
-    }
+    return this.ran(target, await this.run(target, this.deps.tools.helm, helmArgsFor(args, this.deps.chartSources)));
   }
 
   chartCluster(target: Target): ChartCluster {
@@ -122,32 +112,18 @@ export class ClusterAccess {
   }
 
   async apply(target: Target, manifest: string, options: { serverSide?: boolean } = {}): Promise<string> {
-    const leave = this.admitted();
-    try {
-      const run = await this.run(target, this.deps.tools.kubectl, options.serverSide ? ['apply', '--server-side', '--force-conflicts', '-f', '-'] : ['apply', '-f', '-'], manifest);
-      const first = await this.deps.processes.run(run);
-      if (first.code === 0) return first.stdout;
-      if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
-      return await this.ran(target, run);
-    } finally {
-      leave();
-    }
+    const run = await this.run(target, this.deps.tools.kubectl, options.serverSide ? ['apply', '--server-side', '--force-conflicts', '-f', '-'] : ['apply', '-f', '-'], manifest);
+    const first = await this.deps.processes.run(run);
+    if (first.code === 0) return first.stdout;
+    if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
+    return this.ran(target, run);
   }
 
   async pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
-    const leave = this.admitted();
-    try {
-      const run = await this.run(target, this.deps.tools.kubectl, args);
-      const result = await this.deps.streams.pipe(run, input);
-      if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
-      return result.stdout;
-    } finally {
-      leave();
-    }
-  }
-
-  private admitted(): () => void {
-    return theFence().enter();
+    const run = await this.run(target, this.deps.tools.kubectl, args);
+    const result = await this.deps.streams.pipe(run, input);
+    if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
+    return result.stdout;
   }
 
   private async ran(target: Target, run: ProcessRun): Promise<string> {
@@ -163,21 +139,11 @@ export class ClusterAccess {
   }
 
   async start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
-    const leave = this.admitted();
-    try {
-      return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
-    } finally {
-      leave();
-    }
+    return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
   }
 
   async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
-    const leave = this.admitted();
-    try {
-      return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
-    } finally {
-      leave();
-    }
+    return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
   }
 
   private async run(target: Target, command: string, args: readonly string[], input?: string): Promise<ProcessRun> {

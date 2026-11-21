@@ -59,7 +59,6 @@ import { GiteaService, pushToBuild } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
-import { holdFences } from './platform/wiring/fences.js';
 import { stopBackend } from './platform/wiring/shutdown.js';
 import { openRoutesOf } from './open-routes.js';
 import { appsToName } from './projects/index.js';
@@ -107,7 +106,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   db.reportReachTo(dependencies);
   dependencies.checkWith('mongo', () => db.ping());
   await db.init();
-  const fences = await holdFences('backend', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   refuseWorkWith(deletingMarksIn(db));
   const { role } = settings;
@@ -503,7 +501,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     void stopBackend({
       stopping: () => { dependencies.stop(); clusterProxyService.stopAll(); },
       drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) },
-      fences,
       exit: (code) => process.exit(code),
     });
   };

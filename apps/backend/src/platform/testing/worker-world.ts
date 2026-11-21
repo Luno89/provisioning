@@ -2,10 +2,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { afterAll, inject } from 'vitest';
 import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import { leaseMongo } from '../lib/mongo-lease.js';
 import type { MongoDB } from '../lib/mongo-db.js';
 import { testDatabaseAt } from '../lib/test-database.js';
-import { MongoPlatformStore } from '../store.js';
 import { testDataDir } from './data-dir.js';
 import { testKeyEnv } from './keys.js';
 
@@ -15,7 +13,6 @@ export interface WorkerWorld {
   mongoUri: string;
   rootKey: string;
   placed(name: string, role: 'root' | 'instance'): Record<string, string>;
-  live(): ReturnType<MongoPlatformStore['processesSeenSince']>;
 }
 
 export async function workerWorld(): Promise<WorkerWorld> {
@@ -33,13 +30,5 @@ export async function workerWorld(): Promise<WorkerWorld> {
       NODE_ENV: 'development', ...testKeyEnv(name), ROLE: role, MONGO_URI: mongoUri,
       TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
     }),
-    async live() {
-      const { client, release } = await leaseMongo(mongoUri);
-      try {
-        return await new MongoPlatformStore(() => client.db()).processesSeenSince(new Date(Date.now() - 60_000).toISOString());
-      } finally {
-        await release();
-      }
-    },
   };
 }

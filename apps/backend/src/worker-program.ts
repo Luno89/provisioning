@@ -6,7 +6,6 @@ import { resolve } from 'path';
 import { pathToFileURL } from 'url';
 import { SettingsError } from './platform/index.js';
 import { serveHealth } from './infrastructure/index.js';
-import { runThenLetGo } from './platform/wiring/fences.js';
 import { collectorEndpoint } from './monitoring/index.js';
 import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 
@@ -27,7 +26,7 @@ export interface WorkerProgram<S extends ProgramSettings> {
   tag: string;
   logger: Logger;
   settingsFrom: (env: NodeJS.ProcessEnv) => S;
-  start: (settings: S) => Promise<{ worker: Worker; telemetry: Telemetry; fences: Parameters<typeof runThenLetGo>[1] }>;
+  start: (settings: S) => Promise<{ worker: Worker; telemetry: Telemetry }>;
   listening: (settings: S) => string;
 }
 
@@ -44,10 +43,10 @@ async function runWorker<S extends ProgramSettings>(program: WorkerProgram<S>): 
       },
     },
   });
-  const { worker, telemetry, fences } = await program.start(settings);
+  const { worker, telemetry } = await program.start(settings);
   program.logger.info(`${program.tag} ✅ ${program.listening(settings)}`);
   if (settings.healthPort) serveHealth(settings.healthPort, settings.listenHost, () => worker.getState() === 'RUNNING');
-  await runThenLetGo(worker, fences);
+  await worker.run();
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 

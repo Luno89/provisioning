@@ -2,7 +2,7 @@ import type { Readable } from 'node:stream';
 import { Client } from 'minio';
 import type { MinioSettings } from '../lib/minio-settings.js';
 import { idOfObjectKey, objectKey } from '../lib/stored-files.js';
-import { theFence, thrownFor, type DependencyReporter } from '../../platform/index.js';
+import { thrownFor, type DependencyReporter } from '../../platform/index.js';
 
 export type { MinioSettings };
 
@@ -70,11 +70,9 @@ export function minioObjectStore(settings: MinioSettings, raw: MinioClient = min
     return ready;
   };
   return {
-    put(id, body, size, contentType) {
-      return theFence().guard(async () => {
-        await bucketReady();
-        await client.putObject(bucket, objectKey(id), body, size, { 'Content-Type': contentType });
-      });
+    async put(id, body, size, contentType) {
+      await bucketReady();
+      await client.putObject(bucket, objectKey(id), body, size, { 'Content-Type': contentType });
     },
     async get(id) {
       await bucketReady();
@@ -95,11 +93,9 @@ export function minioObjectStore(settings: MinioSettings, raw: MinioClient = min
         throw err;
       }
     },
-    remove(id) {
-      return theFence().guard(async () => {
-        await bucketReady();
-        await client.removeObject(bucket, objectKey(id));
-      });
+    async remove(id) {
+      await bucketReady();
+      await client.removeObject(bucket, objectKey(id));
     },
     async *ids() {
       await bucketReady();

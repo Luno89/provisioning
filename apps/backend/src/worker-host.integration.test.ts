@@ -5,9 +5,8 @@ import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/inde
 import { testIdentityKey } from './platform/testing/keys.js';
 import { workerWorld } from './platform/testing/worker-world.js';
 import { startHostWorker } from './worker-host.js';
-import { runThenLetGo } from './platform/wiring/fences.js';
 
-const { env, rootKey, live, placed } = await workerWorld();
+const { env, rootKey, placed } = await workerWorld();
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   ...placed(`host-${role}`, role),
@@ -26,16 +25,16 @@ const pollers = async () => (await env.client.workflowService.describeTaskQueue(
 describe('the host worker, started the way its entry starts it', () => {
   for (const role of ['root', 'instance'] as const) {
     it(`on ${role === 'root' ? 'root' : 'an instance'} polls the host queue with exactly that role's activities and the shared interceptors`, async () => {
-      const { worker, fences } = await startHostWorker(hostWorkerSettingsFrom(placeFor(role)));
-      const running = runThenLetGo(worker, fences);
-      while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
+      const { worker } = await startHostWorker(hostWorkerSettingsFrom(placeFor(role)));
+      const running = worker.run();
+      const identity = role === 'instance' ? 'luno-worker-host-7d9f-abcde' : `${process.pid}@${hostname()}`;
+      while (!(await pollers()).some((poller) => poller.identity === identity)) await new Promise((done) => setTimeout(done, 100));
       expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual([...HOST_ACTIVITIES[role]].sort());
       expect(worker.options.interceptors.activity).toHaveLength(6);
-      expect(worker.options.identity, 'Temporal knows an instance\'s worker by its own pod, and root\'s by its process').toBe(role === 'instance' ? 'luno-worker-host-7d9f-abcde' : `${process.pid}@${hostname()}`);
-      expect((await live()).map((process) => process.name)).toContain('worker-host');
+      expect(worker.options.identity, 'Temporal knows an instance\'s worker by its own pod, and root\'s by its process').toBe(identity);
+      expect((await pollers()).map((poller) => poller.identity), 'the worker is up, polling as itself').toContain(identity);
       worker.shutdown();
       await running;
-      expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
     });
   }
 });

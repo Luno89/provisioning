@@ -172,9 +172,8 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 
 - Removing an account removes everything it owns, the account last. On root and an instance, an account is root's.
 - Every collection says how account removal removes it; a test fails on one that does not.
-- Removal and project deletion **fence** what they remove before stopping anything, and go on only once every live process holds
-  the fence (owner, 2026-11-13: "C sounds right", "with the confirmation step"). No timer is waited on. A fence outlives its removal
-  until every process live then has restarted (owner, 2026-11-13: "drop them after every process restarts").
+- Removal and project deletion **mark** what they remove at once, refuse new work for it, cancel what runs and kill its programs at
+  once, and say deleted only when nothing is left (owner, 2026-11-21: "Yep kill at once"). No timer is waited on.
 - Workflows are stopped by cancelling, never terminating, so a run hands its claimed work back.
 
 ## Machines

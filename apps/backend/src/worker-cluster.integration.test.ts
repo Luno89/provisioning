@@ -4,9 +4,8 @@ import { clusterWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
 import { workerWorld } from './platform/testing/worker-world.js';
 import { startClusterWorker } from './worker-cluster.js';
-import { runThenLetGo } from './platform/wiring/fences.js';
 
-const { env, rootKey, live, placed } = await workerWorld();
+const { env, rootKey, placed } = await workerWorld();
 
 const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   ...placed(`cluster-${role}`, role),
@@ -19,19 +18,18 @@ const EXPECTED = ['AwaitProjectWorkActivity', 'CheckWorkloadActivity', 'DeployAp
 
 describe('the cluster worker, started the way its entry starts it', () => {
   it('on an instance polls the cluster queue with every cluster activity, the shared interceptors and the refusal of work being deleted', async () => {
-    const { worker, fences } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
-    const running = runThenLetGo(worker, fences);
+    const { worker } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
+    const running = worker.run();
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
       namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.cluster }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
-    while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
+    while (!(await pollers()).some((poller) => poller.identity === 'luno-worker-cluster-7d9f-abcde')) await new Promise((done) => setTimeout(done, 100));
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
     expect(worker.options.interceptors.activity).toHaveLength(6);
     expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-cluster-7d9f-abcde');
-    expect((await live()).map((process) => process.name)).toEqual(['worker-cluster']);
+    expect((await pollers()).map((poller) => poller.identity), 'the worker is up, polling as its pod').toContain('luno-worker-cluster-7d9f-abcde');
     worker.shutdown();
     await running;
-    expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
   });
 
   it('is refused by its settings on root, which runs no cluster worker', () => {

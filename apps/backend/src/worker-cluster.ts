@@ -22,7 +22,6 @@ import { checkServices } from './platform/wiring/dependencies.js';
 import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
-import { holdFencesIn } from './platform/wiring/fences.js';
 import { runAsProgram, watchedWorker } from './worker-program.js';
 import { createFrozenWorkActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { KoalaPods, WorkerRestart } from './infrastructure/index.js';
@@ -61,7 +60,6 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  const fences = await holdFencesIn('worker-cluster', settings.mongo);
   const dataKey = settings.keys.data;
   const db = createDatabase({ mongo: settings.mongo, dataKey });
   db.reportReachTo(dependencies);
@@ -99,7 +97,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
     },
   });
 
-  return { worker, steps, telemetry, fences };
+  return { worker, steps, telemetry };
 }
 
 runAsProgram(import.meta.url, {

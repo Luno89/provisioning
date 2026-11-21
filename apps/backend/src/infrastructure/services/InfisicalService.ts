@@ -1,4 +1,4 @@
-import { listAt, numberAt, reportStatus, textAt, theFence, thrownFor, type DependencyReporter } from '../../platform/index.js';
+import { listAt, numberAt, reportStatus, textAt, thrownFor, type DependencyReporter } from '../../platform/index.js';
 import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -199,30 +199,25 @@ export class InfisicalService {
   }
 
   private async ensureWorkspace(projectId: string): Promise<string> {
-    const leave = theFence().enter();
-    try {
-      const cached = this.workspaceCache.get(projectId);
-      if (cached) return cached;
+    const cached = this.workspaceCache.get(projectId);
+    if (cached) return cached;
 
-      const projectName = workspaceNameFor(projectId);
-      const id = await this.authorized(async (token, baseUrl) => {
-        const headers = { Authorization: `Bearer ${token}` };
-        const list = await this.http.get<unknown>(`${baseUrl}/api/v1/workspace`, { headers, proxy: false });
-        const foundId = textAt(listAt(list.data, 'workspaces').find((w) => textAt(w, 'name') === projectName), 'id');
-        if (foundId) return foundId;
-        const created = await this.http.post<unknown>(
-          `${baseUrl}/api/v2/workspace`,
-          { projectName, organizationId: this.orgId },
-          { headers, proxy: false },
-        );
-        return textAt(created.data, 'project', 'id');
-      });
-      if (!id) throw new Error(`Infisical did not return a workspace for ${projectId}`);
-      this.workspaceCache.set(projectId, id);
-      return id;
-    } finally {
-      leave();
-    }
+    const projectName = workspaceNameFor(projectId);
+    const id = await this.authorized(async (token, baseUrl) => {
+      const headers = { Authorization: `Bearer ${token}` };
+      const list = await this.http.get<unknown>(`${baseUrl}/api/v1/workspace`, { headers, proxy: false });
+      const foundId = textAt(listAt(list.data, 'workspaces').find((w) => textAt(w, 'name') === projectName), 'id');
+      if (foundId) return foundId;
+      const created = await this.http.post<unknown>(
+        `${baseUrl}/api/v2/workspace`,
+        { projectName, organizationId: this.orgId },
+        { headers, proxy: false },
+      );
+      return textAt(created.data, 'project', 'id');
+    });
+    if (!id) throw new Error(`Infisical did not return a workspace for ${projectId}`);
+    this.workspaceCache.set(projectId, id);
+    return id;
   }
 
   private async inWorkspace<T>(projectId: string, call: (workspaceId: string) => Promise<T>): Promise<T> {

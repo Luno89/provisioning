@@ -18,8 +18,6 @@ import type { MongoTarget } from './mongo-target.js';
 import type { SecretKey } from './crypto.js';
 import { leaseMongo, type MongoLease } from './mongo-lease.js';
 import type { DependencyReporter } from './dependencies.js';
-import { fencedDb } from './fenced-db.js';
-import { theFence } from './fence.js';
 
 export { databaseOf, mongoTarget } from './mongo-target.js';
 
@@ -66,7 +64,7 @@ export class MongoDB implements Database {
     const { uri, dbName } = this.settings.mongo;
 
     this.lease = await leaseMongo(uri, this.reporters);
-    this.db = fencedDb(this.lease.client.db(dbName), theFence());
+    this.db = this.lease.client.db(dbName);
 
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();

@@ -134,5 +134,8 @@
  ],
  "apps/backend/src/platform/middleware/auth.integration.test.ts": [
   "2026-11-21T20:26:26.000Z"
+ ],
+ "apps/backend/src/worker-host.integration.test.ts": [
+  "2026-11-21T21:19:04.404Z"
  ]
 }
