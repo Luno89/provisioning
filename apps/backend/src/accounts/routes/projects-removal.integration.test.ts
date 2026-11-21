@@ -50,7 +50,7 @@ describe('deleting a project', () => {
 
     const removed = await call('delete', '/api/projects/p1', { confirm: 'shop' });
     expect(removed.status).toBe(202);
-    expect(started).toEqual(['remove-project-p1']);
+    expect(started).toEqual(['delete-project-p1']);
     expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id });
   });
 
@@ -58,7 +58,7 @@ describe('deleting a project', () => {
     await harness.db.infrastructure.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1', ownerId: TEST_USER.id } as never);
     expect((await call('get', '/api/projects/p1/removal')).data.apps).toEqual(['shop-web']);
     expect((await call('delete', '/api/projects/p1', { confirm: 'shop' })).status).toBe(202);
-    expect(started).toEqual(['remove-project-p1']);
+    expect(started).toEqual(['delete-project-p1']);
   });
 
   it('is refused for someone else\'s project', async () => {

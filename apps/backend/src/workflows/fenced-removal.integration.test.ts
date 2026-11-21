@@ -1,4 +1,3 @@
-import { withWorkFor } from '@koala/engine-core/work-for';
 import { Readable } from 'node:stream';
 import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
@@ -7,12 +6,10 @@ import { Client } from '@temporalio/client';
 import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import { createAccountRemovalActivities, NO_MESH_HERE, type AccountRemovalDeps } from '../activities/RemoveAccountActivities.js';
-import { createProjectRemovalActivities, type ProjectRemovalDeps } from '../activities/RemoveProjectActivities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { minioObjectStore } from '../files/services/ObjectStore.js';
 import { testBucket } from '../files/testing/real-minio.js';
-import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { releaseRunWorkflowId } from '../releases/lib/release-run.js';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { cancelIfRunning } from '../platform/lib/stop-workflow.js';
@@ -170,51 +167,6 @@ describe('an account being removed while a step of its run is still writing', ()
       expect(await objects.stat(`${owner}-late-file`)).toBeUndefined();
     } finally {
       await db.platform.forgetProcess(`other-${owner}`);
-      await stop();
-    }
-  });
-});
-
-describe('a project being deleted while a step of its release is still writing', () => {
-  it('refuses what the late step tries to keep for the project, and still keeps what its owner does elsewhere', async () => {
-    const owner = `keeping-${Math.random().toString(36).slice(2, 8)}`;
-    const project = `${owner}-shop`;
-    await db.accounts.saveUser({ id: owner, email: `${owner}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: at });
-    await db.projects.saveProject({ id: project, name: 'shop', ownerId: owner, appType: 'gitapp', createdAt: at });
-    const late = straggler(async ({ ownerId, projectId }) => [
-      await tried(() => db.engine.saveConversation({ id: `${projectId}-late`, ownerId, projectId, title: 'late', messages: [], createdAt: at, updatedAt: at } as never)),
-    ]);
-    const queue = `fenced-project-${owner}`;
-    const temporal = naming();
-    const removal = createProjectRemovalActivities({
-      ...mock<ProjectRemovalDeps>(),
-      store: db,
-      apps: fakeApps,
-      workflows: cancelling(temporal),
-      kube: mockFn<KubeRunner>().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
-      repositories: { deleteRepo: async () => undefined },
-      secrets: { removeProject: async () => ({ workspace: false, readers: 0 }) },
-      files: { removeProjectFiles: async () => 0 },
-    });
-    const stop = await workers(queue, removal, 'RemoveProjectWorkflow.ts', late);
-    try {
-      await withWorkFor({ project }, () => temporal.workflow.start('StragglerWorkflow', { taskQueue: `${queue}-straggler`, workflowId: releaseRunWorkflowId(project), args: [{ ownerId: owner, projectId: project }], ...startedFor(owner) }));
-      await late.started;
-
-      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => world.client, queue, PROJECT_REMOVAL_PROGRESS_QUERY);
-      await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId(project), [{ projectId: project }], owner);
-      const handle = world.client.workflow.getHandle(removeProjectWorkflowId(project));
-      expect(await handle.result()).toMatchObject({ stoppedWorkflows: 1 });
-      expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes), 'deletion waits on no timer').toBe(false);
-
-      late.letGo();
-      expect(await late.outcome).toEqual(['WorkStopped']);
-      await withWorkFor({ owner }, () => db.engine.saveConversation({ id: `${owner}-elsewhere`, ownerId: owner, title: 'mine', messages: [], createdAt: at, updatedAt: at } as never));
-      expect((await db.projects.getProjects()).some((entry) => entry.id === project)).toBe(false);
-      const conversations = await db.engine.getConversations();
-      expect(conversations.some((conversation) => conversation.id === `${project}-late`)).toBe(false);
-      expect(conversations.some((conversation) => conversation.id === `${owner}-elsewhere`)).toBe(true);
-    } finally {
       await stop();
     }
   });

@@ -1,16 +1,15 @@
-import { MockActivityEnvironment } from '@temporalio/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import type { Database } from '../platform/lib/db-interface.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { planAppDestroys, createProjectRemovalActivities, type ProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
+import { seedTwoProjects } from '../projects/testing/project-world.js';
 
 type Files = ProjectRemovalDeps['files'];
 type Artifacts = NonNullable<ProjectRemovalDeps['artifacts']>;
 
 let db: Database;
-let workflows: ReturnType<typeof mock<ProjectRemovalDeps['workflows']>>;
 let kube: ReturnType<typeof mockFn<KubeRunner>>;
 let repositories: ReturnType<typeof mock<ProjectRemovalDeps['repositories']>>;
 let secrets: ReturnType<typeof mock<ProjectRemovalDeps['secrets']>>;
@@ -21,7 +20,6 @@ const at = 'then';
 
 const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities => createProjectRemovalActivities({
   store: db,
-  workflows,
   kube,
   repositories,
   secrets,
@@ -32,14 +30,11 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
   },
-  now: () => Date.parse('2026-11-13T10:00:00.000Z'),
   ...over,
 });
 
 beforeEach(async () => {
   db = memoryDatabase();
-  workflows = mock<ProjectRemovalDeps['workflows']>();
-  workflows.stopIfRunning.mockResolvedValue(true);
   kube = mockFn<KubeRunner>();
   kube.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
   repositories = mock<ProjectRemovalDeps['repositories']>();
@@ -48,60 +43,10 @@ beforeEach(async () => {
   files = mock<Files>();
   files.removeProjectFiles.mockResolvedValue(3);
   artifacts = mock<Artifacts>();
-  for (const id of ['p1', 'p2']) {
-    await db.projects.saveProject({ id, name: `shop-${id}`, ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: `shop-${id}`, appType: 'gitapp', createdAt: at });
-  }
-  await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
-  await db.projects.saveTree({ id: 't1', ownerId: 'bo', name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: at, updatedAt: at } as never);
-  await db.projects.saveTree({ id: 't2', ownerId: 'bo', name: 'Shared', type: 'software', projectIds: ['p2', 'p1'], createdAt: at, updatedAt: at } as never);
-  await db.projects.saveBranch({ id: 'b1', ownerId: 'bo', treeId: 't1', title: 'b', createdAt: at, updatedAt: at } as never);
-  await db.projects.saveLeaf({ id: 'l1', ownerId: 'bo', branchId: 'b1', title: 'l', status: 'pending', createdAt: at, updatedAt: at } as never);
-  await db.projects.saveTask({ id: 'k1', ownerId: 'bo', leafId: 'l1', title: 'k', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
-  await db.projects.saveTask({ id: 'k2', ownerId: 'bo', projectId: 'p1', title: 'plain', doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at });
-  await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', treeId: 't1', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
-  await db.engine.saveConversation({ id: 'c2', ownerId: 'bo', projectId: 'p1', messages: [], createdAt: at, updatedAt: at } as never);
-  await db.releases.savePipelineRun({ id: 'r1', projectId: 'p1', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
-  await db.releases.savePipelineRun({ id: 'r2', projectId: 'p2', status: 'running', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
+  await seedTwoProjects(db, at);
 });
 
 describe('the steps that delete a project', () => {
-  it('ends the project\'s fence with the processes live as it ends, and drops it at once when none is left from before', async () => {
-    await db.platform.raiseFence({ kind: 'project', id: 'p1' }, '2026-11-13T09:00:00.000Z');
-    expect(await new MockActivityEnvironment().run(steps().RemoveProjectFenceEndActivity, { projectId: 'p1' })).toEqual([{ kind: 'project', id: 'p1' }]);
-    expect(await db.platform.fencesRaised()).toEqual([]);
-  });
-
-  it('marks the project as being deleted, raises its fence, and goes on only once every live process holds it', async () => {
-    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
-    let finished = false;
-    const fenced = new MockActivityEnvironment().run(steps().RemoveProjectFenceActivity, { projectId: 'p1' }).then(() => { finished = true; });
-    await new Promise((resolve) => setImmediate(resolve));
-    expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: '2026-11-13T10:00:00.000Z', requestedBy: 'bo' });
-    expect(finished).toBe(false);
-    await db.platform.ackFence({ kind: 'project', id: 'p1' }, 'engine-1', '2026-11-13T10:00:01.000Z');
-    await fenced;
-    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'project', id: 'p1' }, at: '2026-11-13T10:00:00.000Z', confirmed: true }]);
-  });
-
-  it('stops its running builds and its trees\' runs, and no other project\'s, heartbeating as it goes', async () => {
-    const env = new MockActivityEnvironment();
-    let beats = 0;
-    env.on('heartbeat', () => { beats += 1; });
-    const stopped = await env.run(() => steps().RemoveProjectWorkflowsActivity({ projectId: 'p1' }));
-    expect(workflows.stopIfRunning.mock.calls.map(([id]) => id)).toEqual(['release-p1', 'pipeline-r1', 'grove-run-t1', 'conclude-workspace-tree-t1']);
-    expect(workflows.stopIfRunning).toHaveBeenCalledWith('release-p1', 'the project was deleted');
-    expect(stopped).toBe(4);
-    expect(beats).toBe(4);
-  });
-
-  it('counts only the workflows that were running, and does nothing for a project that is gone', async () => {
-    workflows.stopIfRunning.mockImplementation(async (id) => id === 'pipeline-r1');
-    expect(await steps().RemoveProjectWorkflowsActivity({ projectId: 'p1' })).toBe(1);
-    workflows.stopIfRunning.mockClear();
-    expect(await steps().RemoveProjectWorkflowsActivity({ projectId: 'nope' })).toBe(0);
-    expect(workflows.stopIfRunning).not.toHaveBeenCalled();
-  });
-
   it('deletes its trees\' workspaces and those of their conversations in one call, its secrets, and its repositories', async () => {
     expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(2);
     expect(kube).toHaveBeenCalledWith(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=720h']);

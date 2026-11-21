@@ -26,13 +26,13 @@ describe('what is running, in plain words', () => {
       flow('memory-conversation-c1-8', 'AgentRunWorkflow', 5, { memo: { runId: 'memory-conversation-c1-8', agent: 'memory-keeper', about: 'the conversation "Labels for the warehouse"' } }),
       flow('run-r1', 'AgentRunWorkflow', 6, { memo: { runId: 'run-r1', agent: 'koala', conversation: 'c1' } }),
       flow('workspace-build-t1-abc123', 'AgentRunWorkflow', 7, { memo: { runId: 'workspace-build-t1-abc123', agent: 'workspace' } }),
-      flow('remove-project-p1', 'RemoveProjectWorkflow', 8),
+      flow('delete-project-p1', 'DeleteProjectWorkflow', 8),
       flow('weird-1', 'SomethingNewWorkflow', 9),
     ], records);
 
     expect(items.map((item) => [item.kind, item.title, item.opens, item.cancel])).toEqual([
       ['other', 'SomethingNewWorkflow (weird-1)', { kind: 'temporal', id: 'weird-1' }, { via: 'workflow' }],
-      ['removal', 'Deleting the project Shop', { kind: 'temporal', id: 'remove-project-p1' }, { via: 'none', why: 'deleting cannot be stopped part way' }],
+      ['removal', 'Deleting the project Shop', { kind: 'temporal', id: 'delete-project-p1' }, { via: 'none', why: 'deleting cannot be stopped part way' }],
       ['workspace-build', 'Building the workspace of Delivery Labels', { kind: 'tree', id: 't1' }, { via: 'run', runId: 'workspace-build-t1-abc123' }],
       ['chat', 'Koala answering in "Labels for the warehouse"', { kind: 'chat', id: 'c1' }, { via: 'run', runId: 'run-r1' }],
       ['memory-keeper', 'The memory keeper, reading the conversation "Labels for the warehouse"', { kind: 'temporal', id: 'memory-conversation-c1-8' }, { via: 'run', runId: 'memory-conversation-c1-8' }],

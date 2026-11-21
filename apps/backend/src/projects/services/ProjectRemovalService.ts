@@ -1,16 +1,16 @@
 import { type ProjectMetadata, allowed, asPerson } from '../../platform/index.js';
 import {
-  REMOVE_PROJECT_WORKFLOW,
+  DELETE_PROJECT_WORKFLOW,
+  deleteProjectWorkflowId,
   projectRemovalPreview,
   projectRemovalScope,
-  removeProjectWorkflowId,
   type ProjectRemovalPreview,
   type ProjectRemovalScope,
   type ProjectRemovalStep,
 } from '../lib/project-removal.js';
 import type { ProjectRemovalStore } from '../../activities/RemoveProjectActivities.js';
 import type { AccountRemovalWorkflows, RemovalWorkflowState } from '../../accounts/index.js';
-import { unnamedWork } from '@koala/engine-core/work-for';
+import { withWorkFor } from '@koala/engine-core/work-for';
 
 export type ProjectRemovalState = RemovalWorkflowState<ProjectRemovalStep>;
 
@@ -53,7 +53,7 @@ export class ProjectRemovalService {
   async preview(ownerId: string, projectId: string): Promise<(ProjectRemovalPreview & { state: ProjectRemovalState }) | undefined> {
     const loaded = await this.owned(ownerId, projectId);
     if (!loaded) return undefined;
-    return { ...projectRemovalPreview(loaded.project, loaded.scope), state: await this.deps.workflows.state(removeProjectWorkflowId(projectId)) };
+    return { ...projectRemovalPreview(loaded.project, loaded.scope), state: await this.deps.workflows.state(deleteProjectWorkflowId(projectId)) };
   }
 
   async remove(ownerId: string, projectId: string, confirm: string): Promise<{ ok: true; state: ProjectRemovalState } | { ok: false; refusal: ProjectRemovalRefusal }> {
@@ -62,10 +62,10 @@ export class ProjectRemovalService {
     if (confirm.trim() !== loaded.project.name) return { ok: false, refusal: { status: 400, error: `Type the project's name, ${loaded.project.name}, to confirm` } };
 
     await this.deps.store.projects.markDeleting(projectId, { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId });
-    const workflowId = removeProjectWorkflowId(projectId);
+    const workflowId = deleteProjectWorkflowId(projectId);
     const current = await this.deps.workflows.state(workflowId);
     if (current.state === 'running') return { ok: true, state: current };
-    await unnamedWork(() => this.deps.workflows.start(REMOVE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId));
+    await withWorkFor({ project: projectId, removing: 'project' }, () => this.deps.workflows.start(DELETE_PROJECT_WORKFLOW, workflowId, [{ projectId }], loaded.project.ownerId ?? ownerId));
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }
 }

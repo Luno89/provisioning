@@ -1,4 +1,4 @@
-import { withWorkFor, workIsUnnamed } from '@koala/engine-core/work-for';
+import { workFor, withWorkFor } from '@koala/engine-core/work-for';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { AccountRemovalWorkflows } from '../../accounts/index.js';
@@ -76,16 +76,16 @@ describe('deleting a project', () => {
     workflows.state.mockResolvedValueOnce({ state: 'none' }).mockResolvedValueOnce({ state: 'running', done: [] });
     const removed = await service.remove('ann', 'p1', ' Shop ');
     expect(removed).toEqual({ ok: true, state: { state: 'running', done: [] } });
-    expect(workflows.start).toHaveBeenCalledWith('RemoveProjectWorkflow', 'remove-project-p1', [{ projectId: 'p1' }], 'ann');
+    expect(workflows.start).toHaveBeenCalledWith('DeleteProjectWorkflow', 'delete-project-p1', [{ projectId: 'p1' }], 'ann');
     expect((await db.projects.getProjects())[0]?.removal).toEqual({ startedAt: at, requestedBy: 'ann' });
   });
 
-  it('starts the deletion as work for nobody, so the fence it raises round the project never stops its own steps', async () => {
+  it('starts the deletion as the project\'s own removal, whatever work it is called from, so the refusals let only it through', async () => {
     const { workflows, service } = await setUp();
-    let unnamed: boolean | undefined;
-    workflows.start.mockImplementation(async () => { unnamed = workIsUnnamed(); });
-    await withWorkFor({ owner: 'ann', project: 'p1' }, () => service.remove('ann', 'p1', 'Shop'));
-    expect(unnamed).toBe(true);
+    let named: unknown;
+    workflows.start.mockImplementation(async () => { named = workFor(); });
+    await withWorkFor({ owner: 'ann', project: 'other' }, () => service.remove('ann', 'p1', 'Shop'));
+    expect(named).toEqual({ owner: 'ann', project: 'p1', removing: 'project' });
   });
 
   it('marks the project once: pressed again after it stopped, the deletion starts again under the first mark', async () => {

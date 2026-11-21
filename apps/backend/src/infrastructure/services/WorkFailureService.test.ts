@@ -23,8 +23,8 @@ async function setUp() {
 }
 
 const failedWorkflow = (over: Partial<FailedWorkflow>): FailedWorkflow => ({
-  workflowId: 'remove-project-p1', temporalRunId: 'r1', type: 'RemoveProjectWorkflow', startedAt: '2026-10-17T11:00:00Z',
-  failedAt: '2026-10-17T11:30:00Z', ownerId: 'u1', message: 'Activity task failed', cause: 'remove-project-p1 could not reach its cluster', ...over,
+  workflowId: 'delete-project-p1', temporalRunId: 'r1', type: 'DeleteProjectWorkflow', startedAt: '2026-10-17T11:00:00Z',
+  failedAt: '2026-10-17T11:30:00Z', ownerId: 'u1', message: 'Activity task failed', cause: 'delete-project-p1 could not reach its cluster', ...over,
 });
 
 describe('work that failed', () => {
@@ -52,10 +52,10 @@ describe('work that failed', () => {
       failedWorkflow({}),
       failedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
       failedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
-      failedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
+      failedWorkflow({ workflowId: 'child', parent: 'delete-project-p1' }),
     ]) await service.workflowFailed(failed);
     expect(await service.shown('u1')).toEqual([expect.objectContaining({
-      id: 'workflow:remove-project-p1:r1', kind: 'removal', title: 'Deleting the project Books', reason: 'remove-project-p1 could not reach its cluster', failedAt: '2026-10-17T11:30:00Z',
+      id: 'workflow:delete-project-p1:r1', kind: 'removal', title: 'Deleting the project Books', reason: 'delete-project-p1 could not reach its cluster', failedAt: '2026-10-17T11:30:00Z',
     })]);
   });
 
@@ -101,7 +101,7 @@ describe('telling about failed work', () => {
     });
     await service.workflowFailed(failedWorkflow({}));
     await service.workflowFailed(failedWorkflow({}));
-    expect(failed).toEqual(['workflow:remove-project-p1:r1']);
+    expect(failed).toEqual(['workflow:delete-project-p1:r1']);
     expect(await service.shown('u1')).toHaveLength(1);
   });
 

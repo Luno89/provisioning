@@ -449,7 +449,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const projectRemoval = createProjectRemovalActivities({
     store: db,
     apps: appTeardown,
-    workflows: removalWorkflows,
     kube: sandboxKube,
     repositories: gitea,
     secrets: infisical,
