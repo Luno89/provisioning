@@ -30,6 +30,9 @@ const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
 
+export const signedByRoot = (claims: Record<string, unknown>, typ: string): Promise<string> =>
+  new SignJWT(claims).setProtectedHeader({ alg: 'Ed25519', typ, kid: rootSigning.kid }).sign(rootSigning.privateKey);
+
 export type Jar = Map<string, string>;
 
 export const remember = (jar: Jar, answer: Response): void => {
@@ -67,6 +70,7 @@ export interface SignInWorld<S extends Served> {
   readonly instanceAuth: Auth;
   readonly rootService: InstanceService;
   readonly heard: readonly AccessRevoked[];
+  breakRevocations(why: string | undefined): void;
   readonly alias: string;
   offset: number;
   signInAs(userId: string, at?: S): Promise<{ instanceJar: Jar; landed: Response }>;
@@ -87,6 +91,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let rootService: InstanceService;
   let offset = 0;
   const heard: AccessRevoked[] = [];
+  let broken: string | undefined;
 
   beforeEach(async () => {
     rootDb = await options.databases.root();
@@ -95,6 +100,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     instance = await options.serve('instance');
     offset = 0;
     heard.length = 0;
+    broken = undefined;
 
     await rootDb.accounts.saveUser({ id: 'u1', email: 'u1@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
     await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
@@ -112,6 +118,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
     const revocations = new AccessRevocations();
     revocations.listen(async (event) => { heard.push(event); });
+    revocations.listen(async () => { if (broken) throw new Error(broken); });
     const runGrants = grantsOver(instanceDb.engine);
     revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
     signIn = new RootSignIn({
@@ -171,6 +178,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     get offset() { return offset; },
     set offset(next: number) { offset = next; },
     heard,
+    breakRevocations: (why) => { broken = why; },
     signInAs,
     whoami,
     revokedAt: options.revokedAt,

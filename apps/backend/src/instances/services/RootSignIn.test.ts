@@ -7,7 +7,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { serveInProcess } from '../testing/serve-in-process.js';
 import { InstanceReach, type ReachFetchers } from './InstanceReach.js';
-import { rootSignInWorld, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, having, type Served } from '../testing/root-sign-in-behaviour.js';
+import { rootSignInWorld, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, having, signedByRoot, type Served } from '../testing/root-sign-in-behaviour.js';
 
 const containing = (text: string): unknown => expect.stringContaining(text);
 const anyText = (): unknown => expect.any(String);
@@ -117,6 +117,23 @@ describe('what an instance does when the sign-in does not go through', () => {
     const good = await world.provider.logoutToken({ id: 'd3', clientId: 'inst-u1', url: 'x', subject: 'u1', revokedAt: after(), why: 'signed-out-everywhere', attempts: 0 } as never);
     expect(await world.signIn.backchannel(good)).toEqual({ ok: true });
     expect(world.heard).toEqual([having({ personId: 'u1' })]);
+  });
+
+  it('takes each logout token once and only with its expiry, and answers only once everything the person held here was revoked', async () => {
+    await world.signIn.announce();
+    const delivery = (id: string) => ({ id, clientId: 'inst-u1', url: 'x', subject: 'u1', revokedAt: after(), why: 'signed-out-everywhere', attempts: 0 }) as never;
+    const once = await world.provider.logoutToken(delivery('d1'));
+    expect(await world.signIn.backchannel(once)).toEqual({ ok: true });
+    expect(await world.signIn.backchannel(once)).toEqual({ ok: false, error: 'that logout token was already taken' });
+
+    const now = Math.floor(Date.now() / 1000);
+    const lasting = await signedByRoot({ iss: world.signIn.issuer, aud: 'inst-u1', sub: 'u1', iat: now, jti: 'no-expiry', events: { 'http://schemas.openid.net/event/backchannel-logout': {} }, koala_revoked_at: after(), koala_why: 'signed-out-everywhere' }, 'logout+jwt');
+    expect(await world.signIn.backchannel(lasting)).toMatchObject({ ok: false, error: containing('the logout token could not be checked: missing required "exp" claim') });
+
+    world.breakRevocations('the run grants could not be read');
+    expect(await world.signIn.backchannel(await world.provider.logoutToken(delivery('d2')))).toEqual({ ok: false, error: 'not everything u1 held here could be revoked yet: the run grants could not be read' });
+    world.breakRevocations(undefined);
+    expect(await world.signIn.backchannel(await world.provider.logoutToken(delivery('d3')))).toEqual({ ok: true });
   });
 
   it('says root has not taken its key, and tries again until it does', async () => {

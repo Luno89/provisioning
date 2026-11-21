@@ -258,17 +258,19 @@ export class RootSignIn implements RunTokenRoot {
         const key = typeof header.kid === 'string' ? this.settings.trusted.get(header.kid) : undefined;
         if (!key) throw new Error('signed by a key this server does not trust');
         return key;
-      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP }));
+      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP, requiredClaims: ['exp', 'jti'] }));
     } catch (err) {
       return { ok: false, error: `the logout token could not be checked: ${(err as Error).message}` };
     }
     const events = payload.events as Record<string, unknown> | undefined;
     const event: AccessRevoked = { personId: String(payload.sub ?? ''), at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
     if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event)) return { ok: false, error: 'that is not a logout token' };
+    if (!(await this.store.instances.takeLogoutToken(String(payload.jti), new Date(Number(payload.exp) * 1000)))) return { ok: false, error: 'that logout token was already taken' };
     await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
     this.revoked.revoke(event.personId, event.at);
     await this.store.instances.dropClientSessionsOf(event.personId);
-    await this.revocations.revoked(event);
+    const failed = await this.revocations.revoked(event);
+    if (failed.length) return { ok: false, error: `not everything ${event.personId} held here could be revoked yet: ${failed.join('; ')}` };
     return { ok: true };
   }
 

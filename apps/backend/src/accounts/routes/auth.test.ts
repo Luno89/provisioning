@@ -32,7 +32,7 @@ function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
   const router = authRouter({
     db, authService, auth, sessionKey: KEY, appUrl: APP, passwords,
     accounts: options.accounts,
-    revocations: { revoked: async (event) => { revoked.push(event); } },
+    revocations: { revoked: async (event) => { revoked.push(event); return []; } },
     providers: options.withProviders === false ? undefined : providers,
   });
   const routes = routesInProcess({ prefix: PREFIX, router: () => router, user: null, open: true, db });

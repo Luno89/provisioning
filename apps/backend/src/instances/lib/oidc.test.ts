@@ -63,7 +63,7 @@ describe('an instance as root\'s client', () => {
 
   it('carries a revocation in a back-channel logout token for one client', () => {
     expect(logoutClaims('https://app.example.com/oidc', 'inst-u1', { subject: 'u1', at: '2026-10-29T00:00:00.000Z', why: 'signed-out-everywhere' }, 1_800_000_000)).toMatchObject({
-      iss: 'https://app.example.com/oidc', aud: 'inst-u1', sub: 'u1', iat: 1_800_000_000, events: { [LOGOUT_EVENT]: {} },
+      iss: 'https://app.example.com/oidc', aud: 'inst-u1', sub: 'u1', iat: 1_800_000_000, exp: 1_800_000_120, events: { [LOGOUT_EVENT]: {} },
       koala_revoked_at: '2026-10-29T00:00:00.000Z', koala_why: 'signed-out-everywhere',
     });
   });
