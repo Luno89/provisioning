@@ -20,7 +20,7 @@ export interface ProjectsRouterDeps {
   giteaService: Pick<GiteaService, 'getCommit'>;
   clusterService: Pick<ClusterService, 'getById'>;
   channels?: Pick<ProjectChannelService, 'ensure'> | undefined;
-  removal?: Pick<ProjectRemovalService, 'preview' | 'remove'> | undefined;
+  removal?: Pick<ProjectRemovalService, 'preview' | 'remove' | 'deleted' | 'restore' | 'purgeNow'> | undefined;
 }
 
 type ExecutionTarget = NonNullable<ProjectMetadata['executionTarget']>;
@@ -58,6 +58,25 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
   const ownDevice = async (req: Request, deviceId: string): Promise<LocalAgentDeviceMetadata | undefined> => (await db.machines.getLocalAgentDevices())
     .find((d) => d.id === deviceId && allowed(principalFrom(req), 'see', { kind: 'record', noun: 'machine', ownerId: d.ownerId }));
   const router = Router();
+
+  router.get('/deleted', asyncRoute(async (req, res) => {
+    if (!deps.removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
+    return res.json(await deps.removal.deleted(userOf(req).id));
+  }));
+
+  router.post('/:id/restore', asyncRoute(async (req, res) => {
+    if (!deps.removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
+    const outcome = await deps.removal.restore(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.refusal.status).json({ error: outcome.refusal.error });
+    return res.json({ name: outcome.name, renamed: outcome.renamed });
+  }));
+
+  router.post('/:id/purge', asyncRoute(async (req, res) => {
+    if (!deps.removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
+    const outcome = await deps.removal.purgeNow(userOf(req).id, idOf(req), textOf(fieldsOf(req.body).confirm) ?? '');
+    if (!outcome.ok) return res.status(outcome.refusal.status).json({ error: outcome.refusal.error });
+    return res.status(202).json({});
+  }));
 
   router.get('/', asyncRoute(async (req, res) => {
     const projects = await db.projects.getProjects();
@@ -226,8 +245,11 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
-    const confirm = textOf(fieldsOf(req.body).confirm) ?? '';
-    const outcome = await removal.remove(userOf(req).id, idOf(req), confirm);
+    const body = fieldsOf(req.body);
+    const confirm = textOf(body.confirm) ?? '';
+    const mode = body.mode === 'archive' || body.mode === 'permanent' ? body.mode : undefined;
+    if (!mode) return res.status(400).json({ error: 'Say whether to keep the project for 90 days or delete it for good now' });
+    const outcome = await removal.remove(userOf(req).id, idOf(req), confirm, mode);
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     return res.status(202).json({ state: outcome.state });
   }));

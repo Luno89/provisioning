@@ -3,7 +3,7 @@ import type { Branch, Leaf } from './lib/leaves.js';
 import type { Collection, Db, Document } from 'mongodb';
 import type { GiteaAccount } from './lib/projects.js';
 import { tokenKey, type TokenToRevoke } from './lib/gitea-tokens.js';
-import type { PartialInfo, ProjectMetadata, ProjectRemoval } from '../platform/index.js';
+import type { PartialInfo, ProjectDeletionAsked, ProjectMetadata, ProjectRemoval } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
 import type { SecretRequest, SecretRequestFilter } from './lib/secret-requests.js';
 import type { Task } from './lib/tasks.js';
@@ -18,8 +18,11 @@ export interface ProjectsStore extends AreaStore {
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
   saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
-  markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean>;
+  markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean>;
   deletion(projectId: string): Promise<ProjectRemoval | undefined>;
+  archive(projectId: string): Promise<boolean>;
+  restore(projectId: string, name: string): Promise<boolean>;
+  deletedProjects(ownerId: string): Promise<ProjectMetadata[]>;
   forgetClientFiles(): Promise<number>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
@@ -141,8 +144,21 @@ export class MongoProjectsStore implements ProjectsStore {
     );
   }
 
-  async markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean> {
-    return (await this.projects.updateOne({ _id: projectId, removal: { $exists: false } }, { $set: { removal: mark } })).modifiedCount === 1;
+  async markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean> {
+    const removal: ProjectRemoval = { ...mark, phase: 'deleting' };
+    return (await this.projects.updateOne({ _id: projectId, removal: { $exists: false } }, { $set: { removal } })).modifiedCount === 1;
+  }
+
+  async archive(projectId: string): Promise<boolean> {
+    return (await this.projects.updateOne({ _id: projectId, 'removal.phase': 'deleting' }, { $set: { 'removal.phase': 'archived' } })).modifiedCount === 1;
+  }
+
+  async restore(projectId: string, name: string): Promise<boolean> {
+    return (await this.projects.updateOne({ _id: projectId, 'removal.phase': 'archived' }, { $unset: { removal: '' }, $set: { name } })).modifiedCount === 1;
+  }
+
+  async deletedProjects(ownerId: string): Promise<ProjectMetadata[]> {
+    return (await this.projects.find({ ownerId, 'removal.phase': 'archived' }).toArray()).map((doc) => fromDoc<ProjectMetadata>(doc));
   }
 
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {

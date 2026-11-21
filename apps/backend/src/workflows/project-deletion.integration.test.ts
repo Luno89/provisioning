@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import { testClient, type TestTemporal } from '@koala/engine-core/testing/temporal';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
-import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectWork } from '../activities/DeleteProjectActivities.js';
+import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectArchive, temporalProjectWork } from '../activities/DeleteProjectActivities.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from '../activities/RemoveProjectActivities.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
@@ -62,7 +62,7 @@ describe('a project being deleted while a step of its release is still writing',
     });
     const work = temporalProjectWork(async () => client);
     const workers = await Promise.all([
-      testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'DeleteProjectWorkflow.ts')), activities: createProjectDeletionActivities({ work, removal }) }),
+      testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'DeleteProjectWorkflow.ts')), activities: createProjectDeletionActivities({ work, removal, archive: temporalProjectArchive(async () => client, db.projects, queue) }) }),
       testWorker(env, { taskQueue: QUEUES.cluster, activities: createFrozenWorkActivities({ work, workers: { restart: async () => 'not-here' } }) }),
       testWorker(env, { taskQueue: `${queue}-step`, workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/project-step.fixture-workflow.ts'), [resolve(import.meta.dirname, 'telemetry-interceptors.ts')]), activities: { ProjectStepActivity: step } }),
       testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined } }),
@@ -71,8 +71,8 @@ describe('a project being deleted while a step of its release is still writing',
     try {
       await withWorkFor({ project }, () => client.workflow.start('ProjectStepWorkflow', { taskQueue: `${queue}-step`, workflowId: releaseRunWorkflowId(project), args: [{ ownerId: owner, projectId: project }], ...startedFor(owner) }));
       await running;
-      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => client, queue, PROJECT_REMOVAL_PROGRESS_QUERY);
-      await withWorkFor({ project, removing: 'project' }, () => workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId(project), [{ projectId: project }], owner));
+      const workflows = temporalRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>(() => client, queue, PROJECT_REMOVAL_PROGRESS_QUERY);
+      await withWorkFor({ project, removing: 'project' }, () => workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId(project), [{ projectId: project, mode: 'permanent' }], owner));
       const handle = client.workflow.getHandle(deleteProjectWorkflowId(project));
       expect(await handle.result()).toMatchObject({ stopped: [releaseRunWorkflowId(project)] });
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes), 'deletion waits on no timer').toBe(false);

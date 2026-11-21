@@ -26,7 +26,7 @@ async function setUp(withRemoval = true) {
   const gitea = mock<Pick<GiteaService, 'getCommit'>>();
   const clusters = mock<Pick<ClusterService, 'getById'>>();
   const channels = mock<Pick<ProjectChannelService, 'ensure'>>();
-  const removal = mock<Pick<ProjectRemovalService, 'preview' | 'remove'>>();
+  const removal = mock<Pick<ProjectRemovalService, 'preview' | 'remove' | 'deleted' | 'restore' | 'purgeNow'>>();
   repos.createProject.mockImplementation(async (ownerId, input: NewProject) => db.projects.saveProjectInfo({
     id: 'made', name: input.name, ownerId, giteaOwner: 'koala-u', giteaRepo: input.repo, appType: 'gitapp', createdAt: 'now',
     ...(input.targetClusterId ? { targetClusterId: input.targetClusterId } : {}),
@@ -276,19 +276,48 @@ describe('deleting a project', () => {
     expect(plain(await routes.get('/nope/removal'))).toEqual({ status: 404, body: { error: 'Project not found' } });
   });
 
-  it('passes the typed name on and answers 202 with the state once it has started', async () => {
+  it('passes the typed name and the choice of keeping it on, and answers 202 with the state once it has started', async () => {
     const { removal, routes } = await setUp();
     removal.remove.mockResolvedValue({ ok: true, state: { state: 'running' } as never });
-    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'demo' } }))).toEqual({ status: 202, body: { state: { state: 'running' } } });
-    expect(removal.remove).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'demo');
-    await routes.delete('/proj-1');
-    expect(removal.remove).toHaveBeenLastCalledWith(TEST_USER.id, 'proj-1', '');
+    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'demo', mode: 'archive' } }))).toEqual({ status: 202, body: { state: { state: 'running' } } });
+    expect(removal.remove).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'demo', 'archive');
+    await routes.delete('/proj-1', { body: { mode: 'permanent' } });
+    expect(removal.remove).toHaveBeenLastCalledWith(TEST_USER.id, 'proj-1', '', 'permanent');
+  });
+
+  it('asks whether to keep the project or delete it for good, and starts nothing without the answer', async () => {
+    const { removal, routes } = await setUp();
+    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'demo' } }))).toEqual({ status: 400, body: { error: 'Say whether to keep the project for 90 days or delete it for good now' } });
+    expect(removal.remove).not.toHaveBeenCalled();
   });
 
   it('answers a refusal with its status and the refusal itself', async () => {
     const { removal, routes } = await setUp();
     removal.remove.mockResolvedValue({ ok: false, refusal: { status: 400, error: 'Type the project\'s name, demo, to confirm' } });
-    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'x' } }))).toEqual({ status: 400, body: { status: 400, error: 'Type the project\'s name, demo, to confirm' } });
+    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'x', mode: 'permanent' } }))).toEqual({ status: 400, body: { status: 400, error: 'Type the project\'s name, demo, to confirm' } });
+  });
+
+  it('lists the caller\'s deleted projects with the date each is kept until', async () => {
+    const { removal, routes } = await setUp();
+    removal.deleted.mockResolvedValue([{ id: 'p9', name: 'Old shop', deletedAt: 't', keptUntil: '2027-01-19T00:00:00.000Z' }]);
+    expect(plain(await routes.get('/deleted'))).toEqual({ status: 200, body: [{ id: 'p9', name: 'Old shop', deletedAt: 't', keptUntil: '2027-01-19T00:00:00.000Z' }] });
+    expect(removal.deleted).toHaveBeenCalledWith(TEST_USER.id);
+  });
+
+  it('restores a deleted project, saying the name it came back under, or answers the refusal', async () => {
+    const { removal, routes } = await setUp();
+    removal.restore.mockResolvedValueOnce({ ok: true, name: 'Shop (restored)', renamed: true });
+    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 200, body: { name: 'Shop (restored)', renamed: true } });
+    expect(removal.restore).toHaveBeenCalledWith(TEST_USER.id, 'p9');
+    removal.restore.mockResolvedValueOnce({ ok: false, refusal: { status: 409, error: 'Only a deleted project kept for its 90 days can be restored' } });
+    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 409, body: { error: 'Only a deleted project kept for its 90 days can be restored' } });
+  });
+
+  it('deletes a kept project for good now once its name is typed', async () => {
+    const { removal, routes } = await setUp();
+    removal.purgeNow.mockResolvedValueOnce({ ok: true });
+    expect(plain(await routes.post('/p9/purge', { confirm: 'Old shop' }))).toEqual({ status: 202, body: {} });
+    expect(removal.purgeNow).toHaveBeenCalledWith(TEST_USER.id, 'p9', 'Old shop');
   });
 
   it('says projects cannot be deleted here when the server has no removal service', async () => {

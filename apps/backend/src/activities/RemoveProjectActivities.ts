@@ -1,6 +1,6 @@
 import { Context } from '@temporalio/activity';
 import {
-  type ClusterMetadata, type ProjectMetadata, type ProjectRemoval, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
+  type ClusterMetadata, type ProjectMetadata, type ProjectDeletionAsked, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs, type HandOver } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, loadProjectScope } from '../projects/index.js';
@@ -18,7 +18,7 @@ export interface ProjectRemovalStore {
   projects: {
     getProjects(): Promise<ProjectMetadata[]>;
     saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
-    markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean>;
+    markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean>;
     getTrees(): Promise<Tree[]>;
     saveTree(tree: Tree): Promise<void>;
     getBranches(): Promise<Branch[]>;

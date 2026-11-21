@@ -43,6 +43,7 @@ describe('deleting a project for good through Temporal', () => {
         return passes === 1 ? { open: ['late-run'], apps: 0, deleted: 1 } : { open: [], apps: 0, deleted: 0 };
       },
       ...deletedForGood(seen),
+      ArchiveProjectActivity: async () => { seen.push('archived'); },
     };
     const taskQueue = uniqueName('delete-project-test');
     const worker = await testWorker(temporal.env, { taskQueue, workflows: 'DeleteProjectWorkflow.ts', activities });
@@ -53,8 +54,8 @@ describe('deleting a project for good through Temporal', () => {
     const { worker: streamWorker, told } = await groveTold(temporal.env);
 
     await appsWorker.runUntil(clusterWorker.runUntil(streamWorker.runUntil(worker.runUntil(async () => {
-      const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporal.env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
-      await workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId('p1'), [{ projectId: 'p1' }], 'bo');
+      const workflows = temporalRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>(() => temporal.env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
+      await workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId('p1'), [{ projectId: 'p1', mode: 'permanent' }], 'bo');
       expect(await temporal.env.client.workflow.getHandle(deleteProjectWorkflowId('p1')).result()).toMatchObject({
         stopped: ['run-1', 'build-1', 'late-run'], restarted: ['worker-engine-7d9f'], sweeps: 2, repositories: ['koala-bo/shop'], files: 2, records: { projects: 1 },
       });
@@ -67,5 +68,29 @@ describe('deleting a project for good through Temporal', () => {
     ]);
     expect(told).toEqual(['bo']);
     expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${appsQueue}`);
+  });
+
+  it('keeps what can be restored when asked to: stops and deletes what runs, sweeps, then archives it and deletes nothing for good', async () => {
+    const seen: string[] = [];
+    const activities: ProjectDeletionActivities = {
+      StopProjectWorkActivity: async () => { seen.push('stop'); return []; },
+      RemoveProjectAppsActivity: async () => { seen.push('apps'); return []; },
+      RemoveProjectAppStartedActivity: async () => undefined,
+      RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 0; },
+      RemoveProjectSecretsActivity: async () => { seen.push('secrets'); return { workspace: false, readers: 0 }; },
+      SweepProjectActivity: async () => { seen.push('sweep'); return { open: [], apps: 0, deleted: 0 }; },
+      ...deletedForGood(seen),
+      ArchiveProjectActivity: async () => { seen.push('archived'); },
+    };
+    const taskQueue = uniqueName('archive-project-test');
+    const worker = await testWorker(temporal.env, { taskQueue, workflows: 'DeleteProjectWorkflow.ts', activities });
+    const clusterWorker = await testWorker(temporal.env, { taskQueue: QUEUES.cluster, activities: { AwaitProjectWorkActivity: async () => ({ restarted: [] }) } });
+    const { worker: streamWorker } = await groveTold(temporal.env);
+    await clusterWorker.runUntil(streamWorker.runUntil(worker.runUntil(async () => {
+      const workflows = temporalRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>(() => temporal.env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
+      await workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId('p2'), [{ projectId: 'p2', mode: 'archive' }], 'bo');
+      expect(await temporal.env.client.workflow.getHandle(deleteProjectWorkflowId('p2')).result()).toMatchObject({ archived: true, repositories: [], files: 0, records: {} });
+    })));
+    expect(seen).toEqual(['stop', 'apps', 'workspaces', 'secrets', 'sweep', 'archived']);
   });
 });

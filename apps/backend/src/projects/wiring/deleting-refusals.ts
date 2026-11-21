@@ -31,11 +31,11 @@ export function refuseWorkOfDeletingProjects(tenant: Router, db: Database): void
     return (await resolver.project(ownerId, found.refs ?? {}, found.scope ?? {})).project?.id;
   };
 
-  const refuse = (path: string, projectOf: ProjectOf, letThrough: string[] = []): void => {
-    tenant.use(path, projectWork(db.projects, projectOf, { letThrough }));
+  const refuse = (path: string, projectOf: ProjectOf, letThrough: string[] = [], whileArchived: string[] = []): void => {
+    tenant.use(path, projectWork(db.projects, projectOf, { letThrough, whileArchived }));
   };
 
-  refuse('/api/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })), ['DELETE /']);
+  refuse('/api/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })), ['DELETE /'], ['POST /restore', 'POST /purge']);
   refuse('/api/release-settings/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })));
   refuse('/api/trees/:id', named(async (req) => ({ refs: { treeId: param(req) } })), ['POST /run/stop', 'DELETE /workspace', 'DELETE /']);
   refuse('/api/branches/:id', named(async (req) => ({ refs: { branchId: param(req) } })), ['DELETE /']);

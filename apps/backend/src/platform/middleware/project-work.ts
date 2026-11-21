@@ -6,6 +6,7 @@ export type ProjectOf = (req: Request) => Promise<string | undefined>;
 
 export interface DeletingRequests {
   letThrough?: readonly string[] | undefined;
+  whileArchived?: readonly string[] | undefined;
   gone?: true | undefined;
 }
 
@@ -16,7 +17,10 @@ export function projectWork(projects: Pick<Database['projects'], 'deletion'>, pr
     void (async () => {
       const project = await projectOf(req);
       if (!project) return next();
-      if (!READS.has(req.method) && !how.letThrough?.includes(`${req.method} ${req.path}`) && (await projects.deletion(project))) {
+      const asked = `${req.method} ${req.path}`;
+      const mark = READS.has(req.method) ? undefined : await projects.deletion(project);
+      const allowed = mark?.phase === 'archived' ? how.whileArchived : how.letThrough;
+      if (mark && !allowed?.includes(asked)) {
         return res.status(how.gone ? 410 : 409).json({ error: new WorkStopped({ kind: 'project', id: project }).message });
       }
       return withWorkFor({ project }, () => next());

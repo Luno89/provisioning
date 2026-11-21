@@ -163,10 +163,16 @@ export interface ModelEndpointMetadata {
   lastError?: string;
 }
 
+export type ProjectDeletionMode = 'archive' | 'permanent';
+
 export interface ProjectRemoval {
   startedAt: string;
   requestedBy: string;
+  mode: ProjectDeletionMode;
+  phase: 'deleting' | 'archived';
 }
+
+export type ProjectDeletionAsked = Omit<ProjectRemoval, 'phase'>;
 
 export interface ProjectMetadata {
   id: string;

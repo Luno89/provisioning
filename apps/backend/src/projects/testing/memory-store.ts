@@ -1,6 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
-import type { PartialInfo, ProjectMetadata, ProjectRemoval } from '../../platform/index.js';
+import type { PartialInfo, ProjectDeletionAsked, ProjectMetadata, ProjectRemoval } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
 import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
@@ -87,11 +87,30 @@ export class MemoryProjectsStore implements ProjectsStore {
     this.projects.put(stored(kept ? { ...next, removal: kept } : next));
   }
 
-  async markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean> {
+  async markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean> {
     const project = this.projects.get(projectId);
     if (!project || project.removal) return false;
-    this.projects.put(stored({ ...project, removal: { ...mark } }));
+    this.projects.put(stored({ ...project, removal: { ...mark, phase: 'deleting' } }));
     return true;
+  }
+
+  async archive(projectId: string): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    if (project?.removal?.phase !== 'deleting') return false;
+    this.projects.put(stored({ ...project, removal: { ...project.removal, phase: 'archived' } }));
+    return true;
+  }
+
+  async restore(projectId: string, name: string): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    if (project?.removal?.phase !== 'archived') return false;
+    const { removal: _gone, ...open } = project;
+    this.projects.put(stored({ ...open, name }));
+    return true;
+  }
+
+  async deletedProjects(ownerId: string): Promise<ProjectMetadata[]> {
+    return this.projects.all().filter((project) => project.ownerId === ownerId && project.removal?.phase === 'archived');
   }
 
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {

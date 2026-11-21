@@ -10,7 +10,7 @@ async function setUp(how?: Parameters<typeof projectWork>[2]) {
   const db = memoryDatabase();
   await db.projects.saveProject({ id: 'open', name: 'open', appType: 'gitapp', createdAt: 't' });
   await db.projects.saveProject({ id: 'going', name: 'going', appType: 'gitapp', createdAt: 't' });
-  await db.projects.markDeleting('going', { startedAt: 't', requestedBy: 'u1' });
+  await db.projects.markDeleting('going', { startedAt: 't', requestedBy: 'u1', mode: 'permanent' });
   const ran: (string | undefined)[] = [];
   const router = Router();
   const named = projectWork(db.projects, async (req) => (req.params.id === 'none' ? undefined : String(req.params.id)), how);

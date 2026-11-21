@@ -1,7 +1,14 @@
 import { ignore } from '@koala/engine-core/failures';
 import type { Client } from '@temporalio/client';
-import { cancelIfRunning, frozenWorkersIn, projectQuery, type CancellableWorkflow, type HistoryEvent } from '../platform/index.js';
+import { withWorkFor } from '@koala/engine-core/work-for';
+import { cancelIfRunning, frozenWorkersIn, projectQuery, startedFor, type CancellableWorkflow, type HistoryEvent } from '../platform/index.js';
+import { PURGE_PROJECT_WORKFLOW, purgeStart, type ProjectsStore } from '../projects/index.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from './RemoveProjectActivities.js';
+import type { ProjectDeletionMode } from '../platform/index.js';
+
+export interface DeleteProjectArgs extends RemoveProjectArgs {
+  mode: ProjectDeletionMode;
+}
 
 export interface ProjectWork {
   open(query: string): Promise<string[]>;
@@ -10,9 +17,15 @@ export interface ProjectWork {
 
 export type ProjectRemovalSteps = Pick<ProjectRemovalActivities, 'RemoveProjectAppsActivity' | 'RemoveProjectAppStartedActivity' | 'RemoveProjectWorkspacesActivity' | 'RemoveProjectSecretsActivity' | 'RemoveProjectRepositoriesActivity' | 'RemoveProjectFilesActivity' | 'RemoveProjectRecordsActivity'>;
 
+export interface ProjectArchive {
+  archive(projectId: string): Promise<boolean>;
+  keep(projectId: string): Promise<void>;
+}
+
 export interface ProjectDeletionDeps {
   work: ProjectWork;
   removal: ProjectRemovalSteps;
+  archive: ProjectArchive;
 }
 
 export interface FrozenWorkDeps {
@@ -33,6 +46,7 @@ export interface FrozenWorkActivities {
 export interface ProjectDeletionActivities extends ProjectRemovalSteps {
   StopProjectWorkActivity(args: RemoveProjectArgs): Promise<string[]>;
   SweepProjectActivity(args: RemoveProjectArgs): Promise<SweepPass>;
+  ArchiveProjectActivity(args: RemoveProjectArgs): Promise<void>;
 }
 
 const openWork = (projectId: string): string => `${projectQuery(projectId)} AND ExecutionStatus = "Running"`;
@@ -79,6 +93,20 @@ export const temporalProjectWork = (client: () => Promise<Client>): ProjectWork 
   },
 });
 
+export const temporalProjectArchive = (client: () => Promise<Client>, projects: Pick<ProjectsStore, 'archive' | 'getProjects'>, taskQueue: string): ProjectArchive => ({
+  archive: (projectId) => projects.archive(projectId),
+  async keep(projectId) {
+    const owner = (await projects.getProjects()).find((project) => project.id === projectId)?.ownerId;
+    if (!owner) throw new Error(`the project ${projectId} has no owner to keep it for`);
+    const temporal = await client();
+    await withWorkFor({ project: projectId, removing: 'project' }, () => temporal.workflow.start(PURGE_PROJECT_WORKFLOW, {
+      ...purgeStart(projectId, taskQueue),
+      ...startedFor(owner),
+      workflowIdConflictPolicy: 'USE_EXISTING',
+    }));
+  },
+});
+
 export function createProjectDeletionActivities(deps: ProjectDeletionDeps): ProjectDeletionActivities {
   return {
     ...deps.removal,
@@ -91,6 +119,11 @@ export function createProjectDeletionActivities(deps: ProjectDeletionDeps): Proj
       const workspaces = await deps.removal.RemoveProjectWorkspacesActivity(args);
       const secrets = await deps.removal.RemoveProjectSecretsActivity(args);
       return { open, apps, deleted: workspaces + (secrets.workspace ? 1 : 0) + secrets.readers };
+    },
+
+    async ArchiveProjectActivity({ projectId }) {
+      await deps.archive.keep(projectId);
+      await deps.archive.archive(projectId);
     },
   };
 }

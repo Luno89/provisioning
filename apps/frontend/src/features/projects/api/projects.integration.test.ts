@@ -75,8 +75,8 @@ describe('a project, as the projects pages ask for it', () => {
   })
 
   it('refuses a delete whose typed name is wrong, and starts the removal when it is right', async () => {
-    await expect(deleteProject(projectId, 'Desk wrk')).rejects.toMatchObject({ response: { status: 400 } })
-    expect(await deleteProject(projectId, 'Desk work')).toEqual({ state: 'running', done: [] })
+    await expect(deleteProject(projectId, 'Desk wrk', 'permanent')).rejects.toMatchObject({ response: { status: 400 } })
+    expect(await deleteProject(projectId, 'Desk work', 'permanent')).toEqual({ state: 'running', done: [] })
     expect(side!.temporal.workflows.get(deleteProjectWorkflowId(projectId))).toMatchObject({ status: 'RUNNING', args: [{ projectId }] })
   })
 
