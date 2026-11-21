@@ -1,7 +1,6 @@
 export { DEFAULT_BENCH_SETTINGS, fingerprintOf } from './lib/bench.js';
 export type { BenchSettings } from './lib/bench.js';
 export type { CheckScript } from './lib/check-script.js';
-export { sessionCookieFrom } from './lib/check-session.js';
 export { reowned, scriptedEndpointId, scriptedModelBase, spacePersonas, spacePractices, spaceServers, spaceUser, worldServerId } from './lib/check-space.js';
 export type { PromptChange } from './lib/check-space.js';
 export { scenarioSubjects } from './lib/check-subjects.js';

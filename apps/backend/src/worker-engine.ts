@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { QUEUES, liveSince } from './platform/index.js';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
-import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
+import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, revokeRunSignal, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
 import { unindexerFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
@@ -150,7 +150,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   rootSignIn?.keepRegistering((message) => console.warn(`[sign-in] ${message}`));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
   const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });
-  const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens });
+  const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens, signalRevoked: revokeRunSignal(() => temporal.workflow) });
   const poisoning = new PoisoningWatch({
     store: db.engine,
     personText: async (ownerId, conversationId) => (conversationId
@@ -487,6 +487,9 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
         clusterById: (id) => clusterService.getByIdUnscoped(id),
       }),
+      signOutEverywhere: async (spaceId) => {
+        await runGrants.revokeGrantsOf({ personId: spaceId, because: 'signed-out-everywhere' });
+      },
       terminate: async (runId, reason) => {
         await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch((err: Error) => {
           console.warn(`[checks] the check could not kill ${runId} mid-turn, and judges the run as it ended: ${err.message}`);

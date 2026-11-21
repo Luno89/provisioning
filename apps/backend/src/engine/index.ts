@@ -68,6 +68,7 @@ export type { EngineStore } from './store.js';
 export { ENGINE_TOOL_SEEDS, seedEngineTools } from './wiring/engine-tool-seeds.js';
 export type { EngineToolStore, SeedToolOptions } from './wiring/engine-tool-seeds.js';
 export { buildWebTools } from './wiring/web-tools.js';
+export { revokeRunSignal } from './wiring/run-revocation.js';
 export type { WebToolsPlace } from './wiring/web-tools.js';
 export type { SignalView, SignalKind, SignalSeverity, PoisoningSignal, RunReads } from './lib/poisoning.js';
 export { PoisoningService } from './services/PoisoningService.js';

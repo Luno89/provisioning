@@ -14,7 +14,7 @@ import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import {
-  type BenchSettings, sessionCookieFrom, reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser,
+  type BenchSettings, reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser,
   worldServerId, type PromptChange, STEP_NODE, stepProcedure, stepProcedureId, TURN_CALL_KIND, TURN_PROCEDURE_ID,
   turnProcedure, type TurnReply,
 } from '../checks/index.js';
@@ -104,6 +104,7 @@ export interface CheckRunDeps {
   says?: ((args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, means: string, answer: string, index: number) => Promise<boolean>) | undefined;
   scripted: { base: string; dataKey: SecretKey };
   terminate: (runId: string, reason: string) => Promise<void>;
+  signOutEverywhere: (spaceId: string) => Promise<void>;
   ownClusterId: () => string | undefined;
   releases?: CheckReleases | undefined;
   leftovers: { records(ownerId: string): Promise<Record<string, number>>; workspaces(ownerId: string): Promise<string[]>; giteaUser(ownerId: string): Promise<boolean> };
@@ -477,11 +478,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const said = events.filter((event) => event.type === 'content' && event.runId === runId).reduce((total, event) => total + (event.delta ?? '').length, 0);
           if (revokeAfterChars !== undefined && !revoked && said > revokeAfterChars) {
             revoked = true;
-            const signedOut = await http.post('/auth/sessions/end-others', {}, { validateStatus: () => true });
-            if (signedOut.status >= 300) throw new Error(`signing the space out everywhere was refused: ${(signedOut.data as { error?: string }).error ?? signedOut.status}`);
-            const carriedOn = sessionCookieFrom(signedOut.headers['set-cookie']);
-            if (!carriedOn) throw new Error('signing the space out everywhere set no new session for the check to carry on with');
-            http.defaults.headers.Cookie = carriedOn;
+            await deps.signOutEverywhere(space.id).catch((err: unknown) => {
+              throw new Error(`signing the space out everywhere failed: ${err instanceof Error ? err.message : String(err)}`);
+            });
           }
           if (killAfterChars !== undefined && said > killAfterChars) {
             await deps.terminate(runId, 'the check killed this run mid-turn, as a dying worker would');

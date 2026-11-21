@@ -30,16 +30,19 @@ beforeEach(async () => {
   db = await fresh();
 });
 
-const activities = () => createCheckRunActivities({
+const quietDeps = () => ({
   ownClusterId: () => 'machine-koala',
   store: db,
-  api: () => { throw new Error('not used here'); },
+  api: (): never => { throw new Error('not used here'); },
   seedFiles: async () => undefined,
   reported: async () => false,
   scripted: { base: 'http://localhost:3001/api/checks/scripted', dataKey: 'test-key' as never },
   terminate: async () => undefined,
+  signOutEverywhere: async () => { throw new Error('not used here'); },
   leftovers: { records: async () => ({}), workspaces: async () => [], giteaUser: async () => false },
 });
+
+const activities = () => createCheckRunActivities(quietDeps());
 
 describe('reading what a run did from its turn log', () => {
   const events = [
@@ -209,14 +212,8 @@ describe('a check that releases its project', () => {
   const run = async (scenario: Scenario, made: ReturnType<typeof releasingApi>) => {
     await db.accounts.saveUser({ id: 'space-1', email: 'space-1@checks.internal' } as never);
     return createCheckRunActivities({
-      ownClusterId: () => 'machine-koala',
-      store: db,
+      ...quietDeps(),
       api: () => made.http as never,
-      seedFiles: async () => undefined,
-      reported: async () => false,
-      scripted: { base: 'http://localhost:3001/api/checks/scripted', dataKey: 'test-key' as never },
-      terminate: async () => undefined,
-      leftovers: { records: async () => ({}), workspaces: async () => [], giteaUser: async () => false },
       releases: made.releasesDep,
       pollMs: 1,
       releaseIdleMs: 20,
