@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, type OpenRoute } from '../../platform/index.js';
 import { KOALA_INSTALL_FOLLOW_BEAT_MS, KOALA_INSTALL_FOLLOW_ROUTE, KOALA_INSTALL_FOLLOW_STOPPED, KOALA_INSTALL_ROUTE, koalaInstallEnded } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { InstallFollower, KoalaInstalls } from '../services/KoalaInstalls.js';
@@ -28,6 +28,8 @@ export interface AgentBundle {
   path(): Promise<string>;
   sha256(): Promise<string>;
 }
+
+export const MACHINES_OPEN: readonly OpenRoute[] = ['/metrics', /^\/git\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/,'/join-progress', KOALA_INSTALL_ROUTE, KOALA_INSTALL_FOLLOW_ROUTE, '/join', '/agent.tgz', '/agent.tgz.sha256'];
 
 export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' | 'reportJoinProgress'> | undefined; installs?: Pick<KoalaInstalls, 'report' | 'follow'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined; followBeatMs?: number | undefined }): Router {
   const router = Router();

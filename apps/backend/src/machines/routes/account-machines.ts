@@ -1,10 +1,12 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, type OpenRoute } from '../../platform/index.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 
 export interface MachineCaller {
   ownerId: string;
 }
+
+export const ACCOUNT_MACHINES_OPEN: readonly OpenRoute[] = ['/', '/join-code', '/adopt', '/:id'];
 
 export function accountMachinesRouter(deps: {
   accounts: Pick<MachineAccounts, 'list' | 'createJoinCode' | 'remove' | 'adoptFrom'>;

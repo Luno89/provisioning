@@ -8,7 +8,7 @@ export { minioSettingsFrom } from './lib/minio-settings.js';
 export { STORED_FILES_SWEEP_ID } from './lib/stored-files-work.js';
 export type { StoredFilesActivities } from './lib/stored-files-work.js';
 export type { StoryDrop } from './lib/story-drops.js';
-export { FILE_TYPE_HEADER } from './routes/files.js';
+export { FILE_TYPE_HEADER, SHARE_OPEN } from './routes/files.js';
 export type { ArtifactService } from './services/ArtifactService.js';
 export type { AttachableFile, FileService, FilesOutcome } from './services/FileService.js';
 export { minioReachFrom } from './services/MinioArtifactStore.js';

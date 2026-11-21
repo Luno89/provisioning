@@ -23,6 +23,10 @@ import type { PlanProposal } from '../projects/lib/plan-proposals.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import type { RunTicket } from './temporal/contracts.js';
 import { seededAgents } from '../extensions/seeds.js';
+import { grantHeld, grantsHeldInMemory } from '../engine/testing/run-grants.js';
+import { READY_IMAGES, TEST_MODELS } from './testing/host-fixtures.js';
+
+const GRANTS = grantsHeldInMemory();
 
 const planner = seededAgents().find((agent) => agent.slug === 'planner')!;
 
@@ -123,37 +127,30 @@ function engine() {
   const environments = createEnvironmentResolver({
     registry,
     environments: createRunEnvironments({ provision: async () => { throw new Error('the planner needs no sandbox'); } }),
-    images: {
-      ensure: async (plan) => plan.base,
-      exists: async () => true,
-      start: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-      standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-    },
+    images: READY_IMAGES,
     tools: async () => [],
   });
 
   const services: HostNodeServices = {
+    grants: GRANTS,
     conversations: inMemoryConversations(),
     registry,
     environments,
-    models: {
-      resolveBaseUrl: async () => ({
-        provider: { id: 'bucket-1', name: 'Test', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as never,
-        baseUrl: 'https://models.test/v1',
-        apiKey: 'k',
-      }),
-    },
-    tools: createToolRuntime({ registry, handlers }),
+    models: TEST_MODELS,
+    tools: createToolRuntime({ registry, handlers, grants: GRANTS }),
     memories: { list: async () => [], save: async () => undefined },
   };
 
   return { services, registry };
 }
 
+const GRANT_ID = await grantHeld(GRANTS, { runId: 'run-grove-1' });
+
 const ticket: RunTicket = {
   runId: 'run-grove-1',
   depth: 0,
   ownerId: 'user-1',
+  grantId: GRANT_ID,
   agentSlug: 'planner',
   trigger: 'user',
 };
@@ -192,7 +189,7 @@ describe('the seeded planner, end to end against real stores', () => {
         loopVersion: PLANNING_V2.version,
         trigger: 'user',
       },
-      launch: { ownerId: ticket.ownerId, conversationId: 'conv-1' },
+      launch: { ownerId: ticket.ownerId, grantId: GRANT_ID, conversationId: 'conv-1' },
       inputs: { treeId: 'tree-1', goal: 'Ship the job queue under the deployment lane.' },
     });
     expect(result.outcome).toBe('ok');

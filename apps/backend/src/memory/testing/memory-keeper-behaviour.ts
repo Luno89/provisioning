@@ -72,7 +72,7 @@ export function memoryKeeperBehaviour(database: () => Promise<Database>): void {
     it('remembers a conversation once its countdown runs out, and later only what was said after', async () => {
       await say('We use Cloudflare for DNS.');
       expect((await keeper().handle(quiet)).started).toEqual(['memory-conversation-c1-1']);
-      expect(started[0]).toMatchObject({ ownerId: 'u1', agentSlug: 'memory-keeper' });
+      expect(started[0]).toMatchObject({ startedBy: 'person', ownerId: 'u1', agentSlug: 'memory-keeper' });
       expect((await keeper().handle(quiet)).started).toEqual([]);
 
       await say('Trials last 7 days.');

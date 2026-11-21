@@ -166,7 +166,8 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const host = createEngineHost({
     poisoning,
     runGrants: {
-      callProblem: (grantId, tool, projectId) => runGrants.callProblem(grantId, tool, projectId),
+      check: (grantId, tool, projectId) => runGrants.check(grantId, tool, projectId),
+      grant: (id) => runGrants.grant(id),
       keepHandover: (ownerId, runId, handover) => runGrants.keepHandover(ownerId, runId, handover),
     },
     files: {
@@ -325,8 +326,9 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
   };
   let workflowStarter: WorkflowStarter | undefined;
+  const principalOfOwner = async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole));
   const runStarter = createRunStarter({
-    principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
+    principal: principalOfOwner,
     grants: runGrants,
     registry,
     workflows: () => workflowStarter,
@@ -364,6 +366,9 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const hostNodes = hostNodesFor(createHostNodes(host.services), ['activity', 'sandbox']);
 
   const engine = createEngineActivities({
+    grants: runGrants,
+    grantFor: async (ownerId, runId) => (await runGrants.issueOnce({ ownerId, runId, principal: await principalOfOwner(ownerId), startedBy: 'person' })).id,
+    neverStarted: (runId) => runGrants.neverStarted(runId),
     registry,
     endpoints,
     environments,

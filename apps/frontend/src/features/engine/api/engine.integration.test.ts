@@ -17,6 +17,7 @@ import type { Conversation } from '../../../../../backend/src/engine/lib/convers
 import type { Wire } from '../../../test/backend/wire'
 import { RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, workflowOfRun } from '../../../../../backend/src/engine-host/temporal/contracts'
 import { anyOf, containing, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
+import { runsActingAsTheirOwner } from '../../../../../backend/src/engine/testing/run-grants'
 
 interface Started { workflowType: string; workflowId: string; taskQueue: string; args: unknown[]; owner: string; memo: Record<string, unknown> }
 
@@ -44,6 +45,7 @@ const backend = await startBackend(({ api, db, ...site }) => {
     signal: async () => undefined,
   }
   const runs = createRunStarter({
+    ...runsActingAsTheirOwner(),
     registry,
     turns,
     workflows: () => (engine.reachable ? workflows : undefined),

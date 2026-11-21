@@ -487,7 +487,8 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const workspace = sandbox && carriesWork(sandbox) ? sandbox : undefined;
       const onMachine = given?.kind === 'machine' ? undefined : machineOfRun(run, persona);
       const environment = given?.kind === 'machine' ? given : onMachine ? machineEnvironment(onMachine) : undefined;
-      if (workspace) tools.push(RUN_IN_WORKSPACE_TOOL);
+      const runsCommands = workspace && (persona?.tools ?? []).includes('run_command') ? workspace : undefined;
+      if (runsCommands) tools.push(RUN_IN_WORKSPACE_TOOL);
       const written = typeof inputs.brief === 'string' ? inputs.brief.trim() : '';
       const opening = written ? undefined : openingOf(inputs.conversation);
       const brief = written || opening || '';
@@ -503,17 +504,16 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
 
       const key = machineSessionKey({ deviceId: environment.deviceId, agent, ...(model ? { model } : {}) });
       const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<ServedCallAnswer> => {
-        if (asked.name === RUN_IN_WORKSPACE && workspace && persona) {
+        if (asked.name === RUN_IN_WORKSPACE && runsCommands && persona) {
           const command: ToolCallRequest = { id: asked.callId, name: 'run_command', arguments: asked.arguments };
-          if (callNeedsAsking('run_command', { ask: 'on-a-machine', offered: [RUN_COMMAND_SHAPE], environment: workspace, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true })) {
+          if (callNeedsAsking('run_command', { ask: 'on-a-machine', offered: [RUN_COMMAND_SHAPE], environment: runsCommands, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true })) {
             run.emit({ type: 'tool.called', nodeId: node.id, callId: command.id, name: command.name, args: command.arguments } as never);
-            if (!(await ports.approve({ nodeId: node.id, call: command, environment: workspace, run }))) {
+            if (!(await ports.approve({ nodeId: node.id, call: command, environment: runsCommands, run }))) {
               run.emit({ type: 'tool.result', nodeId: node.id, callId: command.id, ok: false, digest: REFUSED_CALL } as never);
               return { ok: false, content: REFUSED_CALL };
             }
           }
-          const runsCommands = { ...persona, tools: [...new Set([...(persona.tools ?? []), 'run_command'])] };
-          const { outcome } = await runOne(request, command, runsCommands, workspace);
+          const { outcome } = await runOne(request, command, persona, runsCommands);
           return answerOf(outcome);
         }
         const call: ToolCallRequest = { id: asked.callId, name: asked.name, arguments: asked.arguments };

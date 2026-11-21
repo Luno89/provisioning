@@ -16,6 +16,7 @@ import { GITHUB_ISSUER, providerCallbackUrl, signInProvidersFrom, type SignInPro
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { signJWT } from '../../platform/lib/auth.js';
 import { startStandInIssuer, type StandInIssuer } from '../testing/stand-in-issuer.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const fresh = await emptiedEachTime();
 
@@ -73,15 +74,15 @@ async function standInGithub(): Promise<StandInGithub> {
   return github;
 }
 
-async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[]) {
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, role: 'root', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[], returnUrl?: string) {
+  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
   const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: SESSION_KEY, appUrl: APP_URL,
-    providers: new SignInProviders({ providers, publicUrl: url, sessionKey: SESSION_KEY, accounts: authService }),
+    providers: new SignInProviders({ providers, publicUrl: url, returnUrl, sessionKey: SESSION_KEY, accounts: authService }),
     passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
   }));
   server.on('request', app);
@@ -301,17 +302,7 @@ describe('a dev box whose providers return to localhost while its sign-in lives 
     returnUrl = place.url.replace('127.0.0.1', 'localhost');
     issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(returnUrl, 'oidc')] });
     const providers = signInProvidersFrom({ OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in' }).providers;
-    const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: place.url, role: 'root', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
-    const authService = new AuthService(db);
-    const app = express();
-    app.use(express.json());
-    app.use('/api', auth.requireAuth);
-    app.use('/api/auth', authRouter({
-      db, authService, auth, sessionKey: SESSION_KEY, appUrl: APP_URL,
-      providers: new SignInProviders({ providers, publicUrl: place.url, returnUrl, sessionKey: SESSION_KEY, accounts: authService }),
-      passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
-    }));
-    place.server.on('request', app);
+    await serve(db, place, providers, returnUrl);
   });
 
   afterEach(async () => {

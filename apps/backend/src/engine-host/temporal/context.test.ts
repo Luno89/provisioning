@@ -21,11 +21,17 @@ const CATALOGUE: ToolContract[] = [
 import type { MachineBackend } from '../drivers/machine.js';
 import type { RunTicket } from './contracts.js';
 import { inMemoryConversations } from '../nodes/conversation-nodes.js';
+import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
+import { READY_IMAGES } from '../testing/host-fixtures.js';
+
+const GRANTS = grantsHeldInMemory();
+const GRANT_ID = await grantHeld(GRANTS);
 
 const ticket = (agentSlug: string, over: Partial<RunTicket> = {}): RunTicket => ({
   runId: 'run-1',
   depth: 0,
   ownerId: 'user-1',
+  grantId: GRANT_ID,
   agentSlug,
   trigger: 'user',
   ...over,
@@ -96,13 +102,14 @@ function engine(options: {
   const environments = createEnvironmentResolver({
     registry,
     environments: createRunEnvironments({ provision: async (request) => sandboxDriverFor(request) }),
-    images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
+    images: READY_IMAGES,
     tools: async () => [],
     ...(options.workspaces ? { workspaces: options.workspaces } : {}),
     ...(options.withMachine ? { machineBackend: machineBackend() } : {}),
   });
 
   const services: HostNodeServices = {
+    grants: GRANTS,
     conversations: inMemoryConversations(),
     registry,
     environments,
@@ -163,7 +170,7 @@ async function callWith(
       loopVersion: TURN_PROCEDURE.version,
       trigger: 'user',
     },
-    launch: { ownerId: run.ownerId },
+    launch: { ownerId: run.ownerId, grantId: GRANT_ID },
     inputs: { message: 'get on with it' },
   });
 

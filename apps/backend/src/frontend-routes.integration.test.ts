@@ -13,7 +13,7 @@ import { httpChannels } from '../../../tests/coupling/http-routes.js';
 import { devSplitPlan, generateIdentityKey, hashCredential, publicKeyPem } from './instances/index.js';
 import { identityKeysFrom } from './instances/lib/identity-token.js';
 import { testDataDir } from './platform/testing/data-dir.js';
-import { publicPathsOf } from './platform/middleware/auth.js';
+import { openRoutesOf } from './open-routes.js';
 
 const BACKEND = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FRONTEND = join(BACKEND, '../frontend/src');
@@ -70,15 +70,12 @@ describe('every call the frontend makes is one some backend serves', () => {
     expect(unread.map((call) => `${call.file}:${call.line} ${call.text}`)).toEqual([]);
   });
 
-  it('lets through without sign-in only paths some route of that role serves, so a removed route leaves no open door behind', () => {
-    const SERVED_BY_A_PATTERN: Record<string, string> = { 'instance /machines/git/': 'the machine\'s git server, routed by a pattern the route listing shows only as that pattern' };
-    const unserved = Object.entries(byRole).flatMap(([role, routes]) => {
-      const { paths, prefixes } = publicPathsOf(role as 'root' | 'instance');
-      const servedPath = (path: string) => routes.some((route) => route.path === `/api${path}`);
-      const servedPrefix = (prefix: string) => routes.some((route) => route.path.startsWith(`/api${prefix}`));
-      return [...paths.filter((path) => !servedPath(path)), ...prefixes.filter((prefix) => !servedPrefix(prefix))].map((open) => `${role} ${open}`);
-    });
-    expect(unserved.filter((open) => !(open in SERVED_BY_A_PATTERN))).toEqual([]);
+  it('lets through without sign-in only routes some route of that role serves, so a removed route leaves no open door behind', () => {
+    const unserved = Object.entries(byRole).flatMap(([role, routes]) => openRoutesOf(role as 'root' | 'instance')
+      .flatMap(({ mount, routes: open }) => open.map((route) => `/api${mount === '/' ? '' : mount}${String(route)}`.replace(/\/+$/, '') || '/'))
+      .filter((open) => !routes.some((route) => route.path === open))
+      .map((open) => `${role} ${open}`));
+    expect(unserved).toEqual([]);
   });
 
   it('mounts exactly the routes the coupling graph reads from the code without running it', () => {

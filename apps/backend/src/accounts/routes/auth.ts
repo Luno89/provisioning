@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { signJWT, verifyJWT, hashPassword, type Auth,
   asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
-  type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata, } from '../../platform/index.js';
+  type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata, type OpenRoute, } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
@@ -31,6 +31,8 @@ export interface AuthRouterDeps {
   providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'> | undefined;
   passwords: Pick<PasswordService, 'newPasswordProblem'>;
 }
+
+export const AUTH_OPEN: readonly OpenRoute[] = ['/login', '/register', '/register/verify', '/register/resend', '/2fa/verify', '/sign-in', '/provider/:id', '/provider/:id/callback'];
 
 export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();

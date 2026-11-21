@@ -79,8 +79,12 @@ export const revoked = (grant: RunGrant, because: RevokedBecause, now: Date): Ru
 export const ended = (grant: RunGrant, now: Date): RunGrant =>
   (grant.state === 'live' ? { ...grant, state: 'ended', endedAt: now.toISOString() } : grant);
 
+export type GrantCheck = { problem: string } | { principal: Principal };
+
+export const noGrantProblem = (tool: string): string => `This run holds no grant, so it may not use ${tool}.`;
+
 export function runGrantProblem(grant: Pick<RunGrant, 'state' | 'revokedBecause'> | undefined, tool: string): string | undefined {
-  if (!grant) return tool === HANDOVER_TOOL ? `${HANDOVER_TOOL} is only for a run whose access was revoked` : undefined;
+  if (!grant) return noGrantProblem(tool);
   if (grant.state === 'revoked') {
     if (tool === HANDOVER_TOOL) return undefined;
     const why = grant.revokedBecause ? REVOKED_SAID[grant.revokedBecause] : 'it was taken away';

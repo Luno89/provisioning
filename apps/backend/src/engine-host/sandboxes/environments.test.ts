@@ -10,11 +10,11 @@ import { createRunEnvironments, environmentIdFor, type ProvisionForRun } from '.
 import { createSandboxDriver } from '../drivers/sandbox.js';
 import { denyAll } from '@koala/agent-engine';
 import type { MachineBackend } from '../drivers/machine.js';
-import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
+import type { EnvironmentHandleRef, RunPlace } from '../temporal/contracts.js';
 import { seededAgents } from '../../extensions/seeds.js';
 import { createMachineWorkspaces } from './machine-workspaces.js';
 
-const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
+const ticket = (agentSlug: string, runId = 'run-1'): RunPlace => ({
   runId,
   depth: 0,
   ownerId: 'user-1',
@@ -69,7 +69,7 @@ const scratchAgent = () => ({
 
 const handleFor = async (
   resolver: ReturnType<typeof createEnvironmentResolver>,
-  run: RunTicket,
+  run: RunPlace,
 ): Promise<EnvironmentHandleRef | undefined> => {
   const described = await resolver.describe(run);
 
@@ -367,7 +367,7 @@ describe('using a run environment', () => {
 });
 
 describe('a sandbox shared by several agents', () => {
-  const treeTicket = (): RunTicket => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
+  const treeTicket = (): RunPlace => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
 
   it('is built to carry every tool the agents working in it hold, and keeps its work on a volume', async () => {
     const { resolver } = setup();
@@ -418,7 +418,7 @@ describe('what a tree adds to its shared workspace', () => {
 });
 
 describe('a tree\'s published workspace', () => {
-  const treeTicket = (): RunTicket => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
+  const treeTicket = (): RunPlace => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
   const file = JSON.stringify({ packages: { dnf: ['wkhtmltopdf'] }, env: [{ name: 'SHOP', value: 'demo' }] });
 
   function store(initial?: PublishedWorkspace) {

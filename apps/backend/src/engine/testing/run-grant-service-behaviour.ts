@@ -12,36 +12,52 @@ export function runGrantServiceBehaviour(database: () => Promise<Pick<Database, 
     const signalRevoked = vi.fn(async () => undefined);
     let next = 0;
     const grants = new RunGrantService({ store: db.engine, signalRevoked, now: () => now, newId: () => `grant-${++next}` });
-    return { db, grants, signalRevoked };
+    return { db, grants, signalRevoked, problem: problemOf(grants) };
   }
+
+  const problemOf = (grants: RunGrantService) => async (id: string, tool: string, projectId: string | undefined): Promise<string | undefined> => {
+    const checked = await grants.check(id, tool, projectId);
+    return 'problem' in checked ? checked.problem : undefined;
+  };
 
   describe('the run grants a person\'s runs work with', () => {
     it('issues a grant the run works with until the run ends, then refuses any further call', async () => {
-      const { grants } = await service();
+      const { grants, problem } = await service();
       const grant = await grants.issue({ ownerId: 'owner', runId: 'run-1', principal: asPerson('owner'), startedBy: 'person', projectId: 'p1' });
-      expect(await grants.callProblem(grant.id, 'read_file', 'p1')).toBeUndefined();
-      expect(await grants.callProblem(grant.id, 'read_file', 'p2')).toBe('This run works on its own project, so it may not use read_file on another one.');
+      expect(await grants.check(grant.id, 'read_file', 'p1')).toEqual({ principal: asPerson('owner') });
+      expect(await problem(grant.id, 'read_file', 'p1')).toBeUndefined();
+      expect(await problem(grant.id, 'read_file', 'p2')).toBe('This run works on its own project, so it may not use read_file on another one.');
 
       const { ending } = await grants.runEnded({ ownerId: 'owner', runId: 'run-1', agentSlug: 'koala', depth: 0, outcome: 'ok' });
       expect(ending.ended).toEqual({ how: 'finished', at: now.toISOString() });
-      expect(await grants.callProblem(grant.id, 'read_file', 'p1')).toBe('This run has ended, so it may not use read_file.');
-      expect(await grants.callProblem('grant-unknown', 'read_file', undefined)).toMatch(/is not known here/);
+      expect(await problem(grant.id, 'read_file', 'p1')).toBe('This run has ended, so it may not use read_file.');
+      expect(await problem('grant-unknown', 'read_file', undefined)).toMatch(/is not known here/);
     });
 
     it('revokes what a person started when they sign out everywhere, tells each run, and leaves platform work running', async () => {
-      const { grants, signalRevoked } = await service();
+      const { grants, signalRevoked, problem } = await service();
       const theirs = await grants.issue({ ownerId: 'owner', runId: 'run-chat', principal: asPerson('owner'), startedBy: 'person' });
       const platform = await grants.issue({ ownerId: 'owner', runId: 'run-release', principal: asPerson('owner'), startedBy: 'platform' });
 
       const revoked = await grants.revokeGrantsOf({ personId: 'owner', because: 'signed-out-everywhere' });
       expect(revoked.map((grant) => grant.runId)).toEqual(['run-chat']);
       expect(signalRevoked).toHaveBeenCalledWith('run-chat', { because: 'signed-out-everywhere', at: now.toISOString() });
-      expect(await grants.callProblem(theirs.id, 'run_command', undefined)).toMatch(/access was revoked because they signed out everywhere/);
-      expect(await grants.callProblem(theirs.id, HANDOVER_TOOL, undefined)).toBeUndefined();
-      expect(await grants.callProblem(platform.id, 'run_command', undefined)).toBeUndefined();
+      expect(await problem(theirs.id, 'run_command', undefined)).toMatch(/access was revoked because they signed out everywhere/);
+      expect(await problem(theirs.id, HANDOVER_TOOL, undefined)).toBeUndefined();
+      expect(await problem(platform.id, 'run_command', undefined)).toBeUndefined();
 
       const { ending } = await grants.runEnded({ ownerId: 'owner', runId: 'run-chat', agentSlug: 'koala', depth: 0, outcome: 'interrupted', reason: 'the run was cancelled', revokedBecause: 'signed-out-everywhere', handover: { note: 'Half done.' } });
       expect(ending).toMatchObject({ ended: { how: 'revoked', revokedBecause: 'signed-out-everywhere' }, handover: { note: 'Half done.' } });
+    });
+
+    it('hands back the live grant a run already holds when its start is retried, and ends the grant of a run that never started', async () => {
+      const { grants, problem } = await service();
+      const first = await grants.issueOnce({ ownerId: 'owner', runId: 'run-grow', principal: asPerson('owner'), startedBy: 'person' });
+      const again = await grants.issueOnce({ ownerId: 'owner', runId: 'run-grow', principal: asPerson('owner'), startedBy: 'person' });
+      expect(again.id).toBe(first.id);
+
+      await grants.neverStarted('run-grow');
+      expect(await problem(first.id, 'read_file', undefined)).toBe('This run has ended, so it may not use read_file.');
     });
 
     it('ends every run of an account being removed', async () => {

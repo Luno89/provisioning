@@ -21,6 +21,7 @@ import { loadBreachedPasswords } from '../../../../backend/src/accounts/services
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
 import { getMe, login, verifySignUp, type SessionUser } from '../../features/platform'
+import { openRoutesOf } from '../../../../backend/src/open-routes'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
 export const SETUP_CODE = 'frontend-integration-setup-code'
@@ -80,8 +81,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   const sessionEnds = new SessionEnds(db.platform)
   const revocations = new AccessRevocations()
   const auth = asInstance
-    ? createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'instance', instanceOwnerId: INSTANCE_OWNER, clientSessions: throughRoot.sessions, sessionEnds })
-    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', setupCode: SETUP_CODE, sessionEnds })
+    ? createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: INSTANCE_OWNER, clientSessions: throughRoot.sessions, sessionEnds })
+    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds })
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })

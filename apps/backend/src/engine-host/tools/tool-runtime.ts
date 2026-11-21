@@ -1,13 +1,12 @@
 import { executeTool, refuse, toolArgumentsOf, type EnvironmentDriver, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
-import type { EnvironmentHandleRef, RunTicket, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
+import type { EnvironmentHandleRef, RunPlace, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
 import { accessOf, accessProblem, projectRefsIn, sourceOf, type ProjectResolution } from '../../engine/lib/tool-access.js';
 import type { PoisoningWatch } from './poisoning-watch.js';
-import type { ProjectResolver } from '../../engine/index.js';
-import { asPerson } from '../../platform/lib/permissions.js';
+import { HANDOVER_TOOL, noGrantProblem, type GrantCheck, type ProjectResolver } from '../../engine/index.js';
 import { withoutHidden } from '../../engine/lib/hidden-text.js';
 
 export type { ToolHandler } from '@koala/engine-core';
@@ -15,7 +14,7 @@ export type { ToolRuntime } from '../temporal/contracts.js';
 
 export interface EnvironmentSource {
   forRun(request: {
-    ticket: RunTicket;
+    ticket: RunPlace;
     environment?: EnvironmentHandleRef | undefined;
   }): Promise<EnvironmentDriver | undefined>;
 }
@@ -27,7 +26,7 @@ export interface ToolRuntimeOptions {
   digestChars?: number | undefined;
   serverTools?: ServerTools | undefined;
   resources?: ProjectResolver | undefined;
-  grants?: { callProblem(grantId: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined> } | undefined;
+  grants: { check(grantId: string, tool: string, projectId: string | undefined): Promise<GrantCheck> };
   watch?: Pick<PoisoningWatch, 'beforeCall' | 'afterCall'> | undefined;
 }
 
@@ -80,10 +79,10 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
           ? await options.resources.project(args.ticket.ownerId, refs, scope)
           : {}
         : {};
-      const problem = accessProblem(args.name, access, args.ticket.principal ?? asPerson(args.ticket.ownerId), args.ticket.ownerId, parsed, resolved);
+      const checked: GrantCheck = args.ticket.grantId ? await options.grants.check(args.ticket.grantId, args.name, resolved.project?.id) : { problem: noGrantProblem(args.name) };
+      if ('problem' in checked) return placed(refuse(checked.problem), args);
+      const problem = accessProblem(args.name, access, checked.principal, args.ticket.ownerId, parsed, resolved);
       if (problem) return placed(refuse(problem), args);
-      const granted = await options.grants?.callProblem(args.ticket.grantId, args.name, resolved.project?.id);
-      if (granted) return placed(refuse(granted), args);
       if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
         return placed(refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`), args);
       }
@@ -91,7 +90,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       const outcome = await executeTool({
         name: args.name,
         arguments: args.arguments,
-        granted: [...(args.granted ?? agent.tools), ...(served?.tools.map((tool) => tool.name) ?? [])],
+        granted: [...(args.granted ?? agent.tools).filter((tool) => agent.tools.includes(tool) || tool === HANDOVER_TOOL), ...(served?.tools.map((tool) => tool.name) ?? [])],
         catalogue,
         ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {

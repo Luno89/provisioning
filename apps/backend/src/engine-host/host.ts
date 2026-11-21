@@ -158,12 +158,13 @@ export interface EngineHostOptions {
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
   documents?: DocumentRepos | undefined;
   repoFor?: WorkspaceRepoResolver | undefined;
-  runGrants?: RunGrantChecks | undefined;
+  runGrants: RunGrantChecks;
   poisoning?: Pick<import('./tools/poisoning-watch.js').PoisoningWatch, 'beforeCall' | 'afterCall'> | undefined;
 }
 
 export interface RunGrantChecks {
-  callProblem(grantId: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined>;
+  check(grantId: string, tool: string, projectId: string | undefined): Promise<import('../engine/index.js').GrantCheck>;
+  grant(id: string): Promise<{ principal: import('../platform/index.js').Principal } | undefined>;
   keepHandover(ownerId: string, runId: string, handover: import('../engine/index.js').Handover): Promise<void>;
 }
 
@@ -459,7 +460,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         servers: (mcpServers ? await mcpServers.list(ownerId) : []).map((server) => ({ name: server.name, tools: (server.captured?.tools ?? []).map((tool) => tool.name) })),
       }),
       ...(options.checks ? { checks: options.checks } : {}),
-      ...(options.runGrants ? { handover: { keep: options.runGrants.keepHandover } } : {}),
+      handover: { keep: options.runGrants.keepHandover },
       ...(stores.proposals ? {
         scenarios: {
           known: async (ownerId: string) => ({
@@ -513,7 +514,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tasks: (ownerId) => stores.tasks.list(ownerId),
     conversation: (ownerId, id) => stores.conversations.get(ownerId, id),
   });
-  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}), ...(options.runGrants ? { grants: options.runGrants } : {}), ...(options.poisoning ? { watch: options.poisoning } : {}) });
+  const tools = createToolRuntime({ registry, grants: options.runGrants, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}), ...(options.poisoning ? { watch: options.poisoning } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })
@@ -523,6 +524,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     registry,
     models: options.models,
     tools,
+    grants: options.runGrants,
     environments,
     ...(efforts ? { efforts } : {}),
     images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },

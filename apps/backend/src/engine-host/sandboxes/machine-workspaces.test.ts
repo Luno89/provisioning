@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createMachineWorkspaces } from './machine-workspaces.js';
-import type { RunTicket } from '../temporal/contracts.js';
+import type { RunPlace } from '../temporal/contracts.js';
 
-const ticket = (modelId: string | undefined, ownerId = 'bo'): RunTicket => ({ runId: 'r1', depth: 0, ownerId, agentSlug: 'koala', trigger: 'user', ...(modelId ? { modelId } : {}) });
+const ticket = (modelId: string | undefined, ownerId = 'bo'): RunPlace => ({ runId: 'r1', depth: 0, ownerId, agentSlug: 'koala', trigger: 'user', ...(modelId ? { modelId } : {}) });
 const machines = createMachineWorkspaces({ list: async () => [{ id: 'd1', ownerId: 'bo', name: 'desk' }] });
 
 describe('the machine a run was given', () => {

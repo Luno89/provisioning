@@ -59,6 +59,7 @@ import { seedAll } from './scripts/seed-all.js';
 import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
 import { holdFences } from './platform/wiring/fences.js';
 import { stopBackend } from './platform/wiring/shutdown.js';
+import { openRoutesOf } from './open-routes.js';
 
 const startsHere = process.env.NODE_ENV !== 'test';
 if (startsHere) dotenv.config({ quiet: true });
@@ -280,7 +281,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 

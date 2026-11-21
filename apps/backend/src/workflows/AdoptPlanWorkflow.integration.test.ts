@@ -27,6 +27,7 @@ import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { testWorker } from './testing/test-worker.js';
 import type { TestTemporal } from '@koala/engine-core/testing/temporal';
+import { READY_IMAGES } from '../engine-host/testing/host-fixtures.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -125,12 +126,7 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
         });
       },
     }),
-    images: {
-      ensure: async (plan) => plan.base,
-      exists: async () => true,
-      start: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-      standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-    },
+    images: READY_IMAGES,
     tools: async () => [],
   });
   const brought: { from: string; into: string; workspace: string; planWritten: boolean }[] = [];
@@ -220,8 +216,9 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
   const activities = createEngineActivities({ planAdoption } as never);
 
   const told: string[] = [];
+  const neverStarted: string[] = [];
   const refusing = { telling: 0 };
-  return { needsAsked, told, refusing, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
+  return { neverStarted, needsAsked, told, refusing, chosen, stopped, proposals, trees, branches, leaves, tasks, files, commands, provisioned, kubeCalls, activities, brought, bound, markRepoExists: (...present: string[]) => { repoExists = true; repoFiles.push(...present); } };
 }
 
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never, workSeen?: [string, unknown][]): Promise<AdoptPlanResult> {
@@ -238,10 +235,11 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
       PlanAdoptDocumentsActivity: seeing('documents', w.activities.PlanAdoptDocumentsActivity),
       PlanAdoptSettleActivity: seeing('settle', w.activities.PlanAdoptSettleActivity),
       GroveRunInputActivity: async ({ treeId, ownerId }: { treeId: string; ownerId: string }) => (workSeen?.push(['grow', workFor()]), growing ? growing() : {
-        ticket: { runId: `grove-run-${treeId}`, depth: 0, ownerId, agentSlug: 'grove', trigger: 'user' as const },
+        ticket: { runId: `grove-run-${treeId}`, depth: 0, ownerId, grantId: `grant-${treeId}`, agentSlug: 'grove', trigger: 'user' as const },
         procedure: seededProcedures().find((procedure) => procedure.id === 'grove-run')!,
         inputs: { treeId, message: 'Grow the tree.' },
       }),
+      GroveRunNeverStartedActivity: async ({ runId }: { runId: string }) => { w.neverStarted.push(runId); },
     },
   });
   const streamWorker = await testWorker(env, {
@@ -419,6 +417,7 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.branches.size).toBe(1);
     expect(w.leaves.size).toBe(2);
     expect(w.tasks.size).toBe(2);
+    expect(w.neverStarted, 'the second adoption found the tree already growing, so the grant its run was issued is ended').toEqual(['grove-run-plan-p1-tree']);
   });
 
   it('binds the conversation a new tree was planned in to that tree and its project, so asking there later is about it', async () => {

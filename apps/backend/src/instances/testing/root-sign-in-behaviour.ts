@@ -16,6 +16,7 @@ import { InstanceService, hashCredential } from '../services/InstanceService.js'
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { IdentityService } from '../services/IdentityService.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 export const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 export const having = (fields: Record<string, unknown>): unknown => expect.objectContaining(fields);
@@ -97,7 +98,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
     provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: options.reach() }, rootDb);
     rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
-    const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', sessionEnds: new SessionEnds(rootDb.platform) });
+    const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) });
     root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
     root.app.put('/api/instances/sign-in-key', express.json(), asyncRoute(async (req, res) => {
       const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), ((req.body ?? {}) as { jwk?: unknown }).jwk);
@@ -120,7 +121,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
       announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': 'inst-u1', authorization: 'Bearer the-instance-credential' } },
     }, instanceDb, revocations, () => Date.now() + offset);
     await signIn.load();
-    instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', instanceOwnerId: 'u1', clientSessions: signIn, sessionEnds: new SessionEnds(instanceDb.platform) });
+    instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: 'u1', clientSessions: signIn, sessionEnds: new SessionEnds(instanceDb.platform) });
     const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: 'inst-u1', ownerId: 'u1', rootUrl: root.url } }, instanceDb);
     instance.app.use('/api/auth', signInRouter({ signIn, identity, auth: instanceAuth, publicUrl: instance.url, landing: '/chat' }));
     instance.app.use('/api', instanceAuth.requireAuth);

@@ -7,11 +7,14 @@ import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
 import type { RunTicket } from './contracts.js';
+import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const ticket = (over: Partial<RunTicket> = {}): RunTicket => ({
   runId: 'run-1',
   depth: 0,
   ownerId: 'user-1',
+  grantId: 'grant-1',
   agentSlug: 'koala',
   trigger: 'user',
   ...over,
@@ -48,6 +51,7 @@ function services(over: Partial<EngineServices> = {}): { services: EngineService
       },
       tools: { run: vi.fn(async () => ({ ok: true, digest: 'tool digest', content: 'tool content' })) },
       merges: { run: vi.fn(async () => ({ merged: 2 })) },
+      grants: grantsHeldInMemory(),
       bus,
       ...over,
     },
@@ -248,7 +252,7 @@ describe('running a node as an activity', () => {
         execution: 1,
         run: {
           identity: { runId: 'run-1', depth: 0, agentId: 'koala', loopId: 'x', loopVersion: '1', trigger: 'user' },
-          launch: { ownerId: 'user-1' },
+          launch: { ownerId: 'user-1', grantId: 'grant-1' },
           inputs: {},
           counters: { rounds: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, toolCalls: 0, childRuns: 0, startedAt: 0, elapsedMs: 0 },
           budget: {},
@@ -296,9 +300,27 @@ describe('settling the tasks a run claimed', () => {
 });
 
 
+describe('a run handing work to another agent', () => {
+  const persona = (slug: string, agents: string[] = []) => ({ slug, name: slug, description: slug, version: '1', prompt: 'p', procedure: 'tool-rounds', guidance: '', returns: '', failures: [], tools: [], environment: {}, agents });
+
+  it('resolves the agent only when the run handing it work holds that hand-off and its grant is live', async () => {
+    const grants = grantsHeldInMemory();
+    const from = ticket({ agentSlug: 'asker', grantId: await grantHeld(grants) });
+    const registry = createAgentRegistry({ agentStore: { list: async () => [persona('asker', ['helper']), persona('helper'), persona('other')] }, toolCatalogue: { list: async () => [] } });
+    const activities = createEngineActivities(services({ registry, grants }).services);
+    expect(await activities.EngineResolveAgentActivity({ ownerId: 'user-1', agentSlug: 'helper', handedBy: from })).toMatchObject({ found: true });
+    expect(await activities.EngineResolveAgentActivity({ ownerId: 'user-1', agentSlug: 'other', handedBy: from }))
+      .toEqual({ found: false, refused: 'asker is not allowed to hand work to "other" — grant it the agent first', callableAgents: [] });
+  });
+});
+
 describe('the run a tree is grown by', () => {
   const tree = { id: 'tree-1', ownerId: 'user-1', name: 'Paper', type: 'research-paper', projectIds: [], createdAt: 'then', updatedAt: 'then' };
-  const grove = (types: { id: string; label: string; summary: string; agent?: string; ownerId?: string }[]) => services({
+  const grants = grantsHeldInMemory();
+  const grantFor = async (ownerId: string, runId: string) => (await grants.issueOnce({ ownerId, runId, principal: asPerson(ownerId), startedBy: 'person' })).id;
+  const neverStarted = (runId: string) => grants.neverStarted(runId);
+  const grove = (types: { id: string; label: string; summary: string; agent?: string; ownerId?: string }[], over: Partial<EngineServices> = { grantFor, neverStarted }) => services({
+    ...over,
     grove: {
       trees: { list: async () => [tree] as never },
       branches: { list: async () => [] },
@@ -316,6 +338,22 @@ describe('the run a tree is grown by', () => {
     expect(input.ticket).toMatchObject({ runId: matching(/^grove-run-tree-1~[0-9a-z]+$/), agentSlug: 'grove-paper', ownerId: 'user-1' });
     expect(input.procedure.id).toBe('grove-paper-run');
     expect(input.inputs).toMatchObject({ treeId: 'tree-1' });
+    expect(await grants.grant(input.ticket.grantId)).toMatchObject({ runId: input.ticket.runId, personId: 'user-1', startedBy: 'person', state: 'live' });
+  });
+
+  it('starts the same run with the same grant when the start is tried again, and ends that grant when the run never started', async () => {
+    const activities = createEngineActivities(grove([{ id: 'research-paper', label: 'Paper', summary: 's' }]));
+    const first = await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1', at: 1_700_000_000_000 });
+    const again = await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1', at: 1_700_000_000_000 });
+    expect(again.ticket).toMatchObject({ runId: first.ticket.runId, grantId: first.ticket.grantId });
+
+    await activities.GroveRunNeverStartedActivity({ runId: first.ticket.runId });
+    expect(await grants.grant(first.ticket.grantId)).toMatchObject({ state: 'ended' });
+  });
+
+  it('refuses, without retrying, to grow a tree where no run grant can be issued', async () => {
+    const ungranted = createEngineActivities(grove([{ id: 'research-paper', label: 'Paper', summary: 's' }], {}));
+    await expect(ungranted.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' })).rejects.toThrow(/issues no run grants, so it cannot grow a tree/);
   });
 
   it('starts the grove agent when the type names none', async () => {

@@ -7,7 +7,7 @@ describe('starting and answering a project\'s release run', () => {
     const started: StartRunRequest[] = [];
     const runs = engineReleaseRuns({ runs: { start: async (request) => { started.push(request); return { runId: request.runId!, agentSlug: request.agentSlug, loopId: 'slots' }; } }, client: () => undefined });
     await runs.start({ projectId: 'p1', ownerId: 'bo', agent: 'release', inputs: { projectId: 'p1' } as never });
-    expect(started[0]).toMatchObject({ ownerId: 'bo', agentSlug: 'release', bound: { projectId: 'p1' }, inputs: { projectId: 'p1' } });
+    expect(started[0]).toMatchObject({ startedBy: 'person', ownerId: 'bo', agentSlug: 'release', bound: { projectId: 'p1' }, inputs: { projectId: 'p1' } });
     expect(started[0]!.runId).toMatch(/^release-p1~[0-9a-z]+$/);
   });
 

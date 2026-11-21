@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { EngineStore, RunEnding } from '../store.js';
 import {
   ended, endedOf, newRunGrant, outsideScopeProblem, revoked, revokes, runGrantProblem,
-  type GrantRequest, type Handover, type Revocation, type RevokedBecause, type RunGrant,
+  type GrantCheck, type GrantRequest, type Handover, type Revocation, type RevokedBecause, type RunGrant,
 } from '../lib/run-grants.js';
 
 export type RunGrantStore = Pick<EngineStore, 'saveRunGrant' | 'getRunGrant' | 'deleteRunGrant' |'getRunGrantOfRun' | 'getLiveRunGrants' | 'saveRunEnded' | 'saveRunHandover' | 'getRunEndings'>;
@@ -41,6 +41,19 @@ export class RunGrantService {
     return grant;
   }
 
+  async issueOnce(request: GrantRequest): Promise<RunGrant> {
+    const held = await this.deps.store.getRunGrantOfRun(request.runId);
+    return held?.state === 'live' ? held : this.issue(request);
+  }
+
+  async neverStarted(runId: string): Promise<void> {
+    const held = await this.deps.store.getRunGrantOfRun(runId);
+    if (held?.state !== 'live') return;
+    const gone = ended(held, this.now());
+    await this.deps.store.saveRunGrant(gone);
+    this.settled.set(gone.id, gone);
+  }
+
   async withdraw(id: string): Promise<void> {
     await this.deps.store.deleteRunGrant(id);
     this.settled.delete(id);
@@ -54,10 +67,11 @@ export class RunGrantService {
     return grant;
   }
 
-  async callProblem(id: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined> {
-    const grant = id ? await this.grant(id) : undefined;
-    if (id && !grant) return `This run's grant ${id} is not known here, so it may not use ${tool}.`;
-    return runGrantProblem(grant, tool) ?? outsideScopeProblem(grant, projectId, tool);
+  async check(id: string, tool: string, projectId: string | undefined): Promise<GrantCheck> {
+    const grant = await this.grant(id);
+    if (!grant) return { problem: `This run's grant ${id} is not known here, so it may not use ${tool}.` };
+    const problem = runGrantProblem(grant, tool) ?? outsideScopeProblem(grant, projectId, tool);
+    return problem ? { problem } : { principal: grant.principal };
   }
 
   async revokeGrantsOf(revocation: Revocation): Promise<RunGrant[]> {

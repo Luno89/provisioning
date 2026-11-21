@@ -4,7 +4,7 @@ import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
 import type { AdoptedPlan } from '../projects/index.js';
-import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
+import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type GroveRunArgs, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -12,9 +12,12 @@ import { nameProject } from './telemetry-interceptors.js';
 
 const ADOPTION_NAMES_PROJECT = 'adoption-names-project';
 
-const { PlanAdoptProjectActivity, PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
+const GROVE_START_ENDS_ITS_GRANT = 'grove-start-ends-its-grant';
+
+const { PlanAdoptProjectActivity, PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity, GroveRunNeverStartedActivity } = proxyActivities<{
   PlanAdoptProjectActivity(args: AdoptPlanArgs): Promise<string | null>;
-  GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
+  GroveRunInputActivity(args: GroveRunArgs): Promise<ProcedureRunInput>;
+  GroveRunNeverStartedActivity(args: { runId: string }): Promise<void>;
   PlanAdoptStopActivity(args: AdoptPlanArgs): Promise<string[]>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
@@ -65,8 +68,9 @@ async function growTree(treeId: string, ownerId: string): Promise<{ started: tru
 }
 
 async function runTree(treeId: string, ownerId: string): Promise<void> {
+  const keyed = patched(GROVE_START_ENDS_ITS_GRANT);
+  const input = await GroveRunInputActivity({ treeId, ownerId, ...(keyed ? { at: Date.now() } : {}) });
   try {
-    const input = await GroveRunInputActivity({ treeId, ownerId });
     await startChild(AgentRunWorkflow, {
       workflowId: groveRunWorkflowId(treeId),
       args: [input],
@@ -75,6 +79,7 @@ async function runTree(treeId: string, ownerId: string): Promise<void> {
       parentClosePolicy: ParentClosePolicy.ABANDON,
     });
   } catch (err) {
+    if (keyed) await GroveRunNeverStartedActivity({ runId: input.ticket.runId });
     if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
   }
 }

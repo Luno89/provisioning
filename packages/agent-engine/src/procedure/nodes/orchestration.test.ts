@@ -588,7 +588,7 @@ describe('an agent on a machine working on a workspace', () => {
     expect(await invoke(nodes, whereItRuns, { run: { launch: { ownerId: 'owner-1', modelId: 'tabby' } } })).toMatchObject({ exit: 'model' });
   });
 
-  it('hands the run\'s machine the workspace, serves run_in_workspace in place of the environment\'s tools, and runs it as a command in the workspace', async () => {
+  const askingForAWorkspaceCommand = async (tools: string[]) => {
     let served: { name: string }[] = [];
     let ran: { ok: boolean; content: string } | undefined;
     const runExternal = vi.fn(async (request: { tools?: { name: string }[]; callTool?: (call: { callId: string; name: string; arguments: string }) => Promise<{ ok: boolean; content: string }> }) => {
@@ -599,11 +599,23 @@ describe('an agent on a machine working on a workspace', () => {
     const p = ports({ runExternal } as never);
     const outcome = await invoke(createOrchestrationNodes(p), externalAgent, {
       inputs: {
-        brief: 'Build the label.', environment: workspace, persona: persona({ tools: ['read_file'] }),
+        brief: 'Build the label.', environment: workspace, persona: persona({ tools }),
         tools: [{ name: 'read_file', description: 'reads', binding: 'environment' }, { name: 'search_memories', description: 'searches', binding: 'none' }],
       },
       run: onMachine,
     });
+    return { outcome, served, ran, p, runExternal };
+  };
+
+  it('offers run_in_workspace only to an agent that holds run_command, and refuses it to one that does not', async () => {
+    const { served, ran, p } = await askingForAWorkspaceCommand(['read_file']);
+    expect(served.map((tool) => tool.name)).toEqual(['search_memories']);
+    expect(ran).toEqual({ ok: false, content: `${RUN_IN_WORKSPACE} is not one of the tools offered here` });
+    expect(requestsTo(p.runTool)).toEqual([]);
+  });
+
+  it('hands the run\'s machine the workspace, serves run_in_workspace in place of the environment\'s tools, and runs it as a command in the workspace', async () => {
+    const { outcome, served, ran, p, runExternal } = await askingForAWorkspaceCommand(['read_file', 'run_command']);
 
     expect(outcome.exit).toBe('finished');
     expect(requestsTo(runExternal)[0]).toMatchObject({ agent: 'antigravity', model: 'pro', workspace, environment: { kind: 'machine', deviceId: 'laptop' } });

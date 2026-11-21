@@ -96,7 +96,7 @@ export class McpServerService {
     const at = this.now();
     const runId = captureRunId(server.id, runsFingerprint(server.runs), at.getTime());
     try {
-      await this.deps.runs.start({ ownerId: server.ownerId, agentSlug: MCP_CAPTURE_AGENT, message: `Capture ${server.name}.`, inputs: { serverId: server.id }, runId });
+      await this.deps.runs.start({ startedBy: 'person', ownerId: server.ownerId, agentSlug: MCP_CAPTURE_AGENT, message: `Capture ${server.name}.`, inputs: { serverId: server.id }, runId });
     } catch (err) {
       const failed: McpServerRecord = { ...server, failed: { at: at.toISOString(), why: `the capture could not start: ${(err as Error).message}`, fingerprint: runsFingerprint(server.runs) }, updatedAt: at.toISOString() };
       await this.deps.store.save(failed);

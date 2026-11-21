@@ -8,6 +8,10 @@ import { createToolRuntime } from './tool-runtime.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
+import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
+const GRANT_ID = await grantHeld(GRANTS, { ownerId: 'u1', runId: 'r' });
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://x/mcp' };
 const GITEA: McpServerRecord = {
@@ -44,12 +48,13 @@ const persona = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
 });
 
 const runtime = (agent: AgentDefinition, w: ReturnType<typeof world>) => createToolRuntime({
+  grants: GRANTS,
   registry: createAgentRegistry({ agentStore: { list: async () => [agent] }, toolCatalogue: { list: async () => [] } }),
   serverTools: w.serverTools,
 });
 
 const call = (name: string, conversationId?: string, attempt = 1, agent = persona()) => (tools: ReturnType<typeof runtime>) =>
-  tools.run({ ticket: { runId: 'r', depth: 0, ownerId: 'u1', agentSlug: agent.slug, trigger: 'user', ...(conversationId ? { conversationId } : {}) }, nodeId: 'n', name, arguments: '{}' }, attempt);
+  tools.run({ ticket: { runId: 'r', depth: 0, ownerId: 'u1', grantId: GRANT_ID, agentSlug: agent.slug, trigger: 'user', ...(conversationId ? { conversationId } : {}) }, nodeId: 'n', name, arguments: '{}' }, attempt);
 
 describe('MCP tools for a run', () => {
   it('runs nothing when no server is held or switched on', async () => {

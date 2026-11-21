@@ -25,6 +25,10 @@ import { createProcedureExecutor, withTemperature, type HostNodeServices } from 
 import { inMemoryConversations } from './conversation-nodes.js';
 import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
 import { seededAgents } from '../../extensions/seeds.js';
+import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
+const GRANT_ID = await grantHeld(GRANTS);
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -152,6 +156,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
   const saved: MemoryItem[] = [];
 
   const services: HostNodeServices = {
+    grants: GRANTS,
     conversations: inMemoryConversations(),
     registry,
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
@@ -192,7 +197,7 @@ function runV2(
     groups: BUILT_IN_GROUPS,
     executor: createProcedureExecutor(services, { registry: services.registry as never }),
     identity: identity(slug),
-    launch: { ownerId: 'user-1', ...(over.launch ?? {}) },
+    launch: { ownerId: 'user-1', grantId: GRANT_ID, ...(over.launch ?? {}) },
     inputs: { message: over.message ?? 'get on with it', ...(over.inputs ?? {}) },
     ...(over.bus ? { bus: over.bus } : {}),
     ...(over.traces ? { onTrace: (trace) => over.traces!.push(trace) } : {}),
@@ -706,7 +711,7 @@ describe('doing one task', () => {
     groups: BUILT_IN_GROUPS,
     executor: createProcedureExecutor(services, { registry: services.registry as never }),
     identity: { ...identity('executor'), loopId: 'do-one-task' },
-    launch: { ownerId: 'user-1' },
+    launch: { ownerId: 'user-1', grantId: GRANT_ID },
     inputs: { item: task, message: JSON.stringify({ item: task }) },
   });
 

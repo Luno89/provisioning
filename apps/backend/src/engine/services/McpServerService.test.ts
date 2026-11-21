@@ -47,7 +47,7 @@ describe('the MCP server catalogue', () => {
     const { service, records, started } = world();
     const added = await service.add('u1', { template: 'playwright' });
     expect(added).toMatchObject({ ok: true, server: { name: 'playwright', from: { template: 'playwright' }, omit: ['browser_take_screenshot', 'browser_run_code_unsafe'], status: { state: 'capturing' } } });
-    expect(started).toEqual([objectWith({ agentSlug: 'mcp-capture', inputs: { serverId: 's1' }, runId: matching(/^mcp-capture-s1-/) })]);
+    expect(started).toEqual([objectWith({ startedBy: 'person', agentSlug: 'mcp-capture', inputs: { serverId: 's1' }, runId: matching(/^mcp-capture-s1-/) })]);
     expect(records.get('s1')!.capturing!.runId).toBe(started[0]!.runId);
     expect((await service.add('u1', { template: 'playwright' }))).toMatchObject({ ok: true, server: { name: 'playwright-2' } });
     expect((await service.catalogue('u1')).templates).toEqual([objectWith({ id: 'playwright', added: true })]);

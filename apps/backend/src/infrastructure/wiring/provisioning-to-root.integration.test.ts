@@ -35,6 +35,9 @@ import { CLUSTER_TOOL_PATHS } from '../services/ClusterAccess.js';
 import { Provisioning } from '../services/Provisioning.js';
 import { testWorker } from '../../workflows/testing/test-worker.js';
 import type { TestTemporal } from '@koala/engine-core/testing/temporal';
+import { grantsHeldInMemory, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
 
 const WORLD = `provision-to-root-${randomUUID().slice(0, 8)}`;
 const ENGINE_QUEUE = `${WORLD}-engine`;
@@ -62,7 +65,7 @@ function engineActivities(instance: Database) {
       EngineAutoModeActivity: async () => false,
       EngineRecordTracesActivity: async () => undefined,
       EngineNodeActivity: createNodeRunner(createHostOpNodes({ operations } as never), undefined),
-      EngineResolveAgentActivity: createEngineActivities({ registry, machineProblem: async () => undefined } as never).EngineResolveAgentActivity,
+      EngineResolveAgentActivity: createEngineActivities({ registry, grants: GRANTS, machineProblem: async () => undefined } as never).EngineResolveAgentActivity,
     },
     stream: {
       EngineStreamNodeActivity: createNodeRunner([], undefined),
@@ -157,7 +160,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     const provisioning = new Provisioning({
       store: instanceDb.infrastructure,
       runs: engineProvisionRuns({
-        runs: createRunStarter({ registry, workflows: () => temporalWorkflowStarter(env.client.workflow), taskQueue: ENGINE_QUEUE }),
+        runs: createRunStarter({ ...runsActingAsTheirOwner(GRANTS), registry, workflows: () => temporalWorkflowStarter(env.client.workflow), taskQueue: ENGINE_QUEUE }),
         client: () => env.client.workflow,
         agent: PROVISION_AGENT,
       }),

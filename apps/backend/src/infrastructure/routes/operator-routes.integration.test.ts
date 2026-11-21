@@ -11,8 +11,9 @@ import { VpsCatalogService } from '../services/VpsCatalogService.js';
 import WorkerService from '../services/WorkerService.js';
 import { vpsCatalogRouter } from './vps-catalog.js';
 import { workerRouter } from './worker.js';
+import { openRoutesOf } from '../../open-routes.js';
 
-const operatorOnly = (db: Database) => createAuth({ db, sessionKey: 'operator-routes-key', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: new SessionEnds(db.platform) }).requireOperator('administer');
+const operatorOnly = (db: Database) => createAuth({ db, sessionKey: 'operator-routes-key', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) }).requireOperator('administer');
 
 let vultrFetches = 0;
 interceptHttp(

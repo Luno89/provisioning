@@ -8,7 +8,7 @@ import { capabilitiesOf } from '@koala/engine-core';
 import { handleFor, ticketFor, type HostNodeServices } from './services.js';
 import { notesForRun, withLearned } from '../../engine/lib/tool-notes.js';
 import { accessOf, offerable, WITHHELD_WHY } from '../../engine/lib/tool-access.js';
-import { asPerson, type Principal } from '../../platform/lib/permissions.js';
+import { ApplicationFailure } from '@temporalio/common';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
@@ -19,7 +19,7 @@ const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | '
   return 'granted';
 };
 
-export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'serverTools'> & Partial<Pick<HostNodeServices, 'memories'>>): NodeImplementation[] {
+export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'serverTools' | 'grants'> & Partial<Pick<HostNodeServices, 'memories'>>): NodeImplementation[] {
   return [
     valueImplementation('resolve-tools', async ({ node, inputs, run }) => {
       const persona = inputs.persona as AgentDefinition;
@@ -44,7 +44,10 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 's
       const model = (inputs.binding as { model?: unknown } | undefined)?.model;
       const notes = services.memories ? notesForRun(await services.memories.list(run.launch.ownerId), typeof model === 'string' && model ? model : undefined) : undefined;
       const delegates = new Set(((inputs.delegates as AgentDefinition[] | undefined) ?? []).map((agent) => agent.slug));
-      const principal = (run.launch.principal as Principal | undefined) ?? asPerson(run.launch.ownerId);
+      const { grantId } = ticketFor(run);
+      const grant = await services.grants.grant(grantId);
+      if (!grant) throw ApplicationFailure.nonRetryable(`run ${run.identity.runId} holds grant ${grantId}, which is not known here, so it is offered no tools`, 'RunGrantUnknown');
+      const { principal } = grant;
       const offered = (tool: { name: string; effect?: string | undefined }) =>
         delegates.has(tool.name) || offerable(accessOf(tool.name, tool, isMcpToolName(tool.name)), principal, run.launch.ownerId, run.launch.projectId);
       const all = [...resolved.tools, ...chosen];

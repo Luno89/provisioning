@@ -35,11 +35,11 @@ describe('a run grant', () => {
 });
 
 describe('what a grant allows at each call', () => {
-  it('allows every tool while live but the handover note, which only a revoked run may leave', () => {
+  it('allows every tool while live but the handover note, which only a revoked run may leave, and nothing to a run that holds no grant', () => {
     expect(runGrantProblem(owner, 'read_file')).toBeUndefined();
     expect(runGrantProblem(owner, HANDOVER_TOOL)).toMatch(/only for a run whose access was revoked/);
-    expect(runGrantProblem(undefined, 'read_file')).toBeUndefined();
-    expect(runGrantProblem(undefined, HANDOVER_TOOL)).toMatch(/only for a run whose access was revoked/);
+    expect(runGrantProblem(undefined, 'read_file')).toBe('This run holds no grant, so it may not use read_file.');
+    expect(runGrantProblem(undefined, HANDOVER_TOOL)).toBe(`This run holds no grant, so it may not use ${HANDOVER_TOOL}.`);
   });
 
   it('refuses everything but the handover note once revoked, saying why, and everything once ended', () => {

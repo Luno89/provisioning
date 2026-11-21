@@ -19,6 +19,7 @@ import { userRoom } from '../../../../../backend/src/engine-host/temporal/stream
 import { PROVISION_AGENT } from '../../../../../backend/src/extensions/provision/names'
 import { pieceHeard, pieceProgress, recordedOn, setUpProgress, type PieceChange, type ProvisioningRecord } from '../../../../../backend/src/infrastructure/lib/provisioning'
 import { PROVISION_PIECES, PROVISIONING_CHANGED, type ProvisionPieceKey } from '@koala/engine-core/koala-install'
+import { runsActingAsTheirOwner } from '../../../../../backend/src/engine/testing/run-grants'
 
 let site: Site | undefined
 let sockets: PageSockets | undefined
@@ -42,7 +43,7 @@ const openCard = () => {
 
 const provisioning = new Provisioning({
   store: db.infrastructure,
-  runs: engineProvisionRuns({ runs: createRunStarter({ registry: createAgentRegistry(), workflows: () => temporal.starter }), client: () => temporal.client.workflow, agent: PROVISION_AGENT }),
+  runs: engineProvisionRuns({ runs: createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => temporal.starter }), client: () => temporal.client.workflow, agent: PROVISION_AGENT }),
   root: { setup: async () => ({ ok: true }) },
   koala: { ownerId: person.id, clusterId: 'desk', revision: 3 },
   changed: (ownerId, view) => { site!.io.to(userRoom(ownerId)).emit(PROVISIONING_CHANGED, view) },

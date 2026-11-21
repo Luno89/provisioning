@@ -68,6 +68,10 @@ import {
   type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
 import { testWorker } from './testing/test-worker.js';
+import { grantHeld, grantsHeldInMemory } from '../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
+const GRANT_ID = await grantHeld(GRANTS);
 
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
 
@@ -128,6 +132,7 @@ function activities(options: {
   };
 
   const hostNodes = hostNodesFor(createHostNodes({
+    grants: GRANTS,
     conversations,
     registry,
     models,
@@ -188,7 +193,7 @@ function activities(options: {
       EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
       EngineAutoModeActivity: vi.fn(async (_args: { ownerId: string; agentSlug: string; conversationId?: string; workspaceRunId?: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
-      EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry, machineProblem: theOwnersMachines } as never).EngineResolveAgentActivity),
+      EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry, grants: GRANTS, machineProblem: theOwnersMachines } as never).EngineResolveAgentActivity),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
       EngineMachineNameActivity: vi.fn(createEngineActivities({ machineName: async (_ownerId: string, deviceId: string) => (deviceId === 'desk' ? 'Desk' : undefined) } as never).EngineMachineNameActivity),
@@ -213,6 +218,7 @@ const ticket = (agentSlug: string): RunTicket => ({
   runId: `run-${Math.random().toString(36).slice(2, 8)}`,
   depth: 0,
   ownerId: 'user-1',
+  grantId: GRANT_ID,
   agentSlug,
   trigger: 'user',
 });
@@ -849,7 +855,9 @@ describe('AgentRunWorkflow', () => {
       expect(recorded?.cwd.startsWith(`${resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo')}@`)).toBe(true);
       expect(existsSync(recorded!.cwd)).toBe(false);
       expect(recorded?.prompt).toContain('is a checkout of this conversation\'s documents, from its workspace in Koala');
-      expect(recorded?.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['search_web', 'run_in_workspace']));
+      const served = recorded?.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name);
+      expect(served).toEqual(expect.arrayContaining(['search_web']));
+      expect(served, 'research holds no run_command, so it is offered no run_in_workspace').not.toContain('run_in_workspace');
       const search = toolCalls.find((call) => call.name === 'search_web');
       expect(search?.environment).toMatchObject({ workspace: { runId: 'conversation-c1', sharedBy: 'conversation', repository: 'this conversation\'s documents' } });
       expect(search?.ticket).toMatchObject({ agentSlug: 'research', inPlace: true, conversationId: 'c1' });
@@ -1000,6 +1008,12 @@ describe('AgentRunWorkflow', () => {
     expect(childCall?.environment?.id).toBe('engine-parent');
 
     expect(environments.release.mock.calls.map(([runId]) => runId)).toEqual([args.ticket.runId]);
+  });
+
+  it('refuses a hand-off the agent does not hold, across the child workflow, and says what to grant', async () => {
+    const result = await runWorkflow(input('research', delegating('executor')), activities({ script: [{ content: 'unused' }] }));
+
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'executor did not finish: research is not allowed to hand work to "executor" — grant it the agent first' });
   });
 
   it('fails a delegation readably when the persona does not exist', async () => {
@@ -2113,6 +2127,7 @@ describe('an external agent working on someone\'s machine', () => {
       const acts = activities({ script: [{ content: 'because it was' }] });
       acts.engine.EngineResolveAgentActivity = vi.fn(createEngineActivities({
         registry: createAgentRegistry(),
+        grants: GRANTS,
         machineProblem: theOwnersMachines,
         treeModel: async (_owner: string, turnId: string, slug: string) => (turnId === runId && slug === 'research' ? tree : undefined),
       } as never).EngineResolveAgentActivity);

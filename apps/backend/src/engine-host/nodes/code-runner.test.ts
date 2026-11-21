@@ -4,7 +4,7 @@ import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createCodeRunner, readOutputs, wrapBody } from './code-runner.js';
 import type { RunTicket } from '../temporal/contracts.js';
 
-const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'koala', trigger: 'user' };
+const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'user-1', grantId: 'grant-1', agentSlug: 'koala', trigger: 'user' };
 
 function sandbox(over: { exec?: () => Promise<ExecResult>; wrote?: Record<string, string> } = {}) {
   const files: Record<string, string> = {};

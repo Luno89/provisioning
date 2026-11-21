@@ -10,6 +10,7 @@ import { sessionToken } from '../lib/auth.js';
 import { SessionEnds } from '../services/SessionEnds.js';
 import { SessionSockets } from '../services/SessionSockets.js';
 import { AccessRevocations } from '../services/AccessRevocations.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const KEY = 'socket-session-key';
 const closing: Array<() => Promise<void>> = [];
@@ -26,7 +27,7 @@ async function serve(failing = false) {
   const revocations = new AccessRevocations();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
-  const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds });
+  const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds });
   const auth = failing ? { ...real, sessionFromCookie: async () => { throw new Error('the database did not answer'); } } : real;
   const server = http.createServer();
   const io = new SocketServer(server);

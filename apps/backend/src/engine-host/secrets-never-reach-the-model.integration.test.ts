@@ -18,6 +18,10 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import { SecretRequestService, createSecretVault } from '../projects/services/SecretRequestService.js';
 import type { Tree } from '../projects/lib/trees.js';
 import { seededAgents } from '../extensions/seeds.js';
+import { grantHeld, grantsHeldInMemory } from '../engine/testing/run-grants.js';
+import { READY_IMAGES, TEST_MODELS } from './testing/host-fixtures.js';
+
+const GRANTS = grantsHeldInMemory();
 
 const TYPED = 'sk_live_TYPED_SENTINEL_4b1f9c';
 const MINTED = 'gitea_MINTED_SENTINEL_77ad02';
@@ -86,26 +90,16 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
     const environments = createEnvironmentResolver({
       registry,
       environments: createRunEnvironments({ provision: async () => { throw new Error('koala needs no sandbox'); } }),
-      images: {
-        ensure: async (plan) => plan.base,
-        exists: async () => true,
-        start: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-        standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-      },
+      images: READY_IMAGES,
       tools: async () => [],
     });
     const services: HostNodeServices = {
+      grants: GRANTS,
       conversations,
       registry,
       environments,
-      models: {
-        resolveBaseUrl: async () => ({
-          provider: { id: 'bucket-1', name: 'Test', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as never,
-          baseUrl: 'https://models.test/v1',
-          apiKey: 'k',
-        }),
-      },
-      tools: createToolRuntime({ registry, handlers }),
+      models: TEST_MODELS,
+      tools: createToolRuntime({ registry, handlers, grants: GRANTS }),
       memories: { list: async () => [], save: async () => undefined },
     };
 
@@ -137,7 +131,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
       groups: BUILT_IN_GROUPS,
       executor: createProcedureExecutor(services, { registry }),
       identity: { runId: 'run-s4', depth: 0, agentId: 'koala', loopId: INTERACTIVE_CHAT_V4.id, loopVersion: INTERACTIVE_CHAT_V4.version, trigger: 'user' },
-      launch: { ownerId: 'user-1', conversationId: 'conv-1' },
+      launch: { ownerId: 'user-1', grantId: await grantHeld(GRANTS), conversationId: 'conv-1' },
       inputs: { message: 'Wire up Stripe for the billing service.', conversationId: 'conv-1', treeId: 'tree-1' },
       bus,
       onTrace: (trace) => { traces.push(trace); },

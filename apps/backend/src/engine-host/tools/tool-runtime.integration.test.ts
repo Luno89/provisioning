@@ -9,6 +9,8 @@ import { PoisoningWatch } from './poisoning-watch.js';
 import { createToolRuntime } from './tool-runtime.js';
 import { createEngineActivities, type EngineServices } from '../temporal/activities.js';
 import type { ToolCallArgs } from '../temporal/contracts.js';
+import { RunGrantService } from '../../engine/index.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const CATALOGUE: ToolContract[] = [{ name: 'store_file', description: 'Keep a file', binding: 'platform' }];
 
@@ -29,7 +31,10 @@ describe('a tool call whose arguments are not one JSON object, with the real poi
     const db = await testDatabase();
     const watch = new PoisoningWatch({ store: db.engine, personText: async () => '', seal: (text) => `sealed:${text.length}`, now: () => '2026-11-13T10:00:00.000Z', log: () => undefined });
     const store_file = vi.fn(async () => ({ ok: true, digest: 'kept' }));
+    const grants = new RunGrantService({ store: db.engine, newId: () => 'grant-1' });
+    await grants.issue({ ownerId: 'owner', runId: 'run-1', principal: asPerson('owner'), startedBy: 'person' });
     const tools = createToolRuntime({
+      grants,
       registry: createAgentRegistry({ agentStore: { list: async () => [KOALA] }, toolCatalogue: { list: async () => CATALOGUE } }),
       handlers: { store_file },
       watch,

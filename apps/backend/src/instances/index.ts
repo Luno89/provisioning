@@ -36,3 +36,6 @@ export { inventoryFileFor } from './services/release-files.js';
 export { RootMachines } from './services/RootMachines.js';
 export type { RootMachine } from './services/RootMachines.js';
 export type { InstancesStore } from './store.js';
+export { IDENTITY_OPEN } from './routes/identity.js';
+export { INSTANCES_OPEN } from './routes/instances.js';
+export { SIGN_IN_OPEN } from './routes/sign-in.js';

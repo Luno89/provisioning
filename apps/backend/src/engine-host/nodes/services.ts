@@ -3,15 +3,18 @@ import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { ToolContract } from '@koala/engine-core';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ModelServiceLike } from '../registries/endpoints.js';
-import type { RunEnvironment, RunTicket, ToolRuntime } from '../temporal/contracts.js';
+import type { RunEnvironment, RunPlace, ToolRuntime } from '../temporal/contracts.js';
 import type { MemoryItem } from '../drivers/memory-store.js';
+import type { Principal } from '../../platform/index.js';
+import type { HandOffChecks } from '../tools/hand-offs.js';
 
 export interface HostNodeServices {
   registry: Pick<AgentRegistry, 'agent' | 'callable' | 'tools'>;
   models: ModelServiceLike;
   tools: ToolRuntime;
+  grants: { grant(id: string): Promise<{ principal: Principal } | undefined> } & HandOffChecks['grants'];
   environments: {
-    describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
+    describe(ticket: RunPlace, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
     release(runId: string): Promise<void>;
   };
   memories: {

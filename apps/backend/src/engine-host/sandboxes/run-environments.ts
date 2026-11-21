@@ -1,12 +1,12 @@
 import type { EnvironmentDriver, EnvironmentScope, EnvironmentSpec } from '@koala/engine-core';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
-import type { RunTicket } from '../temporal/contracts.js';
+import type { RunPlace } from '../temporal/contracts.js';
 import type { RunWorkspace } from '@koala/agent-engine';
 import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export interface ProvisionForRun {
   id: string;
-  ticket: RunTicket;
+  ticket: RunPlace;
   spec: EnvironmentSpec;
   workspace?: RunWorkspace | undefined;
   scope?: EnvironmentScope | undefined;
@@ -21,7 +21,7 @@ export interface RunEnvironmentOptions {
 
 export interface RunEnvironments {
   forRun(request: {
-    ticket: RunTicket;
+    ticket: RunPlace;
     id?: string | undefined;
     spec: EnvironmentSpec;
     workspace?: RunWorkspace | undefined;

@@ -41,8 +41,9 @@ import type {
   ToolAllowedArgs, AutoModeArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { type HandoverArgs, type LifecycleEvent, type WorkflowFailedReport, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
+import { type HandoverArgs, type LifecycleEvent, type WorkflowFailedReport, type BenchIdleOutcome, type ConcludeWorkspaceArgs, type GroveRunArgs, groveRunId, runStamp } from './contracts.js';
 import { HANDOVER_TOOL, handoverPrompt, type Handover } from '../../engine/lib/run-grants.js';
+import { handOffProblem, type HandOffChecks } from '../tools/hand-offs.js';
 import { HANDOVER_TOOLS } from '../tools/handover-tools-catalogue.js';
 import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
 import type { SavedDocuments } from '../sandboxes/workspace-documents.js';
@@ -109,6 +110,7 @@ export interface TraceRecorder {
 export interface EngineServices extends StreamServices {
   tools: ToolRuntime;
   merges: MergeRuntime;
+  grants: HandOffChecks['grants'];
   environments: EnvironmentResolver;
   hostNodes?: readonly NodeImplementation[] | undefined;
   traces?: TraceRecorder | undefined;
@@ -126,6 +128,8 @@ export interface EngineServices extends StreamServices {
   conversationWorkspaces?: Pick<ConversationWorkspaces, 'conclude'> | undefined;
   conversationAgent?: ((ownerId: string, conversationId: string) => Promise<string | undefined>) | undefined;
   planAdoption?: PlanAdoption | undefined;
+  grantFor?: ((ownerId: string, runId: string) => Promise<string>) | undefined;
+  neverStarted?: ((runId: string) => Promise<void>) | undefined;
   plans?: { list(ownerId: string): Promise<import('../../projects/index.js').PlanProposal[]> } | undefined;
 }
 
@@ -227,7 +231,8 @@ export interface EngineActivities extends StreamActivities {
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
-  GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
+  GroveRunInputActivity(args: GroveRunArgs): Promise<ProcedureRunInput>;
+  GroveRunNeverStartedActivity(args: { runId: string }): Promise<void>;
   ConcludeWorkspaceActivity(args: ConcludeWorkspaceArgs): Promise<SavedDocuments>;
   PlanAdoptProjectActivity(args: AdoptPlanArgs): Promise<string | null>;
   PlanAdoptStopActivity(args: AdoptPlanArgs): Promise<string[]>;
@@ -273,6 +278,8 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         ? await services.registry.runnable(args.ownerId, args.agentSlug)
         : asked;
       if (!runnable) return { found: false, callableAgents: [] };
+      const refused = args.handedBy ? await handOffProblem({ registry: services.registry, grants: services.grants }, args.handedBy, args.agentSlug) : undefined;
+      if (refused) return { found: false, refused, callableAgents: [] };
       if (runnable.machine) {
         const problem = services.machineProblem ? await services.machineProblem(args.ownerId, runnable.machine) : 'this worker cannot reach people\'s machines';
         if (problem) throw ApplicationFailure.nonRetryable(`This run cannot go to that machine: ${problem}.`, 'MachineUnavailable');
@@ -322,11 +329,18 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       const agentSlug = groveAgentOf(type);
       const runnable = await services.registry.runnable(args.ownerId, agentSlug);
       if (!runnable) throw ApplicationFailure.nonRetryable(`there is no agent called "${agentSlug}" to grow this tree`, 'GroveAgentMissing');
+      if (!services.grantFor) throw ApplicationFailure.nonRetryable('this worker issues no run grants, so it cannot grow a tree', 'RunGrantsMissing');
+      const runId = groveRunId(args.treeId, runStamp(args.at));
       return {
-        ticket: { runId: groveRunId(args.treeId, runStamp()), depth: 0, ownerId: args.ownerId, agentSlug, trigger: 'user' },
+        ticket: { runId, depth: 0, ownerId: args.ownerId, grantId: await services.grantFor(args.ownerId, runId), agentSlug, trigger: 'user' },
         procedure: runnable.procedure,
         inputs: { treeId: args.treeId, message: 'Grow the tree.' },
       };
+    },
+
+    async GroveRunNeverStartedActivity({ runId }) {
+      if (!services.neverStarted) throw ApplicationFailure.nonRetryable('this worker issues no run grants, so it has none to end', 'RunGrantsMissing');
+      await services.neverStarted(runId);
     },
 
     async ConcludeWorkspaceActivity({ ownerId, workspace }) {

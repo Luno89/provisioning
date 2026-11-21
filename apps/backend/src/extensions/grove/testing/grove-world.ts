@@ -36,6 +36,9 @@ import type { HostOperationRun } from '../../types.js';
 import { ignore } from '@koala/engine-core/failures';
 import { testWorker } from '../../../workflows/testing/test-worker.js';
 import type { TestTemporal } from '@koala/engine-core/testing/temporal';
+import { grantHeld, grantsHeldInMemory } from '../../../engine/testing/run-grants.js';
+
+const GRANTS = grantsHeldInMemory();
 
 const WORKFLOWS = resolve(dirname(fileURLToPath(import.meta.url)), '../../../workflows');
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
@@ -360,6 +363,7 @@ export class GroveWorld {
       }),
     };
     const hostNodes = hostNodesFor(createHostNodes({
+      grants: GRANTS,
       conversations: inMemoryConversations(),
       registry,
       models,
@@ -437,7 +441,7 @@ export class GroveWorld {
     const startAgent = async () => {
       const handle = await env.client.workflow.start(AgentRunWorkflow, {
         args: [{
-          ticket: { runId, depth: 0, ownerId: 'user-1', agentSlug: agent, trigger: 'user' },
+          ticket: { runId, depth: 0, ownerId: 'user-1', grantId: await grantHeld(GRANTS, { runId }), agentSlug: agent, trigger: 'user' },
           procedure: runnable.procedure,
           inputs: { treeId: 'tree-1', message: 'Grow the tree.' },
         }],

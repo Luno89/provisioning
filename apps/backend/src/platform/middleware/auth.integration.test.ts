@@ -8,6 +8,7 @@ import { SessionEnds } from '../services/SessionEnds.js';
 const noEnds = { ended: () => false, end: async () => undefined };
 import type { Request, Response } from 'express';
 import { inviteCodeHash } from '../lib/invite-codes.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 describe('parseCookie', () => {
   it('finds a cookie among others regardless of spacing', () => {
@@ -48,7 +49,7 @@ describe('requireAuth', () => {
   async function build() {
     const db = await testDatabase();
     await db.init();
-    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: new SessionEnds(db.platform) }) };
+    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) }) };
   }
 
   it('refuses a request with no session cookie', async () => {
@@ -122,7 +123,7 @@ describe('requireAuth', () => {
     expect((await auth.userFromSessionCookie(`session=${kept}`, false))?.id).toBe('u1');
     const restarted = new SessionEnds(db.platform);
     await restarted.load();
-    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: restarted });
+    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: restarted });
     expect(await again.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
   });
 
@@ -143,7 +144,7 @@ describe('requireAuth', () => {
 
 describe('requireAdmin', () => {
   const auth = createAuth({
-    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds,
+    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds,
   });
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
@@ -170,15 +171,15 @@ describe('requireAdmin', () => {
 describe('session cookie flags', () => {
   it('marks the cookie secure only when the public origin is https', () => {
     const db = null as never;
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', role: 'root', sessionEnds: noEnds })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(true);
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(false);
   });
 
   it('is httpOnly and lax in both cases', () => {
     for (const url of ['https://app.example.com', 'http://localhost:3001']) {
-      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, role: 'root', sessionEnds: noEnds }).sessionCookieOptions;
+      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }).sessionCookieOptions;
       expect(opts.httpOnly).toBe(true);
       expect(opts.sameSite).toBe('lax');
     }
@@ -188,7 +189,7 @@ describe('session cookie flags', () => {
 describe('what is open without a session, by role', () => {
   const at = (path: string) => {
     const call = fakeCall();
-    (call.req as unknown as { path: string }).path = path;
+    Object.assign(call.req, { path, url: path, method: 'GET' });
     return call;
   };
   let opened: Promise<Database> | undefined;
@@ -199,7 +200,7 @@ describe('what is open without a session, by role', () => {
   const opens = async (role: 'root' | 'instance', path: string): Promise<boolean> => {
     const db = await database();
     const call = at(path);
-    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
+    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
   };
 
@@ -254,7 +255,7 @@ describe('what is open without a session, by role', () => {
   it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {
     const db = await testDatabase();
     await db.init();
-    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance', sessionEnds: noEnds });
+    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance', open: openRoutesOf('instance'), sessionEnds: noEnds });
     const cookies: Array<{ name: string; secure: boolean }> = [];
     const res = { cookie: (name: string, _value: string, options: { secure: boolean }) => { cookies.push({ name, secure: options.secure }); } } as unknown as Response;
 
@@ -270,7 +271,7 @@ describe('an invite to sign up', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveInvite({ id: 'i1', codeHash: inviteCodeHash('CODE'), createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
-    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: noEnds }) };
+    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }) };
   };
 
   it('made for one address signs up only that address, however it is written', async () => {
@@ -293,7 +294,7 @@ describe('a session over https cannot be planted by a site next door', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role, sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
+    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role, open: openRoutesOf(role), sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
   };
 
   it('names the cookie __Host-session over https, which a sibling subdomain cannot set, and takes no plain session there', async () => {
