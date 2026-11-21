@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, arrivedOverHttps, BrowserSessions, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
+  AccessRevocations, browserSessionsFor, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, memoryIndexReachOf, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -124,11 +124,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const instanceReach = new InstanceReach(settings.reach);
   const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
-  const browserSessions = new BrowserSessions({
-    store: db.platform,
-    secret: keys.session,
-    securedFor: signsInThroughRoot(role.role) ? (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) : () => PUBLIC_URL.startsWith('https://'),
-  });
+  const browserSessions = browserSessionsFor(role.role, PUBLIC_URL, { store: db.platform, secret: keys.session });
   const rootSignIn = signsInThroughRoot(role.role) ? rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
   const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
@@ -307,7 +303,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
+  const signedInSockets = wireSockets({ io, db, role, payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
 
   const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
   const signInReturn = settings.root ? settings.root.signInReturn : {};
@@ -500,7 +496,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     stopping = true;
     void stopBackend({
       stopping: () => { dependencies.stop(); clusterProxyService.stopAll(); },
-      drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) },
+      sockets: signedInSockets,
+      drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, log: (line) => console.log(line) },
       exit: (code) => process.exit(code),
     });
   };

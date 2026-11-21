@@ -12,7 +12,7 @@ import { AppDashboard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useCan, useShellStore, startHistorySync } from '../features/platform';
-import { reconnectSocket, useSocketEvent } from '../features/platform';
+import { onReconnected, reconnectSocket, useSocketEvent } from '../features/platform';
 import { getMe, logout, resumePathFrom, signInKeys, signInPlace } from '../features/platform';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instances';
 import { NoInstance } from '../features/instances';
@@ -63,6 +63,8 @@ export function RootLayout() {
   useEffect(() => {
     if (user) reconnectSocket();
   }, [user]);
+
+  useEffect(() => onReconnected(() => { void queryClient.invalidateQueries(); }), [queryClient]);
 
   useEffect(() => {
     let stopped = false;

@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type express from 'express';
 import session from 'express-session';
-import { cookieNamed } from '../lib/auth.js';
+import { arrivedOverHttps, cookieNamed } from '../lib/auth.js';
+import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
 import { ringOf, type SecretKey } from '../lib/crypto.js';
 import { BROWSER_SESSION_COOKIE, BROWSER_SESSION_SECONDS, type AccountSession, type BrowserPerson, type BrowserSessionsOf } from '../lib/browser-session.js';
 import type { PlatformStore } from '../store.js';
@@ -76,4 +77,11 @@ export class BrowserSessions {
   private ended(ids: readonly string[]): void {
     for (const sid of ids) for (const listener of this.listeners) listener(sid);
   }
+}
+
+export function browserSessionsFor(role: PlatformRole, publicUrl: string, deps: Omit<BrowserSessionsDeps, 'securedFor'>): BrowserSessions {
+  return new BrowserSessions({
+    ...deps,
+    securedFor: signsInThroughRoot(role) ? (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) : () => publicUrl.startsWith('https://'),
+  });
 }

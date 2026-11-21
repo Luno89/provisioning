@@ -3,7 +3,7 @@ import { inject } from 'light-my-request';
 import type { Database } from '../lib/db-interface.js';
 import { createAuth, type AuthDeps, type Auth } from '../middleware/auth.js';
 import { AccessRevocations } from '../services/AccessRevocations.js';
-import { BrowserSessions } from '../services/BrowserSessions.js';
+import { browserSessionsFor, type BrowserSessions } from '../services/BrowserSessions.js';
 
 export interface RootAuthWorld {
   auth: Auth;
@@ -14,7 +14,7 @@ export interface RootAuthWorld {
 export function rootAuthOver(db: Database, deps: Pick<AuthDeps, 'open'> & Partial<Pick<AuthDeps, 'publicUrl' | 'setupCode' | 'bearer'>> & { revocations?: AccessRevocations | undefined }): RootAuthWorld {
   const publicUrl = deps.publicUrl ?? 'http://localhost:3001';
   const revocations = deps.revocations ?? new AccessRevocations();
-  const sessions = new BrowserSessions({ store: db.platform, secret: 'root-sessions-under-test', securedFor: () => publicUrl.startsWith('https://') });
+  const sessions = browserSessionsFor('root', publicUrl, { store: db.platform, secret: 'root-sessions-under-test' });
   const auth = createAuth({ db, publicUrl, role: 'root', open: deps.open, setupCode: deps.setupCode, bearer: deps.bearer, own: { sessions, revocations } });
   return { auth, sessions, revocations };
 }

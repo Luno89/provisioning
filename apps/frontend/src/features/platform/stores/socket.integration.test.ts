@@ -34,6 +34,27 @@ async function aServer(): Promise<{ url: string; heard: Heard }> {
   return { url: `http://127.0.0.1:${(http.address() as AddressInfo).port}`, heard: { joins, joined } }
 }
 
+describe('the shared socket coming back after its backend closed it', () => {
+  it('tells the page to fetch what it shows again each time it connects again, and not at the first connection', async () => {
+    const { url } = await aServer()
+    vi.stubEnv('VITE_SOCKET_URL', url)
+    const { disconnectShared, getSocket, onReconnected, reconnectSocket } = await import('./socket')
+    let refetched = 0
+    let again!: () => void
+    const reconnected = new Promise<void>((done) => { again = done })
+    const stop = onReconnected(() => { refetched += 1; again() })
+    const firstConnection = new Promise<void>((done) => { getSocket().once('connect', () => done()) })
+    reconnectSocket()
+    await firstConnection
+    expect(refetched).toBe(0)
+    server!.disconnectSockets(true)
+    await reconnected
+    expect(refetched).toBe(1)
+    stop()
+    disconnectShared()
+  })
+})
+
 describe('following a log over the socket', () => {
   it('connects and joins the log\'s room, hears its lines, and when the connection drops joins again and tells the page to reload what it shows', async () => {
     const { url, heard } = await aServer()
