@@ -84,6 +84,15 @@ describe('the gates', () => {
     expect(existsSync(new URL('../../apps/backend/src/accounts/account-hardening.integration.test.ts', import.meta.url))).toBe(true);
   });
 
+  it('fetch and check the pinned binaries before the tiers, touching nothing else setup does', () => {
+    expect(SHIP_STEPS[0]?.script).toBe('setup:binaries');
+    const scripts = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> }).scripts;
+    expect(scripts['setup:binaries']).toBe('bash scripts/setup-binaries.sh');
+    const binaries = readFileSync(new URL('../../scripts/setup-binaries.sh', import.meta.url), 'utf8');
+    expect(binaries).not.toMatch(/\.env|npm ci|cdktf|docker info/);
+    expect(readFileSync(new URL('../../scripts/setup.sh', import.meta.url), 'utf8')).toContain('bash scripts/setup-binaries.sh');
+  });
+
   it('prove v1 end to end before main', () => {
     expect(SHIP_STEPS.map((step) => step.script)).toContain('test:v1-live');
   });
