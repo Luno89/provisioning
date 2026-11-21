@@ -138,6 +138,7 @@ export class RootProvider {
     const signInScope = SIGN_IN_SCOPES.filter((scope) => scope !== 'offline_access').join(' ');
     return {
       adapter: (name: string) => this.adapterFor(name),
+      fetch: (url, options) => this.providerFetch(url, options),
       clients: [],
       findAccount: async (ctx, sub) => {
         const user = await this.store.accounts.getUserById(sub);
@@ -164,7 +165,17 @@ export class RootProvider {
         clientCredentials: { enabled: true },
         revocation: { enabled: true },
         backchannelLogout: { enabled: true },
-        rpInitiatedLogout: { enabled: false },
+        rpInitiatedLogout: {
+          enabled: true,
+          logoutSource: async (ctx, form) => {
+            ctx.type = 'html';
+            ctx.body = `<!doctype html><meta charset="utf-8"><title>Sign out of Koala</title><body style="font-family:system-ui;padding:2rem">${form}<p>You signed out of your Koala. Sign this browser out of Koala everywhere too?</p><button autofocus type="submit" form="op.logoutForm" name="logout" value="yes">Sign out everywhere in this browser</button></body>`;
+          },
+          postLogoutSuccessSource: async (ctx) => {
+            ctx.type = 'html';
+            ctx.body = '<!doctype html><meta charset="utf-8"><title>Signed out of Koala</title><body style="font-family:system-ui;padding:2rem"><p>This browser is signed out of Koala.</p></body>';
+          },
+        },
         resourceIndicators: {
           enabled: true,
           defaultResource: async () => undefined,
@@ -295,6 +306,13 @@ export class RootProvider {
   deliverLogouts(): Promise<void> {
     this.delivering ??= this.deliverPending().finally(() => { this.delivering = undefined; });
     return this.delivering;
+  }
+
+  private async providerFetch(url: string | URL | Request, options: (RequestInit & { dispatcher?: unknown }) | undefined): Promise<Response> {
+    const { signal: _deadline, dispatcher: _guard, ...init } = options ?? {};
+    const origin = new URL(url instanceof Request ? url.url : url).origin;
+    const instance = (await this.store.instances.getInstances()).find((candidate) => URL.canParse(candidate.url ?? '') && new URL(candidate.url!).origin === origin);
+    return this.settings.reach.fetchFor(instance ?? {})(url, init);
   }
 
   private async deliveryFetch(delivery: LogoutDelivery): Promise<typeof fetch> {

@@ -1,54 +1,30 @@
 import { beforeEach, expect, it } from 'vitest';
-import express from 'express';
 import { asyncRoute, type Database } from '../../platform/index.js';
-import { createAuth, type Auth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
-import { sessionToken } from '../../platform/lib/auth.js';
+import type { Auth } from '../../platform/middleware/auth.js';
+import type { BrowserPerson } from '../../platform/lib/browser-session.js';
+import type { DependencyId } from '../../platform/lib/dependencies.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { claimsFor, clientKeysFrom, runResourceOf } from '../lib/oidc.js';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { claimsFor, runResourceOf } from '../lib/oidc.js';
+import { generateIdentityKey, identityKeysFrom } from '../lib/identity-token.js';
+import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
-import { RootSignIn } from '../services/RootSignIn.js';
-import { RunBearers } from '../services/RunBearers.js';
+import type { RootSignIn } from '../services/RootSignIn.js';
 import { grantsOver } from '../../engine/testing/run-grants.js';
-import { SignJWT } from 'jose';
-import { InstanceService, hashCredential } from '../services/InstanceService.js';
-import { oidcProviderRouter } from '../routes/oidc-provider.js';
-import { signInRouter } from '../routes/sign-in.js';
-import { IdentityService } from '../services/IdentityService.js';
-import { openRoutesOf } from '../../open-routes.js';
+import type { InstanceService } from '../services/InstanceService.js';
+import {
+  SESSION_ID_COOKIE, cookieOf, remember, rootSessionOf, rootSigning, servedThroughRoot, sessionIdOf, signInThroughRoot, type Jar, type Served,
+} from './through-root.js';
 
 export const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 export const having = (fields: Record<string, unknown>): unknown => expect.objectContaining(fields);
 
-const rootSigning = identityKeysFrom(generateIdentityKey());
-const ROOT_SESSION = 'root-session-key-for-the-round-trip';
-const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
-const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
-
 export const signedByRoot = (claims: Record<string, unknown>, typ: string): Promise<string> =>
   new SignJWT(claims).setProtectedHeader({ alg: 'Ed25519', typ, kid: rootSigning.kid }).sign(rootSigning.privateKey);
 
-export type Jar = Map<string, string>;
-
-export const remember = (jar: Jar, answer: Response): void => {
-  for (const line of answer.headers.getSetCookie()) {
-    const [pair] = line.split(';');
-    const at = pair!.indexOf('=');
-    const name = pair!.slice(0, at);
-    const value = pair!.slice(at + 1);
-    if (value === '' || /expires=Thu, 01 Jan 1970/i.test(line)) jar.delete(name);
-    else jar.set(name, value);
-  }
-};
-
-export const cookieOf = (jar: Jar): string => [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
-
-export interface Served { url: string; app: express.Express }
+export { SESSION_ID_COOKIE, cookieOf, remember, sessionIdOf, type Jar, type Served };
 
 export interface SignInWorldOptions<S extends Served> {
   databases: { root: () => Promise<Database>; instance: () => Promise<Database> };
@@ -70,10 +46,13 @@ export interface SignInWorld<S extends Served> {
   readonly instanceAuth: Auth;
   readonly rootService: InstanceService;
   readonly heard: readonly AccessRevoked[];
+  readonly rootDown: ReadonlyArray<{ dependency: DependencyId; reason: string }>;
+  heldPerson(jar: Jar): Promise<BrowserPerson | undefined>;
+  signOut(jar: Jar): Promise<Response>;
   breakRevocations(why: string | undefined): void;
   readonly alias: string;
   offset: number;
-  signInAs(userId: string, at?: S): Promise<{ instanceJar: Jar; landed: Response }>;
+  signInAs(userId: string, at?: S, rootJar?: Jar): Promise<{ instanceJar: Jar; rootJar: Jar; landed: Response }>;
   whoami(jar: Jar): Promise<Response>;
   revokedAt(): string;
   goDown(served: S): Promise<void>;
@@ -91,6 +70,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let rootService: InstanceService;
   let offset = 0;
   const heard: AccessRevoked[] = [];
+  const rootDown: Array<{ dependency: DependencyId; reason: string }> = [];
   let broken: string | undefined;
 
   beforeEach(async () => {
@@ -100,45 +80,25 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     instance = await options.serve('instance');
     offset = 0;
     heard.length = 0;
+    rootDown.length = 0;
     broken = undefined;
 
     await rootDb.accounts.saveUser({ id: 'u1', email: 'u1@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
     await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
-    await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: instance.url, credentialHash: hashCredential('the-instance-credential'), createdAt: 'x', updatedAt: 'x', status: 'ready' });
-
-    provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: options.reach() }, rootDb);
-    rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
-    const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) });
-    root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
-    root.app.put('/api/instances/sign-in-key', express.json(), asyncRoute(async (req, res) => {
-      const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), ((req.body ?? {}) as { jwk?: unknown }).jwk);
-      if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-      return res.json(outcome.value);
-    }));
-
     const revocations = new AccessRevocations();
     revocations.listen(async (event) => { heard.push(event); });
     revocations.listen(async () => { if (broken) throw new Error(broken); });
     const runGrants = grantsOver(instanceDb.engine);
     revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
-    signIn = new RootSignIn({
-      kind: 'instance',
-      clientId: 'inst-u1',
-      rootUrl: root.url,
-      publicUrl: instance.url,
-      owner: 'u1',
-      clientKeys: clientKeysFrom(INSTANCE_SESSION),
-      trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]),
-      sessionKey: INSTANCE_SESSION,
-      dataKey: DATA_KEY,
-      announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': 'inst-u1', authorization: 'Bearer the-instance-credential' } },
-    }, instanceDb, revocations, () => Date.now() + offset);
-    await signIn.load();
-    const bearers = new RunBearers({ tokens: signIn, grantOfRun: (runId) => instanceDb.engine.getRunGrantOfRun(runId), accounts: instanceDb.accounts, claims: { role: 'instance', instanceOwnerId: 'u1' } });
-    instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: 'u1', clientSessions: signIn, bearer: (token) => bearers.signIn(token), sessionEnds: new SessionEnds(instanceDb.platform) });
-    const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: 'inst-u1', ownerId: 'u1', rootUrl: root.url } }, instanceDb);
-    instance.app.use('/api/auth', signInRouter({ signIn, identity, auth: instanceAuth, publicUrl: instance.url, landing: '/chat' }));
+    ({ provider, rootService, signIn, instanceAuth } = await servedThroughRoot({
+      rootDb, instanceDb, root, instance, reach: options.reach(), instanceId: 'inst-u1', ownerId: 'u1', revocations,
+      dependency: { failed: (dependency, err) => { rootDown.push({ dependency, reason: (err as Error).message }); return err; } },
+      now: () => Date.now() + offset,
+    }));
     instance.app.use('/api', instanceAuth.requireAuth);
+    instance.app.post('/api/sign-out', asyncRoute(async (req, res) => {
+      res.json({ endSession: await instanceAuth.endSession(req) ?? null });
+    }));
     instance.app.get('/api/whoami', (req, res) => {
       const signed = req as unknown as { user: { id: string; email: string }; principal: Principal };
       const { id, claims, permissions } = sessionView(signed.user, signed.principal, { holdsAccounts: false });
@@ -147,23 +107,26 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
   });
 
-  async function signInAs(userId: string, at: S = instance): Promise<{ instanceJar: Jar; landed: Response }> {
-    const rootJar: Jar = new Map([['session', sessionToken({ id: userId, email: `${userId}@example.com` }, ROOT_SESSION)]]);
-    const instanceJar: Jar = new Map();
-    let answer = await fetch(`${at.url}/api/auth/oidc/start`, { redirect: 'manual' });
-    remember(instanceJar, answer);
-    for (;;) {
-      const location = answer.headers.get('location');
-      if (answer.status < 300 || answer.status >= 400 || !location || location.startsWith('/#')) return { instanceJar, landed: answer };
-      const next = new URL(location, answer.url);
-      if (next.origin !== root.url && next.origin !== at.url) return { instanceJar, landed: answer };
-      const jar = next.origin === root.url ? rootJar : instanceJar;
-      answer = await fetch(next, { redirect: 'manual', headers: { cookie: cookieOf(jar) } });
-      remember(jar, answer);
-    }
+  async function signInAs(userId: string, at: S = instance, rootJar: Jar = rootSessionOf({ id: userId, email: `${userId}@example.com` })): Promise<{ instanceJar: Jar; rootJar: Jar; landed: Response }> {
+    const { instanceJar, landed } = await signInThroughRoot(root.url, at.url, rootJar);
+    return { instanceJar, rootJar, landed };
   }
 
   const whoami = (jar: Jar) => fetch(`${instance.url}/api/whoami`, { headers: { cookie: cookieOf(jar) } });
+
+  const heldPerson = async (jar: Jar): Promise<BrowserPerson | undefined> => {
+    const sid = sessionIdOf(jar);
+    if (!sid) return undefined;
+    return new Promise((resolve, reject) => {
+      instanceDb.platform.browserSessions().get(sid, (err, held) => (err ? reject(err as Error) : resolve(held?.person)));
+    });
+  };
+
+  const signOut = async (jar: Jar): Promise<Response> => {
+    const answer = await fetch(`${instance.url}/api/sign-out`, { method: 'POST', headers: { cookie: cookieOf(jar) } });
+    remember(jar, answer);
+    return answer;
+  };
 
   return {
     get root() { return root; },
@@ -178,6 +141,9 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     get offset() { return offset; },
     set offset(next: number) { offset = next; },
     heard,
+    rootDown,
+    heldPerson,
+    signOut,
     breakRevocations: (why) => { broken = why; },
     signInAs,
     whoami,
@@ -208,7 +174,8 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
     await world.signIn.announce();
     const { instanceJar, landed } = await world.signInAs('u1');
     expect([landed.status, landed.headers.get('location')]).toEqual([302, '/#/chat']);
-    expect(instanceJar.get('session')).toBeTruthy();
+    expect([...instanceJar.keys()]).toEqual([SESSION_ID_COOKIE]);
+    expect(await world.heldPerson(instanceJar)).toMatchObject({ sub: 'u1', email: 'u1@example.com', claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }] });
     const me = await world.whoami(instanceJar);
     expect(me.status).toBe(200);
     expect(await me.json()).toEqual({
@@ -226,25 +193,46 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
     const stranger = await world.signInAs('u2');
     expect(stranger.landed.status).toBe(403);
     expect(await stranger.landed.text()).toMatch(/belongs to someone else/);
-    expect(stranger.instanceJar.get('session')).toBeUndefined();
+    expect(await world.heldPerson(stranger.instanceJar)).toBeUndefined();
+    expect((await world.whoami(stranger.instanceJar)).status).toBe(401);
   });
 
-  it('renews stale claims through root with the refresh token it keeps, and the session ends once root has revoked it', async () => {
+  it('renews the tokens it holds through root once they run out, as the same session, and the session ends once root has revoked it', async () => {
     await world.signIn.announce();
-    world.offset = -21 * 60 * 1000;
     const { instanceJar } = await world.signInAs('u1');
-    world.offset = 0;
+    const before = (await world.heldPerson(instanceJar))!;
+    world.offset = before.accessExp - Date.now() + 1000;
     const renewed = await world.whoami(instanceJar);
     expect(renewed.status).toBe(200);
     remember(instanceJar, renewed);
-    expect(renewed.headers.getSetCookie().some((line) => line.startsWith('session='))).toBe(true);
+    const after = (await world.heldPerson(instanceJar))!;
+    expect(after.accessExp).toBeGreaterThan(before.accessExp);
+    expect(after.tokens.refresh).not.toBe(before.tokens.refresh);
+    expect([after.sub, after.sessionAt]).toEqual([before.sub, before.sessionAt]);
 
     await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
     await world.provider.deliverLogouts();
     expect(world.heard).toEqual([having({ personId: 'u1', because: 'signed-out-everywhere' })]);
     expect(await world.rootDb.instances.pendingLogouts()).toEqual([]);
+    expect(await world.heldPerson(instanceJar)).toBeUndefined();
     expect((await world.whoami(instanceJar)).status).toBe(401);
-    expect(await world.instanceDb.instances.getRevocations()).toEqual([having({ subject: 'u1' })]);
+  });
+
+  it('keeps a signed-in browser on its last claims while root cannot be reached, says root is down, and lets root decide once it answers', async () => {
+    await world.signIn.announce();
+    const { instanceJar } = await world.signInAs('u1');
+    const before = (await world.heldPerson(instanceJar))!;
+    world.offset = before.accessExp - Date.now() + 1000;
+    await world.goDown(world.root);
+    const meanwhile = await world.whoami(instanceJar);
+    expect(meanwhile.status).toBe(200);
+    expect(await meanwhile.json()).toMatchObject({ id: 'u1', claims: before.claims });
+    expect(world.rootDown).toEqual([having({ dependency: 'root' })]);
+    expect((await world.heldPerson(instanceJar))!.accessExp).toBe(before.accessExp);
+    await world.comeBack(world.root);
+    await world.rootDb.instances.oidcForgetAccount('u1');
+    expect((await world.whoami(instanceJar)).status).toBe(401);
+    expect(await world.heldPerson(instanceJar)).toBeUndefined();
   });
 
   it('keeps a revocation root could not deliver and delivers it once the instance answers', async () => {
@@ -273,18 +261,63 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     expect(await world.signIn.serviceToken()).toBe(token);
   });
 
-  it('ends a session signed out of on the instance at once, and drops what would renew it', async () => {
+  it('takes no one from no cookie, or from a cookie it never made', async () => {
+    await world.signIn.announce();
+    expect((await world.whoami(new Map())).status).toBe(401);
+    expect((await world.whoami(new Map([[SESSION_ID_COOKIE, 's%3Anever-made.signature']]))).status).toBe(401);
+  });
+
+  it('makes each sign-in a session of its own, kept under the same id through every renewal', async () => {
+    await world.signIn.announce();
+    const first = (await world.signInAs('u1')).instanceJar;
+    const second = (await world.signInAs('u1')).instanceJar;
+    expect(sessionIdOf(second)).not.toBe(sessionIdOf(first));
+    const held = (await world.heldPerson(first))!;
+    const id = sessionIdOf(first);
+    world.offset = held.accessExp - Date.now() + 1000;
+    const renewed = await world.whoami(first);
+    remember(first, renewed);
+    expect(renewed.status).toBe(200);
+    expect(sessionIdOf(first)).toBe(id);
+    expect((await world.heldPerson(first))!.accessExp).toBeGreaterThan(held.accessExp);
+  });
+
+  it('ends a session signed out of on the instance at once, hands its refresh token back to root and sends the browser to end root\'s session too', async () => {
     await world.signIn.announce();
     const { instanceJar } = await world.signInAs('u1');
-    expect((await world.whoami(instanceJar)).status).toBe(200);
     const kept = (await world.signInAs('u1')).instanceJar;
-    await world.instanceAuth.endSession({ headers: { cookie: cookieOf(instanceJar) }, secure: false } as unknown as express.Request);
+    const held = (await world.heldPerson(instanceJar))!;
+    const signedOut = await world.signOut(instanceJar);
+    const { endSession } = await signedOut.json() as { endSession: string };
     expect((await world.whoami(instanceJar)).status).toBe(401);
+    expect(await world.heldPerson(instanceJar)).toBeUndefined();
     expect((await world.whoami(kept)).status).toBe(200);
-    const ended = world.signIn.verified(instanceJar.get('session'))!;
-    expect(await world.instanceDb.instances.getClientSession(ended.sid)).toBeUndefined();
-    world.offset = 21 * 60 * 1000;
-    expect((await world.whoami(instanceJar)).status).toBe(401);
+    const ending = new URL(endSession);
+    expect(`${ending.origin}${ending.pathname}`).toBe(`${world.root.url}/oidc/session/end`);
+    expect(ending.searchParams.get('post_logout_redirect_uri')).toBe(`${world.instance.url}/`);
+    expect(ending.searchParams.get('id_token_hint')).toBeTruthy();
+    world.offset = held.accessExp - Date.now() + 1000;
+    expect(await world.signIn.fresh(held)).toBe('ended');
+  });
+
+  it('ends root\'s session in that browser once the person confirms, and root\'s logout ends every session here that came from it', async () => {
+    await world.signIn.announce();
+    const { instanceJar, rootJar } = await world.signInAs('u1');
+    const again = (await world.signInAs('u1', world.instance, rootJar)).instanceJar;
+    const elsewhere = (await world.signInAs('u1')).instanceJar;
+    const { endSession } = await (await world.signOut(instanceJar)).json() as { endSession: string };
+    const asked = await fetch(endSession, { headers: { cookie: cookieOf(rootJar) }, redirect: 'manual' });
+    remember(rootJar, asked);
+    const page = await asked.text();
+    const action = /<form[^>]*action="([^"]+)"/.exec(page)?.[1];
+    const xsrf = /name="xsrf" value="([^"]+)"/.exec(page)?.[1];
+    expect([asked.status, Boolean(action), Boolean(xsrf)]).toEqual([200, true, true]);
+    const confirmed = await fetch(new URL(action!.replace(/&amp;/g, '&'), world.root.url), {
+      method: 'POST', redirect: 'manual', headers: { cookie: cookieOf(rootJar), 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ xsrf: xsrf!, logout: 'yes' }),
+    });
+    expect([confirmed.status, confirmed.headers.get('location')]).toEqual([303, `${world.instance.url}/`]);
+    expect((await world.whoami(again)).status).toBe(401);
+    expect((await world.whoami(elsewhere)).status).toBe(200);
   });
 
 }

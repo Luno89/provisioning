@@ -8,7 +8,7 @@ import {
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
-import type { Mounts } from '../../platform/index.js';
+import type { BrowserSessions, Mounts } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
@@ -120,6 +120,7 @@ export interface InstancesWiringDeps {
   syncExposedApps: () => Promise<void>;
   provider?: RootProvider | undefined;
   signIn?: RootSignIn | undefined;
+  browserSessions?: BrowserSessions | undefined;
   rootToken?: (() => Promise<string>) | undefined;
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
@@ -148,10 +149,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
     provider.keepDelivering();
   }
-  if (signsInThroughRoot(role.role) && deps.signIn) {
-    await deps.signIn.load();
+  if (signsInThroughRoot(role.role) && deps.signIn && deps.browserSessions) {
     deps.signIn.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
-    app.use('/api/auth', signInRouter({ signIn: deps.signIn, identity, auth: deps.auth, publicUrl, landing: '/chat' }));
+    app.use('/api/auth', signInRouter({ signIn: deps.signIn, sessions: deps.browserSessions, identity, publicUrl, landing: '/chat' }));
   }
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));

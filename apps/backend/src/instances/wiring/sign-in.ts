@@ -3,7 +3,7 @@ import type { AccessRevocations, Database, PlatformKeys, RoleConfig } from '../.
 import { clientKeysFrom, OIDC_PATH } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
-import { RootSignIn } from '../services/RootSignIn.js';
+import { RootSignIn, type RootSignInDeps } from '../services/RootSignIn.js';
 import { RunBearers } from '../services/RunBearers.js';
 import type { BearerSignIn, ClaimSettings } from '../../platform/index.js';
 
@@ -20,21 +20,19 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
   }, deps.db);
 }
 
-export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: string | undefined; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string }): RootSignIn | undefined {
+export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: string | undefined; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string } & Pick<RootSignInDeps, 'sessions' | 'dependency'>): RootSignIn | undefined {
   const { role } = deps;
-  if (!role.trusted) return undefined;
-  const common = { rootUrl: '', publicUrl: deps.publicUrl, clientKeys: clientKeysFrom(currentOf(deps.keys.session)), trusted: role.trusted, sessionKey: deps.keys.session, dataKey: deps.keys.data };
-  if (role.role === 'instance' && role.instance && deps.instanceCredential) {
-    return new RootSignIn({
-      ...common,
-      kind: 'instance',
-      clientId: role.instance.id,
-      rootUrl: role.instance.rootUrl,
-      owner: role.instance.ownerId,
-      announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.instanceCredential}` } },
-    }, deps.db, deps.revocations);
-  }
-  return undefined;
+  if (role.role !== 'instance' || !role.instance || !deps.instanceCredential) return undefined;
+  return new RootSignIn({
+    kind: 'instance',
+    clientId: role.instance.id,
+    rootUrl: role.instance.rootUrl,
+    publicUrl: deps.publicUrl,
+    owner: role.instance.ownerId,
+    clientKeys: clientKeysFrom(currentOf(deps.keys.session)),
+    dataKey: deps.keys.data,
+    announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.instanceCredential}` } },
+  }, { store: deps.db, sessions: deps.sessions, revocations: deps.revocations, dependency: deps.dependency });
 }
 
 export function runBearersFor(signIn: RootSignIn | undefined, db: Database, claims: ClaimSettings): ((token: string) => Promise<BearerSignIn>) | undefined {

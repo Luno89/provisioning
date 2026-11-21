@@ -1,17 +1,15 @@
-import crypto from 'crypto';
 import * as client from 'openid-client';
 import { createRemoteJWKSet, customFetch as joseFetch, importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  answerUnlimited, decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
-  type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
+  answerUnlimited, decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, withAnswerUnlimited, type Reopening,
+  type AccessRevocations, type AccessRevoked, type BrowserPerson, type BrowserSessions, type Claim, type Database, type DependencyId, type PersonThroughRoot, type SecretKey, type SignInStarted,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
-  CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS, TOKEN_EXCHANGE,
+  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
-import { RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -22,33 +20,36 @@ export interface RootSignInSettings {
   publicUrl: string;
   owner?: string | undefined;
   clientKeys: IdentityKeyPair;
-  trusted: ReadonlyMap<string, crypto.KeyObject>;
-  sessionKey: SecretKey;
   dataKey: SecretKey;
   announce: { path: string; headers: Record<string, string> };
 }
 
+export interface RootSignInDeps {
+  store: Store;
+  sessions: Pick<BrowserSessions, 'endOf'>;
+  revocations: AccessRevocations;
+  dependency: { failed(dependency: DependencyId, err: unknown): unknown };
+}
+
 export interface Started {
   url: string;
-  cookie: string;
+  started: SignInStarted;
 }
 
 export type SignedIn =
-  | { ok: true; token: string; session: SignedInSession; next?: string | undefined }
+  | { ok: true; person: BrowserPerson; next?: string | undefined }
   | { ok: false; status: 400 | 401 | 403; error: string };
 
-export type Renewed = { token: string; session: SignedInSession } | 'kept' | 'ended';
+export type Freshened = BrowserPerson | 'kept' | 'ended';
 
 export interface CheckedRunToken {
   personId: string;
   runId: string;
-  claims: SignedInSession['claims'];
+  claims: Claim[];
   space?: string | undefined;
 }
 
 const RUN_TOKEN_TYP = 'at+jwt';
-
-export const SIGN_IN_COOKIE = 'koala_sign_in';
 
 const reasonOf = (err: unknown): string => {
   const known = err as { error?: unknown; error_description?: unknown; message?: unknown };
@@ -56,22 +57,26 @@ const reasonOf = (err: unknown): string => {
   if (typeof known.error === 'string' && known.error) return known.error;
   return String(known.message ?? err);
 };
-const SIGN_IN_COOKIE_SECONDS = 10 * 60;
 
-export class RootSignIn implements RunTokenRoot {
+type GrantedTokens = Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
+
+export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
   private configured: Promise<client.Configuration> | undefined;
   private keys: Promise<ReturnType<typeof createRemoteJWKSet>> | undefined;
-  private readonly refreshing = new Map<string, Promise<Renewed>>();
+  private readonly refreshing = new Map<string, Promise<Freshened>>();
   private markAnnounced: () => void = () => undefined;
   readonly announced: Promise<void> = new Promise((resolve) => { this.markAnnounced = resolve; });
-  readonly revoked = new RevocationList();
+  private readonly store: Store;
+  private readonly revocations: AccessRevocations;
 
   constructor(
     private readonly settings: RootSignInSettings,
-    private readonly store: Store,
-    private readonly revocations: AccessRevocations,
+    private readonly deps: RootSignInDeps,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+  ) {
+    this.store = deps.store;
+    this.revocations = deps.revocations;
+  }
 
   get issuer(): string {
     return `${this.settings.rootUrl}/oidc`;
@@ -94,10 +99,6 @@ export class RootSignIn implements RunTokenRoot {
     })();
     this.configured.catch(() => { this.configured = undefined; });
     return this.configured;
-  }
-
-  async load(): Promise<void> {
-    this.revoked.load(await this.store.instances.getRevocations());
   }
 
   async announce(): Promise<void> {
@@ -130,145 +131,102 @@ export class RootSignIn implements RunTokenRoot {
       prompt: 'login',
     });
     const going = safeNextPath(next);
-    return { url: url.href, cookie: signJWT('root-sign-in', { verifier, state, nonce, ...(going ? { next: going } : {}) }, this.settings.sessionKey, SIGN_IN_COOKIE_SECONDS) };
+    return { url: url.href, started: { verifier, state, nonce, ...(going ? { next: going } : {}) } };
   }
 
-  get startCookieSeconds(): number {
-    return SIGN_IN_COOKIE_SECONDS;
-  }
-
-  get sessionSeconds(): number {
-    return SESSION_SECONDS;
-  }
-
-  private async identity(idToken: unknown, nonce?: string): Promise<{ sub: string; email: string; claims: SignedInSession['claims'] } | string> {
-    if (typeof idToken !== 'string') return 'root sent no identity';
-    let payload: JWTPayload;
-    try {
-      ({ payload } = await jwtVerify(idToken, (header) => {
-        const key = typeof header.kid === 'string' ? this.settings.trusted.get(header.kid) : undefined;
-        if (!key) throw new Error('signed by a key this server does not trust');
-        return key;
-      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG] }));
-    } catch (err) {
-      return `root's identity could not be checked: ${(err as Error).message}`;
-    }
-    if (nonce !== undefined && payload.nonce !== nonce) return 'this sign-in did not start in this browser — sign in again from here';
+  private personOf(tokens: GrantedTokens, sessionAt: number, kept?: BrowserPerson['tokens']): BrowserPerson | string {
+    const payload = tokens.claims();
+    if (!payload) return 'root sent no identity';
     const claims = payload[KOALA_CLAIMS];
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string' || !claimsShaped(claims)) return 'root sent an identity this server cannot read';
     if (this.settings.kind === 'instance' && payload.sub !== this.settings.owner) return 'this instance belongs to someone else';
-    return { sub: payload.sub, email: payload.email, claims };
+    const refresh = tokens.refresh_token ? encryptValue(tokens.refresh_token, this.settings.dataKey) : kept?.refresh;
+    const id = tokens.id_token ? encryptValue(tokens.id_token, this.settings.dataKey) : kept?.id;
+    if (!refresh || !id) return 'root gave this sign-in no way to stay signed in';
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      claims,
+      sessionAt,
+      accessExp: this.now() + (tokens.expires_in ?? 0) * 1000,
+      ...(typeof payload.sid === 'string' ? { rootSid: payload.sid } : {}),
+      tokens: { access: encryptValue(tokens.access_token, this.settings.dataKey), refresh, id },
+    };
   }
 
-  private sessionToken(session: SignedInSession, seconds = SESSION_SECONDS): string {
-    const { userId, email, sid, sessionAt, freshUntil, claims } = session;
-    return signJWT('client-session', { userId, email, sid, sessionAt, freshUntil, claims }, this.settings.sessionKey, seconds);
-  }
-
-  async callback(currentUrl: URL, heldCookie: string | undefined): Promise<SignedIn> {
-    const held = heldCookie ? verifyJWT(heldCookie, 'root-sign-in', this.settings.sessionKey) : null;
-    const verifier: unknown = held?.verifier;
-    const state: unknown = held?.state;
-    const nonce: unknown = held?.nonce;
-    if (typeof verifier !== 'string' || typeof state !== 'string' || typeof nonce !== 'string') {
+  async callback(currentUrl: URL, started: SignInStarted | undefined): Promise<SignedIn> {
+    if (typeof started?.verifier !== 'string' || typeof started.state !== 'string' || typeof started.nonce !== 'string') {
       return { ok: false, status: 400, error: 'this sign-in did not start in this browser — sign in again from here' };
     }
-    let tokens: Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
+    let tokens: GrantedTokens;
     try {
-      tokens = await client.authorizationCodeGrant(await this.config(), currentUrl, { pkceCodeVerifier: verifier, expectedState: state, expectedNonce: nonce, idTokenExpected: true });
+      tokens = await client.authorizationCodeGrant(await this.config(), currentUrl, { pkceCodeVerifier: started.verifier, expectedState: started.state, expectedNonce: started.nonce, idTokenExpected: true });
     } catch (err) {
       return { ok: false, status: reasonOf(err).includes('someone else') ? 403 : 401, error: reasonOf(err) };
     }
-    const who = await this.identity(tokens.id_token, nonce);
-    if (typeof who === 'string') return { ok: false, status: who.includes('someone else') ? 403 : 401, error: who };
-    if (!tokens.refresh_token) return { ok: false, status: 401, error: 'root gave this sign-in no way to stay signed in' };
-
-    const now = this.now();
-    const sid = crypto.randomUUID();
-    await this.store.instances.saveClientSession({
-      id: sid,
-      ownerId: who.sub,
-      email: who.email,
-      refreshToken: encryptValue(tokens.refresh_token, this.settings.dataKey),
-      startedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + SESSION_SECONDS * 1000).toISOString(),
-    });
-    const existing = await this.store.accounts.getUserById(who.sub);
+    const person = this.personOf(tokens, this.now());
+    if (typeof person === 'string') return { ok: false, status: person.includes('someone else') ? 403 : 401, error: person };
+    const existing = await this.store.accounts.getUserById(person.sub);
     await this.store.accounts.saveUser({
-      ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(now).toISOString() }),
-      id: who.sub,
-      email: who.email,
+      ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(person.sessionAt).toISOString() }),
+      id: person.sub,
+      email: person.email,
       emailVerified: true,
     } as never);
-    const session: SignedInSession = { userId: who.sub, email: who.email, sid, sessionAt: now, freshUntil: now + CLAIMS_SECONDS * 1000, claims: who.claims };
-    const next = typeof held?.next === 'string' ? safeNextPath(held.next) : undefined;
-    return { ok: true, token: this.sessionToken(session), session, ...(next ? { next } : {}) };
+    const next = safeNextPath(started.next);
+    return { ok: true, person, ...(next ? { next } : {}) };
   }
 
-  verified(token: string | undefined): (SignedInSession & { until: number }) | undefined {
-    const decoded = token ? verifyJWT(token, 'client-session', this.settings.sessionKey) : null;
-    const session = signedInSession(decoded);
-    return session && decoded && !this.revoked.ended(session) ? { ...session, until: Number(decoded.exp) * 1000 } : undefined;
-  }
-
-  async end(session: Pick<SignedInSession, 'sid'>): Promise<void> {
-    await this.store.instances.dropClientSession(session.sid);
-  }
-
-  renew(session: SignedInSession): Promise<Renewed> {
-    const running = this.refreshing.get(session.sid);
+  fresh(person: BrowserPerson): Promise<Freshened> {
+    if (this.now() < person.accessExp) return Promise.resolve(person);
+    const running = this.refreshing.get(person.tokens.refresh);
     if (running) return running;
-    const renewing = this.refresh(session).finally(() => this.refreshing.delete(session.sid));
-    this.refreshing.set(session.sid, renewing);
+    const renewing = this.refresh(person).finally(() => this.refreshing.delete(person.tokens.refresh));
+    this.refreshing.set(person.tokens.refresh, renewing);
     return renewing;
   }
 
-  private async refresh(session: SignedInSession): Promise<Renewed> {
-    const stored = await this.store.instances.getClientSession(session.sid);
-    if (!stored || stored.ownerId !== session.userId) return 'ended';
-    let tokens: Awaited<ReturnType<typeof client.refreshTokenGrant>>;
+  private async refresh(person: BrowserPerson): Promise<Freshened> {
+    let tokens: GrantedTokens;
     try {
-      tokens = await client.refreshTokenGrant(await this.config(), decryptValue(stored.refreshToken, this.settings.dataKey));
+      tokens = await client.refreshTokenGrant(await this.config(), decryptValue(person.tokens.refresh, this.settings.dataKey));
     } catch (err) {
-      if (refusedByServer(err)) {
-        await this.store.instances.dropClientSession(session.sid);
-        return 'ended';
-      }
+      if (refusedByServer(err)) return 'ended';
+      this.deps.dependency.failed('root', err);
       return 'kept';
     }
-    const who = await this.identity(tokens.id_token);
-    if (typeof who === 'string' || who.sub !== session.userId) {
-      await this.store.instances.dropClientSession(session.sid);
-      return 'ended';
-    }
-    await this.store.instances.saveClientSession({
-      ...stored,
-      ...(tokens.refresh_token ? { refreshToken: encryptValue(tokens.refresh_token, this.settings.dataKey) } : {}),
-    });
-    const now = this.now();
-    const renewed: SignedInSession = { ...session, email: who.email, claims: who.claims, freshUntil: now + CLAIMS_SECONDS * 1000 };
-    return { token: this.sessionToken(renewed), session: renewed };
+    const renewed = this.personOf(tokens, person.sessionAt, person.tokens);
+    return typeof renewed === 'string' || renewed.sub !== person.sub ? 'ended' : renewed;
+  }
+
+  async end(person: BrowserPerson): Promise<string> {
+    const config = await this.config();
+    await client.tokenRevocation(config, decryptValue(person.tokens.refresh, this.settings.dataKey), { token_type_hint: 'refresh_token' });
+    return client.buildEndSessionUrl(config, {
+      id_token_hint: decryptValue(person.tokens.id, this.settings.dataKey),
+      post_logout_redirect_uri: `${this.settings.publicUrl.replace(/\/+$/, '')}/`,
+    }).href;
   }
 
   async backchannel(logoutToken: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
     if (typeof logoutToken !== 'string') return { ok: false, error: 'send the logout token as logout_token' };
     let payload: JWTPayload;
     try {
-      ({ payload } = await jwtVerify(logoutToken, (header) => {
-        const key = typeof header.kid === 'string' ? this.settings.trusted.get(header.kid) : undefined;
-        if (!key) throw new Error('signed by a key this server does not trust');
-        return key;
-      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP, requiredClaims: ['exp', 'jti'] }));
+      ({ payload } = await jwtVerify(logoutToken, await this.rootKeys(), { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP, requiredClaims: ['exp', 'jti'] }));
     } catch (err) {
       return { ok: false, error: `the logout token could not be checked: ${(err as Error).message}` };
     }
     const events = payload.events as Record<string, unknown> | undefined;
-    const event: AccessRevoked = { personId: String(payload.sub ?? ''), at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
-    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event)) return { ok: false, error: 'that is not a logout token' };
+    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || typeof payload.sub !== 'string' || !payload.sub) return { ok: false, error: 'that is not a logout token' };
+    const revoking = payload.koala_revoked_at !== undefined || payload.koala_why !== undefined;
+    const event: AccessRevoked = { personId: payload.sub, at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
+    if (revoking && !revocationShaped(event)) return { ok: false, error: 'that is not a logout token' };
     if (!(await this.store.instances.takeLogoutToken(String(payload.jti), new Date(Number(payload.exp) * 1000)))) return { ok: false, error: 'that logout token was already taken' };
-    await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
-    this.revoked.revoke(event.personId, event.at);
-    await this.store.instances.dropClientSessionsOf(event.personId);
+    if (!revoking) {
+      await this.deps.sessions.endOf(typeof payload.sid === 'string' ? { rootSid: payload.sid } : { sub: payload.sub });
+      return { ok: true };
+    }
+    await this.deps.sessions.endOf({ sub: event.personId });
     const failed = await this.revocations.revoked(event);
     if (failed.length) return { ok: false, error: `not everything ${event.personId} held here could be revoked yet: ${failed.join('; ')}` };
     return { ok: true };

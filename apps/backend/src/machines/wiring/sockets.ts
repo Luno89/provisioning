@@ -50,7 +50,7 @@ export interface SocketsWiringDeps {
   payloadBlobs: PayloadBlobs;
   payloadKey: Keyring;
   dataKey: SecretKey;
-  auth: Pick<ReturnType<typeof createAuth>, 'sessionFromCookie' | 'securedFor' | 'principalFor'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'sessionOf' | 'sessionHandle' | 'principalFor'>;
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
   machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
   workTokens?: WorkTokenTrust | undefined;

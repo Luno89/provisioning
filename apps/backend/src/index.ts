@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, SessionEnds, SessionSockets, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
+  AccessRevocations, arrivedOverHttps, BrowserSessions, SessionEnds, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -126,7 +126,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const instanceReach = new InstanceReach(settings.reach);
   const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
-  const rootSignIn = rootSignInFor({ role, instanceCredential: settings.instance?.credential, keys, db, revocations, publicUrl: PUBLIC_URL });
+  const browserSessions = signsInThroughRoot(role.role)
+    ? new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) })
+    : undefined;
+  const rootSignIn = browserSessions ? rootSignInFor({ role, instanceCredential: settings.instance?.credential, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
   const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
@@ -220,10 +223,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const authService = new AuthService(db, { mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
-  const sessionEnds = new SessionEnds(db.platform);
-  await sessionEnds.follow();
   const sessionSockets = new SessionSockets();
-  sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
+  const sessionEnds = browserSessions ? undefined : new SessionEnds(db.platform);
+  if (sessionEnds) await sessionEnds.follow();
+  (browserSessions ?? sessionEnds)?.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   app.set('trust proxy', settings.trustProxy);
   app.use(inFlightLimit());
@@ -292,7 +295,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, bearer: runBearersFor(rootSignIn, db, claimSettings), sessionEnds });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, ...(browserSessions && rootSignIn ? { throughRoot: { sessions: browserSessions, signIn: rootSignIn } } : { sessionEnds }), bearer: runBearersFor(rootSignIn, db, claimSettings) });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
@@ -326,7 +329,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const instancesWiring = await wireInstances({
     role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
-    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
+    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, browserSessions, rootToken, io,
     instanceArrived, installs: koalaInstalls,
   });
   late.instances = instancesWiring;

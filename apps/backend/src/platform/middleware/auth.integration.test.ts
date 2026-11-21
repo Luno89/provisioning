@@ -4,6 +4,7 @@ import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { sessionToken, signJWT } from '../lib/auth.js';
 import { SessionEnds } from '../services/SessionEnds.js';
+import { BrowserSessions } from '../services/BrowserSessions.js';
 
 const noEnds = { ended: () => false, end: async () => undefined };
 import type { Request, Response } from 'express';
@@ -200,7 +201,10 @@ describe('what is open without a session, by role', () => {
   const opens = async (role: 'root' | 'instance', path: string): Promise<boolean> => {
     const db = await database();
     const call = at(path);
-    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
+    const sessions = role === 'instance'
+      ? { throughRoot: { sessions: new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false }), signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } }
+      : { sessionEnds: noEnds };
+    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), ...sessions }).requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
   };
 
@@ -251,19 +255,6 @@ describe('what is open without a session, by role', () => {
       expect(await opens(role, '/auth/google/callback')).toBe(false);
     }
   });
-
-  it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {
-    const db = await testDatabase();
-    await db.init();
-    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance', open: openRoutesOf('instance'), sessionEnds: noEnds });
-    const cookies: Array<{ name: string; secure: boolean }> = [];
-    const res = { cookie: (name: string, _value: string, options: { secure: boolean }) => { cookies.push({ name, secure: options.secure }); } } as unknown as Response;
-
-    auth.setSessionCookie(res, 't', { secure: false, headers: { 'x-forwarded-proto': 'https' } } as unknown as Request);
-    auth.setSessionCookie(res, 't', { secure: false, headers: {} } as unknown as Request);
-
-    expect(cookies).toEqual([{ name: '__Host-session', secure: true }, { name: 'session', secure: false }]);
-  });
 });
 
 describe('an invite to sign up', () => {
@@ -290,11 +281,11 @@ describe('an invite to sign up', () => {
 });
 
 describe('a session over https cannot be planted by a site next door', () => {
-  const signedIn = async (publicUrl: string, role: 'root' | 'instance' = 'root') => {
+  const signedIn = async (publicUrl: string) => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role, open: openRoutesOf(role), sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
+    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
   };
 
   it('names the cookie __Host-session over https, which a sibling subdomain cannot set, and takes no plain session there', async () => {
@@ -310,19 +301,6 @@ describe('a session over https cannot be planted by a site next door', () => {
     await auth.requireAuth(real.req, real.res, real.next);
     expect(real.result().nexted).toBe(true);
     expect(await auth.userFromSessionCookie(`session=${token}`, auth.securedFor({ headers: {}, secure: false }))).toBeUndefined();
-  });
-
-  it('on an instance, reads the cookie the way the request arrived, as it was set', async () => {
-    const { auth, token } = await signedIn('https://luno.example.app', 'instance');
-    const overHttps = fakeCall({ cookie: `__Host-session=${token}`, 'x-forwarded-proto': 'https' });
-    await auth.requireAuth(overHttps.req, overHttps.res, overHttps.next);
-    expect(overHttps.result().nexted).toBe(true);
-    const plantedOverHttps = fakeCall({ cookie: `session=${token}`, 'x-forwarded-proto': 'https' });
-    await auth.requireAuth(plantedOverHttps.req, plantedOverHttps.res, plantedOverHttps.next);
-    expect(plantedOverHttps.result().statusCode).toBe(401);
-    const overMesh = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(overMesh.req, overMesh.res, overMesh.next);
-    expect(overMesh.result().nexted).toBe(true);
   });
 
   it('signs out of both names, the secure one with the flag a browser needs to drop it', async () => {

@@ -5,7 +5,7 @@ import type { SessionSockets } from '../services/SessionSockets.js';
 import type { Auth } from './auth.js';
 
 export interface SocketSignInDeps {
-  auth: Pick<Auth, 'sessionFromCookie' | 'securedFor'>;
+  auth: Pick<Auth, 'sessionOf' | 'sessionHandle'>;
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
 }
 
@@ -19,9 +19,10 @@ export const SIGN_IN_UNCHECKED = { tryAgain: true } as const;
 const signedInData = (socket: Socket): SignedInData => socket.data as SignedInData;
 
 export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
+  if (deps.auth.sessionHandle) io.engine.use(deps.auth.sessionHandle);
   io.use((socket, next) => {
     const signIn = async (): Promise<Error | undefined> => {
-      const signedIn = await deps.auth.sessionFromCookie(socket.handshake.headers.cookie, deps.auth.securedFor(socket.handshake));
+      const signedIn = await deps.auth.sessionOf(socket.request);
       if (!signedIn) return new Error('Unauthorized');
       const data = signedInData(socket);
       data.user = signedIn.user;

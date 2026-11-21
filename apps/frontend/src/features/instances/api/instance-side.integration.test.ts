@@ -9,7 +9,7 @@ import { type UpdatesView, changeInstanceUpdates, getInstanceUpdates, getRelease
 import { type InstanceAddressesView, getInstanceAddresses, setNestedAddresses } from './instance-addresses'
 import { type WatchView, useInstanceWatch, useSetInstanceWatch } from './instance-watch'
 import { accountRemovalPlace } from '../../platform'
-import { startBackend } from '../../../test/backend/site'
+import { INSTANCE_ID, startBackend } from '../../../test/backend/site'
 import { mutated, queried } from '../../../test/backend/hooks'
 import { outsideThisTier } from '../../../test/backend/outside'
 import type { Wire } from '../../../test/backend/wire'
@@ -22,22 +22,15 @@ import { instancesRouter } from '../../../../../backend/src/instances/routes/ins
 import { instanceUpdatesRouter } from '../../../../../backend/src/instances/routes/instance-updates'
 import { instanceAddressesRouter } from '../../../../../backend/src/instances/routes/instance-addresses'
 import { instanceWatchRouter } from '../../../../../backend/src/instances/routes/instance-watch'
-import { signInRouter } from '../../../../../backend/src/instances/routes/sign-in'
-import { InstanceService, hashCredential, type WatchView as BackendWatchView } from '../../../../../backend/src/instances/services/InstanceService'
+import { InstanceService, type WatchView as BackendWatchView } from '../../../../../backend/src/instances/services/InstanceService'
 import { InstanceUpdates, type UpdatesAnswer } from '../../../../../backend/src/instances/services/InstanceUpdates'
 import { InstanceAddresses, type AddressesView } from '../../../../../backend/src/instances/services/InstanceAddresses'
 import { InstanceWatchSetting } from '../../../../../backend/src/instances/services/InstanceWatchSetting'
-import { IdentityService } from '../../../../../backend/src/instances/services/IdentityService'
 import { ReleaseCatalogue } from '../../../../../backend/src/instances/services/ReleaseCatalogue'
-import type { RootSignIn } from '../../../../../backend/src/instances/services/RootSignIn'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
-import { principalOf } from '../../../../../backend/src/platform/lib/permissions'
-import type { UserMetadata } from '../../../../../backend/src/platform/lib/types'
-import type { RoleConfig } from '../../../../../backend/src/platform/lib/platform-role'
 import { openRoutesOf } from '../../../../../backend/src/open-routes'
+import { INSTANCE_CREDENTIAL } from '../../../../../backend/src/instances/testing/through-root'
 
-const INSTANCE_ID = 'inst-kangaroo'
-const CREDENTIAL = 'the-instance-credential'
 const DOMAIN = 'people.koala.test'
 const OLDER = 'imgolder'
 const NEWER = 'imgnewer'
@@ -75,38 +68,20 @@ root.use('/api/instances', instancesRouter({
 }))
 root.use(errorResponder)
 
-const token = async (): Promise<string> => CREDENTIAL
+const token = async (): Promise<string> => INSTANCE_CREDENTIAL
 
-const theInstance: { ownerId?: string } = {}
-
-const backend = await startBackend(({ api, db }) => {
-  api.use((req, _res, next) => {
-    const person = (req as unknown as { user?: UserMetadata }).user
-    if (person && theInstance.ownerId) Object.assign(req, { principal: principalOf(person, { role: 'instance', instanceOwnerId: theInstance.ownerId }) })
-    next()
-  })
-  const instanceRole = { role: 'instance', instance: { id: INSTANCE_ID, ownerId: 'owner', rootUrl } } as RoleConfig
+const backend = await startBackend(({ api }) => {
   const addresses = new InstanceAddresses({ rootUrl, instanceId: INSTANCE_ID, token, name: 'kangaroo' }, async () => undefined)
   api.use('/instance-addresses', instanceAddressesRouter({ addresses: () => addresses }))
   api.use('/instance-watch', instanceWatchRouter({ setting: new InstanceWatchSetting({ rootUrl, instanceId: INSTANCE_ID, token }) }))
   api.use('/instance-updates', instanceUpdatesRouter({
     updates: new InstanceUpdates({ rootUrl, instanceId: INSTANCE_ID, token }, async () => { throw new Error('kubectl reaches the instance\'s own cluster, outside this tier') }),
   }))
-  api.use('/auth', signInRouter({
-    signIn: outsideThisTier<RootSignIn>('root\'s OpenID provider'),
-    identity: new IdentityService(instanceRole, db),
-    auth: outsideThisTier('the instance\'s session cookies'),
-    publicUrl: 'https://kangaroo.people.koala.test',
-    landing: '/chat',
-  }))
-})
+}, { role: 'instance', root: { app: root, url: rootUrl, db: rootDb } })
 
-const owner = await backend.signIn()
-theInstance.ownerId = owner.id
-await rootDb.instances.saveInstance({
-  id: INSTANCE_ID, ownerId: owner.id, url: `https://kangaroo.${DOMAIN}`, name: 'kangaroo', status: 'ready', running: NEWER, previous: OLDER,
-  credentialHash: hashCredential(CREDENTIAL), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-})
+await backend.signIn()
+const [placed] = await rootDb.instances.getInstances()
+await rootDb.instances.saveInstance({ ...placed!, name: 'kangaroo', running: NEWER, previous: OLDER, updatedAt: new Date().toISOString() })
 
 expectTypeOf<Wire<UpdatesAnswer>>().toExtend<UpdatesView>()
 expectTypeOf<Wire<AddressesView>>().toExtend<InstanceAddressesView>()
@@ -145,11 +120,11 @@ describe('an instance\'s settings, as an instance asks root for them with its cr
     expect(await rootDb.instances.getWatch(INSTANCE_ID)).toMatchObject({ notifyWhenUnreachable: false })
   })
 
-  it('refuses someone who is not the instance\'s owner a change to its settings', async () => {
-    await backend.signInAnother('second@koala.test')
-    await expect(changeInstanceUpdates({ auto: false })).rejects.toMatchObject({ response: { status: 403, data: { error: anyOf(String) } } })
-    await expect(setNestedAddresses(true)).rejects.toMatchObject({ response: { status: 403 } })
-    await expect(mutated(useSetInstanceWatch, true)).rejects.toMatchObject({ response: { status: 403 } })
+  it('turns someone who is not the instance\'s owner away at root, so they change none of its settings', async () => {
+    expect(await backend.turnedAway('second@koala.test')).toMatch(/belongs to someone else/)
+    await expect(changeInstanceUpdates({ auto: false })).rejects.toMatchObject({ response: { status: 401, data: { error: anyOf(String) } } })
+    await expect(setNestedAddresses(true)).rejects.toMatchObject({ response: { status: 401 } })
+    await expect(mutated(useSetInstanceWatch, true)).rejects.toMatchObject({ response: { status: 401 } })
   })
 
   it('sends the person to root to delete their account', async () => {

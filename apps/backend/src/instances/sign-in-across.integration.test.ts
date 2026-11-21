@@ -111,7 +111,8 @@ describe('signing in across root and an instance, each its own process', () => {
     });
     const atInstance = fetchSide(instance.url);
     const signedIn = await signedInThrough(fetchSide(root.url, owner.cookie), atInstance, '/api/identity/go');
-    expect((await atInstance(signedIn.callback, { cookie: signedIn.startCookie })).status).toBe(401);
+    expect((await atInstance(signedIn.callback, { cookie: signedIn.startCookie })).status).toBe(400);
+    expect((await atInstance(signedIn.callback, { cookie: signedIn.session })).status).toBe(400);
     expect((await atInstance(signedIn.callback)).status).toBe(400);
     session = signedIn.session;
     expect((await call(`${instance.url}/api/conversations`, { cookie: session })).status).toBe(200);

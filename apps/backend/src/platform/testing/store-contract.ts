@@ -177,6 +177,35 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
     });
   });
 
+  describe('browsers\' sessions', () => {
+    const held = (sub: string, rootSid: string) => ({
+      cookie: { originalMaxAge: 60_000, expires: new Date(Date.now() + 60_000).toISOString(), httpOnly: true, path: '/' },
+      person: { sub, email: `${sub}@example.com`, claims: [{ role: 'person' }], sessionAt: 1, accessExp: 2, rootSid, tokens: { access: 'a', refresh: 'r', id: 'i' } },
+    });
+    const put = (store: PlatformStore, id: string, value: unknown) => new Promise<void>((resolve, reject) => { store.browserSessions().set(id, value as never, (err) => (err ? reject(err as Error) : resolve())); });
+    const got = (store: PlatformStore, id: string) => new Promise<unknown>((resolve, reject) => { store.browserSessions().get(id, (err, value) => (err ? reject(err as Error) : resolve(value ?? undefined))); });
+
+    it('keeps a session by its id alone and gives back what it holds', async () => {
+      const store = await make();
+      await put(store, 'b1', held('ann', 'root-1'));
+      expect(await got(store, 'b1')).toMatchObject({ person: { sub: 'ann', rootSid: 'root-1', tokens: { refresh: 'r' } } });
+      expect(await got(store, 'never-made')).toBeUndefined();
+    });
+
+    it('ends every session of a person, or every session of one sign-in at root, and leaves the others alone', async () => {
+      const store = await make();
+      await put(store, 'b1', held('ann', 'root-1'));
+      await put(store, 'b2', held('ann', 'root-2'));
+      await put(store, 'b3', held('bob', 'root-3'));
+      await put(store, 'b4', held('ann', 'root-1'));
+      expect((await store.endBrowserSessions({ rootSid: 'root-1' })).sort()).toEqual(['b1', 'b4']);
+      expect([await got(store, 'b1'), await got(store, 'b2')]).toEqual([undefined, expect.objectContaining({})]);
+      expect(await store.endBrowserSessions({ sub: 'ann' })).toEqual(['b2']);
+      expect(await got(store, 'b3')).toMatchObject({ person: { sub: 'bob' } });
+      expect(await store.endBrowserSessions({ sub: 'nobody' })).toEqual([]);
+    });
+  });
+
   describe('failed sign-in attempts', () => {
     it('has no attempts for a key that never failed', async () => {
       const store = await make();

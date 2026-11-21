@@ -1,5 +1,8 @@
 import type { AreaStore } from './lib/collection.js';
 import type { Db } from 'mongodb';
+import type { Store as SessionStore } from 'express-session';
+import { MongoStore } from 'connect-mongo';
+import { BROWSER_SESSION_SECONDS, type BrowserSessionsOf } from './lib/browser-session.js';
 import type { MigrationRecord } from './lib/migrations.js';
 import type { EndedSession } from './lib/ended-sessions.js';
 import { keepWrittenDocuments, watchNudges, watchWrites, type Watching } from './lib/change-streams.js';
@@ -13,6 +16,8 @@ export interface PlatformStore extends AreaStore {
   endSession(ended: EndedSession): Promise<void>;
   sessionsEndedSince(at: number): Promise<EndedSession[]>;
   watchSessionEnds(on: (ended: EndedSession) => void): Watching;
+  browserSessions(): SessionStore;
+  endBrowserSessions(of: BrowserSessionsOf): Promise<string[]>;
   attemptsOf(key: string): Promise<SignInAttempts | undefined>;
   countFailure(key: string, now: number, rule: LockoutRule): Promise<{ before: SignInAttempts | undefined; after: SignInAttempts }>;
   clearAttempts(key: string): Promise<void>;
@@ -32,6 +37,8 @@ export interface PlatformStore extends AreaStore {
   processesSeenSince(at: string): Promise<KoalaProcess[]>;
   watchProcesses(on: () => void): Watching;
 }
+
+const BROWSER_SESSIONS = 'browserSessions';
 
 const PROCESSES: readonly string[] = ['backend', 'worker-host', 'worker-cluster', 'worker-engine'];
 
@@ -58,6 +65,24 @@ export function dependencyStateFrom(doc: Record<string, unknown>): DependencySta
 
 export class MongoPlatformStore implements PlatformStore {
   constructor(private readonly db: () => Db) {}
+
+  private sessionStore: { db: Db; store: MongoStore } | undefined;
+
+  browserSessions(): SessionStore {
+    const db = this.db();
+    if (this.sessionStore?.db !== db) {
+      this.sessionStore = { db, store: MongoStore.create({ client: db.client, dbName: db.databaseName, collectionName: BROWSER_SESSIONS, stringify: false, ttl: BROWSER_SESSION_SECONDS, autoRemove: 'native' }) };
+    }
+    return this.sessionStore.store;
+  }
+
+  async endBrowserSessions(of: BrowserSessionsOf): Promise<string[]> {
+    const sessions = this.db().collection(BROWSER_SESSIONS);
+    const filter = 'sub' in of ? { 'session.person.sub': of.sub } : { 'session.person.rootSid': of.rootSid };
+    const ids = (await sessions.find(filter, { projection: { _id: 1 } }).toArray()).map((doc) => String(doc._id));
+    if (ids.length) await sessions.deleteMany({ _id: { $in: ids as never[] } });
+    return ids;
+  }
 
   private get endedSessions() {
     return this.db().collection('endedSessions');

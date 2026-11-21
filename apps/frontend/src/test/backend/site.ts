@@ -5,7 +5,6 @@ import express, { type Router } from 'express'
 import { Server as SocketServer } from 'socket.io'
 import { afterAll } from 'vitest'
 import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
-import { standInClientSessions } from '../../../../backend/src/platform/testing/client-sessions-stand-in'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { refuseWorkOfDeletingProjects } from '../../../../backend/src/projects/wiring/deleting-refusals'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
@@ -23,6 +22,8 @@ import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
 import { getMe, login, verifySignUp, type SessionUser } from '../../features/platform'
 import { openRoutesOf } from '../../../../backend/src/open-routes'
+import { InstanceReach } from '../../../../backend/src/instances/services/InstanceReach'
+import { SESSION_ID_COOKIE, rootSessionOf, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
 export const SETUP_CODE = 'frontend-integration-setup-code'
@@ -42,12 +43,18 @@ export interface Mail {
   text: string
 }
 
+export interface Root extends Served {
+  db: Database
+}
+
 export interface Backend {
   db: Database
   origin: string
+  rootUrl: string
   mailbox: Mail[]
   signIn: (email?: string) => Promise<SessionUser>
   signInAnother: (email: string) => Promise<SessionUser>
+  turnedAway: (email: string) => Promise<string>
   invite: () => Promise<string>
   codeMailedTo: (email: string) => string
 }
@@ -55,20 +62,38 @@ export interface Backend {
 interface Page {
   reconfigure: (settings: { url: string }) => void
   window: { _origin: string }
+  cookieJar: { setCookieSync: (cookie: string, url: string) => unknown }
+}
+
+const thePage = (): Page => {
+  const dom = (globalThis as { jsdom?: Page }).jsdom
+  if (!dom) throw new Error('the frontend integration tier runs in jsdom, whose page has to move to the backend it talks to')
+  return dom
 }
 
 const moveThePageTo = (origin: string): void => {
-  const dom = (globalThis as { jsdom?: Page }).jsdom
-  if (!dom) throw new Error('the frontend integration tier runs in jsdom, whose page has to move to the backend it talks to')
+  const dom = thePage()
   dom.reconfigure({ url: `${origin}/` })
   dom.window._origin = origin
 }
 
 const INSTANCE_OWNER = 'owner-1'
+export const INSTANCE_ID = 'inst-frontend'
 
-export async function startBackend(mount: (site: Site) => void | Promise<void>, options: { role?: 'root' | 'instance' } = {}): Promise<Backend> {
+const listening = async (app: express.Express): Promise<{ server: http.Server; url: string }> => {
+  const server = http.createServer(app)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  afterAll(() => new Promise<void>((resolve) => { server.close(() => resolve()) }))
+  return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` }
+}
+
+const ownRoot = async (): Promise<Root> => {
+  const app = express()
+  return { app, url: (await listening(app)).url, db: await testDatabase() }
+}
+
+export async function startBackend(mount: (site: Site) => void | Promise<void>, options: { role?: 'root' | 'instance'; root?: Root } = {}): Promise<Backend> {
   const asInstance = options.role === 'instance'
-  const throughRoot = standInClientSessions()
   let people = 0
   const db = await testDatabase()
   await seedAll(db)
@@ -79,11 +104,19 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   afterAll(() => new Promise<void>((resolve) => { void io.close(() => resolve()) }))
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
-  const sessionEnds = new SessionEnds(db.platform)
   const revocations = new AccessRevocations()
-  const auth = asInstance
-    ? createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: INSTANCE_OWNER, clientSessions: throughRoot.sessions, sessionEnds })
-    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds })
+  const root = asInstance ? options.root ?? await ownRoot() : undefined
+  const throughRoot = root
+    ? await servedThroughRoot({
+      rootDb: root.db, instanceDb: db, root, instance: { url: origin, app }, reach: new InstanceReach({ open: true }),
+      instanceId: INSTANCE_ID, ownerId: INSTANCE_OWNER, revocations,
+      dependency: { failed: (_dependency, err) => err },
+    })
+    : undefined
+  if (throughRoot) await throughRoot.signIn.announce()
+  const auth = throughRoot
+    ? throughRoot.instanceAuth
+    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) })
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })
@@ -91,8 +124,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
 
   app.use('/api', auth.requireAuth)
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
-  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, appUrl: origin, revocations, passwords }))
-  app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: SESSION_KEY }))
+  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, appUrl: origin, accounts: !asInstance, revocations, passwords }))
+  if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: SESSION_KEY }))
   refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()
   app.use('/api', api)
@@ -102,10 +135,13 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   moveThePageTo(origin)
 
   const signIn = async (email = 'owner@koala.test'): Promise<SessionUser> => {
-    if (asInstance) {
-      const owner = email === 'owner@koala.test'
-      const token = throughRoot.signIn({ userId: owner ? INSTANCE_OWNER : `person-${(people += 1)}`, email, claims: owner ? [{ role: 'person' }, { role: 'instance-owner' }] : [{ role: 'person' }] })
-      document.cookie = `session=${token}; path=/`
+    if (root) {
+      const person = { id: email === 'owner@koala.test' ? INSTANCE_OWNER : `person-${(people += 1)}`, email }
+      await root.db.accounts.saveUser({ ...person, emailVerified: true, twoFactorEnabled: false, createdAt: new Date().toISOString() })
+      const { instanceJar, landed } = await signInThroughRoot(root.url, origin, rootSessionOf(person))
+      const held = instanceJar.get(SESSION_ID_COOKIE)
+      if (!held) throw new Error(`signing ${email} in through root ended on ${landed.status} at ${landed.url}: ${await landed.text()}`)
+      thePage().cookieJar.setCookieSync(`${SESSION_ID_COOKIE}=${held}; Path=/; HttpOnly; SameSite=Lax`, `${origin}/`)
       const me = await getMe()
       if (!me) throw new Error(`the instance did not take ${email}'s session from root`)
       return me
@@ -128,8 +164,19 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     return code
   }
 
+  const turnedAway = async (email: string): Promise<string> => {
+    if (!root) throw new Error('only an instance turns people away at root; root itself signs up anyone it invites')
+    const person = { id: `person-${(people += 1)}`, email }
+    await root.db.accounts.saveUser({ ...person, emailVerified: true, twoFactorEnabled: false, createdAt: new Date().toISOString() })
+    const { instanceJar, landed } = await signInThroughRoot(root.url, origin, rootSessionOf(person))
+    if (landed.status !== 403) throw new Error(`root let ${email} into someone else's instance: ${landed.status} at ${landed.url}`)
+    const held = instanceJar.get(SESSION_ID_COOKIE)
+    thePage().cookieJar.setCookieSync(held ? `${SESSION_ID_COOKIE}=${held}; Path=/; HttpOnly; SameSite=Lax` : `${SESSION_ID_COOKIE}=; Path=/; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT`, `${origin}/`)
+    return landed.text()
+  }
+
   const signInAnother = async (email: string): Promise<SessionUser> => {
-    if (asInstance) return signIn(email)
+    if (root) throw new Error(`an instance signs in only its owner, and root turns ${email} away: use turnedAway`)
     const pending = await login({ email, password: PASSWORD, inviteCode: await invite() }, { register: true })
     if (!pending.verify) throw new Error(`signing up ${email} answered ${JSON.stringify(pending)}`)
     const made = await verifySignUp({ id: pending.verify, code: codeMailedTo(email) })
@@ -137,5 +184,5 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     return made.user
   }
 
-  return { db, origin, mailbox, signIn, signInAnother, invite, codeMailedTo }
+  return { db, origin, rootUrl: root?.url ?? origin, mailbox, signIn, signInAnother, turnedAway, invite, codeMailedTo }
 }

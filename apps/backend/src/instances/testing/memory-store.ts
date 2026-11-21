@@ -3,7 +3,7 @@ import { collectionIn, copied, type Collections } from '../../platform/testing/m
 import { stampServed, type InstanceRecord } from '../lib/instances.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
 import type { SignInKey } from '../lib/oidc.js';
-import type { ClientSession, LogoutDelivery, SessionRevocation } from '../lib/sign-in-state.js';
+import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from '../lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from '../lib/dependency-findings.js';
 import type { InstancesStore } from '../store.js';
@@ -22,7 +22,6 @@ interface Artifact {
   accountId?: string;
 }
 
-interface StoredSession extends Omit<ClientSession, 'id' | 'expiresAt'> { expiresAt: Date }
 
 interface StoredWatch { ownerId: string; reach?: Reach; presence?: boolean; notifyWhenUnreachable?: boolean }
 
@@ -34,8 +33,6 @@ export class MemoryInstancesStore implements InstancesStore {
   private readonly releases = new Map<string, Fields>();
   private readonly artifacts: Map<string, Artifact>;
   private readonly logouts = new Map<string, LogoutDelivery>();
-  private readonly sessions: Map<string, StoredSession>;
-  private readonly revocations = new Map<string, string>();
   private readonly logoutsTaken = new Set<string>();
   private readonly findings = new Map<string, Omit<DependencyFinding, 'key'>>();
   private check: DependencyCheck | undefined;
@@ -46,7 +43,6 @@ export class MemoryInstancesStore implements InstancesStore {
     this.instances = collectionIn<InstanceRecord>(collections, 'instances');
     this.watches = collectionIn<StoredWatch>(collections, 'instanceWatches');
     this.artifacts = collectionIn<Artifact>(collections, 'oidcArtifacts');
-    this.sessions = collectionIn<StoredSession>(collections, 'clientSessions');
     this.withdrawalNotices = collectionIn<{ ownerId: string; at: string }>(collections, 'releaseWithdrawalNotices');
   }
 
@@ -239,39 +235,10 @@ export class MemoryInstancesStore implements InstancesStore {
     this.logouts.set(id, { ...delivery, lastError: error, lastTriedAt: at, attempts: (attempts ?? 0) + 1 });
   }
 
-  async saveClientSession(session: ClientSession): Promise<void> {
-    const { id, expiresAt, ...rest } = session;
-    this.sessions.set(id, { ...asStored(copied(rest)), expiresAt: new Date(expiresAt) });
-  }
-
-  async getClientSession(sid: string): Promise<ClientSession | undefined> {
-    const stored = this.sessions.get(sid);
-    if (!stored) return undefined;
-    const { expiresAt, ...rest } = stored;
-    return { id: sid, ...copied(rest), expiresAt: expiresAt.toISOString() };
-  }
-
-  async dropClientSession(sid: string): Promise<void> {
-    this.sessions.delete(sid);
-  }
-
-  async dropClientSessionsOf(subject: string): Promise<void> {
-    for (const [sid, session] of [...this.sessions]) if (session.ownerId === subject) this.sessions.delete(sid);
-  }
-
-  async recordRevocation(revocation: SessionRevocation): Promise<void> {
-    const held = this.revocations.get(revocation.subject);
-    this.revocations.set(revocation.subject, held !== undefined && held > revocation.before ? held : revocation.before);
-  }
-
   async takeLogoutToken(jti: string, _until: Date): Promise<boolean> {
     if (this.logoutsTaken.has(jti)) return false;
     this.logoutsTaken.add(jti);
     return true;
-  }
-
-  async getRevocations(): Promise<SessionRevocation[]> {
-    return [...this.revocations].map(([subject, before]) => ({ subject, before }));
   }
 
   async getDependencyFindings(): Promise<DependencyFinding[]> {

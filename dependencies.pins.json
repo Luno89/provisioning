@@ -722,6 +722,44 @@
       "released": "2026-09-05T12:40:20Z"
     },
     {
+      "kind": "npm",
+      "name": "express-session",
+      "version": "1.19.0",
+      "where": "a browser's session on a Koala: the cookie holds only its id, and the backend keeps the tokens",
+      "source": "https://www.npmjs.com/package/express-session",
+      "github": "expressjs/session",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "express-session"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/package.json",
+          "pattern": "\"express-session\": \"([0-9.]+)\""
+        }
+      ],
+      "released": "2026-01-22T14:46:26Z"
+    },
+    {
+      "kind": "npm",
+      "name": "connect-mongo",
+      "version": "6.0.0",
+      "where": "where a Koala keeps its browsers' sessions, in its own Mongo",
+      "source": "https://www.npmjs.com/package/connect-mongo",
+      "github": "jdesboeufs/connect-mongo",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "connect-mongo"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/package.json",
+          "pattern": "\"connect-mongo\": \"([0-9.]+)\""
+        }
+      ],
+      "released": "2025-11-30T23:46:37Z"
+    },
+    {
       "kind": "image",
       "name": "node",
       "version": "22-bookworm-slim",
