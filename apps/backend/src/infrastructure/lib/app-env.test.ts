@@ -116,7 +116,16 @@ describe('the defaults a deploy fills in, held to their exact values', () => {
   it('hands the stack an empty value for every setting a deploy left out, never some other text', () => {
     const asked = new Set(['STACK_TYPE', 'CLUSTER_NAME', 'DEPLOYMENT_STRATEGY', 'DEPLOYMENT_NAME', 'DEPLOYMENT_ID', 'KUBECONFIG', 'APP_SERVICE_TYPE', 'APP_TYPE', 'VPN_ENABLED', 'VPN_PROTOCOL', 'VLLM_MODEL_PREDOWNLOADED', 'VLLM_TOOL_CALLING_ENABLED', 'VLLM_ENABLE_PREFIX_CACHING', 'TABBYAPI_REASONING', 'TABBYAPI_INLINE_MODEL_LOADING', 'TABBYAPI_DISABLE_AUTH', 'APP_SETTINGS_JSON']);
     const left = Object.entries(buildAppEnv({ serviceType: 'ClusterIP', physicalName: 'desk', strategy: 'helm', namespace: 'shop-1a2b', deploymentId: 'd1', kubeconfigPath: '/k/config', appType: 'odoo', storageEnv: {} })).filter(([name]) => !asked.has(name));
-    expect(left.length).toBeGreaterThan(50);
+    expect(left.map(([name]) => name).sort()).toEqual([
+      'APP_SPEC_JSON', 'BINDINGS_JSON', 'CRAWL4AI_API_TOKEN', 'CRAWL4AI_MEMORY_LIMIT', 'CRAWL4AI_SHM_SIZE', 'DB_IMAGE_REPO', 'DB_IMAGE_TAG', 'GITAPP_ENV',
+      'HERMES_DASHBOARD_PASSWORD', 'HF_TOKEN', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_STORAGE', 'MODEL_IMAGE', 'NEXTCLOUD_ADMIN_PASSWORD',
+      'NEXTCLOUD_DB_PASSWORD', 'NEXTCLOUD_DB_ROOT_PASSWORD', 'ODOO_IMAGE_REPO', 'ODOO_IMAGE_TAG', 'OPENAI_API_BASE_URL', 'POSTGRES_IMAGE_REPO', 'POSTGRES_IMAGE_TAG',
+      'SEARXNG_ENGINES', 'SEARXNG_SECRET_KEY', 'TABBYAPI_CACHE_MODE', 'TABBYAPI_CACHE_PVC', 'TABBYAPI_CPU_LIMIT', 'TABBYAPI_EXTRA_ENV', 'TABBYAPI_MAX_BATCH_SIZE',
+      'TABBYAPI_MAX_SEQ_LEN', 'TABBYAPI_MEMORY_LIMIT', 'TABBYAPI_MODEL', 'TABBYAPI_MODEL_SIZE_BYTES', 'TABBYAPI_REVISION', 'TABBYAPI_SHM_SIZE', 'TABBYAPI_TOOL_FORMAT',
+      'VERDACCIO_STORAGE', 'VERDACCIO_UPSTREAM', 'VLLM_CACHE_PVC', 'VLLM_DTYPE', 'VLLM_EXTRA_ARGS', 'VLLM_GPU_MEM_UTIL', 'VLLM_GPU_VENDOR', 'VLLM_MAX_MODEL_LEN',
+      'VLLM_MAX_NUM_SEQS', 'VLLM_MODEL', 'VLLM_SERVED_MODEL_NAME', 'VLLM_TOOL_CALL_PARSER', 'VPN_CONFIG', 'VPN_DEDICATED_IP', 'WEBUI_ENABLE_WEB_SEARCH',
+      'WEBUI_WEB_SEARCH_API_KEY', 'WEBUI_WEB_SEARCH_ENGINE', 'WEB_IMAGE_REPO', 'WEB_IMAGE_TAG',
+    ]);
     expect(left.filter(([, value]) => value !== '')).toEqual([]);
   });
 });
