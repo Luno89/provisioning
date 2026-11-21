@@ -35,9 +35,7 @@ const EVERY_SETTING = {
   searxngSecretKey: 'searxng-key', searxngEngines: 'duckduckgo', crawl4aiApiToken: 'crawl-token', crawl4aiMemoryLimit: '3Gi', crawl4aiShmSize: '1Gi',
   minioRootUser: 'minio-user', minioRootPassword: 'minio-password', nextcloudAdminPassword: 'nc-admin', nextcloudDbPassword: 'nc-db',
   nextcloudDbRootPassword: 'nc-root', hermesDashboardPassword: 'hermes-password', minioStorage: '30Gi',
-  qdrantApiKey: 'qdrant-key', qdrantStorage: '12Gi', qdrantMemoryLimit: '2Gi',
-  quickwitS3Endpoint: 'http://minio.store:9000', quickwitS3AccessKey: 'qw-access', quickwitS3SecretKey: 'qw-secret', quickwitBucket: 'qw-bucket',
-  teiModelId: 'org/embedder', teiUseGpu: true, teiMemoryLimit: '4Gi', verdaccioUpstream: 'https://registry.npmjs.org/', verdaccioStorage: '9Gi',
+  verdaccioUpstream: 'https://registry.npmjs.org/', verdaccioStorage: '9Gi',
   gitappEnv: 'GITHUB_TOKEN=abc', webuiEnableWebSearch: false, webuiWebSearchEngine: 'brave', webuiWebSearchApiKey: 'brave-key',
   appSettings: { theme: 'dark' },
 } satisfies Required<AppSettings>;

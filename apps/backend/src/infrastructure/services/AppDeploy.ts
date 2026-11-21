@@ -15,7 +15,7 @@ import { modelImageOf, type ModelApp } from '../lib/model-images.js';
 import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
+  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { appSettingsOf, definedFields, DeployRequestProblem, requestedSettingsOf, type DeployRequest } from '../lib/deploy-request.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
@@ -119,8 +119,6 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       dep = resolveSearxngDefaults(dep as DeploymentMetadata)
       dep = resolveNextcloudDefaults(resolveMinioDefaults(dep as DeploymentMetadata))
       dep = resolveHermesDefaults(dep as DeploymentMetadata)
-      dep = resolveQdrantDefaults(dep as DeploymentMetadata)
-      dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await deps.db.infrastructure.getDeployments())
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
     }
 

@@ -47,7 +47,7 @@ import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
+  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 import { QUEUES } from '../../platform/index.js';
@@ -723,8 +723,6 @@ export class TemporalBridge {
     dep = resolveSearxngDefaults(dep)
     dep = resolveNextcloudDefaults(resolveMinioDefaults(dep))
     dep = resolveHermesDefaults(dep)
-    dep = resolveQdrantDefaults(dep)
-    dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
 
     const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, deployments);

@@ -11,8 +11,6 @@ export const DEPLOYMENT_SECRET_FIELDS = [
   'nextcloudDbPassword',
   'nextcloudDbRootPassword',
   'hermesDashboardPassword',
-  'qdrantApiKey',
-  'quickwitS3SecretKey',
   'webuiWebSearchApiKey',
 ] as const satisfies readonly (keyof DeploymentMetadata)[];
 

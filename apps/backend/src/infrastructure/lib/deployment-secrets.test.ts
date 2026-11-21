@@ -6,12 +6,12 @@ const key = 'a-test-key-that-is-at-least-thirty-two-characters' as unknown as Se
 
 describe('a deployment\'s secrets at rest', () => {
   it('seals every secret field and leaves the rest as it is', () => {
-    const dep = { id: 'd1', name: 'minio', minioRootUser: 'koala', minioRootPassword: 'hunter2', qdrantApiKey: 'q-key', minioStorage: '10Gi' };
+    const dep = { id: 'd1', name: 'minio', minioRootUser: 'koala', minioRootPassword: 'hunter2', nextcloudAdminPassword: 'nc-key', minioStorage: '10Gi' };
     const sealed = sealDeployment(dep, key);
     expect(sealed.minioRootUser).toBe('koala');
     expect(sealed.minioStorage).toBe('10Gi');
     expect(looksEncrypted(sealed.minioRootPassword)).toBe(true);
-    expect(looksEncrypted(sealed.qdrantApiKey)).toBe(true);
+    expect(looksEncrypted(sealed.nextcloudAdminPassword)).toBe(true);
     expect(sealed.minioRootPassword).not.toBe('hunter2');
     expect(unsealDeployment(sealed, key)).toEqual(dep);
   });
@@ -35,7 +35,7 @@ describe('a deployment\'s secrets at rest', () => {
   it('covers every password, token and key a deployment carries', () => {
     expect([...DEPLOYMENT_SECRET_FIELDS].sort()).toEqual([
       'crawl4aiApiToken', 'hermesDashboardPassword', 'minioRootPassword', 'nextcloudAdminPassword', 'nextcloudDbPassword', 'nextcloudDbRootPassword',
-      'qdrantApiKey', 'quickwitS3SecretKey', 'searxngSecretKey', 'tabbyHfToken', 'vllmHfToken', 'webuiWebSearchApiKey',
+      'searxngSecretKey', 'tabbyHfToken', 'vllmHfToken', 'webuiWebSearchApiKey',
     ]);
   });
 

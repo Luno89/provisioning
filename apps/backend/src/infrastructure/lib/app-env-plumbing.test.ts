@@ -43,12 +43,10 @@ describe('a setting reaching the container', () => {
       ...base,
       gitappEnv: 'GITHUB_TOKEN=abc',
       minioRootPassword: 'pw',
-      quickwitS3SecretKey: 'sk',
       verdaccioUpstream: 'https://registry.npmjs.org/',
     });
     expect(env.GITAPP_ENV).toBe('GITHUB_TOKEN=abc');
     expect(env.MINIO_ROOT_PASSWORD).toBe('pw');
-    expect(env.QUICKWIT_S3_SECRET_KEY).toBe('sk');
     expect(env.VERDACCIO_UPSTREAM).toBe('https://registry.npmjs.org/');
   });
 

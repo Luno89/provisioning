@@ -125,5 +125,8 @@
  ],
  "apps/backend/src/worker-cluster.integration.test.ts": [
   "2026-11-21T20:01:34.124Z"
+ ],
+ "apps/backend/src/infrastructure/store.integration.test.ts": [
+  "2026-11-21T19:58:00.000Z"
  ]
 }
