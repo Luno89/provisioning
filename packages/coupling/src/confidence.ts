@@ -9,7 +9,7 @@ export interface Link { id: string; from: string; to: string[]; kind: Kind; path
 
 export interface Run { test: string; layer: Layer; units: string[]; links: string[]; versions?: Record<string, string>; expired?: string[] }
 
-export interface History { changes?: Record<string, number>; failures?: Record<string, number> }
+export interface History { changes?: Record<string, number>; failures?: Record<string, number>; faults?: Record<string, number> }
 
 export interface Unchecked { survived: number; examples: string[] }
 
@@ -96,7 +96,9 @@ const riskiestFirst = <T extends { risk: number }>(list: readonly T[]): T[] =>
 export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKind = { dependency: EVEN_SHARING }): Judgement {
   const changes = codebase.history?.changes ?? {};
   const failures = codebase.history?.failures ?? {};
-  const weight = (unit: string): number => (1 + Math.log2(1 + (changes[unit] ?? 0))) * (1 + (failures[unit] ?? 0));
+  const faults = codebase.history?.faults ?? {};
+  const fileOf = new Map(codebase.units.map((unit) => [unit.id, unit.file]));
+  const weight = (unit: string): number => (1 + Math.log2(1 + (changes[unit] ?? 0))) * (1 + (failures[unit] ?? 0)) * (1 + (faults[fileOf.get(unit) ?? ''] ?? 0));
   const direct: JudgedLink[] = codebase.links.map((link) => {
     const proving = codebase.runs.filter((run) => proves(link, run, codebase.versions));
     const provenAt = LAYERS.filter((layer) => proving.some((run) => run.layer === layer));

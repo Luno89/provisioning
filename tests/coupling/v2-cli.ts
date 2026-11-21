@@ -56,6 +56,9 @@ const codebase = { ...codebaseOf(graph, runs, {
 }), unchecked, scores };
 const SHARED = { dependency: SHARING, composition: { target: 0.5 } };
 const FAULTS = JSON.parse(readFileSync(join(ROOT, 'tests', 'coupling', 'faults.json'), 'utf8')) as KnownFault[];
+const faultsByFile: Record<string, number> = {};
+for (const fault of FAULTS) faultsByFile[fault.file] = (faultsByFile[fault.file] ?? 0) + 1;
+codebase.history = { ...codebase.history, faults: faultsByFile };
 const faultsFound = backtest(judge(codebase, STARTING, SHARED), FAULTS);
 const learned = learnedWeights(STARTING, [...evidenceFrom(kept, Date.now()), ...faultEvidence(faultsFound)], { strength: 10, halfLife: 30 });
 const WEIGHTS = learned.weights;

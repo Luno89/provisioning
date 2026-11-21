@@ -225,6 +225,20 @@ describe('a function\'s confidence from its own mutation score', () => {
   });
 });
 
+describe('the faults code already had', () => {
+  it('weighs a function heavier for each real fault its file already had, so code that went wrong before ranks riskier', () => {
+    const judged = judge(codebase({
+      units: [{ id: 'calm', file: 'calm.ts', name: 'calm', line: 1 }, { id: 'burned', file: 'burned.ts', name: 'burned', line: 1 }],
+      runs: [{ test: 'u', layer: 'unit', units: ['calm', 'burned'], links: [] }],
+      history: { faults: { 'burned.ts': 2 } },
+    }), WEIGHTS);
+    const of = (id: string) => judged.functions.find((one) => one.id === id)!;
+
+    expect(of('burned').risk).toBeCloseTo(of('calm').risk * 3);
+    expect(judged.functions[0]!.id).toBe('burned');
+  });
+});
+
 describe('functions whose tests let planted faults through', () => {
   it('lists the functions whose tests missed the most planted faults, with what was changed, after the riskiest functions', () => {
     const judged = judge(codebase({
