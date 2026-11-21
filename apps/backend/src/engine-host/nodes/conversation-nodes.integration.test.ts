@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { NO_MEMORY_INDEX } from '../testing/host-fixtures.js';
 import { builtInCatalogue, NOT_RUN_CALL, REFUSED_CALL } from '@koala/agent-engine/procedure';
 import { asChatMessages, asStoredToolCalls, asStoredToolCallsMany, createConversationNodes, loadedMessages, storedCompaction } from './conversation-nodes.js';
 import { COMPACTION_PREFIX } from '@koala/agent-engine/procedure';
@@ -8,7 +9,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Conversation, ConversationMessage } from '../../engine/lib/conversations.js';
 import { NoNoteToAskError, NOTICE_PREFIX, openTurn } from '../../engine/lib/conversations.js';
 
-const noMemoryIndex = async (): Promise<void> => { throw new Error('nothing here keeps a memory index'); };
+const noMemoryIndex = NO_MEMORY_INDEX;
 
 const said = (over: Partial<ConversationMessage> & Pick<ConversationMessage, 'role' | 'content'>): ConversationMessage => ({
   at: '2026-09-20T00:00:00.000Z',

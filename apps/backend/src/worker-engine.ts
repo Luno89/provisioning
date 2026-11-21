@@ -3,7 +3,7 @@ import { QUEUES, isOff, reachingMemoryIndex } from './platform/index.js';
 import { dependencyFetch } from '@koala/engine-core/http';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, revokeRunSignal, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
-import { unindexerFrom } from './memory/index.js';
+import { indexerFrom, indexingFrom, indexOnRecovery, indexPendingMemories, searcherFrom } from './memory/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
@@ -115,7 +115,11 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const extensions = extensionServiceFor(db);
   const checksApi = tenant.checksApi;
   const checks = httpCheckAccess(async (who) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerFor(who.grantId))));
-  const engineStores = storesFromDatabase(db, unindexerFrom(reachingMemoryIndex(tenant.memoryIndex, dependencies, dependencyFetch)));
+  const memoryIndex = reachingMemoryIndex(tenant.memoryIndex, dependencies, dependencyFetch);
+  const engineStores = storesFromDatabase(db, { ...indexingFrom(memoryIndex), search: searcherFrom(memoryIndex) });
+  const catchUpIndex = () => indexPendingMemories({ list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), index: indexerFrom(memoryIndex) });
+  indexOnRecovery(dependencies, catchUpIndex);
+  void catchUpIndex().catch((err: Error) => console.warn(`[memory] the memories written while the index was down wait for its next answer: ${err.message}`));
   const growers: { launcher?: GroveRunLauncher } = {};
   const groving = (): GroveRunLauncher => {
     if (!growers.launcher) throw new Error('the grove launcher is not ready yet');
@@ -474,6 +478,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
       store: db,
+      indexing: indexingFrom(memoryIndex),
       api: (space, checkRunId) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerForRun(checkRunId, space.id))),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });

@@ -1,7 +1,9 @@
 import { ignore } from '@koala/engine-core/failures';
-import { consolidateMemories, type ConsolidateDeps, type ConsolidationReport } from './memory-consolidate.js';
+import { consolidateMemories, type ConsolidateDeps, type ConsolidationReport } from '../lib/memory-consolidate.js';
 import type { MemoryIndexReach } from '../../platform/index.js';
-import { indexMemories, removeMemories, similarTo } from './memory-index.js';
+import { indexingFrom, similarTo } from '../lib/memory-index.js';
+import type { MemoryItem } from '../lib/memory-store.js';
+import { createMemoryWriter } from './memory-writer.js';
 
 export type KeepingState =
   | { ownerId: string; state: 'kept'; at: string }
@@ -12,14 +14,16 @@ export interface KeepingRecords {
   saveKeepingState(state: KeepingState): Promise<void>;
 }
 
+type MemoryRecords = ConsolidateDeps['db']['memory'] & { saveMemory(item: MemoryItem): Promise<void> };
+
 export interface KeepingPlace {
-  db: ConsolidateDeps['db'];
+  db: ConsolidateDeps['db'] & { memory: MemoryRecords };
   index: () => MemoryIndexReach;
   now?: (() => string) | undefined;
 }
 
 export interface KeepingEveryonePlace extends KeepingPlace {
-  db: ConsolidateDeps['db'] & { memory: ConsolidateDeps['db']['memory'] & KeepingRecords };
+  db: ConsolidateDeps['db'] & { memory: MemoryRecords & KeepingRecords };
 }
 
 export type KeepingOutcome =
@@ -28,12 +32,17 @@ export type KeepingOutcome =
 
 export async function consolidateOwner(place: KeepingPlace, ownerId: string): Promise<ConsolidationReport> {
   const ends = place.index();
+  const { memory } = place.db;
+  const writer = createMemoryWriter({
+    store: { list: (owner) => memory.getMemories(owner), save: (item) => memory.saveMemory(item), ...indexingFrom(ends) },
+    ...(place.now ? { now: place.now } : {}),
+  });
   return consolidateMemories({
     db: place.db,
     ownerId,
     ...(place.now ? { now: place.now } : {}),
-    unindex: async (retired) => removeMemories(ends, retired.map((memory) => memory.id)),
-    index: (items) => indexMemories(ends, items),
+    retire: (retired) => writer.retire(ownerId, retired),
+    keep: (items) => writer.keep(items),
     similar: async (ids: string[]) => {
       const out = new Map<string, { id: string; score: number }[]>();
       for (const id of ids) {

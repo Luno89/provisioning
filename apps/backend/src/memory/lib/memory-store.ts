@@ -46,6 +46,7 @@ export interface MemoryItem {
 
   lastUsedAt?: string;
   useCount?: number;
+  indexPending?: true;
 }
 
 import { DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';

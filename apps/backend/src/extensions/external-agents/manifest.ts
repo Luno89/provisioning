@@ -1,5 +1,5 @@
 import type { EngineExtension } from '@koala/agent-engine/procedure';
-import { EXTERNAL_PERSONAS } from './personas.js';
+import { ANTIGRAVITY_AGENT, EXTERNAL_PERSONAS } from './personas.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from './procedures.js';
 
 export const EXTERNAL_AGENTS: EngineExtension = {
@@ -8,5 +8,6 @@ export const EXTERNAL_AGENTS: EngineExtension = {
   describe: 'Agents that run their own loop on the person\'s machine (Antigravity first), handed one task at a time by a procedure that keeps the checking, recording and judging here.',
   version: '1',
   personas: EXTERNAL_PERSONAS,
+  grants: { [ANTIGRAVITY_AGENT]: ['search_memories'] },
   procedures: [EXTERNAL_AGENT_TASK, EXTERNAL_AGENT_CHAT],
 };

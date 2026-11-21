@@ -4,7 +4,7 @@ import type { ToolContract } from '@koala/engine-core';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ModelServiceLike } from '../registries/endpoints.js';
 import type { RunEnvironment, RunPlace, ToolRuntime } from '../temporal/contracts.js';
-import type { MemoryItem } from '../drivers/memory-store.js';
+import type { MemoryToolStore } from '../tools/memory-tools.js';
 import type { Principal } from '../../platform/index.js';
 import type { HandOffChecks } from '../tools/hand-offs.js';
 
@@ -17,11 +17,7 @@ export interface HostNodeServices {
     describe(ticket: RunPlace, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
     release(runId: string): Promise<void>;
   };
-  memories: {
-    list(ownerId: string): Promise<MemoryItem[]>;
-    save(item: MemoryItem): Promise<void>;
-    unindex(ownerId: string, ids: string[]): Promise<void>;
-  };
+  memories: MemoryToolStore;
   code?: import('./code-runner.js').CodeRunner | undefined;
   conversations: import('./conversation-nodes.js').ConversationStore;
   conversationWorkspaces?: Pick<import('../sandboxes/conversation-workspaces.js').ConversationWorkspaces, 'describe' | 'save'> | undefined;

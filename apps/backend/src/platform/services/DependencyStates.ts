@@ -28,6 +28,7 @@ export class DependencyStates implements DependencyReporter {
   private readonly unwritten = new Map<DependencyId, DependencyStateRow>();
   private readonly written = new Set<DependencyId>();
   private readonly strays = new Set<string>();
+  private readonly listeners = new Map<DependencyId, (() => Promise<void> | void)[]>();
   private stopped = false;
   private readonly observe = (observed: ObservableResult): void => {
     for (const dependency of this.described) observed.observe(this.stateOf(dependency).state === 'down' ? 0 : 1, { dependency });
@@ -46,6 +47,11 @@ export class DependencyStates implements DependencyReporter {
     if (!this.described.has(dependency)) return;
     this.checks.set(dependency, check);
     if (this.stateOf(dependency).state === 'down') this.schedule(dependency);
+  }
+
+  whenAnswering(dependency: DependencyId, heard: () => Promise<void> | void): void {
+    if (!this.described.has(dependency)) return;
+    this.listeners.set(dependency, [...(this.listeners.get(dependency) ?? []), heard]);
   }
 
   toldByConnection(dependency: DependencyId): void {
@@ -96,6 +102,11 @@ export class DependencyStates implements DependencyReporter {
     this.backoff.get(dependency)?.reset();
     this.say(`${DEPENDENCIES[dependency].name} answers again`);
     this.write(dependency);
+    this.tell(dependency);
+  }
+
+  private tell(dependency: DependencyId): void {
+    for (const heard of this.listeners.get(dependency) ?? []) void heard();
   }
 
   stateOf(dependency: DependencyId): DependencyState {
@@ -123,7 +134,9 @@ export class DependencyStates implements DependencyReporter {
   private async firstCheck(dependency: DependencyId): Promise<void> {
     try {
       await this.checks.get(dependency)!();
+      const recovers = this.stateOf(dependency).state === 'down';
       this.answered(dependency);
+      if (!recovers) this.tell(dependency);
     } catch (err) {
       const failure = failureOf(err);
       if (failure.kind === 'temporary') this.failed(dependency, err);

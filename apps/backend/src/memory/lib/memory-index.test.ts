@@ -5,9 +5,8 @@ import { intercepted as settings, QDRANT, qdrantAt, QUICKWIT, quickwitAt, TEI, u
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { DependencyDownError, MEMORY_INDEX_DEPENDENCIES, reachingMemoryIndex } from '../../platform/lib/dependencies.js';
 import { dependencyFetch } from '@koala/engine-core/http';
-import { ensureMemoryCollection, ensureMemoryIndex, indexMemories, removeMemories, searchMemories, similarTo } from './memory-index.js';
+import { ensureMemoryCollection, ensureMemoryIndex, indexMemories, removeMemories, searchMemories, searcherFrom, similarTo } from './memory-index.js';
 import { pointId } from '../../engine/lib/corpus-backend.js';
-import { recallMemories } from './memory-recall.js';
 import type { MemoryItem } from './memory-store.js';
 
 const ends = unreportedReach(settings);
@@ -140,31 +139,43 @@ describe('finding memories like one', () => {
 });
 
 describe('recalling memories for a run through the person\'s own search', () => {
-  const bank: MemoryItem[] = [
-    { ...memory, id: 'newest', title: 'NEWEST', createdAt: '2026-08-20T00:00:00.000Z' },
-    { ...memory, id: 'relevant', title: 'RELEVANT', createdAt: '2026-01-01T00:00:00.000Z' },
-  ];
+  const fresh = unreportedReach({ index: { base: 'http://quickwit-fresh.test:7280' }, vectors: { base: 'http://qdrant-fresh.test:6333', apiKey: 'k' }, embeddings: { base: TEI } });
 
-  it('puts what their Qdrant and Quickwit both rank ahead of what is merely recent', async () => {
+  it('puts first what Qdrant and Quickwit both find, asking each for as many as it is told', async () => {
+    const limits: unknown[] = [];
     server.use(
+      http.post(`${QUICKWIT}/api/v1/indexes`, () => HttpResponse.json({})),
+      http.put(`${QDRANT}/collections/:collection`, () => HttpResponse.json({ result: true })),
       http.post(`${TEI}/embed`, () => HttpResponse.json([[0.1, 0.2]])),
-      http.post(`${QDRANT}/collections/:collection/points/search`, () => HttpResponse.json({ result: [{ payload: { memory_id: 'relevant' } }] })),
-      http.get(`${QUICKWIT}/api/v1/:index/search`, () => HttpResponse.json({ hits: [{ memory_id: 'relevant' }] })),
+      http.post(`${QDRANT}/collections/:collection/points/search`, async ({ request }) => {
+        limits.push(((await request.json()) as { limit: unknown }).limit);
+        return HttpResponse.json({ result: [{ payload: { memory_id: 'a' } }, { payload: { memory_id: 'b' } }] });
+      }),
+      http.get(`${QUICKWIT}/api/v1/:index/search`, ({ request }) => {
+        limits.push(new URL(request.url).searchParams.get('max_hits'));
+        return HttpResponse.json({ hits: [{ memory_id: 'b' }] });
+      }),
     );
 
-    const out = await recallMemories({ memories: bank, ownerId: 'u1', query: 'rate limiting', endpoints: async () => ends });
-
-    expect(out.via).toBe('hybrid');
-    expect(out.context.indexOf('RELEVANT')).toBeLessThan(out.context.indexOf('NEWEST'));
+    expect(await searcherFrom(ends)('u1', 'rate limiting', 7)).toEqual(['b', 'a']);
+    expect(limits.map(String)).toEqual(['7', '7']);
   });
 
-  it('fails, saying Quickwit\'s answer, when their Quickwit cannot search', async () => {
+  it('asks the index nothing for a person with no memories', async () => {
+    expect(await searcherFrom(ends)('u1', 'rate limiting', 0)).toEqual([]);
+  });
+
+  it('makes the memories\' index and collection before its first search, so a new Koala finds nothing rather than failing', async () => {
+    const made: string[] = [];
     server.use(
+      http.post('http://quickwit-fresh.test:7280/api/v1/indexes', () => { made.push('index'); return HttpResponse.json({}); }),
+      http.put('http://qdrant-fresh.test:6333/collections/:collection', () => { made.push('collection'); return HttpResponse.json({ result: true }); }),
       http.post(`${TEI}/embed`, () => HttpResponse.json([[0.1, 0.2]])),
-      http.post(`${QDRANT}/collections/:collection/points/search`, () => HttpResponse.json({ result: [] })),
-      http.get(`${QUICKWIT}/api/v1/:index/search`, () => HttpResponse.text('index not found', { status: 404 })),
+      http.post('http://qdrant-fresh.test:6333/collections/:collection/points/search', () => HttpResponse.json({ result: [] })),
+      http.get('http://quickwit-fresh.test:7280/api/v1/:index/search', () => HttpResponse.json({ hits: [] })),
     );
 
-    await expect(recallMemories({ memories: bank, ownerId: 'u1', query: 'rate limiting', endpoints: async () => ends })).rejects.toThrow('memories could not be searched: Quickwit refused: HTTP 404 index not found');
+    expect(await searcherFrom(fresh)('u1', 'rate limiting', 3)).toEqual([]);
+    expect(made.sort()).toEqual(['collection', 'index']);
   });
 });

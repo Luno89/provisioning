@@ -7,9 +7,9 @@ import { evalsLevel2Router } from './evals-level2.js';
 import { Level2Service } from '../services/Level2Service.js';
 import { BenchService } from '../services/BenchService.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
-import { standInUnindexer } from '../../memory/testing/memory-index.js';
+import { standInIndexing } from '../../memory/testing/memory-index.js';
 
-const unindex = await standInUnindexer();
+const indexing = await standInIndexing();
 
 const quiet = { validateStatus: () => true };
 
@@ -32,7 +32,7 @@ const level2Harness = (): Promise<Harness> => mountRouter({
       }, [SCENARIO]),
       newId: () => 'run-2',
     }),
-    notes: new PracticeService({ store: db.memory, unindex, category: 'tool_note' }),
+    notes: new PracticeService({ store: db.memory, indexing, category: 'tool_note' }),
     bench: new BenchService({
       store: db,
       scenarios: async () => [],

@@ -51,7 +51,7 @@ export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure
 export { condition, merge, collect, finish, delegate, fanOut, waitForPerson, CONDITION_ROOTS, FINISH_OUTCOMES } from './control.js';
 export { provisionSandbox, releaseSandbox } from './environment.js';
 export { runInput, persona } from './input.js';
-export { recallMemory, saveMemory, MEMORY_CATEGORIES } from './memory.js';
+export { recallMemory, pointToMemories, saveMemory, MEMORY_CATEGORIES } from './memory.js';
 export { chooseModel, fitReplyBudget, callModel, decide, readDecision, DECIDE_INSTRUCTIONS, DECISIONS, type Decision, DEFAULT_CONTEXT_MARGIN, DEFAULT_MIN_REPLY_TOKENS, FALLBACK_CONTEXT_TOKENS } from './model.js';
 export { checkRepetition, checkStall, checkToolFailures } from './safety.js';
 export { code, runCode, codeProblems, declaredSockets, codeTimeout, CODE_KIND, RUN_CODE_KIND, CODE_KINDS, type DeclaredSocket } from './code.js';

@@ -51,7 +51,7 @@ import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHtt
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
   savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
@@ -118,6 +118,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     for (const { deploymentId, projectId } of named) await db.infrastructure.saveDeploymentInfo({ id: deploymentId, gitappProjectId: projectId });
     return { named: named.length };
   });
+  await runOnce(db.platform, MEMORY_INDEX_APPS_MIGRATION, new Date().toISOString(), () => removeMemoryIndexApps(db.infrastructure));
   await seedAll(db);
 
   const revocations = new AccessRevocations();

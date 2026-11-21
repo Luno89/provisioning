@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
-import { createMemoryWriter, currentMemory, sameMemoryText, type MemoryWriterStore } from '../../memory/index.js';
+import { createMemoryWriter, currentMemory, recalledInOrder, sameMemoryText, type MemoryWriterStore } from '../../memory/index.js';
 import type { MemoryItem, MemorySources } from '../drivers/memory-store.js';
 import { unqualify } from '../../engine/lib/mcp-tools.js';
 import { noteSubject } from '../../engine/lib/tool-notes.js';
@@ -10,27 +10,15 @@ export interface KnownTools {
   servers: readonly { name: string; tools: readonly string[] }[];
 }
 
-export type MemoryToolStore = MemoryWriterStore;
-
-const words = (value: string): string[] => value.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{2,}/g) ?? [];
+export type MemoryToolStore = MemoryWriterStore & { search(ownerId: string, query: string, limit: number): Promise<string[]> };
 
 const text = textArgument;
 
 const describe = (memory: MemoryItem): string =>
   `- id ${memory.id} [${memory.category}, ${memory.scope ?? 'global'}${memory.model ? `, only for ${memory.model}` : ''}] ${memory.title}: ${memory.text}`;
 
-export function matchMemories(memories: readonly MemoryItem[], query: string): MemoryItem[] {
-  const wanted = new Set(words(query));
-  return memories
-    .filter(currentMemory)
-    .map((memory) => ({ memory, score: words(`${memory.title} ${memory.text}`).filter((word) => wanted.has(word)).length }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt))
-    .map((entry) => entry.memory);
-}
-
-export function searchAnswer(memories: readonly MemoryItem[], query: string): { found: number; text: string } {
-  const found = matchMemories(memories, query);
+export function searchAnswer(memories: readonly MemoryItem[], rankedIds: readonly string[], query: string): { found: number; text: string } {
+  const found = recalledInOrder(memories, rankedIds).filter(currentMemory);
   if (found.length === 0) return { found: 0, text: `Nothing remembered matches "${query}".` };
   return { found: found.length, text: found.map(describe).join('\n') };
 }
@@ -63,6 +51,14 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
   const { store } = options;
   const writer = createMemoryWriter({ store, now, newId });
 
+  const onTrial = async (runId: string | undefined, fields: Pick<MemoryItem, 'ownerId' | 'category' | 'title' | 'text'> & Partial<Pick<MemoryItem, 'agent' | 'model' | 'tool' | 'server' | 'why'>>): Promise<MemoryItem> => {
+    const at = now();
+    const provenance = await provenanceOf(runId);
+    const item: MemoryItem = { id: newId(), ...fields, scope: 'global', recommendedScope: 'global', status: 'trial', source: 'agent_tool', ...(provenance ? { provenance } : {}), createdAt: at, updatedAt: at };
+    await writer.keep([item]);
+    return item;
+  };
+
   const modelOf = async (ownerId: string, parsed: Record<string, unknown>): Promise<{ model?: string } | { refused: string }> => {
     const model = text(parsed, 'model');
     if (!model) return {};
@@ -77,8 +73,15 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
     async search_memories({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner whose memories to search');
       const query = text(parsed, 'query');
-      if (!query) return refuse('give a query: words to look for');
-      const answer = searchAnswer(await store.list(caller.ownerId), query);
+      if (!query) return refuse('give a query: what to look for');
+      const mine = (await store.list(caller.ownerId)).filter((memory) => memory.ownerId === caller.ownerId);
+      let ranked: string[];
+      try {
+        ranked = await store.search(caller.ownerId, query, mine.length);
+      } catch (err) {
+        return refuse(`memories cannot be searched just now: ${(err as Error).message}`);
+      }
+      const answer = searchAnswer(mine, ranked, query);
       return { ok: true, digest: answer.found ? `${answer.found} memories match` : 'nothing remembered matches', content: answer.text };
     },
 
@@ -103,11 +106,12 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       });
       if ('refused' in outcome) return refuse(outcome.refused);
       if ('known' in outcome) return { ok: true, digest: `already known: ${outcome.known.title}`, content: `That is already remembered as ${outcome.known.id}; nothing new was stored.` };
-      const { saved, replaced } = outcome;
+      const { saved, replaced, unindexed } = outcome;
+      const later = unindexed ? ` ${unindexed}, so it is found once the index answers again.` : '';
       return {
         ok: true,
         digest: `${replaced ? `replaced ${replaced.title} with ${saved.title}` : `remembered ${saved.title}`}${forModel.model ? ` for ${forModel.model}` : ''}`,
-        content: replaced ? `Saved as ${saved.id}, replacing ${replaced.id}.` : `Saved as ${saved.id}.`,
+        content: `${replaced ? `Saved as ${saved.id}, replacing ${replaced.id}.` : `Saved as ${saved.id}.`}${later}`,
       };
     },
 
@@ -126,24 +130,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${agent} already has that practice${forModel.model ? ` on ${forModel.model}` : ''} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
-      const at = now();
-      const item: MemoryItem = {
-        id: newId(),
-        ownerId,
-        category: 'practice',
-        agent,
-        ...(forModel.model ? { model: forModel.model } : {}),
-        scope: 'global',
-        recommendedScope: 'global',
-        status: 'trial',
-        title,
-        text: learned,
-        source: 'agent_tool',
-        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
-        createdAt: at,
-        updatedAt: at,
-      };
-      await store.save(item);
+      const item = await onTrial(caller.runId, { ownerId, category: 'practice', agent, ...(forModel.model ? { model: forModel.model } : {}), title, text: learned });
       const on = forModel.model ? ` on ${forModel.model}` : '';
       return { ok: true, digest: `practice on trial for ${agent}${on}: ${title}`, content: `Proposed ${item.id} for ${agent}${on}; it is on trial until the bench has run ${agent}'s scenarios with it${on}.` };
     },
@@ -163,26 +150,16 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'tool_note' && memory.tool === target.tool && memory.server === target.server && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${about} already has that note${on} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
-      const at = now();
-      const item: MemoryItem = {
-        id: newId(),
+      const item = await onTrial(caller.runId, {
         ownerId,
         category: 'tool_note',
         ...(target.tool ? { tool: target.tool } : {}),
         ...(target.server ? { server: target.server } : {}),
         ...(forModel.model ? { model: forModel.model } : {}),
-        scope: 'global',
-        recommendedScope: 'global',
-        status: 'trial',
         title: text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60),
         text: body,
         why,
-        source: 'agent_tool',
-        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
-        createdAt: at,
-        updatedAt: at,
-      };
-      await store.save(item);
+      });
       return { ok: true, digest: `note on trial for ${about}${on}: ${item.title}`, content: `Proposed ${item.id} for ${about}${on}; it is on trial until the bench has run the checks that use it${on}.` };
     },
 

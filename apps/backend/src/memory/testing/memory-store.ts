@@ -1,7 +1,7 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { DeferredConclusion, KeeperSettings } from '../lib/conclusions.js';
-import type { KeepingState } from '../lib/memory-keeping.js';
+import type { KeepingState } from '../services/memory-keeping.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import type { MemoryStore } from '../store.js';
 

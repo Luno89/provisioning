@@ -1,87 +1,24 @@
-import type { MemoryIndexReach } from '../../platform/index.js';
-import { searchMemories } from './memory-index.js';
-import {
-  selectForContext, renderMemoryContext, ranked,
-  type MemoryItem, type MemoryContextOptions,
-} from './memory-store.js';
+import { DEFAULT_CONTEXT_MARGIN, DEFAULT_MIN_REPLY_TOKENS } from '@koala/agent-engine/procedure';
+import type { MemoryItem } from './memory-store.js';
 
-export const PINNED_TITLES: readonly string[] = ['Repository layout'];
+const CHARS_PER_TOKEN = 4;
 
-export const MAX_QUERY_CHARS = 2_000;
-
-export interface RecallInput {
-  memories: MemoryItem[];
-  ownerId: string;
-  projectId?: string | undefined;
-  query: string;
-  endpoints?: (() => Promise<MemoryIndexReach | undefined>) | undefined;
+export function recalledInOrder(memories: readonly MemoryItem[], rankedIds: readonly string[]): MemoryItem[] {
+  const byId = new Map(memories.map((memory) => [memory.id, memory]));
+  return rankedIds.flatMap((id) => byId.get(id) ?? []);
 }
 
-export interface RecallOutcome {
-  context: string;
-  selected: MemoryItem[];
-  via: 'hybrid' | 'recency';
+export const roomForMemories = (contextTokens: number): number =>
+  Math.max(0, (contextTokens - DEFAULT_CONTEXT_MARGIN - DEFAULT_MIN_REPLY_TOKENS) * CHARS_PER_TOKEN);
+
+export function memoryPointer(memories: readonly MemoryItem[]): string {
+  if (!memories.length) return 'WHAT KOALA REMEMBERS\nNothing remembered bears on this task yet. If something comes up that earlier work may have settled, look it up by meaning with search_memories.';
+  return [
+    'WHAT KOALA REMEMBERS',
+    'Koala remembers these for this task, most relevant first. Read the ones that bear on your work with search_memories before you start, and search it again whenever something comes up:',
+    ...memories.map((memory) => `- ${memory.title}`),
+  ].join('\n');
 }
 
-export function recallQuery(leaf: { title?: string; body?: string; expects?: string[] }): string {
-  return [leaf.title ?? '', leaf.body ?? '', ...(leaf.expects ?? [])]
-    .filter(Boolean)
-    .join('\n')
-    .slice(0, MAX_QUERY_CHARS);
-}
-
-export function orderByRelevance(memories: MemoryItem[], rankedIds: readonly string[]): MemoryItem[] {
-  const byId = new Map(memories.map((m) => [m.id, m]));
-  const out: MemoryItem[] = [];
-  const taken = new Set<string>();
-
-  const take = (m: MemoryItem | undefined) => {
-    if (!m || taken.has(m.id)) return;
-    taken.add(m.id);
-    out.push(m);
-  };
-
-  ranked(memories.filter((m) => PINNED_TITLES.includes(m.title))).forEach(take);
-  for (const id of rankedIds) take(byId.get(id));
-  ranked(memories).forEach(take);
-
-  return out;
-}
-
-async function searched(input: RecallInput): Promise<{ id: string }[] | null> {
-  if (!input.endpoints || !input.query.trim()) return null;
-  try {
-    const ends = await input.endpoints();
-    if (!ends || (!ends.vectors && !ends.index)) return null;
-    return await searchMemories(ends, input.query, { ownerId: input.ownerId });
-  } catch (err) {
-    throw new Error(`memories could not be searched: ${(err as Error).message}`, { cause: err });
-  }
-}
-
-export async function recallMemories(input: RecallInput): Promise<RecallOutcome> {
-  const opts: MemoryContextOptions = { preRanked: true };
-  const hits = await searched(input);
-  const ordered = orderByRelevance(input.memories, (hits ?? []).map((h) => h.id));
-  const { kept, dropped } = selectForContext(ordered, input.projectId, opts);
-
-  return {
-    context: renderMemoryContext(kept, dropped),
-    selected: kept,
-    via: hits && hits.length ? 'hybrid' : 'recency',
-  };
-}
-
-export async function markUsed(
-  db: { saveMemory(m: MemoryItem): Promise<void> },
-  selected: MemoryItem[],
-  now = new Date().toISOString(),
-): Promise<void> {
-  await Promise.all(selected.map((m) => db.saveMemory({
-    ...m,
-    lastUsedAt: now,
-    useCount: (m.useCount ?? 0) + 1,
-  }).catch((err: unknown) => {
-    console.warn(`[Recall] could not record that memory ${m.id} was used: ${(err as Error).message}`);
-  })));
-}
+export const memoryPointerDown = (why: string): string =>
+  `WHAT KOALA REMEMBERS\nKoala's memory cannot be read just now: ${why}. Until it answers, search_memories says the same.`;

@@ -96,6 +96,30 @@ describe('DependencyStates', () => {
     made.stop();
   });
 
+  it('tells who waits on a dependency when its first check answers and each time it answers again, never while it stays down', async () => {
+    const { made } = states();
+    let answers = true;
+    const heard: string[] = [];
+    made.checkWith('mongo', async () => undefined);
+    made.checkWith('minio', async () => undefined);
+    made.checkWith('gitea', async () => { if (!answers) throw refused(); });
+    made.whenAnswering('gitea', () => { heard.push('gitea'); });
+    await made.start();
+    expect(heard).toEqual(['gitea']);
+
+    answers = false;
+    made.failed('gitea', refused());
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+    expect(heard).toEqual(['gitea']);
+
+    answers = true;
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS * 2);
+    expect(heard).toEqual(['gitea', 'gitea']);
+    made.answered('gitea');
+    expect(heard).toEqual(['gitea', 'gitea']);
+    made.stop();
+  });
+
   it('checks each dependency once at start, and refuses to start when one has no check', async () => {
     const { made, rows } = states();
     const mongo = vi.fn(async () => undefined);

@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { memoriesRouter } from './memories.js';
 import type { ConsolidationReport } from '../lib/memory-consolidate.js';
-import { indexMemories, searchMemories, unindexerFrom } from '../lib/memory-index.js';
+import { indexingFrom, searchMemories } from '../lib/memory-index.js';
 import { MEMORY_INDEX } from '../lib/memory-rank.js';
 import { startCorpusStandIn, type CorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
 
 let standIn: CorpusStandIn;
-beforeAll(async () => { standIn = await startCorpusStandIn(); });
-afterAll(async () => { await standIn.stop(); });
+beforeEach(async () => { standIn = await startCorpusStandIn(); });
+afterEach(async () => { await standIn.stop(); });
 
 describe('/api/memories', () => {
   let harness: Harness;
@@ -21,7 +21,7 @@ describe('/api/memories', () => {
       router: (db) => memoriesRouter({
         db,
         temporalBridge: { lastConsolidation: report },
-        unindex: unindexerFrom(standIn.reach),
+        indexing: indexingFrom(standIn.reach),
       }),
     });
   });
@@ -71,7 +71,6 @@ describe('/api/memories', () => {
 
   it('a retired memory is gone from the index, so nothing searching it finds it again', async () => {
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Retries', text: 'The retry budget is three attempts.', scope: 'global' });
-    await indexMemories(standIn.reach, [made.data]);
     expect((await searchMemories(standIn.reach, 'retry budget', { ownerId: TEST_USER.id })).map((hit) => hit.id)).toEqual([made.data.id]);
 
     expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
@@ -82,7 +81,7 @@ describe('/api/memories', () => {
 
   it('a forgotten memory leaves the database and Quickwit both', async () => {
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
-    await indexMemories(standIn.reach, [made.data]);
+    expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toHaveLength(1);
 
     expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);

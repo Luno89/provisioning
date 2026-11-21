@@ -32,6 +32,7 @@ export interface Containers {
   logs(name: string, lines: number): Promise<string>;
   copyOut(name: string, path: string, to: string): Promise<void>;
   published(name: string, inner: number): Promise<number>;
+  memoryInUse(name: string): Promise<number>;
   named(filter: string): Promise<string[]>;
   throwawayOrphans(checkout?: string): Promise<string[]>;
   sweepThrowaways(checkout?: string): Promise<string[]>;
@@ -42,6 +43,10 @@ export interface Containers {
 }
 
 const quiet: Progress = { line: () => undefined };
+
+const MEMORY_UNITS: Readonly<Record<string, number>> = {
+  B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4, kB: 1000, KB: 1000, MB: 1000 ** 2, GB: 1000 ** 3, TB: 1000 ** 4,
+};
 
 const running = (pid: number): boolean => {
   try {
@@ -94,6 +99,13 @@ export function containersOn(commands: CommandRunner, progress: Progress = quiet
       const port = Number(first.split(':').pop()?.trim());
       if (!Number.isInteger(port) || port <= 0) throw new Error(`${name} publishes no port for ${inner}: docker said ${first || 'nothing'}`);
       return port;
+    },
+    async memoryInUse(name) {
+      const reading = await said(['stats', '--no-stream', '--format', '{{.MemUsage}}', name]);
+      const used = /^([\d.]+)\s*([kKMGT]?i?B)\b/.exec(reading);
+      const scale = used ? MEMORY_UNITS[used[2]!] : undefined;
+      if (!used || scale === undefined) throw new Error(`Docker said "${reading}" for the memory ${name} uses`);
+      return Math.round(Number(used[1]) * scale);
     },
     named: async (filter) => (await said(['ps', '--filter', filter, '--format', '{{.Names}}'])).split('\n').filter(Boolean),
     async throwawayOrphans(checkout = THIS_CHECKOUT) {

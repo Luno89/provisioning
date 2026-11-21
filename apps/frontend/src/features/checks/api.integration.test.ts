@@ -41,9 +41,9 @@ const backend = await startBackend(async (site) => {
     store: db.checks,
     ...grantsActingAsOwner(db.engine),
   })
-  const unindex = standInMemoryIndex()
-  const practices = new PracticeService({ store: db.memory, unindex })
-  const notes = new PracticeService({ store: db.memory, unindex, category: 'tool_note' })
+  const indexing = standInMemoryIndex()
+  const practices = new PracticeService({ store: db.memory, indexing })
+  const notes = new PracticeService({ store: db.memory, indexing, category: 'tool_note' })
   const changes = new AgentChangeService({
     store: db.checks,
     savePrompt: () => { throw new Error('saving an agent\'s prompt is the Studio\'s, not mounted in this file') },

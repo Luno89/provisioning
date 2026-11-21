@@ -20,6 +20,23 @@ describe('the containers a test world runs', () => {
     expect(await containers.status('gone')).toBeUndefined();
   });
 
+  it('say how much memory each uses now, in bytes, in whichever unit Docker gives it', async () => {
+    const commands = dockerAnswering({
+      'docker stats --no-stream --format {{.MemUsage}} index': { stdout: '123.5MiB / 31.25GiB\n' },
+      'docker stats --no-stream --format {{.MemUsage}} vectors': { stdout: '1.5GiB / 31.25GiB\n' },
+      'docker stats --no-stream --format {{.MemUsage}} tiny': { stdout: '512KiB / 1GiB\n' },
+    });
+    const containers = containersOn(commands);
+    expect(await containers.memoryInUse('index')).toBe(Math.round(123.5 * 1024 ** 2));
+    expect(await containers.memoryInUse('vectors')).toBe(Math.round(1.5 * 1024 ** 3));
+    expect(await containers.memoryInUse('tiny')).toBe(512 * 1024);
+  });
+
+  it('refuse a memory reading Docker gives in a shape they do not know, saying what it said', async () => {
+    const containers = containersOn(dockerAnswering({ 'docker stats --no-stream --format {{.MemUsage}} odd': { stdout: '--\n' } }));
+    await expect(containers.memoryInUse('odd')).rejects.toThrow('Docker said "--" for the memory odd uses');
+  });
+
   it('are taken away at once with their volumes, and asking to take away one that is gone does nothing', async () => {
     const commands = dockerAnswering({
       'docker inspect -f {{.State.Status}} {{.State.ExitCode}} web': { stdout: 'running 0\n' },

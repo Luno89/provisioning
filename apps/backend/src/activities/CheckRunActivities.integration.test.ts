@@ -6,6 +6,9 @@ import { seededAgents, seededGrants } from '../extensions/seeds.js';
 import { createCheckRunActivities, observedCalls, observedHandOffs, pendingCalls } from './CheckRunActivities.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { WORKSPACE_IMAGE_SEEDS } from '../engine/lib/workspace-image-seeds.js';
+import { standInIndexing } from '../memory/testing/memory-index.js';
+
+const indexing = await standInIndexing();
 
 const fresh = await emptiedEachTime();
 
@@ -33,6 +36,7 @@ beforeEach(async () => {
 const quietDeps = () => ({
   ownClusterId: () => 'machine-koala',
   store: db,
+  indexing,
   api: (): never => { throw new Error('not used here'); },
   seedFiles: async () => undefined,
   reported: async () => false,

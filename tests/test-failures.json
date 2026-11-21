@@ -129,6 +129,10 @@
  "apps/backend/src/infrastructure/store.integration.test.ts": [
   "2026-11-21T19:58:00.000Z"
  ],
+ "apps/backend/src/workflows/AgentRunWorkflow.integration.test.ts": [
+  "2026-11-21T21:20:00.000Z",
+  "2026-11-21T21:40:00.000Z"
+ ],
  "apps/backend/src/engine-host/mcp-on-host.integration.test.ts": [
   "2026-11-21T20:40:00.000Z"
  ],

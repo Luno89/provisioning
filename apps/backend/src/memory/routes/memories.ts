@@ -5,7 +5,8 @@ import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';
 import { memoryCategoryIn, memoryChangesIn } from '../lib/memory-input.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { isToolNote } from '../../engine/index.js';
-import type { MemoryUnindexer } from '../lib/memory-index.js';
+import type { MemoryIndexing } from '../lib/memory-index.js';
+import { createMemoryWriter } from '../services/memory-writer.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -23,11 +24,13 @@ const userOf = (req: Request): { id: string; email: string } =>
 export interface MemoriesRouterDeps {
   db: Database;
   temporalBridge: Pick<TemporalBridge, 'lastConsolidation'>;
-  unindex: MemoryUnindexer;
+  indexing: MemoryIndexing;
 }
 
 export function memoriesRouter(deps: MemoriesRouterDeps): Router {
-  const { db, temporalBridge, unindex } = deps;
+  const { db, temporalBridge, indexing } = deps;
+  const { unindex } = indexing;
+  const writer = createMemoryWriter({ store: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), ...indexing } });
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
@@ -67,7 +70,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
     const unreachable = unreachableMemory(item);
     if (unreachable) return res.status(400).json({ error: unreachable });
 
-    await db.memory.saveMemory(item);
+    await writer.keep([item]);
     res.status(201).json(item);
   }));
 
@@ -80,7 +83,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
       status: 'active',
       updatedAt: new Date().toISOString(),
     };
-    await db.memory.saveMemory(updated);
+    await writer.keep([updated]);
     res.json(updated);
   }));
 
@@ -93,7 +96,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
       scope: 'global',
       updatedAt: new Date().toISOString(),
     };
-    await db.memory.saveMemory(updated);
+    await writer.keep([updated]);
     res.json(updated);
   }));
 
@@ -115,7 +118,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
       ...changed,
       updatedAt: new Date().toISOString(),
     };
-    await db.memory.saveMemory(updated);
+    await writer.keep([updated]);
     res.json(updated);
   }));
 

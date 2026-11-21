@@ -3,7 +3,8 @@ import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
-import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
+import { createMemoryTools, searchAnswer } from './memory-tools.js';
+import { DependencyDownError } from '../../platform/index.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
 import { interceptHttp, http, HttpResponse } from '../../platform/testing/http.js';
 import { unindexerFrom } from '../../memory/lib/memory-index.js';
@@ -14,6 +15,10 @@ let bank: Map<string, MemoryItem>;
 let ids: number;
 let unindexed: { ownerId: string; ids: string[]; liveThen: boolean[] }[];
 let indexRefuses: string | undefined;
+let indexFinds: string[] | Error | undefined;
+let searched: string[];
+let indexed: string[];
+let indexDown: Error | undefined;
 
 const memory = dnsMemory;
 
@@ -24,9 +29,18 @@ const tools = () => createMemoryTools({
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
+    index: async (items) => {
+      if (indexDown) throw indexDown;
+      indexed.push(...items.map((item) => item.id));
+    },
     unindex: async (ownerId, gone) => {
       if (indexRefuses) throw new Error(indexRefuses);
       unindexed.push({ ownerId, ids: gone, liveThen: gone.map((id) => !bank.get(id)?.invalidAt) });
+    },
+    search: async (ownerId, query) => {
+      searched.push(query);
+      if (indexFinds instanceof Error) throw indexFinds;
+      return indexFinds ?? [...bank.values()].filter((item) => item.ownerId === ownerId).map((item) => item.id);
     },
   },
   sourcesOf: async (runId) => (runId === 'run-web' ? { classes: ['web'], hosts: ['some.example'], runs: ['run-web'] } : undefined),
@@ -42,23 +56,57 @@ beforeEach(() => {
   ids = 0;
   unindexed = [];
   indexRefuses = undefined;
+  indexFinds = undefined;
+  searched = [];
+  indexed = [];
+  indexDown = undefined;
 });
 
 describe('search_memories', () => {
-  it('finds the person\'s own current memories by the words in them, best match first', async () => {
-    const out = await call('search_memories', { query: 'which DNS provider, cloudflare?' });
+  it('finds the person\'s own current memories by meaning through the index, most relevant first', async () => {
+    bank.set('m3', memory({ id: 'm3', title: 'Domains are at Porkbun', text: 'The .app domains are registered at Porkbun.' }));
+    indexFinds = ['m3', 'm2', 'm1'];
 
+    const out = await call('search_memories', { query: 'where are my domains managed?' });
+
+    expect(searched).toEqual(['where are my domains managed?']);
     expect(out.ok).toBe(true);
-    expect(out.content).toContain('id m1 [environment_facts, global] DNS lives at Cloudflare');
-    expect(out.content).not.toContain('m2');
+    expect(out.content).toBe([
+      '- id m3 [environment_facts, global] Domains are at Porkbun: The .app domains are registered at Porkbun.',
+      '- id m1 [environment_facts, global] DNS lives at Cloudflare: The person manages DNS for their domain at Cloudflare.',
+    ].join('\n'));
   });
 
-  it('does not find a retired memory', () => {
-    expect(matchMemories([memory({ invalidAt: 'then' })], 'cloudflare')).toEqual([]);
+  it('does not find a retired memory', async () => {
+    bank.set('m1', memory({ invalidAt: 'then' }));
+    indexFinds = ['m1'];
+    expect((await call('search_memories', { query: 'cloudflare' })).content).toBe('Nothing remembered matches "cloudflare".');
+  });
+
+  it('says the index is down, since when and why, rather than finding nothing', async () => {
+    indexFinds = new DependencyDownError('tei', '2026-11-21T10:00:00.000Z', 'it answered 503');
+    const out = await call('search_memories', { query: 'cloudflare' });
+    expect(out.ok).toBe(false);
+    expect(out.digest).toContain('The memory index\'s embeddings (TEI) isn\'t answering since 10:00 UTC: it answered 503');
   });
 });
 
 describe('save_memory', () => {
+  it('indexes what it saves as it saves it, so the next search finds it', async () => {
+    await call('save_memory', { text: 'Builds are cached for a day.' });
+    expect(indexed).toEqual(['new-1']);
+    expect(bank.get('new-1')).not.toHaveProperty('indexPending');
+  });
+
+  it('saves while the index is down, and says so with since and why, so the keeper knows it is found once the index answers', async () => {
+    indexDown = new DependencyDownError('qdrant', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+
+    const out = await call('save_memory', { text: 'Builds are cached for a day.' });
+
+    expect(out).toMatchObject({ ok: true, content: 'Saved as new-1. The memory index\'s meanings (Qdrant) isn\'t answering since 10:00 UTC: its pod is not ready, so it is found once the index answers again.' });
+    expect(bank.get('new-1')?.indexPending).toBe(true);
+  });
+
   it('saves a new memory, global when there is no project, noting the run that saved it', async () => {
     const out = await call('save_memory', { title: 'Trials last a week', text: 'Pool trials last 7 days.', category: 'prompt_guidance' });
 
@@ -180,6 +228,7 @@ describe('propose_practice', () => {
     expect(out.ok).toBe(true);
     expect(bank.get('new-1')).toMatchObject({ category: 'practice', agent: 'koala', status: 'trial', title: 'Check infrastructure first', provenance: { experimentId: 'run-k' } });
     expect(bank.get('new-1')!.text).toContain('(learned from: corrected in conversation c-7)');
+    expect(indexed).toEqual(['new-1']);
   });
 
   it('will not propose a practice for an agent that does not exist, or one the agent already has', async () => {
@@ -241,8 +290,8 @@ describe('the answer to a memory search, as an agent on a machine gets it', () =
       memory({ id: 'a', title: 'Odoo 20 access', text: 'Access rules are ir.access rows.' }),
       memory({ id: 'b', title: 'Old access note', text: 'Access rules are ir.model.access rows.', invalidAt: '2026-10-01T00:00:00Z' }),
     ];
-    expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
-    expect(searchAnswer(memories, 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
+    expect(searchAnswer(memories, ['b', 'a'], 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
+    expect(searchAnswer(memories, [], 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
   });
 });
 
@@ -255,6 +304,8 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item) => { bank.set(item.id, item); },
       unindex: unindexerFrom(unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } })),
+      index: async (items) => { indexed.push(...items.map((item) => item.id)); },
+      search: async () => [],
     },
     now: () => 'now',
     newId: () => `new-${++ids}`,
@@ -287,12 +338,13 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
     expect(bank.get('m1')!.invalidAt).toBeUndefined();
   });
 
-  it('replacing a memory takes the old one out of both before the new one is saved', async () => {
+  it('replacing a memory takes the old one out of both before the new one is saved, then indexes the new one', async () => {
     const asked = asking();
 
     expect(await callWithIndex('save_memory', { title: 'DNS lives at Porkbun', text: 'The person moved their DNS to Porkbun.', category: 'environment_facts', replaces: 'm1' })).toMatchObject({ ok: true, content: 'Saved as new-1, replacing m1.' });
 
     expect(asked).toEqual([`quickwit ${JSON.stringify({ query: 'memory_id:"m1"' })}`, `qdrant ${JSON.stringify({ points: [pointId('m1')] })}`]);
+    expect(indexed).toEqual(['new-1']);
     expect(bank.get('m1')).toMatchObject({ invalidAt: 'now', supersededBy: 'new-1' });
   });
 });

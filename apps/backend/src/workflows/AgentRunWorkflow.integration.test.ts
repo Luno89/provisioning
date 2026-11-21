@@ -140,7 +140,7 @@ function activities(options: {
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
-    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined, unindex: async () => undefined },
+    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined, index: async () => undefined, unindex: async () => undefined, search: async () => ((options.memories ?? []) as { id: string }[]).map((memory) => memory.id) },
     ...(options.conversationWorkspaces ? { conversationWorkspaces: options.conversationWorkspaces } : {}),
   }), ['activity', 'sandbox']).map((implementation) => (implementation.kind === options.hangValue
     ? valueImplementation(implementation.kind, ({ run }) => new Promise<never>((_, reject) => {
@@ -1467,21 +1467,39 @@ describe('an external agent working on someone\'s machine', () => {
     expect(published(acts)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'content', delta: 'Starting a long job.' })]));
   });
 
-  it('runs the shipped procedure as the Antigravity agent: the machine\'s antigravity is told its prompt and folder once, then given the task', async () => {
+  it('runs the shipped procedure as the Antigravity agent: the machine\'s antigravity is told its prompt and folder once, what memory holds for the task, then given the task, and looks memories up itself', async () => {
     root = await mkdtemp(resolve(tmpdir(), 'external-run-'));
     const scriptPath = resolve(root, 'script.json');
-    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
-    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
-    const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE });
+    const recorded = resolve(root, 'told.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ record: recorded }, { echo: true }] }] } satisfies AgentScript));
+    const mcp = new LocalMcpServer();
+    await mcp.start();
+    const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500, mcp });
+    const registry = createAgentRegistry({ toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...extensionTools()]) } });
+    const labels = {
+      id: 'm-labels', ownerId: 'user-1', category: 'environment_facts', scope: 'global', recommendedScope: 'global', status: 'active',
+      title: 'Delivery labels print on A6', text: 'The courier only accepts labels printed on A6 paper.', createdAt: 'now', updatedAt: 'now',
+    };
+    const acts = activities({ registry, script: [{ content: 'unused' }], external: sessions, environment: MACHINE, memories: [labels] });
 
-    const result = await runWorkflow(input('antigravity', EXTERNAL_AGENT_TASK, 'Build the delivery labels.'), acts);
+    try {
+      const result = await runWorkflow(input('antigravity', EXTERNAL_AGENT_TASK, 'Build the delivery labels.'), acts);
 
-    expect(result.outcome).toBe('ok');
-    const told = String(result.outputs.result);
-    expect(told).toMatch(/^Your folder is .*machine\/projects\/thing\./);
-    expect(told).toContain('You are working for Koala');
-    expect(told.endsWith('Build the delivery labels.')).toBe(true);
-    expect(sessions.openKeys()).toEqual([]);
+      expect(result.outcome).toBe('ok');
+      const told = String(result.outputs.result);
+      expect(told).toMatch(/^Your folder is .*machine\/projects\/thing\./);
+      expect(told).toContain('You are working for Koala');
+      expect(told).toContain('Delivery labels print on A6');
+      expect(told).toContain('search_memories');
+      expect(told).not.toContain('The courier only accepts labels printed on A6 paper.');
+      expect(told.endsWith('Build the delivery labels.')).toBe(true);
+      const got = JSON.parse(await readFile(recorded, 'utf8')) as { servers: { server: string; tools: { name: string }[] }[] };
+      expect(got.servers.find((server) => server.server === 'koala')?.tools.map((tool) => tool.name)).toContain('search_memories');
+      expect(sessions.openKeys()).toEqual([]);
+    } finally {
+      await sessions.closeAll();
+      await mcp.close();
+    }
   });
 
   it('answers a chat turn with the agent picked on a machine, and the next turn continues the same session', async () => {

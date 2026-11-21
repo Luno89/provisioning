@@ -60,6 +60,7 @@ export type { InstanceEdge } from './services/AppExposureService.js';
 export { AppService } from './services/AppService.js';
 export { BuilderService } from './services/BuilderService.js';
 export { BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter } from './services/build-token-cleanup.js';
+export { MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps } from './services/memory-index-apps.js';
 export { PodLogTails, podLogRoom } from './services/PodLogTails.js';
 export { ProvisionAsks, Provisioning } from './services/Provisioning.js';
 export type { ProvisionAsksDeps, ProvisioningDeps, ProvisionRoot, ProvisionRuns, RootAnswer } from './services/Provisioning.js';
