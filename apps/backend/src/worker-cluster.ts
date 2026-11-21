@@ -24,6 +24,9 @@ import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
 import { holdFencesIn } from './platform/wiring/fences.js';
 import { runAsProgram, watchedWorker } from './worker-program.js';
+import { createFrozenWorkActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
+import { WorkerRestart } from './infrastructure/index.js';
+import { getTemporalClient } from './platform/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -82,11 +85,17 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   const worker = await backendWorkerOnceTemporalAnswers(settings, { tag: '[ClusterWorker]', logger, dependencies }, {
     subject: 'koala-worker-cluster',
     taskQueue: queue,
-    activities: clusterActivities(steps, {
-          place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
-          lines: recordedLines(db.infrastructure),
-          provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
-        }, settings.tests.huggingFaceUrl),
+    activities: {
+      ...clusterActivities(steps, {
+        place: { koalaNamespace: settings.podNamespace, pool: Boolean(settings.clusters.here.poolName), dataDir: settings.dataDir, crawl4aiToken: settings.crawl4aiToken },
+        lines: recordedLines(db.infrastructure),
+        provisioner: new ProvisionAsks({ store: db.infrastructure, koala: settings.koala }),
+      }, settings.tests.huggingFaceUrl),
+      ...createFrozenWorkActivities({
+        work: temporalProjectWork(() => getTemporalClient()),
+        workers: new WorkerRestart({ access, target: () => access.own(), namespace: settings.podNamespace }),
+      }),
+    },
   });
 
   return { worker, steps, telemetry, fences };

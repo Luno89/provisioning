@@ -81,6 +81,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            {{- if ne $process "backend" }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- end }}
             {{- if eq $process "backend" }}
             - name: PORT
               value: {{ $.Values.backend.port | quote }}

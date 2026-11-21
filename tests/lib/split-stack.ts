@@ -194,7 +194,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     await rootDb.close?.();
 
     await backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
-    if (options.engine) await backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
+    if (options.engine) await backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics), POD_NAME: 'instance-engine' }, 'worker-engine');
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => containerNotRunning(names.containers['instance']));
 
     const instanceDb = async () => {

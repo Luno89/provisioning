@@ -21,6 +21,7 @@ import { InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterPr
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
+import { createProjectDeletionActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { CustomizationsService } from './releases/services/CustomizationsService.js';
@@ -454,6 +455,16 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     logFile: () => path.join(settings.dataDir, 'logs', `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
     taskQueue: QUEUES.cluster,
   };
+  const projectRemoval = createProjectRemovalActivities({
+    store: db,
+    apps: appTeardown,
+    workflows: removalWorkflows,
+    kube: sandboxKube,
+    repositories: gitea,
+    secrets: infisical,
+    artifacts: instanceFiles.artifacts,
+    files: instanceFiles.fileService,
+  });
   return {
     ...engine,
     ...createAccountRemovalActivities({
@@ -466,16 +477,8 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       secrets: infisical,
       files: instanceFiles.storedFiles,
     }),
-    ...createProjectRemovalActivities({
-      store: db,
-      apps: appTeardown,
-      workflows: removalWorkflows,
-      kube: sandboxKube,
-      repositories: gitea,
-      secrets: infisical,
-      artifacts: instanceFiles.artifacts,
-      files: instanceFiles.fileService,
-    }),
+    ...projectRemoval,
+    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval }),
     ...createWorkspaceProjectActivities(db),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({

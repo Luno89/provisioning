@@ -97,7 +97,7 @@ function withItsWork<T extends { headers: Record<string, Payload>; options: { ty
   const project = workFor()?.project
   if (!owner && !project) return input
   const headers = { ...input.headers, [WORK_HEADER]: workHeader({ owner, project, removing: workFor()?.removing }) }
-  if (!project) return { ...input, headers }
+  if (!project || workFor()?.removing) return { ...input, headers }
   return { ...input, headers, options: { ...input.options, typedSearchAttributes: withProjectAttribute(input.options.typedSearchAttributes, project) } }
 }
 

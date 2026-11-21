@@ -7,6 +7,8 @@ import { releaseRunWorkflowId } from '../../releases/lib/release-run.js';
 
 export const removeProjectWorkflowId = (projectId: string): string => `remove-project-${projectId}`;
 export const REMOVE_PROJECT_WORKFLOW = 'RemoveProjectWorkflow';
+export const deleteProjectWorkflowId = (projectId: string): string => `delete-project-${projectId}`;
+export const DELETE_PROJECT_WORKFLOW = 'DeleteProjectWorkflow';
 export const PROJECT_REMOVAL_PROGRESS_QUERY = 'projectRemovalProgress';
 
 export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';

@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { temporal } from '@temporalio/proto';
 import { describe, expect, it } from 'vitest';
 import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/index.js';
@@ -13,7 +14,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0',
   ...(role === 'root'
     ? { ROOT_IDENTITY_KEY: testIdentityKey(), PUBLIC_URL: 'http://127.0.0.1:1', INSTANCE_IMAGE_TAG: 'test' }
-    : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token' }),
+    : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token', POD_NAME: 'luno-worker-host-7d9f-abcde' }),
 });
 
 const pollers = async () => (await env.client.workflowService.describeTaskQueue({
@@ -30,6 +31,7 @@ describe('the host worker, started the way its entry starts it', () => {
       while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
       expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual([...HOST_ACTIVITIES[role]].sort());
       expect(worker.options.interceptors.activity).toHaveLength(6);
+      expect(worker.options.identity, 'Temporal knows an instance\'s worker by its own pod, and root\'s by its process').toBe(role === 'instance' ? 'luno-worker-host-7d9f-abcde' : `${process.pid}@${hostname()}`);
       expect((await live()).map((process) => process.name)).toContain('worker-host');
       worker.shutdown();
       await running;

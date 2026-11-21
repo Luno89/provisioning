@@ -427,7 +427,7 @@ describe('the instance chart', () => {
     const docs = render(['mesh.address=100.64.0.7', 'backend.nodePort=30320', 'instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`]);
     const secretOf = (name: string) => Object.fromEntries(Object.entries(find(docs, 'Secret', name).data ?? {}).map(([key, value]) => [key, Buffer.from(value, 'base64').toString('utf8')]));
     const fromSecrets = { ...secretOf('luno-keys'), ...((find(docs, 'Secret', 'luno-instance') as Doc & { stringData?: Record<string, string> }).stringData ?? {}) };
-    const given = { POD_NAMESPACE: 'nowrinkles', POD_IP: '10.42.0.9', KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443' };
+    const given = { POD_NAMESPACE: 'nowrinkles', POD_IP: '10.42.0.9', POD_NAME: 'luno-worker-7d9f-abcde', KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443' };
     const envOf = (process: string): Record<string, string> => {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
       const base: Record<string, string> = { ...find(docs, 'ConfigMap', 'luno-env').data, ...fromSecrets };
@@ -441,10 +441,13 @@ describe('the instance chart', () => {
     expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, trustProxy: 1, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
     expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1, gatewayTls: { certPath: '/etc/koala/machine-gateway-tls/tls.crt', keyPath: '/etc/koala/machine-gateway-tls/tls.key' } });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
-    expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
-    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 } });
+    expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c', pod: given.POD_NAME });
+    for (const worker of ['worker-engine', 'worker-cluster', 'worker-host']) {
+      expect(podOf(find(docs, 'Deployment', `luno-${worker}`)).containers[0]!.env, `${worker} is told its own pod's name`).toContainEqual({ name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } });
+    }
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });
     expect(fromSecrets.CRAWL4AI_API_TOKEN).toMatch(/^[A-Za-z0-9]{40}$/);
-    expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined });
+    expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined, pod: given.POD_NAME });
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
       const ports = (container.ports ?? []) as Array<{ name: string; containerPort: number }>;

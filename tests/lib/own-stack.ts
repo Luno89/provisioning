@@ -77,7 +77,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     started.push(container.files);
     await until('its MinIO being ready', () => minioReady(filesPort), () => containerNotRunning(container.files));
     await run('backend', 'backend');
-    await run('engine', 'worker-engine', { HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(engineMetrics) });
+    await run('engine', 'worker-engine', { HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(engineMetrics), POD_NAME: container.engine });
     await backendAnswers();
     const owner = await firstAdmin(url, root);
     return {

@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { keepPayloadsIn } from '../../platform/lib/db-interface.js';
-import { testDatabaseAt } from '../../platform/lib/test-database.js';
+import { testDatabase, testDatabaseAt } from '../../platform/lib/test-database.js';
+import { refuseWorkWith } from '../../platform/lib/temporal-client.js';
+import { deletingMarksIn } from '../../platform/services/DeletingMarks.js';
 import { createStreamActivities } from './activities.js';
 import { startStreamWorker } from './stream-worker.js';
 
@@ -14,6 +16,7 @@ beforeAll(async () => {
   env = await realTemporalEnvironment();
   const { uri, dbName } = await testDatabaseAt();
   keepPayloadsIn({ uri, dbName });
+  refuseWorkWith(deletingMarksIn(await testDatabase()));
 });
 afterAll(async () => { await env.teardown(); });
 
@@ -40,7 +43,7 @@ describe('the stream worker, started as the backend starts it', () => {
     const running = worker.run();
     while ((await pollersOf(namespace, taskQueue)).length === 0) await new Promise((done) => setTimeout(done, 100));
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(Object.keys(createStreamActivities({} as never)).sort());
-    expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect(worker.options.interceptors.activity, 'the shared interceptors and the refusal of work being deleted').toHaveLength(6);
     worker.shutdown();
     await running;
     expect(worker.getState()).toBe('STOPPED');
