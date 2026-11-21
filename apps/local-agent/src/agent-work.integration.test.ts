@@ -3,6 +3,7 @@ import path from 'node:path';
 import { temporal } from '@temporalio/proto';
 import type { Socket } from 'socket.io';
 import { describe, expect, it } from 'vitest';
+import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { deviceQueue, startDeviceWorker } from './engine-worker.js';
 import type { ClusterHost } from './machine-cluster.js';
@@ -68,6 +69,32 @@ describe('the machine agent starting its work for its Koala', () => {
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));
     expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [], withoutDriver: [] } });
     expect(stops).toHaveLength(1);
+    await new Promise<void>((done) => { void koala.close(() => done()); });
+  });
+
+  it('asks root for a new work token when its Koala cuts it off because the token ran out, and connects again with the one it is given', async () => {
+    const tokens: string[] = [];
+    let cut: (asked: number) => void = () => undefined;
+    const firstCut = new Promise<number>((done) => { cut = done; });
+    let asked = 0;
+    const { koala, port } = await koalaAnsweringPayloads(world, {
+      at: '/agent',
+      key: 'agent-work-ended-key-0123456789abcdef',
+      connected: (socket) => {
+        tokens.push((socket.handshake.auth as { token?: string }).token ?? '');
+        if (tokens.length > 1) return;
+        socket.emit(WORK_TOKEN_ENDED, { said: 'this machine\'s work token expired' });
+        void socket.emitWithAck('sandbox:exec', { leafId: 'probe', command: 'true' }).then(() => {
+          cut(asked);
+          socket.disconnect(true);
+        });
+      },
+    });
+    const work = startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir: world.rootDir, deviceId: 'ended-desk' }, `http://127.0.0.1:${port}`, 'old-token', () => { asked += 1; }, () => undefined);
+    expect(await firstCut).toBe(1);
+    await work.setToken('new-token');
+    while (tokens.length < 2) await new Promise((done) => setTimeout(done, 50));
+    expect(tokens).toEqual(['old-token', 'new-token']);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   });
 

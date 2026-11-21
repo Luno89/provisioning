@@ -15,6 +15,8 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
+import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineService } from '../services/MachineService.js';
@@ -77,6 +79,11 @@ function connectTo(namespace: string, token: string, onToken?: (token: string, a
 const account = (token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void) => connectTo('/machine-account', token, onToken);
 const work = (token: string) => connectTo('/agent', token);
 
+const cutOrStill = (socket: ClientSocket, answered: () => Promise<void>) => {
+  const cut = new Promise<string>((done) => socket.once('disconnect', (reason) => done(reason)));
+  return () => Promise.race([cut, answered().then(() => 'still connected: Koala answered the machine after it should have been cut off')]);
+};
+
 const stored = async () => (await db.machines.getLocalAgentDevices()).find((one) => one.id === 'desk')!;
 
 function gatewayAnswer(token: string): Promise<string | undefined> {
@@ -110,7 +117,7 @@ beforeEach(async () => {
   const forgotten = { listener: (_deviceId: string) => undefined as void };
   machines = new MachineService({
     store: db.machines,
-    devices: { status: () => ({ online: false }), tell: () => false, ask: async () => undefined as never, drop: () => undefined },
+    devices: { status: () => ({ online: false }), tell: () => false, ask: async () => undefined as never, drop: dropDevice },
     projects: { register: async () => { throw new Error('not used'); }, removeFor: async () => undefined },
     accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
     now: () => clock,
@@ -257,6 +264,20 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     socket.emit('machine:koala?');
     await until(async () => (told.length === 2 ? true : undefined));
   });
+
+  it('is cut off at root the moment the person removes the machine, after it is told why', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const { socket, error } = await account(OLD_TOKEN);
+    expect(error).toBeUndefined();
+    await new Promise((done) => socket.once('machine:koala', done));
+    const heard: string[] = [];
+    socket.on('machine:removed', () => heard.push('removed'));
+    const cut = cutOrStill(socket, () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); }));
+    expect(await accounts.remove('owner-1', 'desk')).toBe(true);
+    expect(await cut()).toBe('io server disconnect');
+    expect(heard).toEqual(['removed']);
+    expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
+  });
 });
 
 describe('a machine\'s work token at its Koala', () => {
@@ -291,5 +312,28 @@ describe('a machine\'s work token at its Koala', () => {
     await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
     expect(await gatewayAnswer(token)).toMatch(/not known here/);
     expect(await gitAnswer(token)).toBe(401);
+  });
+
+  it('closes the machine\'s connection the moment its Koala forgets the machine root removed', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const { socket, error } = await work(workToken());
+    expect(error).toBeUndefined();
+    const cut = cutOrStill(socket, () => socket.emitWithAck('agents:manual', {}).then(() => undefined));
+    await until(async () => (localAgentStatus('desk').online ? true : undefined));
+    await db.machines.deleteLocalAgentDevice('desk');
+    await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
+    expect(await cut()).toBe('io server disconnect');
+  });
+
+  it('closes the machine\'s connection at the first thing it sends once its work token has run out, saying why', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const { socket, error } = await work(workToken());
+    expect(error).toBeUndefined();
+    const told: string[] = [];
+    socket.on(WORK_TOKEN_ENDED, ({ said }: { said: string }) => told.push(said));
+    const cut = cutOrStill(socket, () => socket.emitWithAck('agents:manual', {}).then(() => undefined));
+    clock = new Date(clock.getTime() + (WORK_TOKEN_TTL_SECONDS + 1) * 1000);
+    expect(await cut()).toBe('io server disconnect');
+    expect(told).toEqual([WORK_TOKEN_REFUSED.expired]);
   });
 });
