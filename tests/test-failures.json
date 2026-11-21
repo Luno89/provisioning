@@ -90,5 +90,8 @@
  ],
  "apps/backend/src/scripts/setup-waits.integration.test.ts": [
   "2026-11-21T11:41:35.000Z"
+ ],
+ "apps/backend/src/engine-host/temporal/stream-worker.integration.test.ts": [
+  "2026-11-21T13:24:48.998Z"
  ]
 }
