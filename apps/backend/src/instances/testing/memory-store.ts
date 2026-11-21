@@ -203,6 +203,10 @@ export class MemoryInstancesStore implements InstancesStore {
     this.artifacts.delete(`Grant:${grantId}`);
   }
 
+  async oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]> {
+    return [...this.artifacts.values()].filter((artifact) => artifact.model === 'Grant' && artifact.accountId === accountId).map((artifact) => JSON.parse(artifact.payload) as Record<string, unknown>);
+  }
+
   async oidcForgetAccount(accountId: string): Promise<string[]> {
     const grants = [...this.artifacts].filter(([, artifact]) => artifact.model === 'Grant' && artifact.accountId === accountId);
     const grantIds = grants.map(([key]) => key.slice('Grant:'.length));

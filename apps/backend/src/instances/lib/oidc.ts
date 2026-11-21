@@ -19,6 +19,12 @@ export const SERVICE_TOKEN_SECONDS = 5 * 60;
 export const SIGNING_ALG = 'Ed25519';
 export const LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
 export const LOGOUT_TYP = 'logout+jwt';
+export const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
+export const OWNER_TOKEN_TYPE = 'urn:koala:params:oauth:token-type:owner';
+export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
+export const RUN_SCOPE = 'koala:run';
+export const RUN_TOKEN_SECONDS = 5 * 60;
+export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 
 export type ClientKind = 'instance';
 
@@ -71,9 +77,9 @@ export function clientMetadata(client: ClientRegistration): Record<string, unkno
   return {
     client_id: client.clientId,
     redirect_uris: [`${base}${CALLBACK_PATH}`],
-    grant_types: ['authorization_code', 'refresh_token', 'client_credentials'],
+    grant_types: ['authorization_code', 'refresh_token', 'client_credentials', TOKEN_EXCHANGE],
     response_types: ['code'],
-    scope: [...SIGN_IN_SCOPES, SERVICE_SCOPE].join(' '),
+    scope: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE].join(' '),
     token_endpoint_auth_method: 'private_key_jwt',
     token_endpoint_auth_signing_alg: SIGNING_ALG,
     id_token_signed_response_alg: SIGNING_ALG,

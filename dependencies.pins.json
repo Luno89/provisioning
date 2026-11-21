@@ -703,6 +703,25 @@
       ]
     },
     {
+      "kind": "npm",
+      "name": "oidc-provider",
+      "version": "9.12.2",
+      "where": "root's OpenID provider and the run-token exchange it serves, which reaches the provider's token models; the exchange's suite runs on every bump",
+      "source": "https://www.npmjs.com/package/oidc-provider",
+      "github": "panva/node-oidc-provider",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "oidc-provider"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/package.json",
+          "pattern": "\"oidc-provider\": \"([0-9.]+)\""
+        }
+      ],
+      "released": "2026-09-05T12:40:20Z"
+    },
+    {
       "kind": "image",
       "name": "node",
       "version": "22-bookworm-slim",

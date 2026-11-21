@@ -26,6 +26,7 @@ export interface InstancesStore extends AreaStore {
   oidcDestroy(model: string, id: string): Promise<void>;
   oidcRevokeGrant(grantId: string): Promise<void>;
   oidcForgetAccount(accountId: string): Promise<string[]>;
+  oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]>;
   enqueueLogout(delivery: LogoutDelivery): Promise<void>;
   pendingLogouts(): Promise<LogoutDelivery[]>;
   logoutDelivered(id: string): Promise<void>;
@@ -229,6 +230,10 @@ export class MongoInstancesStore implements InstancesStore {
   async oidcRevokeGrant(grantId: string): Promise<void> {
     await this.oidcArtifacts.deleteMany({ grantId });
     await this.oidcArtifacts.deleteOne({ _id: `Grant:${grantId}` as never });
+  }
+
+  async oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]> {
+    return (await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray()).map((grant) => asStored(grant)).filter((grant): grant is Record<string, unknown> => grant !== undefined);
   }
 
   async oidcForgetAccount(accountId: string): Promise<string[]> {

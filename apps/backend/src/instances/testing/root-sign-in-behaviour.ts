@@ -8,7 +8,8 @@ import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { clientKeysFrom } from '../lib/oidc.js';
+import { claimsFor, clientKeysFrom, runResourceOf } from '../lib/oidc.js';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
@@ -284,4 +285,41 @@ export async function logoutKeptFromAPrivateAddress<S extends Served>(world: Sig
   expect(waiting).toMatchObject({ clientId: 'inst-u1', attempts: 1, lastError: matching(/Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/) });
   expect(world.heard).toEqual([]);
   expect((await world.whoami(instanceJar)).status).toBe(200);
+}
+
+export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): void {
+  const runTokenOf = async (accessToken: string) => (await jwtVerify(accessToken, createRemoteJWKSet(new URL(`${world.root.url}/oidc/jwks`)), {
+    issuer: `${world.root.url}/oidc`, audience: runResourceOf('inst-u1'), typ: 'at+jwt',
+  })).payload;
+
+  it('gives a run of its owner a token of its own for this instance, stamped with their claims as the run started, through every renewal', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    const owner = (await world.rootDb.accounts.getUserById('u1'))!;
+    const atStart = claimsFor(owner, { kind: 'instance', owner: 'u1' });
+
+    const run = await world.signIn.runToken('run-1');
+    expect(await runTokenOf(run.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'run-1', act: { sub: 'inst-u1' }, koala_claims: atStart });
+
+    await world.rootDb.accounts.saveUser({ ...owner, space: { person: 'u2' } } as never);
+    expect(claimsFor((await world.rootDb.accounts.getUserById('u1'))!, { kind: 'instance', owner: 'u1' })).not.toEqual(atStart);
+    const renewed = await world.signIn.renewRunToken(run.refreshToken);
+    expect(renewed.refreshToken).not.toBe(run.refreshToken);
+    expect(await runTokenOf(renewed.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'run-1', koala_claims: atStart });
+  });
+
+  it('gives no run token for a person not signed in to this instance, none once they sign out everywhere, and none for a run that ended', async () => {
+    await world.signIn.announce();
+    await expect(world.signIn.runToken('run-1')).rejects.toThrow(/not signed in to this Koala/);
+
+    await world.signInAs('u1');
+    const ended = await world.signIn.runToken('run-ended');
+    await world.signIn.endRunToken(ended.refreshToken);
+    await expect(world.signIn.renewRunToken(ended.refreshToken)).rejects.toThrow();
+
+    const live = await world.signIn.runToken('run-live');
+    await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
+    await expect(world.signIn.renewRunToken(live.refreshToken)).rejects.toThrow();
+    await expect(world.signIn.runToken('run-after')).rejects.toThrow(/not signed in to this Koala/);
+  });
 }
