@@ -19,7 +19,7 @@ import { SecretRequestService, createSecretVault } from '../projects/services/Se
 import type { Tree } from '../projects/lib/trees.js';
 import { seededAgents } from '../extensions/seeds.js';
 import { grantHeld, grantsHeldInMemory } from '../engine/testing/run-grants.js';
-import { READY_IMAGES, TEST_MODELS } from './testing/host-fixtures.js';
+import { READY_IMAGES, NO_MEMORIES, TEST_MODELS } from './testing/host-fixtures.js';
 
 const GRANTS = grantsHeldInMemory();
 
@@ -100,7 +100,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
       environments,
       models: TEST_MODELS,
       tools: createToolRuntime({ registry, handlers, grants: GRANTS }),
-      memories: { list: async () => [], save: async () => undefined },
+      memories: NO_MEMORIES,
     };
 
     let round = 0;

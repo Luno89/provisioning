@@ -88,11 +88,7 @@ export interface EngineHostStores {
     growing?: import('../extensions/grove/tools/grove-tools.js').TreeGrowing | undefined;
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
-  memories: {
-    list(ownerId: string): Promise<MemoryItem[]>;
-    save(item: MemoryItem): Promise<void>;
-    unindex(ownerId: string, ids: string[]): Promise<void>;
-  };
+  memories: HostNodeServices['memories'];
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
   mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
   mcpServers?: {
@@ -534,6 +530,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
+      unindex: stores.memories.unindex,
     },
     ...(options.hidden ? { hidden: options.hidden } : {}),
     operations: operationHandlers(runtimes),

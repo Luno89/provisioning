@@ -65,7 +65,7 @@ describe('consolidating one person\'s memories with their own Quickwit, Qdrant a
 
     expect(report).toMatchObject({ deduped: 2, indexed: 2, live: 2 });
     expect(await current()).toEqual(['b', 'c']);
-    expect((await db.memory.getMemories('u1')).filter((item) => item.invalidAt).map((item) => [item.id, item.supersededBy])).toEqual([['a', 'b'], ['d', 'c']]);
+    expect((await db.memory.getMemories('u1')).filter((item) => item.invalidAt).map((item) => [item.id, item.mergedInto])).toEqual([['a', 'b'], ['d', 'c']]);
     expect(asked.removed).toEqual([
       `quickwit ${JSON.stringify({ query: 'memory_id:"a" OR memory_id:"d"' })}`,
       `qdrant ${JSON.stringify({ points: [pointId('a'), pointId('d')] })}`,

@@ -20,6 +20,7 @@ export interface HostNodeServices {
   memories: {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
+    unindex(ownerId: string, ids: string[]): Promise<void>;
   };
   code?: import('./code-runner.js').CodeRunner | undefined;
   conversations: import('./conversation-nodes.js').ConversationStore;

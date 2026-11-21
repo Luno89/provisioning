@@ -1,6 +1,6 @@
 import type { WorkspaceDependency } from '@koala/agent-engine';
 import { randomUUID } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { usable, type McpServerRecord, type McpServerTemplate } from '../../engine/lib/mcp-servers.js';
 import { slugify } from '../../engine/lib/mcp-tools.js';
@@ -16,10 +16,7 @@ export interface McpToolStores {
   };
 }
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 

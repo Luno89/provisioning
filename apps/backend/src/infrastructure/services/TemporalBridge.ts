@@ -573,9 +573,9 @@ export class TemporalBridge {
           continue
         }
         const { report } = outcome
-        if (report.deduped || report.promoted || report.decayed) {
+        if (report.deduped || report.promoted) {
           console.log(`[Consolidate] ${ownerId}: ${report.live} live memories`
-            + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
+            + ` (deduped ${report.deduped}, promoted ${report.promoted},`
             + ` indexed ${report.indexed})`)
         }
         this.lastConsolidation = report

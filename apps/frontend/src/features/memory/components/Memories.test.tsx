@@ -62,6 +62,20 @@ describe('memories by where they were learned', () => {
   })
 })
 
+describe('what dreaming merged', () => {
+  it('shows a merged duplicate under Retired with what it was merged into', async () => {
+    vi.mocked(listMemories).mockResolvedValue([
+      memory('keep', 'DNS lives at Cloudflare'),
+      { ...memory('dup', 'DNS is at Cloudflare'), invalidAt: '2026-11-20T00:00:00.000Z', mergedInto: 'keep' },
+    ])
+    show()
+    await userEvent.click(await screen.findByRole('button', { name: 'Retired (1)' }))
+    expect(screen.getByText('DNS is at Cloudflare text')).toBeInTheDocument()
+    expect(screen.getByText('Merged into')).toBeInTheDocument()
+    expect(screen.getAllByText('DNS lives at Cloudflare').length).toBeGreaterThan(0)
+  })
+})
+
 describe('memories by model', () => {
   it('marks a memory kept for one model and shows what a model recalls', async () => {
     show()

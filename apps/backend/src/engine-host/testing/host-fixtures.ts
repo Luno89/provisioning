@@ -1,3 +1,4 @@
+import type { HostNodeServices } from '../nodes/services.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
 
 export const READY_IMAGES: ImageBuilder = {
@@ -13,4 +14,10 @@ export const TEST_MODELS = {
     baseUrl: 'https://models.test/v1',
     apiKey: 'k',
   }),
+};
+
+export const NO_MEMORIES: HostNodeServices['memories'] = {
+  list: async () => [],
+  save: async () => undefined,
+  unindex: async () => undefined,
 };

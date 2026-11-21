@@ -5,12 +5,9 @@ export interface ConsolidationReport {
   indexed: number;
   deduped: number;
   promoted: number;
-  decayed: number;
   unreachable: number;
   live: number;
 }
-
-export const DECAY_AFTER_DAYS = 45;
 
 export const DUPLICATE_SIMILARITY = 0.97;
 
@@ -38,7 +35,7 @@ export function planTitleDedupe(memories: MemoryItem[], now: string): MemoryItem
     if (group.length < 2) continue;
     const [keep, ...rest] = [...group].sort(newestFirst);
     for (const m of rest) {
-      retire.push({ ...m, invalidAt: now, supersededBy: keep!.id, updatedAt: now });
+      retire.push({ ...m, invalidAt: now, mergedInto: keep!.id, updatedAt: now });
     }
   }
   return retire;
@@ -63,23 +60,10 @@ export function planSimilarityDedupe(
       if (!other || other.id === keep.id || groupKey(other) !== groupKey(keep)) continue;
       if (newestFirst(keep, other) > 0) continue;
       retired.add(other.id);
-      retire.push({ ...other, invalidAt: now, supersededBy: keep.id, updatedAt: now });
+      retire.push({ ...other, invalidAt: now, mergedInto: keep.id, updatedAt: now });
     }
   }
   return retire;
-}
-
-export function planDecay(memories: MemoryItem[], now: string, afterDays = DECAY_AFTER_DAYS): MemoryItem[] {
-  const cutoff = Date.parse(now) - afterDays * 24 * 60 * 60 * 1000;
-  if (Number.isNaN(cutoff)) return [];
-
-  return memories
-    .filter((m) => {
-      if (m.invalidAt) return false;
-      const last = Date.parse(m.lastUsedAt ?? m.createdAt);
-      return !Number.isNaN(last) && last < cutoff;
-    })
-    .map((m) => ({ ...m, invalidAt: now, updatedAt: now }));
 }
 
 export interface PromotableLeaf {
@@ -183,10 +167,6 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
   await retire(deduped);
   for (const m of deduped) retiredIds.add(m.id);
 
-  const decayed = planDecay(memories.filter((m) => !retiredIds.has(m.id)), now);
-  await retire(decayed);
-  for (const m of decayed) retiredIds.add(m.id);
-
   const survivors = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id) && m.status !== 'pending_review');
   const indexed = deps.index
     ? await deps.index(survivors).then((r) => r.vectors).catch((err: unknown) => {
@@ -200,7 +180,6 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
     indexed,
     deduped: deduped.length,
     promoted: promoted.length,
-    decayed: decayed.length,
     unreachable: unreachable.length,
     live: survivors.length,
   };

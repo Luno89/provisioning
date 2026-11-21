@@ -833,6 +833,21 @@ export interface RunInputNode extends Value {
   wire(wires: RunInputWires): void
 }
 
+export interface ForgetMemoryWires {
+  /** The id of the memory to forget. Required. */
+  id?: In<'text'>
+  /** Why it is no longer true. Required. */
+  why?: In<'text'>
+}
+
+export type ForgetMemorySettings = Record<string, never>
+
+export interface ForgetMemoryNode extends Step<'forgotten' | 'refused'> {
+  /** The memory as retired. */
+  readonly memory: Out<'json'>
+  wire(wires: ForgetMemoryWires): void
+}
+
 export interface RecallMemoryWires {
   /** The model the prompt is for. Nothing wired means memories kept for one model are left out. */
   binding?: In<'modelBinding'>
@@ -861,6 +876,8 @@ export interface SaveMemoryWires {
   text?: In<'text'>
   /** A short name for it. Nothing wired means the first line of the text. */
   title?: In<'text'>
+  /** Wire the model to keep the memory for that model only. Nothing wired means it holds for every model. */
+  binding?: In<'modelBinding'>
 }
 
 export type SaveMemorySettings = {
@@ -874,6 +891,30 @@ export interface SaveMemoryNode extends Step<'saved' | 'refused'> {
   /** The memory as saved. */
   readonly memory: Out<'json'>
   wire(wires: SaveMemoryWires): void
+}
+
+export interface UpdateMemoryWires {
+  /** The id of the memory to update. Required. */
+  id?: In<'text'>
+  /** What it should say now. Required. */
+  text?: In<'text'>
+  /** A short name for it. Nothing wired means the first line of the text. */
+  title?: In<'text'>
+  /** Wire the model to keep the memory for that model only. Nothing wired means it holds for every model. */
+  binding?: In<'modelBinding'>
+}
+
+export type UpdateMemorySettings = {
+  /** Category */
+  category?: 'lessons_learned' | 'environment_facts' | 'prompt_guidance'
+  /** Scope */
+  scope?: 'global' | 'project'
+}
+
+export interface UpdateMemoryNode extends Step<'updated' | 'refused'> {
+  /** The memory as saved. */
+  readonly memory: Out<'json'>
+  wire(wires: UpdateMemoryWires): void
 }
 
 export interface CallModelWires {
@@ -1322,14 +1363,26 @@ export interface Nodes {
   persona(id: string, wires?: PersonaWires, settings?: PersonaSettings, meta?: NodeMeta): PersonaNode
   /** Run Input: What this run was started with: the message, and any named inputs. */
   runInput(id: string, wires?: RunInputWires, settings?: RunInputSettings, meta?: NodeMeta): RunInputNode
+  /**
+   * Forget Memory: Retires one of the owner's memories that is no longer true. It is kept with why, and never recalled again.
+   * Leaves through forgotten: It was retired.
+   * Leaves through refused: It could not be retired, and the output says why.
+   */
+  forgetMemory(id: string, wires?: ForgetMemoryWires, settings?: ForgetMemorySettings, meta?: NodeMeta): ForgetMemoryNode
   /** Recall Memory: Picks the owner's active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. */
   recallMemory(id: string, wires?: RecallMemoryWires, settings?: RecallMemorySettings, meta?: NodeMeta): RecallMemoryNode
   /**
-   * Save Memory: Writes something worth remembering for later runs. A project memory is refused when the run has no project, because it could never be recalled.
+   * Save Memory: Writes something worth remembering for later runs, the way the save_memory tool does: the same thing is never stored twice. A project memory is refused when the run has no project, because it could never be recalled.
    * Leaves through saved: It was saved.
    * Leaves through refused: It could not be saved, and the output says why.
    */
   saveMemory(id: string, wires?: SaveMemoryWires, settings?: SaveMemorySettings, meta?: NodeMeta): SaveMemoryNode
+  /**
+   * Update Memory: Replaces one of the owner's memories with what it is given. The old one is retired in favour of the new and kept, so the Memories page shows what replaced it.
+   * Leaves through updated: It was updated.
+   * Leaves through refused: It could not be updated, and the output says why.
+   */
+  updateMemory(id: string, wires?: UpdateMemoryWires, settings?: UpdateMemorySettings, meta?: NodeMeta): UpdateMemoryNode
   /**
    * Call Model: Sends the system prompt, the conversation and the offered tools to the model, streams the reply, and leaves by what the reply turned out to be.
    * Leaves through toolCalls: It asked for one or more tools.

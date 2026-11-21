@@ -1,4 +1,4 @@
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { scenarioProblems } from '../../eval/level2/scenario.js';
 import { proposedScenario, type ScenarioProposal } from '../../checks/lib/scenario-proposals.js';
@@ -16,10 +16,7 @@ export interface ScenarioProposalAccess {
 
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 
-const text = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const text = textArgument;
 
 const names = (value: unknown): string[] | undefined => {
   const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : undefined;

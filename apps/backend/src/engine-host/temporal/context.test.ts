@@ -1,3 +1,4 @@
+import { NO_MEMORIES } from '../testing/host-fixtures.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
 import { turnProcedure } from '../../checks/lib/turn-check.js';
@@ -121,7 +122,7 @@ function engine(options: {
       }),
     },
     tools: { run: async () => ({ ok: true, digest: '', content: '' }) },
-    memories: { list: async () => [], save: async () => undefined },
+    memories: NO_MEMORIES,
   };
 
   return { services, registry, environments };

@@ -609,7 +609,7 @@ describe('consolidating everyone\'s memories', () => {
 
     await instance.consolidateMemoryBank();
 
-    expect((await db.memory.getMemories()).map((item) => [item.id, item.supersededBy ?? 'current']).sort()).toEqual([['a1', 'a2'], ['a2', 'current'], ['b1', 'current']]);
+    expect((await db.memory.getMemories()).map((item) => [item.id, item.mergedInto ?? 'current']).sort()).toEqual([['a1', 'a2'], ['a2', 'current'], ['b1', 'current']]);
     expect(instance.lastConsolidation).toMatchObject({ live: 1 });
   });
 });

@@ -369,7 +369,7 @@ export class GroveWorld {
       models,
       tools: { run: runTool },
       environments: resolver,
-      memories: { list: async () => [], save: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
       operations: vanishingAfterStart(operationHandlers(extensionRuntimes({
         grove: {
           operations: { ...stores, treeWorkspaces, environments: resolver, registry, now: this.now },

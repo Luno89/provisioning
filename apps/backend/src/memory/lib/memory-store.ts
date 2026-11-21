@@ -42,6 +42,7 @@ export interface MemoryItem {
   validAt?: string;
   invalidAt?: string;
   supersededBy?: string;
+  mergedInto?: string;
 
   lastUsedAt?: string;
   useCount?: number;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { environmentHandlers, executeTool } from './tool-exec.js';
+import { environmentHandlers, executeTool, textArgument } from './tool-exec.js';
 import type { ToolContract } from './tools.js';
 
 describe('a tool whose implementation is the command it declares', () => {
@@ -194,5 +194,14 @@ describe('running a command', () => {
     expect(timedOut).toMatchObject({ ok: false, content: 'half\n[stopped after 5s, the timeoutSeconds this call set; everything it started was stopped too]' });
     const cancelled = await run(recording({ stdout: '', stderr: '', exitCode: 0, stopped: 'cancelled' }).driver, { command: 'serve' });
     expect(cancelled).toMatchObject({ ok: false, content: '[stopped because the run was stopped; everything it started was stopped too]' });
+  });
+});
+
+describe('a text argument a tool was given', () => {
+  it('is the trimmed text, and nothing when it is blank or not text', () => {
+    expect(textArgument({ name: '  koala ' }, 'name')).toBe('koala');
+    expect(textArgument({ name: '   ' }, 'name')).toBeUndefined();
+    expect(textArgument({ name: 3 }, 'name')).toBeUndefined();
+    expect(textArgument({}, 'name')).toBeUndefined();
   });
 });

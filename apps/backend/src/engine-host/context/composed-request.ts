@@ -152,7 +152,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
       describe: (ticket) => resolver.describe(ticket),
       release: (runId) => resolver.release(runId),
     },
-    memories: { list: async () => [], save: async () => undefined },
+    memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
     fetchImpl: fetchImpl as unknown as typeof fetch,
   };
 

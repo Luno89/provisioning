@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import {
   descriptionProblem, keyProblem, secretReference, sourceFor, withRequired,
   type MintedSource, type SecretRequest, type SecretRequestFilter,
@@ -34,10 +34,7 @@ export interface SecretToolOptions {
   newId?: (() => string) | undefined;
 }
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 
