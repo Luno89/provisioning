@@ -1,0 +1,11 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.stryker.socket.config.ts" },
+  "mutate": ["src/features/platform/stores/socket.ts"],
+  "inPlace": true,
+  "coverageAnalysis": "perTest",
+  "reporters": ["json", "clear-text"],
+  "jsonReporter": { "fileName": "../../tests/.coupling/mutation/socket-hook.json" },
+  "concurrency": 2
+}

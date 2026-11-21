@@ -1,0 +1,11 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.stryker.platform.config.ts" },
+  "mutate": ["src/platform/lib/change-streams.ts", "src/platform/middleware/auth.ts"],
+  "inPlace": true,
+  "coverageAnalysis": "perTest",
+  "reporters": ["json", "clear-text"],
+  "jsonReporter": { "fileName": "../../tests/.coupling/mutation/platform.json" },
+  "concurrency": 4
+}

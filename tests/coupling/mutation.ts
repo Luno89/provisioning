@@ -9,6 +9,8 @@ export interface MutationReport {
 }
 
 export const AREAS: Record<string, { workspace: string; report: string }> = {
+  platform: { workspace: 'apps/backend', report: 'tests/.coupling/mutation/platform.json' },
+  'socket-hook': { workspace: 'apps/frontend', report: 'tests/.coupling/mutation/socket-hook.json' },
   provision: { workspace: 'packages/provision', report: 'tests/.coupling/mutation/provision.json' },
   'infrastructure-lib': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/infrastructure-lib.json' },
   'accounts-services': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/accounts-services.json' },
