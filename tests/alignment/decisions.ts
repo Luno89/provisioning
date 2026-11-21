@@ -337,6 +337,20 @@ export const DECISIONS: Decision[] = [
     ],
   },
   {
+    id: 'versions-are-images',
+    subject: 'Versions of procedures, workflows and Koala itself',
+    terms: ['version', 'versioning', 'image', 'upgrade', 'patched', 'pinned'],
+    words: [
+      { at: '2026-10-02T13:28', asked: 'When the author edits a published operation, what happens to procedures that already use it?', text: 'can we do both? versioning seems important but we can go ahead and dump them all when they get saved?' },
+      { at: '2026-11-21T08:59', text: 'we already talked about this at some point, we can\'t have versions of a workflow changing out from underneith a workflow' },
+      { at: '2026-11-21T09:03', text: 'the whole site should probably be versioned' },
+      { at: '2026-11-21T09:05', text: 'all the dependencies should probably have a version key' },
+      { at: '2026-11-21T09:10', text: 'I meant everything the procedure touched should be locked with that version and if you wanted to change something that required a new version, what i head in my head was like a docker image' },
+      { at: '2026-11-21T09:12', text: 'yep thats what I meant, record it and move to D2' },
+    ],
+    reading: 'A version is an image: a sealed snapshot of everything a procedure touches (its graph and node code, the operations it calls at their versions, its agents with their prompts and grants, tool contracts and captured MCP servers, the model and its settings, the workspace image, and the Koala build it runs on), named by its contents and never changed. Changing any part makes a new version; a run uses the image it started with from first step to last, and old images stay while a run uses them. Koala itself is versioned the same way: a run is pinned to the Koala build it started on and the old build\'s workers stay until their runs finish, so no workflow\'s code changes underneath it and the patched() guards go. What cannot be locked (the person\'s data, outside services, root, the machine agent, secrets) carries a version key that is checked, and a mismatch is handled or refused with why, never run silently.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
