@@ -42,5 +42,35 @@
     "missed": 127
    }
   }
+ },
+ {
+  "area": "platform",
+  "commit": "b489f58f8ee4",
+  "at": "2026-11-21T02:52:01.531Z",
+  "layers": {
+   "unit": {
+    "caught": 54,
+    "missed": 29
+   },
+   "component": {
+    "caught": 211,
+    "missed": 79
+   }
+  }
+ },
+ {
+  "area": "socket-hook",
+  "commit": "b489f58f8ee4",
+  "at": "2026-11-21T02:52:02.555Z",
+  "layers": {
+   "component": {
+    "caught": 18,
+    "missed": 19
+   },
+   "unit": {
+    "caught": 12,
+    "missed": 7
+   }
+  }
  }
 ]
