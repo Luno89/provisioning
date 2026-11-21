@@ -266,7 +266,6 @@
  "tests apps/backend/src/accounts/routes/auth.test.ts <-> apps/backend/src/accounts/routes/auth.test.ts #23d3c68dfeee": 1,
  "tests apps/backend/src/accounts/routes/auth.test.ts <-> apps/backend/src/accounts/routes/auth.test.ts #5664ce21208c": 1,
  "tests apps/backend/src/accounts/routes/auth.test.ts <-> apps/backend/src/accounts/routes/auth.test.ts #ca1b90cff001": 1,
- "tests apps/backend/src/accounts/routes/provider-sign-in.integration.test.ts <-> apps/backend/src/accounts/routes/provider-sign-in.integration.test.ts #b6009ea05dd1": 1,
  "tests apps/backend/src/accounts/services/AuthService.integration.test.ts <-> apps/backend/src/accounts/services/AuthService.test.ts #2d881f1675b5": 1,
  "tests apps/backend/src/accounts/services/AuthService.integration.test.ts <-> apps/backend/src/accounts/services/AuthService.test.ts #3383b3680d66": 1,
  "tests apps/backend/src/accounts/services/AuthService.integration.test.ts <-> apps/backend/src/accounts/services/AuthService.test.ts #33c5ece3c6cd": 1,

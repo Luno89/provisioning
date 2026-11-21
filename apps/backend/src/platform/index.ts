@@ -100,7 +100,7 @@ export { mayTouch, ownedQuery, ownerIn, PLATFORM_OWNER, seesEverything, startedF
 export type { WorkflowRun, Workflows } from './lib/workflows.js';
 export { asyncRoute, errorResponder } from './middleware/async-route.js';
 export { createAuth, parseCookie, principalFrom, requireAllowed } from './middleware/auth.js';
-export type { Auth, ClientSession, ClientSessions } from './middleware/auth.js';
+export type { Auth, ClientSession, ClientSessions, OpenMount, OpenRoute } from './middleware/auth.js';
 export { signSocketsIn } from './middleware/socket-sign-in.js';
 export type { SocketSignInDeps } from './middleware/socket-sign-in.js';
 export { inFlightLimit } from './middleware/in-flight.js';

@@ -15,6 +15,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { deviceToken, hashPassword, sessionToken } from '../../platform/lib/auth.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const fresh = await emptiedEachTime();
 
@@ -24,7 +25,7 @@ const SETUP_CODE = 'the-setup-code';
 async function serve(db: Database, options: { mail?: CodeMail; production?: boolean } = {}) {
   const revoked: AccessRevoked[] = [];
   const revocations = { revoked: async (event: AccessRevoked) => { revoked.push(event); } };
-  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001', role: 'root', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
   const authService = new AuthService(db, options);
   const passwords = new PasswordService({ db, auth: authService, breached: breachedFrom('password1234\n'), revocations });
   const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });

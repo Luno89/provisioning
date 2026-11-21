@@ -1,5 +1,5 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute } from '../../platform/index.js';
+import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute, type OpenRoute } from '../../platform/index.js';
 import type { InstanceService, StatusReport } from '../services/InstanceService.js';
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
@@ -16,6 +16,8 @@ const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false
   (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.error }));
 
 const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
+
+export const INSTANCES_OPEN: readonly OpenRoute[] = ['/sign-in-key', '/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail'];
 
 export function instancesRouter(deps: {
   instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'announceSignIn'>;

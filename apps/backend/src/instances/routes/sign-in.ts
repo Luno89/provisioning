@@ -1,5 +1,5 @@
 import express, { Router, type Request, type Response } from 'express';
-import { asyncRoute, cookieNamed, type Auth } from '../../platform/index.js';
+import { asyncRoute, cookieNamed, type Auth, type OpenRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { SIGN_IN_COOKIE, type RootSignIn } from '../services/RootSignIn.js';
 import { START_PATH } from '../lib/oidc.js';
@@ -12,6 +12,8 @@ const refusedPage = (error: string): string =>
 export interface InstanceSignIn {
   url: string;
 }
+
+export const SIGN_IN_OPEN: readonly OpenRoute[] = ['/sign-in', '/oidc/start', '/oidc/callback', '/oidc/backchannel-logout'];
 
 export function signInRouter(deps: {
   signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCookieSeconds'>;

@@ -14,6 +14,7 @@ import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
 import { routesInProcess, type RouteAnswer } from '../../platform/testing/routes.js';
 import { authRouter } from './auth.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const KEY = 'test-secret';
 const SETUP = 'the-setup-code';
@@ -22,7 +23,7 @@ const PREFIX = '/api/auth';
 
 function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
   const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
   const authService = mock<AuthService>();
   const passwords = mock<Pick<PasswordService, 'newPasswordProblem'>>();
   const providers = mock<Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'>>();

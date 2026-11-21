@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, sessionToken, type Auth, type SecretKey, type UserMetadata } from '../../platform/index.js';
+import { asyncRoute, sessionToken, type Auth, type SecretKey, type UserMetadata, type OpenRoute } from '../../platform/index.js';
 import type { Answered, PasswordService } from '../services/PasswordService.js';
 import type { Devices } from './device.js';
 
@@ -14,6 +14,8 @@ const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Re
 
 const answer = <T extends object>(res: Response, outcome: Answered<T>, shape: (value: T) => unknown) =>
   (outcome.ok ? res.json(shape(outcome)) : res.status(outcome.status).json({ error: outcome.error }));
+
+export const PASSWORD_OPEN: readonly OpenRoute[] = ['/forgot', '/forgot/resend', '/reset'];
 
 export function passwordRouter(deps: PasswordRouterDeps): Router {
   const router = Router();

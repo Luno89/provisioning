@@ -45,6 +45,7 @@ export interface AuthDeps {
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
   sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
+  open: readonly OpenMount[];
 }
 
 export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
@@ -93,42 +94,31 @@ export interface Auth {
   claimHeldInvite: (codeHash: string, newUserId: string, email: string) => Promise<string | null>;
 }
 
-export function publicPathsOf(role: PlatformRole): { paths: string[]; prefixes: string[] } {
-  const paths = [
-    ...(signsInThroughRoot(role) ? [] : [
-      '/auth/login',
-      '/auth/register',
-      '/auth/register/verify',
-      '/auth/register/resend',
-      '/auth/2fa/verify',
-      '/auth/password/forgot',
-      '/auth/password/forgot/resend',
-      '/auth/password/reset',
-      '/auth/sign-in',
-      '/identity/keys',
-      '/identity/go',
-      '/instances/sign-in-key',
-      '/instances/chart.tgz',
-      '/instances/release',
-      '/instances/status',
-      '/instances/machines',
-      '/instances/machines/join-code',
-      '/instances/addresses',
-      '/instances/updates',
-      '/instances/release-findings',
-      '/instances/groups',
-      '/instances/watch',
-      '/instances/mail',
-    ]),
-    ...(signsInThroughRoot(role) ? ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout'] : []),
-    '/machines/join',
-    '/machines/agent.tgz',
-    '/machines/agent.tgz.sha256',
-    '/machines/metrics',
-    '/metrics',
-  ];
-  const prefixes = role === 'instance' ? ['/checks/scripted/', '/machines/git/', '/share/'] : ['/auth/provider/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
-  return { paths, prefixes };
+export type OpenRoute = string | RegExp;
+
+export interface OpenMount {
+  mount: `/${string}`;
+  routes: readonly OpenRoute[];
+}
+
+function openedBy(open: readonly OpenMount[]): (req: express.Request, res: express.Response) => Promise<boolean> {
+  const opened = express.Router();
+  const marked = new WeakSet<express.Request>();
+  const mark: express.RequestHandler = (req, _res, next) => {
+    marked.add(req);
+    next('router');
+  };
+  for (const { mount, routes } of open) {
+    const under = express.Router();
+    for (const route of routes) under.all(route, mark);
+    opened.use(mount, under);
+  }
+  return (req, res) => new Promise((resolve, reject) => {
+    opened(req, res, (err?: unknown) => {
+      if (err && err !== 'router') reject(err instanceof Error ? err : new Error(String(err)));
+      else resolve(marked.has(req));
+    });
+  });
 }
 
 const userOfSession = (session: ClientSession): UserMetadata => ({
@@ -139,7 +129,8 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds, open }: AuthDeps): Auth {
+  const opens = openedBy(open);
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -192,10 +183,7 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
-    const { paths: publicPaths, prefixes: publicPrefixes } = publicPathsOf(role);
-    if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
-      return next();
-    }
+    if (await opens(req, res)) return next();
     const secure = securedFor(req);
     if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });

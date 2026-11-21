@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, type OpenRoute } from '../../platform/index.js';
 import type { ScriptedModelService } from '../services/ScriptedModelService.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -12,6 +12,8 @@ const chunk = (model: string, delta: Record<string, unknown>, finish: string | n
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const SCRIPTED_MODEL = 'scripted';
+
+export const CHECKS_OPEN: readonly OpenRoute[] = ['/scripted/:spaceId/v1/models', '/scripted/:spaceId/v1/chat/completions'];
 
 export function checksRouter(deps: { scripted: ScriptedModelService }): Router {
   const router = Router();

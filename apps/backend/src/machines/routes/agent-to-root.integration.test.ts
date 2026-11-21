@@ -26,7 +26,10 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { KoalaInstalls } from '../services/KoalaInstalls.js';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { machinesRouter } from './machines.js';
+import { createAuth } from '../../platform/middleware/auth.js';
+import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { closedAfterEach, quietAccountSides } from '../testing/wiring-world.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const closers = closedAfterEach();
 
@@ -54,6 +57,7 @@ async function root(followBeatMs?: number) {
   closers.push(() => watched.close());
   await watched.ready;
   const app = express();
+  app.use('/api', createAuth({ db, sessionKey: 'agent-to-root', publicUrl: 'http://root.test', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) }).requireAuth);
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) }, followBeatMs }));
   const server = http.createServer(app);

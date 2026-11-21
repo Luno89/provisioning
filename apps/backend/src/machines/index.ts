@@ -13,3 +13,5 @@ export { MachineMirror } from './services/MachineMirror.js';
 export { MachineService } from './services/MachineService.js';
 export type { MachinesStore } from './store.js';
 export type { Routes } from './wiring/machines.js';
+export { ACCOUNT_MACHINES_OPEN } from './routes/account-machines.js';
+export { MACHINES_OPEN } from './routes/machines.js';

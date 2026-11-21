@@ -34,6 +34,7 @@ import type { HeadscaleService } from '../../../../../backend/src/infrastructure
 import { principalOf } from '../../../../../backend/src/platform/lib/permissions'
 import type { UserMetadata } from '../../../../../backend/src/platform/lib/types'
 import type { RoleConfig } from '../../../../../backend/src/platform/lib/platform-role'
+import { openRoutesOf } from '../../../../../backend/src/open-routes'
 
 const INSTANCE_ID = 'inst-kangaroo'
 const CREDENTIAL = 'the-instance-credential'
@@ -51,7 +52,7 @@ const rootServer = http.createServer(root)
 await new Promise<void>((resolve) => rootServer.listen(0, '127.0.0.1', () => resolve()))
 afterAll(() => new Promise<void>((resolve) => rootServer.close(() => resolve())))
 const rootUrl = `http://127.0.0.1:${(rootServer.address() as AddressInfo).port}`
-const rootAuth = createAuth({ db: rootDb, sessionKey: 'root-session-key', publicUrl: rootUrl, role: 'root', sessionEnds: new SessionEnds(rootDb.platform) })
+const rootAuth = createAuth({ db: rootDb, sessionKey: 'root-session-key', publicUrl: rootUrl, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) })
 root.use('/api', rootAuth.requireAuth)
 root.use(express.json())
 root.use('/api/instances', instancesRouter({

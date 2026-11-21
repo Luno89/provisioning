@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, at, type Principal, principalFrom, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, at, type Principal, principalFrom, type ProjectMetadata, type OpenRoute } from '../../platform/index.js';
 import { DROP_TYPE } from '../lib/drops.js';
 import { cleanPath } from '../lib/file-places.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
@@ -152,6 +152,8 @@ export function filesRouter(deps: FilesRouterDeps): Router {
 
   return router;
 }
+
+export const SHARE_OPEN: readonly OpenRoute[] = ['/:token'];
 
 export function shareRouter(deps: { files: Pick<FileService, 'shared'> }): Router {
   const router = Router();

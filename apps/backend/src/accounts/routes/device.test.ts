@@ -7,12 +7,13 @@ import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { AuthService } from '../services/AuthService.js';
 import { devicesFor } from './device.js';
+import { openRoutesOf } from '../../open-routes.js';
 
 const KEY = 'test-secret';
 
 function devices(authService = mock<AuthService>()) {
   const db = memoryDatabase();
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds: new SessionEnds(db.platform) });
+  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) });
   return { devices: devicesFor({ auth, sessionKey: KEY, authService }), authService };
 }
 

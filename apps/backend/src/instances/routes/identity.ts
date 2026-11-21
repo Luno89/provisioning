@@ -1,11 +1,13 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, type OpenRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { isDown, type Reach } from '../lib/instance-watch.js';
 import { signInWaitingFor } from '../lib/oidc.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
+
+export const IDENTITY_OPEN: readonly OpenRoute[] = ['/keys', '/go'];
 
 export function identityRouter(deps: {
   servesTenants: boolean;

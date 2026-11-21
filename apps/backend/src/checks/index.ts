@@ -10,7 +10,7 @@ export type { ScenarioProposal } from './lib/scenario-proposals.js';
 export { STEP_NODE, stepProcedure, stepProcedureId } from './lib/step-check.js';
 export { TURN_CALL_KIND, TURN_PROCEDURE_ID, turnProcedure } from './lib/turn-check.js';
 export type { TurnReply } from './lib/turn-check.js';
-export { checksRouter } from './routes/checks.js';
+export { CHECKS_OPEN, checksRouter } from './routes/checks.js';
 export { evalsLevel2Router } from './routes/evals-level2.js';
 export { BenchService } from './services/BenchService.js';
 export { httpCheckAccess } from './services/CheckToolAccess.js';
