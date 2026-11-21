@@ -232,6 +232,15 @@ describe('the remaining engine activities', () => {
 
     expect(asked).toEqual([{ ownerId: 'user-1', tool: 'delete_file' }]);
   });
+
+  it('hands where a project\'s deletion stands to whoever tells its owner, and refuses without retrying when nothing here does', async () => {
+    const { services: svc } = services();
+    const changes: unknown[] = [];
+    const change = { ownerId: 'user-1', projectId: 'p1', progress: { seq: 1, phase: 'deleting' as const, work: [], parts: {} } };
+    await createStreamActivities({ ...svc, deletionChanged: async (told) => { changes.push(told); } }).ProjectDeletionChangedActivity(change);
+    expect(changes).toEqual([change]);
+    await expect(createStreamActivities(svc).ProjectDeletionChangedActivity(change)).rejects.toMatchObject({ nonRetryable: true });
+  });
 });
 
 describe('running a node as an activity', () => {

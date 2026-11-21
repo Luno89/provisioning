@@ -42,7 +42,7 @@ describe('an archived project, kept by Temporal for its 90 days', () => {
       await client.workflow.start(PURGE_PROJECT_WORKFLOW, { ...purgeStart(project, taskQueue), ...startedFor('owner-1') });
       await temporalPurges(async () => client, taskQueue).now(project, 'owner-1');
       deleted.push(...((await client.workflow.getHandle(purgeProjectWorkflowId(project)).result()) as { purged: string[] }).purged);
-      expect(await client.workflow.getHandle(deleteProjectWorkflowId(project)).result(), 'the purge is the one deletion, run for good').toEqual({ deleted: project, mode: 'permanent' });
+      expect(await client.workflow.getHandle(deleteProjectWorkflowId(project)).result(), 'the purge is the one deletion, run for good, as its owner\'s so it tells them where it stands').toEqual({ deleted: project, mode: 'permanent', owner: 'owner-1' });
     });
     expect(deleted).toEqual([project]);
   });

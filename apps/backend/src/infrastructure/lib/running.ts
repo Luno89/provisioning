@@ -117,15 +117,18 @@ export const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: Runnin
   executeResizeDiskWorkflow: (workflow) => ({ kind: 'deploy', title: 'Resizing an app\'s disk', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'a disk being resized is resized to the end' } }),
   executeSyncConfigWorkflow: (workflow) => ({ kind: 'deploy', title: 'Updating an app\'s settings', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
   executeIngestWorkflow: (workflow) => ({ kind: 'run', title: 'Reading sources into the corpus', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
+  StoredFilesWorkflow: (workflow) => ({ kind: 'save', title: 'Saving files you uploaded', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
 };
+
+const described = (workflow: RunningWorkflow, records: RunningRecords): Omit<RunningItem, 'workflowId' | 'since'> =>
+  BY_TYPE[workflow.type]?.(workflow, records)
+    ?? { kind: 'other', title: `${workflow.type} (${workflow.workflowId})`, opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } };
+
+export const workTitle = (workflow: RunningWorkflow, records: RunningRecords): string => described(workflow, records).title;
 
 export function runningItems(workflows: readonly RunningWorkflow[], records: RunningRecords): RunningItem[] {
   return workflows
     .filter((workflow) => !workflow.parent && !HIDDEN_TYPES.includes(workflow.type))
-    .map((workflow) => {
-      const described = BY_TYPE[workflow.type]?.(workflow, records)
-        ?? { kind: 'other' as const, title: `${workflow.type} (${workflow.workflowId})`, opens: { kind: 'temporal' as const, id: workflow.workflowId }, cancel: { via: 'workflow' as const } };
-      return { workflowId: workflow.workflowId, since: workflow.startedAt, ...described };
-    })
+    .map((workflow) => ({ workflowId: workflow.workflowId, since: workflow.startedAt, ...described(workflow, records) }))
     .sort((a, b) => b.since.localeCompare(a.since));
 }

@@ -1,15 +1,56 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `ProjectRemovalPreview` and `ProjectRemovalStep` in apps/backend/src/projects/lib/project-removal.ts,
- * `ProjectRemovalState` in apps/backend/src/projects/services/ProjectRemovalService.ts.
+ * Authority: `ProjectRemovalPreview` in apps/backend/src/projects/lib/project-removal.ts, `ProjectRemoval` in
+ * apps/backend/src/platform/lib/types.ts, `DeletionProgress` and its parts in apps/backend/src/projects/lib/project-deletion.ts,
+ * `ProjectDeletionEvent` and `PROJECT_DELETION` in apps/backend/src/projects/services/ProjectDeletionNotices.ts, `DeletedProject` and what
+ * `ProjectRemovalService.restore` answers in apps/backend/src/projects/services/ProjectRemovalService.ts, `ARCHIVE_DAYS` in apps/backend/src/projects/lib/project-archive.ts.
  */
-export type ProjectRemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
+export const PROJECT_DELETION = 'project-deletion'
 
-export type ProjectRemovalState =
-  | { state: 'running'; done: ProjectRemovalStep[] }
-  | { state: 'failed'; reason: string }
-  | { state: 'finished' }
-  | { state: 'none' }
+export const ARCHIVE_DAYS = 90
+
+export type ProjectDeletionMode = 'archive' | 'permanent'
+
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted'
+
+export interface StoppingWork {
+  workflowId: string
+  type: string
+  startedAt: string
+  state: WorkStopState
+  what?: string
+  worker?: string
+}
+
+export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records'
+
+export interface PartProgress {
+  state: 'deleting' | 'deleted'
+  left?: number
+  deleted: number
+}
+
+export interface DeletionProgress {
+  seq: number
+  phase: 'deleting' | 'archived' | 'deleted'
+  work: StoppingWork[]
+  parts: Partial<Record<DeletionPart, PartProgress>>
+  problem?: string
+  keptUntil?: string
+}
+
+export interface ProjectDeletion {
+  startedAt: string
+  requestedBy: string
+  mode: ProjectDeletionMode
+  phase: 'deleting' | 'archived'
+  progress?: DeletionProgress
+}
+
+export interface ProjectDeletionEvent {
+  projectId: string
+  progress: DeletionProgress
+}
 
 export interface ProjectRemovalPreview {
   name: string
@@ -19,5 +60,18 @@ export interface ProjectRemovalPreview {
   builds: number
   apps: string[]
   files?: { server: string; folder: string }
-  state: ProjectRemovalState
+  deletion?: ProjectDeletion
+}
+
+export interface RestoredProject {
+  name: string
+  renamed: boolean
+  secrets: string[]
+}
+
+export interface DeletedProject {
+  id: string
+  name: string
+  deletedAt: string
+  keptUntil: string | undefined
 }

@@ -8,6 +8,7 @@ import type { PlatformKeys } from '../../platform/index.js';
 import { connectTemporalWorker, type TemporalPlace } from '../../platform/lib/temporal-connection.js';
 import { givenDeletingMarks } from '../../platform/lib/temporal-client.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
+import { PROJECT_DELETION, ProjectDeletionNotices, type ProjectDeletionEvent, type ProjectDeletionNoticesDeps } from '../../projects/index.js';
 
 export interface SocketLike {
   to(room: string): { emit(event: string, ...args: unknown[]): unknown };
@@ -19,6 +20,7 @@ export interface StreamWorkerOptions {
   services: Omit<StreamServices, 'bus'>;
   io: SocketLike;
   turnLogs: { appendTurnLog(entry: TurnLogEntry): Promise<void>; lastTurnLogSeq(turnId: string): Promise<number> };
+  deletions: Omit<ProjectDeletionNoticesDeps, 'emit'>;
   connection: { temporal: TemporalPlace; keys: Pick<PlatformKeys, 'temporal' | 'payload'> };
   taskQueue?: string | undefined;
 }
@@ -30,7 +32,11 @@ export const notifyGroveChanged = (io: SocketLike) => (ownerId: string): void =>
   io.to(userRoom(ownerId)).emit(GROVE_CHANGED, {});
 };
 
-export const notifyTurnLog = (io: SocketLike) => (entry: TurnLogEntry): void => {
+export const notifyProjectDeletion = (io: SocketLike) => (ownerId: string, event: ProjectDeletionEvent): void => {
+  io.to(userRoom(ownerId)).emit(PROJECT_DELETION, event);
+};
+
+export const notifyTurnLog =(io: SocketLike) => (entry: TurnLogEntry): void => {
   const { ownerId, ...rest } = entry;
   try {
     io.to(userRoom(ownerId)).emit(TURN_LOG_CHANNEL, rest);
@@ -50,12 +56,13 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
   const connection = await connectTemporalWorker('koala-stream-worker', options.connection);
 
   const bus = createTurnLogBus(options);
+  const deletions = new ProjectDeletionNotices({ ...options.deletions, emit: notifyProjectDeletion(options.io) });
   return createWorker({
     connection,
     payloads: { ring: options.connection.keys.payload, blobs: sharedPayloadBlobs() },
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
     namespace: options.connection.temporal.namespace,
-    activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
+    activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io), deletionChanged: (change) => deletions.changed(change) }),
     deletingMarks: givenDeletingMarks(),
   });
 }

@@ -37,6 +37,7 @@ describe('the stream worker, started as the backend starts it', () => {
       services: {} as never,
       io: { to: () => ({ emit: () => true }) },
       turnLogs: { appendTurnLog: async () => undefined, lastTurnLogSeq: async () => 0 },
+      deletions: { store: { deletion: async () => undefined, saveDeletionProgress: async () => false }, titles: async () => (work) => work.type },
       connection: { temporal: { address: inject('temporalTlsAddress'), namespace, caPath: inject('temporalCa') }, keys: testKeys('stream-boot') },
       taskQueue,
     });

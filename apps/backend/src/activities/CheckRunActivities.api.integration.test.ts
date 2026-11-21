@@ -572,19 +572,20 @@ describe('the actions a check performs on a tree and its project through the rea
     expect((await drop('running')()).result.checks.map((check) => check.detail)).toContain('it finished failed: the drop was refused: conflict');
   });
 
-  it('deletes the project by its name on the real projects route and waits for its removal to finish, or says why it stopped', async () => {
+  it('deletes the project for good by its name on the real projects route and waits until it is gone, or says why it is stuck', async () => {
     const world = { project: { name: 'shop' } };
     madeProjectsAreKept();
     const remove = () => perform({ ...CHAT, world, then: [{ name: 'delete', do: { deleteProject: true }, expect: { outcome: 'ok' } }] });
-    api.ports.removal.remove.mockResolvedValue({ ok: true, state: { state: 'running' } } as never);
+    const deletion = { startedAt: '2026-11-21T10:00:00Z', requestedBy: 'space-1', mode: 'permanent' as const, phase: 'deleting' as const };
+    api.ports.removal.remove.mockResolvedValue({ ok: true, deletion });
     api.ports.removal.preview
-      .mockResolvedValueOnce({ state: { state: 'running' } } as never)
+      .mockResolvedValueOnce({ deletion } as never)
       .mockResolvedValue(undefined as never);
     expect(failures((await remove()).result.checks)).toEqual([]);
-    expect(api.ports.removal.remove).toHaveBeenCalledWith('space-1', 'p1', 'shop-space-1');
+    expect(api.ports.removal.remove).toHaveBeenCalledWith('space-1', 'p1', 'shop-space-1', 'permanent');
 
-    api.ports.removal.preview.mockResolvedValue({ state: { state: 'failed', reason: 'a cluster is down' } } as never);
-    expect((await remove()).result.checks.map((check) => check.detail)).toContain('it finished failed: deleting the project stopped: a cluster is down');
+    api.ports.removal.preview.mockResolvedValue({ deletion: { ...deletion, progress: { seq: 2, phase: 'deleting', work: [], parts: {}, problem: 'a cluster is down' } } } as never);
+    expect((await remove()).result.checks.map((check) => check.detail)).toContain('it finished failed: deleting the project is stuck: a cluster is down');
     api.ports.removal.remove.mockResolvedValue({ ok: false, refusal: { status: 409, error: 'busy', blockers: ['an app', 'a build'] } } as never);
     expect((await remove()).result.checks.map((check) => check.detail)).toContain('it finished failed: the project would not be deleted: busy (an app; a build)');
     expect((await perform({ ...CHAT, then: [{ name: 'delete', do: { deleteProject: true }, expect: {} }] })).result.checks.map((check) => check.detail)).toContain('the check has no project to delete');

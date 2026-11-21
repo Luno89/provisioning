@@ -4,13 +4,17 @@ import { getProjectChannel, postChannelMessage, type ProjectChannel } from './pr
 import { openItemChat } from './item-chats'
 import { approvePlan, listPlans, listTreePlans, rejectPlan } from './plans'
 import { dismissSecretRequest, listConversationSecretRequests, listTreeSecretRequests, submitSecret } from './secret-requests'
-import type { ProjectRemovalPreview, ProjectRemovalState } from '../types/project-removal'
+import type { DeletedProject, DeletionProgress, ProjectDeletion, ProjectDeletionEvent, ProjectRemovalPreview, RestoredProject } from '../types/project-removal'
+import type { DeletedProject as BackendDeleted, ProjectRemovalService } from '../../../../../backend/src/projects/services/ProjectRemovalService'
+import { PROJECT_DELETION } from '../types/project-removal'
 import { startBackend } from '../../../test/backend/site'
 import { projectsOf, type ProjectsSide } from '../../../test/backend/projects'
 import type { Wire } from '../../../test/backend/wire'
 import { anyOf, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
 import { deleteProjectWorkflowId, type ProjectRemovalPreview as BackendPreview } from '../../../../../backend/src/projects/lib/project-removal'
-import type { ProjectRemovalState as BackendState } from '../../../../../backend/src/projects/services/ProjectRemovalService'
+import type { ProjectRemoval as BackendDeletion } from '../../../../../backend/src/platform/lib/types'
+import type { DeletionProgress as BackendProgress } from '../../../../../backend/src/projects/lib/project-deletion'
+import { PROJECT_DELETION as BACKEND_PROJECT_DELETION, type ProjectDeletionEvent as BackendEvent } from '../../../../../backend/src/projects/services/ProjectDeletionNotices'
 
 let side: ProjectsSide | undefined
 
@@ -19,8 +23,18 @@ const owner = await backend.signIn()
 const desk = await side!.machines.join('desk', (await side!.machines.accounts.createJoinCode(owner.id)).code)
 const now = new Date().toISOString()
 
-expectTypeOf<Wire<BackendPreview & { state: BackendState }>>().toExtend<ProjectRemovalPreview>()
-expectTypeOf<Wire<BackendState>>().toExtend<ProjectRemovalState>()
+expectTypeOf<Wire<BackendPreview & { deletion?: BackendDeletion }>>().toExtend<ProjectRemovalPreview>()
+expectTypeOf<Wire<BackendDeletion>>().toExtend<ProjectDeletion>()
+expectTypeOf<Wire<BackendProgress>>().toExtend<DeletionProgress>()
+expectTypeOf<Wire<BackendEvent>>().toExtend<ProjectDeletionEvent>()
+expectTypeOf<Wire<BackendDeleted>>().toExtend<DeletedProject>()
+expectTypeOf<Wire<Omit<Extract<Awaited<ReturnType<ProjectRemovalService['restore']>>, { ok: true }>, 'ok'>>>().toExtend<RestoredProject>()
+
+describe('the deletion\'s socket event, as the browser listens for it', () => {
+  it('is the one the server sends', () => {
+    expect(PROJECT_DELETION).toBe(BACKEND_PROJECT_DELETION)
+  })
+})
 
 describe('a project, as the projects pages ask for it', () => {
   let projectId = ''
@@ -71,18 +85,25 @@ describe('a project, as the projects pages ask for it', () => {
   })
 
   it('previews what deleting the project takes, with nothing running yet', async () => {
-    expect(await getProjectRemoval(projectId)).toMatchObject({ name: 'Desk work', trees: [], keptConversations: anyOf(Number), builds: 0, apps: [], state: { state: 'none' } })
+    const preview = await getProjectRemoval(projectId)
+    expect(preview).toMatchObject({ name: 'Desk work', trees: [], keptConversations: anyOf(Number), builds: 0, apps: [] })
+    expect(preview.deletion).toBeUndefined()
   })
 
   it('refuses a delete whose typed name is wrong, and starts the removal when it is right', async () => {
     await expect(deleteProject(projectId, 'Desk wrk', 'permanent')).rejects.toMatchObject({ response: { status: 400 } })
-    expect(await deleteProject(projectId, 'Desk work', 'permanent')).toEqual({ state: 'running', done: [] })
+    expect(await deleteProject(projectId, 'Desk work', 'permanent')).toEqual(objectWith({ mode: 'permanent', phase: 'deleting', requestedBy: owner.id }))
     expect(side!.temporal.workflows.get(deleteProjectWorkflowId(projectId))).toMatchObject({ status: 'RUNNING', args: [{ projectId }] })
+  })
+
+  it('leaves the project out of the list at once, and shows the deletion already under way when pressed twice', async () => {
+    expect((await listProjects<{ id: string }>()).map((project) => project.id)).not.toContain(projectId)
+    expect(await deleteProject(projectId, 'Desk work', 'archive')).toEqual(objectWith({ mode: 'permanent', phase: 'deleting' }))
   })
 
   it('refuses a change to the project once its deletion has started, in the words the person reads, and still shows the deletion', async () => {
     await expect(patchProject(projectId, { executionApproval: 'auto' })).rejects.toMatchObject({ response: { status: 409, data: { error: 'this project is being deleted' } } })
-    expect(await getProjectRemoval(projectId)).toMatchObject({ name: 'Desk work', state: { state: 'running' } })
+    expect(await getProjectRemoval(projectId)).toMatchObject({ name: 'Desk work', deletion: { mode: 'permanent', phase: 'deleting' } })
   })
 
   it('answers 404 to another person for every project route', async () => {

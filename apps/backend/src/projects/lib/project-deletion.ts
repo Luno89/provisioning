@@ -1,0 +1,86 @@
+export interface OpenWork {
+  workflowId: string;
+  type: string;
+  startedAt: string;
+  memo?: Readonly<Record<string, unknown>> | undefined;
+}
+
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted';
+
+export interface StoppingWork extends OpenWork {
+  state: WorkStopState;
+  what?: string | undefined;
+  worker?: string | undefined;
+}
+
+export type DeletionPart = 'apps' | 'workspaces' | 'secrets' | 'repositories' | 'files' | 'records';
+
+export interface PartProgress {
+  state: 'deleting' | 'deleted';
+  left?: number | undefined;
+  deleted: number;
+}
+
+export type DeletionPhase = 'deleting' | 'archived' | 'deleted';
+
+export interface DeletionProgress {
+  seq: number;
+  phase: DeletionPhase;
+  work: StoppingWork[];
+  parts: Partial<Record<DeletionPart, PartProgress>>;
+  problem?: string | undefined;
+  keptUntil?: string | undefined;
+}
+
+const next = (progress: DeletionProgress, change: Partial<DeletionProgress>): DeletionProgress => {
+  const { problem: _gone, ...rest } = progress;
+  return { ...rest, ...change, seq: progress.seq + 1 };
+};
+
+export const deletionBegun = (seq = 0): DeletionProgress => ({ seq, phase: 'deleting', work: [], parts: {} });
+
+export function workStopping(progress: DeletionProgress, open: readonly OpenWork[]): DeletionProgress {
+  const listed = new Set(progress.work.map((item) => item.workflowId));
+  const added = open.filter((work) => !listed.has(work.workflowId)).map((work): StoppingWork => ({ ...work, state: 'stopping' }));
+  return next(progress, { work: [...progress.work, ...added] });
+}
+
+export function workClosed(progress: DeletionProgress, workflowId: string, frozen: readonly string[]): DeletionProgress {
+  const worker = frozen[0];
+  return next(progress, {
+    work: progress.work.map((item) => (item.workflowId !== workflowId ? item : worker ? { ...item, state: 'restarting', worker } : { ...item, state: 'stopped' })),
+  });
+}
+
+export function workerRestarted(progress: DeletionProgress, worker: string): DeletionProgress {
+  return next(progress, { work: progress.work.map((item) => (item.worker === worker && item.state === 'restarting' ? { ...item, state: 'restarted' } : item)) });
+}
+
+export function partDeleting(progress: DeletionProgress, part: DeletionPart, left?: number): DeletionProgress {
+  const deleted = progress.parts[part]?.deleted ?? 0;
+  return next(progress, { parts: { ...progress.parts, [part]: { state: 'deleting', ...(left === undefined ? {} : { left }), deleted } } });
+}
+
+export function appRemoved(progress: DeletionProgress): DeletionProgress {
+  const apps = progress.parts.apps ?? { state: 'deleting', deleted: 0 };
+  const left = apps.left === undefined ? undefined : Math.max(0, apps.left - 1);
+  return next(progress, { parts: { ...progress.parts, apps: { state: 'deleting', ...(left === undefined ? {} : { left }), deleted: apps.deleted + 1 } } });
+}
+
+export function partDeleted(progress: DeletionProgress, part: DeletionPart, count: number): DeletionProgress {
+  const deleted = (progress.parts[part]?.deleted ?? 0) + count;
+  return next(progress, { parts: { ...progress.parts, [part]: { state: 'deleted', left: 0, deleted } } });
+}
+
+export type DeletionEnding = { phase: 'archived'; keptUntil: string } | { phase: 'deleted' };
+
+export const deletionEnded = (progress: DeletionProgress, ending: DeletionEnding): DeletionProgress => next(progress, ending);
+
+export const deletionStuck = (progress: DeletionProgress, problem: string): DeletionProgress => ({ ...next(progress, {}), problem });
+
+export const laterThan = (progress: DeletionProgress, other: DeletionProgress | undefined): boolean => !other || progress.seq > other.seq;
+
+export function namedWork(progress: DeletionProgress, title: (work: OpenWork) => string, earlier?: DeletionProgress): DeletionProgress {
+  const known = new Map((earlier?.work ?? []).filter((item) => item.what).map((item) => [item.workflowId, item.what]));
+  return { ...progress, work: progress.work.map((item) => ({ ...item, what: item.what ?? known.get(item.workflowId) ?? title(item) })) };
+}

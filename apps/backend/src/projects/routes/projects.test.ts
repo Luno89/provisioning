@@ -64,6 +64,18 @@ describe('listing projects', () => {
     const listed = (await routes.get('/')).data as (ProjectMetadata & { lastRun?: unknown })[];
     expect(listed.map((entry) => entry.id)).toEqual(['proj-1']);
   });
+
+  it('leaves out a project the moment its deletion is asked for, and one kept under Deleted projects', async () => {
+    const { db, routes } = await setUp();
+    await db.projects.saveProjectInfo(project);
+    await db.projects.saveProjectInfo({ ...project, id: 'going', giteaRepo: 'going' });
+    await db.projects.saveProjectInfo({ ...project, id: 'kept', giteaRepo: 'kept' });
+    await db.projects.markDeleting('going', { startedAt: '2026-11-21T10:00:00Z', requestedBy: project.ownerId!, mode: 'permanent' });
+    await db.projects.markDeleting('kept', { startedAt: '2026-11-21T10:00:00Z', requestedBy: project.ownerId!, mode: 'archive' });
+    await db.projects.archive('kept');
+    const listed = (await routes.get('/')).data as ProjectMetadata[];
+    expect(listed.map((entry) => entry.id)).toEqual(['proj-1']);
+  });
 });
 
 describe('a project\'s runs', () => {
@@ -267,7 +279,8 @@ describe('promoting a build', () => {
 });
 
 describe('deleting a project', () => {
-  const preview: ProjectRemovalPreview & { state: { state: 'none' } } = { name: 'demo', trees: [], keptConversations: 0, builds: 0, apps: [], state: { state: 'none' } };
+  const preview: ProjectRemovalPreview = { name: 'demo', trees: [], keptConversations: 0, builds: 0, apps: [] };
+  const deletion = { startedAt: '2026-11-21T10:00:00.000Z', requestedBy: TEST_USER.id, mode: 'archive' as const, phase: 'deleting' as const };
 
   it('shows what would go, or 404s a project that is not the caller\'s', async () => {
     const { removal, routes } = await setUp();
@@ -276,10 +289,10 @@ describe('deleting a project', () => {
     expect(plain(await routes.get('/nope/removal'))).toEqual({ status: 404, body: { error: 'Project not found' } });
   });
 
-  it('passes the typed name and the choice of keeping it on, and answers 202 with the state once it has started', async () => {
+  it('passes the typed name and the choice of keeping it on, and answers 202 with the deletion once it has started', async () => {
     const { removal, routes } = await setUp();
-    removal.remove.mockResolvedValue({ ok: true, state: { state: 'running' } as never });
-    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'demo', mode: 'archive' } }))).toEqual({ status: 202, body: { state: { state: 'running' } } });
+    removal.remove.mockResolvedValue({ ok: true, deletion });
+    expect(plain(await routes.delete('/proj-1', { body: { confirm: 'demo', mode: 'archive' } }))).toEqual({ status: 202, body: { deletion } });
     expect(removal.remove).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'demo', 'archive');
     await routes.delete('/proj-1', { body: { mode: 'permanent' } });
     expect(removal.remove).toHaveBeenLastCalledWith(TEST_USER.id, 'proj-1', '', 'permanent');
@@ -306,8 +319,8 @@ describe('deleting a project', () => {
 
   it('restores a deleted project, saying the name it came back under, or answers the refusal', async () => {
     const { removal, routes } = await setUp();
-    removal.restore.mockResolvedValueOnce({ ok: true, name: 'Shop (restored)', renamed: true });
-    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 200, body: { name: 'Shop (restored)', renamed: true } });
+    removal.restore.mockResolvedValueOnce({ ok: true, name: 'Shop (restored)', renamed: true, secrets: ['STRIPE_KEY'] });
+    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 200, body: { name: 'Shop (restored)', renamed: true, secrets: ['STRIPE_KEY'] } });
     expect(removal.restore).toHaveBeenCalledWith(TEST_USER.id, 'p9');
     removal.restore.mockResolvedValueOnce({ ok: false, refusal: { status: 409, error: 'Only a deleted project kept for its 90 days can be restored' } });
     expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 409, body: { error: 'Only a deleted project kept for its 90 days can be restored' } });

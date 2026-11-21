@@ -1,5 +1,5 @@
 import type { Client } from '@temporalio/client';
-import { type ProjectDeletionMode, type ProjectMetadata, allowed, asPerson, startedFor } from '../../platform/index.js';
+import { type ProjectDeletionMode, type ProjectMetadata, type ProjectRemoval, allowed, asPerson, startedFor } from '../../platform/index.js';
 import { PURGE_PROJECT_WORKFLOW, keptUntil, purgeNow, purgeProjectWorkflowId, restoreProject } from '../lib/project-archive.js';
 import {
   DELETE_PROJECT_WORKFLOW,
@@ -77,7 +77,7 @@ type Refused = { ok: false; refusal: { status: 400 | 404 | 409; error: string } 
 const NOT_FOUND: Refused = { ok: false, refusal: { status: 404, error: 'Project not found' } };
 
 export interface ProjectRemovalDeps {
-  store: ProjectRemovalStore & { projects: Pick<ProjectsStore, 'deletedProjects' | 'restore'> };
+  store: ProjectRemovalStore & { projects: Pick<ProjectsStore, 'deletedProjects' | 'restore' | 'deletion'> };
   workflows: AccountRemovalWorkflows<{ projectId: string; mode: ProjectDeletionMode }, ProjectRemovalStep>;
   purges: ProjectPurges;
   now?: () => string;
@@ -91,23 +91,27 @@ export class ProjectRemovalService {
     return loaded && allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: loaded.project.ownerId }) ? loaded : undefined;
   }
 
-  async preview(ownerId: string, projectId: string): Promise<(ProjectRemovalPreview & { state: ProjectRemovalState }) | undefined> {
+  async preview(ownerId: string, projectId: string): Promise<(ProjectRemovalPreview & { deletion?: ProjectRemoval }) | undefined> {
     const loaded = await this.owned(ownerId, projectId);
     if (!loaded) return undefined;
-    return { ...projectRemovalPreview(loaded.project, loaded.scope), state: await this.deps.workflows.state(deleteProjectWorkflowId(projectId)) };
+    const { removal } = loaded.project;
+    return { ...projectRemovalPreview(loaded.project, loaded.scope), ...(removal ? { deletion: removal } : {}) };
   }
 
-  async remove(ownerId: string, projectId: string, confirm: string, mode: ProjectDeletionMode): Promise<{ ok: true; state: ProjectRemovalState } | { ok: false; refusal: ProjectRemovalRefusal }> {
+  async remove(ownerId: string, projectId: string, confirm: string, mode: ProjectDeletionMode): Promise<{ ok: true; deletion: ProjectRemoval } | { ok: false; refusal: ProjectRemovalRefusal }> {
     const loaded = await this.owned(ownerId, projectId);
     if (!loaded) return { ok: false, refusal: { status: 404, error: 'Project not found' } };
     if (confirm.trim() !== loaded.project.name) return { ok: false, refusal: { status: 400, error: `Type the project's name, ${loaded.project.name}, to confirm` } };
 
-    await this.deps.store.projects.markDeleting(projectId, { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId, mode });
+    const { projects } = this.deps.store;
+    await projects.markDeleting(projectId, { startedAt: this.deps.now?.() ?? new Date().toISOString(), requestedBy: ownerId, mode });
+    const marked = await projects.deletion(projectId);
+    if (!marked) return { ok: false, refusal: { status: 404, error: 'Project not found' } };
+    if (marked.phase === 'archived') return { ok: true, deletion: marked };
     const workflowId = deleteProjectWorkflowId(projectId);
-    const current = await this.deps.workflows.state(workflowId);
-    if (current.state === 'running') return { ok: true, state: current };
-    await withWorkFor({ project: projectId, removing: 'project' }, () => this.deps.workflows.start(DELETE_PROJECT_WORKFLOW, workflowId, [{ projectId, mode }], loaded.project.ownerId ?? ownerId));
-    return { ok: true, state: await this.deps.workflows.state(workflowId) };
+    if ((await this.deps.workflows.state(workflowId)).state === 'running') return { ok: true, deletion: marked };
+    await withWorkFor({ project: projectId, removing: 'project' }, () => this.deps.workflows.start(DELETE_PROJECT_WORKFLOW, workflowId, [{ projectId, mode: marked.mode }], loaded.project.ownerId ?? ownerId));
+    return { ok: true, deletion: marked };
   }
 
   async deleted(ownerId: string): Promise<DeletedProject[]> {
@@ -127,7 +131,7 @@ export class ProjectRemovalService {
     return { ok: true, project: loaded.project };
   }
 
-  async restore(ownerId: string, projectId: string): Promise<{ ok: true; name: string; renamed: boolean } | Refused> {
+  async restore(ownerId: string, projectId: string): Promise<{ ok: true; name: string; renamed: boolean; secrets: string[] } | Refused> {
     const kept = await this.kept(ownerId, projectId);
     if (!kept.ok) return kept;
     const { project } = kept;
@@ -135,7 +139,7 @@ export class ProjectRemovalService {
     const name = taken ? `${project.name} (restored)` : project.name;
     await this.deps.purges.restore(projectId, project.ownerId ?? ownerId);
     await this.deps.store.projects.restore(projectId, name);
-    return { ok: true, name, renamed: taken };
+    return { ok: true, name, renamed: taken, secrets: (project.requiredSecrets ?? []).map((secret) => secret.key) };
   }
 
   async purgeNow(ownerId: string, projectId: string, confirm: string): Promise<{ ok: true } | Refused> {

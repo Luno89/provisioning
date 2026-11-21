@@ -170,9 +170,10 @@ export interface ProjectRemoval {
   requestedBy: string;
   mode: ProjectDeletionMode;
   phase: 'deleting' | 'archived';
+  progress?: import('../../projects/index.js').DeletionProgress | undefined;
 }
 
-export type ProjectDeletionAsked = Omit<ProjectRemoval, 'phase'>;
+export type ProjectDeletionAsked = Omit<ProjectRemoval, 'phase' | 'progress'>;
 
 export interface ProjectMetadata {
   id: string;

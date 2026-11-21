@@ -6,6 +6,7 @@ import type { Tx } from '../../platform/lib/transaction.js';
 import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
+import type { DeletionProgress } from '../lib/project-deletion.js';
 import type { GiteaAccount } from '../lib/projects.js';
 import { tokenKey, type TokenToRevoke } from '../lib/gitea-tokens.js';
 import type { SecretRequest, SecretRequestFilter } from '../lib/secret-requests.js';
@@ -121,6 +122,13 @@ export class MemoryProjectsStore implements ProjectsStore {
 
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {
     return this.projects.get(projectId)?.removal;
+  }
+
+  async saveDeletionProgress(projectId: string, progress: DeletionProgress): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    if (!project?.removal || (project.removal.progress && project.removal.progress.seq >= progress.seq)) return false;
+    this.projects.put(stored({ ...project, removal: { ...project.removal, progress } }));
+    return true;
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {

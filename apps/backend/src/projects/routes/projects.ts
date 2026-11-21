@@ -68,7 +68,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     if (!deps.removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
     const outcome = await deps.removal.restore(userOf(req).id, idOf(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json({ error: outcome.refusal.error });
-    return res.json({ name: outcome.name, renamed: outcome.renamed });
+    return res.json({ name: outcome.name, renamed: outcome.renamed, secrets: outcome.secrets });
   }));
 
   router.post('/:id/purge', asyncRoute(async (req, res) => {
@@ -80,7 +80,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
 
   router.get('/', asyncRoute(async (req, res) => {
     const projects = await db.projects.getProjects();
-    const mine = projects.filter((p) => allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
+    const mine = projects.filter((p) => !p.removal && allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
     const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.infrastructure.getDeployments()]);
     res.json(mine.map((p) => ({
       ...p,
@@ -251,7 +251,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     if (!mode) return res.status(400).json({ error: 'Say whether to keep the project for 90 days or delete it for good now' });
     const outcome = await removal.remove(userOf(req).id, idOf(req), confirm, mode);
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
-    return res.status(202).json({ state: outcome.state });
+    return res.status(202).json({ deletion: outcome.deletion });
   }));
 
   return router;

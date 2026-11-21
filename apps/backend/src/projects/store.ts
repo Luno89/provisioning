@@ -5,6 +5,7 @@ import type { GiteaAccount } from './lib/projects.js';
 import { tokenKey, type TokenToRevoke } from './lib/gitea-tokens.js';
 import type { PartialInfo, ProjectDeletionAsked, ProjectMetadata, ProjectRemoval } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
+import type { DeletionProgress } from './lib/project-deletion.js';
 import type { SecretRequest, SecretRequestFilter } from './lib/secret-requests.js';
 import type { Task } from './lib/tasks.js';
 import type { Tree } from './lib/trees.js';
@@ -21,6 +22,7 @@ export interface ProjectsStore extends AreaStore {
   saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
   markDeleting(projectId: string, mark: ProjectDeletionAsked): Promise<boolean>;
   deletion(projectId: string): Promise<ProjectRemoval | undefined>;
+  saveDeletionProgress(projectId: string, progress: DeletionProgress): Promise<boolean>;
   archive(projectId: string): Promise<boolean>;
   holdOpenIn(tx: Tx, projectId: string): Promise<boolean>;
   restore(projectId: string, name: string): Promise<boolean>;
@@ -170,6 +172,11 @@ export class MongoProjectsStore implements ProjectsStore {
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {
     const found = await this.projects.findOne({ _id: projectId }, { projection: { removal: 1 } });
     return found?.removal ? (found.removal as ProjectRemoval) : undefined;
+  }
+
+  async saveDeletionProgress(projectId: string, progress: DeletionProgress): Promise<boolean> {
+    const filter = { _id: projectId, removal: { $exists: true }, 'removal.progress.seq': { $not: { $gte: progress.seq } } };
+    return (await this.projects.updateOne(filter, { $set: { 'removal.progress': progress } })).modifiedCount === 1;
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {

@@ -49,7 +49,17 @@ describe('previewing a project\'s deletion', () => {
   it('lists what goes and where the removal stands', async () => {
     const { service } = await setUp();
     const preview = await service.preview('ann', 'p1');
-    expect(preview).toMatchObject({ name: 'Shop', repository: 'koala-ann/shop', trees: [{ id: 't1', name: 'Shop tree', leaves: 1, conversations: 1 }], keptConversations: 1, builds: 1, state: { state: 'none' } });
+    expect(preview).toMatchObject({ name: 'Shop', repository: 'koala-ann/shop', trees: [{ id: 't1', name: 'Shop tree', leaves: 1, conversations: 1 }], keptConversations: 1, builds: 1 });
+    expect(preview).not.toHaveProperty('deletion');
+  });
+
+  it('carries where a deletion stands, as its deletion last told it, without asking Temporal', async () => {
+    const { db, workflows, service } = await setUp();
+    await db.projects.markDeleting('p1', { startedAt: at, requestedBy: 'ann', mode: 'archive' });
+    const progress = { seq: 3, phase: 'deleting' as const, work: [{ workflowId: 'run-1', type: 'AgentRunWorkflow', startedAt: at, state: 'stopping' as const, what: 'Tree run: Shop tree' }], parts: {} };
+    await db.projects.saveDeletionProgress('p1', progress);
+    expect((await service.preview('ann', 'p1'))?.deletion).toEqual({ startedAt: at, requestedBy: 'ann', mode: 'archive', phase: 'deleting', progress });
+    expect(workflows.state).not.toHaveBeenCalled();
   });
 
   it('shows nothing of a project that is another owner\'s or not there', async () => {
@@ -74,9 +84,8 @@ describe('deleting a project', () => {
 
   it('marks the project as being removed and starts the removal as its owner', async () => {
     const { db, workflows, service } = await setUp();
-    workflows.state.mockResolvedValueOnce({ state: 'none' }).mockResolvedValueOnce({ state: 'running', done: [] });
     const removed = await service.remove('ann', 'p1', ' Shop ', 'permanent');
-    expect(removed).toEqual({ ok: true, state: { state: 'running', done: [] } });
+    expect(removed).toEqual({ ok: true, deletion: { startedAt: at, requestedBy: 'ann', mode: 'permanent', phase: 'deleting' } });
     expect(workflows.start).toHaveBeenCalledWith('DeleteProjectWorkflow', 'delete-project-p1', [{ projectId: 'p1', mode: 'permanent' }], 'ann');
     expect((await db.projects.getProjects())[0]?.removal).toEqual({ startedAt: at, requestedBy: 'ann', mode: 'permanent', phase: 'deleting' });
   });
@@ -96,9 +105,18 @@ describe('deleting a project', () => {
     await service.remove('ann', 'p1', 'Shop', 'permanent');
     now = '2026-10-22T00:00:00Z';
     workflows.state.mockResolvedValue({ state: 'failed', reason: 'Gitea answered 403' });
-    await service.remove('ann', 'p1', 'Shop', 'permanent');
+    await service.remove('ann', 'p1', 'Shop', 'archive');
     expect(workflows.start).toHaveBeenCalledTimes(2);
+    expect(workflows.start).toHaveBeenLastCalledWith('DeleteProjectWorkflow', 'delete-project-p1', [{ projectId: 'p1', mode: 'permanent' }], 'ann');
     expect(await db.projects.deletion('p1')).toEqual({ startedAt: at, requestedBy: 'ann', mode: 'permanent', phase: 'deleting' });
+  });
+
+  it('starts nothing for a project already deleted and kept, and shows its deletion as it ended', async () => {
+    const { db, workflows, service } = await setUp();
+    await db.projects.markDeleting('p1', { startedAt: at, requestedBy: 'ann', mode: 'archive' });
+    await db.projects.archive('p1');
+    expect(await service.remove('ann', 'p1', 'Shop', 'archive')).toEqual({ ok: true, deletion: { startedAt: at, requestedBy: 'ann', mode: 'archive', phase: 'archived' } });
+    expect(workflows.start).not.toHaveBeenCalled();
   });
 
   it('keeps the project archived when asked to, and says so to the deletion it starts', async () => {
@@ -111,7 +129,7 @@ describe('deleting a project', () => {
   it('starts nothing when a removal is already running', async () => {
     const { workflows, service } = await setUp();
     workflows.state.mockResolvedValue({ state: 'running', done: [] });
-    expect(await service.remove('ann', 'p1', 'Shop', 'permanent')).toEqual({ ok: true, state: { state: 'running', done: [] } });
+    expect(await service.remove('ann', 'p1', 'Shop', 'permanent')).toEqual({ ok: true, deletion: { startedAt: at, requestedBy: 'ann', mode: 'permanent', phase: 'deleting' } });
     expect(workflows.start).not.toHaveBeenCalled();
   });
 });
@@ -133,15 +151,21 @@ describe('a deleted project kept for its 90 days', () => {
 
   it('is restored with its name, after its purge is told to end without deleting anything', async () => {
     const { db, purges, service } = await archived();
-    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop', renamed: false });
+    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop', renamed: false, secrets: [] });
     expect(purges.restore).toHaveBeenCalledWith('p1', 'ann');
     expect(await db.projects.deletion('p1')).toBeUndefined();
+  });
+
+  it('names the secrets it needs entered again, since its secrets were deleted with it', async () => {
+    const { db, service } = await archived();
+    await db.projects.saveProjectInfo({ id: 'p1', requiredSecrets: [{ key: 'STRIPE_KEY', source: 'secret://stripe' }, { key: 'SMTP_PASSWORD', source: 'secret://smtp' }] });
+    expect(await service.restore('ann', 'p1')).toMatchObject({ ok: true, secrets: ['STRIPE_KEY', 'SMTP_PASSWORD'] });
   });
 
   it('is restored as "<name> (restored)" when a project of that name exists now, and says so', async () => {
     const { db, service } = await archived();
     await db.projects.saveProject({ id: 'p2', name: 'Shop', ownerId: 'ann', giteaOwner: 'koala-ann', giteaRepo: 'shop-2', appType: 'gitapp', createdAt: at });
-    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop (restored)', renamed: true });
+    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop (restored)', renamed: true, secrets: [] });
     expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.name).toBe('Shop (restored)');
   });
 

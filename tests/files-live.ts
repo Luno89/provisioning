@@ -57,16 +57,16 @@ async function newProject(name: string): Promise<Project> {
 }
 
 async function deleteProject(project: Project): Promise<void> {
-  const removing = await api!.delete(`/projects/${project.id}`, { data: { confirm: project.name } });
+  const removing = await api!.delete(`/projects/${project.id}`, { data: { confirm: project.name, mode: 'permanent' } });
   assert.ok(removing.status < 300, JSON.stringify(removing.data));
-  await until(`${project.name} to be deleted`, async () => {
+  const progressOf = async () => ((await api!.get(`/projects/${project.id}/removal`)).data as { deletion?: { progress?: { phase: string; problem?: string } } }).deletion?.progress;
+  await until(`${project.name} to be deleted for good`, async () => {
     const answer = await api!.get(`/projects/${project.id}/removal`);
     if (answer.status === 404) return true;
-    const state = (answer.data as { state?: { state: string; reason?: string } }).state;
-    return state?.state === 'finished' ? true : waiting(`the removal is ${state?.state ?? 'not reported'}`);
+    return waiting(`the deletion is ${(await progressOf())?.phase ?? 'not reported yet'}`);
   }, async () => {
-    const state = ((await api!.get(`/projects/${project.id}/removal`)).data as { state?: { state: string; reason?: string } }).state;
-    return state?.state === 'failed' ? `deleting ${project.name} failed: ${state.reason}` : undefined;
+    const problem = (await progressOf())?.problem;
+    return problem ? `deleting ${project.name} is stuck: ${problem}` : undefined;
   });
   projects.splice(projects.indexOf(project), 1);
 }
