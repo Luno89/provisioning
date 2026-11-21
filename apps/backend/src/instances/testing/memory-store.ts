@@ -20,6 +20,7 @@ interface Artifact {
   uid?: string;
   userCode?: string;
   accountId?: string;
+  instanceId?: string;
 }
 
 
@@ -202,6 +203,21 @@ export class MemoryInstancesStore implements InstancesStore {
 
   async oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]> {
     return [...this.artifacts.values()].filter((artifact) => artifact.model === 'Grant' && artifact.accountId === accountId).map((artifact) => JSON.parse(artifact.payload) as Record<string, unknown>);
+  }
+
+  async oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void> {
+    const key = `InitialAccessToken:${code}`;
+    for (const [other, artifact] of [...this.artifacts]) if (other !== key && artifact.model === 'InitialAccessToken' && artifact.instanceId === instance.id) this.artifacts.delete(other);
+    const found = this.artifacts.get(key);
+    if (found) this.artifacts.set(key, { ...found, instanceId: instance.id, accountId: instance.ownerId });
+  }
+
+  async oidcTakeRegistration(code: string): Promise<string | undefined> {
+    const key = `InitialAccessToken:${code}`;
+    const found = this.artifacts.get(key);
+    if (found?.instanceId === undefined) return undefined;
+    this.artifacts.delete(key);
+    return found.instanceId;
   }
 
   async oidcForgetAccount(accountId: string): Promise<string[]> {

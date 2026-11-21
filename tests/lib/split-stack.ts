@@ -6,7 +6,8 @@ import dotenv from 'dotenv';
 import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
 import { parse } from 'yaml';
 import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/index.js';
-import { DEV, devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
+import { DEV, devSplitPlan, generateIdentityKey, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
+import { registrationCodeAt } from '../../apps/backend/src/instances/testing/registration-code.js';
 import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
@@ -73,7 +74,6 @@ export interface SplitStack {
   mailpitApi: string;
   owner: FirstAdmin;
   instanceId: string;
-  instanceCredential: string;
   instanceDb: () => Promise<{ db: import('mongodb').Db; close: () => Promise<void> }>;
   logs: (process: SplitProcess, lines?: number) => Promise<string>;
   exec: (process: SplitProcess, command: string) => Promise<string>;
@@ -158,7 +158,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     await until('the instance\'s MinIO being ready', () => minioReady(ports.files), () => containerNotRunning(names.containers['files']));
 
     const setupCode = randomBytes(12).toString('base64url');
-    const instanceCredential = randomBytes(32).toString('base64url');
+    const clientKey = generateIdentityKey();
     const signing = roleFromEnv({ ...process.env, ROLE: 'root' }).signing;
     if (!signing) throw new Error('the dev env holds no ROOT_IDENTITY_KEY for root to sign with');
 
@@ -173,23 +173,23 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
     const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend', extra: string[] = []): Promise<void> =>
       run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...extra, ...envArgs(env), image, command]);
 
-    const draft = (owner: { id: string; email: string }) => devSplitPlan({
+    const draft = (owner: { id: string; email: string }, registrationCode: string) => devSplitPlan({
       name: 'split', owner: { id: owner.id, email: owner.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
-      instanceId: instanceIdFor(owner.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
+      instanceId: instanceIdFor(owner.id), clientKey, registrationCode,
       rootPublicKeys: publicKeyPem(signing.publicKey),
       mongoUri, now: new Date().toISOString(), place,
       temporal: { address: DEV_TEMPORAL_ADDRESS, namespace: names.namespace, ca: CONTAINER_TEMPORAL_CA }, release: { imageTag: 'split', registry: DEV.registry }, dataDir: '/app/apps/backend/data',
     });
 
-    const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
+    const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }, 'root-is-given-no-registration-code').rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
     await backend('root', rootEnv);
     await backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
     await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => containerNotRunning(names.containers['root']));
 
     const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, namespace: names.namespace, metricsPort: ports.metrics, env: [] });
-    const plan = draft(owner);
     const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: withDatabase(mongoUri, names.databases.root) }));
     await rootDb.init();
+    const plan = draft(owner, await registrationCodeAt({ db: rootDb, url: place.rootUrl, signing }, { id: instanceIdFor(owner.id), ownerId: owner.id }));
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
 
@@ -211,7 +211,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       },
       terminate: async (workflowId, reason) => { await hostContainers.exec(await temporalContainer(), ['temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
       names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl,
-      mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id, instanceCredential,
+      mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id,
       instanceDb, logs, stop,
     };
   } catch (err) {

@@ -30,7 +30,7 @@ export class RoleConfigError extends Error {
 
 const ROLES: readonly PlatformRole[] = ['root', 'instance'];
 
-const pemOf = (value: string): string => {
+export const pemOf = (value: string): string => {
   const trimmed = value.trim();
   return trimmed.includes('-----BEGIN') ? trimmed.replace(/\\n/g, '\n') : Buffer.from(trimmed, 'base64').toString('utf8');
 };

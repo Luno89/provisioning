@@ -10,7 +10,7 @@ import ts from 'typescript';
 import { clientCallsIn, served, type Route } from '../../../tests/coupling/http-edges.js';
 import { isTest } from '../../../tests/coupling/graph.js';
 import { httpChannels } from '../../../tests/coupling/http-routes.js';
-import { devSplitPlan, generateIdentityKey, hashCredential, publicKeyPem } from './instances/index.js';
+import { devSplitPlan, generateIdentityKey, publicKeyPem } from './instances/index.js';
 import { identityKeysFrom } from './instances/lib/identity-token.js';
 import { testDataDir } from './platform/testing/data-dir.js';
 import { openRoutesOf } from './open-routes.js';
@@ -44,7 +44,7 @@ beforeAll(async () => {
   const identity = generateIdentityKey();
   const signing = identityKeysFrom(identity);
   const plan = devSplitPlan({
-    name: 'dev', owner: { id: 'owner-1', email: 'owner@example.com', createdAt: 'then' } as never, instanceId: 'inst-1', credential: 'c', credentialHash: hashCredential('c'),
+    name: 'dev', owner: { id: 'owner-1', email: 'owner@example.com', createdAt: 'then' } as never, instanceId: 'inst-1', clientKey: generateIdentityKey(), registrationCode: 'c',
     rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
     temporal: { address: NO_SERVICE_HOST, namespace: 'default', ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: testDataDir(),
   });

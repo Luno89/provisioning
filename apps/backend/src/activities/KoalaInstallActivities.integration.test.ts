@@ -25,7 +25,7 @@ const record = async () => (await db.instances.getInstances('bo'))[0]!;
 
 describe('the install workflow\'s activities as root\'s host worker runs them, on root\'s Mongo', () => {
   it('asks the machine, then records the stages it reports and Koala\'s setup until Koala is ready there, each time in the database the worker\'s settings name', async () => {
-    await db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', credentialHash: 'h', install: { id: 'install-1', machineId: 'desk', state: 'asked', at: 't', imageTag: 'v1' } });
+    await db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', install: { id: 'install-1', machineId: 'desk', state: 'asked', at: 't', imageTag: 'v1' } });
 
     expect(await KoalaInstallAskActivity({ installId: 'install-1' })).toBe('asked');
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Asking desk to put Koala on itself', install: { state: 'asked', askedAt: expect.any(String) as unknown } });

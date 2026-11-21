@@ -35,11 +35,11 @@ describe('root\'s identity routes', () => {
     });
   });
 
-  it('tells a person whose instance has not named its sign-in key to root that it has not yet', async () => {
+  it('tells a person whose instance has not registered at root that it has not yet', async () => {
     const identity = mock<Identity>();
     identity.instanceOf.calledWith(PERSON.id).mockResolvedValue({ ...instance, signIn: undefined });
     const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/instance');
-    expect(answer.data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com', signInWaiting: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, servesTenants: false });
+    expect(answer.data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com', signInWaiting: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine' }, servesTenants: false });
   });
 
   it('says there is no instance yet, and asks nobody whether it is reachable', async () => {
@@ -76,11 +76,11 @@ describe('root\'s identity routes', () => {
     expect([noInstance.status, noInstance.data]).toEqual([404, { error: 'you have no instance yet' }]);
   });
 
-  it('tells a person their instance has not named its sign-in key yet, rather than sending them on', async () => {
+  it('tells a person their instance has not registered at root yet, rather than sending them on', async () => {
     const identity = mock<Identity>();
-    identity.goUrl.mockResolvedValue({ waiting: 'your Koala has not named its sign-in key to root yet; it does so as it starts' });
+    identity.goUrl.mockResolvedValue({ waiting: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine' });
     const answer = await get(identityRouter({ servesTenants: false, accounts: { identity, signedIn: signedInWhenCookie } }), '/go', { cookie: 'session=ok' });
-    expect([answer.status, answer.data, answer.headers.location]).toEqual([409, { error: 'your Koala has not named its sign-in key to root yet; it does so as it starts' }, undefined]);
+    expect([answer.status, answer.data, answer.headers.location]).toEqual([409, { error: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine' }, undefined]);
   });
 });
 

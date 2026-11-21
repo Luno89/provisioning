@@ -35,8 +35,8 @@ export interface DevSplitInput {
   name: string;
   owner: UserMetadata;
   instanceId: string;
-  credential: string;
-  credentialHash: string;
+  clientKey: string;
+  registrationCode: string;
   rootPublicKeys: string;
   mongoUri: string;
   now: string;
@@ -96,7 +96,8 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       INSTANCE_ID: input.instanceId,
       INSTANCE_OWNER_ID: input.owner.id,
       INSTANCE_NAME: input.name,
-      INSTANCE_CREDENTIAL: input.credential,
+      INSTANCE_CLIENT_KEY: input.clientKey,
+      INSTANCE_REGISTRATION_TOKEN: input.registrationCode,
       KOALA_RELEASE_REVISION: '1',
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
@@ -114,7 +115,6 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       updatedAt: input.now,
       status: 'ready',
       detail: 'Your dev instance, run by npm run dev:split',
-      credentialHash: input.credentialHash,
     },
   };
 }

@@ -6,12 +6,13 @@ import { InstanceService, type InstanceSettings } from '../services/InstanceServ
 import { InstanceReach } from '../services/InstanceReach.js';
 import { instancesRouter } from '../routes/instances.js';
 import { KoalaInstalls, type InstallWorkflows } from '../../machines/services/KoalaInstalls.js';
+import { testInstanceClients } from './placed-koala.js';
 
 export const NO_MESH = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
 export function rootInstanceSettings(installs: () => KoalaInstalls): InstanceSettings {
   return {
-    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
+    rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], ...testInstanceClients, meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '',
     reach: new InstanceReach({ open: true, domain: '' }),
     installs: { setupHeard: (installId, report) => installs().setupHeard(installId, report) },
   };

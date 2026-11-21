@@ -12,7 +12,9 @@ import dotenv from 'dotenv';
 import { createDatabase, leaseMongo, roleFromEnv } from '../apps/backend/src/platform/index.js';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { instanceRouteFiles } from '../apps/backend/src/instances/lib/instance-routes.js';
-import { hashCredential, publicKeyPem } from '../apps/backend/src/instances/index.js';
+import { generateIdentityKey, publicKeyPem, RootClient } from '../apps/backend/src/instances/index.js';
+import { identityKeysFrom } from '../apps/backend/src/instances/lib/identity-token.js';
+import { registrationCodeAt } from '../apps/backend/src/instances/testing/registration-code.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { call, envArgs, minioRun, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
@@ -169,15 +171,17 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
   await new Promise<void>((resolveListen) => listener.listen(0, '127.0.0.1', resolveListen));
   const madeUp = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`;
   try {
-    const credential = randomBytes(24).toString('base64url');
+    const clientKey = generateIdentityKey();
     const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: mongoUri }));
     await db.init();
     try {
-      await db.instances.saveInstance({ id: 'inst-hardening', ownerId: owner.id, name: 'hardbox', url: `https://hardbox.${DOMAIN}`, credentialHash: hashCredential(credential), status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await db.instances.saveInstance({ id: 'inst-hardening', ownerId: owner.id, name: 'hardbox', url: `https://hardbox.${DOMAIN}`, status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      const instanceClient = new RootClient({ kind: 'instance', clientId: 'inst-hardening', rootUrl, publicUrl: `https://hardbox.${DOMAIN}`, owner: owner.id, keys: identityKeysFrom(clientKey), registrationCode: await registrationCodeAt({ db, url: rootUrl, signing: identityKeysFrom(generateIdentityKey()) }, { id: 'inst-hardening', ownerId: owner.id }) });
+      await instanceClient.register();
 
       step('root refuses an address an instance reports on this machine, a private network or the cloud\'s metadata service');
       for (const url of [madeUp, 'http://10.0.0.5:3001', 'http://169.254.169.254']) {
-        const reported = await call(`${rootUrl}/api/instances/status`, { method: 'POST', headers: { 'X-Instance-Id': 'inst-hardening', Authorization: `Bearer ${credential}` }, body: JSON.stringify({ status: 'ready', url }) });
+        const reported = await call(`${rootUrl}/api/instances/status`, { method: 'POST', headers: { 'X-Instance-Id': 'inst-hardening', Authorization: `Bearer ${await instanceClient.serviceToken()}` }, body: JSON.stringify({ status: 'ready', url }) });
         assert.equal(reported.status, 400, `${url}: ${JSON.stringify(reported.body)}`);
         assert.match((reported.body as { error: string }).error, new RegExp(`^root does not call ${url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `));
       }

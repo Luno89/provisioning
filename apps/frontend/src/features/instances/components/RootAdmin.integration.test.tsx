@@ -20,6 +20,7 @@ import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-ro
 import { dependencySourcesAt } from '../../../../../backend/src/platform/lib/osv'
 import { startDependencySourcesStandIn } from '../../../../../backend/src/platform/testing/dependency-sources-stand-in'
 import type { HeadscaleService } from '../../../../../backend/src/infrastructure/services/HeadscaleService'
+import { testInstanceClients } from '../../../../../backend/src/instances/testing/placed-koala'
 
 const osv = await startDependencySourcesStandIn({ down: ['/osv'] })
 afterAll(() => osv.close())
@@ -31,6 +32,7 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
   const instances = new InstanceService(db, {
     rootUrl: origin,
     rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
+    ...testInstanceClients,
     registry: '',
     imageTag: 'dev',
     domain: 'people.koala.test',

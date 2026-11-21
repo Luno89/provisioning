@@ -129,7 +129,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const browserSessions = signsInThroughRoot(role.role)
     ? new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: (req) => arrivedOverHttps(req.headers['x-forwarded-proto'], req.secure === true) })
     : undefined;
-  const rootSignIn = browserSessions ? rootSignInFor({ role, instanceCredential: settings.instance?.credential, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
+  const rootSignIn = browserSessions ? rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
   const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
@@ -427,11 +427,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     egress,
   });
   if (role.role === 'instance' && role.instance && settings.instance) {
+    if (!rootToken) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
+    const instanceRootToken = rootToken;
     const clusterId = koalasClusterId(settings.clusters.here);
     wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
-      root: new InstanceReporter({ root: { url: role.instance.rootUrl, instanceId: role.instance.id, credential: settings.instance.credential } }),
+      root: new InstanceReporter({ root: { url: role.instance.rootUrl, instanceId: role.instance.id, token: instanceRootToken } }),
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },

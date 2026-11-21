@@ -1,31 +1,21 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, databaseSettingsFrom, roleFromEnv } from '../platform/index.js';
-import { IdentityService } from '../instances/index.js';
+import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
 
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
 
-const USAGE = 'usage: npm run instances -w apps/backend -- list | add <id> <owner-user-id> <url> (prints the instance\'s credential) | remove <id>';
+const USAGE = 'usage: npm run instances -w apps/backend -- list | remove <id> (a Koala is added only by putting it on one of its owner\'s machines)';
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
-  const identity = new IdentityService(roleFromEnv(process.env), db);
 
   if (command === 'list') {
     const all = await db.instances.getInstances();
     if (all.length === 0) console.log('no instances registered');
     for (const instance of all) console.log(`${instance.id}\t${instance.ownerId}\t${instance.url}`);
-  } else if (command === 'add' && rest.length === 3) {
-    const [id, ownerId, url] = rest as [string, string, string];
-    if (!await db.accounts.getUserById(ownerId)) throw new Error(`there is no user ${ownerId} on this root`);
-    const result = await identity.register({ id, ownerId, url });
-    if (!result.ok) throw new Error(result.error);
-    console.log(`registered ${result.instance.id} for ${ownerId} at ${result.instance.url}`);
-    console.log(`its credential, shown once and replacing any it had: ${result.credential}`);
-    console.log(`give it to the instance's chart as --set instance.credential=${result.credential}`);
   } else if (command === 'remove' && rest.length === 1) {
     await db.instances.deleteInstance(rest[0]!);
     console.log(`removed ${rest[0]}`);

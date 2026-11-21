@@ -5,7 +5,8 @@ import { interceptHttp } from '../testing/http.js';
 import { MailError, MailService, type EmailWay } from './MailService.js';
 
 const smtp: EmailWay = { kind: 'smtp', url: 'smtp://127.0.0.1:2525', from: 'alerts@example.dev' };
-const root: EmailWay = { kind: 'root', rootUrl: 'https://app.example.dev', instanceId: 'inst-1', credential: 'cred-1' };
+const root: EmailWay = { kind: 'root', rootUrl: 'https://app.example.dev', instanceId: 'inst-1' };
+const serviceToken = async (): Promise<string> => 'service-token';
 const message = { subject: 'Down', text: 'It is down' };
 
 type Transport = NonNullable<ConstructorParameters<typeof MailService>[0]['transport']>;
@@ -31,7 +32,7 @@ interceptHttp(
 describe('MailService', () => {
   it('says whether email can be sent and why not', () => {
     expect(new MailService({ way: smtp, emailOf: async () => undefined, transport: withTransport().transport }).available()).toEqual({ ok: true });
-    expect(new MailService({ way: root, emailOf: async () => undefined }).available()).toEqual({ ok: true });
+    expect(new MailService({ way: root, emailOf: async () => undefined, rootToken: serviceToken }).available()).toEqual({ ok: true });
     expect(new MailService({ way: { kind: 'none', why: 'no mail here' }, emailOf: async () => undefined }).available()).toEqual({ ok: false, why: 'no mail here' });
   });
 
@@ -40,7 +41,7 @@ describe('MailService', () => {
     new MailService({ way: smtp, emailOf: async () => undefined, transport: smtpOnly.transport });
     expect(smtpOnly.urls).toEqual(['smtp://127.0.0.1:2525']);
     const viaRoot = withTransport();
-    new MailService({ way: root, emailOf: async () => undefined, transport: viaRoot.transport });
+    new MailService({ way: root, emailOf: async () => undefined, rootToken: serviceToken, transport: viaRoot.transport });
     expect(viaRoot.urls).toEqual([]);
   });
 
@@ -52,7 +53,7 @@ describe('MailService', () => {
   });
 
   it('refuses to send to other people where it is not root, saying why', async () => {
-    await expect(new MailService({ way: root, emailOf: async () => undefined }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'only root sends email to other people' });
+    await expect(new MailService({ way: root, emailOf: async () => undefined, rootToken: serviceToken }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'only root sends email to other people' });
     await expect(new MailService({ way: { kind: 'none', why: 'no mail here' }, emailOf: async () => undefined }).toAddress('ann@example.com', message)).rejects.toMatchObject({ status: 503, message: 'no mail here' });
   });
 
@@ -71,22 +72,21 @@ describe('MailService', () => {
     await expect(new MailService({ way: { kind: 'none', why: 'no mail here' }, emailOf: async () => 'ann@example.com' }).toOwner('ann', message)).rejects.toMatchObject({ status: 503, message: 'no mail here' });
   });
 
-  it('asks root to send it, with the instance\'s credential', async () => {
-    await new MailService({ way: root, emailOf: async () => undefined }).toOwner('ann', message);
-    expect(received?.headers.get('authorization')).toBe('Bearer cred-1');
+  it('asks root to send it, with the instance\'s service token from root', async () => {
+    await new MailService({ way: root, emailOf: async () => undefined, rootToken: serviceToken }).toOwner('ann', message);
+    expect(received?.headers.get('authorization')).toBe('Bearer service-token');
     expect(received?.headers.get('x-instance-id')).toBe('inst-1');
     expect(received?.body).toEqual(message);
   });
 
-  it('asks root with a fresh service token when it has a way to get one', async () => {
-    await new MailService({ way: root, emailOf: async () => undefined, rootToken: async () => 'service-token' }).toOwner('ann', message);
-    expect(received?.headers.get('authorization')).toBe('Bearer service-token');
+  it('will not be made to send through root without a way to get a service token', () => {
+    expect(() => new MailService({ way: root, emailOf: async () => undefined })).toThrow('an instance sends its mail through root with its service token, and this one was given no way to get one');
   });
 
   it('tells why root refused, or its status when it gave no reason', async () => {
-    const refused = new MailService({ way: { ...root, rootUrl: 'https://refusing.example.dev' }, emailOf: async () => undefined });
+    const refused = new MailService({ way: { ...root, rootUrl: 'https://refusing.example.dev' }, emailOf: async () => undefined, rootToken: serviceToken });
     await expect(refused.toOwner('ann', message)).rejects.toMatchObject({ status: 502, message: 'root did not send it (429): sixty an hour' });
-    const mute = new MailService({ way: { ...root, rootUrl: 'https://mute.example.dev' }, emailOf: async () => undefined });
+    const mute = new MailService({ way: { ...root, rootUrl: 'https://mute.example.dev' }, emailOf: async () => undefined, rootToken: serviceToken });
     await expect(mute.toOwner('ann', message)).rejects.toMatchObject({ status: 502, message: 'root did not send it (500): no reason given' });
   });
 

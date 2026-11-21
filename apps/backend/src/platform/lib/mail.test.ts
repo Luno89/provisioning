@@ -52,6 +52,6 @@ describe('how a backend sends email', () => {
   });
 
   it('asks root on an instance, never sending itself', () => {
-    expect(emailWayFrom({ MAIL_SMTP_URL: 'smtp://x', INSTANCE_CREDENTIAL: 'cred' }, { role: 'instance', instance: { id: 'i1', ownerId: 'o', rootUrl: 'https://app.koala.dev' } })).toEqual({ kind: 'root', rootUrl: 'https://app.koala.dev', instanceId: 'i1', credential: 'cred' });
+    expect(emailWayFrom({ MAIL_SMTP_URL: 'smtp://x' }, { role: 'instance', instance: { id: 'i1', ownerId: 'o', rootUrl: 'https://app.koala.dev' } })).toEqual({ kind: 'root', rootUrl: 'https://app.koala.dev', instanceId: 'i1' });
   });
 });

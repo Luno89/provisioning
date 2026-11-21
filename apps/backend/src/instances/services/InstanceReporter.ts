@@ -3,7 +3,7 @@ import type { ProvisionReport } from '@koala/engine-core/koala-install';
 import type { InstanceStatus } from '../lib/instances.js';
 
 export interface InstanceReporterDeps {
-  root: { url: string; instanceId: string; credential: string };
+  root: { url: string; instanceId: string; token: () => Promise<string> };
   fetch?: typeof fetch;
   wait?: Reopening;
   log?: (line: string) => void;
@@ -37,11 +37,11 @@ export class InstanceReporter {
   private async send(doing: string, body: Record<string, unknown>): Promise<Reported> {
     const call = this.deps.fetch ?? fetch;
     const log = this.deps.log ?? ((line: string) => console.log(line));
-    const { url, instanceId, credential } = this.deps.root;
+    const { url, instanceId, token } = this.deps.root;
     const answer = await untilAnswered(
-      () => call(`${url}/api/instances/status`, {
+      async () => call(`${url}/api/instances/status`, {
         method: 'POST',
-        headers: { 'X-Instance-Id': instanceId, Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
+        headers: { 'X-Instance-Id': instanceId, Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
       this.wait,

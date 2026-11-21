@@ -19,6 +19,15 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 {{- end -}}
 
+{{- define "instance.clientKey" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-keys" .Release.Name) -}}
+{{- if and $existing (index $existing.data "INSTANCE_CLIENT_KEY") -}}
+{{ index $existing.data "INSTANCE_CLIENT_KEY" }}
+{{- else -}}
+{{ genPrivateKey "ed25519" | b64enc }}
+{{- end -}}
+{{- end -}}
+
 {{- define "instance.image" -}}{{ .Values.image.repository }}:{{ .Values.image.tag }}{{ with .Values.image.digest }}@{{ . }}{{ end }}{{- end -}}
 
 {{- define "instance.resources" -}}

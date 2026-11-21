@@ -15,6 +15,7 @@ import { koalaOfOwner } from '../../../../backend/src/machines/wiring/machines'
 import { myMachinesRouter } from '../../../../backend/src/machines/routes/my-machines'
 import type { InstallWorkflows } from '../../../../backend/src/machines/services/KoalaInstalls'
 import { roleFromEnv, type RoleConfig } from '../../../../backend/src/platform/lib/platform-role'
+import { testInstanceClients } from '../../../../backend/src/instances/testing/placed-koala'
 
 export const DATA_KEY = 'frontend-integration-data-key'
 
@@ -36,7 +37,7 @@ export interface RootSides {
 export async function rootSidesOf(site: Site): Promise<RootSides> {
   const { db, io, origin, api } = site
   const role = roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() })
-  const places = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
+  const places = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], ...testInstanceClients, meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
     { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined }, () => new Date(), () => undefined)
   const started: string[] = []
   const workflows: InstallWorkflows = {
@@ -62,7 +63,7 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
 }
 
 export function machinesOf({ db, origin }: Site): Machines {
-  const instances = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
+  const instances = new InstanceService(db, { rootUrl: origin, rootPublicKeys: () => ['PEM'], ...testInstanceClients, meshLoginServer: 'https://mesh.koala.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
     { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined })
   const machines: MachineService = new MachineService({
     store: db.machines,

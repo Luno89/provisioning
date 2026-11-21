@@ -12,7 +12,7 @@ const PLACED: PlacedKoala = {
   installId: 'install-7', instanceId: 'inst-1', ownerId: 'bo', machineId: 'desk', rootUrl: 'https://app.koala.test', rootPublicKeys: '-----BEGIN PUBLIC KEY-----',
   meshLoginServer: 'https://mesh.koala.test', meshAddress: '100.64.0.7', image: '100.64.0.1:5001/nowrinkles/app', imageTag: 'v1',
   imageDigest: 'sha256:abc', chartUrl: 'https://app.koala.test/api/instances/chart.tgz', chartSha256: createHash('sha256').update(CHART).digest('hex'),
-  credential: 'cred', name: 'bobby', domain: '',
+  registrationCode: 'code', name: 'bobby', domain: '',
 };
 const HELM = '/home/bo/.local/share/koala/bin/helm';
 const PROGRESS_URL = `${PLACED.rootUrl}${koalaInstallProgressPath(PLACED.installId)}`;
@@ -75,14 +75,14 @@ describe('putting Koala on this machine', () => {
   it('takes only a placement that names its install and everything an install needs', () => {
     expect(placedFrom(PLACED)).toEqual(PLACED);
     expect(placedFrom({ ...PLACED, installId: '' })).toBeUndefined();
-    expect(placedFrom({ ...PLACED, credential: '' })).toBeUndefined();
+    expect(placedFrom({ ...PLACED, registrationCode: '' })).toBeUndefined();
     expect(placedFrom('nope')).toBeUndefined();
   });
 
   it('gives the chart root released the machine\'s address and id and no Docker', () => {
     expect(koalaValues(PLACED)).toEqual({
       image: { repository: '100.64.0.1:5001/nowrinkles/app', tag: 'v1', digest: 'sha256:abc' },
-      instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'https://app.koala.test', credential: 'cred', machineId: 'desk' },
+      instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'https://app.koala.test', registrationCode: 'code', machineId: 'desk' },
       publicUrl: 'http://100.64.0.7:30320',
       backend: { nodePort: 30320 },
       mesh: { loginServer: 'https://mesh.koala.test', address: '100.64.0.7' },

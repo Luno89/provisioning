@@ -10,7 +10,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
-import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
+import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', roles: ['operator' as const] };
 const PERSON = { ...TEST_USER };
@@ -179,7 +179,7 @@ describe('an admin on root, for a person whose Koala the machine join put on the
       user: ADMIN,
       router: async (db) => {
         await seedPeople(db);
-        const instances = new InstanceService(db, { rootUrl: 'https://app.root.test', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'v1', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, {
+        const instances = new InstanceService(db, { rootUrl: 'https://app.root.test', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 'v1', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, {
           createPreAuthKey: async (ownerId) => ({ key: `key-of-${ownerId}` }),
           listUserDevices: async () => [],
           removeNode: async () => undefined,

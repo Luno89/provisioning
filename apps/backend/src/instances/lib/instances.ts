@@ -29,7 +29,6 @@ export interface InstanceRecord {
   status?: InstanceStatus | undefined;
   detail?: string | undefined;
   servedAt?: string | undefined;
-  credentialHash?: string | undefined;
   machine?: string | undefined;
   machineId?: string | undefined;
   name?: string | undefined;
@@ -56,20 +55,4 @@ export interface InstanceAddresses {
   nested: boolean;
   state?: NestedState | undefined;
   detail?: string | undefined;
-}
-
-const ID = /^[a-z0-9][a-z0-9-]{1,62}$/;
-
-export function instanceProblem(candidate: { id: string; ownerId: string; url: string }): string | null {
-  if (!ID.test(candidate.id)) return 'an instance id is lower-case letters, digits and dashes';
-  if (!candidate.ownerId.trim()) return 'an instance needs an owner';
-  let url: URL;
-  try {
-    url = new URL(candidate.url);
-  } catch {
-    return `"${candidate.url}" is not a URL`;
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'an instance is reached over http or https';
-  if (url.pathname !== '/' || url.search || url.hash) return 'an instance URL is an origin, with no path';
-  return null;
 }

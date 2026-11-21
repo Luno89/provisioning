@@ -145,12 +145,12 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
     it('changes only the fields named, only while the install named is the instance\'s, and stamps when it first served once ready', async () => {
       const store = await make();
       const install = { id: 'install-1', machineId: 'desk', state: 'asked' as const, line: 'waiting', askedAt: '2026-11-18T10:00:00.000Z', at: '2026-11-18T10:00:00.000Z' };
-      await store.saveInstance(instance('inst-a', 'o1', { install, credentialHash: 'h1' }));
+      await store.saveInstance(instance('inst-a', 'o1', { install }));
       expect(await store.updateInstall('inst-a', 'install-0', { status: 'failed' })).toBe(false);
       expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'installing', 'install.line': undefined, status: 'installing', updatedAt: '2026-11-18T10:01:00.000Z' })).toBe(true);
-      expect((await store.getInstances('o1'))[0]).toEqual(instance('inst-a', 'o1', { install: { id: 'install-1', machineId: 'desk', state: 'installing', askedAt: install.askedAt, at: install.at }, credentialHash: 'h1', status: 'installing', updatedAt: '2026-11-18T10:01:00.000Z' }));
+      expect((await store.getInstances('o1'))[0]).toEqual(instance('inst-a', 'o1', { install: { id: 'install-1', machineId: 'desk', state: 'installing', askedAt: install.askedAt, at: install.at }, status: 'installing', updatedAt: '2026-11-18T10:01:00.000Z' }));
       expect(await store.updateInstall('inst-a', 'install-1', { 'install.state': 'ready', status: 'ready', url: 'https://bo.koala.app', updatedAt: '2026-11-18T10:02:00.000Z' })).toBe(true);
-      expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z', credentialHash: 'h1' });
+      expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z' });
       expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
     });
   });
@@ -346,6 +346,26 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(await store.oidcFind('Grant', 'g9')).toBeDefined();
       expect(await store.oidcFind('AccessToken', 'a9')).toBeDefined();
       expect(await store.oidcForgetAccount('p1')).toEqual([]);
+    });
+
+    it('binds a registration code to one instance, hands it over once, and drops the older code when a newer one is bound', async () => {
+      const store = await make();
+      await store.oidcUpsert('InitialAccessToken', 'code-1', { jti: 'code-1', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-1', { id: 'inst-a', ownerId: 'p1' });
+      await store.oidcUpsert('InitialAccessToken', 'code-2', { jti: 'code-2', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-2', { id: 'inst-a', ownerId: 'p1' });
+      await store.oidcUpsert('InitialAccessToken', 'code-b', { jti: 'code-b', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-b', { id: 'inst-b', ownerId: 'p2' });
+      expect(await store.oidcFind('InitialAccessToken', 'code-1')).toBeUndefined();
+      expect(await store.oidcTakeRegistration('code-1')).toBeUndefined();
+      expect(await store.oidcFind('InitialAccessToken', 'code-2')).toEqual({ jti: 'code-2', policies: ['koala-instance'] });
+      expect(await Promise.all([store.oidcTakeRegistration('code-2'), store.oidcTakeRegistration('code-2')])).toEqual(expect.arrayContaining(['inst-a', undefined]));
+      expect(await store.oidcFind('InitialAccessToken', 'code-2')).toBeUndefined();
+      expect(await store.oidcTakeRegistration('never')).toBeUndefined();
+      await store.oidcUpsert('InitialAccessToken', 'unbound', { jti: 'unbound' });
+      expect(await store.oidcTakeRegistration('unbound')).toBeUndefined();
+      await store.oidcForgetAccount('p2');
+      expect(await store.oidcTakeRegistration('code-b')).toBeUndefined();
     });
   });
 

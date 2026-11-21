@@ -13,7 +13,7 @@ import { InstanceService } from '../instances/services/InstanceService.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { harnessApp, TEST_USER } from '../platform/routes/test-harness.js';
 import { joinThisComputer, untilKoalaReady } from './dev-machine.js';
-import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
+import { koalaPlacedAndUp, testInstanceClients } from '../instances/testing/placed-koala.js';
 import { MachineAccounts } from '../machines/services/MachineAccounts.js';
 import { myMachinesRouter } from '../machines/routes/my-machines.js';
 import { quietAccountSides } from '../machines/testing/wiring-world.js';
@@ -42,7 +42,7 @@ function listen(app: Express, port: number): Promise<http.Server> {
 async function rootWithAJoinedKoala(): Promise<Root> {
   const db = await testDatabase();
   const mesh = { createPreAuthKey: async () => ({ key: 'mesh-key' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] };
-  const instances = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, mesh);
+  const instances = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, mesh);
   const identity = new IdentityService({ role: 'root', signing: identityKeysFrom(generateIdentityKey()) }, db);
   const app = await harnessApp({
     prefix: '/api',
@@ -56,7 +56,7 @@ async function rootWithAJoinedKoala(): Promise<Root> {
   return {
     rootApi: `http://127.0.0.1:${port}`,
     report: async (status, detail) => {
-      const reported = await instances.report(joined.value.instanceId, joined.value.credential, { status, detail });
+      const reported = await instances.report(joined.value.instanceId, joined.value.token, { status, detail });
       if (!reported.ok) throw new Error(reported.error);
     },
     stop: async () => {

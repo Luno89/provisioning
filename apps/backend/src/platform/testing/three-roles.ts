@@ -12,7 +12,9 @@ import { createDatabase } from '../lib/db-interface.js';
 import { databaseSettingsFrom } from '../lib/settings.js';
 import { devSplitPlan, type SplitPlace } from '../../instances/lib/dev-split.js';
 import { publicKeyPem } from '../../instances/lib/identity-token.js';
-import { hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
+import { instanceIdFor } from '../../instances/services/InstanceService.js';
+import { registrationCodeAt } from '../../instances/testing/registration-code.js';
+import { generateIdentityKey } from '../../instances/lib/identity-token.js';
 import { freshNamespace } from '../../workflows/testing/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { startRole, type LoopbackRole } from './roles-on-loopback.js';
@@ -37,7 +39,6 @@ export interface ThreeRoles {
   headscale: HeadscaleStandIn | undefined;
   workers: Record<string, LoopbackRole>;
   instanceId: string;
-  instanceCredential: string;
   databases: { root: string; instance: string };
   mongoUri: string;
   keys: Record<string, string>;
@@ -113,7 +114,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const stamp = `${label}_${Date.now().toString(36)}`;
   const secret = `three-roles-${stamp}`;
   const setupCode = randomBytes(12).toString('base64url');
-  const instanceCredential = randomBytes(32).toString('base64url');
+  const clientKey = generateIdentityKey();
   const databases = { root: `${stamp}_root`, instance: `${stamp}_instance` };
   const mongoUri = inject('mongoUri');
   const mail = await smtpSink();
@@ -127,9 +128,9 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const identityKey = testIdentityKey();
   const signing = roleFromEnv({ ROOT_IDENTITY_KEY: identityKey, ROLE: 'root' }).signing!;
   const rootPublicKeys = publicKeyPem(signing.publicKey);
-  const draft = (person: { id: string; email: string }) => devSplitPlan({
+  const draft = (person: { id: string; email: string }, registrationCode: string) => devSplitPlan({
     name: label.replace(/[^a-z0-9]/g, '').slice(0, 12) || 'three', owner: { id: person.id, email: person.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
-    instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
+    instanceId: instanceIdFor(person.id), clientKey, registrationCode,
     rootPublicKeys,
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
     temporal: { address: inject('temporalTlsAddress'), namespace: temporalNamespace.namespace, ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: rootData,
@@ -171,7 +172,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   for (const folder of gitea ? [instanceData] : []) await writeFile(join(folder, '.gitea-admin-password'), gitea!.adminPassword, { mode: 0o600 });
   try {
     const rootEnv = {
-      ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData, DEPENDENCY_SOURCES: dependencySources.url,
+      ...draft({ id: 'pending', email: 'pending@three.test' }, 'root-is-given-no-registration-code').rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData, DEPENDENCY_SOURCES: dependencySources.url,
       ...(headscale ? { MESH_LOGIN_SERVER: headscale.url, HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
     };
@@ -192,9 +193,9 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     };
     const owner = options.ownerInvited ? await signUpWith(root.url, mail, emailOf('owner'), await ownerInvite()) : operator;
     const cookie = owner.cookie;
-    const plan = draft(owner);
     const rootDb = createDatabase(databaseSettingsFrom({ ...testKeyEnv(secret), MONGO_URI: `${mongoUri}${databases.root}` }));
     await rootDb.init();
+    const plan = draft(owner, await registrationCodeAt({ db: rootDb, url: root.url, signing }, { id: instanceIdFor(owner.id), ownerId: owner.id }));
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
     const gatewayPort = await portToHandOn();
@@ -215,7 +216,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     };
     await until('root to send the owner on to the instance', () => goes('', `${instance.url}/api/auth/oidc/start`));
     return {
-      root, instance, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri, keys: testKeyEnv(secret),
+      root, instance, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, databases, mongoUri, keys: testKeyEnv(secret),
       ownerOnInstance: () => signedIn(root.url, cookie, instance.url, '/api/identity/go'),
       signUp: (email, inviteCode) => signUpWith(root.url, mail, email, inviteCode),
       close,

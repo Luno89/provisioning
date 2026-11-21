@@ -25,7 +25,7 @@ const AT = new Date('2026-11-18T10:00:00Z');
 
 async function world(install: InstanceRecord['install']) {
   const instances = new MemoryInstancesStore();
-  await instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', credentialHash: 'h', install });
+  await instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', install });
   let closed = 0;
   const activities = koalaInstallActivities({ db: async () => ({ db: { instances } as never, close: async () => { closed += 1; } }), now: () => AT });
   return { instances, activities, closed: () => closed, record: async () => (await instances.getInstances('bo'))[0]! };
@@ -35,7 +35,7 @@ describe('the install workflow\'s activities, with a store of records in memory'
   it('asks the machine by stamping the ask, keeping what else the instance holds, and closes what it opened', async () => {
     const { activities, record, closed } = await world({ id: 'install-1', machineId: 'desk', state: 'asked', at: 't' });
     expect(await activities.KoalaInstallAskActivity({ installId: 'install-1' })).toBe('asked');
-    expect(await record()).toMatchObject({ status: 'installing', detail: 'Asking desk to put Koala on itself', credentialHash: 'h', install: { state: 'asked', askedAt: AT.toISOString() } });
+    expect(await record()).toMatchObject({ status: 'installing', detail: 'Asking desk to put Koala on itself', install: { state: 'asked', askedAt: AT.toISOString() } });
     expect(closed()).toBe(1);
   });
 
@@ -73,7 +73,7 @@ describe('the install workflow\'s activities as the host worker runs them', () =
     const settings = { mongo: { uri: 'mongodb://root-mongo', dbName: 'koala' }, keys } as unknown as HostWorkerSettings;
     giveHostActivities(settings, mock<ClusterAccess>(), mock<DependencyReporter>());
     opened.db = memoryDatabase();
-    await opened.db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', credentialHash: 'h', install: { id: 'install-1', machineId: 'desk', state: 'asked', at: 't' } });
+    await opened.db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', install: { id: 'install-1', machineId: 'desk', state: 'asked', at: 't' } });
     const before = Date.now();
 
     expect(await KoalaInstallAskActivity({ installId: 'install-1' })).toBe('asked');

@@ -77,7 +77,7 @@ export { sameSeededRow } from './lib/seed-diff.js';
 export { missingSettings, notSetProblem, settingHostPort, settingUrl } from './lib/setting-urls.js';
 export type { Settings } from './lib/setting-urls.js';
 export { backendSettingsFrom, clusterSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, isOff, operatorCredentialsFrom, selfUpgradeSettingsFrom, SettingsError, setupWaitsSettingsFrom, type SetupWaitsSettings } from './lib/settings.js';
-export type { BackendSettings, ClusterSettings, ClusterWorkerSettings, CommonSettings, ConnectionSettings, EngineWorkerSettings, HostWorkerSettings, InstanceSettings, MeshSettings, Off, OperatorCredentials, PodStepSettings, RootSettings, SelfUpgradeSettings, TemporalSettings, TenantServices, WebToolSettings } from './lib/settings.js';
+export type { BackendSettings, ClusterSettings, ClusterWorkerSettings, CommonSettings, ConnectionSettings, EngineWorkerSettings, HostWorkerSettings, InstanceClient, InstanceSettings, MeshSettings, Off, OperatorCredentials, PodStepSettings, RootSettings, SelfUpgradeSettings, TemporalSettings, TenantServices, WebToolSettings } from './lib/settings.js';
 export { cancelIfRunning } from './lib/stop-workflow.js';
 export type { CancellableWorkflow } from './lib/stop-workflow.js';
 export { cancelledDetailsIn, frozenWorkersIn, killedIn } from './lib/frozen-workers.js';

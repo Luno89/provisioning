@@ -6,7 +6,7 @@ import { temporal } from '@temporalio/proto';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { testKeyEnv } from './platform/testing/keys.js';
+import { testKeyEnv, testIdentityKey } from './platform/testing/keys.js';
 import { unreachedPlatformServices } from './platform/testing/platform-services.js';
 import { testDatabaseAt } from './platform/lib/test-database.js';
 import { realTemporalEnvironment } from './workflows/testing/temporal-test-env.js';
@@ -23,7 +23,7 @@ beforeAll(async () => {
   const { uri, dbName } = await testDatabaseAt();
   const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
   Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('instance-boot'), {
-    ROLE: 'instance', INSTANCE_ID: 'inst-boot', INSTANCE_OWNER_ID: 'owner-boot', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CREDENTIAL: 'cred', KOALA_RELEASE_REVISION: '1',
+    ROLE: 'instance', INSTANCE_ID: 'inst-boot', INSTANCE_OWNER_ID: 'owner-boot', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', KOALA_RELEASE_REVISION: '1',
     PORT: '0', MACHINE_GATEWAY_PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', APP_URL: 'http://127.0.0.1:1', TRUST_PROXY: 'loopback', TERRAFORM_STATE: 'local',
     MONGO_URI: uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`),
     TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),

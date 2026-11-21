@@ -6,8 +6,8 @@ import type { DependencyId } from '../../platform/lib/dependencies.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
-import { claimsFor, runResourceOf } from '../lib/oidc.js';
-import { generateIdentityKey, identityKeysFrom } from '../lib/identity-token.js';
+import { claimsFor, clientMetadata, publicJwkOf, runResourceOf } from '../lib/oidc.js';
+import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
@@ -45,6 +45,8 @@ export interface SignInWorld<S extends Served> {
   readonly signIn: RootSignIn;
   readonly instanceAuth: Auth;
   readonly rootService: InstanceService;
+  readonly clientKeys: IdentityKeyPair;
+  readonly registrationCode: string;
   readonly heard: readonly AccessRevoked[];
   readonly rootDown: ReadonlyArray<{ dependency: DependencyId; reason: string }>;
   heldPerson(jar: Jar): Promise<BrowserPerson | undefined>;
@@ -68,6 +70,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let signIn: RootSignIn;
   let instanceAuth: Auth;
   let rootService: InstanceService;
+  let clientKeys: IdentityKeyPair;
+  let registrationCode: string;
   let offset = 0;
   const heard: AccessRevoked[] = [];
   const rootDown: Array<{ dependency: DependencyId; reason: string }> = [];
@@ -90,7 +94,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     revocations.listen(async () => { if (broken) throw new Error(broken); });
     const runGrants = grantsOver(instanceDb.engine);
     revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
-    ({ provider, rootService, signIn, instanceAuth } = await servedThroughRoot({
+    ({ provider, rootService, signIn, instanceAuth, clientKeys, registrationCode } = await servedThroughRoot({
       rootDb, instanceDb, root, instance, reach: options.reach(), instanceId: 'inst-u1', ownerId: 'u1', revocations,
       dependency: { failed: (dependency, err) => { rootDown.push({ dependency, reason: (err as Error).message }); return err; } },
       now: () => Date.now() + offset,
@@ -137,6 +141,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     get signIn() { return signIn; },
     get instanceAuth() { return instanceAuth; },
     get rootService() { return rootService; },
+    get clientKeys() { return clientKeys; },
+    get registrationCode() { return registrationCode; },
     get alias() { return options.alias(root); },
     get offset() { return offset; },
     set offset(next: number) { offset = next; },
@@ -154,8 +160,53 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 }
 
 export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): void {
+  const registering = (code: string, key: IdentityKeyPair) => fetch(`${world.root.url}/oidc/reg`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${code}` },
+    body: JSON.stringify({ ...clientMetadata({ clientId: 'ignored', kind: 'instance', url: world.instance.url, key: publicJwkOf(key) }), client_id: undefined }),
+  });
+
+  it('registers the instance at root with the one-use code root gave it, keeping only the public half of the key the instance made, and refuses the code a second time', async () => {
+    expect(await world.rootDb.instances.getInstances('u1')).toEqual([having({ id: 'inst-u1' })]);
+    expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn).toBeUndefined();
+    await world.signIn.register();
+    await world.signIn.register();
+    const [registered] = await world.rootDb.instances.getInstances('u1');
+    expect(registered?.signIn?.jwk).toEqual(publicJwkOf(world.clientKeys));
+    expect(JSON.stringify(registered)).not.toContain(String((world.clientKeys.privateKey.export({ format: 'jwk' }) as { d?: string }).d));
+    const another = identityKeysFrom(generateIdentityKey());
+    const again = await registering(world.registrationCode, another);
+    expect(again.status).toBe(401);
+    expect(await again.json()).toMatchObject({ error: 'invalid_token' });
+    expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn?.jwk).toEqual(publicJwkOf(world.clientKeys));
+    expect(await world.provider.serviceCaller(await world.signIn.serviceToken())).toEqual({ clientId: 'inst-u1', kind: 'instance' });
+  });
+
+  it('takes a newer code in place of an older one, and registers the key of whoever holds the newer code as the instance', async () => {
+    const newer = await world.provider.registrationCode({ id: 'inst-u1', ownerId: 'u1' });
+    const stale = await registering(world.registrationCode, world.clientKeys);
+    expect(stale.status).toBe(401);
+    const another = identityKeysFrom(generateIdentityKey());
+    const taken = await registering(newer, another);
+    expect(taken.status).toBe(201);
+    expect(await taken.json()).toMatchObject({ client_id: 'inst-u1', koala_owner: 'u1', token_endpoint_auth_method: 'private_key_jwt' });
+    expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn?.jwk).toEqual(publicJwkOf(another));
+  });
+
+  it('refuses a registration without a code root made, and one whose key is not a single Ed25519 key, without using the code up', async () => {
+    expect((await registering('not-a-code', world.clientKeys)).status).toBe(401);
+    const twoKeys = await fetch(`${world.root.url}/oidc/reg`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${world.registrationCode}` },
+      body: JSON.stringify({ ...clientMetadata({ clientId: 'ignored', kind: 'instance', url: world.instance.url, key: publicJwkOf(world.clientKeys) }), client_id: undefined, jwks: { keys: [] } }),
+    });
+    expect(twoKeys.status).toBe(400);
+    await world.signIn.register();
+    expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn?.jwk).toEqual(publicJwkOf(world.clientKeys));
+  });
+
   it('answers as its public address whatever name a request reached it by, so the issuer, every address it hands out and the tokens agree', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const other = world.alias;
     const discovered = await (await fetch(`${other}/oidc/.well-known/openid-configuration`)).json() as Record<string, unknown>;
     expect(discovered.issuer).toBe(`${world.root.url}/oidc`);
@@ -171,7 +222,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('takes its owner from root\'s session to their instance with the claims root issued, checked there without a call to root', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar, landed } = await world.signInAs('u1');
     expect([landed.status, landed.headers.get('location')]).toEqual([302, '/#/chat']);
     expect([...instanceJar.keys()]).toEqual([SESSION_ID_COOKIE]);
@@ -189,7 +240,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
   it('refuses anyone else root has signed in, and takes no sign-in before the instance has named its key', async () => {
     const early = await world.signInAs('u1');
     expect(early.landed.status).toBeGreaterThanOrEqual(400);
-    await world.signIn.announce();
+    await world.signIn.register();
     const stranger = await world.signInAs('u2');
     expect(stranger.landed.status).toBe(403);
     expect(await stranger.landed.text()).toMatch(/belongs to someone else/);
@@ -198,7 +249,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('renews the tokens it holds through root once they run out, as the same session, and the session ends once root has revoked it', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const before = (await world.heldPerson(instanceJar))!;
     world.offset = before.accessExp - Date.now() + 1000;
@@ -219,7 +270,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('keeps a signed-in browser on its last claims while root cannot be reached, says root is down, and lets root decide once it answers', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const before = (await world.heldPerson(instanceJar))!;
     world.offset = before.accessExp - Date.now() + 1000;
@@ -236,7 +287,7 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('keeps a revocation root could not deliver and delivers it once the instance answers', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     await world.goDown(world.instance);
     await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'account-removed' });
@@ -252,23 +303,24 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
 
 export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): void {
   it('gives the instance a short-lived service token root takes in place of its long-lived credential', async () => {
-    world.signIn.keepAnnouncing(() => undefined);
+    world.signIn.keepRegistering(() => undefined);
     const token = await world.signIn.serviceToken();
     expect(await world.provider.serviceCaller(token)).toEqual({ clientId: 'inst-u1', kind: 'instance' });
     expect(await world.rootService.ownerOf('inst-u1', token)).toEqual({ ok: true, value: { ownerId: 'u1' } });
     expect(await world.rootService.ownerOf('inst-other', token)).toMatchObject({ ok: false });
     expect(await world.rootService.ownerOf('inst-u1', 'not-a-token')).toMatchObject({ ok: false, status: 401 });
+    expect(await world.rootService.ownerOf('inst-u1', world.registrationCode)).toMatchObject({ ok: false, status: 401 });
     expect(await world.signIn.serviceToken()).toBe(token);
   });
 
   it('takes no one from no cookie, or from a cookie it never made', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     expect((await world.whoami(new Map())).status).toBe(401);
     expect((await world.whoami(new Map([[SESSION_ID_COOKIE, 's%3Anever-made.signature']]))).status).toBe(401);
   });
 
   it('makes each sign-in a session of its own, kept under the same id through every renewal', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const first = (await world.signInAs('u1')).instanceJar;
     const second = (await world.signInAs('u1')).instanceJar;
     expect(sessionIdOf(second)).not.toBe(sessionIdOf(first));
@@ -283,7 +335,7 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
   });
 
   it('ends a session signed out of on the instance at once, hands its refresh token back to root and sends the browser to end root\'s session too', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     const kept = (await world.signInAs('u1')).instanceJar;
     const held = (await world.heldPerson(instanceJar))!;
@@ -301,7 +353,7 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
   });
 
   it('ends root\'s session in that browser once the person confirms, and root\'s logout ends every session here that came from it', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar, rootJar } = await world.signInAs('u1');
     const again = (await world.signInAs('u1', world.instance, rootJar)).instanceJar;
     const elsewhere = (await world.signInAs('u1')).instanceJar;
@@ -323,7 +375,7 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
 }
 
 export async function logoutKeptFromAPrivateAddress<S extends Served>(world: SignInWorld<S>, reach: InstanceReach): Promise<void> {
-  await world.signIn.announce();
+  await world.signIn.register();
   const { instanceJar } = await world.signInAs('u1');
   const strict = new RootProvider({ issuer: `${world.root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach }, world.rootDb);
   await strict.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
@@ -340,7 +392,7 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
   })).payload;
 
   it('gives a run of its owner a token of its own for this instance, stamped with their claims as the run started, through every renewal', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await world.signInAs('u1');
     const owner = (await world.rootDb.accounts.getUserById('u1'))!;
     const atStart = claimsFor(owner, { kind: 'instance', owner: 'u1' });
@@ -356,7 +408,7 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('names the check space a run token was asked for, through every renewal, and names none when none was asked for', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await world.signInAs('u1');
     const inSpace = await world.signIn.runToken('check-1', 'space-a');
     expect(await runTokenOf(inSpace.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'check-1', koala_space: 'space-a' });
@@ -365,7 +417,7 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
   });
 
   it('gives no run token for a person not signed in to this instance, none once they sign out everywhere, and none for a run that ended', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await expect(world.signIn.runToken('run-1')).rejects.toThrow(/not signed in to this Koala/);
 
     await world.signInAs('u1');
@@ -386,7 +438,7 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
   const asBearer = (token: string, cookie?: string) => fetch(`${world.instance.url}/api/whoami`, { headers: { authorization: `Bearer ${token}`, ...(cookie ? { cookie } : {}) } });
 
   it('takes a run\'s token on this instance as the run\'s person with the claims they had as it started, only while the run\'s grant is live here', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await world.signInAs('u1');
     await liveGrant('run-1');
     const run = await world.signIn.runToken('run-1');
@@ -402,7 +454,7 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
   });
 
   it('refuses a run\'s token once root takes its person\'s access away, as soon as the logout lands', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await world.signInAs('u1');
     await liveGrant('run-1');
     const run = await world.signIn.runToken('run-1');
@@ -414,7 +466,7 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
   });
 
   it('refuses a token root did not sign, one for another audience, and one that is not an access token, and never reads the cookie beside a bearer', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     const { instanceJar } = await world.signInAs('u1');
     await liveGrant('run-1');
     const claims = { sub: 'u1', koala_run: 'run-1', koala_claims: [{ role: 'person' }] };
@@ -434,7 +486,7 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
   });
 
   it('acts as a check space a run token names only when the space is the token\'s person\'s', async () => {
-    await world.signIn.announce();
+    await world.signIn.register();
     await world.signInAs('u1');
     await liveGrant('check-1');
     const space = (id: string, person: string) => world.instanceDb.accounts.saveUser({ id, email: `${id}@spaces.koala`, emailVerified: true, twoFactorEnabled: false, createdAt: '2026-11-21T00:00:00.000Z', space: { person } } as never);

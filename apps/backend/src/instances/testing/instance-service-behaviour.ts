@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Database } from '../../platform/index.js';
-import { InstanceService, hashCredential, instanceIdFor } from '../services/InstanceService.js';
+import { InstanceService, instanceIdFor } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
-import { koalaPlacedAndUp } from './placed-koala.js';
+import { koalaPlacedAndUp, testInstanceClients, tokenOfInstance } from './placed-koala.js';
 
 export const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 export const containing = (text: string): unknown => expect.stringContaining(text);
@@ -15,6 +15,7 @@ export const settings = {
   imageTag: 'abc123',
   domain: 'koala.dev',
   siteNames: ['app', 'mesh'],
+  ...testInstanceClients,
 };
 const removedNodes: { ownerId: string; meshIp: string }[] = [];
 export const mesh = { createPreAuthKey: async (ownerId: string) => ({ key: `pre-${ownerId}` }), removeNode: async (ownerId: string, meshIp: string) => { removedNodes.push({ ownerId, meshIp }); } };
@@ -23,7 +24,7 @@ export interface InstanceServiceWorld {
   readonly db: Database;
   readonly now: Date;
   service: InstanceService;
-  placedOn(ownerId: string, name?: string): Promise<{ instanceId: string; credential: string }>;
+  placedOn(ownerId: string, name?: string): Promise<{ instanceId: string; token: string }>;
 }
 
 export function instanceServiceBehaviour(make: () => Promise<Database>, start: () => Date): InstanceServiceWorld {
@@ -41,7 +42,7 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     if (!placing.ok) throw new Error(placing.error);
     const placed = await service.placedKoala(`install-${ownerId}`, machine);
     if (!placed.ok) throw new Error(placed.error);
-    return placed.value;
+    return { instanceId: placed.value.instanceId, token: tokenOfInstance(placed.value.instanceId) };
   };
 
   beforeEach(async () => {
@@ -56,46 +57,42 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
       expect(await service.koalaOf('u1')).toBeUndefined();
       const placed = await placedOn('u1');
       expect(await service.koalaOf('u1')).toBeUndefined();
-      await service.report(placed.instanceId, placed.credential, { status: 'ready', url: 'https://luno.koala.dev' });
+      await service.report(placed.instanceId, placed.token, { status: 'ready', url: 'https://luno.koala.dev' });
       expect(await service.koalaOf('u1')).toEqual({ url: 'https://luno.koala.dev', audience: placed.instanceId });
       expect(await service.koalaOf('someone-else')).toBeUndefined();
     });
 
-    it('keeps the machine\'s credential only as a hash, and answers only to it', async () => {
+    it('answers an instance only with a service token root issued that instance', async () => {
       const placed = await placedOn('u1');
       const id = placed.instanceId;
 
-      const stored = (await db.instances.getInstances('u1'))[0]!;
-      expect(stored.credentialHash).toBeDefined();
-      expect(JSON.stringify(stored)).not.toContain(placed.credential);
-
-      expect(await service.release(id, placed.credential)).toMatchObject({ ok: true, value: { imageTag: 'abc123' } });
+      expect(await service.release(id, placed.token)).toMatchObject({ ok: true, value: { imageTag: 'abc123' } });
       expect(await service.release(id, 'guess')).toMatchObject({ ok: false, status: 401 });
-      expect(await service.release('inst-someone-else', placed.credential)).toMatchObject({ ok: false, status: 401 });
+      expect(await service.release('inst-someone-else', placed.token)).toMatchObject({ ok: false, status: 401 });
     });
 
     it('records what the machine reports, and where the instance answers', async () => {
       const placed = await placedOn('u1');
-      const { instanceId, credential } = placed;
+      const { instanceId, token } = placed;
 
-      expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/', meshIp: '100.64.0.7' })).toMatchObject({ ok: true });
+      expect(await service.report(instanceId, token, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/', meshIp: '100.64.0.7' })).toMatchObject({ ok: true });
       expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno', install: { id: 'install-u1', machineId: 'm-u1', state: 'asked', at: now.toISOString() }, watch: { notifyWhenUnreachable: true } });
-      expect(await service.report(instanceId, credential, { status: 'exploded' })).toMatchObject({ ok: false, status: 400 });
-      expect(await service.report(instanceId, credential, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
-      expect(await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev' })).toMatchObject({ ok: true, value: { url: 'https://luno.koala.dev' } });
+      expect(await service.report(instanceId, token, { status: 'exploded' })).toMatchObject({ ok: false, status: 400 });
+      expect(await service.report(instanceId, token, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
+      expect(await service.report(instanceId, token, { status: 'ready', url: 'https://luno.koala.dev' })).toMatchObject({ ok: true, value: { url: 'https://luno.koala.dev' } });
     });
 
     it('never takes an address for the instance that root would call somewhere private, unless it is the instance\'s own mesh address', async () => {
       const placed = await placedOn('u1');
-      const { instanceId, credential } = placed;
-      await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev', meshIp: '100.64.0.7' });
+      const { instanceId, token } = placed;
+      await service.report(instanceId, token, { status: 'ready', url: 'https://luno.koala.dev', meshIp: '100.64.0.7' });
 
       for (const url of ['http://127.0.0.1:3001', 'http://localhost:8080', 'http://10.0.0.5', 'http://169.254.169.254', 'http://100.64.0.8:30320', 'http://[::1]:3001', 'http://user:pw@luno.koala.dev']) {
-        const refused = await service.report(instanceId, credential, { status: 'ready', url });
+        const refused = await service.report(instanceId, token, { status: 'ready', url });
         expect(refused, url).toMatchObject({ ok: false, status: 400 });
       }
-      expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ error: matching(/^root does not call http:\/\/127\.0\.0\.1:3001: .* is a private, loopback, mesh or reserved address\./) });
-      expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://100.64.0.7:30320' })).toMatchObject({ ok: true });
+      expect(await service.report(instanceId, token, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ error: matching(/^root does not call http:\/\/127\.0\.0\.1:3001: .* is a private, loopback, mesh or reserved address\./) });
+      expect(await service.report(instanceId, token, { status: 'ready', url: 'http://100.64.0.7:30320' })).toMatchObject({ ok: true });
       expect((await service.mine('u1'))?.url).toBe('http://100.64.0.7:30320');
     });
 
@@ -104,27 +101,27 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
       const strict = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: false, domain: 'koala.dev' }, { open: fetch, public: fetch, publicProblem, viaCaddy: async () => { throw new Error('nothing here goes through root\'s Caddy'); } }) }, mesh, () => now);
       const lab = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: true, domain: 'koala.dev' }) }, mesh, () => now);
       const placed = await placedOn('u1');
-      const { instanceId, credential } = placed;
-      expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://box.example.org' })).toMatchObject({ ok: true, value: { url: 'https://box.example.org' } });
-      expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://rebound.example' })).toMatchObject({ ok: false, status: 400 });
-      expect(await lab.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ ok: true, value: { url: 'http://127.0.0.1:3001' } });
+      const { instanceId, token } = placed;
+      expect(await strict.report(instanceId, token, { status: 'ready', url: 'https://box.example.org' })).toMatchObject({ ok: true, value: { url: 'https://box.example.org' } });
+      expect(await strict.report(instanceId, token, { status: 'ready', url: 'https://rebound.example' })).toMatchObject({ ok: false, status: 400 });
+      expect(await lab.report(instanceId, token, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ ok: true, value: { url: 'http://127.0.0.1:3001' } });
     });
 
     it('stops watching an instance whose check-in comes from a release that never connects, and keeps one that is connected', async () => {
       const connected = new Set<string>();
       service = new InstanceService(db, { ...settings, connected: (id: string) => connected.has(id) }, mesh, () => now, () => undefined);
       const placed = await placedOn('u1');
-      const { instanceId, credential } = placed;
+      const { instanceId, token } = placed;
       const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId)!;
       await db.instances.savePresence(instance, true);
 
-      await service.report(instanceId, credential, { status: 'ready', imageTag: 'v1', presence: true });
+      await service.report(instanceId, token, { status: 'ready', imageTag: 'v1', presence: true });
       expect((await db.instances.getWatch(instanceId))?.presence).toBe(true);
       connected.add(instanceId);
-      await service.report(instanceId, credential, { status: 'ready', imageTag: 'v1' });
+      await service.report(instanceId, token, { status: 'ready', imageTag: 'v1' });
       expect((await db.instances.getWatch(instanceId))?.presence).toBe(true);
       connected.delete(instanceId);
-      await service.report(instanceId, credential, { status: 'ready', imageTag: 'v0' });
+      await service.report(instanceId, token, { status: 'ready', imageTag: 'v0' });
       expect((await db.instances.getWatch(instanceId))?.presence).toBe(false);
     });
 
@@ -159,31 +156,31 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     });
 
     it('keeps the mesh address the machine reports, and says the routes changed', async () => {
-      const { instanceId, credential } = await placedFor('u1');
-      expect(await service.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
-      expect(await service.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9 { import x }' })).toMatchObject({ ok: false, status: 400 });
+      const { instanceId, token } = await placedFor('u1');
+      expect(await service.report(instanceId, token, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
+      expect(await service.report(instanceId, token, { status: 'joined', meshIp: '100.64.0.9 { import x }' })).toMatchObject({ ok: false, status: 400 });
       const before = routeChanges;
-      await service.report(instanceId, credential, { status: 'ready' });
+      await service.report(instanceId, token, { status: 'ready' });
       expect(routeChanges).toBe(before + 1);
     });
 
     it('takes a mesh address only when one of the owner\'s own machines on the mesh has it, keeping the one it had while the mesh cannot be asked', async () => {
       const devices: Record<string, string[]> = { u1: ['100.64.0.9'], u2: ['100.64.0.50'] };
       const checked = new InstanceService(db, settings, { ...mesh, listUserDevices: async (ownerId: string) => [{ ipAddresses: devices[ownerId] ?? [] }] }, () => now);
-      const { instanceId, credential } = await placedFor('u1', 'luno', checked);
-      expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.50' })).toEqual({ ok: false, status: 400, error: '100.64.0.50 is not one of this instance\'s owner\'s machines on the mesh' });
-      expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
+      const { instanceId, token } = await placedFor('u1', 'luno', checked);
+      expect(await checked.report(instanceId, token, { status: 'joined', meshIp: '100.64.0.50' })).toEqual({ ok: false, status: 400, error: '100.64.0.50 is not one of this instance\'s owner\'s machines on the mesh' });
+      expect(await checked.report(instanceId, token, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
       const down = new InstanceService(db, settings, { ...mesh, listUserDevices: async () => { throw new Error('headscale is down'); } }, () => now);
-      expect(await down.report(instanceId, credential, { status: 'ready', meshIp: '100.64.0.10' })).toMatchObject({ ok: true, value: { status: 'ready', meshIp: '100.64.0.9' } });
+      expect(await down.report(instanceId, token, { status: 'ready', meshIp: '100.64.0.10' })).toMatchObject({ ok: true, value: { status: 'ready', meshIp: '100.64.0.9' } });
     });
 
     it('turns nested addresses on as issuing, only for the instance itself', async () => {
-      const { instanceId, credential } = await placedFor('u1');
-      expect(await service.addresses(instanceId, credential)).toEqual({ ok: true, value: { nested: false, name: 'luno', domain: 'koala.dev' } });
-      expect(await service.setAddresses(instanceId, credential, true)).toEqual({ ok: true, value: { nested: true, state: 'issuing', name: 'luno', domain: 'koala.dev' } });
+      const { instanceId, token } = await placedFor('u1');
+      expect(await service.addresses(instanceId, token)).toEqual({ ok: true, value: { nested: false, name: 'luno', domain: 'koala.dev' } });
+      expect(await service.setAddresses(instanceId, token, true)).toEqual({ ok: true, value: { nested: true, state: 'issuing', name: 'luno', domain: 'koala.dev' } });
       expect(await service.setAddresses(instanceId, 'guess', false)).toMatchObject({ ok: false, status: 401 });
-      expect(await service.setAddresses(instanceId, credential, 'yes')).toMatchObject({ ok: false, status: 400 });
-      expect(await new InstanceService(db, { ...settings, domain: undefined }, mesh, () => now).addresses(instanceId, credential)).toMatchObject({ ok: false, status: 503 });
+      expect(await service.setAddresses(instanceId, token, 'yes')).toMatchObject({ ok: false, status: 400 });
+      expect(await new InstanceService(db, { ...settings, domain: undefined }, mesh, () => now).addresses(instanceId, token)).toMatchObject({ ok: false, status: 503 });
     });
   });
 
@@ -193,11 +190,11 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     it('checks a name against the rules, every instance\'s name and every group anywhere on root', async () => {
       const luno = await joinedAs('u1', 'luno');
       await joinedAs('u2', 'sam');
-      expect(await service.checkGroup(luno.instanceId, luno.credential, 'acme')).toEqual({ ok: true, value: { ok: true } });
-      expect(await service.checkGroup(luno.instanceId, luno.credential, 'ac-me')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/no dashes/) } });
-      expect(await service.checkGroup(luno.instanceId, luno.credential, 'mesh')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
-      expect(await service.checkGroup(luno.instanceId, luno.credential, 'app')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
-      expect(await service.checkGroup(luno.instanceId, luno.credential, 'sam')).toEqual({ ok: true, value: { ok: false, problem: '"sam" is taken' } });
+      expect(await service.checkGroup(luno.instanceId, luno.token, 'acme')).toEqual({ ok: true, value: { ok: true } });
+      expect(await service.checkGroup(luno.instanceId, luno.token, 'ac-me')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/no dashes/) } });
+      expect(await service.checkGroup(luno.instanceId, luno.token, 'mesh')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
+      expect(await service.checkGroup(luno.instanceId, luno.token, 'app')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
+      expect(await service.checkGroup(luno.instanceId, luno.token, 'sam')).toEqual({ ok: true, value: { ok: false, problem: '"sam" is taken' } });
       expect(await service.checkGroup(luno.instanceId, 'guess', 'acme')).toMatchObject({ ok: false, status: 401 });
     });
 
@@ -205,17 +202,17 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
       const luno = await joinedAs('u1', 'luno');
       const sam = await joinedAs('u2', 'sam');
       const before = routeChanges;
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
       expect(routeChanges).toBe(before + 1);
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p1', 'acme')).toEqual({ ok: true, value: { projectId: 'p1', name: 'acme' } });
       expect(routeChanges).toBe(before + 1);
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p2', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
-      expect(await service.claimGroup(sam.instanceId, sam.credential, 'p1', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
-      expect(await service.checkGroup(sam.instanceId, sam.credential, 'acme')).toEqual({ ok: true, value: { ok: false, problem: '"acme" is taken' } });
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'other')).toMatchObject({ ok: false, status: 409, error: matching(/already addressed under "acme"/) });
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'sam')).toEqual({ ok: false, status: 409, error: '"sam" is taken' });
-      expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'shop-x')).toMatchObject({ ok: false, status: 400 });
-      expect(await service.claimGroup(luno.instanceId, luno.credential, '', 'shop')).toMatchObject({ ok: false, status: 400 });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p2', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
+      expect(await service.claimGroup(sam.instanceId, sam.token, 'p1', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
+      expect(await service.checkGroup(sam.instanceId, sam.token, 'acme')).toEqual({ ok: true, value: { ok: false, problem: '"acme" is taken' } });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p1', 'other')).toMatchObject({ ok: false, status: 409, error: matching(/already addressed under "acme"/) });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p3', 'sam')).toEqual({ ok: false, status: 409, error: '"sam" is taken' });
+      expect(await service.claimGroup(luno.instanceId, luno.token, 'p3', 'shop-x')).toMatchObject({ ok: false, status: 400 });
+      expect(await service.claimGroup(luno.instanceId, luno.token, '', 'shop')).toMatchObject({ ok: false, status: 400 });
       expect(await service.claimGroup(luno.instanceId, 'guess', 'p4', 'shop')).toMatchObject({ ok: false, status: 401 });
       expect(await service.placeOn('u3', { id: 'm-u3', name: 'm', meshIp: '100.64.0.11' }, 'acme', 'install-u3')).toMatchObject({ ok: false, error: '"acme" is taken' });
       expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
@@ -224,19 +221,19 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     it('frees a group when its project is taken back, so another can have it', async () => {
       const luno = await joinedAs('u1', 'luno');
       const sam = await joinedAs('u2', 'sam');
-      await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme');
+      await service.claimGroup(luno.instanceId, luno.token, 'p1', 'acme');
       const before = routeChanges;
-      expect(await service.releaseGroup(luno.instanceId, luno.credential, 'p1')).toEqual({ ok: true, value: { released: true } });
+      expect(await service.releaseGroup(luno.instanceId, luno.token, 'p1')).toEqual({ ok: true, value: { released: true } });
       expect(routeChanges).toBe(before + 1);
-      expect(await service.releaseGroup(luno.instanceId, luno.credential, 'p1')).toEqual({ ok: true, value: { released: false } });
+      expect(await service.releaseGroup(luno.instanceId, luno.token, 'p1')).toEqual({ ok: true, value: { released: false } });
       expect(routeChanges).toBe(before + 1);
-      expect(await service.claimGroup(sam.instanceId, sam.credential, 'q1', 'acme')).toMatchObject({ ok: true });
+      expect(await service.claimGroup(sam.instanceId, sam.token, 'q1', 'acme')).toMatchObject({ ok: true });
       expect(await service.releaseGroup(sam.instanceId, 'guess', 'q1')).toMatchObject({ ok: false, status: 401 });
     });
 
     it('keeps an instance\'s groups when Koala is put on its machine again', async () => {
       const luno = await joinedAs('u1', 'luno');
-      await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'acme');
+      await service.claimGroup(luno.instanceId, luno.token, 'p1', 'acme');
       expect(await service.placeOn('u1', { id: 'm-u1', name: 'm', meshIp: '100.64.0.9' }, 'luno', 'install-again')).toMatchObject({ ok: true });
       expect((await db.instances.getInstances('u1'))[0]!.groups).toEqual([{ projectId: 'p1', name: 'acme' }]);
     });
@@ -255,14 +252,14 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
     const joined = async () => {
       service = new InstanceService(db, { ...settings, releases: catalogue(['old111', 'mid222', 'abc123']) }, mesh, () => now);
       const made = await placedFor('u1');
-      return { id: made.instanceId, credential: made.credential };
+      return { id: made.instanceId, token: made.token };
     };
 
     it('follows root on auto, from the release it reports running, with that release\'s own chart', async () => {
-      const { id, credential } = await joined();
-      expect(await service.report(id, credential, { status: 'ready', imageTag: 'old111' })).toMatchObject({ ok: true, value: { running: 'old111' } });
-      expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz', digest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
-      expect(await service.report(id, credential, { status: 'ready', imageTag: 'abc123' })).toMatchObject({ ok: true, value: { running: 'abc123', previous: 'old111' } });
+      const { id, token } = await joined();
+      expect(await service.report(id, token, { status: 'ready', imageTag: 'old111' })).toMatchObject({ ok: true, value: { running: 'old111' } });
+      expect(await service.release(id, token)).toEqual({ ok: true, value: { imageTag: 'abc123', chartUrl: 'https://app.example.com/api/instances/chart.tgz', digest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
+      expect(await service.report(id, token, { status: 'ready', imageTag: 'abc123' })).toMatchObject({ ok: true, value: { running: 'abc123', previous: 'old111' } });
     });
 
     it('installs a new instance from the image and chart root released, by digest and checksum, and an older release without them as before', async () => {
@@ -270,49 +267,49 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
       const machine = { id: 'm-u1', name: 'm', meshIp: '100.64.0.9' };
       await service.placeOn('u1', machine, 'luno', 'install-first');
       expect(await service.placedKoala('install-first', machine)).toMatchObject({ ok: true, value: { imageTag: 'abc123', imageDigest: `sha256:${'d'.repeat(64)}`, chartSha256: 'c'.repeat(64) } });
-      const { id, credential } = await joined();
-      await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
-      await service.setUpdates(id, credential, { version: 'v2026.10.24' });
-      const older = await service.release(id, credential);
+      const { id, token } = await joined();
+      await service.report(id, token, { status: 'ready', imageTag: 'old111' });
+      await service.setUpdates(id, token, { version: 'v2026.10.24' });
+      const older = await service.release(id, token);
       expect(older).toEqual({ ok: true, value: { imageTag: 'old111', chartUrl: 'https://app.example.com/api/instances/chart/old111.tgz' } });
     });
 
     it('stays where it is once automatic updates are off, and moves to the release picked', async () => {
-      const { id, credential } = await joined();
-      await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
-      expect(await service.setUpdates(id, credential, { auto: false })).toMatchObject({ ok: true, value: { auto: false, picked: 'old111', target: 'old111' } });
-      expect(await service.release(id, credential)).toMatchObject({ ok: true, value: { imageTag: 'old111' } });
-      expect(await service.setUpdates(id, credential, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { auto: false, picked: 'mid222', target: 'mid222' } });
-      expect(await service.release(id, credential)).toEqual({ ok: true, value: { imageTag: 'mid222', chartUrl: 'https://app.example.com/api/instances/chart/mid222.tgz' } });
-      expect(await service.setUpdates(id, credential, { auto: true })).toMatchObject({ ok: true, value: { auto: true, target: 'abc123' } });
+      const { id, token } = await joined();
+      await service.report(id, token, { status: 'ready', imageTag: 'old111' });
+      expect(await service.setUpdates(id, token, { auto: false })).toMatchObject({ ok: true, value: { auto: false, picked: 'old111', target: 'old111' } });
+      expect(await service.release(id, token)).toMatchObject({ ok: true, value: { imageTag: 'old111' } });
+      expect(await service.setUpdates(id, token, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { auto: false, picked: 'mid222', target: 'mid222' } });
+      expect(await service.release(id, token)).toEqual({ ok: true, value: { imageTag: 'mid222', chartUrl: 'https://app.example.com/api/instances/chart/mid222.tgz' } });
+      expect(await service.setUpdates(id, token, { auto: true })).toMatchObject({ ok: true, value: { auto: true, target: 'abc123' } });
     });
 
     it('lets it go back only to the release it ran just before', async () => {
-      const { id, credential } = await joined();
-      await service.report(id, credential, { status: 'ready', imageTag: 'mid222' });
-      await service.report(id, credential, { status: 'ready', imageTag: 'abc123' });
-      expect(await service.setUpdates(id, credential, { version: 'v2026.10.24' })).toMatchObject({ ok: false, status: 409, error: containing('back to v2026.10.25, the one it ran before') });
-      expect(await service.setUpdates(id, credential, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { target: 'mid222' } });
+      const { id, token } = await joined();
+      await service.report(id, token, { status: 'ready', imageTag: 'mid222' });
+      await service.report(id, token, { status: 'ready', imageTag: 'abc123' });
+      expect(await service.setUpdates(id, token, { version: 'v2026.10.24' })).toMatchObject({ ok: false, status: 409, error: containing('back to v2026.10.25, the one it ran before') });
+      expect(await service.setUpdates(id, token, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { target: 'mid222' } });
     });
 
     it('does not count an upgrade that failed and rolled back as running, and refuses what it cannot read', async () => {
-      const { id, credential } = await joined();
-      await service.report(id, credential, { status: 'ready', imageTag: 'old111' });
-      expect(await service.report(id, credential, { status: 'failed', imageTag: 'abc123', detail: 'rolled back' })).toMatchObject({ ok: true, value: { running: 'old111' } });
-      expect(await service.report(id, credential, { status: 'ready', imageTag: 'a b' })).toMatchObject({ ok: false, status: 400 });
-      expect(await service.setUpdates(id, credential, { auto: true, version: 'v2026.10.25' })).toMatchObject({ ok: false, status: 400 });
-      expect(await service.setUpdates(id, credential, { version: 'v2027.01.01' })).toMatchObject({ ok: false, status: 409, error: 'there is no release v2027.01.01' });
+      const { id, token } = await joined();
+      await service.report(id, token, { status: 'ready', imageTag: 'old111' });
+      expect(await service.report(id, token, { status: 'failed', imageTag: 'abc123', detail: 'rolled back' })).toMatchObject({ ok: true, value: { running: 'old111' } });
+      expect(await service.report(id, token, { status: 'ready', imageTag: 'a b' })).toMatchObject({ ok: false, status: 400 });
+      expect(await service.setUpdates(id, token, { auto: true, version: 'v2026.10.25' })).toMatchObject({ ok: false, status: 400 });
+      expect(await service.setUpdates(id, token, { version: 'v2027.01.01' })).toMatchObject({ ok: false, status: 409, error: 'there is no release v2027.01.01' });
       expect(await service.updates(id, 'guess')).toMatchObject({ ok: false, status: 401 });
     });
   });
 
   describe('whether root tells an owner their instance cannot be reached', () => {
-    it('is on by default for an own machine, switched by the instance with its credential or by the owner on root', async () => {
-      const { instanceId, credential } = await placedFor('u1');
-      expect(await service.watchAs(instanceId, credential)).toEqual({ ok: true, value: { notifyWhenUnreachable: true } });
+    it('is on by default for an own machine, switched by the instance with its service token or by the owner on root', async () => {
+      const { instanceId, token } = await placedFor('u1');
+      expect(await service.watchAs(instanceId, token)).toEqual({ ok: true, value: { notifyWhenUnreachable: true } });
       expect(await service.watchAs(instanceId, 'wrong')).toMatchObject({ ok: false, status: 401 });
-      expect(await service.setWatchAs(instanceId, credential, 'no')).toMatchObject({ ok: false, status: 400 });
-      expect(await service.setWatchAs(instanceId, credential, false)).toEqual({ ok: true, value: { notifyWhenUnreachable: false } });
+      expect(await service.setWatchAs(instanceId, token, 'no')).toMatchObject({ ok: false, status: 400 });
+      expect(await service.setWatchAs(instanceId, token, false)).toEqual({ ok: true, value: { notifyWhenUnreachable: false } });
       expect((await service.mine('u1'))?.watch).toEqual({ notifyWhenUnreachable: false });
       expect(await service.setWatchOf('u1', true)).toMatchObject({ ok: true, value: { notifyWhenUnreachable: true } });
       expect(await service.setWatchOf('nobody', true)).toMatchObject({ ok: false, status: 404 });
@@ -326,7 +323,7 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
   describe('putting a person\'s Koala on one of their machines', () => {
     const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
 
-    it('makes their instance on the machine with an install asked of it, and hands the machine everything to install it, a credential only it holds', async () => {
+    it('makes their instance on the machine with an install asked of it, and hands the machine everything to install it, with a registration code of its own each time it asks', async () => {
       expect(await service.placeOn('u1', desk, 'luno', 'install-1')).toEqual({ ok: true, value: { instanceId: instanceIdFor('u1') } });
       expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ status: 'joined', machine: 'desk', machineId: 'desk', meshIp: '100.64.0.7', name: 'luno', install: { id: 'install-1', machineId: 'desk', state: 'asked' } });
       const placed = await service.placedKoala('install-1', desk);
@@ -336,10 +333,12 @@ export function instanceServiceBehaviour(make: () => Promise<Database>, start: (
         chartUrl: 'https://app.example.com/api/instances/chart.tgz', name: 'luno', domain: 'koala.dev',
       } });
       if (!placed.ok) throw new Error(placed.error);
-      expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ credentialHash: hashCredential(placed.value.credential), install: { imageTag: 'abc123' } });
+      expect(placed.value.registrationCode).toMatch(/^registration-code-inst-/);
+      expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ install: { imageTag: 'abc123' } });
+      expect(JSON.stringify(await db.instances.getInstances('u1'))).not.toContain(placed.value.registrationCode);
       const again = await service.placedKoala('install-1', desk);
       if (!again.ok) throw new Error(again.error);
-      expect(again.value.credential).not.toBe(placed.value.credential);
+      expect(again.value.registrationCode).not.toBe(placed.value.registrationCode);
     });
 
     it('puts it again on the same machine, naming the install it replaces, refuses another machine while one holds it and one off the mesh', async () => {

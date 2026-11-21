@@ -31,6 +31,11 @@ spec:
                 - secretRef:
                     name: {{ include "instance.name" . }}-instance
               env:
+                - name: INSTANCE_CLIENT_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "instance.name" . }}-keys
+                      key: INSTANCE_CLIENT_KEY
                 - name: RELEASE_NAME
                   value: {{ .Release.Name }}
                 - name: RELEASE_NAMESPACE

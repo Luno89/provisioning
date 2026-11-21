@@ -3,16 +3,11 @@ import { mailFrom } from './mail.js';
 
 export type EmailWay =
   | { kind: 'smtp'; url: string; from: string }
-  | { kind: 'root'; rootUrl: string; instanceId: string; credential: string }
+  | { kind: 'root'; rootUrl: string; instanceId: string }
   | { kind: 'none'; why: string };
 
 export function emailWayFrom(env: Readonly<Record<string, string | undefined>>, role: Pick<RoleConfig, 'role' | 'instance'>): EmailWay {
-  if (role.role === 'instance' && role.instance) {
-    const credential = env.INSTANCE_CREDENTIAL?.trim();
-    return credential
-      ? { kind: 'root', rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential }
-      : { kind: 'none', why: 'this instance has no credential for its root, so it cannot ask root to send email' };
-  }
+  if (role.role === 'instance' && role.instance) return { kind: 'root', rootUrl: role.instance.rootUrl, instanceId: role.instance.id };
   const url = env.MAIL_SMTP_URL?.trim();
   if (!url) return { kind: 'none', why: 'email is not set up on this platform (MAIL_SMTP_URL is unset)' };
   const from = env.MAIL_FROM?.trim();

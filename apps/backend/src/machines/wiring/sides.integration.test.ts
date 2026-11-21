@@ -22,7 +22,7 @@ import { InstancePresence } from '../../instances/services/InstancePresence.js';
 import { InstanceSide, wireInstancePresence } from '../../instances/wiring/instances.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
-import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
+import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
 
 const KEY = 'sides-test-secret';
 const closers = closedAfterEach();
@@ -63,12 +63,12 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   let rootSide: MachineSides | undefined;
   const instances = new InstanceService(rootDb, {
     serviceChanged: (changed) => rootSide?.instanceArrived(changed),
-    rootUrl: root.url, rootPublicKeys: () => [publicKeyPem(identityKeysFrom(pem).publicKey)], registry: 'r', imageTag: 't', domain: 'koala.test', meshLoginServer: 'https://mesh.koala.test',
+    rootUrl: root.url, rootPublicKeys: () => [publicKeyPem(identityKeysFrom(pem).publicKey)], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.test', meshLoginServer: 'https://mesh.koala.test',
     reach: new InstanceReach({ open: true, domain: 'koala.test' }),
   }, mesh);
   const joined = { value: await koalaPlacedAndUp(instances, rootDb, 'bo', { id: 'bo-desktop', name: 'bo-desktop', meshIp: '100.64.0.9' }, 'bobby') };
-  const { instanceId, credential } = joined.value;
-  const reported = await instances.report(instanceId, credential, { status: 'ready', url: instance.url });
+  const { instanceId, token } = joined.value;
+  const reported = await instances.report(instanceId, token, { status: 'ready', url: instance.url });
   if (!reported.ok) throw new Error(reported.error);
   const presence = new InstancePresence({ store: rootDb.instances, tellOwner: async () => undefined, afterMs: 60_000 });
   closers.push(async () => { presence.stop(); });
@@ -85,15 +85,15 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   }));
   rootApp.use('/api/instances', instancesRouter({ instances, chart: async () => '' }));
   const role = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: instanceId, INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) });
-  const side = new InstanceSide(role, { edge: { off: 'this test runs no edge' }, unreachableAfterMs: 600_000 }, async () => credential);
+  const side = new InstanceSide(role, { edge: { off: 'this test runs no edge' }, unreachableAfterMs: 600_000 }, async () => token);
   const devices = recordingDevices();
   const projects = new ProjectRepoService(instanceDb, {} as GiteaService, KEY);
   const instanceSide: MachineSides = machineSides({
     role, db: instanceDb, io: instance.io, dataKey: KEY, publicUrl: instance.url, mesh,
-    devices, projects, rootToken: async () => credential, side,
+    devices, projects, rootToken: async () => token, side,
     instances: () => undefined,
   });
-  return { root, rootDb, rootSide, instances, credential, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
+  return { root, rootDb, rootSide, instances, token, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
 }
 
 const machinesOn = async (db: Database) => db.machines.getLocalAgentDevices();
@@ -142,7 +142,7 @@ describe('a root and an instance wired as they run, against each other', () => {
   });
 
   it('root tells the owner\'s connected machines again each time the instance reports to root that its status changed', async () => {
-    const { root, rootSide, credential, instanceId, watch } = await rootAndInstance();
+    const { root, rootSide, token, instanceId, watch } = await rootAndInstance();
     const joined = await rootSide.accounts!.join((await rootSide.accounts!.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     const told: Array<{ url: string; workToken: string } | null> = [];
@@ -152,7 +152,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     watch();
     await until(async () => (told.length === 2 ? true : undefined));
     const report = async (status: string) => {
-      const answer = await fetch(`${root.url}/api/instances/status`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-instance-id': instanceId, authorization: `Bearer ${credential}` }, body: JSON.stringify({ status }) });
+      const answer = await fetch(`${root.url}/api/instances/status`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-instance-id': instanceId, authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
       expect(answer.status, await answer.clone().text()).toBe(200);
     };
     await report('installing');

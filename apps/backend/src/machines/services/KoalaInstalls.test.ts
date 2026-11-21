@@ -13,7 +13,7 @@ const installOf = (state: 'asked' | 'installing' | 'ready' | 'failed', more: Par
   id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', meshIp: '100.64.0.7',
   install: { id: 'install-1', machineId: 'desk', state, at: 't', ...more },
 });
-const placed = { installId: 'install-1', instanceId: 'inst-bo', ownerId: 'bo', machineId: 'desk', rootUrl: 'http://root.test', rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh', meshAddress: '100.64.0.7', image: 'r/app', imageTag: 'v1', chartUrl: 'http://root.test/c.tgz', credential: 'c', name: 'bobby', domain: '' };
+const placed = { installId: 'install-1', instanceId: 'inst-bo', ownerId: 'bo', machineId: 'desk', rootUrl: 'http://root.test', rootPublicKeys: 'PEM', meshLoginServer: 'https://mesh', meshAddress: '100.64.0.7', image: 'r/app', imageTag: 'v1', chartUrl: 'http://root.test/c.tgz', registrationCode: 'c', name: 'bobby', domain: '' };
 
 let places: ReturnType<typeof mock<InstallPlaces>>;
 let workflows: ReturnType<typeof mock<InstallWorkflows>>;

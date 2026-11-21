@@ -1,5 +1,7 @@
 import { testIdentityKey, testKeyEnv } from '../testing/keys.js';
 import { generateKeyPairSync } from 'node:crypto';
+import { identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { pemOf } from './platform-role.js';
 import { describe, expect, it } from 'vitest';
 import {
   backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, operatorCredentialsFrom,
@@ -8,6 +10,9 @@ import {
 
 const saying = (text: string): unknown => expect.stringContaining(text);
 const ANY_TEXT: unknown = expect.any(String);
+
+const clientKey = testIdentityKey();
+const clientKid = identityKeysFrom(pemOf(clientKey)).kid;
 
 const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
 
@@ -36,7 +41,7 @@ const TENANT = {
 
 const INSTANCE = {
   ...BACKEND, ...TENANT, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey,
-  INSTANCE_CREDENTIAL: 'cred', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local', KOALA_RELEASE_REVISION: '7',
+  INSTANCE_CLIENT_KEY: clientKey, INSTANCE_REGISTRATION_TOKEN: 'code', INSTANCE_MACHINE_ID: 'desk', MACHINE_GATEWAY_PORT: '7234', TERRAFORM_STATE: 'local', KOALA_RELEASE_REVISION: '7',
   POD_NAME: 'luno-worker-7d9f-abcde',
 };
 
@@ -110,7 +115,7 @@ describe('the settings a backend reads once, at start', () => {
   it('takes an instance\'s, with the services the chart names and nothing guessed for the ones it does not', () => {
     const settings = backendSettingsFrom(INSTANCE);
     expect(settings.tenant).toMatchObject({ checksApi: 'http://instance.nowrinkles.svc.cluster.local/api', registryPullHost: '127.0.0.1:31737', webTools: { searxngUrl: TENANT.SEARXNG_URL, crawl4aiUrl: TENANT.CRAWL4AI_URL, crawl4aiToken: 'crawl-token' } });
-    expect(settings.instance).toMatchObject({ credential: 'cred', gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, gatewayTls: { off: saying('MACHINE_GATEWAY_TLS_CERT') } });
+    expect(settings.instance).toMatchObject({ client: { keys: { kid: clientKid }, registrationCode: 'code' }, gatewayPort: 7234, revision: 7, edge: { off: saying('no edge') }, selfUpgrade: { off: ANY_TEXT }, machineTemporalAddress: { off: saying('MACHINE_TEMPORAL_ADDRESS') }, gatewayTls: { off: saying('MACHINE_GATEWAY_TLS_CERT') } });
     const gateway = { MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:30322', MACHINE_GATEWAY_TLS_CERT: '/etc/koala/temporal-tls/tls.crt', MACHINE_GATEWAY_TLS_KEY: '/etc/koala/temporal-tls/tls.key' };
     expect(backendSettingsFrom({ ...INSTANCE, ...gateway }).instance).toMatchObject({ machineTemporalAddress: '100.64.0.7:30322', gatewayTls: { certPath: '/etc/koala/temporal-tls/tls.crt', keyPath: '/etc/koala/temporal-tls/tls.key' } });
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, MACHINE_TEMPORAL_ADDRESS: gateway.MACHINE_TEMPORAL_ADDRESS }))).toContain('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
@@ -118,8 +123,9 @@ describe('the settings a backend reads once, at start', () => {
     expect(settings.endpointRules).toEqual({ scriptedBase: 'http://instance.nowrinkles.svc.cluster.local/api/checks/scripted', lab: false });
     expect(settings.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(settings.mesh).toEqual({ off: 'instance runs no mesh; root does' });
-    const missing = problemsOf(() => backendSettingsFrom({ ...INSTANCE, MINIO_BUCKET: '', SEARXNG_URL: '', CRAWL4AI_API_TOKEN: '', CHECKS_API_URL: '', INSTANCE_CREDENTIAL: '', MACHINE_GATEWAY_PORT: '' }));
-    for (const name of ['MINIO_BUCKET', 'SEARXNG_URL', 'CRAWL4AI_API_TOKEN', 'CHECKS_API_URL', 'INSTANCE_CREDENTIAL', 'MACHINE_GATEWAY_PORT']) expect(missing.some((problem) => problem.includes(name)), name).toBe(true);
+    const missing = problemsOf(() => backendSettingsFrom({ ...INSTANCE, MINIO_BUCKET: '', SEARXNG_URL: '', CRAWL4AI_API_TOKEN: '', CHECKS_API_URL: '', INSTANCE_CLIENT_KEY: '', INSTANCE_REGISTRATION_TOKEN: '', MACHINE_GATEWAY_PORT: '' }));
+    for (const name of ['MINIO_BUCKET', 'SEARXNG_URL', 'CRAWL4AI_API_TOKEN', 'CHECKS_API_URL', 'INSTANCE_CLIENT_KEY', 'INSTANCE_REGISTRATION_TOKEN', 'MACHINE_GATEWAY_PORT']) expect(missing.some((problem) => problem.includes(name)), name).toBe(true);
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, INSTANCE_CLIENT_KEY: 'not a key' }))).toContain('INSTANCE_CLIENT_KEY is not the Ed25519 private key the instance chart makes for this instance to sign in to root with');
   });
 
   it('takes the chart revision an instance runs, a whole number from 1, and stops without one', () => {
@@ -205,7 +211,7 @@ describe('the settings each worker reads once, at start', () => {
 
   it('runs the engine worker only in an instance, with everything its runs reach', () => {
     const env = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
-    expect(engineWorkerSettingsFrom(env)).toMatchObject({ temporalMetricsPort: 9467, instanceCredential: 'cred', tenant: { checksApi: TENANT.CHECKS_API_URL } });
+    expect(engineWorkerSettingsFrom(env)).toMatchObject({ temporalMetricsPort: 9467, client: { keys: { kid: clientKid }, registrationCode: 'code' }, tenant: { checksApi: TENANT.CHECKS_API_URL } });
     expect(problemsOf(() => engineWorkerSettingsFrom({ ...env, ...ROOT, ...WORKER, TEMPORAL_ENGINE_METRICS_PORT: '9467' }))).toContain('the engine worker runs only in an instance, and ROLE is root');
   });
 });
@@ -213,7 +219,7 @@ describe('the settings each worker reads once, at start', () => {
 describe('the settings of a step run in an instance\'s pod', () => {
   it('gives the self-upgrade the release it upgrades and root to ask, and refuses one that is not named', () => {
     const env = { ...INSTANCE, RELEASE_NAME: 'instance', RELEASE_NAMESPACE: 'nowrinkles', CURRENT_IMAGE_TAG: 'a1b2c3d4e5f6', DATA_VERSION: '1' };
-    expect(selfUpgradeSettingsFrom(env)).toMatchObject({ root: { url: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' }, release: { name: 'instance', namespace: 'nowrinkles', current: 'a1b2c3d4e5f6', dataVersion: 1 } });
+    expect(selfUpgradeSettingsFrom(env)).toMatchObject({ root: { url: 'https://app.koala.dev', instanceId: 'inst-1', client: { keys: { kid: clientKid }, registrationCode: 'code' } }, release: { name: 'instance', namespace: 'nowrinkles', current: 'a1b2c3d4e5f6', dataVersion: 1 } });
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, DATA_VERSION: '' }))).toContain('DATA_VERSION is not set: it is the data version the installed release brought, below which this instance never moves');
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, DATA_VERSION: 'one' }))).toContain('DATA_VERSION is one, not a whole number');
     expect(problemsOf(() => selfUpgradeSettingsFrom({ ...env, RELEASE_NAME: '' }))).toContain('RELEASE_NAME is not set: the self-upgrade CronJob names the release it upgrades');

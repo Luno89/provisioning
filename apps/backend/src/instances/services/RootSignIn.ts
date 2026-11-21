@@ -1,15 +1,16 @@
 import * as client from 'openid-client';
-import { createRemoteJWKSet, customFetch as joseFetch, importJWK, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, customFetch as joseFetch, jwtVerify, type JWTPayload } from 'jose';
 import {
-  answerUnlimited, decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, withAnswerUnlimited, type Reopening,
+  answerUnlimited, decryptValue, encryptValue, refusedByServer, revocationShaped, type Reopening,
   type AccessRevocations, type AccessRevoked, type BrowserPerson, type BrowserSessions, type Claim, type Database, type DependencyId, type PersonThroughRoot, type SecretKey, type SignInStarted,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
-  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, TOKEN_EXCHANGE,
+  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, runResourceOf, safeNextPath, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
+import { RootClient } from './RootClient.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -20,8 +21,8 @@ export interface RootSignInSettings {
   publicUrl: string;
   owner?: string | undefined;
   clientKeys: IdentityKeyPair;
+  registrationCode: string;
   dataKey: SecretKey;
-  announce: { path: string; headers: Record<string, string> };
 }
 
 export interface RootSignInDeps {
@@ -61,13 +62,11 @@ const reasonOf = (err: unknown): string => {
 type GrantedTokens = Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
 
 export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
-  private configured: Promise<client.Configuration> | undefined;
   private keys: Promise<ReturnType<typeof createRemoteJWKSet>> | undefined;
   private readonly refreshing = new Map<string, Promise<Freshened>>();
-  private markAnnounced: () => void = () => undefined;
-  readonly announced: Promise<void> = new Promise((resolve) => { this.markAnnounced = resolve; });
   private readonly store: Store;
   private readonly revocations: AccessRevocations;
+  readonly client: RootClient;
 
   constructor(
     private readonly settings: RootSignInSettings,
@@ -76,45 +75,32 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
   ) {
     this.store = deps.store;
     this.revocations = deps.revocations;
+    const { kind, clientId, rootUrl, publicUrl, owner, clientKeys, registrationCode } = settings;
+    this.client = new RootClient({ kind, clientId, rootUrl, publicUrl, owner, keys: clientKeys, registrationCode }, now);
   }
 
   get issuer(): string {
-    return `${this.settings.rootUrl}/oidc`;
+    return this.client.issuer;
   }
 
   get redirectUri(): string {
     return `${this.settings.publicUrl.replace(/\/+$/, '')}/api/auth/oidc/callback`;
   }
 
+  get registered(): Promise<void> {
+    return this.client.registered;
+  }
+
   private config(): Promise<client.Configuration> {
-    this.configured ??= (async () => {
-      const key = await importJWK(privateJwkOf(this.settings.clientKeys), SIGNING_ALG) as Extract<Parameters<typeof client.PrivateKeyJwt>[0], { type: string }>;
-      return client.discovery(
-        new URL(this.issuer),
-        this.settings.clientId,
-        { id_token_signed_response_alg: SIGNING_ALG, token_endpoint_auth_signing_alg: SIGNING_ALG },
-        client.PrivateKeyJwt({ key, kid: this.settings.clientKeys.kid }),
-        { ...withAnswerUnlimited(), ...(this.issuer.startsWith('http://') ? { execute: [client.allowInsecureRequests] } : {}) },
-      );
-    })();
-    this.configured.catch(() => { this.configured = undefined; });
-    return this.configured;
+    return this.client.config();
   }
 
-  async announce(): Promise<void> {
-    const answer = await fetch(`${this.settings.rootUrl}${this.settings.announce.path}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', ...this.settings.announce.headers },
-      body: JSON.stringify({ jwk: publicJwkOf(this.settings.clientKeys) }),
-    });
-    if (!answer.ok) throw new Error(`root answered ${answer.status} to this ${this.settings.kind}'s sign-in key`);
+  register(): Promise<void> {
+    return this.client.register();
   }
 
-  keepAnnouncing(log: (message: string) => void, again: Reopening = reopening()): void {
-    void keepTrying(`root has not taken this ${this.settings.kind}'s sign-in key yet`, async () => {
-      await this.announce();
-      this.markAnnounced();
-    }, log, again);
+  keepRegistering(log: (message: string) => void, again?: Reopening): void {
+    this.client.keepRegistering(log, again);
   }
 
   async start(next: unknown): Promise<Started> {
@@ -282,15 +268,7 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
     await client.tokenRevocation(await this.config(), refreshToken, { token_type_hint: 'refresh_token' });
   }
 
-  private held: { value: string; until: number } | undefined;
-
-  async serviceToken(): Promise<string> {
-    await this.announced;
-    const now = this.now();
-    if (!this.held || this.held.until <= now) {
-      const granted = await client.clientCredentialsGrant(await this.config(), { scope: SERVICE_SCOPE });
-      this.held = { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 };
-    }
-    return this.held.value;
+  serviceToken(): Promise<string> {
+    return this.client.serviceToken();
   }
 }
