@@ -78,7 +78,7 @@ export class MongoPlatformStore implements PlatformStore {
 
   async endBrowserSessions(of: BrowserSessionsOf): Promise<string[]> {
     const sessions = this.db().collection(BROWSER_SESSIONS);
-    const filter = 'sub' in of ? { 'session.person.sub': of.sub } : { 'session.person.rootSid': of.rootSid };
+    const filter = 'sub' in of ? { $or: [{ 'session.person.sub': of.sub }, { 'session.account.sub': of.sub }] } : { 'session.person.rootSid': of.rootSid };
     const ids = (await sessions.find(filter, { projection: { _id: 1 } }).toArray()).map((doc) => String(doc._id));
     if (ids.length) await sessions.deleteMany({ _id: { $in: ids as never[] } });
     return ids;
