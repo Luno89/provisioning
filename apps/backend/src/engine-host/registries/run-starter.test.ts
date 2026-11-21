@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AccountClosingError, createRunStarter, MachineUnavailableError } from './run-starter.js';
+import { createRunStarter, MachineUnavailableError } from './run-starter.js';
 import type { ProcedureRunInput } from '../temporal/contracts.js';
 import { createAgentRegistry } from './registry.js';
 import { grantsHeldInMemory, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
@@ -86,17 +86,6 @@ describe('starting a run that is a conversation turn', () => {
   });
 });
 
-describe('an account being removed', () => {
-  it('starts no new run, so nothing writes after its records are gone', async () => {
-    const start = vi.fn(async () => ({ workflowId: 'x' }))
-    const runs = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => ({ start }), closing: async (ownerId) => (ownerId === 'leaving' ? 'it is being removed' : undefined) });
-
-    await expect(runs.start({ ownerId: 'leaving', agentSlug: 'koala', message: 'hello', startedBy: 'person' })).rejects.toBeInstanceOf(AccountClosingError);
-    expect(start).not.toHaveBeenCalled();
-    await runs.start({ ownerId: 'staying', agentSlug: 'koala', message: 'hello', startedBy: 'person' });
-    expect(start).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe('a run that works for a project', () => {
   it('names the project it works for when it starts, so deleting the project fences what the run still does', async () => {

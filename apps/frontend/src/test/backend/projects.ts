@@ -175,7 +175,6 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
     turns,
     workflows: () => temporal.starter,
     binding: conversationBinding(db),
-    closing: async (ownerId) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: (ownerId, choice) => machines.machines.choiceProblem(ownerId, choice),
   })
   const getOwnedProject = async (id: string, principal: Principal) => {

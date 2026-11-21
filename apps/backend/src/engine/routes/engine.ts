@@ -5,7 +5,6 @@ import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import { NoNoteToAskError } from '../lib/conversations.js';
 import type { ApprovalService } from '../services/ApprovalService.js';
 import {
-  AccountClosingError,
   EngineUnavailableError,
   UnknownAgentError,
   UnknownProcedureError,
@@ -62,7 +61,6 @@ const userOf = (req: Request): { id: string; email?: string | undefined } =>
 
 const fail = (res: Response, err: unknown): Response => {
   if (err instanceof EngineUnavailableError) return res.status(503).json({ error: err.message });
-  if (err instanceof AccountClosingError) return res.status(409).json({ error: err.message });
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
   if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
   if (err instanceof MachineUnavailableError) return res.status(409).json({ error: err.message, code: 'MACHINE_UNAVAILABLE' });

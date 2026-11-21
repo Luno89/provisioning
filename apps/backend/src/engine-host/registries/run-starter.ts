@@ -58,13 +58,6 @@ export class UnknownProcedureError extends Error {
   }
 }
 
-export class AccountClosingError extends Error {
-  constructor(reason: string) {
-    super(`No run can start for this account: ${reason}.`);
-    this.name = 'AccountClosingError';
-  }
-}
-
 export class MachineUnavailableError extends Error {
   constructor(reason: string) {
     super(`This run cannot go to that machine: ${reason}.`);
@@ -91,7 +84,6 @@ export interface RunStarterOptions {
   newRunId?: (() => string) | undefined;
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
   continueAfterEvents?: number | undefined;
-  closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
   machines?: ((ownerId: string, choice: MachineChoice) => Promise<string | undefined>) | undefined;
   turns?: {
     open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Promise<void>;
@@ -111,8 +103,6 @@ export function createRunStarter(options: RunStarterOptions) {
     async start(request: StartRunRequest): Promise<StartedRun> {
       const workflows = options.workflows();
       if (!workflows) throw new EngineUnavailableError();
-      const closing = await options.closing?.(request.ownerId);
-      if (closing) throw new AccountClosingError(closing);
 
       const agent = await options.registry.agent(request.ownerId, request.agentSlug);
       if (!agent) throw new UnknownAgentError(request.agentSlug);

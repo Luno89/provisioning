@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
+import { WorkStopped } from '@koala/engine-core/work-for';
 import type { RequestHandler } from 'express';
 import { defineGroup, type EngineExtension } from '@koala/agent-engine/procedure';
 import type { Persona } from '@koala/agent-engine';
 import { containing, objectWith } from '../../platform/lib/test-matchers.js';
 import {
-  AccountClosingError, EngineUnavailableError, MachineUnavailableError, UnknownAgentError, UnknownProcedureError,
+  EngineUnavailableError, MachineUnavailableError, UnknownAgentError, UnknownProcedureError,
   type AgentRegistry, type RunStarter, type Task,
 } from '../../engine-host/index.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
@@ -264,7 +265,7 @@ describe('starting a run', () => {
   it('says plainly why a run could not start, with the code the browser reads', async () => {
     const refuse = async (error: Error) => { runs.start.mockRejectedValueOnce(error); return app.post<{ error: string; code?: string }>('/api/engine/runs', { agent: 'koala', message: 'hi' }); };
     expect(await refuse(new EngineUnavailableError())).toMatchObject({ status: 503 });
-    expect(await refuse(new AccountClosingError('it is being removed'))).toMatchObject({ status: 409 });
+    expect(await refuse(new WorkStopped({ kind: 'owner', id: TEST_USER.id }))).toMatchObject({ status: 409, data: { error: 'this account is being removed' } });
     expect(await refuse(new UnknownAgentError('ghost'))).toMatchObject({ status: 404, data: { error: containing('ghost') } });
     expect(await refuse(new UnknownProcedureError('nowhere'))).toMatchObject({ status: 404, data: { error: containing('nowhere') } });
     expect(await refuse(new MachineUnavailableError('it is offline'))).toMatchObject({ status: 409, data: { code: 'MACHINE_UNAVAILABLE' } });

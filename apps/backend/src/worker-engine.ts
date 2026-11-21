@@ -329,7 +329,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     registry,
     workflows: () => workflowStarter,
     binding: conversationBinding(db),
-    closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: machineProblem,
   });
   builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.projects.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
