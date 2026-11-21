@@ -526,7 +526,6 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools,
     grants: options.runGrants,
     environments,
-    ...(efforts ? { efforts } : {}),
     images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     conversations: stores.conversations,

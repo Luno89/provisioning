@@ -930,7 +930,7 @@ export type ChooseModelSettings = {
   modelId?: string
   /**
    * Reply ceiling
-   * The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for until its track record says what it typically needs.
+   * The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for.
    */
   replyCeiling?: number
   /**

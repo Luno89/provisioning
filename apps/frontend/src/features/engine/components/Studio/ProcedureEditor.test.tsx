@@ -45,7 +45,7 @@ vi.mock('../../api/procedures', async () => {
     checkProcedureOnServer: vi.fn(async () => []),
     getTrackRecords: vi.fn(async () => [{
       modelKey: 'tabby', modelLabel: 'Tabbyapi-Production', runs: 3, successes: 2,
-      typical: { rounds: 4, toolCalls: 6, totalTokens: 12_000, childRuns: 0, wallClockMs: 90_000 }, limits: undefined,
+      typical: { rounds: 4, toolCalls: 6, totalTokens: 12_000, childRuns: 0, wallClockMs: 90_000 }, largestReply: 900, cappedAt: 0,
     }]),
     saveProcedure: vi.fn(),
     deleteProcedure: vi.fn(async () => undefined),
@@ -186,8 +186,11 @@ describe('the procedure editor', () => {
     expect(screen.getByText('2 of 3 succeeded')).toBeInTheDocument()
     expect(screen.getByText('4 rounds')).toBeInTheDocument()
     expect(screen.getByText('1.5 min')).toBeInTheDocument()
-    expect(screen.getByText('3 more successful runs before there is enough to say what this usually takes.')).toBeInTheDocument()
+    expect(screen.getByText('900 tokens in its longest reply')).toBeInTheDocument()
     expect(screen.queryByText('0 child runs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Would be')).not.toBeInTheDocument()
+    expect(screen.queryByText('not enough runs yet')).not.toBeInTheDocument()
+    expect(screen.queryByText(/what a limit would be/)).not.toBeInTheDocument()
   })
   it('shows the procedure as builder code, applies edits to it, and points at code that does not read', async () => {
     open(starterProcedure('fresh', 'Fresh'))

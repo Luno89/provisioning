@@ -65,7 +65,7 @@ export function withTemperature(base: SamplingConfig | undefined, temperature: n
   };
 }
 
-export type ModelNodeServices = Pick<HostNodeServices, 'registry' | 'models' | 'streamMonitors' | 'fetchImpl' | 'efforts'>;
+export type ModelNodeServices = Pick<HostNodeServices, 'registry' | 'models' | 'streamMonitors' | 'fetchImpl'>;
 
 export function createModelNodes(services: ModelNodeServices): NodeImplementation[] {
   return [
@@ -94,14 +94,6 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
       const sampling = withTemperature(run.launch.sampling ?? persona.sampling, temperature);
 
       const written = typeof node.settings.replyCeiling === 'number' ? node.settings.replyCeiling : persona.model?.replyCeiling;
-      const learned = written === undefined
-        ? await services.efforts?.replyCeiling({
-          ownerId: run.launch.ownerId,
-          procedureId: run.identity.loopId,
-          modelKey: provider.id,
-          agentSlug: run.identity.agentId,
-        })
-        : undefined;
 
       const binding: ModelBinding = {
         providerId: provider.id,
@@ -111,7 +103,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
         ...(modelId ? { modelId } : {}),
         ...(endpointId ? { endpointId } : {}),
         contextTokens: provider.contextTokens ?? FALLBACK_CONTEXT_TOKENS,
-        ...(written ?? learned ? { replyCeiling: written ?? learned } : {}),
+        ...(written !== undefined ? { replyCeiling: written } : {}),
         ...(sampling ? { sampling } : {}),
         ...(persona.model?.reasoningEffort ? { reasoningEffort: persona.model.reasoningEffort } : {}),
       };

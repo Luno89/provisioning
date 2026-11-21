@@ -383,8 +383,6 @@ export class GroveWorld {
       registry,
       store: {
         save: async (effort) => { efforts.push(effort); },
-        list: async (ownerId, procedureId, modelKey) => efforts.filter((effort) =>
-          effort.ownerId === ownerId && effort.procedureId === procedureId && effort.modelKey === modelKey),
       },
     });
 

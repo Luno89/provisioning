@@ -26,9 +26,6 @@ export interface HostNodeServices {
   conversationWorkspaces?: Pick<import('../sandboxes/conversation-workspaces.js').ConversationWorkspaces, 'describe' | 'save'> | undefined;
   serverTools?: import('../tools/server-tools.js').ServerTools | undefined;
   images?: { waiting(ownerId: string, agentSlug: string): Promise<string | undefined> } | undefined;
-  efforts?: {
-    replyCeiling(args: { ownerId: string; procedureId: string; modelKey: string; agentSlug: string }): Promise<number | undefined>;
-  } | undefined;
   streamMonitors?: ((request: NodeRequest) => Monitor[]) | undefined;
   operations?: Readonly<Record<string, import('../../extensions/types.js').HostOperationRun>> | undefined;
   hidden?: ((ownerId: string) => Promise<import('../../engine/index.js').HiddenVocabulary>) | undefined;

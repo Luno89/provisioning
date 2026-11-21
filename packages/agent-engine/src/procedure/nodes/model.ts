@@ -30,7 +30,7 @@ export const chooseModel: BuiltInNode = {
         replyCeiling: {
           type: 'integer',
           title: 'Reply ceiling',
-          describe: 'The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for until its track record says what it typically needs.',
+          describe: 'The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for.',
           minimum: 256,
           maximum: 200_000,
         },

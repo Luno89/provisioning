@@ -180,7 +180,7 @@ export function describeProcedureFormat(catalogue: NodeCatalogue, groups: readon
     '- "wires" carry data: { "from": { "node", "socket" }, "to": { "node", "socket" } }. The types on both ends have to match (any matches everything). A required input needs a wire; an input that takes many wires reads them in wire order.',
     '- "flow" decides what runs next: { "from": step id, "exit": exit name, "to": step id }. Every exit of every step needs exactly one flow.',
     '- "start" is the first step. "cleanup", if given, is a step that runs after the procedure ends however it ends — use it to release a sandbox.',
-    '- "budget" is usually {}: how long a run may go is learned from how long this model has needed before. Set maxRounds, maxToolCalls, maxTokens or maxWallClockMs only to cap it regardless. A loop that calls the model should include Check Repetition or Check Stall so going in circles ends the run.',
+    '- "budget" is usually {}: a run goes on until it finishes. Set maxRounds, maxToolCalls, maxTokens or maxWallClockMs only when the person wants a limit. A loop that calls the model should include Check Repetition or Check Stall so going in circles ends the run.',
     '- A group is used as a node { "id", "kind": "group", "group": group id }, with the group\'s own inputs, outputs and exits.',
     '',
     'NODE KINDS',

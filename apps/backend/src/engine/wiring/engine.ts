@@ -353,7 +353,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     },
     revokeRegistryPushToken: (name: string) => gitea.revokeToken(name),
     registryLogin: () => gitea.registryLogin(),
-    efforts: { save: (effort) => db.engine.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey) },
+    efforts: { save: (effort) => db.engine.saveRunEffort(effort) },
   });
 
   const practiceService = new PracticeService({ store: db.memory, unindex: unindexMemories });

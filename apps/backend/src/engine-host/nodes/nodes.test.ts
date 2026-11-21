@@ -214,7 +214,7 @@ describe('how much room a reply gets', () => {
     32_000,
   );
 
-  it('gives a reply whatever the window has room for while the model has no track record', async () => {
+  it('gives a reply whatever the window has room for, however many runs the model has behind it', async () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
 
@@ -226,42 +226,31 @@ describe('how much room a reply gets', () => {
     expect(sent!.max_tokens).toBeGreaterThan(4096);
   });
 
-  it('holds a reply to what the model typically needs once it has a track record', async () => {
-    const { services } = world();
-    const model = stubModel(answer('ok'));
-
-    await runV2({ ...services, efforts: { replyCeiling: async () => 2_048 } }, 'research');
-
-    expect(model.bodies()[0]!.max_tokens).toBe(2_048);
-  });
-
   it('reports the cap that cut a reply off, so the next run can be given more', async () => {
     const { services } = world();
     stubModel([{ choices: [{ delta: { content: 'as far as it g' } }] }, { choices: [{ delta: {}, finish_reason: 'length' }] }]);
 
-    const result = await runV2({ ...services, efforts: { replyCeiling: async () => 700 } }, 'research');
+    const result = await runV2(services, 'ceilinged');
 
-    expect(result.counters.cappedAt).toBe(700);
+    expect(result.counters.cappedAt).toBe(1_234);
   });
 
   it('says nothing was cut off when the model finished on its own', async () => {
     const { services } = world();
     stubModel(answer('all of it'));
 
-    const result = await runV2({ ...services, efforts: { replyCeiling: async () => 700 } }, 'research');
+    const result = await runV2(services, 'ceilinged');
 
     expect(result.counters.cappedAt).toBe(0);
   });
 
-  it('lets a persona set its own ceiling, and never asks the track record then', async () => {
+  it('lets a persona set its own ceiling', async () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
-    const replyCeiling = vi.fn(async () => 2_048);
 
-    await runV2({ ...services, efforts: { replyCeiling } }, 'ceilinged');
+    await runV2(services, 'ceilinged');
 
     expect(model.bodies()[0]!.max_tokens).toBe(1_234);
-    expect(replyCeiling).not.toHaveBeenCalled();
   });
 });
 
@@ -442,13 +431,13 @@ describe('running tool-rounds node by node', () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
 
-    await runV2({ ...services, efforts: { replyCeiling: async () => 16_384 } }, 'agent-builder');
+    await runV2(services, 'ceilinged');
     const [sent] = model.bodies();
     const chars = sent!.messages.reduce((total, message) => total + message.content.length, 0);
 
     expect(sent!.max_tokens).toBe(fittedMaxTokens(
       { contextTokens: 32_000, contextMargin: 1000, minReplyTokens: 512 } as never,
-      16_384,
+      1_234,
       chars,
       32_000,
     ));
@@ -612,15 +601,6 @@ describe('deciding yes or no with a model', () => {
       chars,
       32_000,
     ));
-  });
-
-  it('holds the decision to what the model typically needs once it has a track record', async () => {
-    const { services } = world();
-    const model = stubModel(answer('No'));
-
-    await runV2({ ...services, efforts: { replyCeiling: async () => 900 } }, 'sandboxed', deciding);
-
-    expect(model.bodies()[0]!.max_tokens).toBe(900);
   });
 
   it('treats an answer that is not yes or no as unsure', async () => {
